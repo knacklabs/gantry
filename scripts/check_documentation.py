@@ -36,6 +36,7 @@ PUBLIC_ROOTS = (
     Path("docs/architecture/system-atlas.md"),
     Path("docs/architecture/runtime-flows.md"),
     Path("docs/architecture/scaling-and-deployment.md"),
+    Path("docs/engineering"),
     Path("docs/specs/architecture-atlas-and-adoption.md"),
     Path("docs/index.html"),
     ATLAS / "known-limitations.md",
@@ -50,6 +51,27 @@ REQUIRED_VALIDATION = {
     "warnings": 0,
 }
 EXPECTED_RECEIPTS = {f"{stem}.json" for _diagram_type, stem in ARTIFACTS}
+ENGINEERING_POLICIES = (
+    "api-and-contracts.md",
+    "architecture-rules.md",
+    "coding-standards.md",
+    "configuration-and-secrets.md",
+    "dependencies.md",
+    "documentation.md",
+    "errors-and-observability.md",
+    "performance.md",
+    "persistence-and-migrations.md",
+    "source-organization.md",
+    "testing.md",
+)
+DECISION_STATUSES = {"proposed", "accepted", "superseded"}
+PLAN_STATUSES = {"proposed", "approved", "in-progress", "completed", "abandoned"}
+CANONICAL_REPOSITORY = "https://github.com/knacklabs/gantry"
+HISTORICAL_ARCHITECTURE_NAME = re.compile(
+    r"(?:^|[-_])(?:audit|draft|goal-prompt|handoff|plan|review|validation)(?:[-_.]|$)",
+    re.IGNORECASE,
+)
+FRONTMATTER = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 
 
 def _sha256(path: Path) -> str:
@@ -374,12 +396,168 @@ def _check_artifacts(root: Path, errors: list[str]) -> None:
             errors.append(f"delivery receipt: {artifact.name} artifact hash mismatch")
 
 
+def _frontmatter_fields(path: Path) -> dict[str, str] | None:
+    match = FRONTMATTER.match(path.read_text(encoding="utf-8", errors="replace"))
+    if not match:
+        return None
+    return {
+        key.strip(): value.strip().strip('"').strip("'")
+        for line in match.group(1).splitlines()
+        for key, separator, value in (line.partition(":"),)
+        if separator and key.strip()
+    }
+
+
+def _governance_enabled(root: Path) -> bool:
+    return (root / "docs" / "engineering").is_dir() or (root / "package.json").is_file()
+
+
+def _check_engineering_contract(root: Path, errors: list[str]) -> None:
+    engineering = root / "docs" / "engineering"
+    index = engineering / "README.md"
+    if not index.is_file():
+        errors.append("docs/engineering/README.md: missing canonical engineering index")
+        return
+    index_text = index.read_text(encoding="utf-8")
+    for name in ENGINEERING_POLICIES:
+        policy = engineering / name
+        if not policy.is_file():
+            errors.append(f"docs/engineering/{name}: missing required engineering policy")
+            continue
+        if f"({name})" not in index_text:
+            errors.append(f"docs/engineering/README.md: policy is not indexed: {name}")
+        text = policy.read_text(encoding="utf-8")
+        for label in ("Mechanical", "Review", "Recommendation"):
+            if f"**{label}:**" not in text:
+                errors.append(
+                    f"docs/engineering/{name}: missing **{label}:** rule classification"
+                )
+
+
+def _check_decision_lifecycle(root: Path, errors: list[str]) -> None:
+    decisions = root / "docs" / "decisions"
+    records = sorted(decisions.glob("[0-9][0-9][0-9][0-9]-*.md"))
+    stems = {record.stem for record in records}
+    for record in records:
+        relative = record.relative_to(root)
+        fields = _frontmatter_fields(record)
+        if fields is None:
+            errors.append(f"{relative}: decision record has no YAML frontmatter")
+            continue
+        status = fields.get("status", "")
+        if status not in DECISION_STATUSES:
+            allowed = ", ".join(sorted(DECISION_STATUSES))
+            errors.append(f"{relative}: invalid decision status {status!r}; allowed: {allowed}")
+        if status == "accepted" and not fields.get("confirmed_by"):
+            errors.append(f"{relative}: accepted decision has no confirmed_by")
+        if status == "superseded" and not fields.get("superseded_by"):
+            errors.append(f"{relative}: superseded decision has no superseded_by")
+        for field in ("supersedes", "superseded_by"):
+            target = fields.get(field)
+            if target and target not in stems:
+                errors.append(f"{relative}: {field} target does not exist: {target}")
+
+
+def _check_plan_lifecycle(root: Path, errors: list[str]) -> None:
+    records = sorted((root / "plans" / "active").glob("*.md"))
+    records.extend(sorted((root / "plans" / "completed").glob("*.md")))
+    records.extend(sorted((root / "plans" / "archive").glob("*.md")))
+    for record in records:
+        relative = record.relative_to(root)
+        fields = _frontmatter_fields(record)
+        if fields is None:
+            errors.append(f"{relative}: plan record has no YAML frontmatter")
+            continue
+        status = fields.get("status", "")
+        if status not in PLAN_STATUSES:
+            allowed = ", ".join(sorted(PLAN_STATUSES))
+            errors.append(f"{relative}: invalid plan status {status!r}; allowed: {allowed}")
+        for field in ("issue", "title"):
+            if not fields.get(field):
+                errors.append(f"{relative}: plan lifecycle metadata is missing {field}")
+
+
+def _check_taxonomy_and_indexes(root: Path, errors: list[str]) -> None:
+    governance = root / "docs" / "engineering" / "documentation.md"
+    if governance.is_file():
+        text = governance.read_text(encoding="utf-8")
+        for marker in (
+            "docs/engineering/",
+            "docs/architecture/",
+            "docs/decisions/",
+            "plans/active/",
+            "plans/completed/",
+        ):
+            if marker not in text:
+                errors.append(f"{governance.relative_to(root)}: missing taxonomy location {marker}")
+
+    architecture_index = root / "docs" / "architecture" / "README.md"
+    if not architecture_index.is_file():
+        errors.append("docs/architecture/README.md: missing current architecture index")
+        return
+    for target in _links(architecture_index, architecture_index.read_text(encoding="utf-8")):
+        name = Path(urlsplit(target).path).name
+        if name and HISTORICAL_ARCHITECTURE_NAME.search(name):
+            errors.append(
+                "docs/architecture/README.md: current architecture index references "
+                f"historical work record: {target}"
+            )
+
+
+def _check_repository_identity(root: Path, errors: list[str]) -> None:
+    manifest = root / "package.json"
+    if not manifest.is_file():
+        errors.append("package.json: missing canonical repository manifest")
+        return
+    try:
+        package = json.loads(manifest.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        errors.append(f"package.json: invalid JSON: {exc}")
+        return
+    repository = package.get("repository")
+    repository_url = repository.get("url", "") if isinstance(repository, dict) else ""
+    expected = {
+        "name": "@gantry/runtime",
+        "homepage": CANONICAL_REPOSITORY,
+        "bugs.url": f"{CANONICAL_REPOSITORY}/issues",
+        "repository.url": f"git+{CANONICAL_REPOSITORY}.git",
+    }
+    actual = {
+        "name": package.get("name"),
+        "homepage": package.get("homepage"),
+        "bugs.url": package.get("bugs", {}).get("url")
+        if isinstance(package.get("bugs"), dict)
+        else None,
+        "repository.url": repository_url,
+    }
+    for field, value in expected.items():
+        if actual[field] != value:
+            errors.append(f"package.json: canonical {field} must be {value!r}")
+    if not re.fullmatch(r"npm@\d+\.\d+\.\d+", str(package.get("packageManager", ""))):
+        errors.append("package.json: packageManager must pin npm as npm@<major>.<minor>.<patch>")
+    engines = package.get("engines")
+    node_range = engines.get("node") if isinstance(engines, dict) else None
+    if not node_range:
+        errors.append("package.json: engines.node must declare the supported Node.js range")
+
+
+def _check_governance(root: Path, errors: list[str]) -> None:
+    if not _governance_enabled(root):
+        return
+    _check_engineering_contract(root, errors)
+    _check_decision_lifecycle(root, errors)
+    _check_plan_lifecycle(root, errors)
+    _check_taxonomy_and_indexes(root, errors)
+    _check_repository_identity(root, errors)
+
+
 def check_repository(root: Path) -> list[str]:
     errors: list[str] = []
     _check_links(root, errors)
     _check_prohibited_paths(root, errors)
     _check_evidence_manifest(root, errors)
     _check_artifacts(root, errors)
+    _check_governance(root, errors)
     return errors
 
 

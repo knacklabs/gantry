@@ -69,6 +69,155 @@ class DocumentationCheckerTest(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def _governance_fixture(self) -> None:
+        self._fixture()
+        engineering = self.root / "docs" / "engineering"
+        engineering.mkdir(parents=True)
+        (engineering / "README.md").write_text(
+            "\n".join(f"[{name}]({name})" for name in checker.ENGINEERING_POLICIES),
+            encoding="utf-8",
+        )
+        policy = (
+            "**Mechanical:** checked\n\n"
+            "**Review:** reviewed\n\n"
+            "**Recommendation:** recommended\n"
+        )
+        for name in checker.ENGINEERING_POLICIES:
+            text = policy
+            if name == "documentation.md":
+                text += "\n".join((
+                    "docs/engineering/",
+                    "docs/architecture/",
+                    "docs/decisions/",
+                    "plans/active/",
+                    "plans/completed/",
+                ))
+            (engineering / name).write_text(text, encoding="utf-8")
+
+        architecture = self.root / "docs" / "architecture"
+        architecture.mkdir(exist_ok=True)
+        (architecture / "README.md").write_text("# Current architecture\n", encoding="utf-8")
+
+        decisions = self.root / "docs" / "decisions"
+        decisions.mkdir()
+        (decisions / "0001-current.md").write_text(
+            "---\nstatus: accepted\nconfirmed_by: human\n---\n# Current\n",
+            encoding="utf-8",
+        )
+
+        completed = self.root / "plans" / "completed"
+        completed.mkdir(parents=True)
+        (completed / "done.md").write_text(
+            "---\nissue: TEST-1\ntitle: Done\nstatus: completed\n---\n# Done\n",
+            encoding="utf-8",
+        )
+        (self.root / "package.json").write_text(json.dumps({
+            "name": "@gantry/runtime",
+            "homepage": checker.CANONICAL_REPOSITORY,
+            "bugs": {"url": f"{checker.CANONICAL_REPOSITORY}/issues"},
+            "repository": {"url": f"git+{checker.CANONICAL_REPOSITORY}.git"},
+            "packageManager": "npm@11.16.0",
+            "engines": {"node": ">=24 <26"},
+        }), encoding="utf-8")
+
+    def test_valid_governance_fixture_passes(self) -> None:
+        self._governance_fixture()
+        self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_missing_engineering_policy_is_reported(self) -> None:
+        self._governance_fixture()
+        (self.root / "docs" / "engineering" / checker.ENGINEERING_POLICIES[0]).unlink()
+        self.assertTrue(any(
+            "missing required engineering policy" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_missing_rule_classification_is_reported(self) -> None:
+        self._governance_fixture()
+        policy = self.root / "docs" / "engineering" / checker.ENGINEERING_POLICIES[0]
+        policy.write_text("**Mechanical:** checked\n", encoding="utf-8")
+        errors = checker.check_repository(self.root)
+        self.assertTrue(any("missing **Review:**" in error for error in errors))
+
+    def test_invalid_decision_lifecycle_is_reported(self) -> None:
+        self._governance_fixture()
+        decision = self.root / "docs" / "decisions" / "0001-current.md"
+        decision.write_text("---\nstatus: retired\n---\n# Retired\n", encoding="utf-8")
+        self.assertTrue(any(
+            "invalid decision status" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_missing_decision_supersession_target_is_reported(self) -> None:
+        self._governance_fixture()
+        decision = self.root / "docs" / "decisions" / "0001-current.md"
+        decision.write_text(
+            "---\nstatus: superseded\nsuperseded_by: 0002-missing\n---\n# Old\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "superseded_by target does not exist" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_invalid_plan_lifecycle_is_reported(self) -> None:
+        self._governance_fixture()
+        plan = self.root / "plans" / "completed" / "done.md"
+        plan.write_text(
+            "---\nissue: TEST-1\ntitle: Done\nstatus: shipped\n---\n# Done\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "invalid plan status" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_plan_missing_issue_metadata_is_reported(self) -> None:
+        self._governance_fixture()
+        plan = self.root / "plans" / "completed" / "done.md"
+        plan.write_text(
+            "---\ntitle: Done\nstatus: completed\n---\n# Done\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "plan lifecycle metadata is missing issue" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_missing_taxonomy_location_is_reported(self) -> None:
+        self._governance_fixture()
+        governance = self.root / "docs" / "engineering" / "documentation.md"
+        governance.write_text(
+            governance.read_text(encoding="utf-8").replace("plans/completed/", ""),
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "missing taxonomy location plans/completed/" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_historical_architecture_index_entry_is_reported(self) -> None:
+        self._governance_fixture()
+        architecture = self.root / "docs" / "architecture"
+        (architecture / "old-goal-prompt.md").write_text("# Old\n", encoding="utf-8")
+        (architecture / "README.md").write_text(
+            "[Old](old-goal-prompt.md)\n", encoding="utf-8"
+        )
+        self.assertTrue(any(
+            "historical work record" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_repository_identity_drift_is_reported(self) -> None:
+        self._governance_fixture()
+        manifest = json.loads((self.root / "package.json").read_text(encoding="utf-8"))
+        manifest["homepage"] = "https://example.invalid/fork"
+        (self.root / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertTrue(any(
+            "canonical homepage" in error
+            for error in checker.check_repository(self.root)
+        ))
+
     def test_valid_fixture_passes(self) -> None:
         self._fixture()
         self.assertEqual(checker.check_repository(self.root), [])

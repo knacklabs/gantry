@@ -60,6 +60,9 @@ jobs:
       - name: Architecture check
         run: npm run check:architecture
 
+      - name: Documentation check
+        run: npm run docs:check
+
       - name: Drizzle migration check
         run: |
           npm run db:migrations:check

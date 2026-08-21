@@ -22,6 +22,7 @@
   "publishConfig": {
     "access": "public"
   },
+  "packageManager": "npm@11.16.0",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
