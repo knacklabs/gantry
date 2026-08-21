@@ -42,7 +42,7 @@ function promptedRow() {
 }
 
 describe('PostgresGroupJoinOnboardingRepository', () => {
-  it('upserts one prompt per provider chat, re-prompting over any stale row', async () => {
+  it('claims bootstrap, reclaiming any non-registered row so failures and manual fallbacks stay retryable', async () => {
     const row = promptedRow();
     const returning = vi.fn(async () => [row]);
     const onConflictDoUpdate = vi.fn(() => ({ returning }));
@@ -53,64 +53,76 @@ describe('PostgresGroupJoinOnboardingRepository', () => {
     } as never);
 
     await expect(
-      repository.recordPrompt({
+      repository.recordBootstrap({
         id: row.id,
         providerAccountId: row.providerAccountId,
         chatJid: row.chatJid,
         adder: row.adder,
-        approver: row.approver,
-        promptConversationJid: row.promptConversationJid,
+        approver: row.adder,
+        promptConversationJid: row.chatJid,
         promptAgentFolder: row.promptAgentFolder,
         now: row.promptedAt,
       }),
-    ).resolves.toEqual(row);
+    ).resolves.toMatchObject({ id: row.id });
 
-    expect(insert).toHaveBeenCalledWith(pgSchema.groupJoinOnboardingPostgres);
-    expect(values).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'prompted', id: 'opaque-2' }),
-    );
-    const conflict = onConflictDoUpdate.mock.calls[0]?.[0];
-    expect(conflict?.target).toEqual([
+    const conflict = onConflictDoUpdate.mock.calls[0]![0] as {
+      target: unknown[];
+      set: Record<string, unknown>;
+      setWhere: unknown;
+    };
+    expect(conflict.target).toEqual([
       pgSchema.groupJoinOnboardingPostgres.providerAccountId,
       pgSchema.groupJoinOnboardingPostgres.chatJid,
     ]);
-    // A stale 'registered' row (conversation later removed from settings) is
-    // fully reset - the caller's route check is the only "already registered"
-    // authority, so re-onboarding must work.
-    expect(conflict?.set.id).toBe('opaque-2');
-    expect(conflict?.set.status).toBe('prompted');
-    expect(conflict?.set.registeredAt).toBeNull();
-    expect(conflict?.set.dismissedAt).toBeNull();
+    // The route check upstream is the "already registered" authority; the
+    // claim's only guard is the ownership window, so an in-window duplicate
+    // burst must NOT reclaim while any stale row (including a 'registered'
+    // row whose settings commit never landed) stays reclaimable later.
+    const setWhere = flattenSqlShape(conflict.setWhere);
+    expect(setWhere).toContain('updated_at');
+    // A left row reclaims immediately (kick + re-add is deliberate).
+    expect(setWhere).toContain('left_at');
+    expect(setWhere).not.toContain('registered');
+    expect(conflict.set).toMatchObject({
+      // A reclaim rotates the id (fencing out stale claimants) and clears
+      // every terminal timestamp so the re-add can complete onboarding.
+      id: row.id,
+      status: 'prompted',
+      dismissedAt: null,
+      registeredAt: null,
+      leftAt: null,
+    });
   });
 
-  it('dismisses only a currently prompted opaque request', async () => {
-    const row = { ...promptedRow(), status: 'dismissed' };
-    const returning = vi.fn(async () => [row]);
-    const where = vi.fn(() => ({ returning }));
-    const set = vi.fn(() => ({ where }));
-    const update = vi.fn(() => ({ set }));
+  it('recognises only an active person participating in an active direct conversation', async () => {
+    const limit = vi.fn(async () => [{ id: 'conversation:dm' }]);
+    const where = vi.fn(() => ({ limit }));
+    const secondJoin = vi.fn(() => ({ where }));
+    const firstJoin = vi.fn(() => ({ innerJoin: secondJoin }));
+    const from = vi.fn(() => ({ innerJoin: firstJoin }));
+    const select = vi.fn(() => ({ from }));
     const repository = new PostgresGroupJoinOnboardingRepository({
-      update,
+      select,
     } as never);
 
     await expect(
-      repository.markDismissed({
-        id: 'opaque-2',
-        now: '2026-07-18T01:00:00.000Z',
-      }),
-    ).resolves.toMatchObject({ status: 'dismissed' });
+      repository.hasDirectConversationWithPerson('default', 'person-111'),
+    ).resolves.toBe(true);
 
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 'dismissed',
-        dismissedAt: '2026-07-18T01:00:00.000Z',
-      }),
+    expect(from).toHaveBeenCalledWith(pgSchema.userAliasesPostgres);
+    expect(firstJoin).toHaveBeenCalledWith(
+      pgSchema.conversationParticipantsPostgres,
+      expect.anything(),
+    );
+    expect(secondJoin).toHaveBeenCalledWith(
+      pgSchema.conversationsPostgres,
+      expect.anything(),
     );
     const predicate = where.mock.calls[0]?.[0];
-    expect(flattenSqlShape(predicate)).toContain('opaque-2');
-    expect(flattenSqlShape(predicate)).toContain('prompted');
-    // A row whose group the bot already left must not settle via stale buttons.
-    expect(flattenSqlShape(predicate)).toContain('left_at');
+    expect(flattenSqlShape(predicate)).toContain('person-111');
+    expect(flattenSqlShape(predicate)).toContain('direct');
+    expect(flattenSqlShape(predicate)).toContain('active');
+    expect(flattenSqlShape(predicate)).toContain('retired_at');
   });
 
   it('reverts only a registered claim to a retryable prompt', async () => {

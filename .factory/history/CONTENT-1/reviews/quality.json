@@ -1,0 +1,22 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "13 local rounds + 13 branch rounds to clean (final overall 'patch is correct' 0.86). Fixed: stale-handle retargeting (id-bound sections, exact-single-match, id dedupe), CommonMark fence tracking, wrong create endpoint (conversations.canvases.create), DM/MPDM channels-only, deleted-canvas error classes, Connect stub hydration propagation.",
+  "blocking_findings": [],
+  "residual_risks": [
+    "Live export format unverified until Slack scope reinstall (recorded deferral); heading extraction hedges Markdown+HTML."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/channels/slack/canvas*.ts",
+    "apps/core/src/jobs/ipc-canvas-handlers.ts",
+    "apps/core/src/runner/mcp/tools/canvas.ts",
+    "apps/core/src/cli/slack-install-scopes.ts",
+    "apps/core/src/cli/slack.ts",
+    "factory/scripts/pre_tool_use.py (vendored)"
+  ],
+  "recommendation": "ship",
+  "aspect": "quality",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-04T16:03:33+00:00",
+  "commit": "0e6736dce262fc596b4b6fe16ccb2e8cabfcf2c3"
+}

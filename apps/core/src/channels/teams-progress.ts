@@ -106,10 +106,10 @@ export async function sendTeamsProgressUpdate(input: {
   jid: string;
   text: string;
   options?: ProgressUpdateOptions;
-}): Promise<void> {
+}): Promise<boolean> {
   const options = input.options ?? {};
   const conversationId = teamsConversationIdFromJid(input.jid);
-  if (!conversationId) return;
+  if (!conversationId) return false;
   const generationKey = teamsProgressGenerationKey({
     jid: input.jid,
     threadId: options.threadId,
@@ -133,8 +133,9 @@ export async function sendTeamsProgressUpdate(input: {
         input.text,
         options,
       );
+      return true;
     }
-    return;
+    return false;
   }
   const card = buildTeamsMessageCard({
     text: input.text,
@@ -151,9 +152,9 @@ export async function sendTeamsProgressUpdate(input: {
       ...(options.threadId ? { threadId: options.threadId } : {}),
     });
     if (options.done) input.pendingProgress.delete(key);
-    return;
+    return true;
   }
-  if (options.replaceOnly) return;
+  if (options.replaceOnly) return false;
   const sent = await input.sdkClient.sendAdaptiveCard({
     conversationId,
     card,
@@ -165,4 +166,5 @@ export async function sendTeamsProgressUpdate(input: {
       messageId: sent.externalMessageId,
     });
   }
+  return true;
 }

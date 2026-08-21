@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import { startSkillPermissionReview } from '@core/jobs/ipc-skill-permission-review.js';
 import { skillNameForReceipt } from '@core/jobs/skill-install-assets.js';
@@ -46,10 +47,11 @@ describe('skill permission review install sequence', () => {
     const logError = vi.fn();
     const onBlocked = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(
-      async (_input: { interaction?: unknown }) => ({
-        approved: true,
-        decidedBy: 'user:approver',
-      }),
+      async (_input: { interaction?: unknown }) =>
+        permissionDecisionResult({
+          approved: true,
+          decidedBy: 'user:approver',
+        }),
     );
 
     await new Promise<void>((resolve) => {
@@ -116,10 +118,12 @@ describe('skill permission review install sequence', () => {
     expect(JSON.stringify(interaction)).not.toContain('PRIVATE_TOKEN_NAME');
   });
   it('routes denied skill review messages through the originating provider account', async () => {
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      reason: 'not today',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        reason: 'not today',
+      }),
+    );
     const sendMessage = vi.fn(async () => undefined);
     const reject = vi.fn();
     const service = {
@@ -181,10 +185,12 @@ describe('skill permission review install sequence', () => {
   });
 
   it('settles a denied skill review when the Slack receipt cannot be delivered', async () => {
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      reason: 'approval prompt could not be delivered',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        reason: 'approval prompt could not be delivered',
+      }),
+    );
     const reject = vi.fn();
     const logError = vi.fn();
 
@@ -304,10 +310,12 @@ describe('skill permission review install sequence', () => {
       bindSkillToAgent: vi.fn(),
     };
     const reject = vi.fn();
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'user:approver',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'user:approver',
+      }),
+    );
 
     await new Promise<void>((resolve) => {
       startSkillPermissionReview({

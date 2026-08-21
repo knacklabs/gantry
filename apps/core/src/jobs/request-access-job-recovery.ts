@@ -3,17 +3,34 @@ import type { IpcDeps } from '../runtime/ipc-domain-types.js';
 import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../application/jobs/job-permission-recovery.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { formatDurableAccessRulesForUser } from './request-permission-review.js';
+import { notifySchedulerPermissionRecovery } from './execution-notifications.js';
+import { notifyJobSetupRequired } from './execution-readiness.js';
 
 type RequestAccessRecoveryResult = Awaited<
   ReturnType<typeof recheckSetupPausedJobsAfterCapabilityUpdate>
 >;
 
+type RequestAccessJobRecoveryDeps = Pick<
+  IpcDeps,
+  | 'opsRepository'
+  | 'onSchedulerChanged'
+  | 'getToolRepository'
+  | 'getSkillRepository'
+  | 'getMcpServerRepository'
+  | 'getCapabilitySecretRepository'
+  | 'getCredentialBroker'
+  | 'getBrowserStatus'
+  | 'publishRuntimeEvent'
+  | 'sendMessage'
+>;
+
 export async function recheckPausedSetupJobsAfterRequestAccessGrant(input: {
-  deps: IpcDeps;
+  deps: RequestAccessJobRecoveryDeps;
   appId: AppId;
   sourceAgentFolder: string;
   targetJid: string;
   jobId?: string;
+  recoveringPermissionRequestId: string;
   logWarn?: (context: Record<string, unknown>, message: string) => void;
 }): Promise<RequestAccessRecoveryResult | undefined> {
   const opsRepository = input.deps.opsRepository;
@@ -30,6 +47,7 @@ export async function recheckPausedSetupJobsAfterRequestAccessGrant(input: {
       sourceAgentFolder: input.sourceAgentFolder,
       conversationJid: input.targetJid,
       jobId: input.jobId,
+      recoveringPermissionRequestId: input.recoveringPermissionRequestId,
       opsRepository,
       scheduler: {
         requestSchedulerSync: input.deps.onSchedulerChanged,
@@ -41,6 +59,23 @@ export async function recheckPausedSetupJobsAfterRequestAccessGrant(input: {
       credentialBroker: await input.deps.getCredentialBroker?.(),
       getBrowserStatus: input.deps.getBrowserStatus,
       publishRuntimeEvent: input.deps.publishRuntimeEvent,
+      sendQueuedReceipt: (job, recoveryTransitionId) =>
+        notifySchedulerPermissionRecovery({
+          job,
+          recoveryTransitionId,
+          sendMessage: input.deps.sendMessage,
+        }),
+      notifySetupRequired: ({ job, setupState, previousFingerprint }) =>
+        notifyJobSetupRequired({
+          currentJob: job,
+          deps: input.deps,
+          runtimeAppId: input.appId,
+          setupState,
+          previousFingerprint,
+          source: 'partial_recovery',
+          publishRuntimeEvent:
+            input.deps.publishRuntimeEvent ?? (async () => undefined),
+        }),
     });
   } catch (err) {
     input.logWarn?.(

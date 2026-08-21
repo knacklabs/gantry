@@ -1,0 +1,38 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "PERF-4",
+  "tasks": [
+    {
+      "id": "PERF-4-1",
+      "title": "30-day TTL sweep for terminal live-admission work items",
+      "objective": "Add a batched, advisory-locked DELETE of terminal live-admission rows older than 30 days (coalesce(ended_at, updated_at)), expose it through the live-turns port, and run it from the scheduler's maintenance loop behind a 6-hour per-process cadence guard as an optional injected dep so existing fixtures stay untouched.",
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/src/domain/ports",
+        "apps/core/src/infrastructure/pgboss",
+        "apps/core/src/jobs",
+        "apps/core/test"
+      ],
+      "acceptance_criteria": [
+        "deleteExpiredTerminalLiveAdmissionWorkItems deletes ONLY rows with state in ('completed','failed','canceled') and age older than the cutoff; old non-terminal rows and recent terminal rows survive \u2014 proven by an integration test seeding all cases",
+        "the delete is batched (bounded per-transaction) and serialized across processes via pg_advisory_xact_lock",
+        "the sweep runs from syncAllJobs at most once per 6h per process (unit test on the cadence guard); the 60s maintenance tick alone never triggers repeated sweeps",
+        "the scheduler dep is optional with a real default in scheduler.ts; the 26 existing task-scheduler-pgboss fixtures pass unmodified",
+        "retention is the fixed constant 30 days per decision 0103 \u2014 no new config surface",
+        "the existing capacity test 'replays duplicates at capacity and frees capacity only for terminal rows' passes unmodified"
+      ],
+      "required_tests": [
+        {
+          "id": "PgBossSchedulerEngine > sweeps terminal live-admission work items at most once per interval",
+          "path": "apps/core/test/unit/runtime/task-scheduler-pgboss.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck"
+      ]
+    }
+  ],
+  "commit": "5f67d49b501c7b92fdaba0efa99ec2c37b0760db"
+}

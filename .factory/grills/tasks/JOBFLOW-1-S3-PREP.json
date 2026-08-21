@@ -1,0 +1,27 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "gaps": [
+    "Dormancy must be provable: no production caller may enqueue through the new composite preparation in this stage",
+    "The one-open-prompt partial unique must cover ALL non-terminal lifecycle states (open AND claimed), not just open",
+    "Replacing the deterministic-requestId consumers changes authorization checks (wiring:175/237, recovery:149) - a miss re-opens the CAPFIX-era already_pending deadlock",
+    "Sandbox cannot run npm test or the live-Postgres lane (established S-0001/S-0002/S-0007/S-0008)",
+    "Scope correction: the telegram batch-claim pin needed the two new nullable identity fields (jobId/setupFingerprint) - one test file outside the declared scope"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Acceptance criterion pins dormancy; the review brief carries it as a per-contract verdict; grep-provable (no call site)",
+    "Contract appendix S3 pins the constraint pair (partial unique across open+claimed; items UNIQUE (prompt, generation) + one-active partial); reviewer focus enforces",
+    "Both consumer replacements are named acceptance criteria with their replaced-pin files; the plan-aware review demands file:line evidence",
+    "Worker implements + typechecks + focused files; host runs suites, the postgres lane (gantry_test), and verify.py before stage done",
+    "telegram.test.ts added to the recorded scope; three review rounds to clean (incl. owner's no-legacy directive: migration retires pre-identity prompts outright) and verify green"
+  ],
+  "open_items": [],
+  "summary": "S3-PREP interrogated against appendix S3 and decision 0124; dormancy, constraint pair, and authorization-consumer replacement pinned with recorded resolutions.",
+  "task_id": "JOBFLOW-1-S3-PREP",
+  "input_sha256": "c11560c57091516d5176b4dcd8a64863346c6d1b1a6d71c26d92152d3098be7f",
+  "recorded_at": "2026-08-13T11:51:52+00:00",
+  "commit": "ef78dbbb5404b075b70c7d4de0eb144ec3586ce2"
+}

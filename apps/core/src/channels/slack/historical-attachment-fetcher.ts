@@ -1,7 +1,7 @@
 import type {
   HistoricalAttachmentFetchIdentity,
   HistoricalAttachmentFetchResult,
-  HistoricalAttachmentUnreachableReason,
+  HistoricalAttachmentUnreachableEvidence,
 } from '../../domain/ports/historical-attachment-fetcher.js';
 import { isLikelySlackHtmlResponse } from './inbound-attachment-download.js';
 
@@ -75,15 +75,28 @@ export async function classifySlackDownloadResponse(
   response: Response,
   fileName = 'attachment.bin',
 ): Promise<Exclude<HistoricalAttachmentFetchResult, { status: 'ok' }> | null> {
+  if (response.status === 429) {
+    return {
+      status: 'unreachable',
+      reason: 'rate_limit',
+      providerStatus: response.status,
+    };
+  }
   if (isLikelySlackHtmlResponse(response, fileName)) {
-    return { status: 'unreachable', reason: 'unknown' };
+    return {
+      status: 'unreachable',
+      reason: 'unknown',
+      providerStatus: response.status,
+    };
   }
   if (response.ok) return null;
   const errorCode = await slackDownloadErrorCode(response);
-  if (errorCode === 'file_deleted') return { status: 'deleted' };
+  if (errorCode === 'file_deleted') {
+    return { status: 'deleted', providerStatus: response.status };
+  }
   return {
     status: 'unreachable',
-    reason: classifySlackUnreachableReason(errorCode, response.status),
+    ...classifySlackUnreachableEvidence(errorCode, response.status),
   };
 }
 
@@ -91,11 +104,60 @@ export function classifySlackApiError(
   error: unknown,
 ): Exclude<HistoricalAttachmentFetchResult, { status: 'ok' }> {
   const errorCode = slackApiErrorCode(error);
-  if (errorCode === 'file_deleted') return { status: 'deleted' };
+  const status = slackApiStatusCode(error);
+  if (errorCode === 'file_deleted') {
+    return {
+      status: 'deleted',
+      ...(status === undefined ? {} : { providerStatus: status }),
+    };
+  }
+  // A transport failure (fetch/undici throw, DNS/TLS, socket close) surfaces a
+  // network error code — which `slackApiErrorCode` also reads — or a nested
+  // fetch cause, never a Slack error string. Classify it as network before the
+  // code-based taxonomy so it gets the transport diagnosis, not generic unknown.
+  if (isTransportError(error)) {
+    return { status: 'unreachable', reason: 'network' };
+  }
   return {
     status: 'unreachable',
-    reason: classifySlackUnreachableReason(errorCode),
+    ...classifySlackUnreachableEvidence(errorCode, status),
   };
+}
+
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EPIPE',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'CERT_HAS_EXPIRED',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+]);
+
+function isTransportError(error: unknown): boolean {
+  // A transport failure carries a network error code on the error itself, on
+  // `cause` (global fetch/undici), or on `original` (the @slack/web-api
+  // WebAPIRequestError wrapper).
+  for (const layer of [
+    error,
+    (error as { cause?: unknown } | null)?.cause,
+    (error as { original?: unknown } | null)?.original,
+  ]) {
+    if (layer && typeof layer === 'object') {
+      const code = (layer as { code?: unknown }).code;
+      if (typeof code === 'string' && NETWORK_ERROR_CODES.has(code))
+        return true;
+    }
+  }
+  // Global fetch throws a TypeError('fetch failed') on transport failure; gate on
+  // that documented message so an unrelated caused TypeError is not mislabelled.
+  return error instanceof TypeError && /fetch failed/i.test(error.message);
 }
 
 function slackApiErrorCode(error: unknown): string | undefined {
@@ -113,6 +175,14 @@ function slackApiErrorCode(error: unknown): string | undefined {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+function slackApiStatusCode(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object' || Array.isArray(error)) {
+    return undefined;
+  }
+  const statusCode = (error as Record<string, unknown>).statusCode;
+  return typeof statusCode === 'number' ? statusCode : undefined;
 }
 
 async function slackDownloadErrorCode(
@@ -136,35 +206,39 @@ async function slackDownloadErrorCode(
   return undefined;
 }
 
-function classifySlackUnreachableReason(
+function classifySlackUnreachableEvidence(
   errorCode?: string,
   status?: number,
-): HistoricalAttachmentUnreachableReason {
-  if (errorCode === 'file_not_found') return 'not_found';
-  if (errorCode === 'not_visible') return 'not_visible';
-  if (
-    errorCode === 'missing_scope' ||
-    errorCode === 'not_authed' ||
-    errorCode === 'invalid_auth' ||
-    errorCode === 'account_inactive' ||
-    errorCode === 'token_revoked' ||
-    status === 401 ||
-    status === 403
-  ) {
-    return 'auth';
+): HistoricalAttachmentUnreachableEvidence {
+  const providerStatus = status === undefined ? {} : { providerStatus: status };
+  if (errorCode === 'file_not_found') {
+    return { reason: 'not_found', ...providerStatus };
+  }
+  if (errorCode === 'not_visible') {
+    return { reason: 'not_visible', ...providerStatus };
+  }
+  if (errorCode === 'missing_scope') {
+    return {
+      reason: 'missing_scope',
+      scope: 'files:read',
+      ...providerStatus,
+    };
+  }
+  if (status === 401 || status === 403) {
+    return { reason: 'unknown', ...providerStatus };
   }
   if (
     errorCode === 'ratelimited' ||
     errorCode === 'slack_webapi_rate_limited_error' ||
     status === 429
   ) {
-    return 'rate_limit';
+    return { reason: 'rate_limit', ...providerStatus };
   }
   if (
     errorCode === 'slack_webapi_request_error' ||
     errorCode === 'slack_webapi_http_error'
   ) {
-    return 'network';
+    return { reason: 'network', ...providerStatus };
   }
-  return 'unknown';
+  return { reason: 'unknown', ...providerStatus };
 }

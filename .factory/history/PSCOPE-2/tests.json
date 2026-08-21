@@ -1,0 +1,31 @@
+{
+  "commit": "fc08a2431153595471d63b5e1dbb13bdb872f335",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "Installer group bootstrap verified by unit evidence across all three stages: shared bootstrap (recognised installer seeds first approver via the settings write and survives desired-state reconcile through the participant upsert; unrecognised/retired-alias/no-DM installers fail closed to one manual message; claim-window dedup with id-rotating, timestamp-clearing reclaim), Telegram rewire (in-group ack + seed, no DM traffic, DM Yes/No flow deleted), Slack inviter path, Discord one-notice fallback (READY-replay and unavailable-stub guarded), and provider parity.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/channels apps/core/test/unit/config (1362+ passed)",
+      "npm run typecheck",
+      "npm run check:architecture",
+      "npm run format:check",
+      "python3 factory/scripts/verify.py"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/channels/group-install-bootstrap.test.ts",
+      "apps/core/test/unit/channels/telegram.test.ts (group-join suite rewritten + composite contract test)",
+      "apps/core/test/unit/channels/slack.test.ts (provider group join parity incl. discord dedup)",
+      "apps/core/test/unit/adapters/storage/postgres/group-join-onboarding-repository.postgres.test.ts (reclaim fencing)"
+    ],
+    "pass_fail_summary": "All touched suites green; full verify.py passed.",
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-10T16:13:50+00:00",
+    "commit": "fc08a2431153595471d63b5e1dbb13bdb872f335"
+  },
+  "updated_at": "2026-08-10T16:13:50+00:00"
+}

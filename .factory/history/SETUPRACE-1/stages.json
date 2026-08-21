@@ -1,0 +1,37 @@
+{
+  "issue": "SETUPRACE-1",
+  "stages": [
+    {
+      "id": "SETUPRACE-1-1",
+      "title": "Atomic fingerprint claim for setup-pause notifications (CAS + reset + reorder)",
+      "status": "done",
+      "started_at": "2026-08-09T08:59:06+00:00",
+      "base_sha": "ff43962d3895bcfd8937b0678a996091577c1dc7",
+      "dirty_at_start": {
+        "docs/specs/setuprace-1.md": {
+          "digest": "f06c96ceea9c18bfb08d36aafda954a87adf8cffcf04fe1521d23742ea838f64",
+          "git": "? docs/specs/setuprace-1.md\u0000\u0000\u0000"
+        },
+        "plans/quickfixes/20260809T084044-0000-Q-0021-9659-open-084044538314.json": {
+          "digest": "5d9be1963e55504495f02613e72b77a182c620958655e88776ac9930eef63283",
+          "git": "? plans/quickfixes/20260809T084044-0000-Q-0021-9659-open-084044538314.json\u0000\u0000\u0000"
+        },
+        "plans/quickfixes/20260809T084219-0000-Q-0021-9659-done-084219294961.json": {
+          "digest": "c23f149a1253866b46e027f0bd98339e1cc433188d5111368e4bfcb444b53d50",
+          "git": "? plans/quickfixes/20260809T084219-0000-Q-0021-9659-done-084219294961.json\u0000\u0000\u0000"
+        },
+        "plans/roadmap.json": {
+          "digest": "f4f4ce18f6c025a6ddca45b1c6a4fceacd5df508308e6091fedc39488178ae98",
+          "git": "1 .M N... 100644 100644 100644 cab328e220d214158b4993fa85583ad3c1881500 cab328e220d214158b4993fa85583ad3c1881500 plans/roadmap.json\u0000\u0000100644 cab328e220d214158b4993fa85583ad3c1881500 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+        }
+      },
+      "task_sha256": "6813c43de2fa7ded0440ea0d70e6e969748b55e9cda02265aecee7d0c2ea53d5",
+      "completed_at": "2026-08-09T12:45:25+00:00",
+      "contract_changed": {
+        "at": "2026-08-09T12:45:25+00:00",
+        "from": "116d5224cc992455963cd3ecf30444a6a475d154e60163816ba4f3a4047d0e84",
+        "to": "6813c43de2fa7ded0440ea0d70e6e969748b55e9cda02265aecee7d0c2ea53d5"
+      }
+    }
+  ]
+}

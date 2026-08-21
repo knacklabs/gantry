@@ -4,19 +4,9 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
+import sys
 from pathlib import Path
-
-from factory_lib import (
-    client_signoff, load_json, read_hook_input, repo_root, run_state_path,
-)
-from forge_cli.quickfix import claim_files, load_active
-
-payload = read_hook_input()
-tool_name = payload.get("tool_name", "")
-tool_input = payload.get("tool_input") or {}
-command = (tool_input.get("command") or "").strip()
-permission_mode = payload.get("permission_mode", "")
-
 
 def deny(reason: str) -> None:
     print(json.dumps({
@@ -29,75 +19,222 @@ def deny(reason: str) -> None:
     raise SystemExit(0)
 
 
-# Planning lock: product writes are always refused until a plan is approved
-# or a bounded quickfix is open. Planning surfaces stay available.
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-PLANNING_WRITE_OK = (
-    "plans/", "docs/", "factory/", ".claude/", ".codex/",
-    ".gstack/", ".github/", "constitution/", "harness/", "prototype/",
-)
+
+
+def _raw_payload() -> dict:
+    try:
+        stream = getattr(sys.stdin, "buffer", sys.stdin)
+        raw = stream.read()
+        value = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _repo_from_cwd() -> Path:
+    current = Path.cwd().resolve()
+    return next((path for path in (current, *current.parents)
+                 if (path / ".git").exists()), current)
+
+
+def _unmerged_paths(root: Path) -> set[str]:
+    result = subprocess.run(
+        ["git", "ls-files", "-u", "-z"], cwd=root, capture_output=True,
+        text=True, encoding="utf-8", errors="surrogateescape",
+    )
+    if result.returncode:
+        return set()
+    return {
+        record.split("\t", 1)[1]
+        for record in result.stdout.split("\0")
+        if "\t" in record
+    }
+
+
+def _git_recovery(command: str, root: Path, unmerged: set[str]) -> bool | None:
+    """Allow/deny a single git-native recovery command; None means unrelated."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    if not tokens or tokens[0].rsplit("/", 1)[-1] != "git":
+        return None
+    index = 1
+    while index < len(tokens) and tokens[index].startswith("-"):
+        if tokens[index] in {"-C", "--git-dir", "--work-tree"}:
+            return False
+        if tokens[index] in {"-C", "-c", "--git-dir", "--work-tree"}:
+            index += 2
+        else:
+            index += 1
+    if index >= len(tokens):
+        return None
+    verb, args = tokens[index], tokens[index + 1:]
+    if verb in {"merge", "rebase", "cherry-pick"}:
+        return args == ["--abort"]
+    if verb not in {"checkout", "rm", "add", "reset"}:
+        return None
+    if verb == "checkout":
+        modes = [arg for arg in args if arg in {"--ours", "--theirs"}]
+        if len(modes) != 1:
+            return None
+    paths: list[str] = []
+    skip_value = False
+    for arg in args:
+        if skip_value:
+            skip_value = False
+            continue
+        if arg in {"--pathspec-from-file"}:
+            return False
+        if arg in {"--source"}:
+            skip_value = True
+            continue
+        if arg == "--" or arg.startswith("-"):
+            continue
+        paths.append(arg)
+    if verb == "reset" and "--hard" in args:
+        return False
+    if verb == "reset" and not paths:
+        return True
+    normalized: set[str] = set()
+    for raw in paths:
+        candidate = Path(raw)
+        try:
+            normalized.add((candidate if candidate.is_absolute() else root / candidate)
+                           .resolve().relative_to(root.resolve()).as_posix())
+        except ValueError:
+            return False
+    return bool(normalized) and normalized <= unmerged
+
+
+STATIC_WRITE_EXEMPT_PREFIXES = ("plans/", "docs/", ".gstack/", "prototype/")
+STATIC_WRITE_EXEMPT_FILES = {"README.md", ".gitignore", ".gitattributes", ".envrc"}
+
+def _static_locked(raw: str, root: Path) -> bool:
+    value = raw.strip().strip("\"'")
+    if not value or "$" in value or "`" in value:
+        return True
+    candidate = Path(value)
+    try:
+        rel = (candidate if candidate.is_absolute() else root / candidate) \
+            .resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return False
+    return rel not in STATIC_WRITE_EXEMPT_FILES and not any(
+        rel == prefix.rstrip("/") or rel.startswith(prefix)
+        for prefix in STATIC_WRITE_EXEMPT_PREFIXES)
+
+
+def _fallback_readonly(command: str) -> bool:
+    if "$" in command or "`" in command or re.search(r"[<>]", command):
+        return False
+    for segment in re.split(r"&&|\|\||[;|\n]", command):
+        try:
+            tokens = shlex.split(segment)
+        except ValueError:
+            return False
+        while tokens and re.fullmatch(r"\w+=\S*", tokens[0]):
+            tokens.pop(0)
+        if not tokens:
+            continue
+        name = tokens[0].rsplit("/", 1)[-1]
+        if name == "git":
+            verb = next((token for token in tokens[1:] if not token.startswith("-")), "")
+            if any(token.startswith("--output") for token in tokens[1:]) or verb not in {
+                "status", "diff", "show", "log", "ls-files", "rev-parse"}:
+                return False
+        elif name not in {"pwd", "ls", "rg", "grep", "cat", "head", "tail", "wc", "diff", "stat", "file"}:
+            return False
+    return True
+
+
+def denylist_fallback(payload: dict, reason: str) -> None:
+    root = _repo_from_cwd()
+    command = ((payload.get("tool_input") or {}).get("command") or "").strip()
+    unmerged = _unmerged_paths(root)
+    recovery = _git_recovery(command, root, unmerged)
+    if recovery is True:
+        print(json.dumps({}))
+        raise SystemExit(0)
+    if recovery is False:
+        deny("Merge recovery is limited to the paths currently reported by git ls-files -u.")
+    tool = payload.get("tool_name", "")
+    target = ((payload.get("tool_input") or {}).get("file_path") or
+              (payload.get("tool_input") or {}).get("notebook_path") or "")
+    if (tool in EDIT_TOOLS and _static_locked(target, root)) or (
+        tool == "Bash" and not _fallback_readonly(command)
+    ):
+        deny(f"Forge emergency deny-list engaged ({reason}); product and canon writes stay locked.")
+    print(json.dumps({}))
+    raise SystemExit(0)
+
+
+payload = _raw_payload()
+try:
+    from factory_lib import (
+        client_signoff, load_json, repo_root, run_state_path,
+    )
+    from forge_cli.context import context_files, context_paths, scan_inbox
+    from forge_cli.quickfix import DEGRADED, claim_files, load_active, profile_of
+    from forge_cli.repo_kind import is_harness_source_repo, locked_repo_path
+except (ImportError, SyntaxError) as exc:
+    denylist_fallback(payload, type(exc).__name__)
+
+tool_name = payload.get("tool_name", "")
+tool_input = payload.get("tool_input") or {}
+command = (tool_input.get("command") or "").strip()
+permission_mode = payload.get("permission_mode", "")
+
+
+# Session lock: product and canon writes are always refused unless a bounded
+# degraded window is open. Orchestration surfaces stay available.
 # .factory/ is deliberately NOT writable by hand: run.json holds plan_status,
 # so a hand-edit disarms this very lock, and AGENTS.md already requires that
 # evidence enter .factory/ only through the record_* scripts. Those scripts
 # write it as themselves — this guard classifies tool-call targets, not what a
-# sanctioned script does internally. The scratchpad is the one hand-written
-# file there, and `forge note` writes it.
+# sanctioned script does internally. The scratchpad is the one freely
+# hand-written file there (`forge note`); the repo-kind marker also lives there
+# but is planning-locked, not free (see FACTORY_STATE_WRITABLE).
 FACTORY_STATE_MSG = (
     ".factory/ is recorded state, never hand-written (AGENTS.md): run.json "
     "carries plan_status, so editing it disarms the planning lock. Use the "
     "record_* scripts, `./forge note` for the scratchpad, or `./forge stage` "
     "for stage status."
 )
-PLANNING_WRITE_OK_FILES = {
-    "AGENTS.md", "CLAUDE.md", "WORKFLOW.md", "harness.yaml", "README.md",
-    ".gitignore", ".gitattributes", ".envrc",
-    # session memory, not evidence — gitignored, and `forge note` appends to it
+# Files under .factory/ the evidence guard lets through — but that is the ONLY
+# guard they skip. The scratchpad is also exempt in the shared locked-path
+# classifier. The repo-kind marker is deliberately NOT there: it is a product path,
+# so the session lock governs it. Disarming the source-repo lock therefore runs
+# through a delegated worker, never a silent session edit or `rm`.
+FACTORY_STATE_WRITABLE = {
     ".factory/scratchpad.md",
+    ".factory/harness-source.json",
 }
+# The repo-kind marker. It decides whether the machinery trees are product at
+# all, so a session may never change it, including during degraded mode: a
+# window that could `rm` it as its first claim would flip the repo to client-mode
+# and let every later machinery write skip the budget entirely.
+HARNESS_SOURCE_MARKER = ".factory/harness-source.json"
 PLAN_MODE_MSG = (
-    "Planning lock is armed — product writes require an approved plan. "
-    "Either enter plan mode (shift+tab) [PLAN MODE] and save the approved plan per "
-    "factory/prompts/planner.md, or run `./forge quickfix start \"<reason>\"` "
-    "for a bounded five-file fix."
+    "Session write lockout is armed — product and canon writes must run through "
+    "`./forge delegate <task-id>`. If the companion is unavailable, open the sole "
+    "bounded exception with `./forge mode degraded start --reason \"<reason>\"`."
 )
 QUICKFIX_LIMIT_MSG = (
-    "Quickfix scope exceeded — this is not a quickfix, enter plan mode (shift+tab). "
-    "The other planning-lock exit is `./forge quickfix start \"<reason>\"`, but the "
-    "current window must be closed first."
+    "Degraded window scope exceeded — its five-file claim budget is exhausted. "
+    "Close it with `./forge mode done`, restore the companion, and use "
+    "`./forge delegate <task-id>` for the remaining write work."
 )
-OPAQUE_WRITE_MSG = (
-    "Opaque delegated writes cannot use a quickfix because its five-file budget "
-    "cannot be tracked. Either enter plan mode (shift+tab) [PLAN MODE] and save an "
-    "approved plan, or use `./forge quickfix start \"<reason>\"` for direct edits "
-    "whose product paths the hook can record."
+MARKER_PLAN_ONLY_MSG = (
+    f"{HARNESS_SOURCE_MARKER} is the repo-kind marker: it may be created, edited, "
+    "or deleted only through `./forge delegate <task-id>`, never by the session or "
+    "a degraded window. Removing it inside a window could flip this repo to "
+    "client-mode and escape the file budget."
 )
-
-
-def product_path(raw: str, root: Path) -> str | None:
-    """Return a canonical repo-relative product path, otherwise None."""
-    value = raw.strip().strip("\"'")
-    if not value or value in {"-", "/dev/null"}:
-        return None
-    # Unexpanded shell expansions ($HOME, $(pwd), backticks) cannot be
-    # classified — the hook sees the literal, not the destination. Treat as
-    # unknown rather than product: this guard defends drift, and a drifting
-    # worker writes plain paths (decision 0013; artifact gates backstop).
-    if "$" in value or "`" in value:
-        return None
-    candidate = Path(value).expanduser()
-    if not candidate.is_absolute():
-        candidate = root / candidate
-    resolved = candidate.resolve()
-    try:
-        rel = resolved.relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return None
-    if not rel or rel in PLANNING_WRITE_OK_FILES:
-        return None
-    if any(rel == prefix.rstrip("/") or rel.startswith(prefix)
-           for prefix in PLANNING_WRITE_OK):
-        return None
-    return rel
+def product_path(raw: str, root: Path, is_harness: bool) -> str | None:
+    """Compatibility name for the shared repo-kind-aware lock classifier."""
+    return locked_repo_path(raw, root, harness_source=is_harness)
 
 
 def tokenize(segment: str) -> list[str] | None:
@@ -158,7 +295,7 @@ def redirect_targets(tokens: list[str]) -> list[str]:
 
 
 def in_factory_state(raw: str, root: Path) -> bool:
-    """True when a write target lands inside .factory/ (excluding the scratchpad)."""
+    """True when a write target lands in protected .factory/ state."""
     value = raw.strip().strip("\"'")
     if not value or "$" in value or "`" in value:
         return False
@@ -169,10 +306,85 @@ def in_factory_state(raw: str, root: Path) -> bool:
         rel = candidate.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return False
-    return rel.startswith(".factory/") and rel != ".factory/scratchpad.md"
+    # `.factory` (the directory itself, e.g. `rm -rf .factory`) is protected too:
+    # deleting it wipes recorded state and the repo-kind marker in one stroke.
+    if rel == ".factory":
+        return True
+    return rel.startswith(".factory/") and rel not in FACTORY_STATE_WRITABLE
 
 
-def bash_write_paths(value: str) -> list[str]:
+# git global options that consume a following token as their value; the real
+# subcommand is the first bare token once these (and plain flags) are skipped.
+GIT_VALUE_OPTS = {
+    "-C", "-c", "--git-dir", "--work-tree", "--namespace",
+    "--super-prefix", "--config-env",
+}
+
+
+def git_subcommand(args: list[str]) -> tuple[str | None, list[str]]:
+    """The git subcommand and its args, skipping global options and their values."""
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token in GIT_VALUE_OPTS:
+            index += 2  # option plus its separate value
+            continue
+        if token.startswith("-"):
+            index += 1  # a flag, or --opt=value carrying its own value
+            continue
+        return token, args[index + 1:]
+    return None, []
+
+
+def has_git_commit(value: str) -> bool:
+    """True when a shell segment directly invokes `git ... commit`."""
+    for segment in re.split(r"[;&|\n]+", strip_heredoc_bodies(value)):
+        tokens = tokenize(segment)
+        if tokens is None:
+            continue
+        command_index = next(
+            (index for index, token in enumerate(tokens)
+             if not re.fullmatch(r"\w+=\S*", token)),
+            None,
+        )
+        if command_index is None:
+            continue
+        if tokens[command_index].rsplit("/", 1)[-1] != "git":
+            continue
+        if git_subcommand(tokens[command_index + 1:])[0] == "commit":
+            return True
+    return False
+
+
+def _copy_operands(operands: list[str], args: list[str],
+                   root: Path) -> tuple[list[str], list[str]]:
+    """(created destination files, source paths) for a cp/mv.
+
+    A directory (or repo-root) destination expands to `<dir>/<basename>` per
+    source, so each CREATED file is counted against the budget rather than the
+    container claiming one slot for many files. A file destination is itself.
+    GNU `-t <dir>` / `--target-directory=<dir>` puts the dir first, sources after.
+    """
+    target = None
+    for position, arg in enumerate(args):
+        if arg in ("-t", "--target-directory") and position + 1 < len(args):
+            target = args[position + 1]
+        elif arg.startswith("--target-directory="):
+            target = arg.split("=", 1)[1]
+    if target is not None:
+        dest, sources = target, operands
+    elif len(operands) >= 2:
+        dest, sources = operands[-1], operands[:-1]
+    else:
+        return operands, []  # single/zero operand — nothing to expand
+    dest_path = Path(dest) if Path(dest).is_absolute() else root / dest
+    if dest_path.is_dir() or dest in (".", ""):
+        base = dest.rstrip("/") or "."
+        return [f"{base}/{Path(src).name}" for src in sources], sources
+    return [dest], sources
+
+
+def bash_write_paths(value: str, root: Path) -> list[str]:
     """Extract likely write targets from a shell command.
 
     # ponytail: heuristic, defends drift not adversaries — tighten patterns
@@ -197,7 +409,8 @@ def bash_write_paths(value: str) -> list[str]:
         if command_index is None:
             continue
         command_name = tokens[command_index].rsplit("/", 1)[-1]
-        if command_name not in {"tee", "sed", "cp", "mv", "touch"}:
+        if command_name not in {"tee", "sed", "cp", "mv", "touch", "rm",
+                                "unlink", "git"}:
             continue
         args = tokens[command_index + 1:]
         operands = [token for token in args
@@ -206,10 +419,34 @@ def bash_write_paths(value: str) -> list[str]:
             found.extend(operands)
         elif command_name == "touch":
             found.extend(operands)
-        elif command_name == "cp" and operands:
-            found.append(operands[-1])
-        elif command_name == "mv":
+        elif command_name in {"rm", "unlink"}:
+            # Deleting a product path disarms as surely as writing one: removing
+            # the repo-kind marker would flip source->client. Every operand is a
+            # target. This heuristic covers the COMMON drift shapes; cwd games
+            # (`cd .factory && rm`), git -C, indirect pathspecs, globs, and
+            # arbitrary code (python -c, find -delete) are beyond it by design
+            # (decision 0013). The quickfix repo-kind PIN makes the file budget
+            # un-escapable regardless of how the marker is deleted; the locked
+            # case falls back to git visibility + artifact-gate backstop.
             found.extend(operands)
+        elif command_name == "git":
+            # `git rm` / `git mv` delete or relocate tracked files like their
+            # shell namesakes — skip git's global options to reach the subcommand.
+            sub, sub_args = git_subcommand(args)
+            if sub in {"rm", "mv"}:
+                found.extend(token for token in sub_args
+                             if not token.startswith("-") and token not in {">", ">>"})
+        elif command_name == "cp" and operands:
+            # Count each CREATED file (dir destinations expand to dir/basename),
+            # so N copies into a machinery dir spend N budget slots, not one.
+            created, _ = _copy_operands(operands, args, root)
+            found.extend(created)
+        elif command_name == "mv":
+            # The destination is a write (expanded like cp) AND every source is a
+            # deletion — moving the marker away removes it just like `rm`.
+            created, sources = _copy_operands(operands, args, root)
+            found.extend(created)
+            found.extend(sources)
         elif command_name == "sed" and any(
             token == "-i" or token.startswith("-i") or token.startswith("--in-place")
             for token in args
@@ -218,30 +455,109 @@ def bash_write_paths(value: str) -> list[str]:
     return found
 
 
-def guard_product_writes(targets: list[str], state: dict, root: Path) -> None:
+def _contains_marker(rel: str) -> bool:
+    """True when rel IS the repo-kind marker or a directory that contains it.
+
+    An ancestor delete (`rm -r .factory`) removes the marker just as surely as
+    deleting it by name. The repo ROOT (`.`/``) is deliberately excluded: it is
+    a benign create-destination for `cp/mv <src> .`, not a marker deletion, and
+    a genuine root wipe (`rm -rf .`) is caught by the rm-rf policy instead.
+    """
+    if rel == HARNESS_SOURCE_MARKER:
+        return True
+    if not rel or rel == ".":
+        return False
+    return HARNESS_SOURCE_MARKER.startswith(rel.rstrip("/") + "/")
+
+
+# Shell metacharacters that expand one literal into an unbounded set of paths:
+# globs (`*?[`) and brace expansion (`{1..6}`, `{a,b}`).
+GLOB_METACHARS = ("*", "?", "[", "{")
+OPAQUE_DEGRADED_MSG = (
+    "This op touches an unbounded set of machinery files — a recursive/globbed "
+    "delete, or a recursive/globbed copy or move INTO a machinery path — so a "
+    "degraded window cannot honestly claim it against its budget. Enumerate the exact "
+    "paths, or plan the change where the whole diff is measured."
+)
+
+
+def has_opaque_product_write(command: str, root: Path, is_harness: bool) -> bool:
+    """An op whose exact product-file set can't be read from the literal command,
+    so a degraded window cannot claim it: a recursive/globbed/brace DELETE of a product
+    path (`rm`/`unlink`/`git rm`), or a recursive/glob-sourced copy/move whose
+    DESTINATION is a product path. Copy/move opacity is keyed on the destination,
+    never the source, so a read-OUT backup (`cp -R factory/scripts /tmp/x`) is
+    never blocked. Pure shell games and arbitrary code stay a documented residual
+    (decision 0013); the repo-kind PIN, not this check, is the security guarantee.
+    """
+    for segment in re.split(r"[;&|\n]+", strip_heredoc_bodies(command)):
+        tokens = tokenize(segment)
+        if tokens is None:
+            continue
+        index = next((i for i, token in enumerate(tokens)
+                      if not re.fullmatch(r"\w+=\S*", token)), None)
+        if index is None:
+            continue
+        name = tokens[index].rsplit("/", 1)[-1]
+        args = tokens[index + 1:]
+        if name == "git":
+            sub, args = git_subcommand(args)
+            if sub != "rm":
+                continue
+            name = "rm"
+        elif name not in {"rm", "unlink", "cp", "mv"}:
+            continue
+        flags = [token for token in args if token.startswith("-")]
+        operands = [token for token in args
+                    if not token.startswith("-") and token not in {">", ">>"}]
+        recursive = any(
+            flag in ("-r", "-R", "-a", "--recursive", "--archive")
+            or (len(flag) > 1 and not flag.startswith("--")
+                and any(char in flag for char in "rRa"))
+            for flag in flags)
+        if name in {"rm", "unlink"}:
+            for operand in operands:
+                if (recursive or any(c in operand for c in GLOB_METACHARS)) \
+                        and product_path(operand, root, is_harness):
+                    return True
+        else:  # cp / mv — opaque only when it WRITES into a product path
+            created, sources = _copy_operands(operands, args, root)
+            writes_product = any(product_path(c, root, is_harness) for c in created)
+            glob_source = any(any(g in src for g in GLOB_METACHARS) for src in sources)
+            if writes_product and (recursive or glob_source):
+                return True
+    return False
+
+
+def guard_product_writes(targets: list[str], root: Path, command: str = "") -> None:
+    window = load_active(root)
+    # Effective repo kind: a live marker read, UNLESS a window is open — then
+    # the kind pinned at its start wins, so deleting the marker during the window
+    # (by any means) cannot flip classification and let machinery escape the
+    # budget. Fail-safe: an old window with no pin falls back to the live marker.
+    if window is not None and "harness_source" in window:
+        is_harness = bool(window["harness_source"])
+    else:
+        is_harness = is_harness_source_repo(root)
+    degraded = bool(window and profile_of(window) == DEGRADED)
+    # Opaque check FIRST: a recursive/globbed op or a `cp -t`/dir copy can affect
+    # product files the literal-target extractor never classifies, so `product`
+    # may be empty even though the command hits machinery. Deny before any early
+    # return, whether the repo is fully locked or a quickfix is open.
+    if command and has_opaque_product_write(command, root, is_harness):
+        deny(OPAQUE_DEGRADED_MSG if degraded else PLAN_MODE_MSG)
     product = list(dict.fromkeys(
-        rel for raw in targets if (rel := product_path(raw, root)) is not None
+        rel for raw in targets if (rel := product_path(raw, root, is_harness)) is not None
     ))
     if not product:
         return
-    if state.get("plan_status") == "approved":
-        # An approved plan is not yet an implementation licence: the bounded
-        # tasks are what implementation is measured against, and a write before
-        # the decomposition exists belongs to no task (AGENTS.md phase 4).
-        if state.get("decomposition_status") == "recorded":
-            return
-        if not load_active(root):
-            deny(
-                "Plan approved, but no decomposition is recorded — implementation "
-                "is bounded by tasks, so a product write now belongs to no task. "
-                "Record it: python3 factory/scripts/record_decomposition_from_json.py "
-                "--input /tmp/decomposition.json (or open a bounded window: "
-                "./forge quickfix start \"<reason>\")."
-            )
-    # An open window does not skip this: each product file it touches must be
-    # claimed against the budget, which is what bounds the escape hatch.
-    quickfix = load_active(root)
-    if not quickfix:
+    if any(_contains_marker(rel) for rel in product):
+        # A session window must never be able to touch the marker:
+        # deleting it — directly, or by removing an ANCESTOR like `.factory` via
+        # `rm -rf .factory` — would disable classification and the budget with it.
+        # Only the hook-bypassing delegated worker may change it.
+        deny(MARKER_PLAN_ONLY_MSG)
+    if not degraded:
         deny(PLAN_MODE_MSG)
     claimed, _ = claim_files(root, product)
     if not claimed:
@@ -303,22 +619,65 @@ GATED_PHASES = (
     "pr-ready",
 )
 root = repo_root()
-run_state = load_json(run_state_path(root), default={})
+unmerged = _unmerged_paths(root)
+recovery = _git_recovery(command, root, unmerged) if unmerged else None
+if recovery is True:
+    print(json.dumps({}))
+    raise SystemExit(0)
+if recovery is False:
+    deny("Merge recovery is limited to the paths currently reported by git ls-files -u.")
+if tool_name in EDIT_TOOLS and unmerged:
+    edit_path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+    if edit_path:
+        candidate = Path(edit_path)
+        try:
+            rel = (candidate if candidate.is_absolute() else root / candidate).resolve() \
+                .relative_to(root.resolve()).as_posix()
+        except ValueError:
+            rel = ""
+        if rel in unmerged:
+            deny("Conflicted files must be resolved with git-native recovery, not content hand-writes.")
+
+try:
+    run_state = load_json(run_state_path(root), default={})
+except (json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
+    denylist_fallback(payload, type(exc).__name__)
+
+if tool_name == "Bash" and has_git_commit(command):
+    context_dir, ledger_path = context_paths(root)
+    # An inbox that was never scanned and holds nothing stays untouched: the
+    # belt must not leave an untracked ledger.json behind on every commit.
+    if ledger_path.exists() or (context_dir.is_dir() and context_files(context_dir)):
+        drift, refused = scan_inbox(root)
+    else:
+        drift, refused = [], []
+    if refused:
+        deny("REFUSED (not registered — fix, then rescan):\n" +
+             "\n".join(f"- {line}" for line in refused))
+    if drift:
+        staged = subprocess.run(
+            ["git", "add", "--", "docs/context/ledger.json"],
+            cwd=root, capture_output=True, text=True,
+            encoding="utf-8", errors="surrogateescape",
+        )
+        if staged.returncode:
+            deny("Context ledger refreshed but could not be staged: " +
+                 (staged.stderr.strip() or staged.stdout.strip() or "git add failed"))
 
 edit_target = (tool_input.get("file_path") or tool_input.get("notebook_path") or "")
 write_targets = [edit_target] if tool_name in EDIT_TOOLS and edit_target else []
 if tool_name == "Bash":
-    write_targets = bash_write_paths(command)
+    write_targets = bash_write_paths(command, root)
 
 # Recorded state is never hand-written, in any mode and at any plan status.
 for candidate in write_targets:
     if in_factory_state(candidate, root):
         deny(FACTORY_STATE_MSG)
 
-# The lock covers plan mode too: plan mode stops the Edit tools, not a Bash
-# redirect, and writing product code while planning is the thing being stopped.
-if permission_mode != "plan" or tool_name == "Bash":
-    guard_product_writes(write_targets, run_state, root)
+# The session lock covers every permission mode. Planning changes authorization
+# for the plan UI, never for product or canon writes.
+guard_product_writes(write_targets, root,
+                     command=command if tool_name == "Bash" else "")
 literal_command = command.replace("''", "").replace('""', "")
 shell_shape = re.sub(
     r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*", "", literal_command)
@@ -340,13 +699,118 @@ except ValueError:
 compact_command = re.sub(r"[^a-z0-9]", "", shell_shape.lower())
 has_companion = (
     re.search(r"\bcodex-companion(?:\.mjs)?\b", shell_shape) is not None
+    or re.search(r"\$(?:\{)?(?=[A-Za-z_])[A-Za-z0-9_]*companion[A-Za-z0-9_]*",
+                 command, re.IGNORECASE) is not None
     or any(re.fullmatch(r"codex-companion(?:\.mjs)?", Path(token).name)
            for token in shell_tokens)
     or "codexcompanion" in compact_command
 )
-if tool_name == "Bash" and has_companion:
-    deny("Direct Codex companion commands are off-contract. Use "
-         "`./forge delegate <task-id>`; it owns the argv launch and records "
+# Read-only companion runs are the /codex:rescue exploration lane and
+# pass — but ONLY in a shape whose argv the hook can prove from text: a
+# single simple command, no shell metacharacters, launching the
+# companion directly (optionally via node). Anything else that mentions
+# the companion is either a safe display command (rg/cat/...) or an
+# unverifiable launch, which is denied: shell text cannot bound a child
+# interpreter's computed argv, so we never try.
+READONLY_COMPANION_VERBS = {"status", "task", "task-resume-candidate"}
+READONLY_COMPANION_FLAGS = {"--model", "--effort", "--json"}
+COMPANION_NAME = re.compile(r"codex-companion(?:\.mjs)?")
+# No shell-capable pagers (less/more run "+!cmd" startup commands).
+DISPLAY_SAFE_ARGV0 = {
+    "rg", "grep", "cat", "head", "tail", "printf", "echo",
+    "ls", "stat", "wc", "file", "md5", "shasum",
+}
+
+
+def _display_safe(tokens):
+    """Display command with NO option tokens: some display tools grow
+    exec options (rg --pre, tail --pid); bare invocations have none."""
+    return not any(t.startswith(("-", "+")) for t in tokens[1:])
+
+
+def _has_active_shell_syntax(value: str) -> bool:
+    """Shell syntax outside quotes (plus expansions inside double quotes)."""
+    quote = None
+    escaped = False
+    for char in value:
+        if escaped:
+            escaped = False
+        elif char == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = None
+            elif quote == '"' and char in "$`":
+                return True
+        elif char in "'\"":
+            quote = char
+        elif char in ";&|<>$`(){}\n*?~=[]":
+            return True
+    return False
+
+
+def _companion_readonly_launch_ok():
+    """True iff the command is a provably read-only companion launch."""
+    if _has_active_shell_syntax(command):
+        return False
+    if not shell_tokens:
+        return False
+    argv0 = Path(shell_tokens[0]).name
+    comp_idx = None
+    for idx, token in enumerate(shell_tokens):
+        if COMPANION_NAME.fullmatch(Path(token).name):
+            comp_idx = idx
+            break
+    if comp_idx is None:
+        # Companion referenced only inside larger tokens (prose/paths):
+        # display commands may show it; anything else is unverifiable.
+        return argv0 in DISPLAY_SAFE_ARGV0 and _display_safe(shell_tokens)
+    if comp_idx == 0 or (comp_idx == 1 and argv0 in ("node", "nodejs")):
+        rest = shell_tokens[comp_idx + 1:]
+        # Verb allowlist, not a flag denylist: other subcommands (setup,
+        # cancel, task-worker) mutate state without any write flag. Options
+        # are default-deny too: --cwd can retarget other repos, and future
+        # flags should not be trusted implicitly. The equals-sign form of
+        # --prompt-file stays explicitly unsupported because active shell
+        # syntax above refuses '='.
+        if not rest or rest[0] not in READONLY_COMPANION_VERBS:
+            return False
+        args = rest[1:]
+        prompt_flags = [idx for idx, token in enumerate(args)
+                        if token == "--prompt-file"]
+        if prompt_flags:
+            if rest[0] != "task" or len(prompt_flags) != 1:
+                return False
+            prompt_idx = prompt_flags[0]
+            if prompt_idx + 1 >= len(args) or args[prompt_idx + 1].startswith("-"):
+                return False
+            prompt_path = Path(args[prompt_idx + 1])
+            if prompt_path.is_absolute() or ".." in prompt_path.parts:
+                return False
+            try:
+                resolved_root = root.resolve()
+                resolved_prompt = (resolved_root / prompt_path).resolve()
+                valid_prompt = (resolved_prompt.is_relative_to(resolved_root)
+                                and resolved_prompt.is_file())
+            except (OSError, RuntimeError):
+                valid_prompt = False
+            if not valid_prompt:
+                return False
+            args = args[:prompt_idx] + args[prompt_idx + 2:]
+        return all(
+            not token.startswith("-") or token in READONLY_COMPANION_FLAGS
+            for token in args
+        )
+    # Companion path appears under another executor (xargs, env, sh -c,
+    # an interpreter): the final argv cannot be established from text.
+    return argv0 in DISPLAY_SAFE_ARGV0 and _display_safe(shell_tokens)
+
+
+if tool_name == "Bash" and has_companion and not _companion_readonly_launch_ok():
+    deny("Companion launches are off-contract unless they are a provably "
+         "read-only direct invocation (no write flags, no shell "
+         "metacharacters, no wrapping executor). Use `./forge delegate "
+         "<task-id>` for write work; it owns the argv launch and records "
          "evidence that `forge stage done` can verify.")
 
 if run_state and not client_signoff(root)[0]:

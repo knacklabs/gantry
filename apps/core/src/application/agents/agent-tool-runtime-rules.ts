@@ -28,6 +28,7 @@ export interface AgentToolRuntimeRuleResolutionInput {
   repository: ToolCatalogRepository;
   appId: string;
   agentId: string;
+  personId?: string | null;
   errorSubject: string;
   skillRepository?: SkillCatalogRepository;
   makeError?: (message: string) => Error;
@@ -97,7 +98,9 @@ export async function resolveAgentToolRuntimePolicy(
     agentId: input.agentId as never,
   });
   const activeBindings = bindings.filter(
-    (binding) => binding.status === 'active',
+    (binding) =>
+      binding.status === 'active' &&
+      (binding.personId == null || binding.personId === input.personId),
   );
   const tools = await Promise.all(
     activeBindings.map((binding) => input.repository.getTool(binding.toolId)),

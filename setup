@@ -1,0 +1,139 @@
+#!/bin/sh
+#
+# One-time per-machine Symphony Forge setup.
+#
+# - Installs KnackLabs bootstrap skills for Claude and Codex
+# - Supports python3, python, and the Windows py launcher
+# - Attempts to repair/install missing required dependencies
+# - Performs final verification
+# - Never hides required dependency failures
+#
+# Safe to rerun after harness updates.
+
+set -eu
+
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+FORGE_SCRIPT="$HERE/factory/scripts/forge.py"
+
+fail() {
+  echo "[FAIL] $*" >&2
+  exit 1
+}
+
+detect_python() {
+  if command -v python3 >/dev/null 2>&1 &&
+     python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
+       >/dev/null 2>&1; then
+    PYTHON_KIND="python3"
+    return 0
+  fi
+
+  if command -v python >/dev/null 2>&1 &&
+     python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
+       >/dev/null 2>&1; then
+    PYTHON_KIND="python"
+    return 0
+  fi
+
+  if command -v py >/dev/null 2>&1 &&
+     py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
+       >/dev/null 2>&1; then
+    PYTHON_KIND="py"
+    return 0
+  fi
+
+  return 1
+}
+
+run_python() {
+  case "$PYTHON_KIND" in
+    python3)
+      python3 "$@"
+      ;;
+    python)
+      python "$@"
+      ;;
+    py)
+      py -3 "$@"
+      ;;
+    *)
+      fail "No supported Python interpreter was selected."
+      ;;
+  esac
+}
+
+install_bootstrap_skills() {
+  for SKILL in knacklabs-new-project knacklabs-migrate-project knacklabs-upgrade-project knacklabs-sanitise-project; do
+    SOURCE="$HERE/install/claude/$SKILL/SKILL.md"
+
+    [ -f "$SOURCE" ] ||
+      fail "Bootstrap skill source not found: $SOURCE"
+
+    for RUNTIME in "$HOME/.claude/skills" "$HOME/.codex/skills"; do
+      DEST="$RUNTIME/$SKILL"
+
+      mkdir -p "$DEST"
+
+      sed "s|{{HARNESS_PATH}}|$HERE|g" \
+        "$SOURCE" > "$DEST/SKILL.md"
+
+      echo "Installed: $DEST/SKILL.md (harness: $HERE)"
+    done
+  done
+}
+
+main() {
+  echo "Setting up Symphony Forge..."
+  echo
+
+  [ -f "$FORGE_SCRIPT" ] ||
+    fail "Forge script not found: $FORGE_SCRIPT"
+
+  if ! detect_python; then
+    cat >&2 <<'MESSAGE'
+[FAIL] Python 3.10 or newer was not found.
+
+Supported commands:
+  python3
+  python
+  py -3
+
+Install Python 3, reopen the terminal, and rerun:
+  ./setup
+MESSAGE
+    exit 1
+  fi
+
+  echo "[OK ] Python interpreter: $PYTHON_KIND"
+  run_python --version
+  echo
+
+  install_bootstrap_skills
+
+  echo
+  echo 'Try it in Claude Code: "Set up a new KnackLabs project called my-app"'
+  echo '               ...or: "Migrate this repo into the harness"'
+  echo '               ...or: "Upgrade this repo to the latest harness"'
+
+  echo
+  echo "Attempting to install or repair missing dependencies..."
+
+  if ! run_python "$FORGE_SCRIPT" doctor --fix; then
+    echo
+    echo "[WARN] Automatic dependency repair did not complete successfully."
+    echo "       Final verification will show the remaining requirements."
+  fi
+
+  echo
+  echo "Verifying machine setup..."
+
+  if ! run_python "$FORGE_SCRIPT" doctor; then
+    echo
+    fail "Setup is incomplete. Resolve the required items above and rerun ./setup."
+  fi
+
+  echo
+  echo "[SUCCESS] Symphony Forge machine setup is ready."
+}
+
+main "$@"

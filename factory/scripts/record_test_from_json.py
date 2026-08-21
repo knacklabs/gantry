@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from factory_lib import (
     dump_json, gate, head_sha, load_json, now_iso, repo_root, require_skills,
-    run_state_path, tests_state_path, validate_payload,
+    read_stdin_utf8, run_state_path, tests_state_path, validate_payload,
 )
 from forge_cli.events import append_event
 
@@ -29,9 +28,9 @@ parser.add_argument("--input", help="Path to test-result JSON. If omitted, read 
 args = parser.parse_args()
 
 if args.input:
-    payload = json.loads(Path(args.input).read_text())
+    payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
 else:
-    raw = sys.stdin.read().strip()
+    raw = read_stdin_utf8().strip()
     if not raw:
         raise SystemExit("Expected JSON on stdin or via --input")
     payload = json.loads(raw)
@@ -40,8 +39,9 @@ root = repo_root()
 gate(root, signoff=True, approved_plan=True, decomposition=True)
 validate_payload(root, f"test-{args.kind}", payload)
 require_skills(root, f"test-{args.kind}", payload)
-path = tests_state_path(root)
-existing = load_json(path, default={}) or {}
+read_path = tests_state_path(root)
+path = tests_state_path(root, for_write=True)
+existing = load_json(read_path, default={}) or {}
 entry = dict(payload)
 for key in (
     "blocking_findings",

@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import type { ConversationRoute, Job } from '@core/domain/types.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { currentLogContext } from '@core/infrastructure/logging/logger.js';
 import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
 
 const runtimeStoreMock = vi.hoisted(() => ({
   publish: vi.fn(async () => undefined),
+  list: vi.fn(async () => [] as Array<Record<string, unknown>>),
   appendRunnerControlEvent: vi.fn(async () => 'persisted'),
   heartbeatRunLease: vi.fn(async () => true),
   bindPendingTriggerToRun: vi.fn(async () => null),
@@ -36,6 +39,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   }),
   getRuntimeEventExchange: () => ({
     publish: runtimeStoreMock.publish,
+    list: runtimeStoreMock.list,
   }),
   getWorkerCoordinationRepository: () => ({
     appendRunnerControlEvent: runtimeStoreMock.appendRunnerControlEvent,
@@ -114,6 +118,31 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     cleanup_after_ms: null,
     ...overrides,
   } as Job;
+}
+
+function terminalDenialRuntimeEvents(tool = 'RunCommand') {
+  return [
+    {
+      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      payload: {
+        phase: 'permission_denied',
+        tool,
+        terminal: true,
+        action: {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ tool_name: 'RunCommand', rule_content: 'npm test *' }],
+          },
+        },
+        reason: 'Denied by operator.',
+        denial_kind: 'permission_denied',
+        provenance_lane: DEFAULT_AGENT_ENGINE,
+        provenance_seam: 'gate',
+      },
+    },
+  ];
 }
 
 function makeRoute(): ConversationRoute {
@@ -230,9 +259,52 @@ function makeToolRepository(toolNames: string[]) {
 describe('jobs/execution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    runtimeStoreMock.publish.mockResolvedValue(undefined);
     runtimeStoreMock.appendRunnerControlEvent.mockResolvedValue('persisted');
     runtimeStoreMock.heartbeatRunLease.mockResolvedValue(true);
+    runtimeStoreMock.list.mockImplementation(async (filter) =>
+      runtimeStoreMock.publish.mock.calls
+        .map(([event], index) => ({
+          ...event,
+          eventId: index + 1,
+          createdAt: '2026-05-08T00:00:00.000Z',
+        }))
+        .filter(
+          (event) =>
+            (!filter?.eventTypes ||
+              filter.eventTypes.includes(event.eventType)) &&
+            (!filter?.runId || filter.runId === event.runId),
+        ),
+    );
     handleSystemJobMock.mockResolvedValue('System job completed.');
+  });
+
+  it('uses the fake execution adapter with the required runner', async () => {
+    const job = makeJob({ model: 'not-a-catalog-model' });
+    const opsRepository = makeOpsRepository(job);
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'fake adapter completed',
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+        executionAdapter: { id: 'fake:test-execution' },
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).toHaveBeenCalledOnce();
+    expect(opsRepository.claimDueJobRunStart).toHaveBeenCalledWith(
+      expect.objectContaining({ executionProviderId: 'fake:test-execution' }),
+    );
   });
 
   it('records a failed terminal run when execution throws before normal settlement', async () => {
@@ -554,8 +626,21 @@ describe('jobs/execution', () => {
     });
     const opsRepository = makeOpsRepository(job);
     const sendMessage = vi.fn(async () => undefined);
-    const error =
-      'Tool not on autonomous run allowlist: mcp__gantry__browser_act. Recovery: request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false }';
+    const error = 'Permission denied for mcp__gantry__browser_act.';
+    runtimeStoreMock.list.mockImplementation(async () => {
+      const deniedEvent = runtimeStoreMock.publish.mock.calls.find(
+        ([event]) => event?.eventType === RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+      )?.[0];
+      return deniedEvent
+        ? [
+            {
+              ...deniedEvent,
+              eventId: 1,
+              createdAt: '2026-05-08T00:00:00.000Z',
+            },
+          ]
+        : [];
+    });
     const before = getOperationalErrorCount('jobs', 'agent_run');
 
     await runJob(
@@ -570,6 +655,28 @@ describe('jobs/execution', () => {
           status: 'error',
           result: null,
           error,
+          runtimeEvents: [
+            {
+              eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+              payload: {
+                phase: 'permission_denied',
+                tool: 'mcp__gantry__browser_act',
+                terminal: true,
+                action: {
+                  kind: 'approve_grant',
+                  grant: {
+                    type: 'addRules',
+                    behavior: 'allow',
+                    rules: [{ tool_name: 'Browser' }],
+                  },
+                },
+                reason: 'Browser access is missing.',
+                denial_kind: 'permission_denied',
+                provenance_lane: DEFAULT_AGENT_ENGINE,
+                provenance_seam: 'gate',
+              },
+            },
+          ],
         })) as never,
       },
       'tg:scheduler',
@@ -584,7 +691,6 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
-      { incrementConsecutiveFailures: true },
     );
     // Autonomous not-on-allowlist denial: the RUN is a dead-end (failed); the
     // JOB still pauses for setup (asserted above) and notifies the admin.
@@ -592,7 +698,7 @@ describe('jobs/execution', () => {
       expect.any(String),
       'failed',
       null,
-      expect.stringContaining('Tool not on autonomous run allowlist'),
+      expect.stringContaining('Permission denied for'),
     );
     expect(getOperationalErrorCount('jobs', 'agent_run')).toBe(before + 1);
     const deniedEvent = runtimeStoreMock.publish.mock.calls.find(
@@ -601,8 +707,7 @@ describe('jobs/execution', () => {
     expect(deniedEvent?.payload).toEqual(
       expect.objectContaining({
         denied_tool: 'mcp__gantry__browser_act',
-        recovery_kind: 'persistent_capability',
-        recovery_action: expect.stringContaining('request_access'),
+        action: expect.objectContaining({ kind: 'approve_grant' }),
       }),
     );
     const messages = sendMessage.mock.calls.map((call) => String(call[1]));
@@ -614,6 +719,59 @@ describe('jobs/execution', () => {
     );
     expect(messages).not.toContainEqual(
       expect.stringContaining('**🔐 Needs permission** ·'),
+    );
+  });
+
+  it('routes a required denial append failure through the ordinary retry branch', async () => {
+    const job = makeJob({
+      schedule_type: 'interval',
+      schedule_value: '60000',
+      next_run: '2026-05-08T00:00:00.000Z',
+    });
+    const opsRepository = makeOpsRepository(job);
+    runtimeStoreMock.publish.mockImplementation(async (event) => {
+      if (event.eventType === RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED) {
+        throw new Error('runtime event storage unavailable');
+      }
+    });
+    runtimeStoreMock.list.mockResolvedValue([]);
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: vi.fn(async () => ({
+          status: 'error',
+          result: null,
+          error: 'Permission denied for RunCommand.',
+          runtimeEvents: terminalDenialRuntimeEvents(),
+        })) as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(opsRepository.updateJob).toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({
+        status: 'active',
+        consecutive_failures: 1,
+        pause_reason: null,
+      }),
+      { incrementConsecutiveFailures: true },
+    );
+    expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({ status: 'paused' }),
+    );
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'failed',
+      null,
+      expect.stringContaining('Failed to record terminal tool denial'),
     );
   });
 
@@ -650,6 +808,7 @@ describe('jobs/execution', () => {
           status: 'error',
           result: null,
           error,
+          runtimeEvents: terminalDenialRuntimeEvents(),
         })) as never,
       },
       'tg:scheduler',
@@ -663,7 +822,6 @@ describe('jobs/execution', () => {
         pause_reason: 'Setup required',
         lease_run_id: null,
       }),
-      { incrementConsecutiveFailures: true },
     );
     // Autonomous dead-end: run failed, job paused for setup (asserted above).
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
@@ -697,6 +855,7 @@ describe('jobs/execution', () => {
           status: 'error',
           result: null,
           error,
+          runtimeEvents: terminalDenialRuntimeEvents(),
         })) as never,
       },
       'tg:scheduler',
@@ -711,7 +870,6 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
         }),
       }),
-      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
       job.id,
@@ -740,6 +898,9 @@ describe('jobs/execution', () => {
               phase: 'permission_allowed',
               tool: 'Bash',
               mode: 'allow_once',
+              decidedBy: 'human',
+              source: 'human_once',
+              repeatableForFutureRuns: false,
               ok: true,
             },
           },
@@ -781,8 +942,8 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
           blockers: expect.arrayContaining([
             expect.objectContaining({
-              requirementId: 'RunCommand',
-              nextAction: expect.stringContaining('request_access'),
+              id: 'RunCommand',
+              action: expect.objectContaining({ kind: 'instruction' }),
             }),
           ]),
         }),
@@ -792,7 +953,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'missing_capability',
+          blocker_fingerprint: expect.any(String),
         }),
       }),
     );
@@ -1803,7 +1964,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'missing_capability',
+          blocker_fingerprint: expect.any(String),
         }),
       }),
     );
@@ -2039,7 +2200,7 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          notified: false,
+          blocker_fingerprint: readiness.setupState.fingerprint,
         }),
       }),
     );
@@ -2077,17 +2238,6 @@ describe('jobs/execution', () => {
       'completed',
       'done without browser',
       null,
-    );
-    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'job.tool_activity',
-        payload: expect.objectContaining({
-          phase: 'tool_access_preflight',
-          tool_access_requirements: ['Browser'],
-          missing_tool_access_requirements: [],
-          ok: true,
-        }),
-      }),
     );
   });
 
@@ -2174,19 +2324,6 @@ describe('jobs/execution', () => {
     );
 
     expect(runAgent).toHaveBeenCalled();
-    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'job.tool_activity',
-        payload: expect.objectContaining({
-          phase: 'tool_access_preflight',
-          tool_access_requirements: [
-            'RunCommand(/opt/homebrew/bin/acme records get *)',
-          ],
-          missing_tool_access_requirements: [],
-          ok: true,
-        }),
-      }),
-    );
   });
 
   it('fails before launch when a declared RunCommand access requirement is missing', async () => {
@@ -2236,7 +2373,7 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
           blockers: [
             expect.objectContaining({
-              requirementId: 'RunCommand(acme records update *)',
+              id: 'RunCommand(acme records update *)',
             }),
           ],
         }),
@@ -2247,10 +2384,10 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'missing_capability',
+          blocker_fingerprint: expect.any(String),
           blockers: [
             expect.objectContaining({
-              requirement_id: 'RunCommand(acme records update *)',
+              id: 'RunCommand(acme records update *)',
             }),
           ],
         }),
@@ -2289,7 +2426,21 @@ describe('jobs/execution', () => {
               phase: 'permission_denied',
               tool: 'Bash',
               ok: false,
+              terminal: true,
+              action: {
+                kind: 'approve_grant',
+                grant: {
+                  type: 'addRules',
+                  behavior: 'allow',
+                  rules: [
+                    { tool_name: 'RunCommand', rule_content: 'npm test *' },
+                  ],
+                },
+              },
               reason: 'Denied by approver.',
+              denial_kind: 'permission_denied',
+              provenance_lane: DEFAULT_AGENT_ENGINE,
+              provenance_seam: 'gate',
             },
           },
         ],
@@ -2314,13 +2465,13 @@ describe('jobs/execution', () => {
 
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'paused',
+      'failed',
       'blocked',
       expect.stringContaining('Permission denied for Bash'),
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'paused',
+      'failed',
       'blocked',
       expect.not.stringContaining('post-run usage'),
     );
@@ -2359,8 +2510,22 @@ describe('jobs/execution', () => {
               phase: 'permission_denied',
               tool: 'Bash',
               ok: false,
+              terminal: true,
+              action: {
+                kind: 'approve_grant',
+                grant: {
+                  type: 'addRules',
+                  behavior: 'allow',
+                  rules: [
+                    { tool_name: 'RunCommand', rule_content: 'npm test *' },
+                  ],
+                },
+              },
               reason:
                 'Autonomous permission approval is disabled for unattended jobs.',
+              denial_kind: 'permission_denied',
+              provenance_lane: DEFAULT_AGENT_ENGINE,
+              provenance_seam: 'gate',
             },
           },
         ],
@@ -2397,17 +2562,16 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
           blockers: [
             expect.objectContaining({
-              requirementType: 'tool',
-              requirementId: 'RunCommand',
+              type: 'tool',
+              id: 'RunCommand',
             }),
           ],
         }),
       }),
-      { incrementConsecutiveFailures: true },
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
-      'paused',
+      'failed',
       null,
       expect.stringContaining('Claude Code returned an error result'),
     );
@@ -2421,34 +2585,39 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'missing_capability',
+          blocker_fingerprint: expect.any(String),
         }),
       }),
     );
   });
 
-  it('keeps browser activity diagnostics without enforcing use after the run', async () => {
+  it('records confirmed browser activity published through the runtime event exchange', async () => {
     const job = makeJob({
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
     });
     const opsRepository = makeOpsRepository(job);
     const toolRepository = makeToolRepository(['Browser']);
-    const runAgent = vi.fn(async (_group, _input, _onProcess, onStream) => {
-      await onStream({
-        status: 'success',
-        result: null,
-        runtimeEvents: [
-          {
-            eventType: 'job.tool_activity',
-            payload: {
-              tool: 'Browser',
-              public_tool: 'browser_open',
-              action: 'navigate',
-              ok: true,
-            },
-          },
-        ],
-      } as never);
+    const openBrowserSession = vi.fn(async (profileName: string) => ({
+      profile: profileName,
+      profileName,
+      running: true,
+      cdpReady: true,
+    }));
+    const runAgent = vi.fn(async (_group, input) => {
+      await runtimeStoreMock.publish({
+        appId: 'default',
+        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        actor: 'browser',
+        jobId: 'job-1',
+        runId: input.runId,
+        payload: {
+          phase: 'browser_action',
+          tool: 'Browser',
+          public_tool: 'browser_open',
+          action: 'navigate',
+          ok: true,
+        },
+      });
       return {
         status: 'success',
         result: 'browser done',
@@ -2465,6 +2634,7 @@ describe('jobs/execution', () => {
         opsRepository: opsRepository as never,
         getToolRepository: () => toolRepository as never,
         getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+        openBrowserSession,
         runAgent: runAgent as never,
       },
       'tg:scheduler',
@@ -2604,7 +2774,7 @@ describe('jobs/execution', () => {
         eventType: 'job.completed',
         payload: expect.objectContaining({
           diagnostics: expect.objectContaining({
-            browser_activity_count: 1,
+            browser_activity_count: 0,
           }),
         }),
       }),
@@ -2652,9 +2822,12 @@ describe('jobs/execution', () => {
           state: 'browser_login_may_be_required',
           blockers: expect.arrayContaining([
             expect.objectContaining({
-              requirementType: 'browser',
-              requirementId: 'Browser',
-              nextAction: expect.stringContaining('gantry browser status'),
+              type: 'browser',
+              id: 'Browser',
+              action: expect.objectContaining({
+                kind: 'instruction',
+                text: expect.stringContaining('gantry browser status'),
+              }),
             }),
           ]),
         }),
@@ -2678,11 +2851,11 @@ describe('jobs/execution', () => {
       expect.objectContaining({
         eventType: 'job.setup_required',
         payload: expect.objectContaining({
-          setup_state: 'browser_login_may_be_required',
+          blocker_fingerprint: expect.any(String),
           blockers: expect.arrayContaining([
             expect.objectContaining({
-              requirement_type: 'browser',
-              requirement_id: 'Browser',
+              type: 'browser',
+              id: 'Browser',
             }),
           ]),
         }),
@@ -2704,6 +2877,7 @@ describe('jobs/execution', () => {
           {
             eventType: 'job.tool_activity',
             payload: {
+              phase: 'browser_action',
               tool: 'Browser',
               public_tool: 'browser_open',
               action: 'navigate',
@@ -2713,6 +2887,7 @@ describe('jobs/execution', () => {
           {
             eventType: 'job.tool_activity',
             payload: {
+              phase: 'browser_action',
               tool: 'Browser',
               public_tool: 'browser_inspect',
               action: 'snapshot',

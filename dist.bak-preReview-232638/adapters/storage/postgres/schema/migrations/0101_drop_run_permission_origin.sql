@@ -1,1 +1,0 @@
-DROP TABLE "run_permission_origin" CASCADE;

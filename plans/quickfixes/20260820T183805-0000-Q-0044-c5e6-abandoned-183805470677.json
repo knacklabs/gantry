@@ -1,0 +1,19 @@
+{
+  "event": "abandoned",
+  "id": "Q-0044-c5e6",
+  "profile": "lite",
+  "reason": "applying T4 autoreview fixes (code-point-safe truncation + drop empty structured result) in a degraded window",
+  "opened_reason": "NOTIFY-1 T4 fix: bound jobNotificationView content at construction (cap items, truncate fields, bound fallbackText) so native cards fit every provider message limit",
+  "started_at": "2026-08-20T18:26:58+00:00",
+  "completed_at": "2026-08-20T18:38:05+00:00",
+  "files": [
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/src/channels/telegram/message-action-affordances.ts",
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/channels/telegram.test.ts",
+    "apps/core/test/unit/jobs/status-formatting.test.ts"
+  ],
+  "by": "Ravi",
+  "base_sha": "13cb7cdffa40cec3b6fd06a188bcada37a15d4bf"
+}

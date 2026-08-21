@@ -682,12 +682,12 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     jid: string,
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void>;
+  ): Promise<boolean>;
   abstract requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision>;
+  ): Promise<import('../../domain/types.js').PermissionApprovalResult>;
   abstract requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,
@@ -696,5 +696,5 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   abstract isConnected(): boolean;
   abstract ownsJid(jid: string): boolean;
   abstract disconnect(): Promise<void>;
-  abstract setTyping(jid: string, isTyping: boolean): Promise<void>;
+  abstract setTyping: NonNullable<ChannelAdapter['setTyping']>;
 }

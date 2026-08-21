@@ -273,7 +273,7 @@ const requestAgentProfileUpdateHandler: TaskHandler = async (context) => {
   const requestId = `agent-profile-${globalThis.crypto.randomUUID()}`;
   const proposedContentHash = profileContentHash(content);
 
-  const decision = await deps.requestPermissionApproval({
+  const approvalResult = await deps.requestPermissionApproval({
     requestId,
     appId: data.appId as never,
     agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
@@ -334,6 +334,15 @@ const requestAgentProfileUpdateHandler: TaskHandler = async (context) => {
       diffPreview: buildProfileDiffPreview(currentContent, content),
     },
   });
+
+  if (approvalResult.kind === 'delivery_failure') {
+    reject(
+      `Couldn't deliver the profile update approval prompt: ${approvalResult.userMessage}.`,
+      'permission_review_failed',
+    );
+    return;
+  }
+  const decision = approvalResult.decision;
 
   if (!decision.approved || !decision.decidedBy) {
     const message = `Profile update declined: ${decision.reason || 'not approved'}.`;

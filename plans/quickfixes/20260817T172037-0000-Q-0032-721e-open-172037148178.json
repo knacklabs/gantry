@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0032-721e",
+  "profile": "quickfix",
+  "reason": "Jobs must stage/execute at the group/channel (conversation) level, never pinned to a topic/thread. resolveExecutionContext over-pinned execution on execution_context.threadId, so a stale/absent thread route dead-lettered runs (Execution context route not found) even when the group was active/installed (hit job-knacklabs-lead-maintenance topic 6898). Fix: execution resolves conversation-wide; thread is delivery-only. Add AGENTS.md non-negotiable + decision so it never regresses.",
+  "started_at": "2026-08-17T17:20:37+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

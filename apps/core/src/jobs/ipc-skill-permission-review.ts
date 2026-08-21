@@ -98,7 +98,7 @@ async function completeSkillPermissionReview(
     return;
   }
   await notifyLifecycle(input.onReviewStarted);
-  const decision = await input.deps.requestPermissionApproval({
+  const approvalResult = await input.deps.requestPermissionApproval({
     requestId: `skill-${globalThis.crypto.randomUUID()}`,
     appId: input.appId,
     agentId: input.agentId,
@@ -139,6 +139,14 @@ async function completeSkillPermissionReview(
       activation: 'current_and_future_sessions',
     },
   });
+  if (approvalResult.kind === 'delivery_failure') {
+    await notifyLifecycle(input.onBlocked);
+    return rejectSkillRequestFromPermission(
+      input,
+      `Couldn't deliver the approval prompt: ${approvalResult.userMessage}`,
+    );
+  }
+  const decision = approvalResult.decision;
   if (!decision.approved) {
     await notifyLifecycle(input.onRejected);
     return rejectSkillRequestFromPermission(input, decision.reason);

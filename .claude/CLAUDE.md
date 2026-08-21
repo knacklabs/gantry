@@ -9,15 +9,14 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 - Claude Code coordinates: discovery, planning, decisions, orchestration.
 - Codex executes: exploration, implementation, testing. Review is Claude's —
   run the autoreview skill DIRECTLY, loop until clean post-rescue (0011).
-- During planning, do NOT grep/read application code yourself — delegate:
-  `/codex:rescue --model gpt-5.6-terra --effort high "<question>"` (read-only
-  by default). NEVER raw `codex exec` — the hook blocks it.
+- During planning, do NOT grep/read app code yourself — delegate `/codex:rescue`
+  read-only: `gpt-5.6-terra` @ high to explore, `gpt-5.6-sol` @ xhigh to validate/debug. NEVER raw `codex exec`.
 
 ## codex-plugin-cc
 
 - `./forge delegate <task-id>` composes the brief and runs the installed companion
   with a fixed shell-free argv, deriving `--write` from stage state.
-  All direct companion Bash calls are routed back to `forge delegate`.
+  Allowlisted direct read-only status/resume/task calls pass; writes route to delegate.
 - WATCH it: `./forge codex status` (still moving?) and Monitor
   `.factory/signals.jsonl` — workers raise contradiction/confusion/blocked/
   scope-change and PAUSE; `./forge signal resolve <id> --notes "<answer>"`, then
@@ -29,9 +28,10 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 - If the plugin is unavailable, follow `docs/degraded-mode.md`.
 
 ## Ground rules
-- The planning lock is always armed. Enter PLAN MODE per `factory/prompts/planner.md`
-  or run `./forge quickfix start "<reason>"`; do not fight the hook. Grill the plan
-  (`/grill-me`); it is approved only when saved with `forge.py plan save`.
+- Session write lock always armed: PLAN MODE never unlocks product/canon; delegate
+  writes, or during a companion outage use `forge mode degraded start --reason`, grill
+  (`/grill-me`), present to the HUMAN; on approval `./forge plan approve --by
+  "<name>"` and re-save — only its marker approves.
 - Decisions: `./forge decision new <slug>`; acceptance is HUMAN chat
   confirmation — then run accept/sign-off yourself, `--by "<name>"` + trailer.
 - Recording sign-off requires confirmed specs and their derived roadmap.

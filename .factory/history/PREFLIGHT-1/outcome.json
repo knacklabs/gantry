@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Scheduled jobs are now set up with the tools they need, and setup pauses are actionable. When a scheduled run needs a builtin tool it wasn't granted (web search/read, file read/write, browser), the Setup-needed card now shows a one-tap Allow-for-future button instead of a dead-end message, on both runner lanes, so the owner grants it from chat; the grant persists the canonical selection and adds it to the job requirements. When an agent schedules a job it now declares the tools the task needs, so a missing tool surfaces as one actionable card shortly after creation (dispatched async, so creating stays fast) rather than only when a run later pauses. Jobs whose tools are all granted run with no pause. Authority stays host-reviewed and human-approved (no agent self-grant).",
+  "issue": "PREFLIGHT-1",
+  "commit": "b3706c14cb56d81592900e9652136cf57ab6825f",
+  "recorded_at": "2026-08-09T08:01:10+00:00"
+}

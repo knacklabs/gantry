@@ -1,0 +1,28 @@
+{
+  "commit": "0274a1099d9a9a5ecb99dbe549d1d0883ec7b73a",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "AUTODET-1-2 fix-and-continue loop proven on live Postgres: deterministic deny (deterministic_rails, grant-naming reason) -> job paused with ONE grantable card -> persistent grant applied through the real durable-interaction machinery (runDurablePermissionInteraction -> applyRecoveredPersistentPermissionGrant; binding agent-tool-binding:agent:job_lifecycle_agent:tool:permission-rule:<sha> written) -> readiness resume -> rerun authorized by reviewed_rule -> completion. No auto_classifier provenance in any jobId decision; no second card; classifierConsult never called. Pause-card copy renders the grant-naming reason. Full integration file 3/3 green; jobs unit lane 642/642; typecheck + check:architecture green. Three-round debugging root cause: the test's runJob deps lacked getToolRepository, so the readiness preflight silently evaluated with no tool repository and re-paused - fixed with the one missing dep and a comment.",
+    "blocking_findings": [],
+    "commands_run": [
+      "GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/gantry_test npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/job-lifecycle.postgres.integration.test.ts --reporter=junit --outputFile /tmp/autodet-junit/job-lifecycle.xml",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs/execution-finalization.test.ts --reporter=junit --outputFile /tmp/autodet-junit/execution-finalization.xml"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/integration/job-lifecycle.postgres.integration.test.ts: AUTODET-1-2 deny->pause->grant->resume->complete lifecycle proof with no-classifier assertions",
+      "apps/core/test/unit/jobs/execution-finalization.test.ts: pause card renders grant-naming reason, not raw matcher prose"
+    ],
+    "pass_fail_summary": "Integration 3/3 passed on live Postgres; unit lane 642/642; both required JUnit lanes green",
+    "remaining_gaps": [
+      "Product smell for review: execution-readiness takes deps.getToolRepository?.() and silently evaluates with undefined (treats missing repository as no bindings) - a wiring gap re-pauses jobs instead of failing loudly"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-11T13:43:51+00:00",
+    "commit": "0274a1099d9a9a5ecb99dbe549d1d0883ec7b73a"
+  },
+  "updated_at": "2026-08-11T13:43:51+00:00"
+}

@@ -4,6 +4,7 @@ import {
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
@@ -12,6 +13,7 @@ import {
   UserQuestionResponse,
 } from '../domain/types.js';
 import { isPartialMessageDeliveryError } from '../domain/messages/partial-delivery.js';
+import type { LiveUxOperationOptions } from '../domain/channel-live-ux.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
@@ -21,15 +23,21 @@ import {
   type ConversationContextHydrationResult,
 } from './channel-provider.js';
 import { discordActionComponents } from './discord-components.js';
+import { noticeManualGroupInstall } from './group-install-bootstrap.js';
 import {
   formatDiscordAgentTodo,
+  discordJobNotificationEmbed,
   postDiscordMessageParts,
   splitDiscordText,
 } from './discord-delivery.js';
-import { sendDiscordProgressUpdate } from './discord-progress.js';
+import {
+  DiscordProgressIdentityLifecycle,
+  sendDiscordProgressUpdateForRoute,
+} from './discord-progress.js';
 import {
   connectDiscordGateway,
   DiscordGatewayConnection,
+  websocketFactory,
 } from './discord-gateway.js';
 import { agentTodoStopActions } from './agent-todo-render.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from './channel-provider.js';
@@ -38,7 +46,6 @@ import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { findConversationRoutesForChat } from '../shared/thread-queue-key.js';
 import type {
   DiscordMessageCreate,
-  DiscordUser,
   WebSocketFactory,
   WebSocketLike,
 } from './discord-types.js';
@@ -53,11 +60,13 @@ import {
 import { deliverLiveDiscordMessage } from './discord-live-attachment-capture.js';
 import { DiscordInteractionHandler } from './discord-interactions.js';
 import {
+  createDiscordMessageMutations,
   discordHeaders,
-  discordReactionEmoji,
   requestDiscordJson,
   userName,
 } from './discord-http-helpers.js';
+import { DiscordLiveUxOperations } from './discord-live-ux.js';
+import { DiscordMessageChannelCache } from './discord-message-channel-cache.js';
 import { createDiscordHistoricalAttachmentFetcher } from './discord-historical-attachment-fetcher.js';
 import { StreamResetEpochs } from './stream-reset-epochs.js';
 import { resolveInboundConversationIdentity } from './inbound-conversation-identity.js';
@@ -67,14 +76,6 @@ export const DISCORD_JID_PREFIX = 'dc:';
 
 const DISCORD_API_ROOT = 'https://discord.com/api/v10';
 const DISCORD_GATEWAY_INTENTS = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
-const DISCORD_MESSAGE_CHANNEL_CACHE_TTL_MS = 10 * 60 * 1000;
-const DISCORD_MESSAGE_CHANNEL_CACHE_MAX_ENTRIES = 5000;
-
-type DiscordMessageChannelCacheEntry = {
-  channelId: string;
-  expiresAtMs: number;
-};
-
 export function normalizeDiscordJid(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -88,16 +89,15 @@ export function discordChannelIdFromJid(jid: string): string | null {
   return normalized ? normalized.slice(DISCORD_JID_PREFIX.length) : null;
 }
 
-function websocketFactory(url: string): WebSocketLike {
-  return new WebSocket(url) as unknown as WebSocketLike;
-}
-
 export class DiscordChannel implements ChannelAdapter {
   readonly reportsHistoryCoverageInboundLiveness = true;
   name = 'discord';
+  readonly liveUx;
   private gateway: DiscordGatewayConnection | null = null;
   private botUserId = '';
+  private readonly knownGuildIds = new Set<string>();
   private activeProgressMessages = new Map<string, string>();
+  private progressIdentityLifecycle = new DiscordProgressIdentityLifecycle();
   private activeStreams = new Map<
     string,
     {
@@ -115,13 +115,14 @@ export class DiscordChannel implements ChannelAdapter {
     { channelId: string; messageId: string }
   >();
   private readonly reactionKeys = new Set<string>();
-  private readonly messageChannelIds = new Map<
-    string,
-    DiscordMessageChannelCacheEntry
-  >();
+  private readonly messageChannelIds = new DiscordMessageChannelCache();
+  private readonly liveUxOperations: DiscordLiveUxOperations;
   private readonly channelContextCache: DiscordConversationContextCache =
     new Map();
   private readonly interactions: DiscordInteractionHandler;
+  private readonly messageMutations: ReturnType<
+    typeof createDiscordMessageMutations
+  >;
   readonly fetchHistoricalAttachment: ReturnType<
     typeof createDiscordHistoricalAttachmentFetcher
   >;
@@ -132,6 +133,17 @@ export class DiscordChannel implements ChannelAdapter {
     private readonly opts: ChannelOpts,
     private readonly createWebSocket: WebSocketFactory = websocketFactory,
   ) {
+    this.liveUxOperations = new DiscordLiveUxOperations({
+      botToken,
+      reactionKeys: this.reactionKeys,
+      resolveMessageChannelId: (jid, messageRef) =>
+        this.messageChannelIds.resolve(jid, messageRef),
+    });
+    this.liveUx = this.liveUxOperations.capability;
+    this.messageMutations = createDiscordMessageMutations(
+      this.requestJson.bind(this),
+      botToken,
+    );
     this.fetchHistoricalAttachment =
       createDiscordHistoricalAttachmentFetcher(botToken);
     this.interactions = new DiscordInteractionHandler({
@@ -182,8 +194,11 @@ export class DiscordChannel implements ChannelAdapter {
     if (!channelId) throw new Error(`Invalid Discord conversation id: ${jid}`);
     return postDiscordMessageParts({
       channelId,
-      parts: splitDiscordText(text),
+      parts: options.jobNotificationView ? [''] : splitDiscordText(text),
       components: discordActionComponents(options),
+      ...(options.jobNotificationView
+        ? { embeds: [discordJobNotificationEmbed(options.jobNotificationView)] }
+        : {}),
       files: options.files,
       apiRoot: DISCORD_API_ROOT,
       botToken: this.botToken,
@@ -202,29 +217,26 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     messageRef: string,
     emoji: string,
+    options: LiveUxOperationOptions = {},
   ): Promise<void> {
-    const parentChannelId = discordChannelIdFromJid(jid);
-    const channelId =
-      this.resolveMessageChannelId(this.messageChannelKey(jid, messageRef)) ||
-      parentChannelId;
-    if (!channelId || !messageRef.trim()) return;
-    const reaction = discordReactionEmoji(emoji);
-    const key = `${channelId}:${messageRef}:${reaction}`;
-    if (this.reactionKeys.has(key)) return;
-    try {
-      await this.requestJson<void>(
-        `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageRef)}/reactions/${encodeURIComponent(reaction)}/@me`,
-        {
-          method: 'PUT',
-          headers: discordHeaders(this.botToken),
-        },
-        'Discord reaction update failed',
-        false,
-      );
-      this.reactionKeys.add(key);
-    } catch (err) {
-      logger.debug({ jid, messageRef, err }, 'Discord reaction update failed');
-    }
+    await this.liveUxOperations.addReaction(jid, messageRef, emoji, options);
+  }
+
+  async removeReaction(
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options: LiveUxOperationOptions = {},
+  ): Promise<void> {
+    await this.liveUxOperations.removeReaction(jid, messageRef, emoji, options);
+  }
+
+  async setTyping(
+    jid: string,
+    isTyping: boolean,
+    options: LiveUxOperationOptions = {},
+  ): Promise<void> {
+    await this.liveUxOperations.setTyping(jid, isTyping, options);
   }
 
   async hydrateConversationContext(
@@ -245,33 +257,44 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     text: string,
     options: ProgressUpdateOptions = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     const channelId = options.threadId || discordChannelIdFromJid(jid);
-    if (!channelId) return;
+    if (!channelId) return false;
+    const progressKey =
+      options.progressCardIdentity ?? this.progressCardIdentity(jid, options);
+    return sendDiscordProgressUpdateForRoute({
+      routeKey: `${jid}\n${options.threadId ?? ''}`,
+      key: progressKey,
+      activeMessages: this.activeProgressMessages,
+      identityLifecycle: this.progressIdentityLifecycle,
+      text,
+      options,
+      post: (body, components, signal) =>
+        postDiscordMessageParts({
+          channelId,
+          parts: splitDiscordText(body),
+          components,
+          post: (target, payload) => this.postMessage(target, payload, signal),
+        }),
+      edit: (messageId, body, signal) =>
+        this.messageMutations.edit(channelId, messageId, body, signal),
+      delete: (messageId, signal) =>
+        this.messageMutations.delete(channelId, messageId, signal),
+    });
+  }
+  progressCardIdentity(
+    jid: string,
+    options: ProgressUpdateOptions = {},
+  ): string {
     const generationKey = `${jid}\n${options.threadId ?? ''}\n${options.generation ?? ''}`;
     const controlKey = `${jid}\n${options.threadId ?? ''}\ncontrol`;
     const hasStopAction = options.actionAffordances?.some(
       (action) => action.kind === 'live_turn_stop',
     );
-    const progressKey =
-      hasStopAction ||
+    return hasStopAction ||
       (options.done && this.activeProgressMessages.has(controlKey))
-        ? controlKey
-        : generationKey;
-    await sendDiscordProgressUpdate({
-      key: progressKey,
-      activeMessages: this.activeProgressMessages,
-      text,
-      options,
-      post: (body, components) =>
-        postDiscordMessageParts({
-          channelId,
-          parts: splitDiscordText(body),
-          components,
-          post: (target, payload) => this.postMessage(target, payload),
-        }),
-      edit: (messageId, body) => this.patchMessage(channelId, messageId, body),
-    });
+      ? controlKey
+      : generationKey;
   }
 
   async sendStreamingChunk(
@@ -311,7 +334,11 @@ export class DiscordChannel implements ChannelAdapter {
         components: options.done ? [] : undefined,
       };
       if (state.messageId) {
-        await this.patchMessage(state.channelId, state.messageId, body);
+        await this.messageMutations.edit(
+          state.channelId,
+          state.messageId,
+          body,
+        );
       } else {
         const posted = await this.postMessage(state.channelId, body);
         state.messageId = posted.id;
@@ -423,7 +450,11 @@ export class DiscordChannel implements ChannelAdapter {
     const existing = this.pendingTodos.get(todoKey);
     if (existing) {
       try {
-        await this.patchMessage(existing.channelId, existing.messageId, body);
+        await this.messageMutations.edit(
+          existing.channelId,
+          existing.messageId,
+          body,
+        );
         return true;
       } catch (err) {
         logger.debug(
@@ -445,12 +476,18 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision> {
+  ): Promise<PermissionApprovalResult> {
     return this.interactions.requestPermissionApproval(
       jid,
       request,
       onPromptDelivered,
     );
+  }
+
+  preparePermissionCardSend(
+    ...args: Parameters<DiscordInteractionHandler['preparePermissionCardSend']>
+  ) {
+    return this.interactions.preparePermissionCardSend(...args);
   }
 
   async requestUserAnswer(
@@ -499,42 +536,35 @@ export class DiscordChannel implements ChannelAdapter {
     });
   }
 
-  private async postJson<T>(path: string, body: unknown): Promise<T> {
+  private async postJson<T>(
+    path: string,
+    body: unknown,
+    parseJson = true,
+    signal?: AbortSignal,
+  ): Promise<T> {
     return this.requestJson<T>(
       path,
       {
         method: 'POST',
         headers: discordHeaders(this.botToken),
         body: JSON.stringify(body),
+        signal,
       },
       `Discord REST request failed: ${path}`,
+      parseJson,
     );
   }
 
   private async postMessage(
     channelId: string,
     body: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<{ id?: string }> {
     return this.postJson<{ id?: string }>(
       `/channels/${encodeURIComponent(channelId)}/messages`,
       body,
-    );
-  }
-
-  private async patchMessage(
-    channelId: string,
-    messageId: string,
-    body: Record<string, unknown>,
-  ): Promise<void> {
-    await this.requestJson<void>(
-      `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
-      {
-        method: 'PATCH',
-        headers: discordHeaders(this.botToken),
-        body: JSON.stringify(body),
-      },
-      'Discord message edit failed',
-      false,
+      true,
+      signal,
     );
   }
 
@@ -550,11 +580,51 @@ export class DiscordChannel implements ChannelAdapter {
         (this.opts.providerAccountId ? [this.opts.providerAccountId] : []),
       onReady: (ready) => {
         this.botUserId = ready.user?.id || '';
+        // READY lists every guild the bot is ALREADY in; a GUILD_CREATE for
+        // one of these is gateway synchronization, not a new install.
+        for (const guild of ready.guilds ?? []) {
+          if (guild.id) this.knownGuildIds.add(guild.id);
+        }
       },
       onMessageCreate: (message) => this.handleMessageCreate(message),
       onInteraction: (interaction) =>
         this.interactions.handleInteraction(interaction),
       onMessageAttachmentsDeleted: this.opts.onMessageAttachmentsDeleted,
+      onGuildCreate: (guild) => this.handleGuildCreate(guild),
+    });
+  }
+
+  private async handleGuildCreate(guild: {
+    id?: string;
+    system_channel_id?: string | null;
+    unavailable?: boolean;
+  }): Promise<void> {
+    const guildId = guild.id?.trim();
+    const providerAccountId = this.opts.providerAccountId?.trim();
+    if (!guildId || !providerAccountId) return;
+    // An unavailable stub precedes the full payload for a new join; deciding
+    // on it would settle the notice with no channel data. Wait for the full
+    // GUILD_CREATE.
+    if (guild.unavailable) return;
+    // Only a guild NOT announced in READY is a genuine new join; replayed
+    // GUILD_CREATEs for known guilds are connection sync noise. Deliberate
+    // limit (0119, simplicity over machinery): a guild installed while the
+    // bot was OFFLINE appears in the next READY and gets no courtesy notice
+    // - Discord registration is manual either way, and a durable membership
+    // baseline just to guarantee one best-effort message is not worth it.
+    if (this.knownGuildIds.has(guildId)) return;
+    this.knownGuildIds.add(guildId);
+    // GUILD_CREATE carries no inviter, so Discord always takes the manual
+    // path (decision 0119): one notice to the system channel when there is
+    // one, silence otherwise — never guess a channel.
+    const systemChannelId = guild.system_channel_id?.trim();
+    await noticeManualGroupInstall({
+      opts: this.opts,
+      providerAccountId,
+      dedupJid: `dc:guild:${guildId}`,
+      send: systemChannelId
+        ? (text) => this.sendMessage(`dc:${systemChannelId}`, text)
+        : async () => undefined,
     });
   }
 
@@ -569,13 +639,11 @@ export class DiscordChannel implements ChannelAdapter {
       message,
       context.conversationJid,
     );
-    if (context.threadId) {
-      this.rememberMessageChannelId(
-        context.conversationJid,
-        message.id,
-        message.channel_id,
-      );
-    }
+    this.messageChannelIds.remember(
+      context.conversationJid,
+      message.id,
+      message.channel_id,
+    );
     const matchingRoutes = findConversationRoutesForChat(
       this.opts.conversationRoutes?.() ?? {},
       context.conversationJid,
@@ -614,48 +682,6 @@ export class DiscordChannel implements ChannelAdapter {
       metadataName: identity.messageIdentity.name,
       needsStandaloneMetadataWrite: identity.needsStandaloneMetadataWrite,
     });
-  }
-
-  private messageChannelKey(jid: string, messageRef: string): string {
-    return `${jid.trim()}:${messageRef.trim()}`;
-  }
-
-  private rememberMessageChannelId(
-    jid: string,
-    messageRef: string,
-    channelId: string,
-  ): void {
-    const now = currentTimeMs();
-    const key = this.messageChannelKey(jid, messageRef);
-    this.messageChannelIds.delete(key);
-    this.messageChannelIds.set(key, {
-      channelId,
-      expiresAtMs: now + DISCORD_MESSAGE_CHANNEL_CACHE_TTL_MS,
-    });
-    this.pruneMessageChannelIds(now);
-  }
-
-  private resolveMessageChannelId(key: string): string | undefined {
-    const entry = this.messageChannelIds.get(key);
-    if (!entry) return undefined;
-    if (entry.expiresAtMs <= currentTimeMs()) {
-      this.messageChannelIds.delete(key);
-      return undefined;
-    }
-    return entry.channelId;
-  }
-
-  private pruneMessageChannelIds(now: number): void {
-    for (const [key, entry] of this.messageChannelIds) {
-      if (entry.expiresAtMs <= now) this.messageChannelIds.delete(key);
-    }
-    while (
-      this.messageChannelIds.size > DISCORD_MESSAGE_CHANNEL_CACHE_MAX_ENTRIES
-    ) {
-      const oldestKey = this.messageChannelIds.keys().next().value;
-      if (!oldestKey) break;
-      this.messageChannelIds.delete(oldestKey);
-    }
   }
 
   private resolveInteractionConversationContext(channelId: string) {

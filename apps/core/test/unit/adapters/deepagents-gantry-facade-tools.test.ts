@@ -63,7 +63,7 @@ function makeTools(
     toolNetworkEnv,
     gateContext: { conversationId: 'tg:group' },
     permissionEnv: PERMISSION_ENV,
-    lockedAccessPreset: false,
+    capabilityRequestToolsHidden: false,
     filesystemToolsEnabled,
     cwd: root,
     ...extra,
@@ -157,6 +157,25 @@ describe('Gantry DeepAgents facade tools', () => {
     expect(webRead?.schema).not.toHaveProperty('schema');
   });
 
+  it('describes explicit quarantine materialization for attachment reads', () => {
+    const root = makeRoot();
+    const tools = makeTools(root);
+    const fileSearch = tools.find((item) => item.name === 'FileSearch');
+    const fileRead = tools.find((item) => item.name === 'FileRead');
+
+    for (const description of [
+      fileSearch?.description,
+      fileRead?.description,
+    ]) {
+      expect(description).toContain('attachment_open');
+      expect(description).toContain('attachment_materialize');
+      expect(description).toContain('quarantine/');
+      expect(description).not.toContain(
+        'Never use for inbound conversation attachments',
+      );
+    }
+  });
+
   it('reads files when the host coordinator approves FileRead authority', async () => {
     const root = makeRoot();
     fs.writeFileSync(path.join(root, 'notes.txt'), 'hello facade', 'utf-8');
@@ -212,6 +231,8 @@ describe('Gantry DeepAgents facade tools', () => {
 
       expect(result).toContain('Use attachment_open');
       expect(result).toContain('attachment_ids');
+      expect(result).toContain('attachment_materialize');
+      expect(result).toContain('quarantine/');
       expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
     },
   );
@@ -261,6 +282,26 @@ describe('Gantry DeepAgents facade tools', () => {
       });
     },
   );
+
+  it('honors a terminal turn abort before an approved facade side effect', async () => {
+    const controller = new AbortController();
+    requestPermissionApprovalViaIpc.mockImplementationOnce(async () => {
+      controller.abort(new Error('terminal tool denial'));
+      return { approved: true };
+    });
+    const root = makeRoot();
+
+    await expect(
+      invoke(
+        makeTools(root, ['FileWrite'], undefined, true, {
+          signal: controller.signal,
+        }),
+        'FileWrite',
+        { path: 'must-not-exist.txt', content: 'side effect' },
+      ),
+    ).rejects.toThrow('terminal tool denial');
+    expect(fs.existsSync(path.join(root, 'must-not-exist.txt'))).toBe(false);
+  });
 
   it('bridges AgentDelegation to Gantry delegate_task when authorized', async () => {
     const root = makeRoot();

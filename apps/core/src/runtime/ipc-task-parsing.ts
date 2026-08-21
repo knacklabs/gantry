@@ -343,11 +343,12 @@ export function parseTaskIpcData(
   }
   const type = toTrimmedString(raw.type, { maxLen: 80 });
   if (!type) throw new Error('IPC task type is required');
-  if (type === 'attachment_open') {
+  if (type === 'attachment_open' || type === 'attachment_materialize') {
     validateAttachmentOpenConversationProof(
       raw,
       sourceAgentFolder,
       threadBinding,
+      type,
     );
   }
   assertNoUnsupportedSchedulerJobTaskFields(raw, type);
@@ -465,6 +466,15 @@ export function parseTaskIpcData(
   if (threadBinding.responseKeyId) {
     parsed.responseKeyId = threadBinding.responseKeyId;
   }
+  if (threadBinding.sourceJobId) {
+    parsed.sourceJobId = threadBinding.sourceJobId;
+  }
+  if (threadBinding.sourceRunId) {
+    parsed.sourceRunId = threadBinding.sourceRunId;
+  }
+  if (threadBinding.sourceRunKind) {
+    parsed.sourceRunKind = threadBinding.sourceRunKind;
+  }
   if (threadBinding.payloadThreadId !== undefined) {
     parsed.threadId = threadBinding.payloadThreadId;
   }
@@ -524,6 +534,7 @@ function validateAttachmentOpenConversationProof(
   raw: Record<string, unknown>,
   sourceAgentFolder: string,
   binding: ReturnType<typeof validateIpcAuthRequest>,
+  type: 'attachment_open' | 'attachment_materialize',
 ): void {
   const payload = isPlainObject(raw.payload) ? raw.payload : {};
   const attachmentId = toTrimmedString(payload.attachmentId, { maxLen: 512 });
@@ -542,6 +553,13 @@ function validateAttachmentOpenConversationProof(
   ) {
     throw new Error('Invalid attachment open conversation proof');
   }
+  // Strict single-candidate verification, deliberately: the proof token is
+  // host-minted with full scope (chat, thread, app, agent, provider account),
+  // and the runner env plumbing on this branch guarantees both sides hold the
+  // same scoped token. Accepting a scope-stripped candidate here would let a
+  // providerless proof authenticate a claimed provider account (the binding's
+  // providerAccountId is worker-supplied and outside the request-signing key),
+  // breaking per-account attachment isolation (RACE-3).
   const authToken = computeAttachmentIpcAuthToken(sourceAgentFolder, {
     chatJid,
     threadId: binding.authThreadId,
@@ -553,6 +571,7 @@ function validateAttachmentOpenConversationProof(
     !verifyAttachmentOpenProof(
       authToken,
       {
+        type,
         attachmentId,
         chatJid,
         taskId,

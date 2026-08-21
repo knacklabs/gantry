@@ -1,0 +1,47 @@
+{
+  "commit": "074509a5939e68f2e9f307bc38b54f86ea45917c",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "PREFLIGHT-1 (grantable facade tools + single-event async actionable creation card + declare-at-creation guidance) verified. Full verify.py passed (typecheck, architecture, format, dual-runtime, full unit suite). Focused suites: runner+application (104 files/1408 tests) and application+jobs (123 files/1558 tests) green. The agent-runner-ipc integration test spawns the real runner subprocess and proves a scheduled WebSearch (facade) miss is now grantable (request_access kind:tool, grantable:true) end to end. Live regression: the KnackLabs scheduled job's granted facade tools still authorize via reviewed_rule; a gog RunCommand pause observed was a pre-existing matcher/command-quoting issue (unquoted range arg), not touched by this change.",
+    "tests_added_or_updated": [
+      "apps/core/test/unit/shared/tool-execution-policy-service.test.ts: canonical facade tools (WebSearch/WebRead/FileRead/Browser/FileWrite/FileEdit) become grantable request_access kind:tool; third-party MCP + locked stay non-grantable; browser.use branch preserved.",
+      "apps/core/test/unit/application/setup-pause-prompt.test.ts: facade blocker raises the actionable Allow-for-future grant and appends the canonical job requirement.",
+      "apps/core/test/unit/application/job-management-create.test.ts (new): a blocked job at creation dispatches the notification port exactly once; falls back to the passive event when no port is wired.",
+      "apps/core/test/unit/application/jobs-use-cases.test.ts + jobs/ipc-scheduler-adapter-contract.test.ts: single-event creation notification wired for both Control and IPC creation paths.",
+      "apps/core/test/unit/application/prompt-profile-service.test.ts (new): the compiled full-access prompt instructs declaring a scheduled job's tools at creation (proves the guidance is live, not dead text).",
+      "apps/core/test/unit/runner/agent-runner-ipc.test.ts: scheduled WebSearch is now a grantable facade tool (updated recovery + event assertions)."
+    ],
+    "commands_run": [
+      "npm run typecheck",
+      "npm run check:architecture",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runner apps/core/test/unit/application",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application apps/core/test/unit/jobs",
+      "python3 factory/scripts/verify.py"
+    ],
+    "pass_fail_summary": "verify.py: passed (typecheck, architecture, format, dual-runtime, full unit suite).; runner+application suites: passed, 104 files, 1408 tests.; application+jobs suites: passed, 123 files, 1558 tests.; agent-runner-ipc integration: passed; scheduled WebSearch facade miss => grantable request_access kind:tool end to end.",
+    "blocking_findings": [],
+    "remaining_gaps": [
+      "The atomic notify-claim hardening for the sub-second creation-vs-scheduler race is deferred (D-0053); the check-then-mark dedup remains best-effort and is near-unreachable for normal future-scheduled jobs.",
+      "A live Part A end-to-end button tap was not exercised (requires an ungranted facade tool on the running agent); the runner IPC integration test covers the grantable path.",
+      "A pre-existing gog RunCommand matcher limitation (unquoted space-containing range arg does not match the granted rule) is out of PREFLIGHT-1 scope."
+    ],
+    "reviewed_scope": [
+      "apps/core/src/shared/tool-execution-policy-service.ts",
+      "apps/core/src/application/jobs/job-management-readiness.ts",
+      "apps/core/src/application/jobs/job-management-create.ts",
+      "apps/core/src/application/jobs/job-management-service.ts",
+      "apps/core/src/jobs/execution-readiness.ts",
+      "apps/core/src/jobs/ipc-scheduler-create-handlers.ts",
+      "apps/core/src/app/bootstrap/runtime-app.ts",
+      "apps/core/src/runner/mcp/tools/scheduler.ts",
+      "apps/core/src/application/agents/prompt-profile-service.ts"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-09T08:22:27+00:00",
+    "commit": "074509a5939e68f2e9f307bc38b54f86ea45917c"
+  },
+  "updated_at": "2026-08-09T08:22:27+00:00"
+}

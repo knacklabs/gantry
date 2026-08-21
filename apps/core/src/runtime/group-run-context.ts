@@ -96,6 +96,7 @@ function deepFreeze<T>(value: T): T {
 
 export function resolveTurnToolPolicyFromSnapshot(
   snapshot: AgentAccessSnapshot | undefined,
+  personId?: string | null,
 ): ConfiguredAgentToolPolicy {
   if (!snapshot) {
     return {
@@ -107,9 +108,12 @@ export function resolveTurnToolPolicyFromSnapshot(
   const policy = resolveAgentToolRuntimePolicyFromSnapshot({
     appId: snapshot.appId,
     errorSubject: 'Configured agent tool',
-    selectedToolDefinitionsByBinding: snapshot.tools.activeBindings.map(
-      (row) => row.definition,
-    ),
+    selectedToolDefinitionsByBinding: snapshot.tools.activeBindings
+      .filter(
+        (row) =>
+          row.binding.personId == null || row.binding.personId === personId,
+      )
+      .map((row) => row.definition),
     activeSkillDefinitions: snapshot.skills.enabledDefinitions,
   });
   return {

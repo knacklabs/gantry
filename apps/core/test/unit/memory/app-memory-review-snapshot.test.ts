@@ -160,8 +160,21 @@ interface Store {
 // vanishOnCapture simulates a concurrent delete between validation (which reads
 // items via inArray, multi-id) and single-id capture reads: an item id that
 // exists for multi-id queries but is gone for its single-id capture read.
-function makeDb(store: Store, opts?: { vanishOnCapture?: string }) {
+function makeDb(
+  store: Store,
+  opts?: {
+    vanishOnCapture?: string;
+    failOnReviewRenderLiveRead?: boolean;
+  },
+) {
   const rowsFor = (table: unknown): any[] => {
+    if (
+      opts?.failOnReviewRenderLiveRead &&
+      (table === pgSchema.memoryItemsPostgres ||
+        table === pgSchema.memoryEvidencePostgres)
+    ) {
+      throw new Error('review rendering queried live memory data');
+    }
     if (table === pgSchema.memoryEvidencePostgres)
       return [...store.evidence.values()];
     if (table === pgSchema.memoryItemsPostgres)
@@ -701,17 +714,8 @@ describe('memory review snapshot capture + immutable render', () => {
     expect(store.reviews).toHaveLength(0);
   });
 
-  it('parser rejects a schema-v1 snapshot citing evidence absent from evidence[]', async () => {
+  it('fails closed without reading live data when snapshot evidence is incomplete', async () => {
     const store = emptyStore();
-    store.items.set(
-      'mem-9',
-      itemRow({
-        id: 'mem-9',
-        kind: 'fact',
-        key: 'fact:y',
-        value: 'current live value',
-      }),
-    );
     // conflict.active cites mev-missing, but evidence[] only has mev-present.
     const snapshot: MemoryReviewSnapshot = {
       schemaVersion: 1,
@@ -754,12 +758,12 @@ describe('memory review snapshot capture + immutable render', () => {
         snapshot,
       }),
     );
-    const [review] = await listPendingMemoryReviews({
-      db: makeDb(store),
-      subject,
-    });
-    expect(review.reviewSnapshot).toBeNull();
-    expect(review.proposedChange!.before!.value).toBe('current live value');
+    await expect(
+      listPendingMemoryReviews({
+        db: makeDb(store, { failOnReviewRenderLiveRead: true }),
+        subject,
+      }),
+    ).rejects.toThrow('memory review snapshot is missing or malformed');
   });
 
   it('renders EACH review from its own snapshot: two reviews of the same item keep distinct frozen before-values', async () => {
@@ -884,20 +888,11 @@ describe('memory review snapshot capture + immutable render', () => {
     expect(b.evidence[0].createdAt).toBe('2026-02-02T00:00:00.000Z');
   });
 
-  it('incomplete schema-v1 snapshot falls back to legacy re-query render', async () => {
+  it('fails closed without reading live data when the snapshot is missing', async () => {
     const store = emptyStore();
-    store.items.set(
-      'mem-9',
-      itemRow({
-        id: 'mem-9',
-        kind: 'fact',
-        key: 'fact:y',
-        value: 'current live value',
-      }),
-    );
-    store.reviews.push({
-      ...reviewRow({
-        id: 'mrv_legacy',
+    store.reviews.push(
+      reviewRow({
+        id: 'mrv_missing_snapshot',
         proposal: {
           action: 'needs_review',
           itemId: 'mem-9',
@@ -908,15 +903,12 @@ describe('memory review snapshot capture + immutable render', () => {
         },
         snapshot: null,
       }),
-      // schemaVersion 1 but subject lacks identifiers and active lacks fields.
-      reviewSnapshotJson:
-        '{"schemaVersion":1,"subject":{},"evidence":[],"conflict":{"active":{}}}',
-    });
-    const [review] = await listPendingMemoryReviews({
-      db: makeDb(store),
-      subject,
-    });
-    expect(review.reviewSnapshot).toBeNull();
-    expect(review.proposedChange!.before!.value).toBe('current live value');
+    );
+    await expect(
+      listPendingMemoryReviews({
+        db: makeDb(store, { failOnReviewRenderLiveRead: true }),
+        subject,
+      }),
+    ).rejects.toThrow('memory review snapshot is missing or malformed');
   });
 });

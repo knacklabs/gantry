@@ -15,20 +15,45 @@ export async function routeDiscordGatewayDispatch(
     cache: DiscordConversationContextCache;
     conversationRoutes: Record<string, ConversationRoute>;
     providerAccountIds: readonly string[];
-    onReady: (ready: { user?: DiscordUser; session_id?: string }) => void;
+    onReady: (ready: {
+      user?: DiscordUser;
+      session_id?: string;
+      guilds?: Array<{ id?: string }>;
+    }) => void;
     onMessageCreate: (message: DiscordMessageCreate) => Promise<void>;
     onInteraction: (interaction: DiscordInteraction) => Promise<void>;
     onMessageAttachmentsDeleted?: (
       event: MessageAttachmentsDeleted,
     ) => Promise<void>;
+    onGuildCreate?: (guild: {
+      id?: string;
+      system_channel_id?: string | null;
+      unavailable?: boolean;
+    }) => Promise<void>;
   },
 ): Promise<void> {
   if (payload.t === 'READY') {
-    input.onReady(payload.d as { user?: DiscordUser; session_id?: string });
+    input.onReady(
+      payload.d as {
+        user?: DiscordUser;
+        session_id?: string;
+        guilds?: Array<{ id?: string }>;
+      },
+    );
     return;
   }
   if (payload.t === 'MESSAGE_CREATE') {
     await input.onMessageCreate(payload.d as DiscordMessageCreate);
+    return;
+  }
+  if (payload.t === 'GUILD_CREATE') {
+    await input.onGuildCreate?.(
+      payload.d as {
+        id?: string;
+        system_channel_id?: string | null;
+        unavailable?: boolean;
+      },
+    );
     return;
   }
   if (

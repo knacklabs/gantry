@@ -14,6 +14,12 @@ precedence:
   - gstack
   - other-skills
 
+modes:
+  lite:
+    model: "gpt-5.6-terra"
+    reasoning: "high"
+    bound: 5
+
 phases:
   discovery: # 0a
     owner: "gstack:/office-hours"
@@ -89,7 +95,7 @@ phases:
   implementation:
     owner: "codex:/codex:rescue"
     model: "gpt-5.6-sol"
-    reasoning: "medium (escalate effort to high for migrations/cross-domain/security-sensitive)"
+    reasoning: "xhigh (escalate effort to high for migrations/cross-domain/security-sensitive)"
     prompts: "factory/prompts/implementer.md"
     required_skills: # ENFORCED by feature type — the decomposition's user_facing flag:
       # the recorder refuses a user-facing testing artifact unless skills_used

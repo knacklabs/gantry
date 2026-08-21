@@ -7,6 +7,10 @@ import type {
 import type { ChannelOpts } from './channel-provider.js';
 import { historyCoverageInboundCallbacks } from './conversation-history-coverage-lifecycle.js';
 
+export function websocketFactory(url: string): WebSocketLike {
+  return new WebSocket(url) as unknown as WebSocketLike;
+}
+
 export async function connectDiscordGateway(input: {
   botToken: string;
   apiRoot: string;

@@ -799,8 +799,7 @@ describe('scheduler MCP tools', () => {
           health: {
             state: 'needs_permission',
             latestRunStatus: 'dead_lettered',
-            nextAction:
-              'request_access { "target": { "kind": "capability", "id": "browser.use" } }',
+            nextAction: 'Approve Browser access, then resume the job.',
           },
           recentRunErrors: [],
         },
@@ -956,8 +955,17 @@ describe('scheduler MCP tools', () => {
             blockers: [
               {
                 state: 'missing_capability',
-                requirementType: 'browser',
-                requirementId: 'browser.use',
+                type: 'browser',
+                id: 'browser.use',
+                summary: 'Browser access is missing.',
+                action: {
+                  kind: 'approve_grant',
+                  grant: {
+                    type: 'addRules',
+                    behavior: 'allow',
+                    rules: [{ toolName: 'Browser' }],
+                  },
+                },
               },
             ],
           },
@@ -1068,9 +1076,17 @@ describe('scheduler MCP tools', () => {
           blockers: [
             {
               state: 'missing_capability',
-              requirementType: 'semantic_capability',
-              requirementId: 'acme.records.append',
-              nextAction: '',
+              type: 'semantic_capability',
+              id: 'acme.records.append',
+              summary: 'Capability access is missing.',
+              action: {
+                kind: 'approve_grant',
+                grant: {
+                  type: 'addRules',
+                  behavior: 'allow',
+                  rules: [{ toolName: 'capability:acme.records.append' }],
+                },
+              },
             },
           ],
         },

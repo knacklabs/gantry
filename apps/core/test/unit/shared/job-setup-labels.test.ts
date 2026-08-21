@@ -1,34 +1,46 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  setupActionLabel,
+  formatJobSetupAction,
   setupReadinessLabel,
 } from '@core/shared/job-setup-labels.js';
 
 describe('job setup labels', () => {
   it('uses the review action for unreviewed semantic capabilities', () => {
     expect(
-      setupActionLabel({
-        state: 'missing_capability',
-        requirementType: 'semantic_capability',
-        requirementId: 'acme.records.append',
-        nextAction:
-          'Refresh attached source inventory, then update the job to a reviewed source-neutral capability (request it with request_access target.kind=capability).',
-      }),
+      formatJobSetupAction(
+        {
+          kind: 'instruction',
+          text: 'Refresh attached source inventory, then update the job to a reviewed source-neutral capability.',
+        },
+        {
+          state: 'missing_capability',
+          type: 'semantic_capability',
+          id: 'acme.records.append',
+        },
+      ),
     ).toBe(
-      'Refresh attached source inventory, then update the job to a reviewed source-neutral capability (request it with request_access target.kind=capability).',
+      'Refresh attached source inventory, then update the job to a reviewed source-neutral capability.',
     );
   });
 
   it('keeps approve wording for reviewed semantic capabilities', () => {
     expect(
-      setupActionLabel({
-        state: 'missing_capability',
-        requirementType: 'semantic_capability',
-        requirementId: 'acme.records.append',
-        nextAction:
-          'request_access {"target":{"kind":"capability","id":"acme.records.append"},"reason":"Append reviewed records."}',
-      }),
+      formatJobSetupAction(
+        {
+          kind: 'approve_grant',
+          grant: {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:acme.records.append' }],
+          },
+        },
+        {
+          state: 'missing_capability',
+          type: 'semantic_capability',
+          id: 'acme.records.append',
+        },
+      ),
     ).toBe('Approve Acme Records Append, then resume the job.');
   });
 

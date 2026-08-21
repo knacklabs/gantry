@@ -1,0 +1,17 @@
+{
+  "issue_key": "SETUPRACE-1",
+  "title": "Atomic claim for setup-pause notifications (close D-0053)",
+  "tracker": "linear",
+  "branch": "feat/PREFLIGHT-1-upfront-job-tool-provisioning",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-09T08:56:02+00:00",
+  "updated_at": "2026-08-09T13:16:19+00:00",
+  "plan_file": "plans/completed/SETUPRACE-1-atomic-claim-for-setup-pause-notifications-close-d-0053.md",
+  "story": "SETUPRACE-1"
+}

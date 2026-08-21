@@ -157,6 +157,11 @@ function createRunnerFixture(): {
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );
+  fs.mkdirSync(path.join(runnerDir, 'mcp'), { recursive: true });
+  fs.copyFileSync(
+    path.resolve('apps/core/src/runner/mcp/tool-provider-affinity.ts'),
+    path.join(runnerDir, 'mcp', 'tool-provider-affinity.ts'),
+  );
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-agent-system-prompt.ts'),
     path.join(runnerDir, 'gantry-agent-system-prompt.ts'),
@@ -192,6 +197,10 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/domain/events/runtime-event-types.ts'),
     path.join(domainEventsDir, 'runtime-event-types.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/domain/events/job-setup-action.ts'),
+    path.join(domainEventsDir, 'job-setup-action.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/domain/events/runtime-event-conversation.ts'),
@@ -2569,6 +2578,9 @@ describe('agent-runner IPC lifecycle', () => {
         (call?.stringPrompt as string | undefined) ??
         JSON.stringify(call?.streamMessages ?? []);
       expect(prompt).toContain('Final Job Report');
+      expect(prompt).toContain('Scheduler control is inspect-only');
+      expect(prompt).toContain('proposedJobChange');
+      expect(prompt).not.toContain('use scheduler_update_job to remove it');
       expect(prompt).toContain('found, added, skipped, and errors');
       expect(prompt).toContain('Durable tool rules for this autonomous run:');
       expect(prompt).toContain(
@@ -2988,7 +3000,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs deny unsupported exact tool grants without permission prompts',
+    'scheduled jobs consult the host then terminate an ungranted (but grantable) facade tool',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -3011,15 +3023,39 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionDecision).toEqual(
         expect.objectContaining({
           behavior: 'deny',
-          interrupt: false,
+          interrupt: true,
         }),
       );
+      // PREFLIGHT-1 Part A: WebSearch is a builtin facade tool, so its recovery is
+      // now a grantable request_access (kind:tool) rather than the non-grantable
+      // "exact tool grants are not accepted" fallback. The fixture doesn't grant
+      // it, so the host still denies and the scheduled run still terminates — but
+      // the owner now gets a one-tap grant on the setup card.
+      expect(String(call?.permissionDecision?.message)).toContain('WebSearch');
       expect(String(call?.permissionDecision?.message)).toContain(
-        'Use a reviewed semantic capability from the Agent Access summary for WebSearch',
+        'request_access',
       );
+      // The scheduled worker-local miss consults the host reviewed-rule decision
+      // before the deny becomes terminal, so a permission request is written.
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
-      ).toBe(false);
+      ).toBe(true);
+      const runtimeEvents = readRunnerOutputs(result.stdout).flatMap(
+        (output) =>
+          Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
+      ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
+      expect(runtimeEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: 'job.tool_activity',
+            payload: expect.objectContaining({
+              phase: 'permission_denied',
+              tool: 'WebSearch',
+              action: expect.objectContaining({ kind: 'approve_grant' }),
+            }),
+          }),
+        ]),
+      );
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

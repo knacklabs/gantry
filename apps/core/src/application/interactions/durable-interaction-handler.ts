@@ -1,6 +1,7 @@
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../../domain/types.js';
@@ -36,8 +37,10 @@ export async function beginDurablePermissionInteraction(input: {
   payload: Record<string, unknown>;
   callbackRoute?: Record<string, unknown> | null;
   operations?: DurableInteractionOperations;
-}): Promise<void> {
+}): Promise<boolean> {
+  const interactionId = globalThis.crypto.randomUUID();
   const recorded = await (input.operations ?? defaultOperations).record({
+    interactionId,
     kind: 'permission',
     sourceAgentFolder: input.sourceAgentFolder,
     requestId: input.request.requestId,
@@ -49,6 +52,7 @@ export async function beginDurablePermissionInteraction(input: {
     callbackRoute: input.callbackRoute,
   });
   if (!recorded) throw new Error('Permission prompt was not durably recorded');
+  return typeof recorded !== 'boolean' && recorded.id === interactionId;
 }
 
 export async function finishDurablePermissionInteraction(input: {
@@ -122,19 +126,34 @@ export async function resolveDurablePermissionInteractionOutcome(input: {
   return resolvePendingInteractionRecordOutcome(resolution);
 }
 
+export type DurablePermissionInteractionResult =
+  | {
+      kind: 'decision';
+      began: boolean;
+      decision: PermissionApprovalDecision;
+      resolved: boolean;
+    }
+  | {
+      kind: 'delivery_failure';
+      began: boolean;
+      failure: Extract<PermissionApprovalResult, { kind: 'delivery_failure' }>;
+      resolved: false;
+    };
+
 export async function runDurablePermissionInteraction(input: {
   request: PermissionApprovalRequest;
   sourceAgentFolder: string;
   prompt: (
     request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>;
+  ) => Promise<PermissionApprovalResult>;
   beforePrompt?: () => Promise<void> | void;
   afterDecision?: (
     decision: PermissionApprovalDecision,
   ) => Promise<void> | void;
+  skipPromptWhenAlreadyPending?: boolean;
   operations?: DurableInteractionOperations;
-}): Promise<{ decision: PermissionApprovalDecision; resolved: boolean }> {
-  await beginDurablePermissionInteraction({
+}): Promise<DurablePermissionInteractionResult> {
+  const began = await beginDurablePermissionInteraction({
     request: input.request,
     sourceAgentFolder: input.sourceAgentFolder,
     operations: input.operations,
@@ -149,8 +168,33 @@ export async function runDurablePermissionInteraction(input: {
     },
     callbackRoute: null,
   });
+  // Default contract is always-prompt (the original behavior): dedup for the
+  // general permission flow lives in the record idempotency + requester
+  // coalescer, not here. Only setup-pause opts into skip so a deduped
+  // readiness check does not re-raise a prompt and can route via `began`.
+  if (!began && input.skipPromptWhenAlreadyPending) {
+    return {
+      kind: 'decision',
+      began: false,
+      decision: {
+        approved: false,
+        mode: 'cancel',
+        reason: 'A durable permission interaction is already pending.',
+      },
+      resolved: false,
+    };
+  }
   await input.beforePrompt?.();
-  const decision = await input.prompt(input.request);
+  const result = await input.prompt(input.request);
+  if (result.kind === 'delivery_failure') {
+    return {
+      kind: 'delivery_failure',
+      began,
+      failure: result,
+      resolved: false,
+    };
+  }
+  const decision = result.decision;
   try {
     await input.afterDecision?.(decision);
   } catch (err) {
@@ -164,7 +208,7 @@ export async function runDurablePermissionInteraction(input: {
     updatedPermissions: decision.updatedPermissions,
     operations: input.operations,
   });
-  return { decision, resolved };
+  return { kind: 'decision', began, decision, resolved };
 }
 
 async function releaseDecisionClaim(

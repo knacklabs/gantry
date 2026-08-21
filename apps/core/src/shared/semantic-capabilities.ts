@@ -198,14 +198,6 @@ export function semanticCapabilityRuntimeRules(
     if (binding.kind === 'mcp_pattern') {
       return mcpPatternBindingRuntimeRules(binding);
     }
-    if (
-      binding.kind === 'local_cli' &&
-      capability.credentialSource === 'local_cli'
-    ) {
-      return (binding.commandTemplates ?? []).map(
-        (template) => `${RUN_COMMAND_TOOL_NAME}(${template.trim()})`,
-      );
-    }
     return [];
   });
   return [...new Set(rules.filter(Boolean))];
@@ -541,7 +533,7 @@ function validateLocalCliBinding(
   return { ok: true };
 }
 
-function validateLocalCliCommandTemplate(
+export function validateLocalCliCommandTemplate(
   executablePath: string,
   commandTemplate: string,
   options: { allowWildcard?: boolean } = { allowWildcard: true },

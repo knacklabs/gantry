@@ -31,6 +31,33 @@ import type {
   BrainDreamDecisionWrite,
 } from '@core/brain/brain-repository.js';
 
+const brainDreamReviews = {
+  createBrainDreamReview: async (input: {
+    id: string;
+    appId: string;
+    runId?: string | null;
+    decisionId: string;
+    action: string;
+    canonicalOp: Record<string, unknown>;
+    reviewSnapshot: Record<string, unknown>;
+    nowIso: string;
+  }) => ({
+    ok: true as const,
+    review: {
+      ...input,
+      runId: input.runId ?? null,
+      state: 'pending_review' as const,
+      reviewerUserId: null,
+      reviewerConversationJid: null,
+      reviewerProviderAccountId: null,
+      createdAt: input.nowIso,
+      decidedAt: null,
+      outcome: null,
+      error: null,
+    },
+  }),
+} as never;
+
 describe('company brain core', () => {
   it('parses a frontmatter-only page without leaking metadata into the body', () => {
     const parsed = parseBrainMarkdown(
@@ -368,6 +395,7 @@ Alice works at Acme.`,
     const summary = await applyBrainDreamOperations({
       brain,
       repository: repo,
+      reviews: brainDreamReviews,
       appId: 'default',
       runId: 'bdr_test',
       evidencePages: [evidence],
@@ -538,6 +566,7 @@ Alice works at Acme.`,
       runBrainDreamBatch({
         brain,
         repository: repo,
+        reviews: brainDreamReviews,
         appId: 'default',
         signal: controller.signal,
         proposer: {
@@ -567,6 +596,7 @@ Alice works at Acme.`,
       runBrainDreamBatch({
         brain,
         repository: repo,
+        reviews: brainDreamReviews,
         appId: 'default',
         proposer: {
           propose: async () => {
@@ -613,13 +643,14 @@ Alice works at Acme.`,
         markdown: 'Alice works at Acme.',
         evidencePageIds: [evidence.id],
       },
-      { action: 'merge_entities', from: 'Alice', to: 'Alicia' },
+      { action: 'delete_page', page_id: evidence.id },
       { action: 'upsert_entity', kind: 'planet', name: 'Mars' },
     ];
 
     const first = await applyBrainDreamOperations({
       brain,
       repository: repo,
+      reviews: brainDreamReviews,
       appId: 'default',
       runId: 'run-one',
       page: evidence,
@@ -634,6 +665,7 @@ Alice works at Acme.`,
     const second = await applyBrainDreamOperations({
       brain,
       repository: repo,
+      reviews: brainDreamReviews,
       appId: 'default',
       runId: 'run-two',
       page: evidence,
@@ -666,6 +698,7 @@ Alice works at Acme.`,
     const result = await runBrainDreamBatch({
       brain,
       repository: repo,
+      reviews: brainDreamReviews,
       appId: 'default',
       proposer: {
         propose: async ({ pages }) => [

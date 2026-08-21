@@ -996,9 +996,11 @@ describe('control job trigger', () => {
           state: 'missing_capability',
           blockers: [
             expect.objectContaining({
-              requirementType: 'browser',
-              requirementId: 'Browser',
-              nextAction: expect.stringContaining('Browser'),
+              type: 'browser',
+              id: 'Browser',
+              action: expect.objectContaining({
+                kind: 'approve_grant',
+              }),
             }),
           ],
         },

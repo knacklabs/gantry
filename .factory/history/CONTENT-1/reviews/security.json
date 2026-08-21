@@ -1,0 +1,22 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Bearer token restricted to https *.slack.com (remote-file SSRF rejected with test), replace_all destructive gate via single-use preflight id, write authority never minted for shared-in canvases, IPC strict field allowlist and byte/codepoint bounds; vendored companion gate hardened to a provable read-only grammar (verb+option allowlists, expansion/glob/pager denial).",
+  "blocking_findings": [],
+  "residual_risks": [
+    "Companion gate soundness rests on deny-on-unverifiable; future companion verbs/flags must be allowlisted deliberately."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/channels/slack/canvas*.ts",
+    "apps/core/src/jobs/ipc-canvas-handlers.ts",
+    "apps/core/src/runner/mcp/tools/canvas.ts",
+    "apps/core/src/cli/slack-install-scopes.ts",
+    "apps/core/src/cli/slack.ts",
+    "factory/scripts/pre_tool_use.py (vendored)"
+  ],
+  "recommendation": "ship",
+  "aspect": "security",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-04T16:03:34+00:00",
+  "commit": "0e6736dce262fc596b4b6fe16ccb2e8cabfcf2c3"
+}

@@ -1,0 +1,22 @@
+{
+  "generated_by": "autoreview",
+  "score": 10,
+  "summary": "Local Codex security review found no new trust boundary, authorization path, secret handling, data exposure, or unsafe runtime default.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recommendation": "Approve; TruffleHog found zero verified or unknown secrets in the complete branch diff.",
+  "reviewed_scope": [
+    "complete branch diff",
+    "configuration and secret policy",
+    "CI and checker changes",
+    "TruffleHog diff scan",
+    "runtime trust-boundary unchanged proof"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "aspect": "security",
+  "recorded_at": "2026-08-21T08:00:51+00:00",
+  "commit": "215a065ab85a22b9a7aee09694246474bf764c3f"
+}

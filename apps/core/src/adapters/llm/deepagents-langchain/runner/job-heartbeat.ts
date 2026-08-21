@@ -96,6 +96,7 @@ export function startDeepAgentJobHeartbeat(input: {
 
   const timer = setInterval(emitHeartbeat, JOB_HEARTBEAT_INTERVAL_MS);
   timer.unref?.();
+  let stopped = false;
 
   return {
     markActivity,
@@ -108,7 +109,12 @@ export function startDeepAgentJobHeartbeat(input: {
       lastTool = currentTool;
       lastActivityAtMs = nowMs();
     },
-    stop: () => clearInterval(timer),
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(timer);
+      emitHeartbeat();
+    },
   };
 }
 

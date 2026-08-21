@@ -6,11 +6,13 @@ import {
 import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { jobSetupRequiredEventPayload } from '../domain/events/job-setup-required.js';
 import type { SchedulerEventAppSession } from './app-session-resolution.js';
 import { notifySchedulerSetupRequired } from './execution-notifications.js';
 import { readImageCapabilityInventory } from '../shared/worker-image-inventory.js';
 import { getDeploymentMode } from '../config/index.js';
 import {
+  getRuntimeEventExchange,
   getRuntimeStorage,
   getWorkerCoordinationRepository,
 } from '../adapters/storage/postgres/runtime-store.js';
@@ -23,13 +25,17 @@ import {
   assertHostAccessSnapshot,
   type AgentAccessSnapshot,
 } from '../application/agent-execution/agent-access-snapshot.js';
+import { raiseSetupPausePermissionPrompt } from '../application/jobs/setup-pause-permission-prompt.js';
+import { logger } from '../infrastructure/logging/logger.js';
+import type { JobSetupRequiredNotificationPort } from '../application/jobs/job-management-types.js';
 
 type JobSetupCheckSource =
   | 'preflight_setup'
   | 'final_setup'
   | 'permission_denied'
   | 'permission_timeout'
-  | 'transient_permission';
+  | 'transient_permission'
+  | 'partial_recovery';
 
 export async function pauseJobForSetupIfNeeded(input: {
   currentJob: Job;
@@ -153,19 +159,88 @@ async function pauseAndNotify(input: {
 
 export async function notifyJobSetupRequired(input: {
   currentJob: Job;
-  deps: SchedulerDependencies;
+  deps: {
+    sendMessage: SchedulerDependencies['sendMessage'];
+    opsRepository: Pick<
+      SchedulerDependencies['opsRepository'],
+      'markJobSetupNotified'
+    >;
+  };
   runtimeAppId: string;
   appSession?: SchedulerEventAppSession;
   setupState: NonNullable<Job['setup_state']>;
+  previousFingerprint?: string | null;
   source?: JobSetupCheckSource;
   runId?: string | null;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
+  suppressNotification?: boolean;
 }): Promise<boolean> {
-  const notified = await notifySchedulerSetupRequired({
-    job: input.currentJob,
-    setupState: input.setupState,
-    sendMessage: input.deps.sendMessage,
-  });
+  const notificationEligible =
+    !input.suppressNotification &&
+    !input.currentJob.silent &&
+    input.setupState.notified_fingerprint !== input.setupState.fingerprint;
+  let prompt: Awaited<ReturnType<typeof raiseSetupPausePermissionPrompt>> = {
+    status: 'instruction_only',
+    notificationEligible: true,
+  };
+  let promptPreparationFailed = false;
+  if (notificationEligible) {
+    try {
+      prompt = await raiseSetupPausePermissionPrompt({
+        jobId: input.currentJob.id,
+        setupFingerprint: input.setupState.fingerprint,
+        previousFingerprint:
+          input.previousFingerprint ??
+          input.currentJob.setup_state?.fingerprint,
+        source: input.source,
+        runId: input.runId,
+      });
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          jobId: input.currentJob.id,
+          setupFingerprint: input.setupState.fingerprint,
+        },
+        'Failed to prepare setup-pause permission prompt; continuing with setup card',
+      );
+      promptPreparationFailed = true;
+    }
+  }
+  // The durable setup event MUST publish even when preparation or notification
+  // faults. Approval-card delivery is now owned solely by the prepared outbound
+  // aggregate; this path may still notify other configured routes, but it never
+  // sends a synchronous fallback to the approver route.
+  let notified = false;
+  try {
+    const cardNotified = !notificationEligible
+      ? false
+      : prompt.status === 'instruction_only' &&
+          prompt.notificationEligible === false
+        ? false
+        : await notifySchedulerSetupRequired({
+            job: input.currentJob,
+            setupState: input.setupState,
+            source: input.source,
+            runId: input.runId,
+            ...(prompt.status === 'raised' ||
+            prompt.status === 'already_pending'
+              ? { excludeRoute: prompt.approverRoute }
+              : {}),
+            sendMessage: input.deps.sendMessage,
+          });
+    notified =
+      prompt.status === 'raised' || prompt.status === 'already_pending'
+        ? false
+        : promptPreparationFailed
+          ? false
+          : cardNotified;
+  } catch (err) {
+    logger.warn(
+      { err, jobId: input.currentJob.id },
+      'Failed to send setup-pause card; publishing setup event as not-notified',
+    );
+  }
   if (notified) {
     await input.deps.opsRepository.markJobSetupNotified(
       input.currentJob.id,
@@ -175,18 +250,11 @@ export async function notifyJobSetupRequired(input: {
   await input.publishRuntimeEvent({
     appId: (input.appSession?.appId ?? input.runtimeAppId) as never,
     eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
-    payload: {
+    payload: jobSetupRequiredEventPayload({
       jobId: input.currentJob.id,
-      setup_state: input.setupState.state,
-      blocker_fingerprint: input.setupState.fingerprint,
+      setupState: input.setupState,
       notified,
-      blockers: input.setupState.blockers.map((blocker) => ({
-        state: blocker.state,
-        requirement_type: blocker.requirementType,
-        requirement_id: blocker.requirementId,
-        next_action: blocker.nextAction,
-      })),
-    },
+    }),
     actor: 'scheduler',
     sessionId: input.appSession?.sessionId as never,
     jobId: input.currentJob.id as never,
@@ -194,4 +262,87 @@ export async function notifyJobSetupRequired(input: {
     webhookId: input.appSession?.defaultWebhookId,
   });
   return notified;
+}
+
+export async function notifyCreatedJobSetupRequired(input: {
+  jobId: string;
+  deps: {
+    sendMessage: SchedulerDependencies['sendMessage'];
+    opsRepository: Pick<
+      SchedulerDependencies['opsRepository'],
+      'getJobById' | 'markJobSetupNotified'
+    >;
+  };
+  runtimeAppId: string;
+  appSession?: SchedulerEventAppSession;
+  publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
+}): Promise<boolean> {
+  const currentJob = await input.deps.opsRepository.getJobById(input.jobId);
+  if (!currentJob) return false;
+  // This runs asynchronously after job creation, so the job may have been
+  // resumed, re-evaluated, or already notified in the meantime. Revalidate
+  // against the freshly loaded job and notify with ITS current setup state —
+  // using the stale creation snapshot would bypass the notified-fingerprint
+  // dedup and could deliver a duplicate or obsolete card.
+  // ponytail: the notified-fingerprint dedup is check-then-mark, not an atomic
+  // claim, so a job that is *run* within this sub-second window could still get a
+  // second card from the scheduler's run-path notify. Near-unreachable for normal
+  // future-scheduled jobs; atomic claim-before-send hardening is deferred (D-0053).
+  // The captured appSession is the freshly-created job's owner; a re-upsert to a
+  // *different* session inside this window could misroute the card — same deferred
+  // race class (D-0053), accepted rather than re-resolved here.
+  const currentSetupState = currentJob.setup_state;
+  if (!currentSetupState || currentSetupState.state === 'ready') {
+    return false;
+  }
+  return notifyJobSetupRequired({
+    currentJob,
+    deps: input.deps,
+    runtimeAppId: input.runtimeAppId,
+    appSession: input.appSession,
+    setupState: currentSetupState,
+    source: 'preflight_setup',
+    publishRuntimeEvent: input.publishRuntimeEvent,
+  });
+}
+
+export function createJobSetupRequiredNotificationPort(
+  sendMessage: SchedulerDependencies['sendMessage'],
+  resolveOpsRepository: () => Pick<
+    SchedulerDependencies['opsRepository'],
+    'getJobById' | 'markJobSetupNotified'
+  >,
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => void | Promise<void>,
+): JobSetupRequiredNotificationPort {
+  return {
+    notify: (input) => {
+      void notifyCreatedJobSetupRequired({
+        jobId: input.jobId,
+        // Resolve the repository lazily at notify time (not at construction) and
+        // bind to the one the creating service actually persists through, so the
+        // freshly created job is readable in dependency-injected / alternate-
+        // storage compositions without forcing storage to exist at bootstrap.
+        deps: { sendMessage, opsRepository: resolveOpsRepository() },
+        runtimeAppId: input.appId,
+        appSession: input.appSession
+          ? {
+              ...input.appSession,
+              defaultResponseMode: input.appSession.defaultResponseMode ?? null,
+            }
+          : undefined,
+        publishRuntimeEvent: async (event) => {
+          await (publishRuntimeEvent
+            ? publishRuntimeEvent(event)
+            : getRuntimeEventExchange().publish(event));
+        },
+      }).catch((err) => {
+        logger.warn(
+          { err, jobId: input.jobId },
+          'Failed to notify setup pause after job creation',
+        );
+      });
+    },
+  };
 }

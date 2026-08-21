@@ -2,13 +2,43 @@
 """forge — the harness CLI. `./forge <command>` from the repo root.
 
 Commands include doctor, init/adopt/upgrade, next, board, spec, plan,
-quickfix, roadmap, context, and decision management.
+quickfix, mode, roadmap, context, and decision management.
 Implementations live in forge_cli/ — one module per concern; this file is
 argument wiring only.
 """
 from __future__ import annotations
 
+import sys
+
+# Read-only commands (e.g. `forge sanitise --check`) must not mutate the tree.
+# Importing submodules would otherwise write __pycache__/*.pyc, which both
+# breaks the read-only contract and gets reported as untracked cruft by the
+# very command that triggered it. Set this before any local import.
+sys.dont_write_bytecode = True
+
 import argparse
+import os
+from pathlib import Path
+
+HOOK_SCRIPTS = {
+    "pre_compact": "pre_compact.py",
+    "pre_tool_use": "pre_tool_use.py",
+    "session_start": "session_start.py",
+    "stop_continue": "stop_continue.py",
+}
+
+
+def _exec_hook(name: str) -> None:
+    script = HOOK_SCRIPTS.get(name)
+    if script is None:
+        print(f"unknown hook: {name}", file=sys.stderr)
+        raise SystemExit(2)
+    path = Path(__file__).resolve().parent / script
+    os.execv(sys.executable, [sys.executable, str(path)])
+
+
+if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "hook":
+    _exec_hook(sys.argv[2])
 
 from forge_cli import adopt as adopt_mod
 from forge_cli import audit as audit_mod
@@ -16,22 +46,34 @@ from forge_cli import board as board_mod
 from forge_cli import codex_status
 from forge_cli import assumptions as assumptions_mod
 from forge_cli import context as ctx
-from forge_cli import deferrals as deferrals_mod
 from forge_cli import delegate as delegate_mod
+from forge_cli import deferrals as deferrals_mod
 from forge_cli import findings as findings_mod
+from forge_cli import fix as fix_mod
 from forge_cli import lessons as lessons_mod
 from forge_cli import outcome as outcome_mod
+from forge_cli import project as project_mod
 from forge_cli import quickfix as quickfix_mod
+from forge_cli import review_brief as review_brief_mod
 from forge_cli import scratchpad as scratchpad_mod
+from forge_cli import sanitise as sanitise_mod
 from forge_cli import stages as stages_mod
 from forge_cli import gstack as gstack_mod
+from forge_cli import history as history_mod
 from forge_cli import signal as signal_mod
-from forge_cli import decisions, doctor, phase, plans, roadmap, scaffold, specs, team, upgrade
+from forge_cli import (
+    decisions, doctor, phase, plans, roadmap, scaffold, specs, tasks as tasks_mod,
+    team, upgrade,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="forge", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_hook = sub.add_parser("hook", help="execute a registered factory hook")
+    p_hook.add_argument("name", choices=sorted(HOOK_SCRIPTS))
+    p_hook.set_defaults(func=lambda args: _exec_hook(args.name))
 
     p_doc = sub.add_parser("doctor", help="check machine prerequisites for the harness")
     p_doc.add_argument("--fix", action="store_true",
@@ -40,14 +82,54 @@ def main() -> None:
                        help="millisecond existence-only check (what the session hook runs)")
     p_doc.set_defaults(func=doctor.cmd_doctor)
 
+    p_sanitise = sub.add_parser(
+        "sanitise", help="report repo hygiene issues and apply only safe fixes")
+    p_sanitise.add_argument(
+        "--check", action="store_true", help="report issues without changing anything")
+    p_sanitise.add_argument("--repo")
+    p_sanitise.set_defaults(func=sanitise_mod.cmd_sanitise)
+
     p_next = sub.add_parser("next", help="where am I and what do I do now (deterministic)")
     p_next.add_argument("--repo")
     p_next.set_defaults(func=phase.cmd_next)
+
+    p_history = sub.add_parser("history", help="read the committed project event timeline")
+    p_history.add_argument("--story", help="show only events attributed to this story")
+    p_history.add_argument("--event", help="show only this event type")
+    p_history.add_argument("--since", help="show events on or after this ISO date prefix")
+    p_history.add_argument("--until", help="show events on or before this ISO date prefix")
+    p_history.add_argument("--repo")
+    p_history.set_defaults(func=history_mod.cmd_history)
+
+    p_pr_link = sub.add_parser(
+        "pr-link", help="record the merged PR that shipped a story")
+    p_pr_link.add_argument("story", help="story or issue key")
+    p_pr_link.add_argument("reference", help="merged PR reference")
+    p_pr_link.add_argument("--repo")
+    p_pr_link.set_defaults(func=history_mod.cmd_pr_link)
 
     p_board = sub.add_parser("board", help="open the read-only local lifecycle board")
     p_board.add_argument("--port", type=int, default=8765)
     p_board.add_argument("--repo")
     p_board.set_defaults(func=board_mod.cmd_board)
+
+    p_project = sub.add_parser("project", help="inspect project-level contract gaps")
+    project_sub = p_project.add_subparsers(dest="project_command", required=True)
+    p_project_audit = project_sub.add_parser(
+        "audit", help="check done stories, pending story shape, and vendor integrity")
+    p_project_audit.add_argument("--repo")
+    p_project_audit.set_defaults(func=project_mod.cmd_audit)
+    p_project_backfill = project_sub.add_parser(
+        "backfill", help="repair legacy done-story cards and PR links")
+    p_project_backfill.add_argument("--repo")
+    p_project_backfill.set_defaults(func=project_mod.cmd_backfill)
+    p_project_mark_predates = project_sub.add_parser(
+        "mark-predates", help="human-confirm that a story predates the outcome contract")
+    p_project_mark_predates.add_argument("key", help="story or issue key")
+    p_project_mark_predates.add_argument(
+        "--reason", required=True, help="why this story predates the outcome contract")
+    p_project_mark_predates.add_argument("--repo")
+    p_project_mark_predates.set_defaults(func=project_mod.cmd_mark_predates)
 
     p_init = sub.add_parser("init", help="scaffold a new client repo from this harness")
     p_init.add_argument("--name", required=True)
@@ -71,7 +153,8 @@ def main() -> None:
 
     p_plan = sub.add_parser("plan", help="manage task plans")
     plan_sub = p_plan.add_subparsers(dest="plan_command", required=True)
-    p_save = plan_sub.add_parser("save", help="persist an approved plan into plans/active/")
+    p_save = plan_sub.add_parser(
+        "save", help="validate and persist a plan for human approval")
     p_save.add_argument("--from", dest="source", required=True,
                         help="path to the approved plan file (e.g. the Claude Code plan)")
     p_save.add_argument("--issue", help="issue key (defaults to .factory/run.json)")
@@ -80,6 +163,12 @@ def main() -> None:
                         help="roadmap story key (defaults to the active issue key)")
     p_save.add_argument("--repo", help="target repo (defaults to this repo)")
     p_save.set_defaults(func=plans.cmd_save)
+    p_approve = plan_sub.add_parser(
+        "approve", help="record a human's approval of the current plan body")
+    p_approve.add_argument("--by", required=True, help="the human confirming (not an agent)")
+    p_approve.add_argument("--issue", help="select the plan by issue key (no run state / several active)")
+    p_approve.add_argument("--repo", help="target repo (defaults to this repo)")
+    p_approve.set_defaults(func=plans.cmd_approve)
     p_pl = plan_sub.add_parser("list", help="show plans, roadmap status, and stage progress")
     p_pl.add_argument("--repo")
     p_pl.set_defaults(func=plans.cmd_list)
@@ -89,6 +178,39 @@ def main() -> None:
     p_assume.add_argument("--issue", help="issue key (defaults to .factory/run.json)")
     p_assume.add_argument("--repo")
     p_assume.set_defaults(func=plans.cmd_assume)
+
+    p_task = sub.add_parser("task", help="manage per-task plans and approval")
+    task_sub = p_task.add_subparsers(dest="task_command", required=True)
+    p_task_start = task_sub.add_parser(
+        "start", help="create a task branch and sibling worktree from origin/main",
+    )
+    p_task_start.add_argument("id", help="task id")
+    p_task_start.add_argument("--repo")
+    p_task_start.set_defaults(func=tasks_mod.cmd_task_start)
+    p_task_pr_ready = task_sub.add_parser(
+        "pr-ready", help="seal one completed task and open its PR to main",
+    )
+    p_task_pr_ready.add_argument("id", help="task id")
+    p_task_pr_ready.add_argument("--repo")
+    p_task_pr_ready.set_defaults(func=tasks_mod.cmd_task_pr_ready)
+    p_task_plan = task_sub.add_parser("plan", help="manage a task plan")
+    task_plan_sub = p_task_plan.add_subparsers(
+        dest="task_plan_command", required=True,
+    )
+    p_task_plan_save = task_plan_sub.add_parser(
+        "save", help="save a plan-mode plan for one task",
+    )
+    p_task_plan_save.add_argument("id", help="task id")
+    p_task_plan_save.add_argument("--from", dest="source", required=True)
+    p_task_plan_save.add_argument("--repo")
+    p_task_plan_save.set_defaults(func=tasks_mod.cmd_plan_save)
+    p_task_approve = task_sub.add_parser(
+        "approve", help="record human approval of a saved task plan",
+    )
+    p_task_approve.add_argument("id", help="task id")
+    p_task_approve.add_argument("--by", required=True, help="approving human")
+    p_task_approve.add_argument("--repo")
+    p_task_approve.set_defaults(func=tasks_mod.cmd_approve)
 
     p_qf = sub.add_parser("quickfix", help="bounded, ledgered planning-lock escape hatch")
     qf_sub = p_qf.add_subparsers(dest="quickfix_command", required=True)
@@ -102,6 +224,36 @@ def main() -> None:
     p_qfl = qf_sub.add_parser("list", help="show the active and completed quickfixes")
     p_qfl.add_argument("--repo")
     p_qfl.set_defaults(func=quickfix_mod.cmd_list)
+
+    p_mode = sub.add_parser("mode", help="manage developer-selected workflow modes")
+    mode_sub = p_mode.add_subparsers(dest="mode_command", required=True)
+    p_ml = mode_sub.add_parser("lite", help="open a lite workflow window")
+    p_ml.add_argument("--by", required=True, help="person opening the lite window")
+    p_ml.add_argument("--reason", required=True, help="why lite mode is appropriate")
+    p_ml.add_argument("--repo")
+    p_ml.set_defaults(func=quickfix_mod.cmd_lite)
+    p_mdeg = mode_sub.add_parser("degraded", help="manage a degraded write window")
+    degraded_sub = p_mdeg.add_subparsers(dest="degraded_command", required=True)
+    p_mdegs = degraded_sub.add_parser("start", help="open a five-file degraded window")
+    p_mdegs.add_argument("--reason", required=True, help="why degraded mode is required")
+    p_mdegs.add_argument("--repo")
+    p_mdegs.set_defaults(func=quickfix_mod.cmd_degraded_start)
+    p_mlist = mode_sub.add_parser("list", help="show workflow mode windows")
+    p_mlist.add_argument("--repo")
+    p_mlist.set_defaults(func=quickfix_mod.cmd_mode_list)
+    p_md = mode_sub.add_parser("done", help="close the active workflow mode window")
+    p_md.add_argument("--repo")
+    p_md.set_defaults(func=quickfix_mod.cmd_mode_done)
+    p_ma = mode_sub.add_parser(
+        "abandon", help="close a crashed workflow mode window without claiming completion")
+    p_ma.add_argument("--reason", required=True, help="why the window cannot be completed")
+    p_ma.add_argument("--repo")
+    p_ma.set_defaults(func=quickfix_mod.cmd_mode_abandon)
+
+    p_fix = sub.add_parser("fix", help="launch a bounded fix in an open lite window")
+    p_fix.add_argument("description")
+    p_fix.add_argument("--repo")
+    p_fix.set_defaults(func=fix_mod.cmd_fix)
 
     p_spec = sub.add_parser("spec", help="capture and confirm capability specs")
     spec_sub = p_spec.add_subparsers(dest="spec_command", required=True)
@@ -138,9 +290,9 @@ def main() -> None:
     p_ra.add_argument("title")
     p_ra.add_argument("--story", required=True,
                       help='the user-facing narrative: "As a <user>, I ... so that ..."')
-    p_ra.add_argument("--ac", action="append", required=True, metavar="CRITERION",
+    p_ra.add_argument("--ac", action="append", required=False, metavar="CRITERION",
                       help="acceptance criterion (repeat for each)")
-    p_ra.add_argument("--epic")
+    p_ra.add_argument("--epic", required=True)
     p_ra.add_argument("--skill", help="frontend | backend | fullstack")
     p_ra.add_argument("--kind", help="feature | refactor (refactor => source-delta ratchet at pr_ready)")
     p_ra.add_argument("--spec", help="confirmed docs/specs/<slug>.md source (required)")
@@ -152,6 +304,40 @@ def main() -> None:
     p_ra.add_argument("--reason", help="why this story is captured without a spec")
     p_ra.add_argument("--repo")
     p_ra.set_defaults(func=roadmap.cmd_add)
+    p_rf = rm_sub.add_parser(
+        "fill", help="repair blank authoring fields on a pending roadmap item")
+    p_rf.add_argument("key")
+    p_rf.add_argument("--story")
+    p_rf.add_argument("--ac", action="append", metavar="CRITERION",
+                      help="acceptance criterion (repeat for each)")
+    p_rf.add_argument("--skill", help="frontend | backend | fullstack")
+    p_rf.add_argument("--epic")
+    p_rf.add_argument("--spec", help="confirmed docs/specs/<slug>.md")
+    p_rf.add_argument("--depends-on", action="append", metavar="KEY",
+                      help="story key this one consumes (repeat)")
+    p_rf.add_argument("--repo")
+    p_rf.set_defaults(func=roadmap.cmd_fill)
+    p_re = rm_sub.add_parser("epic", help="manage roadmap epics")
+    re_sub = p_re.add_subparsers(dest="roadmap_epic_command", required=True)
+    p_rea = re_sub.add_parser(
+        "add",
+        help="append one epic after sign-off without the epics-approved import gate",
+        description="Append one epic after sign-off. Unlike roadmap import, this does not "
+                    "require the epics-approved decision because it does not replace the "
+                    "whole epic list.",
+    )
+    p_rea.add_argument("id")
+    p_rea.add_argument("--title", required=True)
+    p_rea.add_argument("--objective", required=True)
+    p_rea.add_argument("--source-ref", action="append", required=True, metavar="PATH",
+                       help="repo-relative source path (repeat for each)")
+    p_rea.add_argument("--repo")
+    p_rea.set_defaults(func=roadmap.cmd_epic_add)
+    p_rse = rm_sub.add_parser("set-epic", help="point an existing story at a known epic")
+    p_rse.add_argument("key")
+    p_rse.add_argument("--epic", required=True)
+    p_rse.add_argument("--repo")
+    p_rse.set_defaults(func=roadmap.cmd_set_epic)
     p_rls = rm_sub.add_parser("link-spec", help="attach a confirmed spec to a story (clears spec debt)")
     p_rls.add_argument("key")
     p_rls.add_argument("--spec", required=True, help="confirmed docs/specs/<slug>.md")
@@ -264,6 +450,8 @@ def main() -> None:
     p_sd.set_defaults(func=stages_mod.cmd_done)
     p_sm = st_sub.add_parser(
         "migrate", help="adopt inspected legacy workspace state once")
+    p_sm.add_argument("--base", required=True, metavar="SHA",
+                      help="commit where measurement of adopted stages begins")
     p_sm.add_argument("--confirm-workspace-state", action="store_true")
     p_sm.add_argument("--repo")
     p_sm.set_defaults(func=stages_mod.cmd_migrate)
@@ -286,6 +474,14 @@ def main() -> None:
                        help="print the argv without launching or recording evidence")
     p_del.add_argument("--repo")
     p_del.set_defaults(func=delegate_mod.cmd_delegate)
+
+    p_review_brief = sub.add_parser(
+        "review-brief", help="compose the plan-contract prompt for autoreview")
+    p_review_brief.add_argument("id", nargs="?", help="task id from the decomposition")
+    p_review_brief.add_argument(
+        "--all", action="store_true", help="compose the branch-wide contract union")
+    p_review_brief.add_argument("--repo")
+    p_review_brief.set_defaults(func=review_brief_mod.cmd_review_brief)
 
     p_sls = st_sub.add_parser("list", help="show stage progress")
     p_sls.add_argument("--repo")

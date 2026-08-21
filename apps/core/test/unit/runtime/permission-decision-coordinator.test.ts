@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import type { ToolPolicyDecision } from '@core/shared/tool-execution-policy-service.js';
@@ -43,6 +44,117 @@ const reviewedAllow: ToolPolicyDecision = {
 };
 
 describe('coordinatePermissionDecision', () => {
+  it('AUTODET-1-1 > host allow records host match reason; worker no-match text is diagnostic only', async () => {
+    const hostRequest = {
+      ...request,
+      decisionReason: 'Tool not on autonomous run allowlist: FileRead.',
+    };
+
+    await expect(
+      coordinatePermissionDecision({
+        request: hostRequest,
+        reviewedRuleDecision: reviewedAllow,
+        tail: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
+      approved: true,
+      decidedBy: 'reviewed_rule',
+      reason: reviewedAllow.reason,
+    });
+    expect(hostRequest.decisionReason).toBe(reviewedAllow.reason);
+
+    const responseKeyId = 'autodet-reviewed-rule-response-key';
+    registerWorkerPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: 'job-1',
+      runId: 'run-1',
+    });
+    const workerMiss = 'Worker found no local autonomous rule.';
+    const ipcRequest = {
+      requestId: 'autodet-reviewed-rule-allow',
+      responseKeyId,
+      sourceAgentFolder: 'main_agent',
+      appId: 'default',
+      agentId: 'agent:test',
+      toolName: 'mcp__gantry__send_message',
+      toolInput: { text: 'status' },
+      decisionReason: workerMiss,
+      unattended: true,
+    };
+    try {
+      const decision = await resolvePermissionIpcDecision({
+        request: ipcRequest,
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          conversationRoutes: () => ({}),
+          requestPermissionApproval: vi.fn(),
+          getToolRepository: () => ({
+            listAgentToolBindings: vi.fn(async () => [
+              {
+                status: 'active',
+                toolId: 'tool:send-message',
+                personId: null,
+              },
+            ]),
+            getTool: vi.fn(async () => ({
+              appId: 'default',
+              name: 'mcp__gantry__send_message',
+            })),
+          }),
+          getPermissionRuntimeSettings: () => ({
+            agents: { main_agent: { permissionMode: 'auto' as const } },
+            permissions: { autoMode: {}, trustedRoots: [] },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+        } as never,
+      });
+
+      expect(decision).toMatchObject({
+        approved: true,
+        decidedBy: 'reviewed_rule',
+        reason: 'Allowed by autonomous tool rule mcp__gantry__send_message.',
+      });
+      expect(ipcRequest.decisionReason).toBe(decision.reason);
+      expect(ipcRequest.decisionReason).not.toBe(workerMiss);
+    } finally {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId,
+      });
+    }
+  });
+
+  it('never promotes a human decision whose approverRef collides with a machine decider', async () => {
+    const { decisionForMode } =
+      await import('@core/domain/permission-decision.js');
+    for (const decider of ['auto_classifier', 'reviewed_rule', 'birthright']) {
+      const decision = decisionForMode(
+        { requestId: 'r1' } as never,
+        'allow_once',
+        decider,
+        'human',
+      );
+      expect(decision.source).toBe('human_once');
+      expect(decision.repeatableForFutureRuns).toBe(false);
+    }
+  });
+
+  it('treats prototype-key deciders as unknown (conservative human_once)', async () => {
+    const { decisionForMode } =
+      await import('@core/domain/permission-decision.js');
+    for (const decider of ['constructor', 'toString', 'hasOwnProperty']) {
+      const decision = decisionForMode(
+        { requestId: 'r1' } as never,
+        'allow_once',
+        decider,
+      );
+      expect(decision.source).toBe('human_once');
+      expect(decision.repeatableForFutureRuns).toBe(false);
+    }
+  });
   it.each(['low', 'medium'] as const)(
     'maps %s classifier risk to auto_classifier allow_once',
     async (riskLevel) => {
@@ -644,9 +756,15 @@ describe('coordinatePermissionDecision', () => {
     registerWorkerPermissionRunRestriction({
       ...key,
       hideAuthorityTools: true,
+      runKind: 'scheduled',
+      jobId: 'job-1',
+      runId: 'run-1',
     });
     expect(permissionRunRestriction(key)).toEqual({
       hideAuthorityTools: true,
+      runKind: 'scheduled',
+      jobId: 'job-1',
+      runId: 'run-1',
     });
     unregisterPermissionRunRestriction(key);
     expect(permissionRunRestriction(key)).toBeUndefined();
@@ -667,10 +785,12 @@ describe('coordinatePermissionDecision', () => {
       sourceAgentFolder: 'main_agent',
       deps: {
         conversationRoutes: () => ({}),
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: false,
-          mode: 'cancel' as const,
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: false,
+            mode: 'cancel' as const,
+          }),
+        ),
         getPermissionRuntimeSettings: () => ({
           agents: { main_agent: { permissionMode: 'ask' as const } },
           permissions: { autoMode: {} },
@@ -690,6 +810,8 @@ describe('coordinatePermissionDecision', () => {
     registerWorkerPermissionRunRestriction({
       ...key,
       hideAuthorityTools: true,
+      runKind: 'interactive',
+      runId: 'run-1',
     });
     const requestPermissionApproval = vi.fn();
     await expect(

@@ -1,0 +1,73 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": false,
+  "tasks": [
+    {
+      "id": "CAPRULE-1-1",
+      "title": "Part A: scheduled worker-local miss consults the host coordinator before terminal deny",
+      "epic_id": "permission-engine",
+      "objective": "Per decision 0116: at the scheduled branch tool-permission-gate.ts:396, when currentAutonomousAllowedToolRules() does not match, consult the existing host coordinator reviewed-rule decision (which holds the agent's reviewed durable capability + command rules and semanticCapabilityDefinitions) before the denial becomes terminal. Do NOT widen the worker set with configured SDK allowedTools (PERM-2 bypass). No matcher/projection/resolveCapabilityRules changes.",
+      "write_scope": [
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts",
+        "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+        "apps/core/test/unit/runner/tool-permission-gate.test.ts",
+        "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+        "docs/specs/caprule-1.md"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "A scheduled/autonomous run whose agent is host-granted google.sheets.values.get (definition present) authorizes its gog command via the host coordinator instead of a terminal deny.",
+        "An ungranted capability/command still denies (host denies too); the deny remains terminal and routes to the SCHED-6 pause flow.",
+        "Browser and other canonical capabilities remain allowed (regression).",
+        "currentAutonomousAllowedToolRules() is NOT widened with configured SDK allowedTools; authority stays host-reviewed (PERM-2 preserved)."
+      ],
+      "verify_commands": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runner apps/core/test/unit/shared"
+      ],
+      "required_tests": [
+        {
+          "id": "tool permission gate > scheduled worker-local miss authorizes a host-granted capability command via the host coordinator",
+          "path": "apps/core/test/unit/runner/tool-permission-gate.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "reviewer_focus": "PERM-2 boundary preserved (no worker self-grant); ungranted still denies; host round-trip only on the miss path."
+    },
+    {
+      "id": "CAPRULE-1-2",
+      "title": "Part B: one plain-language notification per denied-tool pause",
+      "epic_id": "permission-engine",
+      "objective": "Collapse a denied-tool pause to a single user-facing notification: at notifySchedulerTerminalRunState (execution-notifications.ts:361-405) suppress the terminal card fully when the setup card owns the outcome (key on setupNotified + SETUP_REQUIRED_PAUSE_REASON; drop the fragile denial re-parse; stop the secondary send), and rewrite the setup-story copy mobile-first. Keep the one-tap approve when grantable.",
+      "write_scope": [
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/src/application/jobs/scheduler-setup-story.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts",
+        "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+        "apps/core/test/unit/application/job-permission-recovery.test.ts"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "One denied-tool pause emits exactly one user-facing notification (no duplicate terminal card render).",
+        "The single message is mobile-first plain language (no Run outcome: Died / Blockers (N) / Triggering step jargon).",
+        "A grantable denial still surfaces the one-tap approve."
+      ],
+      "verify_commands": [
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs"
+      ],
+      "required_tests": [
+        {
+          "id": "scheduler terminal notifications > a denied-tool pause sends exactly one notification and no duplicate terminal card",
+          "path": "apps/core/test/unit/jobs/execution-notifications.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "reviewer_focus": "No over-suppression of genuinely distinct messages; copy is plain language."
+    }
+  ],
+  "project": "",
+  "story": "CAPRULE-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/CAPRULE-1-scheduled-runs-drop-capability-backed-runcommand-rules-from-the-autonomous-allowlist.md",
+  "plan_sha256": "329cdf6ddf211b11d5666ed3466ebf563d6735ef4f19720f6d1d9827f05950fd",
+  "commit": "386ba6e98b2b55279a04558ef6eda1e46d90c178"
+}

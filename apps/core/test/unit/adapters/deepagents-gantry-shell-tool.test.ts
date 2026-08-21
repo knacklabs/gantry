@@ -21,6 +21,7 @@ import {
   GANTRY_SHELL_TOOL_NAME,
   SHELL_CHILD_NETWORK_ENV_KEYS,
 } from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
+import type { DeepAgentsPermissionDenial } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
 import { buildToolNetworkEnv } from '@core/shared/tool-network-env.js';
 
 const PERMISSION_ENV: PermissionIpcRuntimeEnv = {
@@ -41,7 +42,8 @@ const PERMISSION_ENV: PermissionIpcRuntimeEnv = {
 
 function makeTool(overrides?: {
   rules?: string[];
-  lockedAccessPreset?: boolean;
+  capabilityRequestToolsHidden?: boolean;
+  onPermissionDenied?: (input: DeepAgentsPermissionDenial) => never;
   signal?: AbortSignal;
   toolNetworkEnv?: Record<string, string>;
 }) {
@@ -51,7 +53,11 @@ function makeTool(overrides?: {
     configuredAllowedTools: overrides?.rules ?? [],
     gateContext: { conversationId: 'tg:group' },
     permissionEnv: PERMISSION_ENV,
-    lockedAccessPreset: overrides?.lockedAccessPreset ?? false,
+    capabilityRequestToolsHidden:
+      overrides?.capabilityRequestToolsHidden ?? false,
+    ...(overrides?.onPermissionDenied
+      ? { onPermissionDenied: overrides.onPermissionDenied }
+      : {}),
     cwd: os.tmpdir(),
     toolNetworkEnv: overrides?.toolNetworkEnv,
     ...(overrides?.signal ? { signal: overrides.signal } : {}),
@@ -104,6 +110,39 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(result).not.toContain('exited with code');
   });
 
+  it('terminates a scheduled denial instead of returning it to the model', async () => {
+    requestPermissionApprovalViaIpc.mockResolvedValue({
+      approved: false,
+      reason: 'Unattended jobs do not wait for approval.',
+    });
+    const onPermissionDenied = vi.fn(
+      ({ toolName, reason }: DeepAgentsPermissionDenial): never => {
+        throw new Error(`${toolName}: ${reason}`);
+      },
+    );
+    const tool = makeTool({ onPermissionDenied });
+
+    await expect(invoke(tool, 'echo should-not-run')).rejects.toThrow(
+      'RunCommand: Unattended jobs do not wait for approval.',
+    );
+    expect(onPermissionDenied).toHaveBeenCalledWith({
+      toolName: 'RunCommand',
+      reason: 'Unattended jobs do not wait for approval.',
+      action: {
+        kind: 'approve_grant',
+        grant: {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [
+            { toolName: 'RunCommand', ruleContent: 'echo should-not-run' },
+          ],
+        },
+      },
+      denialKind: 'permission_denied',
+      provenanceSeam: 'gate',
+    });
+  });
+
   it('passes the command through as a Bash policy request to the permission prompt', async () => {
     requestPermissionApprovalViaIpc.mockResolvedValue({
       approved: false,
@@ -135,7 +174,10 @@ describe('Gantry DeepAgents shell tool', () => {
       approved: false,
       reason: 'locked access preset',
     });
-    const tool = makeTool({ rules: [], lockedAccessPreset: true });
+    const tool = makeTool({
+      rules: [],
+      capabilityRequestToolsHidden: true,
+    });
     const result = await invoke(tool, 'echo locked');
     expect(requestPermissionApprovalViaIpc).toHaveBeenCalledTimes(1);
     expect(result).toContain('locked access preset');
@@ -150,6 +192,30 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
     expect(result.toLowerCase()).toContain('protected');
     expect(result).not.toContain('exited with code');
+  });
+
+  it('routes a scheduled-run protected-capability pre-check denial through the terminal handler', async () => {
+    // On a scheduled run (onPermissionDenied present) a pre-check denial must
+    // terminate the turn as a non-grantable instruction, not return an ordinary
+    // tool message the model could ignore and work around.
+    let captured: DeepAgentsPermissionDenial | undefined;
+    const tool = makeTool({
+      rules: [],
+      onPermissionDenied: (denial): never => {
+        captured = denial;
+        throw new Error('terminal');
+      },
+    });
+
+    await expect(
+      invoke(tool, 'echo pwned > ~/.gantry/settings.yaml'),
+    ).rejects.toThrow('terminal');
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(captured).toMatchObject({
+      toolName: 'RunCommand',
+      action: { kind: 'instruction' },
+    });
+    expect(captured?.reason.toLowerCase()).toContain('protected');
   });
 
   it('returns a structured error with unchanged output for a non-zero exit', async () => {
@@ -186,7 +252,7 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(result).not.toContain('exited with code 0');
   });
 
-  it('returns immediately when the run signal is already aborted', async () => {
+  it('throws without launching or prompting when the run signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();
     const tool = makeTool({
@@ -194,10 +260,32 @@ describe('Gantry DeepAgents shell tool', () => {
       signal: controller.signal,
     });
 
-    const result = await invoke(tool, 'echo should-not-run');
+    // An already-aborted turn must not launch the command or even request
+    // approval — it throws the abort so the graph tears the turn down, matching
+    // the facade/third-party MCP wrappers.
+    await expect(invoke(tool, 'echo should-not-run')).rejects.toThrow();
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+  });
 
-    expect(result).toContain('aborted');
-    expect(result).not.toContain('should-not-run');
+  it('does not launch the shell command when a sibling denial aborts the turn during approval', async () => {
+    const controller = new AbortController();
+    const marker = path.join(
+      os.tmpdir(),
+      `gantry-shell-siblingabort-${Date.now()}-${Math.random()}.txt`,
+    );
+    // Approval resolves, but a parallel tool call was denied while it was
+    // pending and aborted the terminal-turn signal first.
+    requestPermissionApprovalViaIpc.mockImplementation(async () => {
+      controller.abort();
+      return { approved: true };
+    });
+    const tool = makeTool({ rules: [], signal: controller.signal });
+
+    await expect(
+      invoke(tool, `echo leaked > ${shellQuote(marker)}`),
+    ).rejects.toThrow();
+    // The post-approval fence prevents the side effect entirely.
+    expect(fs.existsSync(marker)).toBe(false);
   });
 
   it('kills the full shell process group on abort so background children do not outlive the command', async () => {

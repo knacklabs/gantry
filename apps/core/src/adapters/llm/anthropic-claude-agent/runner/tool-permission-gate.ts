@@ -21,6 +21,7 @@ import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
 } from '../../../../shared/tool-execution-policy-service.js';
+import { instructionSetupAction } from '../../../../shared/job-setup-action.js';
 import {
   livePermissionRulesForUpdates,
   permissionRequestToolName,
@@ -35,13 +36,19 @@ import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import {
+  emitGateDenialActivity,
   emitJobToolActivity,
   emitYoloDenylistHit,
+  formatPermissionAllowedMessage,
+  permissionAllowedActivityPayload,
   yoloDenylistPromptReason,
 } from './tool-permission-events.js';
 import { waitOnlyBashMonitoringDenial } from './wait-only-bash-guard.js';
 import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
-import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
+import {
+  autonomousDenialSetupAction,
+  denyNonPromptableAutonomousRecovery,
+} from './autonomous-permission-recovery.js';
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 import { isHostAuthorizedMcpProxyDispatcherFullName } from '../../../../shared/admin-mcp-tools.js';
@@ -150,7 +157,19 @@ export function createCanUseToolCallback(
     if (REMOVED_NATIVE_SUBAGENT_TOOL.test(toolName)) {
       const message =
         'Native SDK Task subagent tools are not supported. Use the Agent tool for native subagents, or request the Gantry AgentDelegation facade.';
-      return { behavior: 'deny' as const, message, interrupt: false };
+      emitGateDenialActivity({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
+        toolName,
+        reason: message,
+        decision: 'removed_native_subagent_tool',
+        action: instructionSetupAction(message),
+      });
+      return {
+        behavior: 'deny' as const,
+        message,
+        interrupt: input.agentInput.isScheduledJob === true,
+      };
     }
     const waitOnlyDenial = waitOnlyBashMonitoringDenial(toolName, toolInput);
     if (waitOnlyDenial) {
@@ -314,21 +333,18 @@ export function createCanUseToolCallback(
           decision: 'protected_capability_denied',
         }),
       });
-      emitJobToolActivity(
-        input.agentInput,
-        input.getNewSessionId,
-        'deny',
+      emitGateDenialActivity({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
         toolName,
-        {
-          ok: false,
-          reason: protectedCapabilityDenial,
-          decision: 'protected_capability_denied',
-        },
-      );
+        reason: protectedCapabilityDenial,
+        decision: 'protected_capability_denied',
+        action: instructionSetupAction(protectedCapabilityDenial),
+      });
       return {
         behavior: 'deny' as const,
         message: protectedCapabilityDenial,
-        interrupt: false,
+        interrupt: input.agentInput.isScheduledJob === true,
       };
     }
     const memoryGuardDenial = denyMemoryBoundaryToolUse(
@@ -339,21 +355,18 @@ export function createCanUseToolCallback(
     );
     if (memoryGuardDenial) {
       log(`Permission denied by memory boundary guard: ${memoryGuardDenial}`);
-      emitJobToolActivity(
-        input.agentInput,
-        input.getNewSessionId,
-        'deny',
+      emitGateDenialActivity({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
         toolName,
-        {
-          ok: false,
-          reason: memoryGuardDenial,
-          decision: 'memory_boundary_guard',
-        },
-      );
+        reason: memoryGuardDenial,
+        decision: 'memory_boundary_guard',
+        action: instructionSetupAction(memoryGuardDenial),
+      });
       return {
         behavior: 'deny' as const,
         message: memoryGuardDenial,
-        interrupt: false,
+        interrupt: input.agentInput.isScheduledJob === true,
       };
     }
     const yoloDenylistMatch = evaluateYoloModeDenylist({
@@ -393,7 +406,6 @@ export function createCanUseToolCallback(
         conversationId: input.agentInput.chatJid,
       },
     );
-
     if (input.agentInput.isScheduledJob) {
       const toolDecision = toolExecutionPolicy.evaluate({
         request: toolExecutionRequest,
@@ -415,16 +427,42 @@ export function createCanUseToolCallback(
         (toolDecision.recoveryAction
           ? `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`
           : toolDecision.reason);
-      const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
-        agentInput: input.agentInput,
-        getNewSessionId: input.getNewSessionId,
-        recoveryAction,
-        recoveryMessage,
-        toolName,
-        toolPolicyReason: yoloDenylistReason ?? toolDecision.reason,
-      });
-      if (nonPromptableDenial) return nonPromptableDenial;
+      if (yoloDenylistReason) {
+        // The settings-owned yolo denylist is a hard boundary: it must be
+        // terminal and can NEVER be overridden by a host allow-once/rule. Deny
+        // before consulting the host coordinator (whose reviewed-rule decision
+        // the scheduled miss otherwise defers to).
+        emitGateDenialActivity({
+          agentInput: input.agentInput,
+          getNewSessionId: input.getNewSessionId,
+          toolName,
+          reason: yoloDenylistReason,
+          action: instructionSetupAction(yoloDenylistReason),
+        });
+        log(
+          `Autonomous run denied denylisted tool ${toolName}: ${recoveryMessage}`,
+        );
+        return {
+          behavior: 'deny' as const,
+          message: `Tool not on autonomous run allowlist: ${toolName}. ${recoveryMessage}`,
+          interrupt: true,
+        };
+      }
       const publicToolName = permissionRequestToolName(toolName);
+      const permissionPlan = scheduledPermissionSuggestionPlan(
+        toolName,
+        permissionOpts.suggestions,
+        {
+          blockedPath: permissionOpts.blockedPath,
+          toolInput,
+          semanticCapabilityDefinitions: skillActionCapabilities,
+        },
+      );
+      // Same as the interactive branch: a denylist-triggered prompt must not
+      // offer a future grant the denylist would never honor.
+      const suggestions = yoloDenylistReason
+        ? undefined
+        : permissionPlan.suggestions;
       log(
         `Autonomous run requesting permission for tool ${toolName}: ${recoveryMessage}`,
       );
@@ -440,20 +478,6 @@ export function createCanUseToolCallback(
           ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },
       );
-      const permissionPlan = scheduledPermissionSuggestionPlan(
-        toolName,
-        permissionOpts.suggestions,
-        {
-          blockedPath: permissionOpts.blockedPath,
-          toolInput,
-          semanticCapabilityDefinitions: skillActionCapabilities,
-        },
-      );
-      // Same as the interactive branch: a denylist-triggered prompt must not
-      // offer a future grant the denylist would never honor.
-      const suggestions = yoloDenylistReason
-        ? undefined
-        : permissionPlan.suggestions;
       const decision = await requestPermissionApprovalWithTrustProvenance({
         appId: input.agentInput.appId,
         agentId: input.agentInput.agentId,
@@ -519,20 +543,33 @@ export function createCanUseToolCallback(
             : {}),
         };
       }
+      const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
+        recoveryAction,
+        toolInput,
+        capabilityRequestToolsHidden,
+        recoveryMessage,
+        toolName,
+        toolPolicyReason: yoloDenylistReason ?? toolDecision.reason,
+      });
+      if (nonPromptableDenial) return nonPromptableDenial;
       const reason = decision.reason || 'Denied by operator';
       const message = `Permission denied: ${reason}. ${recoveryMessage}`;
       log(`Autonomous run denied tool ${toolName}: ${message}`);
-      emitJobToolActivity(
-        input.agentInput,
-        input.getNewSessionId,
-        'permission_denied',
+      emitGateDenialActivity({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
         toolName,
-        {
-          ok: false,
-          reason,
-          ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
-        },
-      );
+        reason,
+        denialKind: 'permission_denied',
+        action: autonomousDenialSetupAction({
+          toolName,
+          toolInput,
+          capabilityRequestToolsHidden,
+          instruction: recoveryAction ?? 'Review the denied job tool.',
+        }),
+      });
       return {
         behavior: 'deny' as const,
         message,
@@ -662,43 +699,6 @@ export function createCanUseToolCallback(
         : {}),
     };
   };
-}
-
-const SILENT_ALLOW_DECIDERS = new Set([
-  'birthright',
-  'deterministic_read_only',
-]);
-
-function permissionAllowedActivityPayload(
-  decision: PermissionDecision,
-): Record<string, unknown> {
-  const provenanceMessage = formatPermissionAllowedMessage(decision);
-  return {
-    ok: true,
-    mode: decision.mode,
-    ...(decision.decidedBy ? { decided_by: decision.decidedBy } : {}),
-    ...(decision.risk_level ? { risk_level: decision.risk_level } : {}),
-    ...(decision.risk_category
-      ? { risk_category: decision.risk_category }
-      : {}),
-    ...(provenanceMessage
-      ? { reason: provenanceMessage }
-      : decision.reason
-        ? { reason: decision.reason }
-        : {}),
-  };
-}
-
-function formatPermissionAllowedMessage(
-  decision: PermissionDecision,
-): string | undefined {
-  if (decision.decidedBy && SILENT_ALLOW_DECIDERS.has(decision.decidedBy)) {
-    return undefined;
-  }
-  if (!decision.decidedBy && !decision.risk_level) return undefined;
-  return formatPermissionDeniedMessage(decision, '')
-    .replace(/^Permission denied/, 'Permission allowed')
-    .replace(/: $/, '');
 }
 
 function logPermissionApproval(

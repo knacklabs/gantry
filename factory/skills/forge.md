@@ -36,9 +36,9 @@ or route:
 |---|---|
 | discovery/prototype | gstack `/office-hours` for the discovery conversation; prototype freely |
 | roadmap missing | confirm captured specs, run the project-level decomposition (`factory/prompts/decomposer.md`), then `./forge roadmap derive --input <json>` |
-| planning | plan per `factory/prompts/planner.md` (Claude plan mode default, `planner-high` Codex agent alternate); exploration ONLY via `/codex:rescue --model gpt-5.6-terra --effort high` (read-only by default) — never Claude Code itself, never raw codex exec |
+| planning | plan per `factory/prompts/planner.md` (Claude plan mode default, `planner-high` Codex agent alternate); exploration ONLY via `/codex:rescue --model gpt-5.6-terra --effort high` (read-only by default); plan validation / debugging / root-cause via `/codex:rescue --model gpt-5.6-sol --effort xhigh` (read-only) — never Claude Code itself, never raw codex exec |
 | decomposing | run docs-decomposer per task, record with `record_decomposition_from_json.py` (schema incl. `user_facing`) |
-| implementing | `./forge delegate <task-id>` composes the brief, launches the companion directly, and records successful launch evidence — the implementer writes and records the tests; user-facing tasks MUST load + attest emil-design-eng + frontend-design in `skills_used` (recorder-enforced; harness.yaml `required_skills`) |
+| implementing | Follow the one frontier action printed by `./forge next`: enter plan mode and author/re-record the JIT contract; run the task griller; `forge stage start`; or `forge delegate`. The implementer writes and records the tests; user-facing tasks MUST load + attest emil-design-eng + frontend-design in `skills_used` (recorder-enforced; harness.yaml `required_skills`) |
 | verifying | `python3 factory/scripts/verify.py` |
 | reviewing | ONE autoreview run in Codex, three lenses (`factory/prompts/reviewer.md`) |
 | functional-check | only shown when the task is user-facing; run `functional-checker` |
@@ -50,13 +50,15 @@ or route:
 | Dev says | Do |
 |---|---|
 | set up my machine | `./forge doctor` (`--fix` installs the toolchain; logins stay manual) |
-| create a new project / build a new app | prefer the `knacklabs-new-project` skill; without it: `./forge init --name <project> --target <dir>`, then IN `<dir>`: commit and push to its OWN origin (`gh repo create <org>/<repo> --private --source . --push`), `direnv allow`, and open future sessions there. The app is a fresh unrelated repo — NEVER fork the harness, NEVER `gh repo create --template`, never build the app inside this clone |
-| migrate an existing repo / make this repo symphony-forge ready | `knacklabs-migrate-project` skill — core: `./forge adopt --target <repo>` from the harness clone (clean tree; old AGENTS/CLAUDE preserved to docs/context/; repo keeps its own origin — never fork/merge the harness into it) |
+| create a new project / build a new app | prefer the `knacklabs-new-project` skill; without it: `./forge init --name <project> --target <dir>`, then IN `<dir>`: commit and push to its OWN origin (`gh repo create <org>/<repo> --private --source . --push`), `direnv allow`, and open future sessions there. Init writes `.factory/record-origin.json` once so history has an honest starting boundary. The app is a fresh unrelated repo — NEVER fork the harness, NEVER `gh repo create --template`, never build the app inside this clone |
+| migrate an existing repo / make this repo symphony-forge ready | `knacklabs-migrate-project` skill — core: `./forge adopt --target <repo>` from the harness clone (clean tree; old AGENTS/CLAUDE preserved to docs/context/; repo keeps its own origin — never fork/merge the harness into it). Adopt creates the same record-origin boundary if absent and never rewrites it. |
+| update / upgrade an existing project to the latest harness | prefer the `knacklabs-upgrade-project` skill — it verifies and updates the setup-pinned harness, audits a clean committed client, upgrades machinery, repairs tooling, backfills project contracts, guides pending-story re-authoring with `forge roadmap fill`, re-verifies, and hands off through `forge next` |
+| sanitise / check the hygiene of this repo | use the `knacklabs-sanitise-project` skill — run `forge sanitise --check` for an on-demand report or plain `forge sanitise` for safe deterministic fixes, then use the named resolve commands for every reported item needing judgment |
 | migrate my gstack history / gstack outputs are on my machine | `./forge gstack migrate` — union-merges ~/.gstack/projects/<slug>/ into the repo's .gstack/ (then commit). Going forward .envrc + `direnv allow` keeps gstack in-repo |
 | what's left to build / show the roadmap | `./forge roadmap list` (`--pending` for what's next; grouped by epic, shows @assignee) |
 | what can run in parallel / fan out the work | `./forge roadmap parallel` — the dependency-ready frontier, one isolated `git worktree add` + intake per story. Tasks inside each story run sequentially; only separate ready story worktrees run in parallel |
 | roadmap merge conflict / duplicate items after merging branches | `./forge roadmap heal` — deterministic union (done-wins); mid-merge it rebuilds from the merge stages, then `git add plans/roadmap.json` |
-| grill the handover / stress-test before a gate | `factory/prompts/griller.md` — one question at a time vs the actual docs; resolve findings; record `record_grill_from_json.py --gate spec\|signoff\|epics\|plan`. Spec confirm, sign-off, legacy roadmap import, and plan save refuse without their required fresh pass |
+| grill the handover / stress-test before a gate | `factory/prompts/griller.md` — one question at a time vs the actual docs; resolve findings; record `record_grill_from_json.py --gate spec\|signoff\|epics\|plan\|task`. Spec confirm, sign-off, legacy roadmap import, plan save, and task start refuse without their required fresh pass |
 | grill me on this plan | `/grill-me` against the draft plan (satisfies the plan-gate contract), then record `--gate plan` — mandatory before `plan save` |
 | capture a capability spec | `./forge spec save <slug> --from <draft.md>`; confirmation requires a digest-bound spec grill, then `./forge spec confirm <slug>` |
 | here's the derived project backlog | `./forge roadmap derive --input <json>` (pre-sign-off, every story links a confirmed spec) |
@@ -83,7 +85,7 @@ or route:
 | worker hit a contradiction / is confused / blocked / scope shifted | `./forge signal raise --kind <k> --by <agent> -m "..."` then PAUSE — the orchestrator monitors `.factory/signals.jsonl`, resolves, resumes |
 | a worker signal is open (orchestrator) | `./forge signal list --open` → `./forge signal resolve <id> --notes "<answer>"` → resume the rescue. Open signals block pr_ready |
 | review / guide the assumptions (orchestrator) | `./forge assumptions list --open`, then `./forge assumptions resolve <id> --status confirmed\|fix-needed\|promoted --notes "..."` — pr_ready refuses unguided rows |
-| work the next stage / where am I in the task | `./forge stage list` → `./forge stage start <id>` → `./forge delegate <id>` → implement → LOCAL autoreview until clean → commit → `./forge stage done <id>`, which MEASURES the diff and can refuse (WORKFLOW.md Stage Loop) |
+| work the next stage / where am I in the task | Run `./forge next`, then execute its one exact frontier action: author/re-record the contract → task grill → stage start → delegate. After implementation: LOCAL autoreview until clean → commit → `./forge stage done <id>`, which MEASURES the diff and can refuse (WORKFLOW.md Stage Loop) |
 | delegate this task / hand it to Codex | `./forge delegate <task-id>` — builds `.factory/briefs/<id>.md`, derives the write flag from stage state, launches the companion without a shell, and records evidence used by `stage done`; `--print-only` is diagnostic and cannot satisfy the gate |
 | is Codex stuck? / did it actually do anything | `./forge codex status` — status, phase, write flag and age per job; flags a run that has not moved and a read-only run launched while a stage is active. Advisory, never a gate |
 | it only did part of the job | `./forge stage done <id> --incomplete "<what is missing>"` — the stage stays active and the gap enters the timeline |
@@ -99,12 +101,13 @@ or route:
 | client signed off | `python3 factory/scripts/record_signoff.py` |
 | harvest context / process the dump | follow `factory/prompts/harvester.md`, then `forge.py context mark ...` |
 | harness status | read `.factory/run.json`; `forge.py context list --pending`; `ls factory/skills/proposed/` |
+| what happened / show project history | `./forge history` reads committed events; add `--story`, `--event`, `--since`, or `--until` to narrow them. Unattributed events remain visible, and the board reports `.factory/record-origin.json` as “record begins here; N commits precede it” when that marker exists. |
 | record what the story delivered | `./forge outcome set "<what changed and what someone can now do>"` — one paragraph in a reader's language, required before PR-ready; it lands on the roadmap item and in the ship archive |
 | is this PR ready | `python3 factory/scripts/pr_ready.py` (never bypass with ad hoc checks) — a bare run lists what is missing, including the outcome |
 | what did we ship last month | open the board's **Ship log** (`./forge board`) — PR-ready date, story, outcome and the decisions it created, newest first |
 | mine for skills / retro | follow `factory/prompts/skill-miner.md` |
 | improve the animations / motion audit | run the `improve-animations` skill (read-only audit → prioritized plans); land its items via `./forge roadmap add` or a task intake — never apply fixes straight from the audit |
-| update a client repo to the latest harness | from the HARNESS clone: `./forge upgrade --target <client-repo>` (clean tree required; review the diff, run the linter + gate tests, commit) |
+| update a client repo to the latest harness | use the `knacklabs-upgrade-project` skill; its deterministic core is `./forge upgrade --target <client-repo>` from the verified HARNESS clone, followed by client audit/backfill, guided pending-story fill, re-verification, and `forge next` |
 
 ## Show, don't recite
 
@@ -120,6 +123,12 @@ instead of narrating it:
   the URL rather than starting a second one; a busy port means it is running.
 - Stories are cards on a swimlane board — epic lanes across the lifecycle
   columns — so progress is read from where a card sits, not from prose.
+- The board opens on **Overview**: what the project is, what can start now,
+  what each epic delivers, and where each story sits. Use
+  `./forge board --repo <example>` for a full initialized example repo. The
+  checked-in data-only contract sample is discoverable at
+  `factory/board/example/`; production validators exercise it, while direct
+  serving waits on the deferred board-page resolver change.
 - **Deep-link to the story you are talking about**: `…:8765/#RAIL-3` opens that
   story's drawer with its gate rail, what blocks the next gate, and its
   artifacts (plan, spec, decomposition, evidence).

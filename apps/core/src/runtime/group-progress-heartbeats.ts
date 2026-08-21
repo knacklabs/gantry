@@ -4,15 +4,13 @@ import type {
 } from '../domain/types.js';
 import { buildReplaceOnlyProgressOptions } from './progress-updates.js';
 
-const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
-
-type GroupProgressHeartbeatLogger = {
+type GroupProgressLogger = {
   debug(metadata: Record<string, unknown>, message: string): void;
   info?(metadata: Record<string, unknown>, message: string): void;
 };
 
 function logProgressLifecycle(
-  log: GroupProgressHeartbeatLogger,
+  log: GroupProgressLogger,
   metadata: Record<string, unknown>,
   message: string,
 ): void {
@@ -30,9 +28,9 @@ export function startInitialGroupProgress(input: {
   sendProgressToChannel(
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void>;
+  ): Promise<void | boolean>;
   onSent?: () => Promise<void> | void;
-  log: GroupProgressHeartbeatLogger;
+  log: GroupProgressLogger;
 }): { cancel(): Promise<void> } {
   if (!input.supportsProgress) {
     logProgressLifecycle(
@@ -79,7 +77,7 @@ export function createResponseProgressSenders(input: {
   sendProgressToChannel(
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void>;
+  ): Promise<void | boolean>;
 }) {
   return {
     sendWaitingProgress: () =>
@@ -107,51 +105,6 @@ export function createResponseProgressSenders(input: {
           .catch(() => undefined);
       }
       return Promise.resolve();
-    },
-  };
-}
-
-export function startGroupProgressHeartbeats(input: {
-  supportsProgress: boolean;
-  isTypingActive: () => boolean;
-  chatJid: string;
-  providerAccountId?: string;
-  groupName: string;
-  channelRuntime: {
-    setTyping(
-      jid: string,
-      isTyping: boolean,
-      options?: { providerAccountId?: string },
-    ): Promise<void>;
-  };
-  log: GroupProgressHeartbeatLogger;
-}): {
-  typingHeartbeatTimer: ReturnType<typeof setInterval>;
-  pause(): void;
-  resume(): void;
-} {
-  let paused = false;
-  const typingHeartbeatTimer = setInterval(() => {
-    if (paused || !input.isTypingActive()) return;
-    const typing = input.providerAccountId
-      ? input.channelRuntime.setTyping(input.chatJid, true, {
-          providerAccountId: input.providerAccountId,
-        })
-      : input.channelRuntime.setTyping(input.chatJid, true);
-    void typing.catch((err) =>
-      input.log.debug(
-        { err, group: input.groupName },
-        'Failed to refresh typing heartbeat',
-      ),
-    );
-  }, TYPING_HEARTBEAT_INTERVAL_MS);
-  return {
-    typingHeartbeatTimer,
-    pause: () => {
-      paused = true;
-    },
-    resume: () => {
-      paused = false;
     },
   };
 }

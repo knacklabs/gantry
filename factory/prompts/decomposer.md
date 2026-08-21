@@ -18,7 +18,8 @@ Rules:
 - decompose by capability and vertical slice
 - do not decompose by markdown file or arbitrary file count
 - each leaf task must fit one implementation session and one review package
-- each leaf task must include dependencies, write scope, acceptance criteria, verify commands, required tests, and reviewer focus
+- record the ordered task LIST first; do not invent execution-contract detail
+  for later tasks before their dependencies have produced real repository state
 
 Output JSON matching `factory/schemas/decomposition.json` (with
 `"generated_by"` set to your agent name), including:
@@ -26,7 +27,6 @@ Output JSON matching `factory/schemas/decomposition.json` (with
 - `doc_roots`
 - `epics`
 - `tasks`
-- `build_waves`
 - `linear_plan`
 - `user_facing` — `true` if ANY part of this task graph changes user-visible
   behavior (UI, API responses users see, flows). The ship gate reads this
@@ -44,7 +44,7 @@ After capability specs are confirmed, derive the project roadmap from them.
 This happens before client sign-off; it is the reviewed PM→EM handoff, never
 a hand-authored backlog.
 
-1. Emit epics + story items in ONE payload (build-wave order = list order).
+1. Emit epics + story items in ONE payload (execution order = list order).
    Give each item `depends_on: ["<KEY>", ...]` for REAL dependencies only
    (story B consumes story A's API) — never blanket wave ordering: every
    edge you omit is a story the orchestrator can run in a parallel worktree
@@ -71,7 +71,8 @@ learns more. Per-task decompositions never rewrite the roadmap — but the
 per-task PLAN must satisfy the roadmap item's `acceptance_criteria` when
 present, not re-derive them.
 
-Each task MUST include (the recorder refuses the decomposition otherwise):
+The initial task LIST MUST include (the recorder refuses the decomposition
+otherwise):
 - `id`
 - `title`
 - `objective` — one or two sentences of WHAT this task changes and WHY, in the
@@ -80,11 +81,22 @@ Each task MUST include (the recorder refuses the decomposition otherwise):
   the how in the plan.
 - `acceptance_criteria` — non-empty; a task nobody can check is done cannot be
   reviewed
+- `dependencies` when needed; every dependency names an earlier task, and list
+  order is execution order
 
-Each task should also include:
-- `epic_id`
+It may also include stable routing metadata such as `epic_id` and
+`linear_parent`. Do not guess a future task's paths or proof commands during
+this pass.
+
+## JIT task contract (decision 0032)
+
+Immediately before the next pending task runs, enter plan mode per
+`factory/prompts/planner.md`, inspect the actual state left by its completed
+dependencies, and author that leaf's execution contract.
+Confirm or refine its `acceptance_criteria`, then add or confirm these fields
+on the selected task:
+
 - `write_scope`
-- `dependencies`
 - `verify_commands`
 - `required_tests` — executable proof objects shaped exactly as
   `{"id":"testcase name","path":"repo/relative/test file","command":"exact runner command"}`.
@@ -95,4 +107,14 @@ Each task should also include:
   checks the path, runs the argv, and requires the fresh report to name the id
   exactly with `file` equal to that path.
 - `reviewer_focus`
-- `linear_parent`
+
+Re-record the complete decomposition with
+`record_decomposition_from_json.py`, preserving task ids, order, and completed
+contracts. Then run the griller's fifth scope, `--gate task`, against that exact
+contract. The grill interrogates `reviewer_focus` too, but its freshness digest
+binds exactly `write_scope`, `required_tests`, `verify_commands`, and
+`acceptance_criteria`. Resolve and re-record any findings before recording the
+digest-bound task grill. Only after it passes does the orchestrator run `forge
+stage start <id>` and `forge delegate <id>`. Repeat this author → re-record →
+grill → stage start → delegate loop for every leaf; contract detail for
+later tasks remains deferred until it is their turn.

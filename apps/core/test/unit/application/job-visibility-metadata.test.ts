@@ -1,11 +1,39 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import {
   buildJobListVisibilityMetadata,
   buildJobVisibilityMetadata,
 } from '@core/application/jobs/job-visibility-metadata.js';
 import type { RuntimeJobRepository } from '@core/domain/repositories/ops-repo.js';
-import type { Job, JobRun } from '@core/domain/types.js';
+import type { Job, JobEvent, JobRun } from '@core/domain/types.js';
+
+function makeDenialEvent(overrides: Partial<JobEvent> = {}): JobEvent {
+  return {
+    id: 1,
+    job_id: 'job-1',
+    run_id: 'run-1',
+    event_type: 'job.tool_denied',
+    payload: JSON.stringify({
+      denied_tool: 'mcp__gantry__browser_act',
+      reason: 'Browser access is missing.',
+      denial_kind: 'permission_denied',
+      provenance_lane: DEFAULT_AGENT_ENGINE,
+      provenance_seam: 'gate',
+      action: {
+        kind: 'approve_grant',
+        grant: {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ tool_name: 'Browser' }],
+        },
+      },
+      error_summary: 'Permission denied.',
+    }),
+    created_at: '2026-04-24T09:00:05.000Z',
+    ...overrides,
+  };
+}
 
 function makeRun(overrides: Partial<JobRun> = {}): JobRun {
   return {
@@ -55,6 +83,110 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 }
 
 describe('job visibility metadata', () => {
+  it('surfaces the latest delivery notice for the current setup fingerprint', async () => {
+    const listRecentJobEvents = vi.fn(async () => [
+      makeDenialEvent({
+        id: 3,
+        run_id: null,
+        event_type: 'job.setup_card_delivery',
+        payload: JSON.stringify({
+          prompt_id: 'prompt:current',
+          generation: 1,
+          job_id: 'job-1',
+          setup_fingerprint: 'fp:current',
+          outcome: 'ambiguous',
+          attempt: 1,
+          provider: 'telegram',
+        }),
+      }),
+    ]);
+    const metadata = await buildJobVisibilityMetadata({
+      job: makeJob({
+        status: 'paused',
+        pause_reason: 'Setup required',
+        setup_state: {
+          state: 'missing_capability',
+          checked_at: '2026-04-24T09:00:00.000Z',
+          fingerprint: 'fp:current',
+          blockers: [
+            {
+              state: 'missing_capability',
+              type: 'semantic_capability',
+              id: 'capability:test',
+              summary: 'Test capability is missing.',
+              action: { kind: 'instruction', text: 'Install capability.' },
+            },
+          ],
+        },
+      }),
+      ops: {
+        listJobRuns: vi.fn(async () => []),
+        listRecentJobEvents,
+      } as unknown as RuntimeJobRepository,
+    });
+
+    expect(metadata.setup.deliveryNotice).toMatchObject({
+      outcome: 'ambiguous',
+      attempt: 1,
+    });
+    // Fixture fallback path: one bounded query (the postgres repo uses the
+    // set-based per-job window read instead).
+    expect(listRecentJobEvents).toHaveBeenCalledWith(200, {
+      app_id: 'default',
+      job_ids: ['job-1'],
+      event_type: 'job.setup_card_delivery',
+      order: 'desc',
+    });
+  });
+
+  it('ignores a retired prompt notice while a fresh prompt is live', async () => {
+    const listRecentJobEvents = vi.fn(async () => [
+      makeDenialEvent({
+        id: 3,
+        run_id: null,
+        event_type: 'job.setup_card_delivery',
+        payload: JSON.stringify({
+          prompt_id: 'prompt:retired',
+          generation: 1,
+          job_id: 'job-1',
+          setup_fingerprint: 'fp:current',
+          outcome: 'expired',
+          attempt: 1,
+          provider: 'telegram',
+        }),
+      }),
+    ]);
+    const metadata = await buildJobVisibilityMetadata({
+      job: makeJob({
+        status: 'paused',
+        pause_reason: 'Setup required',
+        setup_state: {
+          state: 'missing_capability',
+          checked_at: '2026-04-24T09:00:00.000Z',
+          fingerprint: 'fp:current',
+          blockers: [
+            {
+              state: 'missing_capability',
+              type: 'semantic_capability',
+              id: 'capability:test',
+              summary: 'Test capability is missing.',
+              action: { kind: 'instruction', text: 'Install capability.' },
+            },
+          ],
+        },
+      }),
+      ops: {
+        listJobRuns: vi.fn(async () => []),
+        listRecentJobEvents,
+        listLatestSetupPromptIds: vi.fn(
+          async () => new Map([['job-1', 'prompt:fresh']]),
+        ),
+      } as unknown as RuntimeJobRepository,
+    });
+
+    expect(metadata.setup.deliveryNotice).toBeNull();
+  });
+
   it('marks active pending once jobs with a missed fire window', async () => {
     const job = makeJob();
     const metadata = await buildJobVisibilityMetadata({
@@ -180,6 +312,7 @@ describe('job visibility metadata', () => {
             result_summary: null,
           }),
         ]),
+        listRecentJobEvents: vi.fn(async () => [makeDenialEvent()]),
       } as unknown as RuntimeJobRepository,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
@@ -188,12 +321,12 @@ describe('job visibility metadata', () => {
       state: 'needs_permission',
       latestRunId: 'run-1',
       latestRunStatus: 'dead_lettered',
-      nextAction:
-        'request_access {"target":{"kind":"capability","id":"browser.use"},"temporaryOnly":false,"reason":"This autonomous run requires Browser access."}',
+      nextAction: 'Approve Required Capability, then resume the job.',
     });
   });
 
-  it('surfaces missing-permission list health from persisted pause reason without run history', async () => {
+  it('surfaces missing-permission list health from the typed denial event', async () => {
+    const run = makeRun({ status: 'failed', result_summary: null });
     const metadata = await buildJobListVisibilityMetadata({
       jobs: [
         makeJob({
@@ -201,18 +334,23 @@ describe('job visibility metadata', () => {
           pause_reason: 'Needs permission: mcp__gantry__browser_act',
         }),
       ],
+      ops: {
+        listLatestJobRunsByJobIds: vi.fn(async () => new Map([['job-1', run]])),
+        listRecentJobEvents: vi.fn(async () => [makeDenialEvent()]),
+      },
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
 
     expect(metadata.get('job-1')?.health).toMatchObject({
       state: 'needs_permission',
-      latestRunId: null,
-      latestRunStatus: null,
-      nextAction: 'Approve Browser access, then rerun the job.',
+      latestRunId: 'run-1',
+      latestRunStatus: 'failed',
+      nextAction: 'Approve Required Capability, then resume the job.',
     });
   });
 
   it('keeps raw tool ids out of needs-permission next-action copy', async () => {
+    const run = makeRun({ status: 'failed', result_summary: null });
     const metadata = await buildJobListVisibilityMetadata({
       jobs: [
         makeJob({
@@ -220,15 +358,40 @@ describe('job visibility metadata', () => {
           pause_reason: 'Needs permission: RunCommand',
         }),
       ],
+      ops: {
+        listLatestJobRunsByJobIds: vi.fn(async () => new Map([['job-1', run]])),
+        listRecentJobEvents: vi.fn(async () => [
+          makeDenialEvent({
+            payload: JSON.stringify({
+              denied_tool: 'RunCommand',
+              reason: 'Command access is missing.',
+              denial_kind: 'permission_denied',
+              provenance_lane: DEFAULT_AGENT_ENGINE,
+              provenance_seam: 'gate',
+              action: {
+                kind: 'approve_grant',
+                grant: {
+                  type: 'addRules',
+                  behavior: 'allow',
+                  rules: [
+                    { tool_name: 'RunCommand', rule_content: 'npm test *' },
+                  ],
+                },
+              },
+              error_summary: 'Permission denied.',
+            }),
+          }),
+        ]),
+      },
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
 
     const view = metadata.get('job-1');
     expect(view?.health.nextAction).toBe(
-      'Approve exact command access, then rerun the job.',
+      'Approve scoped command access, then resume the job.',
     );
     expect(view?.nextActionLabel).toBe(
-      'Approve exact command access, then rerun the job.',
+      'Approve scoped command access, then resume the job.',
     );
     expect(view?.nextActionLabel).not.toContain('RunCommand');
   });

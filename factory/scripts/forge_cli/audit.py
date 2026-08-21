@@ -23,7 +23,7 @@ import datetime
 import subprocess
 from pathlib import Path
 
-from factory_lib import repo_root
+from factory_lib import factory_dir, repo_root, story_dir
 
 from .deferrals import load_rows
 from .findings import collect, recurring
@@ -34,10 +34,16 @@ DEFERRAL_STALE_DAYS = 60
 
 
 def _shipped(base: Path) -> list[str]:
-    history = base / ".factory" / "history"
-    if not history.is_dir():
-        return []
-    return sorted(p.name for p in history.iterdir() if p.is_dir())
+    history = factory_dir(base) / "history"
+    shipped = {p.name for p in history.iterdir() if p.is_dir()} \
+        if history.is_dir() else set()
+    shipped.update(
+        str(item["key"])
+        for item in load_items(base)
+        if item.get("status") == "done" and item.get("key")
+        and story_dir(base, str(item["key"])).is_dir()
+    )
+    return sorted(shipped)
 
 
 def ignored_escalations(base: Path) -> list[str]:
@@ -46,7 +52,7 @@ def ignored_escalations(base: Path) -> list[str]:
         return []
     shipped = _shipped(base)
     decision_text = " ".join(
-        p.read_text().lower() for p in sorted((base / "docs" / "decisions").glob("*.md"))
+        p.read_text(encoding="utf-8").lower() for p in sorted((base / "docs" / "decisions").glob("*.md"))
     ) if (base / "docs" / "decisions").is_dir() else ""
     refactor_text = " ".join(
         f"{i.get('title', '')} {i.get('epic', '')}"
@@ -92,7 +98,10 @@ def decayed_lessons(base: Path) -> list[str]:
     lessons = load_lessons(base)
     if not lessons:
         return []
-    proc = subprocess.run(["git", "ls-files"], cwd=base, capture_output=True, text=True)
+    proc = subprocess.run(
+        ["git", "ls-files"], cwd=base, capture_output=True, text=True,
+        encoding="utf-8", errors="surrogateescape",
+    )
     tracked = [line for line in proc.stdout.splitlines() if line] \
         if proc.returncode == 0 else []
     out = []

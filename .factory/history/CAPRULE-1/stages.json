@@ -1,0 +1,34 @@
+{
+  "issue": "CAPRULE-1",
+  "stages": [
+    {
+      "id": "CAPRULE-1-1",
+      "title": "Part A: scheduled worker-local miss consults the host coordinator before terminal deny",
+      "status": "done",
+      "started_at": "2026-08-08T13:56:47+00:00",
+      "base_sha": "83d8395277b6af454c3e2a441a8db377f0df73a7",
+      "dirty_at_start": {
+        "docs/specs/caprule-1.md": {
+          "digest": "05c65f6a8e6d19cb189afeab83775e0f04ef78afcc08032c2004e16a0d41bcae",
+          "git": "? docs/specs/caprule-1.md\u0000\u0000\u0000"
+        },
+        "plans/roadmap.json": {
+          "digest": "d889b1d612d0377b3619659a9a5aaafe2b97e5536dd1e7acd7ae16d6c3390a0e",
+          "git": "1 .M N... 100644 100644 100644 294fbe2da3a85f407098c9a35abcf6210ee77b47 294fbe2da3a85f407098c9a35abcf6210ee77b47 plans/roadmap.json\u0000\u0000100644 294fbe2da3a85f407098c9a35abcf6210ee77b47 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+        }
+      },
+      "task_sha256": "f2e66806d932f69e57e5a2ab9c38ba3990af99de3bf845d4e9a964238ce134a6",
+      "completed_at": "2026-08-08T15:23:15+00:00"
+    },
+    {
+      "id": "CAPRULE-1-2",
+      "title": "Part B: one plain-language notification per denied-tool pause",
+      "status": "done",
+      "started_at": "2026-08-08T15:23:40+00:00",
+      "base_sha": "629ec86cfcce9d708062b0984e47e78a42415324",
+      "dirty_at_start": {},
+      "task_sha256": "1fbc25f1cb31cfaafcc07d7e747d3449e8754371495795fd35018a04b57840ce",
+      "completed_at": "2026-08-08T16:12:12+00:00"
+    }
+  ]
+}

@@ -2601,6 +2601,9 @@ export interface components {
                 };
             };
             capabilities: {
+                imageInput?: boolean;
+                imageToolResults?: boolean;
+                pdfInput?: boolean;
                 streaming: boolean;
                 toolUse: boolean;
                 mcpProjection: boolean;
@@ -3157,7 +3160,50 @@ export interface components {
                 reason?: string;
             }[];
             setup?: {
-                [key: string]: unknown;
+                /** @enum {string} */
+                state: "ready" | "missing_capability" | "broker_unreachable" | "credential_unknown" | "browser_login_may_be_required" | "mcp_missing_credential";
+                /** Format: date-time */
+                checkedAt: string | null;
+                fingerprint: string | null;
+                blockers: {
+                    /** @enum {string} */
+                    state: "missing_capability" | "broker_unreachable" | "credential_unknown" | "browser_login_may_be_required" | "mcp_missing_credential";
+                    summary: string;
+                    action: {
+                        /** @enum {string} */
+                        kind: "approve_grant";
+                        grant: {
+                            /** @enum {string} */
+                            type: "addRules" | "replaceRules";
+                            /** @enum {string} */
+                            behavior: "allow";
+                            rules: {
+                                toolName: string;
+                                ruleContent?: string;
+                            }[];
+                            /** @enum {string} */
+                            destination?: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg";
+                        };
+                    } | {
+                        /** @enum {string} */
+                        kind: "fix_proposal";
+                        proposalId: string;
+                    } | {
+                        /** @enum {string} */
+                        kind: "instruction";
+                        text: string;
+                    };
+                    /** @enum {string} */
+                    type: "tool" | "semantic_capability" | "browser" | "mcp_server" | "credential" | "local_cli";
+                    id: string;
+                }[];
+                nextAction: string | null;
+                deliveryNotice: {
+                    /** @enum {string} */
+                    outcome: "delivered" | "ambiguous" | "exhausted" | "cancelled" | "expired";
+                    attempt: number;
+                    text: string;
+                } | null;
             };
             modelAlias?: string;
         };
@@ -3215,7 +3261,50 @@ export interface components {
             dryRun?: boolean;
             status?: string;
             setup?: {
-                [key: string]: unknown;
+                /** @enum {string} */
+                state: "ready" | "missing_capability" | "broker_unreachable" | "credential_unknown" | "browser_login_may_be_required" | "mcp_missing_credential";
+                /** Format: date-time */
+                checkedAt: string | null;
+                fingerprint: string | null;
+                blockers: {
+                    /** @enum {string} */
+                    state: "missing_capability" | "broker_unreachable" | "credential_unknown" | "browser_login_may_be_required" | "mcp_missing_credential";
+                    summary: string;
+                    action: {
+                        /** @enum {string} */
+                        kind: "approve_grant";
+                        grant: {
+                            /** @enum {string} */
+                            type: "addRules" | "replaceRules";
+                            /** @enum {string} */
+                            behavior: "allow";
+                            rules: {
+                                toolName: string;
+                                ruleContent?: string;
+                            }[];
+                            /** @enum {string} */
+                            destination?: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg";
+                        };
+                    } | {
+                        /** @enum {string} */
+                        kind: "fix_proposal";
+                        proposalId: string;
+                    } | {
+                        /** @enum {string} */
+                        kind: "instruction";
+                        text: string;
+                    };
+                    /** @enum {string} */
+                    type: "tool" | "semantic_capability" | "browser" | "mcp_server" | "credential" | "local_cli";
+                    id: string;
+                }[];
+                nextAction: string | null;
+                deliveryNotice: {
+                    /** @enum {string} */
+                    outcome: "delivered" | "ambiguous" | "exhausted" | "cancelled" | "expired";
+                    attempt: number;
+                    text: string;
+                } | null;
             };
             runtimeContext?: {
                 [key: string]: unknown;
@@ -3272,7 +3361,50 @@ export interface components {
         JobResumeResponse: {
             resumed: boolean;
             setup?: {
-                [key: string]: unknown;
+                /** @enum {string} */
+                state: "ready" | "missing_capability" | "broker_unreachable" | "credential_unknown" | "browser_login_may_be_required" | "mcp_missing_credential";
+                /** Format: date-time */
+                checkedAt: string | null;
+                fingerprint: string | null;
+                blockers: {
+                    /** @enum {string} */
+                    state: "missing_capability" | "broker_unreachable" | "credential_unknown" | "browser_login_may_be_required" | "mcp_missing_credential";
+                    summary: string;
+                    action: {
+                        /** @enum {string} */
+                        kind: "approve_grant";
+                        grant: {
+                            /** @enum {string} */
+                            type: "addRules" | "replaceRules";
+                            /** @enum {string} */
+                            behavior: "allow";
+                            rules: {
+                                toolName: string;
+                                ruleContent?: string;
+                            }[];
+                            /** @enum {string} */
+                            destination?: "userSettings" | "projectSettings" | "localSettings" | "session" | "cliArg";
+                        };
+                    } | {
+                        /** @enum {string} */
+                        kind: "fix_proposal";
+                        proposalId: string;
+                    } | {
+                        /** @enum {string} */
+                        kind: "instruction";
+                        text: string;
+                    };
+                    /** @enum {string} */
+                    type: "tool" | "semantic_capability" | "browser" | "mcp_server" | "credential" | "local_cli";
+                    id: string;
+                }[];
+                nextAction: string | null;
+                deliveryNotice: {
+                    /** @enum {string} */
+                    outcome: "delivered" | "ambiguous" | "exhausted" | "cancelled" | "expired";
+                    attempt: number;
+                    text: string;
+                } | null;
             };
         };
         JobTriggerResponse: {
@@ -3291,7 +3423,7 @@ export interface components {
             /** Format: uri */
             url: string;
             enabled: boolean;
-            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.setup_card_delivery" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId: string | null;
             sessionId: string | null;
             jobId: string | null;
@@ -3309,7 +3441,7 @@ export interface components {
             url: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.setup_card_delivery" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -3320,7 +3452,7 @@ export interface components {
             url?: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.setup_card_delivery" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;

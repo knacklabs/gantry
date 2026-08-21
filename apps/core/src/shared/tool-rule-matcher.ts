@@ -540,7 +540,10 @@ function scopePatternMatches(scope: string, candidate: string): boolean {
   return globPatternMatches(normalizedScope, normalizedCandidate);
 }
 
-function bashScopeMatchesLeaf(scope: string, leaf: BashCommandLeaf): boolean {
+export function bashScopeMatchesLeaf(
+  scope: string,
+  leaf: BashCommandLeaf,
+): boolean {
   const normalizedScope = normalizePersistentBashRuleContent(
     canonicalizeGeneratedRuntimeSkillPaths(scope.trim()),
   );
@@ -551,6 +554,36 @@ function bashScopeMatchesLeaf(scope: string, leaf: BashCommandLeaf): boolean {
   if (patternArgs[0].includes('*')) return false;
   const argv = leafArgvForScope(patternArgs, leaf.argv);
   if (!argv) return false;
+  return argvPatternMatches(patternArgs, argv, 'one-arg');
+}
+
+export function localCliCommandTemplateMatchesArgv(input: {
+  executablePath: string;
+  template: string;
+  argv: readonly string[];
+}): boolean {
+  if (hasBashShellControlSyntax(input.template)) return false;
+  const parsedTemplate = parseBashCommand(input.template.trim());
+  if (!parsedTemplate.ok || parsedTemplate.leaves.length !== 1) return false;
+  const leaf = parsedTemplate.leaves[0];
+  if (!leaf || leaf.redirects.length > 0) return false;
+  const patternArgs = leaf.argv;
+  if (patternArgs.length < 2) return false;
+  if (patternArgs[1]?.includes('*')) return false;
+  if (
+    patternArgs[0] !== input.executablePath ||
+    input.argv[0] !== input.executablePath
+  ) {
+    return false;
+  }
+  return argvPatternMatches(patternArgs, input.argv, 'one-non-flag');
+}
+
+function argvPatternMatches(
+  patternArgs: readonly string[],
+  argv: readonly string[],
+  nonTerminalWildcard: 'one-arg' | 'one-non-flag',
+): boolean {
   const hasTrailingRestWildcard = patternArgs.at(-1) === '*';
   if (hasTrailingRestWildcard) {
     if (argv.length < patternArgs.length - 1) return false;
@@ -562,6 +595,17 @@ function bashScopeMatchesLeaf(scope: string, leaf: BashCommandLeaf): boolean {
     if (pattern === '*' && index === patternArgs.length - 1) return true;
     const value = argv[index];
     if (value === undefined) return false;
+    // one-non-flag (structured local CLI): a non-flag pattern — literal, bare
+    // `*`, or a mixed glob like `*foo` — must never absorb a flag argument, so
+    // an injected `--flag` cannot land in a reviewed positional slot. RunCommand
+    // (one-arg) keeps its historical flag-permissive positional behavior.
+    if (
+      nonTerminalWildcard === 'one-non-flag' &&
+      !pattern.startsWith('-') &&
+      value.startsWith('-')
+    ) {
+      return false;
+    }
     if (pattern === '*') continue;
     if (!globPatternMatches(pattern, value)) return false;
   }

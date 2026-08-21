@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import type {
   PermissionPromotionCounter,
@@ -25,7 +25,6 @@ export class PostgresPermissionPromotionRepository implements PermissionPromotio
         agentFolder: input.agentFolder,
         suggestionKey: input.suggestionKey,
         allowCount: 1,
-        lastOfferedAt: null,
         deniedAt: null,
         createdAt: input.nowIso,
         updatedAt: input.nowIso,
@@ -60,28 +59,6 @@ export class PostgresPermissionPromotionRepository implements PermissionPromotio
     return row ? mapRow(row) : null;
   }
 
-  async markOffered(input: {
-    appId: string;
-    agentFolder: string;
-    suggestionKey: string;
-    nowIso: string;
-  }): Promise<boolean> {
-    const rows = await this.db
-      .update(table)
-      .set({ lastOfferedAt: input.nowIso, updatedAt: input.nowIso })
-      .where(
-        and(
-          eq(table.appId, input.appId),
-          eq(table.agentFolder, input.agentFolder),
-          eq(table.suggestionKey, input.suggestionKey),
-          isNull(table.lastOfferedAt),
-          isNull(table.deniedAt),
-        ),
-      )
-      .returning({ suggestionKey: table.suggestionKey });
-    return rows.length === 1;
-  }
-
   async markDenied(input: {
     appId: string;
     agentFolder: string;
@@ -95,7 +72,6 @@ export class PostgresPermissionPromotionRepository implements PermissionPromotio
         agentFolder: input.agentFolder,
         suggestionKey: input.suggestionKey,
         allowCount: 0,
-        lastOfferedAt: null,
         deniedAt: input.nowIso,
         createdAt: input.nowIso,
         updatedAt: input.nowIso,
@@ -114,7 +90,6 @@ export class PostgresPermissionPromotionRepository implements PermissionPromotio
 function mapRow(row: typeof table.$inferSelect): PermissionPromotionCounter {
   return {
     ...row,
-    lastOfferedAt: row.lastOfferedAt ? toIsoTimestamp(row.lastOfferedAt) : null,
     deniedAt: row.deniedAt ? toIsoTimestamp(row.deniedAt) : null,
     createdAt: toIsoTimestamp(row.createdAt),
     updatedAt: toIsoTimestamp(row.updatedAt),

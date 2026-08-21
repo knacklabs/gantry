@@ -27,6 +27,9 @@ import {
   appId,
   chatJid,
   providerAccountId,
+  jobId,
+  permissionLane,
+  runId,
   memoryDefaultScope,
   memoryIpcAllowedActions,
   memoryReviewerIsControlApprover,
@@ -75,6 +78,10 @@ export function writeIpcFile(dir: string, data: object): string {
     ...(providerAccountId ? { providerAccountId } : {}),
     ...(threadId ? { threadId } : {}),
     ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
+    ...(jobId ? { sourceJobId: jobId } : {}),
+    ...(runId ? { sourceRunId: runId } : {}),
+    sourceRunKind:
+      permissionLane === 'autonomous' ? 'scheduled' : 'interactive',
   };
   const payload = {
     ...data,
@@ -314,6 +321,10 @@ export interface TaskResponseEnvelope {
   timestamp?: string;
 }
 
+export type TaskResponseWaitOutcome =
+  | { status: 'received'; response: TaskResponseEnvelope }
+  | { status: 'timed_out' };
+
 function parseTaskResponseEnvelope(
   raw: unknown,
 ): { payload: TaskResponseEnvelope; raw: Record<string, unknown> } | null {
@@ -352,6 +363,14 @@ export async function waitForTaskResponse(
   taskId: string,
   timeoutMs = 15_000,
 ): Promise<TaskResponseEnvelope | null> {
+  const outcome = await waitForTaskResponseOutcome(taskId, timeoutMs);
+  return outcome.status === 'received' ? outcome.response : null;
+}
+
+export async function waitForTaskResponseOutcome(
+  taskId: string,
+  timeoutMs = 15_000,
+): Promise<TaskResponseWaitOutcome> {
   ensurePrivateDirSync(TASK_RESPONSES_DIR);
   const responsePath = path.join(TASK_RESPONSES_DIR, `task-${taskId}.json`);
   const deadline = nowMs() + timeoutMs;
@@ -363,9 +382,12 @@ export async function waitForTaskResponse(
       fs.unlinkSync(responsePath);
       if (!parsedEnvelope) {
         return {
-          taskId,
-          ok: false,
-          error: 'Invalid task response payload',
+          status: 'received',
+          response: {
+            taskId,
+            ok: false,
+            error: 'Invalid task response payload',
+          },
         };
       }
       const payload = parsedEnvelope.payload as unknown as Record<
@@ -378,12 +400,15 @@ export async function waitForTaskResponse(
         })
       ) {
         return {
-          taskId,
-          ok: false,
-          error: 'Invalid task response signature',
+          status: 'received',
+          response: {
+            taskId,
+            ok: false,
+            error: 'Invalid task response signature',
+          },
         };
       }
-      return parsedEnvelope.payload;
+      return { status: 'received', response: parsedEnvelope.payload };
     } catch (err) {
       try {
         fs.unlinkSync(responsePath);
@@ -391,12 +416,17 @@ export async function waitForTaskResponse(
         // ignore
       }
       return {
-        taskId,
-        ok: false,
-        error:
-          err instanceof Error ? err.message : 'Failed to parse task response',
+        status: 'received',
+        response: {
+          taskId,
+          ok: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : 'Failed to parse task response',
+        },
       };
     }
   }
-  return null;
+  return { status: 'timed_out' };
 }

@@ -269,10 +269,13 @@ export async function inspectSlackTokenLiveCheck(input: {
         title: 'Slack Token API Validation',
         status: 'pass',
         message: 'Slack bot/app tokens validated.',
+        warning: botValidation.warning,
       };
     }
     const failed = [botValidation, appValidation].filter((item) => !item.ok);
-    const nextAction = SLACK_CHANNEL_TOKEN_NEXT_ACTION;
+    const nextAction =
+      failed.find((item) => item.nextAction)?.nextAction ||
+      SLACK_CHANNEL_TOKEN_NEXT_ACTION;
     return {
       id: 'slack-token-api',
       title: 'Slack Token API Validation',

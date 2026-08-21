@@ -1,0 +1,161 @@
+@import 'tailwindcss';
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-background: var(--canvas);
+  --color-foreground: var(--text);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--ink-on);
+  --color-secondary: var(--surface-strong);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--surface-muted);
+  --color-muted-foreground: var(--text-secondary);
+  --color-accent: var(--surface-strong);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--danger);
+  --color-input: var(--border-strong);
+  --color-ring: var(--focus-ring);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-strong: var(--surface-strong);
+  --color-text: var(--text);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-ink-hover: var(--ink-hover);
+  --color-ink-on: var(--ink-on);
+  --color-status-idle: var(--status-idle);
+  --color-status-success: var(--status-success);
+  --color-status-success-soft: var(--status-success-soft);
+  --color-status-attention: var(--status-attention);
+  --color-status-attention-soft: var(--status-attention-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-overlay: var(--overlay);
+  --color-focus-ring: var(--focus-ring);
+  --font-sans: 'Spline Sans Variable', 'Spline Sans', system-ui, sans-serif;
+  --font-mono:
+    'Spline Sans Mono Variable', 'Spline Sans Mono', ui-monospace, monospace;
+  --shadow-control: 0 1px 2px rgb(27 26 24 / 8%);
+  --shadow-panel: 0 1px 2px rgb(27 26 24 / 5%);
+  --shadow-popover: 0 16px 40px -16px rgb(27 26 24 / 30%);
+  --shadow-drawer: 12px 0 28px rgb(27 26 24 / 16%);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+}
+
+:root {
+  --canvas: #f2f1ee;
+  --surface: #ffffff;
+  --surface-muted: #f9f8f6;
+  --surface-strong: #edebe7;
+  --text: #1b1a18;
+  --text-secondary: #555350;
+  --text-muted: #8b8881;
+  --border: #e6e4df;
+  --border-strong: #d4d1cb;
+  --ink: #1b1a18;
+  --ink-hover: #302e2a;
+  --ink-on: #f7f6f4;
+  --status-success: #5d7f58;
+  --status-success-soft: #e2ebdf;
+  --status-attention: #8a6a3c;
+  --status-attention-soft: #f1e7d6;
+  --danger: #a85439;
+  --danger-soft: #f2e0d8;
+  --status-idle: #8a6a3c;
+  --overlay: rgb(27 26 24 / 42%);
+  --focus-ring: #6d665c;
+}
+
+:root[data-theme='dark'] {
+  --canvas: #131211;
+  --surface: #1d1c1a;
+  --surface-muted: #242220;
+  --surface-strong: #2b2926;
+  --text: #f0eeea;
+  --text-secondary: #b5b1aa;
+  --text-muted: #807c75;
+  --border: #2c2a27;
+  --border-strong: #3b3833;
+  --ink: #f0eeea;
+  --ink-hover: #ffffff;
+  --ink-on: #1b1a18;
+  --status-success: #84a87e;
+  --status-success-soft: #222b20;
+  --status-attention: #c0985f;
+  --status-attention-soft: #2f2820;
+  --danger: #c97f63;
+  --danger-soft: #32231d;
+  --status-idle: #c0985f;
+  --overlay: rgb(0 0 0 / 62%);
+  --focus-ring: #d0b383;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--text);
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  ::selection {
+    background: var(--status-attention-soft);
+    color: var(--text);
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}
+
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after {
+  animation-duration: 1ms !important;
+  scroll-behavior: auto !important;
+  transition-duration: 1ms !important;
+}

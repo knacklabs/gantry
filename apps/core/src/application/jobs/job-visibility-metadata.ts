@@ -1,6 +1,7 @@
 import type {
   Job,
   JobCapabilityRequirement,
+  JobEvent,
   JobRun,
 } from '../../domain/types.js';
 import { splitAccessRequirements } from './job-access-requirements.js';
@@ -29,14 +30,18 @@ import {
 } from '../../shared/tool-access-view.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import {
-  parseAutonomousToolDenial,
-  type AutonomousToolDenial,
-} from '../../shared/autonomous-tool-denial.js';
+  parseJobToolDeniedEvent,
+  type JobToolDenial,
+} from '../../domain/events/job-tool-denial.js';
+import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import {
-  setupActionLabel,
-  setupActionLabelFromNextAction,
+  formatJobSetupAction,
   setupReadinessLabel,
 } from '../../shared/job-setup-labels.js';
+import {
+  setupDeliveryNoticeFromEvents,
+  type JobSetupDeliveryNotice,
+} from './job-setup-delivery-notice.js';
 
 export interface JobVisibilityMetadata {
   executionContext: JobExecutionContextInput;
@@ -101,18 +106,19 @@ export interface JobSetupMetadata {
   checkedAt: string | null;
   fingerprint: string | null;
   blockers: Array<{
-    state: string;
-    message: string;
-    nextAction: string;
-    requirementType: string;
-    requirementId: string;
+    state: NonNullable<Job['setup_state']>['blockers'][number]['state'];
+    summary: string;
+    action: NonNullable<Job['setup_state']>['blockers'][number]['action'];
+    type: NonNullable<Job['setup_state']>['blockers'][number]['type'];
+    id: string;
   }>;
   nextAction: string | null;
+  deliveryNotice: JobSetupDeliveryNotice | null;
 }
 
 export async function buildJobVisibilityMetadata(input: {
   job: Job;
-  ops: Pick<RuntimeJobRepository, 'listJobRuns'>;
+  ops: Pick<RuntimeJobRepository, 'listJobRuns' | 'listRecentJobEvents'>;
   toolRepository?: ToolCatalogRepository;
   skillRepository?: SkillCatalogRepository;
   appId?: string;
@@ -139,13 +145,27 @@ export async function buildJobVisibilityMetadata(input: {
     typeof input.ops.listJobRuns === 'function'
       ? await input.ops.listJobRuns(input.job.id, input.recentRunLimit ?? 5)
       : [];
+  const latestRun = runs[0];
+  const denialsByRun = await loadPrimaryDenialsByRun(input.ops, {
+    appId,
+    runIds: latestRun ? [latestRun.run_id] : [],
+  });
   const health = buildJobHealth({
     job: input.job,
     runs,
     staleness,
     nowMs,
+    denial: latestRun ? (denialsByRun.get(latestRun.run_id) ?? null) : null,
   });
-  const setup = setupMetadataForJob(input.job);
+  const deliveryContext = await loadSetupDeliveryEvents(input.ops, {
+    appId,
+    jobIds: [input.job.id],
+  });
+  const setup = setupMetadataForJob(
+    input.job,
+    deliveryContext.events,
+    deliveryContext.activePromptIds.get(input.job.id) ?? null,
+  );
   const displayLabels = deriveJobDisplayLabels({
     executionContext,
     notificationRoutes,
@@ -188,7 +208,10 @@ export async function buildJobVisibilityMetadata(input: {
 
 export async function buildJobListVisibilityMetadata(input: {
   jobs: Job[];
-  ops?: Pick<RuntimeJobRepository, 'listLatestJobRunsByJobIds'>;
+  ops?: Pick<
+    RuntimeJobRepository,
+    'listLatestJobRunsByJobIds' | 'listRecentJobEvents'
+  >;
   toolRepository?: ToolCatalogRepository;
   skillRepository?: SkillCatalogRepository;
   appId?: string;
@@ -196,9 +219,23 @@ export async function buildJobListVisibilityMetadata(input: {
 }): Promise<Map<string, JobVisibilityMetadata>> {
   const nowMs = input.nowMs ?? currentTimeMs();
   const latestRunsByJobId = await loadLatestRunsByJobId(input.jobs, input.ops);
+  const denialsByRun = await loadPrimaryDenialsByRun(input.ops, {
+    appId: input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+    runIds: [...latestRunsByJobId.values()]
+      .map((run) => run?.run_id)
+      .filter((runId): runId is string => typeof runId === 'string'),
+  });
+  const deliveryContext = await loadSetupDeliveryEvents(input.ops, {
+    appId: input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID,
+    jobIds: input.jobs.map((job) => job.id),
+  });
   const inheritedToolsByTarget = new Map<string, Promise<string[]>>();
-  const loadInheritedTools = (appId: string, agentId: string) => {
-    const key = `${appId}\0${agentId}`;
+  const loadInheritedTools = (
+    appId: string,
+    agentId: string,
+    personId?: string | null,
+  ) => {
+    const key = `${appId}\0${agentId}\0${personId ?? ''}`;
     let promise = inheritedToolsByTarget.get(key);
     if (!promise) {
       promise = resolveAgentToolBindings({
@@ -206,6 +243,7 @@ export async function buildJobListVisibilityMetadata(input: {
         skillRepository: input.skillRepository,
         appId,
         agentId,
+        personId,
       });
       inheritedToolsByTarget.set(key, promise);
     }
@@ -222,17 +260,28 @@ export async function buildJobListVisibilityMetadata(input: {
           executionContext,
         );
         const agentId = agentIdForJobWorkspaceKey(job.workspace_key);
-        const inheritedTools = await loadInheritedTools(appId, agentId);
+        const inheritedTools = await loadInheritedTools(
+          appId,
+          agentId,
+          job.execution_context?.personId,
+        );
         const effectiveAllowedTools = mergeUnique(inheritedTools);
         const staleness = schedulerJobStaleness(job, nowMs);
         const latestRun = latestRunsByJobId.get(job.id);
         const runs = latestRun ? [latestRun] : [];
-        const setup = setupMetadataForJob(job);
+        const setup = setupMetadataForJob(
+          job,
+          deliveryContext.events.filter((event) => event.job_id === job.id),
+          deliveryContext.activePromptIds.get(job.id) ?? null,
+        );
         const health = buildJobHealth({
           job,
           runs,
           staleness,
           nowMs,
+          denial: latestRun
+            ? (denialsByRun.get(latestRun.run_id) ?? null)
+            : null,
         });
         const displayLabels = deriveJobDisplayLabels({
           executionContext,
@@ -295,13 +344,12 @@ function buildJobHealth(input: {
   runs: JobRun[];
   staleness: SchedulerJobStaleness | null;
   nowMs: number;
+  denial: JobToolDenial | null;
 }): JobHealthMetadata {
   const latestRun = input.runs[0];
   const latestSummary =
     latestRun?.error_summary ?? latestRun?.result_summary ?? null;
-  const denial =
-    parseAutonomousToolDenial(latestSummary) ??
-    parsePermissionPauseReason(input.job.pause_reason);
+  const denial = input.denial;
   const setupBlocker =
     input.job.pause_reason === 'Setup required'
       ? input.job.setup_state?.blockers[0]
@@ -340,7 +388,9 @@ function buildJobHealth(input: {
       input.job.lease_run_id ??
       (latestRun?.status === 'running' ? latestRun.run_id : null),
     leaseExpiresAt: input.job.lease_expires_at,
-    nextAction: setupBlocker?.nextAction ?? nextJobHealthAction(state, denial),
+    nextAction: setupBlocker
+      ? formatJobSetupAction(setupBlocker.action, setupBlocker)
+      : nextJobHealthAction(state, denial),
   };
 }
 
@@ -368,10 +418,8 @@ function deriveJobDisplayLabels(input: {
     primaryRoute?.threadId ?? input.executionContext.threadId;
   const blocker = input.setup.blockers[0];
   const nextActionLabel = blocker
-    ? setupActionLabel(blocker)
-    : input.health.nextAction
-      ? setupActionLabelFromNextAction(input.health.nextAction)
-      : null;
+    ? formatJobSetupAction(blocker.action, blocker)
+    : input.health.nextAction;
   return {
     ownerLabel: genericConversationOwnerLabel(ownerJid),
     deliveryLabel: genericConversationDeliveryLabel(
@@ -399,8 +447,23 @@ function genericConversationDeliveryLabel(
 
 // "Needs approval" only fits capability/permission grants; broker, credential,
 // and browser-login blockers are not approvals, so they read as "Needs setup".
-function setupMetadataForJob(job: Job): JobSetupMetadata {
-  const setup = job.setup_state;
+function setupMetadataForJob(
+  job: Job,
+  deliveryEvents: readonly JobEvent[] = [],
+  activePromptId: string | null = null,
+): JobSetupMetadata {
+  return jobSetupMetadataForState(
+    job.setup_state,
+    deliveryEvents,
+    activePromptId,
+  );
+}
+
+export function jobSetupMetadataForState(
+  setup: Job['setup_state'],
+  deliveryEvents: readonly JobEvent[] = [],
+  activePromptId: string | null = null,
+): JobSetupMetadata {
   const blockers = setup?.blockers ?? [];
   return {
     state: setup?.state ?? 'ready',
@@ -408,30 +471,75 @@ function setupMetadataForJob(job: Job): JobSetupMetadata {
     fingerprint: setup?.fingerprint ?? null,
     blockers: blockers.map((blocker) => ({
       state: blocker.state,
-      message: blocker.message,
-      nextAction: blocker.nextAction,
-      requirementType: blocker.requirementType,
-      requirementId: blocker.requirementId,
+      summary: blocker.summary,
+      action: blocker.action,
+      type: blocker.type,
+      id: blocker.id,
     })),
-    nextAction: blockers[0]?.nextAction ?? null,
+    nextAction: blockers[0]
+      ? formatJobSetupAction(blockers[0].action, blockers[0])
+      : null,
+    deliveryNotice: setupDeliveryNoticeFromEvents({
+      events: deliveryEvents,
+      setupFingerprint: setup?.fingerprint,
+      activePromptId,
+    }),
   };
 }
 
-function parsePermissionPauseReason(
-  value: string | null | undefined,
-): AutonomousToolDenial | null {
-  if (!value) return null;
-  const match = value.match(/^Needs permission:\s*(\S+)/i);
-  return match?.[1] ? { toolName: match[1] } : null;
+interface SetupDeliveryContext {
+  events: JobEvent[];
+  activePromptIds: Map<string, string>;
+}
+
+const EMPTY_SETUP_DELIVERY_CONTEXT: SetupDeliveryContext = {
+  events: [],
+  activePromptIds: new Map(),
+};
+
+async function loadSetupDeliveryEvents(
+  ops:
+    | Pick<
+        RuntimeJobRepository,
+        | 'listRecentJobEvents'
+        | 'listLatestSetupPromptIds'
+        | 'listSetupDeliveryEventsPerJob'
+      >
+    | undefined,
+  input: { appId: string; jobIds: string[] },
+): Promise<SetupDeliveryContext> {
+  if (
+    !ops ||
+    typeof ops.listRecentJobEvents !== 'function' ||
+    input.jobIds.length === 0
+  ) {
+    return EMPTY_SETUP_DELIVERY_CONTEXT;
+  }
+  // ONE set-based query with a per-job window cap: no per-job fan-out,
+  // and no shared limit one job's history can starve. Fixtures without
+  // the method fall back to a single bounded query.
+  const [events, activePromptIds] = await Promise.all([
+    typeof ops.listSetupDeliveryEventsPerJob === 'function'
+      ? ops.listSetupDeliveryEventsPerJob(input.appId, input.jobIds, 10)
+      : ops.listRecentJobEvents(Math.max(200, input.jobIds.length * 10), {
+          app_id: input.appId,
+          job_ids: input.jobIds,
+          event_type: RUNTIME_EVENT_TYPES.JOB_SETUP_CARD_DELIVERY,
+          order: 'desc',
+        }),
+    typeof ops.listLatestSetupPromptIds === 'function'
+      ? ops.listLatestSetupPromptIds(input.appId, input.jobIds)
+      : Promise.resolve(new Map<string, string>()),
+  ]);
+  return { events, activePromptIds };
 }
 
 function nextJobHealthAction(
   state: JobHealthMetadata['state'],
-  denial: ReturnType<typeof parseAutonomousToolDenial>,
+  denial: JobToolDenial | null,
 ): string | null {
-  if (denial?.recoveryAction) return denial.recoveryAction;
-  if (state === 'needs_permission' && denial?.toolName) {
-    return `Approve ${neutralToolAccessLabel(denial.toolName)}, then rerun the job.`;
+  if (state === 'needs_permission' && denial) {
+    return formatJobSetupAction(denial.action);
   }
   if (state === 'timed_out') {
     return 'Rerun with a longer job timeout if this work is expected to take more time.';
@@ -451,20 +559,44 @@ function nextJobHealthAction(
   return null;
 }
 
-function isRestartInterruptedRun(summary: string | null): boolean {
-  return /runtime restarted|gantry restarted/i.test(summary ?? '');
+async function loadPrimaryDenialsByRun(
+  ops: Pick<RuntimeJobRepository, 'listRecentJobEvents'> | undefined,
+  input: { appId: string; runIds: string[] },
+): Promise<Map<string, JobToolDenial>> {
+  // Scoped per displayed latest run (review round 2): one global history cap
+  // let a busy job crowd out another job's authoritative denial.
+  if (!ops?.listRecentJobEvents || input.runIds.length === 0) return new Map();
+  // ONE batched DISTINCT ON query: the FIRST persisted denial per run (the
+  // authoritative primary, 0126) - no N+1 per run, no truncating cap.
+  const events = await ops.listRecentJobEvents(input.runIds.length, {
+    app_id: input.appId,
+    run_ids: input.runIds,
+    first_per_run: true,
+    event_type: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+  });
+  const result = new Map<string, JobToolDenial>();
+  for (const event of events) {
+    if (result.has(event.run_id ?? '')) continue;
+    const denial = parseJobEventDenial(event);
+    if (denial && event.run_id) result.set(event.run_id, denial);
+  }
+  return result;
 }
 
-// Keep raw implementation tool ids (RunCommand, Bash, mcp__server__tool) out of
-// user-facing next-action copy; map them to provider-neutral access labels.
-function neutralToolAccessLabel(toolName: string): string {
-  if (toolName.startsWith('mcp__gantry__browser_') || toolName === 'Browser') {
-    return 'Browser access';
+function parseJobEventDenial(event: JobEvent): JobToolDenial | null {
+  if (!event.payload) return null;
+  try {
+    return parseJobToolDeniedEvent({
+      eventType: event.event_type as never,
+      payload: JSON.parse(event.payload),
+    });
+  } catch {
+    return null;
   }
-  if (toolName === 'RunCommand' || toolName === 'Bash') {
-    return 'exact command access';
-  }
-  return 'the requested access';
+}
+
+function isRestartInterruptedRun(summary: string | null): boolean {
+  return /runtime restarted|gantry restarted/i.test(summary ?? '');
 }
 
 function resolveExecutionContext(job: Job): JobExecutionContextInput {

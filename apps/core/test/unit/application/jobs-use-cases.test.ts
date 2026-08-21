@@ -9,7 +9,10 @@ import {
   validateSchedulerUpdate,
 } from '@core/application/jobs/job-management-access.js';
 import type { JobControlPort } from '@core/application/jobs/job-management-types.js';
-import type { RuntimeJobRepository } from '@core/domain/repositories/ops-repo.js';
+import type {
+  RuntimeJobRepository,
+  SetupPausedJobRecoveryClaim,
+} from '@core/domain/repositories/ops-repo.js';
 import type { Job, JobEvent, JobRun } from '@core/domain/types.js';
 import { runtimeJobSchedulePlanner } from '@core/jobs/job-schedule-planner.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
@@ -204,6 +207,7 @@ describe('job application use cases', () => {
   it('creates setup-paused jobs when declared durable requirements are missing', async () => {
     const upsertJob = vi.fn(async () => ({ created: true }));
     const runtimeEvents = { publish: vi.fn(async () => undefined) };
+    const setupRequiredNotifications = { notify: vi.fn() };
     const service = new JobManagementService({
       ops: {
         upsertJob,
@@ -217,6 +221,7 @@ describe('job application use cases', () => {
         listAgentToolBindings: vi.fn(async () => []),
       } as never,
       runtimeEvents,
+      setupRequiredNotifications,
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
     });
 
@@ -243,21 +248,8 @@ describe('job application use cases', () => {
         }),
       }),
     );
-    expect(runtimeEvents.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'app-one',
-        eventType: 'job.setup_required',
-        payload: expect.objectContaining({
-          setup_state: 'missing_capability',
-          blockers: expect.arrayContaining([
-            expect.objectContaining({
-              requirementType: 'browser',
-              requirementId: 'Browser',
-            }),
-          ]),
-        }),
-      }),
-    );
+    expect(setupRequiredNotifications.notify).toHaveBeenCalledOnce();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
   });
 
   it('rechecks setup-paused jobs after persistent permission approval and queues ready jobs', async () => {
@@ -293,6 +285,26 @@ describe('job application use cases', () => {
     const updateJob = vi.fn(async (_id: string, updates: Partial<Job>) => {
       job = { ...job, ...updates };
     });
+    const resumeSetupPausedJob = vi.fn(
+      async (input: SetupPausedJobRecoveryClaim) => {
+        if (
+          job.status !== 'paused' ||
+          job.pause_reason !== input.expectedPauseReason ||
+          (job.setup_state?.checked_at ?? job.updated_at) !==
+            input.expectedSetupCheckedAt
+        ) {
+          return false;
+        }
+        job = {
+          ...job,
+          status: 'active',
+          pause_reason: null,
+          next_run: input.nextRun,
+          setup_state: input.setupState,
+        };
+        return true;
+      },
+    );
     const scheduler = { requestSchedulerSync: vi.fn() };
 
     const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
@@ -303,6 +315,7 @@ describe('job application use cases', () => {
         listJobs: vi.fn(async () => [job]),
         getJobById: vi.fn(),
         updateJob,
+        resumeSetupPausedJob,
       } as unknown as RuntimeJobRepository,
       scheduler,
       toolRepository: {
@@ -324,15 +337,16 @@ describe('job application use cases', () => {
       queued: [{ jobId: 'job-browser', name: 'Browser job', state: 'queued' }],
       stillBlocked: [],
     });
-    expect(updateJob).toHaveBeenCalledWith(
-      'job-browser',
+    expect(resumeSetupPausedJob).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'active',
-        pause_reason: null,
-        next_run: '2026-05-14T00:05:00.000Z',
-        setup_state: expect.objectContaining({ state: 'ready' }),
+        jobId: 'job-browser',
+        expectedPauseReason: 'Setup required',
+        expectedSetupCheckedAt: '2026-05-14T00:00:00.000Z',
+        nextRun: '2026-05-14T00:05:00.000Z',
+        setupState: expect.objectContaining({ state: 'ready' }),
       }),
     );
+    expect(updateJob).not.toHaveBeenCalled();
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith('job-browser');
   });
 
@@ -441,9 +455,11 @@ describe('job application use cases', () => {
           blockers: expect.arrayContaining([
             expect.objectContaining({
               state: 'missing_capability',
-              requirementType: 'local_cli',
-              requirementId: 'acme.records.append',
-              nextAction: expect.stringContaining('request_access'),
+              type: 'local_cli',
+              id: 'acme.records.append',
+              action: expect.objectContaining({
+                kind: 'approve_grant',
+              }),
             }),
           ]),
         }),
@@ -1627,6 +1643,53 @@ describe('job application use cases', () => {
     ).toBe(true);
   });
 
+  it('scopes job visibility to the route provider account, fail-closed', () => {
+    // The check stays fail-closed on the account: a route must name the querying
+    // account. The KnackLabs regression (an unbound route hiding the job) is
+    // fixed by STAMPING the account at creation, not by wildcarding this check.
+    const access = {
+      sourceAgentFolder: 'team',
+      originConversationJid: 'tg:team',
+      originProviderAccountId: 'telegram_default',
+      conversationBindings: { 'tg:team': { folder: 'team' } },
+      sourceAgentFolderJids: ['tg:team'],
+    };
+    const withRoute = (route: Record<string, unknown>) =>
+      makeJob({
+        workspace_key: 'team',
+        execution_context: {
+          conversationJid: 'tg:team',
+          threadId: '6898',
+          workspaceKey: 'team',
+        },
+        notification_routes: [
+          {
+            conversationJid: 'tg:team',
+            threadId: '6898',
+            label: 'primary',
+            ...route,
+          },
+        ] as Job['notification_routes'],
+      });
+    // Bound to the querying account: visible.
+    expect(
+      canAccessSchedulerJob(
+        withRoute({ providerAccountId: 'telegram_default' }),
+        access,
+      ),
+    ).toBe(true);
+    // Bound to a DIFFERENT account: hidden (fail-closed).
+    expect(
+      canAccessSchedulerJob(
+        withRoute({ providerAccountId: 'telegram_other' }),
+        access,
+      ),
+    ).toBe(false);
+    // Unbound route (no account): also hidden — an absent account is ambiguous,
+    // not a wildcard; the fix is to stamp the account upstream, at creation.
+    expect(canAccessSchedulerJob(withRoute({}), access)).toBe(false);
+  });
+
   it('validates scheduler thread mutations', () => {
     const access = {
       sourceAgentFolder: 'team',
@@ -1640,15 +1703,15 @@ describe('job application use cases', () => {
       authThreadId: 'thread-1',
     };
 
-    expectThrowsCode(
-      () =>
-        validateSchedulerUpdate(
-          makeJob({ workspace_key: 'team', thread_id: 'thread-1' }),
-          { thread_id: 'thread-2' },
-          access,
-        ),
-      'FORBIDDEN',
-    );
+    // Threads/topics are delivery routing, not ownership: any thread of the
+    // owning conversation may be set, from any thread of that conversation.
+    expect(() =>
+      validateSchedulerUpdate(
+        makeJob({ workspace_key: 'team', thread_id: 'thread-1' }),
+        { thread_id: 'thread-2' },
+        access,
+      ),
+    ).not.toThrow();
     expect(() =>
       validateSchedulerUpdate(
         makeJob({ workspace_key: 'team', thread_id: 'thread-1' }),
@@ -1839,6 +1902,7 @@ describe('job application use cases', () => {
           conversationJid: 'tg:team',
           threadId: '2771',
           workspaceKey: 'team',
+          personId: null,
         },
         notification_routes: [
           {
@@ -1994,10 +2058,10 @@ describe('job application use cases', () => {
     expect(ops.upsertJob).not.toHaveBeenCalled();
   });
 
-  it('rejects IPC scheduler upsert thread ids without authenticated thread context', async () => {
+  it('accepts IPC scheduler upsert thread ids without authenticated thread context (threads are delivery routing, not ownership)', async () => {
     const ops = {
       getJobById: vi.fn(),
-      upsertJob: vi.fn(),
+      upsertJob: vi.fn(async (job: unknown) => ({ created: true, job })),
     };
     const service = new JobManagementService({
       ops: ops as unknown as RuntimeJobRepository,
@@ -2021,8 +2085,12 @@ describe('job application use cases', () => {
         scheduleValue: '60000',
         threadId: 'thread-1',
       }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    expect(ops.upsertJob).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ created: true });
+    expect(ops.upsertJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_context: expect.objectContaining({ threadId: 'thread-1' }),
+      }),
+    );
   });
 
   it('uses the role-specific reason when the process does not claim jobs', async () => {

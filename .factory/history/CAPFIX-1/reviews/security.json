@@ -1,0 +1,23 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src + test (CAPFIX-1 branch)",
+    "docs/decisions/0122",
+    "docs/specs/capability-template-amendment.md"
+  ],
+  "score": 9,
+  "summary": "Agent input is evidence only; identity immutable; amendment snapshot-bound; only authenticated human decisions terminal; argv redacted; provider-qualified route+account pinned. Provenance: ~15 local autoreview rounds over the full cumulative diff (branch-wide pass blocked by the known secret-gate phantom on drizzle snapshots); verify.py green.",
+  "non_blocking_findings": [
+    {
+      "category": "durable-recovery",
+      "area": "apps/core/src/jobs",
+      "summary": "post-commit crash window deferred as D-0057 (durable-work primitive)"
+    }
+  ],
+  "recommendation": "ship",
+  "aspect": "security",
+  "residual_risks": [],
+  "recorded_at": "2026-08-11T22:01:42+00:00",
+  "commit": "139be189a4fad89263bfb340515051daeab723cd"
+}

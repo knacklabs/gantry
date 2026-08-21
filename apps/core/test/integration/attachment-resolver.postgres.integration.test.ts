@@ -17,10 +17,12 @@ import { PostgresMessageAttachmentRepository } from '@core/adapters/storage/post
 import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
 import {
   ATTACHMENT_DELETED_COPY,
-  ATTACHMENT_MAX_BYTES,
   ATTACHMENT_NOT_FOUND_COPY,
   ATTACHMENT_TOO_LARGE_COPY,
   ATTACHMENT_UNREACHABLE_COPY,
+} from '@core/application/attachments/attachment-failure.js';
+import {
+  ATTACHMENT_MAX_BYTES,
   AttachmentResolver,
 } from '@core/application/attachments/attachment-resolver.js';
 import { fetchSlackHistoricalAttachment } from '@core/channels/slack/historical-attachment-fetcher.js';
@@ -547,6 +549,56 @@ maybeDescribe('attachment resolver with Postgres repositories', () => {
       ),
     ).toHaveLength(1);
     expect(seam.writer).toHaveBeenCalledTimes(2);
+  });
+
+  it('recovers stale workspace attachment refs by fetching from the provider', async () => {
+    const root = materializationRoot('stale-local');
+    const slack = fakeSlackFetcher({
+      F_STALE_LOCAL: {
+        status: 'ok',
+        content: Buffer.from('fresh provider bytes'),
+        fileName: 'fresh-provider.txt',
+        contentType: 'text/plain',
+      },
+    });
+    const seam = createPostgresSeam(runtime, root, slack.fetcher);
+    const conversationJid = 'sl:C_FILE_1A_STALE_LOCAL';
+    const attachmentId = 'attachment:file-1a:stale-local';
+    await seam.messages.storeMessage(
+      message({
+        id: 'message-file-1a-stale-local',
+        conversationJid,
+        attachments: [
+          slackAttachment({
+            attachmentId,
+            fileId: 'F_STALE_LOCAL',
+            storageRef: 'attachments/missing-after-redeploy.txt',
+          }),
+        ],
+      }),
+    );
+
+    const opened = await seam.resolver.open({
+      ...openRequest(attachmentId, conversationJid),
+      mode: 'materialize',
+      workspaceRoot: workspaceRoots[0],
+    });
+
+    expect(opened).toMatchObject({
+      status: 'opened',
+      content: '',
+    });
+    expect(
+      opened.status === 'opened' &&
+        fs.readFileSync(opened.materializedPath, 'utf8'),
+    ).toBe('fresh provider bytes');
+    expect(slack.fetchHistoricalAttachment).toHaveBeenCalledOnce();
+    const row = await seam.attachments.getResolvableAttachment(attachmentId);
+    expect(row?.storageRef).toBe(
+      opened.status === 'opened' ? opened.storageRef : undefined,
+    );
+    expect(row?.storageRef).toMatch(/^provider-attachments\//u);
+    expect(row?.sizeBytes).toBe(Buffer.byteLength('fresh provider bytes'));
   });
 
   it('scope-fences a Discord lazy fetch and persists fresh provider metadata', async () => {

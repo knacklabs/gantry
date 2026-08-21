@@ -41,7 +41,7 @@ def parse_stories(raw: str) -> list[str]:
 def decision_records(base: Path) -> list[dict]:
     records = []
     for path in sorted((base / "docs" / "decisions").glob("[0-9][0-9][0-9][0-9]-*.md")):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         match = FRONTMATTER.match(text)
         fields: dict[str, str] = {}
         if match:
@@ -91,18 +91,11 @@ def cmd_new(args: argparse.Namespace) -> None:
                                     stories=story)
     if old_record is not None:
         text = text.replace("---\n\n#", f"supersedes: {old_record.stem}\n---\n\n#", 1)
-    path.write_text(text)
-    print(f"Created {path}" + (f" (governs {story})" if story else ""))
+    path.write_text(text, encoding="utf-8")
+    result = f"Created {path}" + (f" (governs {story})" if story else "")
     if old_record is not None:
-        # The predecessor stays ACTIVE until this record is accepted: marking it
-        # superseded now would leave a window where neither version governs, and
-        # plan attestation would require neither. cmd_accept performs the flip.
-        print(f"Supersedes {old_record.stem} — it stays active until "
-              f"`forge decision accept {slug} --by \"<human>\"` flips both.")
-    print(
-        "Reminder: status: accepted requires a non-empty confirmed_by (a human), "
-        "and the commit adding it should carry a `Confirmed-by:` trailer."
-    )
+        result += f"; Supersedes {old_record.stem}"
+    print(result)
 
 
 def cmd_link(args: argparse.Namespace) -> None:
@@ -114,7 +107,7 @@ def cmd_link(args: argparse.Namespace) -> None:
     if not matches:
         fail(f"no decision record matching docs/decisions/NNNN-{slug}.md")
     record = matches[-1]
-    text = record.read_text()
+    text = record.read_text(encoding="utf-8")
     match = FRONTMATTER.match(text)
     if match is None:
         fail(f"{record.name} has no frontmatter to link into")
@@ -131,7 +124,7 @@ def cmd_link(args: argparse.Namespace) -> None:
     joined = f"stories: [{', '.join(stories)}]"
     text = (re.sub(r"^stories: .*$", joined, text, count=1, flags=re.MULTILINE)
             if current else text.replace("---\n\n#", f"{joined}\n---\n\n#", 1))
-    record.write_text(text)
+    record.write_text(text, encoding="utf-8")
     print(f"{record.stem} now governs {', '.join(stories)}")
 
 
@@ -164,7 +157,7 @@ def cmd_accept(args: argparse.Namespace) -> None:
     if not matches:
         fail(f"no decision record matching docs/decisions/NNNN-{slug}.md")
     record = matches[-1]
-    text = record.read_text()
+    text = record.read_text(encoding="utf-8")
     if "status: accepted" in text:
         print(f"{record.relative_to(base)} is already accepted.")
         return
@@ -173,25 +166,22 @@ def cmd_accept(args: argparse.Namespace) -> None:
         text = text.replace('confirmed_by: ""', f'confirmed_by: "{args.by}"', 1)
     else:
         text = re.sub(r"confirmed_by: .*", f'confirmed_by: "{args.by}"', text, count=1)
-    record.write_text(text)
+    record.write_text(text, encoding="utf-8")
     rel = record.relative_to(base)
-    print(f"Accepted: {rel} (confirmed_by: {args.by})")
     # The replacement is live now, so retire the predecessor in the same step:
     # between `decision new --supersedes` and here, the old record kept governing.
     supersedes = re.search(r"^supersedes:\s*(\S+)", text, re.MULTILINE)
     if supersedes:
         old = decisions / f"{supersedes.group(1)}.md"
         if old.is_file():
-            old_text = old.read_text()
+            old_text = old.read_text(encoding="utf-8")
             old_text = re.sub(r"status: (accepted|proposed)", "status: superseded",
                               old_text, count=1)
             if "superseded_by:" not in old_text:
                 old_text = old_text.replace("---\n\n#",
                                             f"superseded_by: {record.stem}\n---\n\n#", 1)
-            old.write_text(old_text)
-            print(f"Superseded: {old.relative_to(base)} -> {record.stem}")
-    print("Commit it with the audit trailer:")
-    print(f'  git add {rel} && git commit -m "docs(decisions): accept {slug}" '
-          f'--trailer "Confirmed-by: {args.by}"')
-    if slug == "client-signoff":
-        print("Then arm the gate: python3 factory/scripts/record_signoff.py")
+            old.write_text(old_text, encoding="utf-8")
+            print(f"Accepted: {rel} (confirmed_by: {args.by}); "
+                  f"Superseded: {old.relative_to(base)} -> {record.stem}")
+            return
+    print(f"Accepted: {rel} (confirmed_by: {args.by})")

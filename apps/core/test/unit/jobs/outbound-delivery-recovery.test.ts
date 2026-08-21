@@ -7,6 +7,7 @@ import type { ClaimedOutboundDeliveryItem } from '@core/domain/outbound-delivery
 import {
   runBoundedOutboundDeliveryRecovery,
   startOutboundDeliveryRecoveryLoop,
+  startSetupPromptReconciliationLoop,
   stopOutboundDeliveryRecoveryLoop,
 } from '@core/jobs/outbound-delivery-recovery.js';
 import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
@@ -638,6 +639,26 @@ describe('startOutboundDeliveryRecoveryLoop', () => {
     expect(markDeliveryItemSent).toHaveBeenCalledTimes(1);
     expect(loop.isRunning()).toBe(true);
 
+    await loop.stop();
+    expect(loop.isRunning()).toBe(false);
+  });
+
+  it('runs setup reconciliation on its own supervised loop so a failing pass never gates delivery claims', async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('reconcile boom'))
+      .mockResolvedValue(undefined);
+    const warn = vi.fn();
+    const loop = startSetupPromptReconciliationLoop({
+      run,
+      intervalMs: 1_000,
+      warn,
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(run).toHaveBeenCalledTimes(2);
     await loop.stop();
     expect(loop.isRunning()).toBe(false);
   });

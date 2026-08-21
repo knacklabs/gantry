@@ -22,10 +22,8 @@ import type { IpcDeps } from './ipc-domain-types.js';
 import type { ParsedPermissionIpcRequest } from './ipc-parsing.js';
 import {
   consultPermissionClassifierBeforePrompt,
-  permissionPromotionHintCount,
-  recordHumanPermissionPromotionSignal,
+  permissionPromotionHint,
 } from './permission-classifier.js';
-import { runDurablePermissionInteraction } from '../application/interactions/durable-interaction-handler.js';
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import {
@@ -66,12 +64,14 @@ export async function resolvePermissionIpcDecision(input: {
   const approvedCapabilityIds =
     agentSettings?.capabilities?.map(({ id }) => id) ?? [];
   const workspaceRoot = resolveWorkspaceFolderPath(input.sourceAgentFolder);
-  const fixedImageRestricted = input.request.responseKeyId
-    ? (permissionRunRestriction({
+  const runRestriction = input.request.responseKeyId
+    ? permissionRunRestriction({
         sourceAgentFolder: input.sourceAgentFolder,
         responseKeyId: input.request.responseKeyId,
-      })?.hideAuthorityTools ?? false)
-    : false;
+      })
+    : undefined;
+  const hostJobId = runRestriction?.jobId;
+  const fixedImageRestricted = runRestriction?.hideAuthorityTools ?? false;
   const protectedCapability = evaluateProtectedCapabilityToolUse(
     input.request.toolName,
     input.request.toolInput,
@@ -136,8 +136,8 @@ export async function resolvePermissionIpcDecision(input: {
           input.request.toolName,
           input.request.toolInput,
           {
-            isScheduledJob: Boolean(input.request.jobId),
-            jobId: input.request.jobId,
+            isScheduledJob: Boolean(hostJobId),
+            jobId: hostJobId,
             threadId: input.request.threadId,
             conversationId: input.request.targetJid ?? '',
           },
@@ -151,11 +151,12 @@ export async function resolvePermissionIpcDecision(input: {
             capability,
           ]),
         ),
-        ...(input.request.jobId
+        ...(hostJobId
           ? { autonomousAllowedToolRules: policy.rules }
           : { allowedToolRules: policy.rules }),
       });
     },
+    skipClassifierVerdictCache: Boolean(hostJobId),
     tail: () =>
       resolvePermissionIpcDecisionTail({
         ...input,
@@ -164,6 +165,7 @@ export async function resolvePermissionIpcDecision(input: {
         railRisk,
         railRequiresApproval,
         railApprovalReason,
+        hostJobId,
       }),
   });
 }
@@ -177,7 +179,35 @@ async function resolvePermissionIpcDecisionTail(input: {
   railRisk?: PermissionDeterministicRailRisk;
   railRequiresApproval?: boolean;
   railApprovalReason?: string;
+  hostJobId?: string;
 }): Promise<PermissionApprovalDecision> {
+  if (input.hostJobId) {
+    // Only trusted host-derived rail risk may ride an autonomous denial into
+    // the decision/audit path; without one, strip the worker-supplied fields
+    // rather than let an untrusted low/benign claim reach the grant card.
+    if (input.railRisk) {
+      input.request.risk_level = input.railRisk.level;
+      if (input.railRisk.category) {
+        input.request.risk_category = input.railRisk.category;
+      } else {
+        delete input.request.risk_category;
+      }
+    } else {
+      delete input.request.risk_level;
+      delete input.request.risk_category;
+    }
+    const reason = `Autonomous runs decide deterministically: ${input.request.toolName} has no declared grant.`;
+    input.request.decisionReason = reason;
+    return withRequestRisk(input.request, {
+      ...decisionForMode(
+        input.request,
+        'cancel',
+        'deterministic_rails',
+        'machine',
+      ),
+      reason,
+    });
+  }
   const route = input.request.targetJid
     ? findConversationRouteForQueue(
         input.deps.conversationRoutes?.() ?? {},
@@ -216,25 +246,7 @@ async function resolvePermissionIpcDecisionTail(input: {
   );
   const promotionRepository = input.deps.getPermissionPromotionRepository?.();
   const promotion = promotionRepository
-    ? {
-        repository: promotionRepository,
-        offer: async (request: PermissionApprovalRequest) => {
-          const interaction = await runDurablePermissionInteraction({
-            request,
-            sourceAgentFolder: input.sourceAgentFolder,
-            prompt: input.deps.requestPermissionApproval,
-          });
-          if (interaction.resolved)
-            recordHumanPermissionPromotionSignal({
-              repository: promotionRepository,
-              appId: request.appId,
-              agentFolder: input.sourceAgentFolder,
-              request,
-              decision: interaction.decision,
-            });
-          return interaction;
-        },
-      }
+    ? { repository: promotionRepository }
     : undefined;
   const shouldConsultClassifier =
     input.deps.publishRuntimeEvent &&
@@ -362,7 +374,12 @@ async function resolvePermissionIpcDecisionTail(input: {
   if (classifierDecision?.decision === 'allow' && !input.railRequiresApproval) {
     return withRequestRisk(
       input.request,
-      decisionForMode(input.request, 'allow_once', 'auto_classifier'),
+      decisionForMode(
+        input.request,
+        'allow_once',
+        'auto_classifier',
+        'machine',
+      ),
     );
   }
   if (
@@ -374,6 +391,7 @@ async function resolvePermissionIpcDecisionTail(input: {
         input.request,
         'cancel',
         railVetoedClassifierAllow ? 'deterministic_rails' : 'runtime',
+        'machine',
       ),
       reason: railVetoedClassifierAllow
         ? (input.railApprovalReason ??
@@ -388,21 +406,29 @@ async function resolvePermissionIpcDecisionTail(input: {
     // would never be honored while the denylist blocks rule-based auto-allows.
     input.request.suggestions = undefined;
     input.request.decisionOptions = ['allow_once', 'cancel'];
-    return withRequestRisk(
-      input.request,
-      await input.deps.requestPermissionApproval(input.request),
-    );
+    const result = await input.deps.requestPermissionApproval(input.request);
+    if (result.kind === 'delivery_failure') {
+      throw new Error(
+        `Couldn't deliver the approval prompt: ${result.userMessage}`,
+      );
+    }
+    return withRequestRisk(input.request, result.decision);
   }
-  input.request.promotionHintCount =
-    classifierDecision?.promotionHintCount ??
-    (await permissionPromotionHintCount({
-      promotion,
-      appId: input.request.appId,
-      agentFolder: input.sourceAgentFolder,
-      canonicalToolName: input.request.toolName,
-      toolInput: input.request.toolInput,
-      suggestions: input.request.suggestions,
-    }));
+  const promotionHint = classifierDecision?.promotionHintCount
+    ? {
+        promotionHintCount: classifierDecision.promotionHintCount,
+        firstAskedAt: classifierDecision.firstAskedAt,
+      }
+    : await permissionPromotionHint({
+        promotion,
+        appId: input.request.appId,
+        agentFolder: input.sourceAgentFolder,
+        canonicalToolName: input.request.toolName,
+        toolInput: input.request.toolInput,
+        suggestions: input.request.suggestions,
+      });
+  input.request.promotionHintCount = promotionHint?.promotionHintCount;
+  input.request.firstAskedAt = promotionHint?.firstAskedAt;
   const effectiveDecisionOptions = input.request.decisionOptions?.length
     ? input.request.decisionOptions
     : firstPersistentRule(input.request)
@@ -418,10 +444,13 @@ async function resolvePermissionIpcDecisionTail(input: {
       'cancel',
     ];
   }
-  return withRequestRisk(
-    input.request,
-    await input.deps.requestPermissionApproval(input.request),
-  );
+  const result = await input.deps.requestPermissionApproval(input.request);
+  if (result.kind === 'delivery_failure') {
+    throw new Error(
+      `Couldn't deliver the approval prompt: ${result.userMessage}`,
+    );
+  }
+  return withRequestRisk(input.request, result.decision);
 }
 
 function withRequestRisk(

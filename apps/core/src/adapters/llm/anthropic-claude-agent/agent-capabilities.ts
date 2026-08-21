@@ -17,6 +17,7 @@ import {
   selectedGantryMcpToolNames,
   selectedMemoryIpcActions,
 } from '../../../runner/gantry-mcp-tool-surface.js';
+import { applyProviderAffinity } from '../../../runner/mcp/tool-provider-affinity.js';
 import {
   isBrowserActionMcpToolRule,
   isCanonicalBrowserCapabilityRule,
@@ -41,6 +42,7 @@ export interface AgentCapabilityContext {
   mcpServerPath: string;
   appId?: string;
   agentId?: string;
+  providerAccountId?: string;
   chatJid: string;
   workspaceFolder: string;
   threadId?: string;
@@ -72,6 +74,7 @@ export interface AgentCapabilityContext {
   ipcDir?: string;
   ipcAuthToken?: string;
   browserIpcAuthToken?: string;
+  attachmentIpcAuthToken?: string;
   memoryIpcAuthToken?: string;
   ipcResponseVerifyKey?: string;
   ipcResponseKeyId?: string;
@@ -130,16 +133,25 @@ const RUNNER_SUPPRESSED_GANTRY_MCP_TOOL_NAME_SET = new Set<string>([
 function gantryMcpAllowedTools(input: {
   configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
+  accessPreset?: string;
   asyncTaskToolsEnabled?: boolean;
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
+  chatJid: string;
+  isScheduledJob?: boolean;
 }): string[] {
   const selectedNames = new Set(
     selectedGantryMcpToolNames(input.configuredTools ?? [], {
       excludeAuthorityTools: input.hideAuthorityTools === true,
+      // Fixed-image hiding must not strip the birthright recovery proposals
+      // (0123); the locked preset routes through the locked base set instead.
+      keepRecoveryProposals:
+        input.hideAuthorityTools === true && input.accessPreset !== 'locked',
       asyncTaskToolsEnabled: input.asyncTaskToolsEnabled === true,
       memoryReviewerIsControlApprover:
         input.memoryReviewerIsControlApprover === true,
+      chatJid: input.chatJid,
+      permissionLane: input.isScheduledJob ? 'autonomous' : 'interactive',
     }),
   );
   const defaultAllowedNames = [
@@ -168,9 +180,12 @@ function gantryMcpAllowedTools(input: {
 function defaultAllowedTools(input: {
   configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
+  accessPreset?: string;
   asyncTaskToolsEnabled?: boolean;
   memoryReviewerIsControlApprover?: boolean;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
+  chatJid: string;
+  isScheduledJob?: boolean;
 }): string[] {
   return [...SAFE_NATIVE_SDK_TOOLS, ...gantryMcpAllowedTools(input)];
 }
@@ -227,19 +242,25 @@ const sdkToolsProvider: AgentCapabilityProvider = {
               ...defaultAllowedTools({
                 configuredTools: ctx.configuredAllowedTools,
                 hideAuthorityTools: ctx.hideAuthorityTools,
+                accessPreset: ctx.accessPreset,
                 asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled,
                 memoryReviewerIsControlApprover:
                   ctx.memoryReviewerIsControlApprover,
                 callableAgentManifest: projectedCallableAgentManifest(ctx),
+                chatJid: ctx.chatJid,
+                isScheduledJob: ctx.isScheduledJob,
               }),
             ]
           : defaultAllowedTools({
               configuredTools: ctx.configuredAllowedTools,
               hideAuthorityTools: ctx.hideAuthorityTools,
+              accessPreset: ctx.accessPreset,
               asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled,
               memoryReviewerIsControlApprover:
                 ctx.memoryReviewerIsControlApprover,
               callableAgentManifest: projectedCallableAgentManifest(ctx),
+              chatJid: ctx.chatJid,
+              isScheduledJob: ctx.isScheduledJob,
             }),
       availableTools: baseAvailableTools,
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
@@ -265,9 +286,14 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       GANTRY_CHAT_JID: ctx.chatJid,
       GANTRY_WORKSPACE_KEY: ctx.workspaceFolder,
       GANTRY_THREAD_ID: ctx.threadId || '',
+      ...(ctx.providerAccountId
+        ? { GANTRY_PROVIDER_ACCOUNT_ID: ctx.providerAccountId }
+        : {}),
       ...(ctx.runHandle ? { GANTRY_AGENT_RUN_HANDLE: ctx.runHandle } : {}),
       ...(ctx.jobId ? { GANTRY_JOB_ID: ctx.jobId } : {}),
       ...(ctx.runId ? { GANTRY_JOB_RUN_ID: ctx.runId } : {}),
+      ...(ctx.runId ? { GANTRY_RUN_ID: ctx.runId } : {}),
+      GANTRY_PERMISSION_LANE: ctx.isScheduledJob ? 'autonomous' : 'interactive',
       ...(ctx.parentTaskId ? { GANTRY_PARENT_TASK_ID: ctx.parentTaskId } : {}),
       ...(ctx.runLeaseToken
         ? { GANTRY_JOB_RUN_LEASE_TOKEN: ctx.runLeaseToken }
@@ -320,6 +346,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
           asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
           memoryReviewerIsControlApprover:
             ctx.memoryReviewerIsControlApprover === true,
+          chatJid: ctx.chatJid,
+          permissionLane: ctx.isScheduledJob ? 'autonomous' : 'interactive',
         }),
         ...callableAgentManifest.map(callableAgentToolName),
       ]),
@@ -338,6 +366,9 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       ),
       ...(ctx.ipcDir ? { GANTRY_IPC_DIR: ctx.ipcDir } : {}),
       ...(ctx.ipcAuthToken ? { GANTRY_IPC_AUTH_TOKEN: ctx.ipcAuthToken } : {}),
+      ...(ctx.attachmentIpcAuthToken
+        ? { GANTRY_ATTACHMENT_IPC_AUTH_TOKEN: ctx.attachmentIpcAuthToken }
+        : {}),
       ...(ctx.browserIpcAuthToken &&
       (ctx.configuredAllowedTools ?? []).some(isCanonicalBrowserCapabilityRule)
         ? { GANTRY_BROWSER_IPC_AUTH_TOKEN: ctx.browserIpcAuthToken }
@@ -468,14 +499,19 @@ function isRunnerSuppressedFullToolName(toolRule: string): boolean {
 const configuredToolProvider: AgentCapabilityProvider = {
   id: 'configured-tools',
   provide: (ctx) => {
-    const allowedTools = (ctx.configuredAllowedTools ?? [])
-      .flatMap(configuredToolAllowedSdkNames)
-      .filter(
-        (toolName) =>
-          !isRunnerSuppressedFullToolName(toolName) &&
-          (ctx.hideAuthorityTools !== true ||
-            !isHiddenAuthorityFullToolName(toolName)),
-      );
+    const allowedTools = [
+      ...applyProviderAffinity(
+        (ctx.configuredAllowedTools ?? [])
+          .flatMap(configuredToolAllowedSdkNames)
+          .filter(
+            (toolName) =>
+              !isRunnerSuppressedFullToolName(toolName) &&
+              (ctx.hideAuthorityTools !== true ||
+                !isHiddenAuthorityFullToolName(toolName)),
+          ),
+        ctx.chatJid,
+      ),
+    ];
     const availableTools = (ctx.configuredAllowedTools ?? [])
       .flatMap(configuredToolAvailableSdkNames)
       .filter((toolName) => toolName.length > 0);

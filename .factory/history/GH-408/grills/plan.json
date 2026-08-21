@@ -1,0 +1,23 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [
+    "The issue proposes bulk taxonomy cleanup that could break historical links.",
+    "The issue could blur tool-specific factory policy with tool-agnostic engineering standards.",
+    "The existing DOCS-001 explorer could be overwritten by the repository-surface cleanup."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "The plan uses a complete inventory and curated current index instead of bulk relocation; historical files remain context-only in place.",
+    "The plan defines correctness in docs/engineering and treats CI, scripts, and the factory as enforcement or workflow links only.",
+    "The plan explicitly preserves the DOCS-001 explorer, diagrams, source evidence, and business-facing content as the branch baseline."
+  ],
+  "open_items": [],
+  "summary": "The plan covers every issue acceptance area with five bounded documentation/governance stages, rejects destructive moves, and leaves runtime/API/schema behavior unchanged.",
+  "questions_asked": 3,
+  "issue": "GH-408",
+  "input_sha256": "5787e16bcffba7dc8160a201b924ee448dbdf7189b243d702595de95a6136fae",
+  "recorded_at": "2026-08-21T06:14:25+00:00",
+  "commit": "d1e6dd065dec3e6e7c2ae21f1fd45f323fc73adf"
+}

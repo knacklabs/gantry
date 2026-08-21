@@ -24,9 +24,12 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from factory_lib import (
-    clean_git_env, decomposition_state_path, dump_json, git_control_dir,
-    head_sha, load_json, now_iso, protected_decomposition_state_path, repo_root,
-    run_state_path, safe_factory_write_json, sha256_of,
+    clean_git_env, decomposition_state_path, dump_json,
+    git_control_dir, head_sha, load_json, now_iso,
+    product_tree_digest,
+    protected_decomposition_state_path, repo_root, require_approved_plan_digest,
+    require_ready_task, require_task_worktree, run_state_path,
+    safe_factory_write_json, sha256_of, task_digest,
 )
 
 from .common import fail
@@ -40,6 +43,39 @@ from .events import append_event
 # — exempting it here would make the scope check vacuous exactly where it is
 # being dogfooded.
 WORKFLOW_PATHS = (".factory/", "plans/")
+DEFAULT_REVIEW_BUDGET_FILES = 8
+DEFAULT_REVIEW_BUDGET_LINES = 400
+
+
+def review_budget(task: dict) -> tuple[int, int, str]:
+    """Return the validated per-task review budget, including defaults."""
+    if "review_budget" not in task:
+        return DEFAULT_REVIEW_BUDGET_FILES, DEFAULT_REVIEW_BUDGET_LINES, ""
+    budget = task["review_budget"]
+    if not isinstance(budget, dict):
+        raise ValueError("must be an object")
+    required = {"max_changed_files", "max_changed_lines"}
+    if not required.issubset(budget) or not set(budget).issubset(
+            required | {"reason"}):
+        raise ValueError(
+            "needs exactly max_changed_files, max_changed_lines, and optional reason"
+        )
+    max_files = budget["max_changed_files"]
+    max_lines = budget["max_changed_lines"]
+    if type(max_files) is not int or max_files <= 0:
+        raise ValueError("max_changed_files must be a positive integer")
+    if type(max_lines) is not int or max_lines <= 0:
+        raise ValueError("max_changed_lines must be a positive integer")
+    reason = budget.get("reason", "")
+    if not isinstance(reason, str):
+        raise ValueError("reason must be a string when present")
+    reason = reason.strip()
+    if (max_files > DEFAULT_REVIEW_BUDGET_FILES
+            or max_lines > DEFAULT_REVIEW_BUDGET_LINES) and not reason:
+        raise ValueError(
+            "raising the default 8 files / 400 lines needs a non-empty reason"
+        )
+    return max_files, max_lines, reason
 
 
 @contextlib.contextmanager
@@ -120,12 +156,15 @@ def pending_stages(base: Path) -> list[dict]:
 def _git(base: Path, *args: str) -> str:
     proc = subprocess.run(
         ["git", *args], cwd=base, capture_output=True, text=True,
-        env=clean_git_env())
+        env=clean_git_env(), encoding="utf-8", errors="surrogateescape")
     return proc.stdout if proc.returncode == 0 else ""
 
 
 def dirty_paths(base: Path) -> list[str]:
     """Every dirty path, including both sides of renames, without quote parsing."""
+    def product_path(rel: str) -> bool:
+        return not (rel.endswith(".pyc") or "__pycache__" in rel.split("/"))
+
     raw = _git(base, "status", "--porcelain=v1", "-z", "-uall")
     entries = raw.split("\0")
     paths: list[str] = []
@@ -136,20 +175,56 @@ def dirty_paths(base: Path) -> list[str]:
         if not entry:
             continue
         status, rel = entry[:2], entry[3:]
-        if rel:
+        if rel and product_path(rel):
             paths.append(rel)
         if any(flag in status for flag in "RC") and index < len(entries):
             source = entries[index]
             index += 1
-            if source:
+            if source and product_path(source):
                 paths.append(source)
     return sorted(set(paths))
 
 
+def stage_ref(stage_id: str) -> str:
+    """The stage's fixed point (decision 0023).
+
+    Under `refs/forge/` so it is never confused with a branch, never fetched or
+    pushed by default, and never rewritten by an ordinary git operation.
+    """
+    return f"refs/forge/stage/{stage_id}"
+
+
+def write_stage_ref(base: Path, stage_id: str) -> str:
+    """Pin HEAD as this stage's baseline and return the sha it points at."""
+    head = head_sha(base) or ""
+    if head:
+        _git(base, "update-ref", stage_ref(stage_id), head)
+    return head
+
+
+def stage_baseline(base: Path, stage: dict) -> str:
+    """The ref if it resolves, else the recorded sha.
+
+    The fallback is what lets a stage started before 0023 — or one whose ref a
+    worktree prune removed — still be measured and closed, rather than becoming
+    the unrecoverable state this decision exists to remove.
+    """
+    resolved = _git(base, "rev-parse", "--verify", "--quiet",
+                    stage_ref(stage.get("id", ""))).strip()
+    return resolved or stage.get("base_sha", "") or ""
+
+
 def committed_paths(base: Path, base_sha: str, head: str) -> set[str]:
-    """Both sides of every committed change, including renames and copies."""
-    raw = _git(base, "diff", "--name-status", "-z", "--find-renames",
-               f"{base_sha}..{head}")
+    """Both sides of every change THIS BRANCH committed, renames and copies too.
+
+    `--first-parent --no-merges`, not a plain range diff: merging upstream into
+    a story worktree while a stage is open otherwise attributes every file that
+    upstream touched to the stage, and `stage done` refuses a scope violation
+    the worker never committed. A merge is something the branch received, not
+    something the stage did.
+    """
+    raw = _git(base, "log", "--first-parent", "--no-merges", "--format=",
+               "--name-status", "-z", "--find-renames", f"{base_sha}..{head}")
     entries = raw.split("\0")
     paths: set[str] = set()
     index = 0
@@ -529,19 +604,6 @@ def protected_authority_snapshot(base: Path) -> dict[str, str]:
     return result
 
 
-def task_digest(task: dict) -> str:
-    """The task contract a stage was started under.
-
-    The decomposition can be re-recorded while a stage is active — that is the
-    sanctioned repair when a scope turns out to be wrong — but it must not be
-    a way to widen `write_scope` or drop `required_tests` moments before
-    closing over them."""
-    payload = json.dumps({k: task.get(k) for k in
-                          ("write_scope", "required_tests", "verify_commands",
-                           "acceptance_criteria")}, sort_keys=True)
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
 def _covered(path: str, scope: list[str]) -> bool:
     for entry in scope:
         prefix = entry.strip().rstrip("/")
@@ -557,10 +619,99 @@ def out_of_scope(paths: list[str], scope: list[str]) -> list[str]:
             and not _covered(p, scope)]
 
 
+def _numstat_lines(raw: str) -> int:
+    total = 0
+    for entry in raw.split("\0"):
+        fields = entry.split("\t", 2)
+        if len(fields) != 3:
+            continue
+        additions, deletions = fields[:2]
+        if additions.isdigit() and deletions.isdigit():
+            total += int(additions) + int(deletions)
+    return total
+
+
+def _changed_line_count(base: Path, base_sha: str, product: list[str]) -> int:
+    """Additions plus deletions for the exact product paths `_measure` found."""
+    if not product:
+        return 0
+    lines = _numstat_lines(
+        _git(base, "diff", "--numstat", "-z", base_sha, "--", *product)
+    )
+    untracked = {
+        rel for rel in _git(
+            base, "ls-files", "--others", "--exclude-standard", "-z", "--",
+            *product,
+        ).split("\0")
+        if rel
+    }
+    for rel in sorted(untracked):
+        proc = subprocess.run(
+            ["git", "diff", "--no-index", "--numstat", "-z", "--",
+             os.devnull, rel],
+            cwd=base, capture_output=True, text=True, env=clean_git_env(),
+            encoding="utf-8", errors="surrogateescape",
+        )
+        if proc.returncode not in {0, 1}:
+            fail(f"cannot count changed lines for untracked path {rel!r}; "
+                 "stage measurement refuses an incomplete review budget")
+        lines += _numstat_lines(proc.stdout)
+    return lines
+
+
 def task_for(base: Path, stage_id: str) -> dict:
     tasks = load_json(
         protected_decomposition_state_path(base), default={}).get("tasks", [])
     return next((t for t in tasks if t.get("id") == stage_id), {})
+
+
+def stage_review_binding(base: Path, stage: dict, task: dict) -> dict[str, str]:
+    """The exact stage/product identity a local review authorizes."""
+    from .delegate import current_delegation
+
+    task_sha256 = task_digest(task)
+    launch = current_delegation(
+        base,
+        stage.get("id", ""),
+        stage_started_at=stage.get("started_at", ""),
+        task_sha256=task_sha256,
+        ignore_lock=True,
+    )
+    brief_sha256 = launch.get("brief_sha256", "") if launch else ""
+    return {
+        "stage_id": stage.get("id", ""),
+        "task_sha256": task_sha256,
+        "brief_sha256": brief_sha256 if isinstance(brief_sha256, str) else "",
+        "base_sha": stage_baseline(base, stage),
+        "product_tree_digest": product_tree_digest(base),
+    }
+
+
+def _require_reviewed_commit(base: Path, stage: dict, task: dict) -> None:
+    stamp = stage.get("local_review_stamp")
+    expected = stage_review_binding(base, stage, task)
+    if not isinstance(stamp, dict):
+        fail(f"{stage.get('id')} has no stage-local review stamp. Record a clean "
+             "local review before committing, then retry stage completion.")
+    stale = [key for key, value in expected.items() if stamp.get(key) != value]
+    if stale:
+        fail(f"{stage.get('id')} has a STALE stage-local review stamp "
+             f"({', '.join(stale)} changed). Re-run the local review against "
+             "the final staged product tree, commit exactly that tree, then retry.")
+    product_dirt = sorted(product_tree_snapshot(base)["dirty"])
+    if product_dirt:
+        fail(f"{stage.get('id')} has uncommitted or staged PRODUCT changes: "
+             f"{', '.join(product_dirt[:10])}. Commit exactly the reviewed tree "
+             "before closing the stage.")
+    base_sha = stage_baseline(base, stage)
+    head = head_sha(base) or ""
+    committed_product = [
+        path for path in committed_paths(base, base_sha, head)
+        if not path.startswith(WORKFLOW_PATHS)
+    ] if base_sha and head and base_sha != head else []
+    if not committed_product:
+        fail(f"{stage.get('id')} closes on an EMPTY committed delta — stage work "
+             "must be committed before completion.")
 
 
 def _find(data: dict, stage_id: str) -> dict:
@@ -572,6 +723,7 @@ def _find(data: dict, stage_id: str) -> dict:
 
 
 def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
+    require_task_worktree(base)
     data = load_stages(base)
     if not data:
         fail("no .factory/stages.json — record the decomposition first "
@@ -583,26 +735,18 @@ def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
     if stage.get("status") == "done":
         fail(f"{args.id} is already done — stages don't reopen; a follow-up is a "
              "new stage in a re-recorded decomposition")
-    current_task = task_for(base, args.id)
     if stage.get("status") == "active":
-        recorded = stage.get("task_sha256")
-        current = task_digest(current_task)
-        if not recorded or recorded == current:
-            fail(f"{args.id} is already active — restarting it would erase the "
-                 "measured delta. Continue the active stage, or re-record a "
-                 "changed task contract before deliberately re-baselining it.")
-        changed = [
-            path for path in changed_paths(
-                base, stage.get("base_sha", ""),
-                stage.get("dirty_at_start", {}),
-            )
-            if not path.startswith(WORKFLOW_PATHS)
-        ]
-        strays = out_of_scope(changed, current_task.get("write_scope") or [])
-        if strays:
-            fail(f"{args.id} cannot re-baseline over path(s) still outside the "
-                 f"new task contract: {', '.join(strays[:10])}. Resolve or "
-                 "remove those changes before restarting the stage.")
+        # No re-baselining, ever (decision 0023). The baseline is a ref written
+        # once at start; a contract that changes mid-stage is LEDGERED, not
+        # replayed onto a new fixed point. Coupling the two is what stranded a
+        # stage whose work was complete, reviewed and committed: the repair
+        # rebaselined onto the finished commit, so the delta it was protecting
+        # no longer existed and nothing could measure it again.
+        fail(f"{args.id} is already active — restarting would erase the measured "
+             "delta, and the baseline is not something to move. Re-record a "
+             "changed contract if the scope was wrong: the change is ledgered "
+             f"and `forge stage done {args.id}` still measures against the ref "
+             "this stage started from.")
     active_others = [
         other["id"] for other in data.get("stages", [])
         if other is not stage and other.get("status") == "active"
@@ -615,11 +759,23 @@ def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
     if not_done:
         fail(f"{args.id} follows unfinished task(s): {', '.join(not_done)} — "
              "finish them in decomposition order")
+    approved_sha256 = require_approved_plan_digest(base)
+    decomposition = load_json(protected_decomposition_state_path(base), default={})
+    if not decomposition:
+        decomposition = load_json(decomposition_state_path(base), default={})
+    if decomposition.get("plan_sha256") != approved_sha256:
+        fail(f"{args.id} cannot start: the decomposition is not bound to the current "
+             "approved plan. Re-record the decomposition, then start the stage.")
+    current_task = require_ready_task(base, args.id)
     stage["status"] = "active"
     stage["started_at"] = now_iso()
     # `stage done` measures the diff, and a measurement needs a fixed point —
     # plus the dirt that was already there, which is not this stage's work.
-    stage["base_sha"] = head_sha(base) or ""
+    # The fixed point is a REF (decision 0023): a sha in stages.json can be
+    # rewritten by the next `stage start`, which is how re-recording a contract
+    # once destroyed the delta it was supposed to protect. A ref is written
+    # once per stage and survives commits, rebases and worktree switches.
+    stage["base_sha"] = write_stage_ref(base, args.id) or ""
     stage["dirty_at_start"] = dirty_digests(base)
     stage["task_sha256"] = task_digest(current_task)
     append_event(base, "stage-start", actor="implementer", story=data.get("issue", ""),
@@ -627,9 +783,6 @@ def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
     stage.pop("parallel", None)
     write_stages(base, data)
     print(f"Stage {args.id} active — {stage.get('title')}")
-    print("Loop: implement via /codex:rescue → inspect diff → validate assumptions → "
-          "smallest checks → LOCAL autoreview until clean → commit → forge stage done "
-          f"{args.id}")
 
 
 def cmd_start(args: argparse.Namespace) -> None:
@@ -648,7 +801,7 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
     Every other diff-based check in this repo fires when TOO MUCH changed.
     None fired when too little did — which is exactly what a stalled or
     half-finished delegation looks like, and it signed itself off."""
-    base_sha = stage.get("base_sha")
+    base_sha = stage_baseline(base, stage)
     if not base_sha:
         fail(f"{stage_id} was started before its base commit was recorded, so "
              "there is nothing to measure against. Re-run "
@@ -662,16 +815,12 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
         fail(f"{stage_id} declares no write_scope, so nothing bounds what it may "
              "change. Re-record the decomposition with the paths this task owns, "
              f"then `forge stage start {stage_id}` again.")
-    recorded = stage.get("task_sha256")
-    if recorded and recorded != task_digest(task):
-        # Re-recording mid-stage is the sanctioned repair for a wrong scope —
-        # but it must not be a way to widen the contract moments before closing
-        # over it. Re-starting re-baselines deliberately and on the record.
-        fail(f"{stage_id}'s task contract changed after the stage started "
-             "(write_scope, required_tests, verify_commands or acceptance "
-             "criteria). Closing over a contract you just rewrote proves "
-             f"nothing — run `forge stage start {stage_id}` to re-baseline "
-             "against the current decomposition, then close it.")
+    # NOTE: _measure must stay PURE. It runs several times per close — before
+    # the proof, after it, and again under the lock — and product_tree_snapshot
+    # digests every TRACKED file, .factory/events.jsonl included. Appending an
+    # event here changed the tree between the proof snapshot and the final
+    # check, so the stage refused itself. The contract change is ledgered once,
+    # in the serialization block, where stages.json is written anyway.
     # Emptiness is judged on PRODUCT paths only. A stalled run still churns
     # .factory/ — the stage tracker and the events ledger move on every
     # command — so counting workflow paths would make this check pass for
@@ -708,6 +857,24 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
                  f"{'…' if len(strays) > 10 else ''}. Either the work exceeded the "
                  "task or the scope was wrong — re-record the decomposition with "
                  "the real scope rather than closing over it.")
+    try:
+        max_files, max_lines, _reason = review_budget(task)
+    except ValueError as exc:
+        fail(f"{stage_id} carries an invalid review_budget ({exc}); re-record "
+             "the decomposition before closing the stage")
+    changed_files = len(product)
+    changed_lines = _changed_line_count(base, base_sha, product)
+    if changed_files > max_files or changed_lines > max_lines:
+        fail(
+            f"{stage_id} exceeds its review budget: measured files={changed_files}, "
+            f"lines={changed_lines}; budget files={max_files}, lines={max_lines} "
+            "(additions + deletions; excluding .factory/ "
+            "and plans/). The default 8 files / 400 lines is the policy target. "
+            "Split the task: re-run the task grill with decision=split, append "
+            "new skeletal task(s) after the frozen graph prefix, and return this "
+            f"stage incomplete with `forge stage done {stage_id} --incomplete "
+            "\"<what remains>\"`."
+        )
 
 
 def _require_successful_launch(base: Path, stage_id: str, stage: dict,
@@ -789,13 +956,17 @@ def _run_required_tests(base: Path, stage_id: str, task: dict) -> None:
             while tokens and "=" in tokens[0] and not tokens[0].startswith("="):
                 name, value = tokens.pop(0).split("=", 1)
                 env[name] = value
+            env["PYTHONUTF8"] = "1"
             proc: subprocess.Popen[str] | None = None
             process_baseline: dict[int, tuple[int, str]] | None = None
             process_identity = ""
             stdout = ""
             stderr = ""
-            with tempfile.TemporaryFile(mode="w+t") as stdout_log, \
-                    tempfile.TemporaryFile(mode="w+t") as stderr_log:
+            with tempfile.TemporaryFile(
+                    mode="w+t", encoding="utf-8", errors="replace"
+            ) as stdout_log, tempfile.TemporaryFile(
+                    mode="w+t", encoding="utf-8", errors="replace"
+            ) as stderr_log:
                 try:
                     with blocked_termination_signals():
                         process_baseline = _process_table()
@@ -884,8 +1055,12 @@ def _run_verify_commands(base: Path, stage_id: str, task: dict) -> None:
         process_token = f"verify-{uuid.uuid4().hex}"
         env = os.environ.copy()
         env["FORGE_PROCESS_TOKEN"] = process_token
-        with tempfile.TemporaryFile(mode="w+t") as stdout_log, \
-                tempfile.TemporaryFile(mode="w+t") as stderr_log:
+        env["PYTHONUTF8"] = "1"
+        with tempfile.TemporaryFile(
+                mode="w+t", encoding="utf-8", errors="replace"
+        ) as stdout_log, tempfile.TemporaryFile(
+                mode="w+t", encoding="utf-8", errors="replace"
+        ) as stderr_log:
             try:
                 with blocked_termination_signals():
                     process_baseline = _process_table()
@@ -935,6 +1110,7 @@ def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
     # Verify commands are executable shell and may mutate files; only the
     # post-command measurement is allowed to authorize completion.
     _measure(base, args.id, stage, task)
+    _require_reviewed_commit(base, stage, task)
     _require_successful_launch(base, args.id, stage, task)
     proof_tree = product_tree_snapshot(base)
     authority_tree = protected_authority_snapshot(base)
@@ -951,6 +1127,7 @@ def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
     final_task = task_for(base, args.id)
     _measure(base, args.id, stage, final_task)
     _require_successful_launch(base, args.id, stage, final_task)
+    _require_reviewed_commit(base, stage, final_task)
     from .delegate import delegation_exclusion
 
     with delegation_exclusion(
@@ -963,12 +1140,17 @@ def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
             fail(f"{args.id} changed identity before its done transition could "
                  "be serialized; inspect `forge stage list` and retry.")
         locked_task = task_for(base, args.id)
-        if (not current.get("task_sha256")
-                or task_digest(locked_task) != current["task_sha256"]):
-            fail(f"{args.id}'s task contract changed before its done transition "
-                 "could be serialized; re-baseline and prove the current contract.")
+        # A RACE guard, not a contract-drift guard: the decomposition must not
+        # move between the measurement above and the write below. Comparing to
+        # the digest recorded at stage START conflated the two, so a contract
+        # legitimately re-recorded mid-stage (decision 0023 ledgers those)
+        # could never be closed at all.
+        if task_digest(locked_task) != task_digest(final_task):
+            fail(f"{args.id}'s task contract changed while its done transition "
+                 "was being serialized; nothing was written — retry.")
         _measure(base, args.id, current, locked_task)
         _require_successful_launch(base, args.id, current, locked_task)
+        _require_reviewed_commit(base, current, locked_task)
         if product_tree_snapshot(base) != proof_tree:
             fail(f"{args.id}'s product tree changed after its required proof; "
                  "rerun stage completion against the final snapshot")
@@ -976,17 +1158,38 @@ def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
         current.pop("attested_digests", None)
         current["status"] = "done"
         current["completed_at"] = now_iso()
+        # A contract that moved mid-stage is EVIDENCE, not a refusal (0023):
+        # review sees the widened scope and can ask why. Recorded HERE, past
+        # the last snapshot check, because every write before it changes a
+        # tracked file the proof already attested.
+        started_digest = current.get("task_sha256")
+        if started_digest and started_digest != task_digest(locked_task):
+            current["contract_changed"] = {
+                "at": current["completed_at"],
+                "from": started_digest,
+                "to": task_digest(locked_task),
+            }
+            # The stage was MEASURED and closed against the current contract,
+            # so that is the digest it carries. Leaving the start digest here
+            # made the completed stage permanently un-re-recordable: the
+            # frozen-contract guard compares against task_sha256 and would see
+            # a change that was already ledgered and closed over.
+            current["task_sha256"] = task_digest(locked_task)
+            append_event(base, "stage-contract-changed", actor="implementer",
+                         story=data.get("issue", ""),
+                         detail=f"{args.id}: task contract re-recorded mid-stage")
+            print(f"NOTE: {args.id}'s task contract changed after the stage "
+                  "started; recorded for review. The measured diff is unaffected.")
         append_event(base, "stage-done", actor="implementer",
                      story=data.get("issue", ""),
                      detail=f"{args.id} {current.get('title', '')}")
         write_stages(base, data)
     remaining = [s for s in data["stages"] if s.get("status") != "done"]
     if remaining:
-        print(f"Stage {args.id} done. Next: forge stage start {remaining[0]['id']} "
-              f"— {remaining[0].get('title')} ({len(remaining)} to go)")
+        print(f"Stage {args.id} done; next: {remaining[0]['id']} "
+              f"({len(remaining)} pending)")
     else:
-        print(f"Stage {args.id} done — all {len(data['stages'])} stage(s) complete. "
-              "Continue the task loop: verify, then the ONE branch autoreview.")
+        print(f"Stage {args.id} done — all {len(data['stages'])} stage(s) complete")
 
 
 def cmd_done(args: argparse.Namespace) -> None:
@@ -1019,8 +1222,6 @@ def cmd_done(args: argparse.Namespace) -> None:
                              detail=f"{args.id}: {incomplete}")
                 write_stages(base, data)
         print(f"Stage {args.id} recorded INCOMPLETE and left active: {incomplete}")
-        print("Nothing downstream treats it as delivered. Finish the gap, then "
-              f"forge stage done {args.id}.")
         return
     from .delegate import delegation_exclusion
 
@@ -1054,6 +1255,19 @@ def _cmd_migrate_locked(args: argparse.Namespace, base: Path) -> None:
         fail("migration trusts legacy workspace state exactly once; inspect "
              ".factory/decomposition.json and .factory/stages.json, then pass "
              "--confirm-workspace-state")
+    resolved_base = _git(
+        base, "rev-parse", "--verify", "--end-of-options",
+        f"{args.base}^{{commit}}")
+    if not resolved_base:
+        fail(f"--base {args.base!r} does not resolve to a commit")
+    resolved_base = resolved_base.strip()
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", resolved_base, "HEAD"],
+        cwd=base, capture_output=True, text=True, env=clean_git_env(), encoding="utf-8")
+    if ancestor.returncode == 1:
+        fail(f"--base {resolved_base!r} is not an ancestor of HEAD")
+    if ancestor.returncode != 0:
+        fail(f"could not validate --base {resolved_base!r} against HEAD")
     protected_decomposition = protected_decomposition_state_path(base)
     protected_stages = authoritative_stages_path(base)
     if protected_decomposition.exists() != protected_stages.exists():
@@ -1086,6 +1300,7 @@ def _cmd_migrate_locked(args: argparse.Namespace, base: Path) -> None:
         if stage.get("status") not in {"pending", "active", "done"}:
             fail(f"legacy stage {stage.get('id')} has invalid status")
         if stage.get("status") in {"active", "done"}:
+            stage["base_sha"] = resolved_base
             stage["task_sha256"] = task_digest(tasks[stage["id"]])
         stage.pop("parallel", None)
         stage.pop("attested_digests", None)

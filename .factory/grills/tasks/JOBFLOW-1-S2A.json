@@ -1,0 +1,27 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "gaps": [
+    "required_tests is empty - the JIT contract must enumerate the replaced-pin families before implementation",
+    "The write scope is broad (jobs, events, storage, both LLM adapter lanes, shared) for one stage",
+    "The sandbox cannot run npm test (EPERM/EMFILE, S-0001/S-0002 precedent) - the implementer cannot self-verify with the suite",
+    "The stage must not change the blocker/action emission shape (S2b owns it) - an easy line to cross while touching finalization",
+    "Post-implementation scope correction: write_scope globs did not match the prefix-based stage matcher, and the review-driven asc-order option touched ops-repo.ts outside the declared scope"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Replaced-pin families enumerated in reviewer_focus and the appendix S2a section (autonomous-tool-denial:17, execution-diagnostics:9, execution:586, job-lifecycle-integration:1047, deepagents-terminal-denial:253, anthropic-recovery:25, status-formatting:179, execution-notifications:436, finalization:56, visibility:168); the implementer writes/updates those tests as part of the stage",
+    "Breadth is the atomicity ruling from validation passes 7-13: one denial format after the cutover, producers and consumers move together (0112/0113); a narrower stage would land a dual format",
+    "Implementer writes code + tests and runs typecheck/structural only; the host runs the focused suites and verify.py before stage done - carried in the brief via this grill",
+    "Acceptance criterion pins emission-shape freeze; the plan-aware review brief makes it a per-contract verdict",
+    "Scopes re-recorded as plain directory prefixes (matcher is prefix-based, no globs) and ops-repo.ts added - the real surface of the read-seam filter type; five review rounds and full verify already green on the final tree"
+  ],
+  "open_items": [],
+  "summary": "S2a contract re-grilled after scope normalization (prefix semantics) and one real scope addition; implementation complete, five plan-aware review rounds to clean, verify green.",
+  "task_id": "JOBFLOW-1-S2A",
+  "input_sha256": "211a183fea7210e92f3f267bf3ec3c7213cc3f7ccf10974ad9f56c2a946e4c56",
+  "recorded_at": "2026-08-13T04:27:45+00:00",
+  "commit": "ea5b515fe9c2734311b17d477bcac44d9c0d17a5"
+}

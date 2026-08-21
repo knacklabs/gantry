@@ -18,6 +18,7 @@ import {
   adminMcpToolFullName,
   isAdminMcpToolFullName,
   isAdminMcpToolName,
+  isDurableGantryMcpToolFullName,
 } from '../../../shared/admin-mcp-tools.js';
 
 type ToolResponse = {
@@ -375,6 +376,12 @@ function normalizeExactRequestableToolName(value: string): string | null {
   }
   if (isAdminMcpToolFullName(trimmed)) return trimmed;
   if (isAdminMcpToolName(trimmed)) return adminMcpToolFullName(trimmed);
+  const gantryMcpFullName = trimmed.startsWith('mcp__gantry__')
+    ? trimmed
+    : `mcp__gantry__${trimmed}`;
+  if (isDurableGantryMcpToolFullName(gantryMcpFullName)) {
+    return gantryMcpFullName;
+  }
   if (isGantryFacadeExactToolName(trimmed)) {
     const validation = validateDurableAccessRule(trimmed);
     return validation.ok ? (trimmed as GantryFacadeExactToolName) : null;

@@ -10,6 +10,7 @@ import type {
   OutboundDeliveryId,
   OutboundDeliveryItem,
   OutboundDeliveryReceipt,
+  OutboundDeliveryPermissionPromptLocator,
   OutboundDeliveryResolvedDestination,
 } from '../../domain/outbound-delivery/outbound-delivery.js';
 import { OutboundDeliveryIdempotencyConflictError } from '../../domain/outbound-delivery/outbound-delivery.js';
@@ -230,6 +231,7 @@ export class OutboundDeliveryService {
     providerPayload?: unknown;
     sentAt?: string;
     receiptId?: OutboundDeliveryReceipt['id'];
+    permissionPromptLocator?: OutboundDeliveryPermissionPromptLocator;
   }) {
     const sentAt = input.sentAt ?? this.deps.now();
     const providerPayload = sanitizeRetryTailProviderPayload(
@@ -251,6 +253,59 @@ export class OutboundDeliveryService {
       itemId: input.itemId,
       claimToken: input.claimToken,
       receipt,
+      permissionPromptLocator: input.permissionPromptLocator,
+    });
+  }
+
+  async getSetupPermissionPromptForDispatch(input: {
+    appId: OutboundDelivery['appId'];
+    promptId: string;
+    now?: string;
+  }) {
+    const load = this.deps.repository.getSetupPermissionPromptForDispatch;
+    if (!load) {
+      throw new Error(
+        'Outbound delivery repository does not support setup permission prompts.',
+      );
+    }
+    return load.call(this.deps.repository, {
+      ...input,
+      now: input.now ?? this.deps.now(),
+    });
+  }
+
+  async beginSend(input: {
+    deliveryId: OutboundDelivery['id'];
+    itemId: OutboundDeliveryItem['id'];
+    promptId: string;
+    claimToken: string;
+    begunAt?: string;
+  }): Promise<'begun' | 'lease_lost' | 'prompt_closed'> {
+    const begin = this.deps.repository.beginDeliveryItemSend;
+    if (!begin) {
+      throw new Error(
+        'Outbound delivery repository does not support send checkpoints.',
+      );
+    }
+    return begin.call(this.deps.repository, {
+      ...input,
+      begunAt: input.begunAt ?? this.deps.now(),
+    });
+  }
+
+  async settleCancelled(input: {
+    deliveryId: OutboundDelivery['id'];
+    itemId: OutboundDeliveryItem['id'];
+    claimToken: string;
+    reason: Record<string, unknown>;
+    cancelledAt?: string;
+  }) {
+    return this.deps.repository.markDeliveryItemCancelled?.({
+      deliveryId: input.deliveryId,
+      itemId: input.itemId,
+      claimToken: input.claimToken,
+      reason: input.reason,
+      cancelledAt: input.cancelledAt ?? this.deps.now(),
     });
   }
 

@@ -11,6 +11,7 @@ import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import { invalidateSystemJobRegistrationSignature } from './system-registration-cache.js';
 import { resolveRequestedJobModelPatch } from '../application/jobs/job-model-selection.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
+import { rejectDisallowedSchedulerMutation } from './ipc-scheduler-mutation-authority.js';
 import { getSelectedAgentHarness } from '../config/index.js';
 import { getRuntimeEventExchange } from '../adapters/storage/postgres/runtime-store.js';
 import {
@@ -20,7 +21,7 @@ import {
 } from './scheduler.js';
 import {
   jobSetupBlockerFromUnknown,
-  setupActionLabel,
+  formatJobSetupAction,
 } from '../shared/job-setup-labels.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
@@ -97,6 +98,7 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
     data.authThreadId,
     data.responseKeyId,
   );
+  if (rejectDisallowedSchedulerMutation(context, reject)) return;
   const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
   if (!jobId) {
     reject('scheduler_update_job requires jobId.', 'invalid_request');
@@ -177,6 +179,7 @@ const schedulerDeleteJobHandler: TaskHandler = async (context) => {
     data.authThreadId,
     data.responseKeyId,
   );
+  if (rejectDisallowedSchedulerMutation(context, reject)) return;
   const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
   if (!jobId) {
     reject('scheduler_delete_job requires jobId.', 'invalid_request');
@@ -207,6 +210,7 @@ const schedulerPauseJobHandler: TaskHandler = async (context) => {
     data.authThreadId,
     data.responseKeyId,
   );
+  if (rejectDisallowedSchedulerMutation(context, reject)) return;
   const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
   if (!jobId) {
     reject('scheduler_pause_job requires jobId.', 'invalid_request');
@@ -238,6 +242,7 @@ const schedulerResumeJobHandler: TaskHandler = async (context) => {
     data.authThreadId,
     data.responseKeyId,
   );
+  if (rejectDisallowedSchedulerMutation(context, reject)) return;
   const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
   if (!jobId) {
     reject('scheduler_resume_job requires jobId.', 'invalid_request');
@@ -274,6 +279,7 @@ const schedulerRunNowHandler: TaskHandler = async (context) => {
     data.authThreadId,
     data.responseKeyId,
   );
+  if (rejectDisallowedSchedulerMutation(context, reject)) return;
   const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
   if (!jobId) {
     reject('scheduler_run_now requires jobId.', 'invalid_request');
@@ -308,7 +314,8 @@ function formatSetupOutcome(job?: { setup_state?: unknown }): string {
   if (state === 'ready') return '';
   const blockers = (setupState as { blockers?: unknown }).blockers;
   const firstBlocker = Array.isArray(blockers) ? blockers[0] : undefined;
-  const action = setupActionLabel(jobSetupBlockerFromUnknown(firstBlocker));
+  const blocker = jobSetupBlockerFromUnknown(firstBlocker);
+  const action = formatJobSetupAction(blocker?.action, blocker);
   return ` Setup needed: ${action || String(state ?? 'unknown')}.`;
 }
 

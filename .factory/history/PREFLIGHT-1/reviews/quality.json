@@ -1,0 +1,29 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Whole-branch Codex autoreview (gpt-5.6-sol, high) across the PREFLIGHT-1 branch. Part A (facade grantability) and Part C (declare-at-creation guidance, compiled-prompt test) came back correct (0.94/0.97). Part B (creation notification) surfaced real issues over two rounds, all fixed: stale-setup-state on the async notify (now revalidates the freshly-loaded job), a removed-arg test, a passive-event loss when the port is absent (now falls back to recordJobSetupRequired), a Control-route port bound to the process-global repo (now bound to the injected repository), and a wrong-app attribution on one creation path (now uses the canonical session.appId). No accepted actionable findings remain.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "concurrency",
+      "area": "jobs/execution-readiness",
+      "summary": "check-then-mark setup-notification dedup is not an atomic claim; a job run within the sub-second window after creation could duplicate the card. Deferred as D-0053; documented in code."
+    }
+  ],
+  "residual_risks": [
+    "Atomic notify-claim hardening deferred (D-0053); near-unreachable for normal future-scheduled jobs."
+  ],
+  "recommendation": "Land; D-0053 tracked with a revisit trigger.",
+  "reviewed_scope": [
+    "apps/core/src/shared/tool-execution-policy-service.ts",
+    "apps/core/src/application/jobs/",
+    "apps/core/src/jobs/execution-readiness.ts",
+    "apps/core/src/jobs/ipc-scheduler-create-handlers.ts",
+    "apps/core/src/app/bootstrap/runtime-app.ts",
+    "apps/core/src/runner/mcp/tools/scheduler.ts",
+    "apps/core/src/application/agents/prompt-profile-service.ts"
+  ],
+  "aspect": "quality",
+  "recorded_at": "2026-08-09T08:22:27+00:00",
+  "commit": "074509a5939e68f2e9f307bc38b54f86ea45917c"
+}

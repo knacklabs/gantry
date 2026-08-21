@@ -1,0 +1,31 @@
+{
+  "generated_by": "autoreview",
+  "status": "passed",
+  "score": 9,
+  "summary": "Whole-branch autoreview converged clean over 5 rounds (final: patch is correct). The change makes every scheduled tool denial terminal, propagates grantability authoritatively through diagnostics and setup state, fences side effects after cancellation, and gates persistent-grant recovery against current job state. The pre-check terminal routing was DRY'd into one preCheckDenialResult helper shared by all three DeepAgents wrappers. Real findings surfaced and fixed each round: shell fence after async approval, Anthropic legacy grantability parsing, sticky first parallel denial, and pre-check terminal routing.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    "Legacy setup blockers lacking the grantable field are intentionally instruction-only (fail-closed per decisions 0112/0113 no-backcompat); documented inline, not a defect.",
+    "gantry-facade-tools.ts sits at a per-file line budget (710) added because the file was already at the 700 default ceiling and the feature needs one import."
+  ],
+  "residual_risks": [
+    "Cross-store grant/requirement append atomicity deferred as D-0050 (benign, self-healing on next denial).",
+    "Anthropic-lane pre-autonomous guards remain a separate sweep per 0115."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/autonomous-permission-recovery.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.ts",
+    "apps/core/src/shared/autonomous-tool-denial.ts",
+    "apps/core/src/jobs/execution-finalization.ts",
+    "apps/core/src/application/jobs/setup-pause-permission-prompt.ts",
+    "apps/core/src/app/bootstrap/setup-pause-permission-wiring.ts",
+    "apps/core/src/application/interactions/pending-interaction-permission-recovery.ts"
+  ],
+  "recommendation": "approve",
+  "aspect": "quality",
+  "recorded_at": "2026-08-08T08:33:52+00:00",
+  "commit": "793ae9fd267ae514129df5b294fb165095b4bd47"
+}

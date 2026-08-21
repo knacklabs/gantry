@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Finished work tickets in the live-admission table now expire after 30 days instead of accumulating forever. A maintenance sweep (riding the existing scheduler tick, at most every 6 hours per process) deletes expired terminal rows in bounded, lock-serialized batches; failures retry on the next tick and large backlogs drain in slices without blocking lease recovery. Queued and in-progress work is never touched. This completes PERF-4 \u2014 the size-caps half shipped earlier, and decision 0103 fixed the retention policy.",
+  "issue": "PERF-4",
+  "commit": "86ac8ef0da7ca6b60447dae6760d11d11aaa3bad",
+  "recorded_at": "2026-08-03T08:10:51+00:00"
+}

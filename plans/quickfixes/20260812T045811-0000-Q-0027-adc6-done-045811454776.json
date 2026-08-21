@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0027-adc6",
+  "profile": "quickfix",
+  "reason": "Fixed-image/no-permission tool projection still hides the five recovery-proposal tools from scheduled workers (NO_PERMISSION_HIDDEN via AUTHORITY_CHANGING), so despite 0123 birthright the agent cannot see request_access - live run e0345ab9 narrated the fix instead of proposing it; exempt the recovery set from the hideAuthorityTools projection (locked preset stays strict)",
+  "started_at": "2026-08-12T04:42:48+00:00",
+  "completed_at": "2026-08-12T04:58:11+00:00",
+  "files": []
+}

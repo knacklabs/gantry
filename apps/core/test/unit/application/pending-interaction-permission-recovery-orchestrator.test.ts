@@ -44,7 +44,7 @@ const claim: PermissionCallbackClaimReference = {
 };
 
 function durable(
-  request: PermissionApprovalRequest | null,
+  request: PermissionApprovalRequest,
 ): DurablePermissionInteractionContext {
   return {
     scope,
@@ -62,7 +62,7 @@ function durable(
     externalPromptThreadId: null,
     providerAliases: ['provider-alias'],
     request,
-  } as DurablePermissionInteractionContext;
+  };
 }
 
 describe('pending interaction permission recovery orchestrator', () => {
@@ -72,51 +72,15 @@ describe('pending interaction permission recovery orchestrator', () => {
     mocks.resolve.mockResolvedValue(true);
   });
 
-  it('resolves a recovered legacy permission without a request snapshot using a generic receipt', async () => {
-    mocks.findByRequestId.mockResolvedValue(durable(null));
-    const terminalize = vi.fn(async () => true);
-
-    await expect(
-      recoverDurablePermissionDecision({
-        locator: {
-          kind: 'scope',
-          scope,
-          matchKind: 'individual',
-          providerAlias: 'provider-alias',
-        },
-        surfaceJid: 'sl:C123',
-        incomingMode: 'allow_once',
-        incomingApprover: 'user:approver',
-        authorize: vi.fn(async () => true),
-        terminalize,
-        feedback: vi.fn(async () => {}),
-      }),
-    ).resolves.toBe('resolved');
-
-    expect(terminalize).toHaveBeenCalledWith({
-      status: 'resolved',
-      request: null,
-      decision: {
-        approved: true,
-        mode: 'allow_once',
-        decidedBy: 'user:approver',
-        permissionCallbackClaim: claim,
-      },
-      context: expect.objectContaining({ request: null }),
-      text: 'Permission allowed.',
+  it('permission recovery applies the decision to the original immutable request', async () => {
+    const request: PermissionApprovalRequest = Object.freeze({
+      requestId: 'member-request-id',
+      sourceAgentFolder: scope.sourceAgentFolder,
+      targetJid: 'sl:C123',
+      toolName: 'Bash',
+      decisionOptions: ['allow_once', 'cancel'],
     });
-  });
-
-  it('terminalizes a recovered Review-each batch as cancelled', async () => {
-    mocks.findByRequestId.mockResolvedValue(
-      durable({
-        requestId: 'member-request-id',
-        sourceAgentFolder: scope.sourceAgentFolder,
-        targetJid: 'sl:C123',
-        toolName: 'Bash',
-        decisionOptions: ['allow_once', 'cancel'],
-      }),
-    );
+    mocks.findByRequestId.mockResolvedValue(durable(request));
     const terminalize = vi.fn(async () => true);
 
     await expect(
@@ -139,6 +103,7 @@ describe('pending interaction permission recovery orchestrator', () => {
     expect(terminalize).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'resolved',
+        request,
         decision: expect.objectContaining({
           approved: false,
           mode: 'cancel',
@@ -152,5 +117,9 @@ describe('pending interaction permission recovery orchestrator', () => {
         mode: 'allow_persistent_rule',
       }),
     );
+    expect(mocks.resolve.mock.invocationCallOrder[0]).toBeLessThan(
+      terminalize.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.release).not.toHaveBeenCalled();
   });
 });

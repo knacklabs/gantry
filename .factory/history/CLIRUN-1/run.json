@@ -1,0 +1,17 @@
+{
+  "issue_key": "CLIRUN-1",
+  "title": "Structured invocation for local-CLI capabilities",
+  "tracker": "linear",
+  "branch": "feat/CLIRUN-1-structured-invocation-for-local-cli-capabilities",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-11T03:46:56+00:00",
+  "updated_at": "2026-08-11T09:33:53+00:00",
+  "plan_file": "plans/completed/CLIRUN-1-structured-invocation-for-local-cli-capabilities.md",
+  "story": "CLIRUN-1"
+}

@@ -12,8 +12,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from factory_lib import (dump_json, head_sha, load_json, now_iso, repo_root,
-                         run_state_path, validate_payload)
+from factory_lib import (dump_json, evidence_path, head_sha, load_json, now_iso,
+                         repo_root, run_state_path, validate_payload)
 
 from .common import fail
 
@@ -21,8 +21,9 @@ MIN_WORDS = 12
 MAX_CHARS = 800
 
 
-def outcome_path(base: Path) -> Path:
-    return base / ".factory" / "outcome.json"
+def outcome_path(base: Path, *, for_write: bool = False) -> Path:
+    issue = load_json(run_state_path(base), default={}).get("issue_key", "")
+    return evidence_path(base, issue, "outcome.json", for_write=for_write)
 
 
 def load_outcome(base: Path) -> dict | None:
@@ -31,7 +32,7 @@ def load_outcome(base: Path) -> dict | None:
 
 def cmd_set(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
-    text = (Path(args.from_file).read_text() if args.from_file else (args.text or "")).strip()
+    text = (Path(args.from_file).read_text(encoding="utf-8") if args.from_file else (args.text or "")).strip()
     if not text:
         fail("an outcome needs text: what changed, and what a user can now do")
     # A shell command or a pasted diff line clears "non-empty" but is not a
@@ -49,9 +50,10 @@ def cmd_set(args: argparse.Namespace) -> None:
     payload["issue"] = issue
     payload["commit"] = head_sha(base) or ""
     payload["recorded_at"] = now_iso()
-    dump_json(outcome_path(base), payload)
+    path = outcome_path(base, for_write=True)
+    dump_json(path, payload)
     print(f"Outcome recorded for {issue or 'the active task'} "
-          f"-> .factory/outcome.json ({len(text.split())} words)")
+          f"-> {path.relative_to(base).as_posix()} ({len(text.split())} words)")
 
 
 def cmd_show(args: argparse.Namespace) -> None:

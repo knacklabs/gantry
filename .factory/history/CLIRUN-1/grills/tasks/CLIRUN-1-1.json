@@ -1,0 +1,23 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "issue": "CLIRUN-1",
+  "verdict": "pass",
+  "questions_asked": 3,
+  "summary": "Re-recorded after widening write_scope with docs/architecture (the design-doc review-resolution notes plus a one-line fix to a pre-existing stale reference in the audit doc that broke the arch gate on this branch). Implementation complete and reviewed: structured invocation, argv validation via the existing matcher, TOCTOU-safe in-place executable verification, end-to-end host deadline; deep identity hardening deferred as D-0056 per the scope governor.",
+  "gaps": [
+    "The doc updates and the pre-existing audit-doc arch-gate fix are outside the original code scope.",
+    "The executable-identity binding baseline is not maximal (parent-dir/argv0 hardening).",
+    "Three review rounds risked scope creep on a self-contained sub-problem."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "docs/architecture added to scope; the doc changes are the task's own design-resolution record plus a green-gate fix.",
+    "The baseline covers the agent threat and the pilot; deep hardening is deferred as D-0056 with an explicit revisit trigger.",
+    "Per the scope governor, the smallest safe subset is landed and the deep hardening is split out."
+  ],
+  "task_id": "CLIRUN-1-1",
+  "input_sha256": "d32e033675d2cbc363382e1129f63448c9c01396b67372e1b986133a86f7104e",
+  "recorded_at": "2026-08-11T08:05:32+00:00",
+  "commit": "c504e47288db3194349a5c83e4f7b967d11c7aaf"
+}

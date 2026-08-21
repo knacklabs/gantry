@@ -4,6 +4,23 @@ import {
   ChannelProviderSetupContext,
   registerProvider,
 } from './provider-registry.js';
+import { MAX_MESSAGE_FILE_ATTACHMENT_BYTES } from '../application/core-tools/message-limits.js';
+import {
+  DISCORD_FILE_MAX_BYTES,
+  DISCORD_MESSAGE_MAX_LENGTH,
+} from './discord-limits.js';
+import { SLACK_FALLBACK_CHUNK_MAX_LENGTH } from './slack/text-limits.js';
+import {
+  TEAMS_413_RETRY_MAX_BYTES,
+  TEAMS_HARD_MESSAGE_BYTES,
+  TEAMS_SOFT_MESSAGE_BYTES,
+} from './teams-limits.js';
+import { TELEGRAM_MESSAGE_MAX_LENGTH } from './telegram/text-limits.js';
+
+const questionGuidance =
+  'ask_user_question renders 1-4 questions with 2-4 options each; use a normal message for open-ended input.';
+const attachmentCapGuidance = `send_message files are capped at ${MAX_MESSAGE_FILE_ATTACHMENT_BYTES} bytes.`;
+const attachmentPresentationGuidance = `outbound workspace file attachments are capped at ${MAX_MESSAGE_FILE_ATTACHMENT_BYTES / 1024 / 1024}MB`;
 
 async function createTelegramBuiltInChannel(
   opts: ChannelOpts,
@@ -123,6 +140,7 @@ function isChannelEnabled(
 const telegramProvider: Provider = {
   id: 'telegram',
   label: 'Telegram',
+  extractsGroupInstaller: true,
   jidPrefix: 'tg:',
   folderPrefix: 'telegram_',
   isGroupJid: (jid: string) => jid.startsWith('tg:-'),
@@ -131,9 +149,13 @@ const telegramProvider: Provider = {
   promptPresentation: {
     label: 'Telegram',
     formattingDescription: 'Telegram renders a limited HTML subset',
-    maxMessageGuidance: 'hard message length cap 4096 characters',
-    attachmentGuidance:
-      'outbound workspace file attachments are capped at 25MB',
+    maxMessageGuidance: `hard message length cap ${TELEGRAM_MESSAGE_MAX_LENGTH} characters`,
+    attachmentGuidance: attachmentPresentationGuidance,
+    toolGuidance: [
+      `send_message splits oversized text at ${TELEGRAM_MESSAGE_MAX_LENGTH} characters; ${attachmentCapGuidance}`,
+      'render_* uses Telegram HTML plus inline keyboards and falls back to plain text when rich rendering fails.',
+      questionGuidance,
+    ],
   },
   isEnabled: (settings) => isChannelEnabled(settings, 'telegram'),
   create: createTelegramBuiltInChannel,
@@ -147,6 +169,7 @@ const telegramProvider: Provider = {
 const slackProvider: Provider = {
   id: 'slack',
   label: 'Slack',
+  extractsGroupInstaller: true,
   jidPrefix: 'sl:',
   folderPrefix: 'slack_',
   isGroupJid: () => true,
@@ -154,9 +177,14 @@ const slackProvider: Provider = {
   promptPresentation: {
     label: 'Slack',
     formattingDescription: 'Slack renders mrkdwn',
-    maxMessageGuidance: 'keep single messages under 4000 characters',
-    attachmentGuidance:
-      'outbound workspace file attachments are capped at 25MB',
+    maxMessageGuidance: `keep single messages under ${SLACK_FALLBACK_CHUNK_MAX_LENGTH} characters`,
+    attachmentGuidance: attachmentPresentationGuidance,
+    toolGuidance: [
+      `send_message splits fallback text at ${SLACK_FALLBACK_CHUNK_MAX_LENGTH} characters; ${attachmentCapGuidance}`,
+      'render_* uses Block Kit and falls back to plain text when rich rendering fails.',
+      questionGuidance,
+      'Slack affinity tools: canvas_read, canvas_create, and canvas_update. Read first, keep the returned handle, then edit with canvas_update.',
+    ],
   },
   isEnabled: (settings) => isChannelEnabled(settings, 'slack'),
   create: createSlackBuiltInChannel,
@@ -178,8 +206,12 @@ const teamsProvider: Provider = {
   promptPresentation: {
     label: 'Microsoft Teams',
     formattingDescription: 'Teams renders basic HTML',
-    attachmentGuidance:
-      'outbound workspace file attachments are capped at 25MB',
+    attachmentGuidance: attachmentPresentationGuidance,
+    toolGuidance: [
+      `send_message splits near ${TEAMS_SOFT_MESSAGE_BYTES} bytes, enforces ${TEAMS_HARD_MESSAGE_BYTES} code units, and retries 413 responses below ${TEAMS_413_RETRY_MAX_BYTES} bytes; ${attachmentCapGuidance}`,
+      'render_* uses an Adaptive Card and falls back to plain text when rich rendering fails.',
+      questionGuidance,
+    ],
   },
   isEnabled: (settings) => isChannelEnabled(settings, 'teams'),
   create: createTeamsBuiltInChannel,
@@ -201,9 +233,14 @@ const discordProvider: Provider = {
   promptPresentation: {
     label: 'Discord',
     formattingDescription: 'Discord renders markdown',
-    maxMessageGuidance: 'hard message length cap 2000 characters',
-    attachmentGuidance:
-      'outbound workspace file attachments are capped at 25MB',
+    maxMessageGuidance: `hard message length cap ${DISCORD_MESSAGE_MAX_LENGTH} characters`,
+    attachmentGuidance: attachmentPresentationGuidance,
+    toolGuidance: [
+      `send_message splits oversized text at ${DISCORD_MESSAGE_MAX_LENGTH} characters and rejects files above ${DISCORD_FILE_MAX_BYTES} bytes.`,
+      'render_* uses a single embed and falls back to plain text when rich rendering fails.',
+      questionGuidance,
+      'attachment_open cannot fetch ephemeral Discord attachments; ask the user to upload a durable copy.',
+    ],
   },
   isEnabled: (settings) => isChannelEnabled(settings, 'discord'),
   create: createDiscordBuiltInChannel,
@@ -226,8 +263,12 @@ const appProvider: Provider = {
     label: 'embedded app',
     formattingDescription: 'Markdown renders natively',
     maxMessageGuidance: 'no hard message length cap',
-    attachmentGuidance:
-      'outbound workspace file attachments are capped at 25MB',
+    attachmentGuidance: attachmentPresentationGuidance,
+    toolGuidance: [
+      `send_message emits one app session event with no provider text cap; ${attachmentCapGuidance}`,
+      'render_* emits a structured app descriptor with fallback text.',
+      questionGuidance,
+    ],
   },
   isEnabled: () => true,
   create: createAppBuiltInChannel,

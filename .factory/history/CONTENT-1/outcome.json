@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Agents on Slack can now work with canvases: reading a shared canvas returns its text plus safe section handles, and agents can create a channel canvas or edit one section at a time (insert, replace, delete) with a confirmation step before wipe-and-replace. Every edit targets an exact Slack section id captured at read time, so a renamed or deleted section can never be silently overwritten; timeouts, deleted canvases and missing Slack scopes all come back as clear instructions instead of hangs. Slack app installs now list the extra scopes needed (files/canvases) and existing installs keep working with a warning until they are reinstalled. The vendored companion gate also got hardened along the way: the read-only exploration lane is now a provable grammar instead of a text scan.",
+  "issue": "CONTENT-1",
+  "commit": "0e6736dce262fc596b4b6fe16ccb2e8cabfcf2c3",
+  "recorded_at": "2026-08-04T16:10:11+00:00"
+}

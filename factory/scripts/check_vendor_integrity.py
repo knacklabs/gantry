@@ -21,7 +21,7 @@ from pathlib import Path
 from factory_lib import dump_json, repo_root
 
 GATE_TREES = ("factory/scripts", "factory/schemas", "factory/prompts")
-GATE_FILES = ("forge", ".claude/settings.json")
+GATE_FILES = ("forge", ".claude/settings.json", ".codex/hooks.json")
 MANIFEST_REL = "constitution/VENDOR_MANIFEST.json"
 
 
@@ -59,7 +59,7 @@ def integrity_problems(base: Path) -> list[str] | None:
     path = manifest_path(base)
     if not path.exists():
         return None
-    recorded = json.loads(path.read_text()).get("files", {})
+    recorded = json.loads(path.read_text(encoding="utf-8")).get("files", {})
     current = compute_hashes(base)
     problems = []
     for rel in sorted(set(recorded) | set(current)):

@@ -1,0 +1,20 @@
+{
+  "issue": "CO-1",
+  "stages": [
+    {
+      "id": "CO-1-1",
+      "title": "Delete dead recovery-intent machine; promote live coordination fields to race-safe columns",
+      "status": "done",
+      "started_at": "2026-08-03T08:36:53+00:00",
+      "base_sha": "8df9a0948478c0e8366e7f1752a82b2001f1cf09",
+      "dirty_at_start": {
+        "plans/roadmap.json": {
+          "digest": "cc5a674ac4fcaa12aba0ac936518f48aa88f5afb3e55d65638dd643f9ba80e3e",
+          "git": "1 .M N... 100644 100644 100644 1bc85038b79a27cf11ed69048f5fc7c2ec0510ba 1bc85038b79a27cf11ed69048f5fc7c2ec0510ba plans/roadmap.json\u0000\u0000100644 1bc85038b79a27cf11ed69048f5fc7c2ec0510ba 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+        }
+      },
+      "task_sha256": "2eba6d6cf9bdb5df6dea5fa3c1da5bc6d1e9c7ba052b4a6c5dea6d5d824ae4cc",
+      "completed_at": "2026-08-03T09:09:32+00:00"
+    }
+  ]
+}

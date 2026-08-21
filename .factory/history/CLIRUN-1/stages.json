@@ -1,0 +1,45 @@
+{
+  "issue": "CLIRUN-1",
+  "stages": [
+    {
+      "id": "CLIRUN-1-1",
+      "title": "Structured invocation tool + host dispatch (reuse the bounded sandboxed executor)",
+      "status": "done",
+      "started_at": "2026-08-11T03:51:38+00:00",
+      "base_sha": "7901647d3112aba9578412274832c3234dae0cd2",
+      "dirty_at_start": {},
+      "task_sha256": "d32e033675d2cbc363382e1129f63448c9c01396b67372e1b986133a86f7104e",
+      "completed_at": "2026-08-11T08:08:29+00:00",
+      "contract_changed": {
+        "at": "2026-08-11T08:08:29+00:00",
+        "from": "1c57c8a0de82b9c935b92a14512aa8ee02f902d0fcb3457525e6906d7c284843",
+        "to": "d32e033675d2cbc363382e1129f63448c9c01396b67372e1b986133a86f7104e"
+      }
+    },
+    {
+      "id": "CLIRUN-1-2",
+      "title": "Wire the pilot capability (gog) + agent guidance",
+      "status": "done",
+      "started_at": "2026-08-11T08:08:40+00:00",
+      "base_sha": "c504e47288db3194349a5c83e4f7b967d11c7aaf",
+      "dirty_at_start": {},
+      "task_sha256": "f2afbfcc1269b44f5f9d219ed16a36f1933bc83ed876ba1689e60f6eae630d79",
+      "completed_at": "2026-08-11T08:16:48+00:00"
+    },
+    {
+      "id": "CLIRUN-1-3",
+      "title": "Cutover: retire the RunCommand projection for local_cli",
+      "status": "done",
+      "started_at": "2026-08-11T08:17:09+00:00",
+      "base_sha": "eebcc4bdb1a732de25a61d55f483833ea3f5ba30",
+      "dirty_at_start": {
+        "apps/core/test/unit/runner/capability-structured-invocation.test.ts": {
+          "digest": "9e3ba2846b6287add0ab4ff635dc2a0f9da39810aad2fb94f1687d48a3baeecc",
+          "git": "1 .M N... 100644 100644 100644 6ef7d31f92d16af9b84b5ca64e5307df36cdbe2b 6ef7d31f92d16af9b84b5ca64e5307df36cdbe2b apps/core/test/unit/runner/capability-structured-invocation.test.ts\u0000\u0000100644 6ef7d31f92d16af9b84b5ca64e5307df36cdbe2b 0\tapps/core/test/unit/runner/capability-structured-invocation.test.ts\u0000\u0000H apps/core/test/unit/runner/capability-structured-invocation.test.ts\u0000"
+        }
+      },
+      "task_sha256": "e1d286f90041ee7fc080b1b50b313b17f101320d46742f37c67070c18262adf3",
+      "completed_at": "2026-08-11T08:32:26+00:00"
+    }
+  ]
+}

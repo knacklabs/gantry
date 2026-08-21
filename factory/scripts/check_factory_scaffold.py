@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+# UTF-8 console safety (standalone entrypoint — see factory_lib for rationale):
+# force UTF-8 stdout/stderr so non-Latin-1 glyphs don't crash a cp1252 console.
+import sys as _utf8_sys
+for _stream in (_utf8_sys.stdout, _utf8_sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 import sys
 from pathlib import Path
 
@@ -26,7 +35,6 @@ required = [
     root / 'factory' / 'scripts' / 'record_grill_from_json.py',
     root / 'factory' / 'scripts' / 'verify.py',
     root / 'factory' / 'scripts' / 'record_decomposition_from_json.py',
-    root / 'factory' / 'scripts' / 'render_linear_task_graph.py',
     root / 'factory' / 'scripts' / 'record_test_from_json.py',
     root / 'factory' / 'scripts' / 'forge.py',
     root / 'factory' / 'scripts' / 'record_signoff.py',

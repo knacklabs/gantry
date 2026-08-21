@@ -1,0 +1,19 @@
+{
+  "generated_by": "autoreview",
+  "status": "passed",
+  "score": 9,
+  "summary": "No hot-path regression. Part A adds a host-coordinator round-trip only on a scheduled worker-local MISS (hits, birthright, and denylist short-circuits are unchanged); it is the same host call the DeepAgents/interactive lanes already make, and it replaces a wasted denied run with a real authorization. Part B is a net reduction: the terminal notifier now returns early on a setup pause instead of formatting + sending a duplicate card, and the setup-story builder is shorter.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "The denylist short-circuit and host consult both run per denied tool call; bounded and only on the miss path."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts",
+    "apps/core/src/jobs/execution-notifications.ts"
+  ],
+  "recommendation": "approve",
+  "aspect": "performance",
+  "recorded_at": "2026-08-08T17:04:56+00:00",
+  "commit": "386ba6e98b2b55279a04558ef6eda1e46d90c178"
+}

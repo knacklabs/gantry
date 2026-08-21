@@ -9,6 +9,7 @@ import type {
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../../domain/types.js';
@@ -26,7 +27,7 @@ export interface InlineCoreToolHostDeps extends CoreSendMessageDeps {
   ): Promise<UserQuestionResponse>;
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>;
+  ) => Promise<PermissionApprovalResult>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];
   getAgentAccessPreset(folder: string): 'full' | 'locked';

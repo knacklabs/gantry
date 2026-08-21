@@ -1,0 +1,11 @@
+{
+  "event": "done",
+  "id": "Q-0025-8ea6",
+  "profile": "quickfix",
+  "reason": "Recovery-proposal tools (request_access + 4 siblings) are denied on autonomous runs, so the CAPFIX-1 amendment card can never be raised by the jobs that need it - live-blocked KnackLabs proof; fix per Ravi's ruling (system/review-metadata tools never need approval) as an input-gated birthright class + 0052 amendment",
+  "started_at": "2026-08-12T03:59:23+00:00",
+  "completed_at": "2026-08-12T04:06:20+00:00",
+  "files": [
+    "apps/core/test/unit/shared/permission-deterministic-rails.test.ts"
+  ]
+}

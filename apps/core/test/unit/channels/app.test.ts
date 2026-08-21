@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
+import {
+  SESSION_TYPING_STALE_AFTER_MS,
+  SessionTypingTracker,
+} from '../../../../../packages/sdk/src/session-events.js';
+import { createLiveUxDispatcher } from '@core/runtime/live-ux-dispatcher.js';
+import { TYPING_HEARTBEAT_INTERVAL_MS } from '@core/runtime/group-liveness-state.js';
 
 const controlRepo = {
   getAppSessionByChatJid: vi.fn(),
@@ -16,7 +22,595 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 
 import { createAppChannel } from '@core/channels/app.js';
 
+const appOptions = (generation = 1) =>
+  ({ liveUxBindingGeneration: () => generation }) as never;
+
 describe('app channel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('declares outbound-only App typing absent without logging typing errors', async () => {
+    const app = await createAppChannel({} as never);
+
+    expect(app.liveUx).toMatchObject({
+      typing: 'none',
+      reactions: 'none',
+    });
+    await expect(
+      app.setTyping?.('app:demo:conversation', true),
+    ).resolves.toBeUndefined();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
+  });
+
+  it('declares generation-bearing App typing explicit and publishes end to end', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
+    const app = await createAppChannel(appOptions(7));
+
+    expect(app.liveUx).toMatchObject({
+      typing: 'explicit',
+      reactions: 'none',
+    });
+    await app.setTyping?.('app:demo:conversation', true);
+
+    expect(runtimeEvents.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.SESSION_TYPING,
+        payload: expect.objectContaining({
+          isTyping: true,
+          orderedEnvelope: expect.objectContaining({ generation: 7 }),
+        }),
+      }),
+    );
+  });
+
+  it('keeps a late stale typing event from overriding newer terminal off', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    let releaseStart: (() => void) | undefined;
+    const committed: Array<{
+      eventId: number;
+      eventType: string;
+      sessionId: string;
+      payload: unknown;
+    }> = [];
+    runtimeEvents.publish.mockImplementation(async (event) => {
+      const isTyping = (event.payload as { isTyping: boolean }).isTyping;
+      if (isTyping) {
+        await new Promise<void>((resolve) => {
+          releaseStart = resolve;
+        });
+      }
+      const committedEvent = {
+        eventId: committed.length + 1,
+        eventType: event.eventType,
+        sessionId: 'session-1',
+        payload: event.payload,
+      };
+      committed.push(committedEvent);
+      return committedEvent;
+    });
+    const app = await createAppChannel(appOptions());
+
+    const staleStart = app.setTyping?.('app:demo:conversation', true);
+    await vi.waitFor(() =>
+      expect(runtimeEvents.publish).toHaveBeenCalledOnce(),
+    );
+    await app.setTyping?.('app:demo:conversation', false);
+    releaseStart?.();
+    await staleStart;
+
+    expect(
+      committed.map(
+        (event) => (event.payload as { isTyping: boolean }).isTyping,
+      ),
+    ).toEqual([false, true]);
+    const tracker = new SessionTypingTracker();
+    const applied = committed.filter((event) => tracker.apply(event));
+    expect(
+      applied.map((event) => (event.payload as { isTyping: boolean }).isTyping),
+    ).toEqual([false]);
+  });
+
+  it('partitions typing order by thread within one consumer', () => {
+    const event = (threadId: string, sequence: number) => ({
+      eventId: sequence,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId,
+      payload: {
+        isTyping: true,
+        orderedEnvelope: {
+          generation: 1,
+          sequence,
+          kind: 'typing',
+        },
+      },
+    });
+    const tracker = new SessionTypingTracker();
+
+    expect(tracker.apply(event('thread-a', 2))).toBe(true);
+    expect(tracker.apply(event('thread-b', 1))).toBe(true);
+    expect(tracker.apply(event('thread-a', 1))).toBe(false);
+  });
+
+  it('fences producer generations across every thread in a session', () => {
+    const event = (
+      threadId: string,
+      generation: number,
+      sequence: number,
+      isTyping: boolean,
+    ) => ({
+      eventId: sequence,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId,
+      payload: {
+        isTyping,
+        orderedEnvelope: { generation, sequence, kind: 'typing' },
+      },
+    });
+    const tracker = new SessionTypingTracker();
+
+    expect(tracker.apply(event('thread-b', 1, 1, true))).toBe(true);
+    expect(tracker.isTyping('session-1', 'thread-b')).toBe(true);
+
+    expect(tracker.apply(event('thread-a', 2, 1, true))).toBe(true);
+    expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
+    // Generation invalidation is logical tracker state, separate from the
+    // durable event cursor exposed by sessions.stream.
+    expect(tracker.takeInvalidatedTypingTargets()).toEqual([
+      { sessionId: 'session-1', threadId: 'thread-b' },
+    ]);
+    expect(tracker.apply(event('thread-b', 1, 2, true))).toBe(false);
+    expect(tracker.isTyping('session-1', 'thread-b')).toBe(false);
+  });
+
+  it('seeds a cursor-restored tracker before rejecting an older producer generation', () => {
+    const event = (threadId: string, generation: number, sequence: number) => ({
+      eventId: sequence,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId,
+      payload: {
+        isTyping: true,
+        orderedEnvelope: { generation, sequence, kind: 'typing' },
+      },
+    });
+    const tracker = new SessionTypingTracker();
+    tracker.seed({
+      sessionId: 'session-1',
+      generation: 2,
+      targets: [{ threadId: 'thread-a', sequence: 4 }],
+    });
+
+    expect(tracker.apply(event('thread-b', 1, 5))).toBe(false);
+    expect(tracker.apply(event('thread-a', 2, 4))).toBe(false);
+    expect(tracker.apply(event('thread-b', 2, 1))).toBe(true);
+  });
+
+  it('reports typing as off after the bounded staleness window', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-06T00:00:00.000Z'));
+    const tracker = new SessionTypingTracker();
+    tracker.apply({
+      eventId: 1,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId: 'thread-a',
+      payload: {
+        isTyping: true,
+        orderedEnvelope: { generation: 1, sequence: 1, kind: 'typing' },
+      },
+    });
+
+    vi.advanceTimersByTime(SESSION_TYPING_STALE_AFTER_MS - 1);
+    expect(tracker.isTyping('session-1', 'thread-a')).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(tracker.isTyping('session-1', 'thread-a')).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('keeps a healthy long App turn typing through consumer staleness expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-08-06T00:00:00.000Z'));
+      controlRepo.getAppSessionByChatJid.mockResolvedValue({
+        sessionId: 'session-1',
+        appId: 'app-1',
+        agentId: 'agent-1',
+        canonicalConversationId: 'conversation-1',
+        defaultResponseMode: 'sse',
+        defaultWebhookId: null,
+      });
+      controlRepo.getAppResponseRoute.mockResolvedValue(null);
+      const tracker = new SessionTypingTracker();
+      let eventId = 0;
+      runtimeEvents.publish.mockImplementation(async (event) => {
+        eventId += 1;
+        tracker.apply({
+          ...event,
+          eventId,
+          sessionId: 'session-1',
+        });
+        return { eventId };
+      });
+      const app = await createAppChannel(appOptions(7));
+      const liveUx = createLiveUxDispatcher({
+        findBinding: () => ({ channel: app, identity: app }),
+        logger: { warn: vi.fn() },
+      });
+
+      await liveUx.setTyping('app:demo:conversation', true);
+      for (
+        let elapsed = TYPING_HEARTBEAT_INTERVAL_MS;
+        elapsed <= 24_000;
+        elapsed += TYPING_HEARTBEAT_INTERVAL_MS
+      ) {
+        vi.advanceTimersByTime(TYPING_HEARTBEAT_INTERVAL_MS);
+        await liveUx.setTyping('app:demo:conversation', true);
+        expect(tracker.isTyping('session-1')).toBe(true);
+      }
+
+      expect(SESSION_TYPING_STALE_AFTER_MS).toBeGreaterThanOrEqual(
+        TYPING_HEARTBEAT_INTERVAL_MS * 3,
+      );
+      expect(runtimeEvents.publish).toHaveBeenCalledTimes(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends an in-flight typing start on shutdown without repopulating live state', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    let releaseStart: (() => void) | undefined;
+    const committed: Array<{
+      eventId: number;
+      eventType: string;
+      sessionId: string;
+      payload: unknown;
+    }> = [];
+    runtimeEvents.publish.mockImplementation(async (event) => {
+      if ((event.payload as { isTyping: boolean }).isTyping) {
+        await new Promise<void>((resolve) => {
+          releaseStart = resolve;
+        });
+      }
+      const committedEvent = {
+        ...event,
+        eventId: committed.length + 1,
+        sessionId: 'session-1',
+      };
+      committed.push(committedEvent);
+      return committedEvent;
+    });
+    const app = await createAppChannel(appOptions(7));
+    await app.connect();
+
+    const start = app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+    await vi.waitFor(() =>
+      expect(runtimeEvents.publish).toHaveBeenCalledOnce(),
+    );
+    await app.disconnect();
+    await vi.waitFor(() => expect(committed).toHaveLength(1));
+
+    expect(
+      committed.map(
+        (event) => (event.payload as { isTyping: boolean }).isTyping,
+      ),
+    ).toEqual([false]);
+    releaseStart?.();
+    await start;
+
+    const tracker = new SessionTypingTracker();
+    const applied = committed.filter((event) => tracker.apply(event));
+    expect(
+      applied.map((event) => (event.payload as { isTyping: boolean }).isTyping),
+    ).toEqual([false]);
+    expect(tracker.isTyping('session-1', 'thread-a')).toBe(false);
+
+    runtimeEvents.publish.mockClear();
+    await app.disconnect();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
+  });
+
+  it('fences heartbeat starts before the shutdown snapshot so consumers end not-typing', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    let releaseTerminalOff: (() => void) | undefined;
+    const committed: Array<{
+      eventId: number;
+      eventType: string;
+      sessionId: string;
+      payload: unknown;
+    }> = [];
+    runtimeEvents.publish.mockImplementation(async (event) => {
+      if (!(event.payload as { isTyping: boolean }).isTyping) {
+        await new Promise<void>((resolve) => {
+          releaseTerminalOff = resolve;
+        });
+      }
+      const committedEvent = {
+        ...event,
+        eventId: committed.length + 1,
+        sessionId: 'session-1',
+      };
+      committed.push(committedEvent);
+      return committedEvent;
+    });
+    const app = await createAppChannel(appOptions(7));
+    await app.connect();
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+
+    const disconnect = app.disconnect();
+    await vi.waitFor(() =>
+      expect(runtimeEvents.publish).toHaveBeenCalledTimes(2),
+    );
+    expect(app.liveUx?.typing).toBe('none');
+
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+    expect(runtimeEvents.publish).toHaveBeenCalledTimes(2);
+
+    releaseTerminalOff?.();
+    await disconnect;
+    await vi.waitFor(() => expect(committed).toHaveLength(2));
+
+    const tracker = new SessionTypingTracker();
+    committed.forEach((event) => tracker.apply(event));
+    expect(
+      committed.map(
+        (event) => (event.payload as { isTyping: boolean }).isTyping,
+      ),
+    ).toEqual([true, false]);
+    expect(tracker.isTyping('session-1', 'thread-a')).toBe(false);
+  });
+
+  it('publishes terminal typing off for every active thread before disconnecting', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
+    const app = await createAppChannel(appOptions(7));
+
+    await app.connect();
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-b',
+    });
+    runtimeEvents.publish.mockClear();
+
+    await app.disconnect();
+    await vi.waitFor(() =>
+      expect(runtimeEvents.publish).toHaveBeenCalledTimes(2),
+    );
+
+    expect(runtimeEvents.publish.mock.calls.map((call) => call[0])).toEqual([
+      expect.objectContaining({
+        threadId: 'thread-a',
+        payload: expect.objectContaining({ isTyping: false }),
+      }),
+      expect.objectContaining({
+        threadId: 'thread-b',
+        payload: expect.objectContaining({ isTyping: false }),
+      }),
+    ]);
+    expect(app.liveUx?.typing).toBe('none');
+  });
+
+  it('continues producer shutdown when one terminal typing emit fails', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
+    const app = await createAppChannel(appOptions(7));
+
+    await app.connect();
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-b',
+    });
+    runtimeEvents.publish.mockReset();
+    runtimeEvents.publish
+      .mockRejectedValueOnce(new Error('emit failed'))
+      .mockResolvedValueOnce({ eventId: 2 });
+
+    await expect(app.disconnect()).resolves.toBeUndefined();
+
+    expect(runtimeEvents.publish).toHaveBeenCalledTimes(2);
+    expect(app.liveUx?.typing).toBe('none');
+  });
+
+  it('detaches a terminal typing emit that never settles so a successor producer can start', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    runtimeEvents.publish.mockImplementation(async (event) => {
+      if (!(event.payload as { isTyping: boolean }).isTyping) {
+        await new Promise<never>(() => {});
+      }
+      return { eventId: 1 };
+    });
+    const firstProducer = await createAppChannel(appOptions(7));
+    await firstProducer.connect();
+    await firstProducer.setTyping?.('app:demo:conversation', true);
+
+    await expect(firstProducer.disconnect()).resolves.toBeUndefined();
+    expect(firstProducer.isConnected()).toBe(false);
+
+    const successorProducer = await createAppChannel(appOptions(8));
+    await successorProducer.connect();
+    await expect(
+      successorProducer.setTyping?.('app:demo:conversation', true),
+    ).resolves.toBeUndefined();
+    expect(successorProducer.isConnected()).toBe(true);
+    expect(runtimeEvents.publish).toHaveBeenCalledTimes(3);
+  });
+
+  it('accepts legacy typing only before enveloped state exists for the target', () => {
+    const tracker = new SessionTypingTracker();
+    const event = (payload: Record<string, unknown>, eventId: number) => ({
+      eventId,
+      eventType: 'session.typing',
+      sessionId: 'session-1',
+      threadId: 'thread-a',
+      payload,
+    });
+
+    expect(tracker.apply(event({ isTyping: true }, 1))).toBe(true);
+    expect(
+      tracker.apply(
+        event(
+          {
+            isTyping: false,
+            orderedEnvelope: { generation: 1, sequence: 2, kind: 'typing' },
+          },
+          2,
+        ),
+      ),
+    ).toBe(true);
+    expect(tracker.apply(event({ isTyping: true }, 3))).toBe(false);
+    expect(tracker.isTyping('session-1', 'thread-a')).toBe(false);
+  });
+
+  it('orders replacement producers by durable lease epoch despite clock rollback and A-B-A delivery', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    const committed: Array<{
+      eventId: number;
+      eventType: string;
+      sessionId: string;
+      payload: unknown;
+    }> = [];
+    runtimeEvents.publish.mockImplementation(async (event) => {
+      const committedEvent = {
+        eventId: committed.length + 1,
+        eventType: event.eventType,
+        sessionId: 'session-1',
+        payload: event.payload,
+      };
+      committed.push(committedEvent);
+      return committedEvent;
+    });
+    const clock = vi
+      .spyOn(Date, 'now')
+      .mockReturnValueOnce(2_000)
+      .mockReturnValueOnce(1_000);
+    const firstProducer = await createAppChannel(appOptions(1));
+    await firstProducer.setTyping?.('app:demo:conversation', true);
+    const replacementProducer = await createAppChannel(appOptions(2));
+    await replacementProducer.setTyping?.('app:demo:conversation', false);
+    await firstProducer.setTyping?.('app:demo:conversation', true);
+    expect(clock).not.toHaveBeenCalled();
+    clock.mockRestore();
+
+    const tracker = new SessionTypingTracker();
+    expect(tracker.apply(committed[0]!)).toBe(true);
+    expect(tracker.apply(committed[1]!)).toBe(true);
+    expect(tracker.apply(committed[2]!)).toBe(false);
+    expect(tracker.isTyping('session-1')).toBe(false);
+    const generations = committed.map(
+      (event) =>
+        (event.payload as { orderedEnvelope: { generation: unknown } })
+          .orderedEnvelope.generation,
+    );
+    expect(generations).toEqual([1, 2, 1]);
+  });
+
+  it('publishes typing against the requested thread target', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      canonicalConversationId: 'conversation-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue(null);
+    runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
+    const app = await createAppChannel(appOptions());
+
+    await app.setTyping?.('app:demo:conversation', true, {
+      threadId: 'thread-a',
+    });
+
+    expect(controlRepo.getAppResponseRoute).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      threadId: 'thread-a',
+    });
+    expect(runtimeEvents.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-a',
+        payload: expect.objectContaining({ threadId: 'thread-a' }),
+      }),
+    );
+  });
+
   it('uses per-message response routing for outbound replies', async () => {
     controlRepo.getAppSessionByChatJid.mockResolvedValue({
       sessionId: 'session-1',
@@ -32,7 +626,7 @@ describe('app channel', () => {
       correlationId: 'corr-1',
     });
     runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
-    const channel = await createAppChannel({} as never);
+    const channel = await createAppChannel(appOptions());
 
     await channel.sendMessage('app:demo:conversation', 'done', {
       threadId: 'thread-1',
@@ -88,7 +682,7 @@ describe('app channel', () => {
       correlationId: 'corr-2',
     });
     runtimeEvents.publish.mockResolvedValue({ eventId: 2 });
-    const channel = await createAppChannel({} as never);
+    const channel = await createAppChannel(appOptions());
     const largeText = 'L'.repeat(8_192);
 
     await channel.sendStreamingChunk('app:demo:conversation', largeText, {
@@ -139,7 +733,7 @@ describe('app channel', () => {
       correlationId: 'corr-3',
     });
     runtimeEvents.publish.mockResolvedValue({ eventId: 3 });
-    const channel = await createAppChannel({} as never);
+    const channel = await createAppChannel(appOptions());
     const secretText = 'token=sk-live-abc1234567890 super-secret body';
 
     await channel.sendProgressUpdate('app:demo:conversation', secretText, {
@@ -177,7 +771,7 @@ describe('app channel', () => {
       correlationId: 'corr-4',
     });
     runtimeEvents.publish.mockResolvedValue({ eventId: 4 });
-    const channel = await createAppChannel({} as never);
+    const channel = await createAppChannel(appOptions());
 
     await channel.sendProgressUpdate('app:demo:conversation', '', {
       actionOnly: true,
@@ -200,6 +794,46 @@ describe('app channel', () => {
     );
   });
 
+  it('keeps replace-only stall updates as progress events, never outbound messages', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue({
+      sessionId: 'session-1',
+      threadId: null,
+      responseMode: 'sse',
+      webhookId: null,
+      correlationId: 'corr-stall',
+    });
+    runtimeEvents.publish.mockResolvedValue({ eventId: 5 });
+    const channel = await createAppChannel(appOptions());
+    const callsBefore = runtimeEvents.publish.mock.calls.length;
+
+    const landed = await channel.sendProgressUpdate(
+      'app:demo:conversation',
+      'Still working',
+      { replaceOnly: true },
+    );
+
+    expect(landed).toBe(true);
+    const newCalls = runtimeEvents.publish.mock.calls.slice(callsBefore);
+    expect(newCalls).toHaveLength(1);
+    expect(newCalls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.SESSION_PROGRESS,
+        payload: expect.objectContaining({ text: 'Still working' }),
+      }),
+    );
+    expect(newCalls).not.toContainEqual([
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      }),
+    ]);
+  });
+
   it('publishes rich descriptors as structured ordered events for app clients', async () => {
     controlRepo.getAppSessionByChatJid.mockResolvedValue({
       sessionId: 'session-1',
@@ -215,7 +849,7 @@ describe('app channel', () => {
       correlationId: 'corr-5',
     });
     runtimeEvents.publish.mockResolvedValue({ eventId: 5 });
-    const channel = await createAppChannel({} as never);
+    const channel = await createAppChannel(appOptions());
 
     await expect(
       (channel as any).renderRichInteraction('app:demo:conversation', {

@@ -18,6 +18,7 @@ import { notifySchedulerTerminalRunState } from './execution-notifications.js';
 import { publishSchedulerRunCompletion } from './execution-completion-events.js';
 import { runtimeEventTypeForRunStatus } from './run-status-event.js';
 import type { SchedulerSendMessage } from './delivery.js';
+import type { SchedulerDependencies } from './types.js';
 
 const STALE_LEASE_TIMEOUT_SUMMARY =
   'Scheduler run lease expired before completion.';
@@ -35,6 +36,7 @@ export async function notifyReleasedStaleJobLeases(input: {
     'getJobById' | 'getJobRunById' | 'markJobRunNotified'
   >;
   sendMessage: SchedulerSendMessage;
+  updateLifecycleNotification?: SchedulerDependencies['updateLifecycleNotification'];
   controlRepository: RuntimeControlSessionReader;
   publishRuntimeEvent: (
     event: RuntimeEventPublishInput,
@@ -53,6 +55,7 @@ export async function notifyReleasedStaleJobLeases(input: {
       release,
       opsRepository: input.opsRepository,
       sendMessage: input.sendMessage,
+      updateLifecycleNotification: input.updateLifecycleNotification,
       control: input.controlRepository,
       publishRuntimeEvent: input.publishRuntimeEvent,
       runtimeAppId,
@@ -72,6 +75,7 @@ async function notifyReleasedStaleJobLease(input: {
     'getJobById' | 'getJobRunById' | 'markJobRunNotified'
   >;
   sendMessage: SchedulerSendMessage;
+  updateLifecycleNotification?: SchedulerDependencies['updateLifecycleNotification'];
   control: RuntimeControlSessionReader;
   publishRuntimeEvent: (
     event: RuntimeEventPublishInput,
@@ -134,6 +138,7 @@ async function notifyReleasedStaleJobLease(input: {
       pauseReason: job.pause_reason,
       durationMs,
       sendMessage: input.sendMessage,
+      updateLifecycleNotification: input.updateLifecycleNotification,
     });
     if (notified) await input.opsRepository.markJobRunNotified(runId);
 

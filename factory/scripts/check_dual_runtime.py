@@ -11,6 +11,15 @@ Exit codes: 0 clean, 1 violations.
 """
 from __future__ import annotations
 
+# UTF-8 console safety (standalone entrypoint — see factory_lib for rationale):
+# force UTF-8 stdout/stderr so non-Latin-1 glyphs don't crash a cp1252 console.
+import sys as _utf8_sys
+for _stream in (_utf8_sys.stdout, _utf8_sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 import json
 import re
 import subprocess
@@ -28,6 +37,17 @@ def violation(msg: str) -> None:
     violations.append(f"VIOLATION: {msg}")
 
 
+def hook_script_paths(command: str) -> list[str]:
+    """Factory hook scripts exposed by a registered shell command."""
+    scripts = re.findall(r"factory/scripts/[\w.]+\.py", command)
+    hook_names = re.findall(
+        r"(?:^|[/\\])forge[\"']?\s+hook\s+([a-z][a-z0-9_]*)",
+        command,
+    )
+    scripts.extend(f"factory/scripts/{name}.py" for name in hook_names)
+    return list(dict.fromkeys(scripts))
+
+
 def canon_files(root: Path) -> list[Path]:
     files: list[Path] = []
     for pattern in ("constitution/*.md", "docs/**/*.md", "harness/*/conventions/*.md"):
@@ -37,7 +57,7 @@ def canon_files(root: Path) -> list[Path]:
 
 def nonblank_lines(path: Path) -> list[str]:
     try:
-        text = path.read_text(errors="replace")
+        text = path.read_text(encoding="utf-8")
     except OSError:
         return []
     return [line for line in text.splitlines() if line.strip()]
@@ -126,7 +146,7 @@ def check_canon_markers(root: Path) -> None:
         if f.suffix not in {".md", ".json", ".toml"}:
             continue
         try:
-            text = f.read_text(errors="replace")
+            text = f.read_text(encoding="utf-8")
         except OSError:
             continue
         for match in CANON_MARKER.finditer(text):
@@ -165,7 +185,7 @@ def check_decision_records(root: Path) -> None:
                 "next free integer (forge.py decision new allocates safely)."
             )
         seen[number] = record
-        match = FRONTMATTER.match(record.read_text(errors="replace"))
+        match = FRONTMATTER.match(record.read_text(encoding="utf-8"))
         if not match:
             violation(
                 f"{record.relative_to(root)} has no YAML frontmatter. Decision records need "
@@ -217,14 +237,14 @@ def check_decision_records(root: Path) -> None:
         predecessor = fields.get("supersedes")
         if status == "accepted" and predecessor and predecessor in stems:
             old_match = FRONTMATTER.match(
-                (root / "docs" / "decisions" / f"{predecessor}.md").read_text())
+                (root / "docs" / "decisions" / f"{predecessor}.md").read_text(encoding="utf-8"))
             if old_match and "status: superseded" not in old_match.group(1):
                 violation(
                     f"{record.relative_to(root)} is accepted and supersedes {predecessor}, "
                     f"but {predecessor} is not marked superseded — two records govern the "
                     "same question. Re-run `forge.py decision accept` to flip both."
                 )
-        text = record.read_text(errors="replace")
+        text = record.read_text(encoding="utf-8")
         if status == "accepted":
             for heading in ("Context", "Decision", "Consequences"):
                 if not _section_has_substance(text, heading):
@@ -248,12 +268,12 @@ def check_decision_records(root: Path) -> None:
                     shas = subprocess.run(
                         ["git", "log", "--reverse", "-S", "status: accepted",
                          "--format=%H", "--", str(record)],
-                        cwd=root, capture_output=True, text=True, check=True,
+                        cwd=root, capture_output=True, text=True, check=True, encoding="utf-8",
                     ).stdout.split()
                     if shas:
                         body = subprocess.run(
                             ["git", "show", "-s", "--format=%B", shas[0]],
-                            cwd=root, capture_output=True, text=True, check=True,
+                            cwd=root, capture_output=True, text=True, check=True, encoding="utf-8",
                         ).stdout
                         if "Confirmed-by:" not in body:
                             warnings.append(
@@ -279,7 +299,7 @@ def check_plan_decision_refs(root: Path) -> None:
         return
     for plan in plans.rglob("*.md"):
         try:
-            text = plan.read_text(errors="replace")
+            text = plan.read_text(encoding="utf-8")
         except OSError:
             continue
         for match in DECISION_REF.finditer(text):
@@ -295,7 +315,7 @@ def check_plan_decision_refs(root: Path) -> None:
 def check_path_parity(root: Path) -> None:
     root_claude = root / "CLAUDE.md"
     if root_claude.exists():
-        text = root_claude.read_text(errors="replace")
+        text = root_claude.read_text(encoding="utf-8")
         if "@AGENTS.md" not in text:
             violation(
                 "CLAUDE.md (root) does not import @AGENTS.md. It is the Claude Code "
@@ -313,7 +333,7 @@ def check_path_parity(root: Path) -> None:
         )
     claude_md = root / ".claude" / "CLAUDE.md"
     if claude_md.exists():
-        if "AGENTS.md" not in claude_md.read_text(errors="replace"):
+        if "AGENTS.md" not in claude_md.read_text(encoding="utf-8"):
             violation(
                 ".claude/CLAUDE.md does not reference AGENTS.md. The Claude adapter must "
                 "point at the shared contract, not restate it."
@@ -331,7 +351,7 @@ def check_path_parity(root: Path) -> None:
             )
             return set()
         try:
-            hooks = json.loads(hooks_file.read_text())
+            hooks = json.loads(hooks_file.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             violation(f"{rel_path} is not valid JSON.")
             return set()
@@ -341,7 +361,13 @@ def check_path_parity(root: Path) -> None:
             for entry in entries:
                 for hook in entry.get("hooks", []):
                     command = hook.get("command", "")
-                    scripts = re.findall(r"\.[\w/]*scripts/[\w.]+\.py", command)
+                    scripts = hook_script_paths(command)
+                    if not scripts:
+                        violation(
+                            f"{rel_path} ({event}) command does not expose a mapped "
+                            "factory hook script. Use `forge hook <script-stem>` so the "
+                            "linter can retain its existence check."
+                        )
                     for script in scripts:
                         if not script.startswith("factory/scripts/"):
                             violation(
@@ -372,13 +398,20 @@ def check_path_parity(root: Path) -> None:
 
 
 ALLOWED_CLAUDE = {"CLAUDE.md", "settings.json", "settings.local.json", "launch.json"}
+# The adapter rule guards against CANON living in the adapter. An OS artifact
+# is not canon, is not committed (every scaffold gitignores it), and is
+# recreated by the desktop whenever someone opens the folder — so failing on
+# it makes a structural gate, and `verify.py` with it, depend on whether a
+# Finder window was open. Ignored here rather than only at vendoring time,
+# because the file appears locally in repos nothing was ever vendored into.
+OS_ARTIFACTS = {".DS_Store", "Thumbs.db", "desktop.ini"}
 
 
 def check_thin_adapter(root: Path) -> None:
     claude = root / ".claude"
     if claude.is_dir():
         for f in claude.rglob("*"):
-            if not f.is_file():
+            if not f.is_file() or f.name in OS_ARTIFACTS:
                 continue
             rel = f.relative_to(claude)
             # Standard Claude Code project surfaces are allowed: skills may be
@@ -400,7 +433,7 @@ def check_thin_adapter(root: Path) -> None:
                 )
         claude_md = claude / "CLAUDE.md"
         if claude_md.exists():
-            lines = len(claude_md.read_text(errors="replace").splitlines())
+            lines = len(claude_md.read_text(encoding="utf-8").splitlines())
             if lines > CLAUDE_MD_MAX_LINES:
                 violation(
                     f".claude/CLAUDE.md is {lines} lines (max {CLAUDE_MD_MAX_LINES}). It is a "
@@ -409,7 +442,7 @@ def check_thin_adapter(root: Path) -> None:
     codex = root / ".codex"
     if codex.is_dir():
         for f in codex.rglob("*"):
-            if not f.is_file():
+            if not f.is_file() or f.name in OS_ARTIFACTS:
                 continue
             rel = f.relative_to(codex)
             ok = (
@@ -442,7 +475,10 @@ def check_prototype_isolation(root: Path) -> None:
 
     Any import/require path reaching into prototype/ from production code
     turns the preserved reference into a load-bearing dependency."""
-    proc = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True)
+    proc = subprocess.run(
+        ["git", "ls-files"], cwd=root, capture_output=True, text=True,
+        encoding="utf-8", errors="surrogateescape",
+    )
     if proc.returncode != 0:
         return
     for rel in proc.stdout.splitlines():
@@ -453,7 +489,8 @@ def check_prototype_isolation(root: Path) -> None:
         path = root / rel
         if not path.is_file():
             continue
-        for lineno, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for lineno, line in enumerate(lines, 1):
             if PROTOTYPE_IMPORT.search(line):
                 violation(
                     f"{rel}:{lineno} imports from prototype/ — the prototype is a "
@@ -468,11 +505,11 @@ def check_schemas(root: Path) -> None:
     harness.yaml (substring — no YAML parser in a stdlib-only linter)."""
     schemas_dir = root / "factory" / "schemas"
     manifest_path = root / "harness.yaml"
-    manifest = manifest_path.read_text() if manifest_path.is_file() else ""
+    manifest = manifest_path.read_text(encoding="utf-8") if manifest_path.is_file() else ""
     for path in sorted(schemas_dir.glob("*.json")) if schemas_dir.is_dir() else []:
         rel = path.relative_to(root)
         try:
-            schema = json.loads(path.read_text())
+            schema = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             violation(f"{rel}: invalid JSON ({exc}). Schemas are recorder contracts.")
             continue
@@ -502,7 +539,8 @@ def main() -> int:
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else None
     if root is None:
         out = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True,
+            text=True, check=True, encoding="utf-8", errors="surrogateescape",
         )
         root = Path(out.stdout.strip())
     check_canon_exists(root)

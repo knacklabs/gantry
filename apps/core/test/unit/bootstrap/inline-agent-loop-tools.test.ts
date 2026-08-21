@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 const spawnAgent = vi.hoisted(() => vi.fn());
 
@@ -39,10 +40,12 @@ import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 const publishRuntimeEvent = vi.fn(async () => undefined);
 const sendMessage = vi.fn(async () => undefined);
-const requestPermissionApproval = vi.fn(async () => ({
-  approved: true,
-  mode: 'allow_once' as const,
-}));
+const requestPermissionApproval = vi.fn(async () =>
+  permissionDecisionResult({
+    approved: true,
+    mode: 'allow_once' as const,
+  }),
+);
 const requestUserAnswer = vi.fn(async (request) => ({
   requestId: request.requestId,
   answers: {},
@@ -1249,8 +1252,10 @@ describe('inline core tool bootstrap', () => {
 
   it.each([
     ['ask', 'mcp__crm__read'],
-    ['auto', 'mcp__gantry__request_access'],
-    ['auto_strict', 'mcp__gantry__request_access'],
+    // request_access moved to input-gated birthright (0123); tool_consent
+    // stays on the ladder (0052) and keeps this test's intent.
+    ['auto', 'mcp__gantry__tool_consent'],
+    ['auto_strict', 'mcp__gantry__tool_consent'],
   ] as const)(
     'does not consult in mode %s for ineligible/non-auto tool %s',
     async (permissionMode, toolName) => {

@@ -1,0 +1,23 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "No hot-path additions: provenance is one map lookup at the existing choke point; the lane filter is a set pass reusing the affinity seam; host rejection is one Map lookup per scheduler mutation.",
+  "blocking_findings": [],
+  "residual_risks": [
+    "none noted."
+  ],
+  "reviewed_scope": [
+    "apps/core/src/domain",
+    "apps/core/src/runtime",
+    "apps/core/src/jobs",
+    "apps/core/src/runner",
+    "apps/core/src/application/permissions",
+    "apps/core/src/adapters/llm",
+    "apps/core/src/shared"
+  ],
+  "recommendation": "ship",
+  "aspect": "performance",
+  "non_blocking_findings": [],
+  "recorded_at": "2026-08-05T05:51:53+00:00",
+  "commit": "5744e58a4158f8f83a7b2f3180fcfb6b24681673"
+}

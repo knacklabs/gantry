@@ -13,21 +13,11 @@ payload = read_hook_input()
 root = repo_root()
 run_state = load_json(run_state_path(root), default={})
 
-# Per-clone, idempotent: register the JSONL union merge driver that
-# .gitattributes references, so two devs appending to .gstack stores merge
-# cleanly. Quiet — configuration, not conversation.
-attributes = root / ".gitattributes"
-if attributes.exists() and "merge=jsonl-append" in attributes.read_text():
-    have = subprocess.run(
-        ["git", "config", "merge.jsonl-append.driver"],
-        cwd=root, capture_output=True, text=True,
-    )
-    driver = Path.home() / ".claude" / "skills" / "gstack" / "bin" / "gstack-jsonl-merge"
-    if have.returncode != 0 and driver.is_file():
-        subprocess.run(
-            ["git", "config", "merge.jsonl-append.driver", f"{driver} %O %A %B"],
-            cwd=root, capture_output=True,
-        )
+# Nothing to register: the JSONL ledgers use git's built-in `union` driver.
+# This hook used to install a custom `jsonl-append` driver per clone, which
+# made every merge depend on a hook having run on whichever machine performed
+# it — and the driver hung, so the merge blocked forever rather than failing.
+# A merge that cannot finish is indistinguishable from a hostile conflict.
 context = []
 # Machine readiness, EVERY session (milliseconds — existence checks only):
 # a teammate who just cloned/pulled learns their machine is not ready at the
@@ -85,11 +75,17 @@ if run_state.get("plan_status") != "approved" and not quickfix:
         "— plan save refuses without it. Codex alternative: the planner-high agent."
     )
 if quickfix:
-    context.append(
-        f"OPEN QUICKFIX {quickfix['id']}: {quickfix['reason']} — "
-        f"{len(quickfix.get('files', []))}/{quickfix.get('max_files', 5)} files; "
-        "close with `./forge quickfix done`."
-    )
+    if quickfix.get("profile", "quickfix") == "lite":
+        context.append(
+            f"OPEN LITE WINDOW {quickfix['id']}: {quickfix['reason']} — "
+            "one review is required to close it with `./forge mode done`."
+        )
+    else:
+        context.append(
+            f"OPEN QUICKFIX {quickfix['id']}: {quickfix['reason']} — "
+            f"{len(quickfix.get('files', []))}/{quickfix.get('max_files', 5)} files; "
+            "close with `./forge quickfix done`."
+        )
 ledger = load_json(root / "docs" / "context" / "ledger.json", default={"files": {}})
 pending = sum(1 for e in ledger.get("files", {}).values() if e.get("status") == "pending")
 if pending:
@@ -119,7 +115,7 @@ if payload.get("source") == "compact" and scratchpad.exists():
     )
 lessons_file = root / "plans" / "lessons.jsonl"
 if lessons_file.exists():
-    lesson_count = sum(1 for line in lessons_file.read_text().splitlines() if line.strip())
+    lesson_count = sum(1 for line in lessons_file.read_text(encoding="utf-8").splitlines() if line.strip())
     if lesson_count:
         context.append(
             f"Lessons ledger: {lesson_count} — run `forge lesson relevant` against the "
@@ -131,8 +127,8 @@ if proposed:
         f"Proposed skills awaiting human review: {proposed} in factory/skills/proposed/."
     )
 memory = root / "docs" / "memory" / "MEMORY.md"
-if memory.is_file() and memory.read_text().strip():
-    context.append("PROJECT MEMORY (docs/memory/MEMORY.md):\n" + memory.read_text().strip())
+if memory.is_file() and memory.read_text(encoding="utf-8").strip():
+    context.append("PROJECT MEMORY (docs/memory/MEMORY.md):\n" + memory.read_text(encoding="utf-8").strip())
 if not context:
     print(json.dumps({}))
     raise SystemExit(0)

@@ -1,3 +1,9 @@
+import {
+  amendmentButtonLabel,
+  amendmentPromptParts,
+  amendmentReceiptText,
+} from './capability-amendment-card.js';
+import { USER_FACING_TOOL_LABELS } from './permission-tool-labels.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
@@ -63,33 +69,12 @@ export {
 } from '../domain/permission-decision.js';
 export { decisionForPermissionInteraction as decisionForMode };
 
-const USER_FACING_TOOL_LABELS: Record<string, string> = {
-  RunCommand: 'exact command access',
-  Bash: 'exact command access',
-  Browser: 'Browser',
-  WebSearch: 'web search',
-  WebRead: 'web page access',
-  WebFetch: 'web page access',
-  FileSearch: 'file search',
-  Glob: 'file search',
-  Grep: 'file search',
-  FileRead: 'file reading',
-  Read: 'file reading',
-  FileEdit: 'file editing',
-  Edit: 'file editing',
-  MultiEdit: 'file editing',
-  FileWrite: 'file writing',
-  Write: 'file writing',
-  AgentDelegation: 'agent delegation',
-  Agent: 'agent delegation',
-  Task: 'agent delegation',
-  mcp__gantry__mcp_call_tool: 'MCP Call Tool (any connected server)',
-};
-
 export function permissionButtonLabel(
   mode: PermissionApprovalDecisionMode,
   _request: PermissionApprovalRequest,
 ): string {
+  const amendmentLabel = amendmentButtonLabel(_request, mode);
+  if (amendmentLabel) return amendmentLabel;
   const batchLabel = permissionBatchButtonLabel(_request, mode);
   if (batchLabel) return batchLabel;
   if (mode === 'allow_once')
@@ -149,14 +134,16 @@ export function formatPermissionReceiptText(
   decision: PermissionApprovalDecision,
 ): string {
   const summary = formatPermissionReceiptActionSummary(request); // Existing-prompt settlement, not a new chat receipt.
+  const amendmentReceipt = amendmentReceiptText(request, decision);
+  if (amendmentReceipt) return amendmentReceipt;
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
   }
-  if (decision.mode === 'allow_persistent_rule') {
-    if (decision.batchDecision === 'review_each')
-      return 'Reviewing each permission request.';
-    if (request && isPermissionBatchRequest(request))
-      return 'Reviewing each permission request.';
+  if (decision.batchDecision === 'review_each')
+    return 'Reviewing each permission request.';
+  // Strict field read, no mode fallback: decisionForMode always stamps
+  // provenance (owner-directed no-legacy policy).
+  if (decision.repeatableForFutureRuns === true) {
     const agentName = request
       ? formatPermissionAgentDisplayName(request.sourceAgentFolder)
       : 'this agent';
@@ -170,7 +157,7 @@ export function formatPermissionReceiptText(
     );
   }
   return limitPermissionMessage(
-    `Allowed once: ${summary}. The agent will continue this request.`,
+    `Approved for this run only: ${summary}.${request?.jobId ? ' It will ask again next run.' : ''}`,
   );
 }
 
@@ -207,6 +194,13 @@ export function buildPermissionPromptParts(
   const replyInMinutes = Math.max(1, Math.round(timeoutMs / 60000));
   const contextLines = formatPermissionContextLines(request);
   const fullView = buildPermissionPromptFullView(request);
+  const amendmentParts = amendmentPromptParts(request, {
+    contextLines,
+    replyInMinutes,
+    fullView,
+    sanitize: sanitizePermissionText,
+  });
+  if (amendmentParts) return amendmentParts as PermissionPromptParts;
   if (request.interaction) {
     const interaction = request.interaction;
     const rule = firstPersistentRule(request);
@@ -353,13 +347,39 @@ function formatPermissionContextLines(
   if (requestHasThreadRoute(request)) {
     lines.push('Approval applies to the parent conversation.');
   }
-  if (request.promotionHintCount) {
+  if (request.closestRule) {
     lines.push(
-      `You've allowed me to do this ${request.promotionHintCount} times — want me to stop asking?`,
+      `Approved pattern: ${sanitizePermissionText(request.closestRule.rule, 500, 160)}`,
+    );
+    const attemptedCommand = permissionAttemptedCommand(request);
+    if (attemptedCommand) {
+      lines.push(
+        `Attempted command: ${sanitizePermissionCommandText(attemptedCommand, 500, 160)}`,
+      );
+    }
+  }
+  if (request.promotionHintCount && request.firstAskedAt) {
+    const days = permissionAskSpanDays(request.firstAskedAt);
+    lines.push(
+      `Approved once ${request.promotionHintCount} times in ${days} ${days === 1 ? 'day' : 'days'} — and it is asking again now. Approve permanently?`,
     );
   }
   lines.push('The agent cannot approve this itself.');
   return lines;
+}
+
+function permissionAttemptedCommand(
+  request: PermissionApprovalRequest,
+): string | null {
+  const command = request.toolInput?.command ?? request.toolInput?.cmd;
+  if (typeof command !== 'string' || !command.trim()) return null;
+  return runtimeDisplayCommand(command.trim()).command;
+}
+
+function permissionAskSpanDays(firstAskedAt: string): number {
+  const firstAskedAtMs = Date.parse(firstAskedAt);
+  if (!Number.isFinite(firstAskedAtMs)) return 1;
+  return Math.max(1, Math.ceil((Date.now() - firstAskedAtMs) / 86_400_000));
 }
 
 function formatInteractionPermissionPrompt(

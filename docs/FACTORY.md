@@ -126,21 +126,33 @@ Do not decompose by:
 - arbitrary file count
 - implementation agent convenience
 
-Each leaf task must include:
+The first decomposition records the ordered task list. Each leaf initially
+includes:
+- id
 - title
 - objective
-- doc references
-- write scope
-- dependencies
-- acceptance criteria
-- verify commands
-- required tests
-- reviewer focus
+- non-empty acceptance criteria
+- dependencies when needed; every dependency names an earlier task
+
+Immediately before the next pending leaf, enter plan mode per
+`factory/prompts/planner.md` and author its execution contract against the
+state left by completed tasks: write scope, exact acceptance criteria, verify
+commands, required tests, and reviewer focus. Re-record the decomposition,
+pass the digest-bound task grill, save the plan-mode result at
+`.factory/stories/<KEY>/task-plans/<id>.md`, record its human approval, run
+`forge stage start <id>`, then `forge delegate <id>`. Do not guess later-task
+execution detail. `forge next` routes this loop one action at a time.
+
+Each stage closes in this order: implement and test, local autoreview of the
+uncommitted diff, commit, then `forge stage done <id>`. After every stage is
+done, close out the story in this order: one branch autoreview, deterministic
+verify, functional check when `user_facing`, outcome recording, then
+`pr_ready.py`.
 
 Store the decomposition in `.factory/decomposition.json` — that artifact is
-canonical. Mirroring into a tracker (Linear, GitHub Issues, Jira) is optional;
-`python3 factory/scripts/render_linear_task_graph.py` renders a deterministic
-Markdown view of the graph if you want one to review or sync.
+canonical. Mirroring into a tracker (Linear, GitHub Issues, Jira) is optional.
+Order is derived, never authored (decision 0021): the array is the execution
+sequence and a task's `dependencies` may only name an earlier task.
 
 ## AGENTS Hygiene
 

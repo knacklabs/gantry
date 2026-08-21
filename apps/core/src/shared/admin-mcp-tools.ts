@@ -29,6 +29,15 @@ export const SCHEDULER_MCP_TOOL_NAMES = [
 
 export type SchedulerMcpToolName = (typeof SCHEDULER_MCP_TOOL_NAMES)[number];
 
+export const SCHEDULER_MUTATION_MCP_TOOL_NAMES = [
+  'scheduler_upsert_job',
+  'scheduler_update_job',
+  'scheduler_delete_job',
+  'scheduler_pause_job',
+  'scheduler_resume_job',
+  'scheduler_run_now',
+] as const satisfies readonly SchedulerMcpToolName[];
+
 // These scheduler rows predate the general durable-grant rule and remain
 // startup catalog seeds. This list defines seed inventory only, not which
 // Gantry tools may receive durable grants.
@@ -49,6 +58,10 @@ export type SeededSchedulerMcpToolName =
 
 export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'attachment_open',
+  'attachment_materialize',
+  'canvas_read',
+  'canvas_create',
+  'canvas_update',
   'send_message',
   'ask_user_question',
   'render_status',
@@ -80,6 +93,7 @@ export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'mcp_search_tools',
   'mcp_describe_tool',
   'mcp_call_tool',
+  'capability_run',
 ] as const;
 
 export const ASYNC_TASK_GANTRY_MCP_TOOL_NAMES = [
@@ -93,6 +107,19 @@ export const ASYNC_TASK_GANTRY_MCP_TOOL_NAMES = [
 export const DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES = [
   'delegate_task',
   'task_message',
+] as const;
+
+// Human-gated recovery proposals (decision 0123): these tools only create
+// review metadata — every effect requires an authenticated human decision —
+// so they are input-gated birthright and must stay VISIBLE to no-permission
+// (fixed-image) workers, or autonomous runs cannot ask for fixes. Locked
+// agents still hide them: locked means never raising an approval prompt.
+export const RECOVERY_PROPOSAL_GANTRY_MCP_TOOL_NAMES = [
+  'request_access',
+  'request_skill_install',
+  'request_skill_proposal',
+  'request_skill_dependency_install',
+  'request_mcp_server',
 ] as const;
 
 // A tool is excluded from durable grants if granting it durably would let the
@@ -128,6 +155,7 @@ export const DURABLE_GRANT_EXCLUDED_DISPATCHERS = [
   'mcp_call_tool',
   'async_mcp_call',
   'async_run_command',
+  'capability_run',
 ] as const;
 
 // These dispatchers are intentionally never durable grants: their concrete
@@ -138,6 +166,7 @@ export const DURABLE_GRANT_EXCLUDED_DISPATCHERS = [
 export const HOST_AUTHORIZED_MCP_PROXY_DISPATCHERS = [
   'mcp_call_tool',
   'async_mcp_call',
+  'capability_run',
 ] as const;
 
 // Delegation dispatchers start or steer another agent's work. An exact grant

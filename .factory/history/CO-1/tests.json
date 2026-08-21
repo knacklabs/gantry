@@ -1,0 +1,30 @@
+{
+  "commit": "a77e237c45376e9cf3e8c21b780c3995750bcc2b",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "Coordination columns cutover: typecheck + db:migrations:check green; storage/application/jobs unit sweep 1670 tests (2 expectation updates for the new incrementConsecutiveFailures flag); new job-coordination-state postgres race suite green (racing notify-dedup vs pause-rewrite loses neither; parallel increments both land; stale-fingerprint no-op); job-lifecycle postgres suite green; migration journal test extended with literal-SQL assertions.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npm run typecheck",
+      "npm run db:migrations:check",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/adapters/storage/postgres apps/core/test/unit/application apps/core/test/unit/storage/postgres-migration-journal.test.ts apps/core/test/unit/jobs",
+      "GANTRY_TEST_DATABASE_URL=postgres://postgres:***@127.0.0.1:63421/gantry_test npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/job-coordination-state.postgres.integration.test.ts apps/core/test/integration/job-lifecycle.postgres.integration.test.ts"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/integration/job-coordination-state.postgres.integration.test.ts: keeps concurrent coordination writes intact",
+      "apps/core/test/unit/storage/postgres-migration-journal.test.ts: registers the job coordination column cutover",
+      "apps/core/test/unit/jobs/execution-lease.test.ts: expectations carry incrementConsecutiveFailures",
+      "deleted: apps/core/test/unit/application/job-recovery-intent-service.test.ts (dead machine removed)"
+    ],
+    "pass_fail_summary": "unit 1670/1670 post-fix; postgres integration focused suites 4/4",
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-03T09:35:26+00:00",
+    "commit": "a77e237c45376e9cf3e8c21b780c3995750bcc2b"
+  },
+  "updated_at": "2026-08-03T09:35:26+00:00"
+}

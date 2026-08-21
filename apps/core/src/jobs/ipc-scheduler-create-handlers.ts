@@ -14,13 +14,16 @@ import {
   findModelByRunnerModel,
   resolveModelSelectionForWorkload,
 } from '../shared/model-catalog.js';
-import { setupActionLabel } from '../shared/job-setup-labels.js';
+import { formatJobSetupAction } from '../shared/job-setup-labels.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import {
   formatSchedulerJobPlan,
   schedulerJobConfirmationToken,
   type SchedulerJobPlanInput,
 } from '../shared/scheduler-job-plan.js';
+import { rejectDisallowedSchedulerMutation } from './ipc-scheduler-mutation-authority.js';
+import { notifyCreatedJobSetupRequired } from './execution-readiness.js';
+import { getRuntimeEventExchange } from '../adapters/storage/postgres/runtime-store.js';
 
 type SchedulerCreateScheduleType = Exclude<JobScheduleType, 'manual'>;
 
@@ -36,6 +39,33 @@ function makeJobService(context: TaskContext): JobManagementService {
     capabilitySecretRepository: context.deps.getCapabilitySecretRepository?.(),
     getCredentialBroker: context.deps.getCredentialBroker,
     getBrowserStatus: context.deps.getBrowserStatus,
+    setupRequiredNotifications: {
+      notify: (input) => {
+        void notifyCreatedJobSetupRequired({
+          jobId: input.jobId,
+          deps: {
+            sendMessage: context.deps.sendMessage,
+            opsRepository: context.deps.opsRepository,
+          },
+          runtimeAppId: input.appId,
+          appSession: input.appSession
+            ? {
+                ...input.appSession,
+                defaultResponseMode:
+                  input.appSession.defaultResponseMode ?? null,
+              }
+            : undefined,
+          publishRuntimeEvent:
+            context.deps.publishRuntimeEvent ??
+            ((event) => getRuntimeEventExchange().publish(event)),
+        }).catch((err) => {
+          logger.warn(
+            { err, jobId: input.jobId },
+            'Failed to notify setup pause after IPC job creation',
+          );
+        });
+      },
+    },
   });
 }
 
@@ -53,6 +83,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
     data.authThreadId,
     data.responseKeyId,
   );
+  if (rejectDisallowedSchedulerMutation(context, reject)) return;
 
   if (
     data.scheduleType === undefined ||
@@ -178,7 +209,7 @@ function formatSetupOutcome(
 ): string {
   if (!setupState || setupState.state === 'ready') return '';
   const blocker = setupState.blockers[0];
-  return ` Setup needed: ${setupActionLabel(blocker)}.`;
+  return ` Setup needed: ${formatJobSetupAction(blocker?.action, blocker)}.`;
 }
 
 export const schedulerCreateTaskHandlers: Record<string, TaskHandler> = {

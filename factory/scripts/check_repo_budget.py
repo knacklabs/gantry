@@ -11,6 +11,15 @@ Exit codes: 0 within budget, 1 violations.
 """
 from __future__ import annotations
 
+# UTF-8 console safety (standalone entrypoint — see factory_lib for rationale):
+# force UTF-8 stdout/stderr so non-Latin-1 glyphs don't crash a cp1252 console.
+import sys as _utf8_sys
+for _stream in (_utf8_sys.stdout, _utf8_sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 import subprocess
 import sys
 from pathlib import Path
@@ -22,14 +31,32 @@ DIR_BUDGETS = {                        # cumulative tracked bytes per tree
     "prototype": 100_000_000,
 }
 WARN_RATIO = 0.7
+TRACKED_CRUFT_GLOBS = (
+    ":(glob)**/__pycache__/**",
+    ":(glob)**/*.pyc",
+    ":(glob)**/*.pyo",
+    ":(glob)**/.DS_Store",
+)
+
+
+def tracked_cruft(root: Path) -> list[str]:
+    """Return tracked build/tool noise selected by the shared git globs."""
+    proc = subprocess.run(
+        ["git", "ls-files", "-z", "--", *TRACKED_CRUFT_GLOBS], cwd=root,
+        capture_output=True, text=True, check=True,
+        encoding="utf-8", errors="surrogateescape",
+    )
+    return [path for path in proc.stdout.split("\0") if path]
 
 
 def main() -> int:
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(
         subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                       capture_output=True, text=True, check=True).stdout.strip())
+                       capture_output=True, text=True, check=True,
+                       encoding="utf-8", errors="surrogateescape").stdout.strip())
     proc = subprocess.run(["git", "ls-files", "-z"], cwd=root,
-                          capture_output=True, text=True, check=True)
+                          capture_output=True, text=True, check=True,
+                          encoding="utf-8", errors="surrogateescape")
     tracked = [f for f in proc.stdout.split("\0") if f]
     violations: list[str] = []
     warnings: list[str] = []
@@ -38,9 +65,7 @@ def main() -> int:
     # only guards untracked files, so anything committed once (e.g. vendored
     # bytecode before the vendor-ignore fix) silently stays until a check
     # refuses it.
-    noise = [rel for rel in tracked
-             if "__pycache__/" in rel or rel.endswith((".pyc", ".pyo"))
-             or Path(rel).name == ".DS_Store"]
+    noise = tracked_cruft(root)
     if noise:
         violations.append(
             f"{len(noise)} tracked build/tool noise file(s) (e.g. {noise[0]}) — "

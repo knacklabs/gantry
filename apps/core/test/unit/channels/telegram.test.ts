@@ -174,6 +174,7 @@ import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import { createPermissionApprovalRequester } from '@core/channels/permission-approval-requester.js';
 import { telegramQuestionCallbackId } from '@core/channels/telegram/channel-shared.js';
+import { requirePermissionDecision } from './permission-approval-result-helpers.js';
 import type {
   PermissionCallbackClaim,
   PermissionCallbackClaimReference,
@@ -293,18 +294,19 @@ function createTelegramGroupApprovalOpts(): TelegramChannelOpts {
 }
 
 function createGroupJoinOnboardingOpts() {
-  const base = createTestOpts();
-  const settings = base.runtimeSettings!();
   let currentRecord: GroupJoinOnboardingRecord | null = null;
-  let nextId = 1;
   const timestamp = '2026-07-18T00:00:00.000Z';
   const coordinator: GroupJoinOnboardingCoordinator = {
-    recordPrompt: vi.fn(async (input) => {
-      if (currentRecord?.status === 'registered') return currentRecord;
+    beginBootstrap: vi.fn(async (input) => {
       currentRecord = {
-        id: `join-${nextId++}`,
-        ...input,
+        id: 'join-1',
+        providerAccountId: input.providerAccountId,
+        chatJid: input.chatJid,
         status: 'prompted',
+        adder: input.installerExternalId ?? '',
+        approver: input.installerExternalId ?? '',
+        promptConversationJid: input.chatJid,
+        promptAgentFolder: 'whatsapp_main',
         promptedAt: timestamp,
         dismissedAt: null,
         registeredAt: null,
@@ -314,22 +316,8 @@ function createGroupJoinOnboardingOpts() {
       };
       return currentRecord;
     }),
-    getById: vi.fn(async (id) =>
-      currentRecord?.id === id ? currentRecord : null,
-    ),
-    dismiss: vi.fn(async (id) => {
-      if (currentRecord?.id !== id || currentRecord.status !== 'prompted') {
-        return null;
-      }
-      currentRecord = {
-        ...currentRecord,
-        status: 'dismissed',
-        dismissedAt: timestamp,
-      };
-      return currentRecord;
-    }),
-    register: vi.fn(async ({ id }) => {
-      if (currentRecord?.id !== id || currentRecord.status !== 'prompted') {
+    seedInstaller: vi.fn(async ({ id }) => {
+      if (currentRecord?.id !== id) {
         return null;
       }
       currentRecord = {
@@ -359,50 +347,18 @@ function createGroupJoinOnboardingOpts() {
         added_at: timestamp,
         providerAccountId: 'telegram_default',
       },
-      'tg:222': {
-        name: 'Operator DM',
-        folder: 'whatsapp_main',
-        trigger: '@Andy',
-        added_at: timestamp,
-        providerAccountId: 'telegram_default',
-      },
-    })),
-    runtimeSettings: vi.fn(() => ({
-      ...settings,
-      conversations: {
-        ...settings.conversations,
-        whatsapp_main_conversation: {
-          ...settings.conversations.whatsapp_main_conversation,
-          controlApprovers: ['111'],
-        },
-        operator_dm: {
-          providerConnection: 'telegram_default',
-          providerAccount: 'telegram_default',
-          externalId: '222',
-          kind: 'dm',
-          displayName: 'Operator',
-          senderPolicy: { allow: '*', mode: 'trigger' },
-          controlApprovers: ['222'],
-          installedAgents: {},
-        },
-      },
     })),
     groupJoinOnboarding: coordinator,
-    isControlApproverAllowed: vi.fn(async (input) =>
-      Boolean(
-        (input.conversationJid === 'tg:100200300' &&
-          input.userId === '111' &&
-          input.sourceAgentFolder === 'test-group') ||
-        (input.conversationJid === 'tg:222' &&
-          input.userId === '222' &&
-          input.sourceAgentFolder === 'whatsapp_main'),
-      ),
-    ),
+    resolvePersonIdentity: vi.fn(async ({ externalUserId }) => ({
+      status: externalUserId === '111' ? 'resolved' : 'unresolved',
+      personId: externalUserId === '111' ? 'person-111' : null,
+      memoryHydrationEligible: externalUserId === '111',
+    })),
+    hasDirectConversationWithPerson: vi.fn(async () => true),
   });
   return {
     opts,
     coordinator,
-    getRecord: () => currentRecord,
   };
 }
 
@@ -544,20 +500,6 @@ function latestPermissionCallback(label: string): string {
     .reply_markup.inline_keyboard.flat();
   return buttons.find((button: { text: string }) => button.text === label)
     .callback_data;
-}
-
-function latestGroupJoinCallback(action: 'yes' | 'no'): string {
-  const buttons = currentBot()
-    .api.sendMessage.mock.calls.at(-1)?.[2]
-    ?.reply_markup?.inline_keyboard.flat() as
-    | Array<{ callback_data?: string }>
-    | undefined;
-  const callback = buttons?.find((button) =>
-    button.callback_data?.startsWith(`gjoin:${action}:`),
-  )?.callback_data;
-  if (!callback)
-    throw new Error(`Missing Telegram group-join ${action} callback`);
-  return callback;
 }
 
 async function triggerTextMessage(ctx: ReturnType<typeof createTextCtx>) {
@@ -1051,7 +993,67 @@ describe('TelegramChannel', () => {
       987,
       [{ type: 'emoji', emoji: '⏳' }],
       { is_big: false },
+      undefined,
     );
+  });
+
+  it('replaces the cached Telegram reaction key after every successful add', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    await channel.addReaction('tg:100200300', '987', 'running');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('clears every Telegram reaction dedupe key when removing one reaction', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    await channel.addReaction('tg:100200300', '987', 'running');
+    await channel.removeReaction('tg:100200300', '987', 'seen');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    await channel.addReaction('tg:100200300', '987', 'running');
+
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledWith(
+      '100200300',
+      987,
+      [],
+      undefined,
+      undefined,
+    );
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(5);
+  });
+
+  it('invalidates Telegram reaction cache before failed forced add and remove repairs', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.addReaction('tg:100200300', '987', 'seen');
+    botRef.current.api.setMessageReaction.mockRejectedValueOnce(
+      new Error('forced remove failed'),
+    );
+    await expect(
+      channel.removeReaction('tg:100200300', '987', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('forced remove failed');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+
+    botRef.current.api.setMessageReaction.mockRejectedValueOnce(
+      new Error('forced add failed'),
+    );
+    await expect(
+      channel.addReaction('tg:100200300', '987', 'seen', {
+        reconcile: true,
+      }),
+    ).rejects.toThrow('forced add failed');
+    await channel.addReaction('tg:100200300', '987', 'seen');
+
+    expect(botRef.current.api.setMessageReaction).toHaveBeenCalledTimes(5);
   });
 
   it('sends a memory-review message as native HTML with three decision buttons', async () => {
@@ -1090,6 +1092,52 @@ describe('TelegramChannel', () => {
     expect(
       buttons.map((b: { callback_data: string }) => b.callback_data),
     ).toEqual([`mr:a:${reviewId}`, `mr:r:${reviewId}`, `mr:e:${reviewId}`]);
+  });
+
+  it('renders a structured job notification as a native card and otherwise sends its plain fallback', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.sendMessage('tg:100200300', 'plain fallback text', {
+      jobNotificationView: {
+        status: 'completed',
+        jobName: 'Lead enrichment',
+        durationMs: 65_000,
+        stats: {
+          toolCount: 2,
+          browserUsed: true,
+          lastAction: 'browser_act',
+        },
+        result: {
+          headline: "Enriched this morning's leads",
+          items: [
+            { outcome: 'done', label: 'Added Acme', detail: 'owner found' },
+            { outcome: 'skipped', label: 'Skipped Globex' },
+          ],
+          nextAction: 'Review the new leads',
+        },
+        fallbackText: 'plain fallback text',
+        nextRunAt: '2026-08-21T09:00:00.000Z',
+      },
+    });
+
+    const nativeCall = currentBot().api.sendMessage.mock.calls.at(-1);
+    expect(nativeCall?.[1]).toContain(
+      '<b>✅ Completed</b> · Lead enrichment · 1m 05s',
+    );
+    expect(nativeCall?.[1]).toContain(
+      '2 tools, browser used, last browser_act',
+    );
+    expect(nativeCall?.[1]).toContain('✅ Added Acme — owner found');
+    expect(nativeCall?.[1]).toContain('⏭️ Skipped Globex');
+    expect(nativeCall?.[1]).toContain('<blockquote expandable>');
+    expect(nativeCall?.[2]).toMatchObject({ parse_mode: 'HTML' });
+
+    await channel.sendMessage('tg:100200300', 'plain fallback text');
+
+    const fallbackCall = currentBot().api.sendMessage.mock.calls.at(-1);
+    expect(fallbackCall?.[0]).toBe('100200300');
+    expect(fallbackCall?.[1]).toBe('plain fallback text');
   });
 
   it('renders todo messages in the active Telegram topic', async () => {
@@ -1241,7 +1289,7 @@ describe('TelegramChannel', () => {
   });
 
   describe('group join onboarding', () => {
-    it('persists standalone metadata for Telegram group-join onboarding without a message', async () => {
+    it('recognised installer bootstraps in-group with installer seed and no DM traffic', async () => {
       const { opts, coordinator } = createGroupJoinOnboardingOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -1257,31 +1305,54 @@ describe('TelegramChannel', () => {
         { providerAccountId: 'telegram_default' },
       );
       expect(opts.onMessage).not.toHaveBeenCalled();
-      expect(coordinator.recordPrompt).toHaveBeenCalledWith({
+      expect(coordinator.beginBootstrap).toHaveBeenCalledWith({
         providerAccountId: 'telegram_default',
         chatJid: 'tg:-1001234',
-        adder: '111',
-        approver: '222',
-        promptConversationJid: 'tg:222',
-        promptAgentFolder: 'whatsapp_main',
+        installerExternalId: '111',
+      });
+      expect(coordinator.seedInstaller).toHaveBeenCalledWith({
+        id: 'join-1',
+        provider: 'telegram',
+        externalId: '-1001234',
+        title: 'Ops Room',
+        installerExternalId: '111',
       });
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
-        '222',
-        "@bob added Andy to 'Ops Room' (-1001234). Respond there?",
-        expect.objectContaining({
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: 'Yes', callback_data: 'gjoin:yes:join-1' },
-                { text: 'No', callback_data: 'gjoin:no:join-1' },
-              ],
-            ],
-          },
-        }),
+        -1001234,
+        "I'm set up. The person who added me can approve what I'm allowed to do here.",
       );
+      expect(
+        currentBot().api.sendMessage.mock.calls.every(
+          ([destination]) => destination === -1001234,
+        ),
+      ).toBe(true);
     });
 
-    it('prompts when the bot is added with restrictions (restricted, is_member)', async () => {
+    it('unrecognised installer gets in-group guidance with no registration or DM traffic', async () => {
+      const { opts, coordinator } = createGroupJoinOnboardingOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMyChatMember(createMyChatMemberCtx({ fromId: 999 }));
+
+      expect(coordinator.beginBootstrap).toHaveBeenCalledWith({
+        providerAccountId: 'telegram_default',
+        chatJid: 'tg:-1001234',
+        installerExternalId: '999',
+      });
+      expect(coordinator.seedInstaller).not.toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        -1001234,
+        "I don't know who added me. An existing approver can register this group from settings.",
+      );
+      expect(
+        currentBot().api.sendMessage.mock.calls.every(
+          ([destination]) => destination === -1001234,
+        ),
+      ).toBe(true);
+    });
+
+    it('bootstraps when the bot is added with restrictions (restricted, is_member)', async () => {
       const { opts, coordinator } = createGroupJoinOnboardingOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -1292,165 +1363,7 @@ describe('TelegramChannel', () => {
         }),
       );
 
-      expect(coordinator.recordPrompt).toHaveBeenCalledWith(
-        expect.objectContaining({ chatJid: 'tg:-1001234', adder: '111' }),
-      );
-    });
-
-    it('answers the callback with the true outcome when the receipt edit fails', async () => {
-      const { opts, coordinator } = createGroupJoinOnboardingOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-      await triggerMyChatMember(createMyChatMemberCtx({}));
-      currentBot().api.editMessageText.mockRejectedValueOnce(
-        new Error('edit failed'),
-      );
-      const answerCallbackQuery = vi.fn();
-
-      await triggerCallbackQuery({
-        callbackQuery: {
-          data: latestGroupJoinCallback('yes'),
-          from: { id: 222 },
-          message: { chat: { id: 222 }, message_id: 987 },
-        },
-        chat: { id: 222 },
-        from: { id: 222 },
-        api: currentBot().api,
-        me: { username: 'andy_ai_bot' },
-        answerCallbackQuery,
-      });
-
-      // Registration is persisted before the receipt edit; a transient edit
-      // failure must not fail the callback or misreport the outcome.
-      expect(coordinator.register).toHaveBeenCalled();
-      expect(answerCallbackQuery).toHaveBeenCalledWith({ text: 'Registered.' });
-    });
-
-    it('does not prompt and info-logs when a stranger adds the bot', async () => {
-      const { opts, coordinator } = createGroupJoinOnboardingOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      await triggerMyChatMember(createMyChatMemberCtx({ fromId: 999 }));
-
-      expect(coordinator.recordPrompt).not.toHaveBeenCalled();
-      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
-      expect(logger.info).toHaveBeenCalledWith(
-        expect.objectContaining({
-          provider: 'telegram',
-          chatId: '-1001234',
-          adder: '999',
-        }),
-        'Telegram group join ignored: adder is not a registered control approver',
-      );
-    });
-
-    it('info-logs when no registered control DM can receive the prompt', async () => {
-      const { opts, coordinator } = createGroupJoinOnboardingOpts();
-      const settings = opts.runtimeSettings!();
-      delete settings.conversations.operator_dm;
-      opts.runtimeSettings = vi.fn(() => settings);
-      opts.conversationRoutes = vi.fn(() => ({
-        'tg:100200300': {
-          name: 'Known Group',
-          folder: 'test-group',
-          trigger: '@Andy',
-          added_at: '2026-07-18T00:00:00.000Z',
-          providerAccountId: 'telegram_default',
-        },
-      }));
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      await triggerMyChatMember(createMyChatMemberCtx({}));
-
-      expect(coordinator.recordPrompt).not.toHaveBeenCalled();
-      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
-      expect(logger.info).toHaveBeenCalledWith(
-        expect.objectContaining({ chatId: '-1001234', adder: '111' }),
-        'Telegram group join has no registered control DM for onboarding',
-      );
-    });
-
-    it('registers a group join on Yes and edits the prompt into a receipt', async () => {
-      const { opts, coordinator } = createGroupJoinOnboardingOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-      await triggerMyChatMember(createMyChatMemberCtx({}));
-      const answerCallbackQuery = vi.fn();
-
-      await triggerCallbackQuery({
-        callbackQuery: {
-          data: latestGroupJoinCallback('yes'),
-          from: { id: 222 },
-          message: { chat: { id: 222 }, message_id: 987 },
-        },
-        chat: { id: 222 },
-        from: { id: 222 },
-        api: currentBot().api,
-        me: { username: 'andy_ai_bot' },
-        answerCallbackQuery,
-      });
-
-      expect(coordinator.register).toHaveBeenCalledWith({
-        id: 'join-1',
-        externalId: '-1001234',
-        title: 'Ops Room',
-        approvedBy: '222',
-      });
-      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
-        222,
-        987,
-        'Registered. Members can reach the agent with @andy_ai_bot. Anyone in the group can @mention; actions still need your approval.',
-        { reply_markup: { inline_keyboard: [] } },
-      );
-      expect(answerCallbackQuery).toHaveBeenCalledWith({ text: 'Registered.' });
-    });
-
-    it('dismisses on No, keeps stranger re-add silent, and re-prompts on approver re-add', async () => {
-      const { opts, coordinator, getRecord } = createGroupJoinOnboardingOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-      await triggerMyChatMember(createMyChatMemberCtx({}));
-
-      await triggerCallbackQuery({
-        callbackQuery: {
-          data: latestGroupJoinCallback('no'),
-          from: { id: 222 },
-          message: { chat: { id: 222 }, message_id: 987 },
-        },
-        chat: { id: 222 },
-        from: { id: 222 },
-        api: currentBot().api,
-        answerCallbackQuery: vi.fn(),
-      });
-
-      expect(getRecord()?.status).toBe('dismissed');
-      await triggerMyChatMember(createMyChatMemberCtx({ fromId: 999 }));
-      expect(coordinator.recordPrompt).toHaveBeenCalledTimes(1);
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
-
-      await triggerMyChatMember(createMyChatMemberCtx({}));
-
-      expect(coordinator.recordPrompt).toHaveBeenCalledTimes(2);
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
-      expect(getRecord()).toMatchObject({ id: 'join-2', status: 'prompted' });
-    });
-
-    it('re-prompts after an unanswered prompt is lost across a remove and re-add', async () => {
-      const { opts, coordinator, getRecord } = createGroupJoinOnboardingOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      await triggerMyChatMember(createMyChatMemberCtx({}));
-      await triggerMyChatMember(
-        createMyChatMemberCtx({ oldStatus: 'member', newStatus: 'left' }),
-      );
-      await triggerMyChatMember(createMyChatMemberCtx({}));
-
-      expect(coordinator.recordPrompt).toHaveBeenCalledTimes(2);
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
-      expect(getRecord()).toMatchObject({ id: 'join-2', status: 'prompted' });
+      expect(coordinator.seedInstaller).toHaveBeenCalledOnce();
     });
 
     it('does nothing when the joined group is already registered', async () => {
@@ -1471,7 +1384,7 @@ describe('TelegramChannel', () => {
 
       await triggerMyChatMember(createMyChatMemberCtx({}));
 
-      expect(coordinator.recordPrompt).not.toHaveBeenCalled();
+      expect(coordinator.beginBootstrap).not.toHaveBeenCalled();
       expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
     });
 
@@ -4195,7 +4108,7 @@ describe('TelegramChannel', () => {
       );
       await channel.sendProgressUpdate(
         'tg:-1001234567890',
-        'Still working (1m 00s)...',
+        'Still working',
         stopAction,
       );
 
@@ -4212,7 +4125,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
         '-1001234567890',
         987,
-        'Still working (1m 00s)...',
+        'Still working',
         expect.objectContaining({
           parse_mode: 'MarkdownV2',
         }),
@@ -4429,11 +4342,12 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      await channel.sendProgressUpdate('tg:100200300', 'Done.', {
+      const landed = await channel.sendProgressUpdate('tg:100200300', 'Done.', {
         done: true,
         replaceOnly: true,
       });
 
+      expect(landed).toBe(false);
       expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
       expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
     });
@@ -4663,6 +4577,137 @@ describe('TelegramChannel', () => {
         expect.objectContaining({ parse_mode: 'MarkdownV2' }),
       );
     });
+
+    it('returns false for a definitive replace-only edit failure without creating a duplicate', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('message can not be edited'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+
+      currentBot().api.editMessageText.mockResolvedValue(undefined);
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Repaired.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(
+        '100200300',
+        expect.any(Number),
+        'Repaired.',
+        expect.anything(),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not report a definitive first Telegram edit failure as success when a formatting retry would resolve', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot()
+        .api.editMessageText.mockRejectedValueOnce(
+          new Error('message can not be edited'),
+        )
+        .mockResolvedValue(undefined);
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns false for an ambiguous replace-only transport failure and safely retries the retained handle', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('socket closed before a response arrived'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+
+      currentBot().api.editMessageText.mockClear();
+      currentBot().api.editMessageText.mockResolvedValue(undefined);
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        expect.any(Number),
+        'Finished.',
+        expect.anything(),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats message is not modified as success when repairing an ambiguous landed edit', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('socket closed before a response arrived'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(false);
+
+      currentBot().api.editMessageText.mockClear();
+      currentBot().api.editMessageText.mockRejectedValue({
+        error_code: 400,
+        response: {
+          description: 'Bad Request: message is not modified',
+        },
+      });
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+          done: true,
+          replaceOnly: true,
+        }),
+      ).resolves.toBe(true);
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
   });
 
   // --- ownsJid ---
@@ -4707,6 +4752,22 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendChatAction).toHaveBeenCalledWith(
         '100200300',
         'typing',
+        undefined,
+        undefined,
+      );
+    });
+
+    it('sends typing into the originating Telegram topic', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.setTyping('tg:100200300', true, { threadId: '42' });
+
+      expect(currentBot().api.sendChatAction).toHaveBeenCalledWith(
+        '100200300',
+        'typing',
+        { message_thread_id: 42 },
+        undefined,
       );
     });
 
@@ -4730,7 +4791,7 @@ describe('TelegramChannel', () => {
       // No error, no API call
     });
 
-    it('handles typing indicator failure gracefully', async () => {
+    it('surfaces typing indicator failures to the dispatcher', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -4739,9 +4800,47 @@ describe('TelegramChannel', () => {
         new Error('Rate limited'),
       );
 
+      await expect(channel.setTyping('tg:100200300', true)).rejects.toThrow(
+        'Rate limited',
+      );
+    });
+
+    it('translates typing rate limits for the dispatcher retry policy', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const rateLimit = {
+        error_code: 429,
+        parameters: { retry_after: 2 },
+      };
+      currentBot().api.sendChatAction.mockRejectedValueOnce(rateLimit);
+
       await expect(
         channel.setTyping('tg:100200300', true),
-      ).resolves.toBeUndefined();
+      ).rejects.toMatchObject({
+        name: 'LiveUxRateLimitError',
+        retryDelayMs: 2_000,
+        cause: rateLimit,
+      });
+    });
+
+    it('preserves the full Telegram retry_after delay', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const rateLimit = {
+        error_code: 429,
+        parameters: { retry_after: 120 },
+      };
+      currentBot().api.sendChatAction.mockRejectedValueOnce(rateLimit);
+
+      await expect(
+        channel.setTyping('tg:100200300', true),
+      ).rejects.toMatchObject({
+        name: 'LiveUxRateLimitError',
+        retryDelayMs: 120_000,
+        cause: rateLimit,
+      });
     });
   });
 
@@ -4803,6 +4902,71 @@ describe('TelegramChannel', () => {
   });
 
   describe('permission approvals', () => {
+    it('CAPFIX-1-2 card keeps ability copy plain and the technical delta expandable', async () => {
+      const channel = new TelegramChannel(
+        'test-token',
+        createTestOpts({
+          isControlApproverAllowed: vi.fn(async () => true),
+        }),
+      );
+      await channel.connect();
+
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId: 'capability-amendment-card',
+          sourceAgentFolder: 'lead_agent',
+          targetJid: 'tg:100200300',
+          toolName: 'capability_template_amendment',
+          displayName: 'Google Sheets lead reader',
+          decisionOptions: ['allow_once', 'cancel'],
+          toolInput: {
+            diffPreview:
+              '--- current-command-templates\n+++ proposed-command-templates\n-/usr/bin/gog sheets get *\n+/usr/bin/gog sheets get * *\n\nObserved argv: ["sheets","get","sheet-1","Leads!A:B"]',
+          },
+          interaction: {
+            id: 'capability-amendment-card',
+            title: 'Fix how Google Sheets lead reader runs',
+            body: [
+              "This also lets the command take an extra input it couldn't before.",
+              'The approved way of using Google Sheets lead reader did not fit what the job needed, so it stopped.',
+              'Approving corrects the allowed command shape. What I can do stays the same: read lead rows from the selected sheet. What I still cannot do: change unrelated sheets.',
+            ].join('\n\n'),
+          },
+        })
+        .then(requirePermissionDecision);
+      await flushPromises();
+
+      const prompt = String(currentBot().api.sendMessage.mock.calls[0]?.[1]);
+      expect(prompt).toContain(
+        "This also lets the command take an extra input it couldn't before.",
+      );
+      expect(prompt).toContain(
+        'What I can do stays the same: read lead rows from the selected sheet.',
+      );
+      expect(prompt).toContain('<b>View diff</b>\n<blockquote expandable>');
+      const primaryBody = prompt.split('<b>View diff</b>')[0]!;
+      expect(primaryBody).not.toMatch(
+        /\/usr\/bin\/gog|Observed argv|capability-amendment-card|sha256/i,
+      );
+      expect(
+        currentBot().api.sendMessage.mock.calls[0]?.[2]?.reply_markup
+          .inline_keyboard,
+      ).toEqual([
+        [expect.objectContaining({ text: 'Approve fix' })],
+        [expect.objectContaining({ text: 'Deny' })],
+      ]);
+
+      await triggerCallbackQuery({
+        callbackQuery: {
+          data: latestPermissionCallback('Approve fix'),
+        },
+        chat: { id: 100200300 },
+        from: { id: 12345, first_name: 'Ravi' },
+        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+      });
+      await expect(decisionPromise).resolves.toMatchObject({ approved: true });
+    });
+
     it('keeps colliding request ids scoped to the authorized agent', async () => {
       const channel = new TelegramChannel(
         'test-token',
@@ -4811,20 +4975,24 @@ describe('TelegramChannel', () => {
         }),
       );
       await channel.connect();
-      const first = channel.requestPermissionApproval('tg:100200300', {
-        requestId: 'shared-request',
-        sourceAgentFolder: 'agent-a',
-        targetJid: 'tg:100200300',
-        toolName: 'Bash',
-      });
+      const first = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId: 'shared-request',
+          sourceAgentFolder: 'agent-a',
+          targetJid: 'tg:100200300',
+          toolName: 'Bash',
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const firstCallback = latestPermissionCallback('Allow once');
-      const second = channel.requestPermissionApproval('tg:100200300', {
-        requestId: 'shared-request',
-        sourceAgentFolder: 'agent-b',
-        targetJid: 'tg:100200300',
-        toolName: 'Bash',
-      });
+      const second = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId: 'shared-request',
+          sourceAgentFolder: 'agent-b',
+          targetJid: 'tg:100200300',
+          toolName: 'Bash',
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const secondCallback = latestPermissionCallback('Cancel');
       let secondSettled = false;
@@ -4887,12 +5055,14 @@ describe('TelegramChannel', () => {
       });
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decision = channel.requestPermissionApproval('tg:100200300', {
-        requestId,
-        sourceAgentFolder: 'whatsapp_main',
-        targetJid: 'tg:100200300',
-        toolName: 'Bash',
-      });
+      const decision = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId,
+          sourceAgentFolder: 'whatsapp_main',
+          targetJid: 'tg:100200300',
+          toolName: 'Bash',
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const callback = latestPermissionCallback('Allow once');
       currentBot().api.deleteMessage.mockRejectedValueOnce(
@@ -4974,11 +5144,9 @@ describe('TelegramChannel', () => {
       );
 
       await expect(
-        channel.requestPermissionApproval(
-          'tg:100200300',
-          batch,
-          onPromptDelivered,
-        ),
+        channel
+          .requestPermissionApproval('tg:100200300', batch, onPromptDelivered)
+          .then(requirePermissionDecision),
       ).resolves.toMatchObject({ approved: false });
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledOnce();
@@ -5009,27 +5177,25 @@ describe('TelegramChannel', () => {
           targetJid: 'tg:100200300',
           toolName: 'Bash',
         }),
-      ).rejects.toMatchObject({ name: 'DurableInteractionPersistenceError' });
-      expect((channel as any).pendingPermissionPrompts.size).toBe(1);
-      for (const pending of (
-        channel as any
-      ).pendingPermissionPrompts.values()) {
-        clearTimeout(pending.timer);
-      }
-      (channel as any).pendingPermissionPrompts.clear();
+      ).resolves.toMatchObject({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+      });
+      expect((channel as any).pendingPermissionPrompts.size).toBe(0);
     });
 
     it('fails closed for stale timed-grant callbacks', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-stale',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const promptButtons = currentBot()
         .api.sendMessage.mock.calls.at(-1)?.[2]
@@ -5116,10 +5282,9 @@ describe('TelegramChannel', () => {
       );
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        batch,
-      );
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', batch)
+        .then(requirePermissionDecision);
       await flushPromises();
       const buttons = currentBot()
         .api.sendMessage.mock.calls.at(-1)?.[2]
@@ -5197,7 +5362,7 @@ describe('TelegramChannel', () => {
           runId: 'run-1',
           toolName: 'Bash',
           toolInput: { command: `echo ${entry.payload.requestId}` },
-        }),
+        }).then(requirePermissionDecision),
       );
 
       await vi.advanceTimersByTimeAsync(1500);
@@ -5315,6 +5480,8 @@ describe('TelegramChannel', () => {
       expect(claims.bindPendingPermissionPrompt).toHaveBeenCalledWith({
         id: expect.any(String),
         appId: 'default',
+        jobId: null,
+        setupFingerprint: null,
         sourceAgentFolder: 'whatsapp_main',
         interactionId: batch.requestId,
         matchKind: 'batch',
@@ -5349,7 +5516,10 @@ describe('TelegramChannel', () => {
         triggerCallbackQuery(reviewContext),
       ]);
 
-      await expect(decisionPromise).resolves.toMatchObject({ approved: true });
+      await expect(decisionPromise).resolves.toMatchObject({
+        kind: 'decision',
+        decision: { approved: true },
+      });
       const outcomes = [allowContext, reviewContext].map(
         (context) => context.answerCallbackQuery.mock.calls.at(-1)?.[0]?.text,
       );
@@ -5654,46 +5824,31 @@ describe('TelegramChannel', () => {
       await decisionPromise;
     });
 
-    it('falls back to a plain-text permission prompt when the HTML send is rejected', async () => {
+    it('does not retry a permission prompt after the provider call fails', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
-      // First (HTML) send is rejected; the fallback resends as plain text.
       currentBot().api.sendMessage.mockRejectedValueOnce(
         new Error("Bad Request: can't parse entities"),
       );
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      await expect(
+        channel.requestPermissionApproval('tg:100200300', {
           requestId: 'perm-fb',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
           toolInput: { command: 'npm test' },
-        },
-      );
-      await flushPromises();
-
-      const calls = currentBot().api.sendMessage.mock.calls;
-      expect(calls[0][2]).toMatchObject({ parse_mode: 'HTML' });
-      // The plain-text retry must NOT set parse_mode, and must still carry the
-      // decision buttons + the readable prompt so the approval stays actionable.
-      expect(calls[1][2]).not.toHaveProperty('parse_mode');
-      expect(calls[1][2].reply_markup.inline_keyboard.length).toBeGreaterThan(
-        0,
-      );
-      expect(calls[1][1]).toContain(
-        '🔐 Allow Whatsapp Main to use exact command access?',
-      );
-
-      await triggerCallbackQuery({
-        callbackQuery: { data: latestPermissionCallback('Allow once') },
-        chat: { id: 100200300 },
-        from: { id: 12345, first_name: 'Ravi' },
-        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+        }),
+      ).resolves.toMatchObject({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
       });
-      const decision = await decisionPromise;
-      expect(decision.approved).toBe(true);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage.mock.calls[0]?.[2]).toMatchObject({
+        parse_mode: 'HTML',
+      });
     });
 
     it('sends oversized permission full view files to the group next to the prompt', async () => {
@@ -5703,9 +5858,8 @@ describe('TelegramChannel', () => {
       const tail = 'review-tail-after-shared-budget';
       const proposed = `${'x'.repeat(7000)}${tail}`;
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:-100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:-100200300', {
           requestId: 'perm-profile-large',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'request_agent_profile_update',
@@ -5730,8 +5884,8 @@ describe('TelegramChannel', () => {
               },
             ],
           },
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const calls = currentBot().api.sendMessage.mock.calls;
@@ -5801,15 +5955,15 @@ describe('TelegramChannel', () => {
       );
       await flushPromises();
 
-      const promptCall = currentBot().api.sendMessage.mock.calls.at(-1);
-      expect(promptCall?.[0]).toBe('-100200300');
-      expect(promptCall?.[1]).toContain(
-        'Approval unavailable until the full details can be reviewed.',
-      );
-      expect(promptCall?.[2]).not.toHaveProperty('reply_markup');
+      expect(currentBot().api.sendDocument).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
 
-      const decision = await decisionPromise;
-      expect(decision.approved).toBe(false);
+      await expect(decisionPromise).resolves.toMatchObject({
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+      });
     });
 
     it('splits an oversized intent-only review prompt before sending the decision buttons', async () => {
@@ -5821,9 +5975,8 @@ describe('TelegramChannel', () => {
         value: 'v'.repeat(150),
       }));
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-mcp-large',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'request_mcp_server',
@@ -5840,8 +5993,8 @@ describe('TelegramChannel', () => {
               toolName: 'request_mcp_server',
             },
           },
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const calls = currentBot().api.sendMessage.mock.calls;
@@ -5879,16 +6032,15 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId:
             'capability-request_permission-0faf53fe-39cd-4ef0-af6e-5e09b96eef53',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
           title: 'Allow command',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
@@ -5934,6 +6086,8 @@ describe('TelegramChannel', () => {
           },
         },
         reason: 'allowed once via Telegram',
+        source: 'human_once',
+        repeatableForFutureRuns: false,
       });
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
         text: 'Allowed once.',
@@ -5950,14 +6104,13 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-2',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Write',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const deniedCtx = {
@@ -5991,15 +6144,14 @@ describe('TelegramChannel', () => {
         new Error('message cannot be deleted'),
       );
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-delete-fallback',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
           title: 'Allow command',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const callbackData =
         currentBot().api.sendMessage.mock.calls.at(-1)?.[2].reply_markup
@@ -6015,7 +6167,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
         '100200300',
         987,
-        expect.stringContaining('Allowed once:'),
+        expect.stringContaining('Approved for this run only:'),
         expect.objectContaining({ reply_markup: { inline_keyboard: [] } }),
       );
     });
@@ -6030,15 +6182,14 @@ describe('TelegramChannel', () => {
         new Error('message cannot be edited'),
       );
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-edit-fallback',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
           title: 'Allow command',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const callbackData =
         currentBot().api.sendMessage.mock.calls.at(-1)?.[2].reply_markup
@@ -6053,7 +6204,7 @@ describe('TelegramChannel', () => {
       await expect(decisionPromise).resolves.toMatchObject({ approved: true });
       expect(currentBot().api.sendMessage).toHaveBeenLastCalledWith(
         '100200300',
-        expect.stringContaining('Allowed once:'),
+        expect.stringContaining('Approved for this run only:'),
         expect.objectContaining({ parse_mode: 'HTML' }),
       );
     });
@@ -6063,15 +6214,14 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-settings',
           sourceAgentFolder: 'unlisted_source',
           decisionPolicy: 'same_channel',
           toolName: 'Write',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const deniedCtx = {
@@ -6099,14 +6249,13 @@ describe('TelegramChannel', () => {
     it('resolves a pending approval on disconnect after a retryable claim failure', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-disconnect-retryable',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       configurePendingInteractionDurability({
         repository: {
@@ -6130,14 +6279,13 @@ describe('TelegramChannel', () => {
     it('resolves an ownerless Telegram permission waiter on disconnect', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-disconnect-ownerless',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       configurePendingInteractionDurability({
         repository: {
@@ -6160,14 +6308,13 @@ describe('TelegramChannel', () => {
     it('preserves a Telegram permission waiter owned by an in-flight winner on disconnect', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:100200300', {
           requestId: 'perm-disconnect-winner',
           sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
-        },
-      );
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
       const scope = {
         appId: 'default',
@@ -6244,10 +6391,9 @@ describe('TelegramChannel', () => {
           },
         ],
       };
-      const approval = channel.requestPermissionApproval(
-        'tg:100200300',
-        permissionRequest,
-      );
+      const approval = channel
+        .requestPermissionApproval('tg:100200300', permissionRequest)
+        .then(requirePermissionDecision);
       const answer = requestTelegramUserAnswer(
         channel,
         'tg:100200300',
@@ -6281,15 +6427,14 @@ describe('TelegramChannel', () => {
         const channel = new TelegramChannel('test-token', opts);
         await channel.connect();
 
-        const decisionPromise = channel.requestPermissionApproval(
-          'tg:100200300',
-          {
+        const decisionPromise = channel
+          .requestPermissionApproval('tg:100200300', {
             requestId: 'perm-timeout',
             sourceAgentFolder: 'whatsapp_main',
             toolName: 'Edit',
             permissionLane: 'autonomous',
-          },
-        );
+          })
+          .then(requirePermissionDecision);
         await Promise.resolve();
 
         await vi.advanceTimersByTimeAsync(300_000);
@@ -6310,12 +6455,14 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
 
-      const approval = channel.requestPermissionApproval('tg:100200300', {
-        requestId: 'perm-interactive-no-timeout',
-        sourceAgentFolder: 'whatsapp_main',
-        toolName: 'Edit',
-        permissionLane: 'interactive',
-      });
+      const approval = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId: 'perm-interactive-no-timeout',
+          sourceAgentFolder: 'whatsapp_main',
+          toolName: 'Edit',
+          permissionLane: 'interactive',
+        })
+        .then(requirePermissionDecision);
       await vi.advanceTimersByTimeAsync(0);
 
       const prompts = (channel as any).pendingPermissionPrompts as Map<
@@ -6338,11 +6485,13 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
 
-      const approval = channel.requestPermissionApproval('tg:100200300', {
-        requestId: 'perm-lane-less-fallback',
-        sourceAgentFolder: 'whatsapp_main',
-        toolName: 'Edit',
-      });
+      const approval = channel
+        .requestPermissionApproval('tg:100200300', {
+          requestId: 'perm-lane-less-fallback',
+          sourceAgentFolder: 'whatsapp_main',
+          toolName: 'Edit',
+        })
+        .then(requirePermissionDecision);
       await vi.advanceTimersByTimeAsync(0);
 
       const prompts = (channel as any).pendingPermissionPrompts as Map<
@@ -6365,15 +6514,14 @@ describe('TelegramChannel', () => {
       try {
         const channel = new TelegramChannel('test-token', createTestOpts());
         await channel.connect();
-        const decisionPromise = channel.requestPermissionApproval(
-          'tg:100200300',
-          {
+        const decisionPromise = channel
+          .requestPermissionApproval('tg:100200300', {
             requestId: 'perm-timeout-retryable',
             sourceAgentFolder: 'whatsapp_main',
             toolName: 'Edit',
             permissionLane: 'autonomous',
-          },
-        );
+          })
+          .then(requirePermissionDecision);
         await vi.advanceTimersByTimeAsync(0);
         expect((channel as any).pendingPermissionPrompts.size).toBe(1);
         const claimPendingPermissionCallback = vi.fn(async () => {
@@ -6841,13 +6989,15 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval('tg:777', {
-        requestId: 'perm-channel-allowlist',
-        sourceAgentFolder: 'unlisted_source',
-        approvalContextJid: 'tg:100200300',
-        decisionPolicy: 'same_channel',
-        toolName: 'Write',
-      });
+      const decisionPromise = channel
+        .requestPermissionApproval('tg:777', {
+          requestId: 'perm-channel-allowlist',
+          sourceAgentFolder: 'unlisted_source',
+          approvalContextJid: 'tg:100200300',
+          decisionPolicy: 'same_channel',
+          toolName: 'Write',
+        })
+        .then(requirePermissionDecision);
       await flushPromises();
 
       const approvedCtx = {
@@ -6971,5 +7121,38 @@ describe('createTelegramChannel factory', () => {
     });
 
     expect(result).toBeInstanceOf(TelegramChannel);
+  });
+});
+
+describe('telegram group join', () => {
+  it('recognised installer bootstraps in-group; unrecognised gets guidance; DM prompt flow gone', async () => {
+    const recognised = createGroupJoinOnboardingOpts();
+    let channel = new TelegramChannel('test-token', recognised.opts);
+    await channel.connect();
+    await triggerMyChatMember(createMyChatMemberCtx({}));
+    expect(recognised.coordinator.seedInstaller).toHaveBeenCalledWith(
+      expect.objectContaining({ installerExternalId: '111' }),
+    );
+    expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+      -1001234,
+      "I'm set up. The person who added me can approve what I'm allowed to do here.",
+    );
+
+    const unrecognised = createGroupJoinOnboardingOpts();
+    channel = new TelegramChannel('test-token', unrecognised.opts);
+    await channel.connect();
+    await triggerMyChatMember(createMyChatMemberCtx({ fromId: 999 }));
+    expect(unrecognised.coordinator.seedInstaller).not.toHaveBeenCalled();
+    expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+      -1001234,
+      "I don't know who added me. An existing approver can register this group from settings.",
+    );
+
+    // The DM Yes/No propagation flow is deleted outright (0119 amendment):
+    // no callback handler export remains, and every message in both flows
+    // above targeted the GROUP chat - never a DM.
+    const onboarding =
+      await import('@core/channels/telegram/group-join-onboarding.js');
+    expect('handleTelegramGroupJoinCallback' in onboarding).toBe(false);
   });
 });

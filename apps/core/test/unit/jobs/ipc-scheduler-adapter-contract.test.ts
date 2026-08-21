@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import { ApplicationError } from '@core/application/common/application-error.js';
 import type { TaskContext, TaskIpcData } from '@core/jobs/ipc-types.js';
@@ -65,6 +66,10 @@ import { schedulerMutateTaskHandlers } from '@core/jobs/ipc-scheduler-mutate-han
 import { schedulerQueryTaskHandlers } from '@core/jobs/ipc-scheduler-query-handlers.js';
 import { schedulerAccessFromContext } from '@core/jobs/ipc-scheduler-access.js';
 import {
+  registerPermissionRunRestriction,
+  unregisterPermissionRunRestriction,
+} from '@core/runtime/permission-decision-coordinator.js';
+import {
   configureCustomModelCatalogEntries,
   executableModelEntry,
   providerRoute,
@@ -85,6 +90,8 @@ function makeContext(data: TaskIpcData): TaskContext {
       taskId: 'task-1',
       chatJid: 'tg:team',
       targetJid: 'tg:team',
+      responseKeyId: 'scheduler-adapter-contract',
+      sourceRunKind: 'interactive',
       ...data,
     },
     sourceAgentFolder: 'team',
@@ -99,9 +106,11 @@ function makeContext(data: TaskIpcData): TaskContext {
         getJobById: vi.fn(),
       },
       onSchedulerChanged: vi.fn(),
-      requestPermissionApproval: vi.fn(async () => ({
-        approved: true,
-      })),
+      requestPermissionApproval: vi.fn(async () =>
+        permissionDecisionResult({
+          approved: true,
+        }),
+      ),
       getJobControl: () => ({
         getAppSessionById: async (sessionId: string) =>
           adaptAppSession(
@@ -136,6 +145,12 @@ function makeContext(data: TaskIpcData): TaskContext {
 describe('scheduler IPC adapter contracts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    registerPermissionRunRestriction({
+      sourceAgentFolder: 'team',
+      responseKeyId: 'scheduler-adapter-contract',
+      hideAuthorityTools: false,
+      runKind: 'interactive',
+    });
     mocks.jobServiceDeps.length = 0;
     mocks.runtimeControlRepository.getAppSessionById.mockResolvedValue(
       undefined,
@@ -167,6 +182,10 @@ describe('scheduler IPC adapter contracts', () => {
   });
 
   afterEach(() => {
+    unregisterPermissionRunRestriction({
+      sourceAgentFolder: 'team',
+      responseKeyId: 'scheduler-adapter-contract',
+    });
     vi.useRealTimers();
     configureCustomModelCatalogEntries([]);
   });
@@ -267,6 +286,9 @@ describe('scheduler IPC adapter contracts', () => {
     );
 
     const message = mocks.responder.accept.mock.calls[0][0] as string;
+    expect(mocks.jobServiceDeps.at(-1)).toMatchObject({
+      setupRequiredNotifications: { notify: expect.any(Function) },
+    });
     expect(message).toContain('Scheduler job created (job-1).');
     expect(message).toContain('Model:');
     expect(message).toContain('Notifications: this conversation.');

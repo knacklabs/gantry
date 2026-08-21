@@ -1,0 +1,25 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Branch autoreview converged over many rounds. Setup-pause approvals settle through the existing durable interaction machinery (dedup, restart recovery, persist->recheck) with a single fingerprint fence; setup cards report the real triggering source and outcome; provider affordance parity and delivery-callback fan-out are covered. Bespoke lease/claim protocols were removed in favor of the shared path. Remaining item is a documented cross-aggregate-transaction boundary (D-0046), not a code-quality defect.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "atomicity",
+      "area": "application/interactions",
+      "summary": "Setup fence and persistent grant are not atomic (job-state/permission TOCTOU) \u2014 deferred D-0046; user-revocable worst case."
+    }
+  ],
+  "residual_risks": [
+    "D-0044: stale-lease card retirement across process death needs a durable run->card identity (best-effort today).",
+    "D-0045: strict receipt-before-output ordering needs a durable outbox (informational receipt today).",
+    "D-0046: setup-fence/grant atomicity needs a cross-repository transaction (user-revocable TOCTOU today)."
+  ],
+  "recommendation": "Land; residuals are bounded, non-escalation, user-revocable, and tracked as deferrals.",
+  "reviewed_scope": [
+    "apps/core/src"
+  ],
+  "aspect": "quality",
+  "recorded_at": "2026-08-07T14:04:15+00:00",
+  "commit": "9353c1cca93a16d2508a08f0f0a082d9ac47ee08"
+}

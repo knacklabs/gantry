@@ -1,0 +1,18 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/control/server",
+    "apps/core/src/application/sessions",
+    "apps/core/src/application/external-ingress",
+    "apps/core/test"
+  ],
+  "score": 9,
+  "summary": "No trust-boundary changes: authorization still runs per request before any service call; live-admission semantics preserved exactly per call site (undefined vs null contract pinned by tests); no new inputs cross the runner/control boundary. Review pass reported no security findings.",
+  "recommendation": "ship",
+  "aspect": "security",
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recorded_at": "2026-08-03T04:06:41+00:00",
+  "commit": "5686314227376ee8675a158ab0552a07e087c04a"
+}

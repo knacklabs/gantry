@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   UserQuestionRequest,
 } from '../../domain/types.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
@@ -45,7 +46,10 @@ import type {
   McpCompatibleToolError,
   McpCompatibleToolResult,
 } from './contracts.js';
-import { coordinateCoreToolPermission } from './core-tool-permission-coordinator.js';
+import {
+  coordinateCoreToolPermission,
+  CoreToolPermissionDeliveryError,
+} from './core-tool-permission-coordinator.js';
 import { formatPermissionDeniedMessage } from '../../shared/permission-decision-message.js';
 
 export type {
@@ -133,7 +137,7 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
   }>;
   requestPermissionApproval?: (
     request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>;
+  ) => Promise<PermissionApprovalResult>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   emitAgentOutput?: (output: {
     status: 'success';
@@ -509,12 +513,20 @@ async function gateCoreTool(
     ],
     decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
   };
-  const coordinatedDecision = await coordinateCoreToolPermission({
-    request,
-    hardDenyReason: precheck?.reason,
-    reviewedRuleDecision: decision,
-    deps,
-  });
+  let coordinatedDecision: PermissionApprovalDecision;
+  try {
+    coordinatedDecision = await coordinateCoreToolPermission({
+      request,
+      hardDenyReason: precheck?.reason,
+      reviewedRuleDecision: decision,
+      deps,
+    });
+  } catch (error) {
+    if (!(error instanceof CoreToolPermissionDeliveryError)) throw error;
+    return {
+      denied: errorResult(error.message, 'transient', error.failure.retryable),
+    };
+  }
   if (!coordinatedDecision.approved && precheck?.error) {
     return {
       denied: errorResult(

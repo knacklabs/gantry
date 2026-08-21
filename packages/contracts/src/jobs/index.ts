@@ -203,6 +203,48 @@ export const JobRecoveryMetadataSchema = z
   .strict();
 export type JobRecoveryMetadata = z.infer<typeof JobRecoveryMetadataSchema>;
 
+export const PermissionAuthorityAdditionSchema = z
+  .object({
+    type: z.enum(['addRules', 'replaceRules']),
+    behavior: z.literal('allow'),
+    rules: z
+      .array(
+        z
+          .object({
+            toolName: z.string().min(1),
+            ruleContent: z.string().min(1).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5),
+    destination: z
+      .enum([
+        'userSettings',
+        'projectSettings',
+        'localSettings',
+        'session',
+        'cliArg',
+      ])
+      .optional(),
+  })
+  .strict();
+
+export const JobSetupActionSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('approve_grant'),
+      grant: PermissionAuthorityAdditionSchema,
+    })
+    .strict(),
+  z
+    .object({ kind: z.literal('fix_proposal'), proposalId: z.string().min(1) })
+    .strict(),
+  z
+    .object({ kind: z.literal('instruction'), text: z.string().min(1) })
+    .strict(),
+]);
+
 export const JobSetupSchema = z
   .object({
     state: z.enum([
@@ -218,15 +260,44 @@ export const JobSetupSchema = z
     blockers: z.array(
       z
         .object({
-          state: z.string(),
-          message: z.string(),
-          nextAction: z.string(),
-          requirementType: z.string(),
-          requirementId: z.string(),
+          // Closed unions mirror the domain exactly - the contract must not
+          // accept impossible blocker kinds or a 'ready' blocker.
+          state: z.enum([
+            'missing_capability',
+            'broker_unreachable',
+            'credential_unknown',
+            'browser_login_may_be_required',
+            'mcp_missing_credential',
+          ]),
+          summary: z.string(),
+          action: JobSetupActionSchema,
+          type: z.enum([
+            'tool',
+            'semantic_capability',
+            'browser',
+            'mcp_server',
+            'credential',
+            'local_cli',
+          ]),
+          id: z.string(),
         })
         .strict(),
     ),
     nextAction: z.string().nullable(),
+    deliveryNotice: z
+      .object({
+        outcome: z.enum([
+          'delivered',
+          'ambiguous',
+          'exhausted',
+          'cancelled',
+          'expired',
+        ]),
+        attempt: z.number().int().nonnegative(),
+        text: z.string(),
+      })
+      .strict()
+      .nullable(),
   })
   .strict();
 export type JobSetup = z.infer<typeof JobSetupSchema>;

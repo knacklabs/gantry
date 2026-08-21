@@ -62,10 +62,8 @@ import {
   type RequestOnlyCapabilityReview,
   type RequestOnlyCapabilityToolName,
 } from './ipc-request-only-capability-review.js';
-import {
-  formatApprovalRequestedMessage,
-  formatNotApprovedMessage,
-} from '../shared/user-visible-messages.js';
+// prettier-ignore
+import { formatApprovalRequestedMessage, formatNotApprovedMessage } from '../shared/user-visible-messages.js';
 import { jobLocalCliCapabilityConflict } from './ipc-request-permission-local-cli.js';
 import { maybeEnqueueApprovedDependencyBake } from './toolchain-bake-bootstrap.js';
 import {
@@ -166,7 +164,7 @@ const registerAgentHandler: TaskHandler = async (context) => {
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject('Agent registration requests require a configured approval surface.', 'preflight_failed'); return; }
   if (!isValidWorkspaceFolder(data.folder)) { logger.warn({ sourceAgentFolder, folder: data.folder }, 'Invalid register_agent request - unsafe folder name'); reject(`Invalid agent folder: ${data.folder}`, 'invalid_request'); return; }
   const reason = toTrimmedString(data.payload?.reason, { maxLen: 2000 }) || `Register ${data.name} for ${data.jid}.`;
-  const decision = await deps.requestPermissionApproval({
+  const approvalResult = await deps.requestPermissionApproval({
     requestId: `register-agent-${globalThis.crypto.randomUUID()}`,
     appId: data.appId as never,
     agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
@@ -182,6 +180,7 @@ const registerAgentHandler: TaskHandler = async (context) => {
     decisionReason: reason,
     toolInput: { jid: data.jid, name: data.name, folder: data.folder, trigger: data.trigger, requiresTrigger: data.requiresTrigger, activation: 'current_and_future_sessions' },
   });
+  if (approvalResult.kind === 'delivery_failure') { reject(`Couldn't deliver the agent registration approval prompt: ${approvalResult.userMessage}.`, 'permission_review_failed'); return; } const decision = approvalResult.decision;
   if (!decision.approved || !decision.decidedBy) { const message = `Rejected agent registration: ${decision.reason || 'not approved'}.`; reject(message, 'permission_denied'); await deps.sendMessage(requestedTargetJid, message, data.authThreadId ? { threadId: data.authThreadId } : undefined); return; }
   await deps.registerGroup(data.jid, { name: data.name, folder: data.folder, trigger: data.trigger, added_at: nowIso(), agentConfig: data.agentConfig, requiresTrigger: data.requiresTrigger });
   await syncApprovedCapabilitySettings(data.appId as never);
@@ -532,7 +531,7 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
             [candidateDefinition.capabilityId]: candidateDefinition,
           }
         : trustedSemanticCapabilityDefinitions;
-      const decision = await input.deps.requestPermissionApproval({
+      const approvalResult = await input.deps.requestPermissionApproval({
         requestId,
         appId: input.appId,
         agentId: input.agentId,
@@ -564,13 +563,11 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
             }
           : {}),
       });
-      const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved';
-      let persistedRules: string[] = [];
-      let liveRules: string[] = [];
-      if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
+      if (approvalResult.kind === 'delivery_failure') throw new Error(`Couldn't deliver the approval prompt: ${approvalResult.userMessage}`); const decision = approvalResult.decision;
+      const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved'; let persistedRules: string[] = [], liveRules: string[] = []; if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
         persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], toolInput: input.review.toolInput, semanticCapabilityDefinitions, actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, jobId: input.jobId, reason: decision.reason });
       }
-      const recovery = persistedRules.length > 0 ? await recheckPausedSetupJobsAfterRequestAccessGrant({ deps: input.deps, appId: input.appId, sourceAgentFolder: input.sourceAgentFolder, targetJid: input.targetJid, jobId: input.jobId, logWarn: (context, message) => logger.warn(context, message) }) : undefined;
+      const recovery = persistedRules.length > 0 ? await recheckPausedSetupJobsAfterRequestAccessGrant({ deps: input.deps, appId: input.appId, sourceAgentFolder: input.sourceAgentFolder, targetJid: input.targetJid, jobId: input.jobId, recoveringPermissionRequestId: requestId, logWarn: (context, message) => logger.warn(context, message) }) : undefined;
       const mcpProposalRequest = isMcpCapabilityProposalRequest({
         toolName: input.review.toolName,
         toolInput: input.review.toolInput,
@@ -728,7 +725,7 @@ function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['dep
 async function completeMcpPermissionReview(
   input: Parameters<typeof startMcpPermissionReview>[0],
 ): Promise<void> {
-  const decision = await input.deps.requestPermissionApproval({
+  const approvalResult = await input.deps.requestPermissionApproval({
     requestId: `mcp-${globalThis.crypto.randomUUID()}`,
     appId: input.appId,
     agentId: input.agentId,
@@ -755,6 +752,9 @@ async function completeMcpPermissionReview(
       activation: 'source_inventory_only',
     },
   });
+  // prettier-ignore
+  if (approvalResult.kind === 'delivery_failure') { await rejectMcpRequestFromPermission(input, `Couldn't deliver the approval prompt: ${approvalResult.userMessage}`); return; }
+  const decision = approvalResult.decision;
   if (!decision.approved) {
     await rejectMcpRequestFromPermission(input, decision.reason);
     return;

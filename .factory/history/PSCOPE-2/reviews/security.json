@@ -1,0 +1,17 @@
+{
+  "generated_by": "autoreview",
+  "score": 8,
+  "summary": "Same converged review, security lens. Installer identity comes only from host-received provider events (my_chat_member from.id, member_joined_channel inviter) - never message text; recognition is lookup-only (createIfMissing:false) so ID-1's DM-only person minting is untouched, and requires an established direct conversation (aliases alone auto-mint for group speakers). Unrecognised, retired-alias, and missing-inviter cases all fail closed. The seed goes through the settings write (authority) and grants nothing beyond approver status (PERM-2 intact). Reclaim fencing prevents a stale claimant from seeding its installer over a later installation.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "Auto-registration on recognition replaces the DM-approver confirmation gate by design (0119 amendment, confirmed by Ravi): any DM-established person can register the bot into a group they add it to."
+  ],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "origin/main..HEAD whole branch"
+  ],
+  "aspect": "security",
+  "recorded_at": "2026-08-10T16:13:50+00:00",
+  "commit": "fc08a2431153595471d63b5e1dbb13bdb872f335"
+}

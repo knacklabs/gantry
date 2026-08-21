@@ -119,10 +119,54 @@ class DocumentationCheckerTest(unittest.TestCase):
             "packageManager": "npm@11.16.0",
             "engines": {"node": ">=24 <26"},
         }), encoding="utf-8")
+        inventory_records = [
+            {
+                "path": "docs/decisions/0001-current.md",
+                "category": "architecture-decision",
+                "lifecycle": "accepted",
+                "authority": "accepted-decision",
+                "intendedAction": "retain-until-superseded",
+            },
+            {
+                "path": "plans/completed/done.md",
+                "category": "execution-plan",
+                "lifecycle": "completed",
+                "authority": "historical-outcome",
+                "intendedAction": "retain-as-completion-record",
+            },
+        ]
+        (self.root / "docs" / "documentation-inventory.json").write_text(json.dumps({
+            "schemaVersion": 1,
+            "sourceRoots": ["docs/decisions", "plans/completed"],
+            "counts": {"architecture-decision": 1, "execution-plan": 1},
+            "records": inventory_records,
+        }), encoding="utf-8")
 
     def test_valid_governance_fixture_passes(self) -> None:
         self._governance_fixture()
         self.assertEqual(checker.check_repository(self.root), [])
+
+    def test_unclassified_governed_record_is_reported(self) -> None:
+        self._governance_fixture()
+        (self.root / "docs" / "decisions" / "0002-new.md").write_text(
+            "---\nstatus: proposed\nconfirmed_by: \"\"\n---\n# New\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(any(
+            "unclassified governed record" in error
+            for error in checker.check_repository(self.root)
+        ))
+
+    def test_inventory_count_drift_is_reported(self) -> None:
+        self._governance_fixture()
+        inventory_path = self.root / "docs" / "documentation-inventory.json"
+        inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+        inventory["counts"]["architecture-decision"] = 2
+        inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+        self.assertTrue(any(
+            "counts do not match" in error
+            for error in checker.check_repository(self.root)
+        ))
 
     def test_missing_engineering_policy_is_reported(self) -> None:
         self._governance_fixture()

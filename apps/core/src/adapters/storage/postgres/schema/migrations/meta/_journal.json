@@ -925,6 +925,83 @@
       "when": 1785746462812,
       "tag": "20260803084102_job_coordination_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1786097084172,
+      "tag": "20260807100444_memory_review_snapshot_not_null",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1786295438222,
+      "tag": "20260809171038_person_scoped_agent_tool_bindings",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1786360116264,
+      "tag": "20260810110836_normalize_permission_binding_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1786467698607,
+      "tag": "20260811170138_capability_template_amendments",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1786477455322,
+      "tag": "20260811194415_purple_black_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1786589380257,
+      "tag": "20260813024940_runtime_event_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1786596791638,
+      "tag": "20260813045311_tagged_setup_action_cutover",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1786617801576,
+      "tag": "20260813104321_needy_the_renegades",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1786657949114,
+      "tag": "20260813215229_ambitious_songbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1786657949115,
+      "tag": "20260814060000_canonical_key_retirement",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1786681241028,
+      "tag": "20260814042041_capability_template_approval_intents",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
 } from '../../domain/types.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
@@ -21,7 +22,7 @@ interface CoreToolPermissionDeps {
   };
   requestPermissionApproval?: (
     request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>;
+  ) => Promise<PermissionApprovalResult>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   onPermissionDecision?: (
     request: PermissionApprovalRequest,
@@ -38,6 +39,18 @@ interface CoreToolPermissionDeps {
   >[0]['operations'];
 }
 
+export class CoreToolPermissionDeliveryError extends Error {
+  constructor(
+    readonly failure: Extract<
+      PermissionApprovalResult,
+      { kind: 'delivery_failure' }
+    >,
+  ) {
+    super(`Couldn't deliver the approval prompt: ${failure.userMessage}`);
+    this.name = 'CoreToolPermissionDeliveryError';
+  }
+}
+
 export async function coordinateCoreToolPermission(input: {
   request: PermissionApprovalRequest;
   hardDenyReason?: string;
@@ -52,67 +65,78 @@ export async function coordinateCoreToolPermission(input: {
     fixedImageRestricted: deps.context.fixedImageRestricted,
     reviewedRuleDecision: input.reviewedRuleDecision,
     tail: async () => {
-      const interaction = await runDurablePermissionInteraction({
-        request,
-        sourceAgentFolder: deps.context.sourceAgentFolder,
-        operations: deps.durability,
-        beforePrompt: async () => {
-          await deps.onPermissionPromptStarted?.(request);
-          await publishPermissionEvent(
-            deps,
-            request,
-            RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
-            permissionTelemetryContext(request, {
-              sourceAgentFolder: deps.context.sourceAgentFolder,
-              decision: 'requested',
-            }),
-          );
-        },
-        prompt: async () =>
-          deps.requestPermissionApproval?.(request) ?? {
-            approved: false,
-            mode: 'cancel',
-            reason: 'approval surface unavailable',
-          },
-        afterDecision: async (permissionDecision) => {
-          await deps.onPermissionDecision?.(request, permissionDecision);
-          await publishPermissionEvent(
-            deps,
-            request,
-            permissionDecisionEventType(permissionDecision),
-            permissionTelemetryContext(request, {
-              sourceAgentFolder: deps.context.sourceAgentFolder,
-              decision: permissionDecisionName(permissionDecision),
-              decisionMode: permissionDecision.mode,
-              decidedBy: permissionDecision.decidedBy,
-            }),
-          );
-          if (permissionDecision.approved) {
+      let interaction: Awaited<
+        ReturnType<typeof runDurablePermissionInteraction>
+      >;
+      try {
+        interaction = await runDurablePermissionInteraction({
+          request,
+          sourceAgentFolder: deps.context.sourceAgentFolder,
+          operations: deps.durability,
+          beforePrompt: async () => {
+            await deps.onPermissionPromptStarted?.(request);
             await publishPermissionEvent(
               deps,
               request,
-              RUNTIME_EVENT_TYPES.PERMISSION_RESUMED,
+              RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
               permissionTelemetryContext(request, {
                 sourceAgentFolder: deps.context.sourceAgentFolder,
-                decision: 'resumed',
+                decision: 'requested',
+              }),
+            );
+          },
+          prompt: async () =>
+            deps.requestPermissionApproval?.(request) ?? {
+              kind: 'delivery_failure',
+              code: 'target_missing',
+              retryable: true,
+              delivered: 'no',
+              userMessage: 'Approval surface unavailable',
+            },
+          afterDecision: async (permissionDecision) => {
+            await deps.onPermissionDecision?.(request, permissionDecision);
+            await publishPermissionEvent(
+              deps,
+              request,
+              permissionDecisionEventType(permissionDecision),
+              permissionTelemetryContext(request, {
+                sourceAgentFolder: deps.context.sourceAgentFolder,
+                decision: permissionDecisionName(permissionDecision),
+                decisionMode: permissionDecision.mode,
+                decidedBy: permissionDecision.decidedBy,
+              }),
+            );
+            if (permissionDecision.approved) {
+              await publishPermissionEvent(
+                deps,
+                request,
+                RUNTIME_EVENT_TYPES.PERMISSION_RESUMED,
+                permissionTelemetryContext(request, {
+                  sourceAgentFolder: deps.context.sourceAgentFolder,
+                  decision: 'resumed',
+                  decisionMode: permissionDecision.mode,
+                }),
+              );
+            }
+            await publishPermissionEvent(
+              deps,
+              request,
+              RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
+              permissionTelemetryContext(request, {
+                sourceAgentFolder: deps.context.sourceAgentFolder,
+                decision: permissionDecisionName(permissionDecision),
+                approved: permissionDecision.approved,
                 decisionMode: permissionDecision.mode,
               }),
             );
-          }
-          await publishPermissionEvent(
-            deps,
-            request,
-            RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
-            permissionTelemetryContext(request, {
-              sourceAgentFolder: deps.context.sourceAgentFolder,
-              decision: permissionDecisionName(permissionDecision),
-              approved: permissionDecision.approved,
-              decisionMode: permissionDecision.mode,
-            }),
-          );
-          await deps.onPermissionPromptFinished?.(request);
-        },
-      });
+          },
+        });
+      } finally {
+        await deps.onPermissionPromptFinished?.(request);
+      }
+      if (interaction.kind === 'delivery_failure') {
+        throw new CoreToolPermissionDeliveryError(interaction.failure);
+      }
       return interaction.resolved
         ? interaction.decision
         : {

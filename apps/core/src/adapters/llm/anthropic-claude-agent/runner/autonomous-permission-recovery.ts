@@ -1,17 +1,32 @@
 import type { AgentRunnerInput } from './types.js';
+import { DEFAULT_AGENT_ENGINE } from '../../../../shared/agent-engine.js';
+import { autonomousToolAuthorityAddition } from '../../../../shared/tool-execution-policy-service.js';
 import { log } from './logging.js';
 import { emitJobToolActivity } from './tool-permission-events.js';
+import {
+  approveGrantSetupAction,
+  instructionSetupAction,
+} from '../../../../shared/job-setup-action.js';
+import { jobSetupActionEventPayload } from '../../../../domain/events/job-setup-action.js';
 
 export function denyNonPromptableAutonomousRecovery(input: {
   agentInput: AgentRunnerInput;
   getNewSessionId: () => string | undefined;
   recoveryAction: string | undefined;
+  toolInput: unknown;
+  capabilityRequestToolsHidden: boolean;
   recoveryMessage: string;
   toolName: string;
   toolPolicyReason: string;
-}): { behavior: 'deny'; message: string; interrupt: false } | undefined {
-  if (isPromptableAutonomousRecovery(input.recoveryAction)) return undefined;
-  const message = `Permission denied: ${input.recoveryMessage}`;
+}): { behavior: 'deny'; message: string; interrupt: true } | undefined {
+  const action = autonomousDenialSetupAction({
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+    capabilityRequestToolsHidden: input.capabilityRequestToolsHidden,
+    instruction: input.recoveryAction ?? input.toolPolicyReason,
+  });
+  if (action.kind === 'approve_grant') return undefined;
+  const message = `Tool not on autonomous run allowlist: ${input.toolName}. ${input.recoveryMessage}`;
   log(`Autonomous run denied tool ${input.toolName}: ${message}`);
   emitJobToolActivity(
     input.agentInput,
@@ -20,22 +35,25 @@ export function denyNonPromptableAutonomousRecovery(input: {
     input.toolName,
     {
       ok: false,
-      terminal: false,
+      terminal: true,
+      action: jobSetupActionEventPayload(action),
       reason: input.toolPolicyReason,
-      ...(input.recoveryAction
-        ? { recovery_action: input.recoveryAction }
-        : {}),
+      denial_kind: 'permission_denied',
+      provenance_lane: DEFAULT_AGENT_ENGINE,
+      provenance_seam: 'recovery',
     },
   );
-  return { behavior: 'deny', message, interrupt: false };
+  return { behavior: 'deny', message, interrupt: true };
 }
 
-function isPromptableAutonomousRecovery(
-  recoveryAction: string | undefined,
-): boolean {
-  if (!recoveryAction) return true;
-  return (
-    recoveryAction.startsWith('request_access ') ||
-    recoveryAction.startsWith('request_mcp_server ')
-  );
+export function autonomousDenialSetupAction(input: {
+  toolName: string;
+  toolInput: unknown;
+  capabilityRequestToolsHidden: boolean;
+  instruction: string;
+}) {
+  const grant = autonomousToolAuthorityAddition(input);
+  return grant
+    ? approveGrantSetupAction(grant)
+    : instructionSetupAction(input.instruction);
 }

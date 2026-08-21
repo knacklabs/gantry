@@ -1,12 +1,22 @@
-# Append-only JSONL stores (gstack decisions, learnings): two devs appending
-# between pushes is a union, not a conflict. The driver is registered per
-# clone by the SessionStart hook (merge.jsonl-append.driver -> gstack-jsonl-merge).
-.gstack/**/*.jsonl merge=jsonl-append
-plans/lessons.jsonl merge=jsonl-append
-
-plans/quickfixes.jsonl merge=jsonl-append
-
-# deliberately not jsonl-append: these files must never conflict, and a custom
-# driver may not be registered in every clone — the built-in union always is.
+# Append-only ledgers are DIRECTORIES: one record per file (decision 0022).
+# plans/lessons/<id>.json, plans/quickfixes/<id>.json. Distinct files do not
+# conflict, so there is nothing to merge and no driver to register — this repo
+# depends on no custom merge driver at all.
+#
+# The .jsonl files below are the legacy form, still read so history survives
+# and no repo is forced to migrate. `union` is git's BUILT-IN driver and the
+# only thing keeping them mergeable while they last; it reorders and can
+# DUPLICATE records, which is the behaviour 0022 removes rather than manages.
+.gstack/**/*.jsonl merge=union
+plans/lessons.jsonl merge=union
+plans/quickfixes.jsonl merge=union
+# Story timelines and worker signals: task-scoped, cleaned at every intake and
+# archived at ship, so they never accumulate across stories the way the durable
+# ledgers above did.
 .factory/*.jsonl merge=union
 .factory/history/**/*.jsonl merge=union
+
+# Git Bash executes this launcher on every platform; CRLF breaks POSIX parsing.
+forge text eol=lf
+
+.factory/signals.jsonl merge=union

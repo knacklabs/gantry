@@ -1,0 +1,28 @@
+{
+  "commit": "42cac0dcedf6a6f69cbd79179ce7d66546139803",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "SCHED-4A UX slice: required test 'permission receipts > says approved for this run only and that a scheduled job will ask again next run' plus the full channels (917) and jobs (616) sweeps green; matrices cover receipt variants (provenance/legacy/batch), fold-vs-suppress-vs-died card outcomes incl. mixed degraded runs, approved-pattern/attempted-command rendering with sanitizer blocks, escalation with day-span and count-only fallback.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npm run typecheck",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/channels apps/core/test/unit/jobs apps/core/test/unit/runtime apps/core/test/unit/shared apps/core/test/unit/domain",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py"
+    ],
+    "tests_added_or_updated": [
+      "permission-interaction.test.ts: run-only receipt + future-runs sentence, legacy fallback, batch-persistent review receipt, approved/attempted lines, escalation copy",
+      "execution-notifications/finalization/status-formatting tests: setupNotified threading, completed-with-limits precedence, semantic-gate suppression matrix, lifecycle retirement + fallback",
+      "classifier tests: firstAskedAt propagation"
+    ],
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-05T16:28:08+00:00",
+    "commit": "42cac0dcedf6a6f69cbd79179ce7d66546139803"
+  },
+  "updated_at": "2026-08-05T16:28:08+00:00"
+}

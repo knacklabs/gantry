@@ -11,27 +11,136 @@ import {
   reviewMessageFallbackText,
   type ReviewMessageView,
 } from '../memory/review-message-view.js';
-import { formatRunStatusMessage } from './status-formatting.js';
+import {
+  boundJobNotificationView,
+  formatRunStatusMessage,
+  terminalRunNotificationStats,
+} from './status-formatting.js';
+import type { JobRunDiagnostics } from './execution-diagnostics.js';
+import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
 import {
   isMemoryDreamingSystemJob,
   MEMORY_DREAM_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
-import { parseAutonomousToolDenial } from '../shared/autonomous-tool-denial.js';
 import {
-  setupActionLabel,
-  setupBlockerLabel,
-} from '../shared/job-setup-labels.js';
+  formatSchedulerSetupStory,
+  type SchedulerSetupStorySource,
+} from '../application/jobs/scheduler-setup-story.js';
+import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
+import type { NormalizedJobNotificationRoute } from './job-notification-routes.js';
 
 type TerminalRunStatus = Extract<
   JobRunStatus,
   'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered'
 >;
 
-export type JobNotificationLifecycleUpdateResult =
+export type JobNotificationLifecycleRouteStatus =
   | 'updated'
   | 'unsupported'
   | 'failed';
+
+export interface JobNotificationLifecycleRouteOutcome {
+  route: NormalizedJobNotificationRoute;
+  status: JobNotificationLifecycleRouteStatus;
+}
+
+export type JobNotificationLifecycleUpdateResult =
+  JobNotificationLifecycleRouteOutcome[];
+
+export type { SchedulerSetupStorySource } from '../application/jobs/scheduler-setup-story.js';
+
+const LIFECYCLE_EXIT_NOTIFICATION_TIMEOUT_MS = 5_000;
+
+export function schedulerTerminalRunSummary(
+  errorSummary: string | null,
+  resultSummary: string | null,
+): string {
+  return errorSummary
+    ? errorSummary.slice(0, 1_200)
+    : resultSummary
+      ? resultSummary.slice(0, 4_000)
+      : 'Completed, no reportable output.';
+}
+
+export function createSchedulerLifecycleRetirementTracker(
+  job: Job,
+  runId: string,
+  lifecycle: {
+    updateLifecycleNotification?: (input: {
+      job: Job;
+      runId: string;
+      runStatus: TerminalRunStatus;
+      summaryMessage: string;
+    }) => Promise<JobNotificationLifecycleUpdateResult>;
+    discardLifecycleNotification?: (runId: string) => void;
+  },
+): {
+  captureTerminal(runStatus: TerminalRunStatus, summaryMessage: string): void;
+  updateLifecycleNotification: typeof lifecycle.updateLifecycleNotification;
+  retire(deleted: boolean): Promise<void>;
+} {
+  let lifecycleRetired = false;
+  let routesPendingRetirement: NormalizedJobNotificationRoute[] | undefined;
+  let terminal:
+    | { runStatus: TerminalRunStatus; summaryMessage: string }
+    | undefined;
+  const updateLifecycleNotification = lifecycle.updateLifecycleNotification
+    ? async (
+        input: Parameters<
+          NonNullable<typeof lifecycle.updateLifecycleNotification>
+        >[0],
+      ) => {
+        const outcomes = await lifecycle.updateLifecycleNotification!(input);
+        routesPendingRetirement = outcomes
+          .filter((outcome) => outcome.status !== 'updated')
+          .map((outcome) => outcome.route);
+        lifecycleRetired =
+          outcomes.length > 0 && routesPendingRetirement.length === 0;
+        return outcomes;
+      }
+    : undefined;
+  return {
+    captureTerminal: (runStatus, summaryMessage) => {
+      terminal = { runStatus, summaryMessage };
+    },
+    updateLifecycleNotification,
+    retire: async (deleted) => {
+      try {
+        const update =
+          (!lifecycleRetired || deleted) &&
+          lifecycle.updateLifecycleNotification?.({
+            job:
+              !deleted && routesPendingRetirement?.length
+                ? { ...job, notification_routes: routesPendingRetirement }
+                : job,
+            runId,
+            runStatus: deleted ? 'failed' : (terminal?.runStatus ?? 'failed'),
+            summaryMessage: deleted
+              ? `Job stopped: ${job.name} was deleted.`
+              : terminal
+                ? terminal.summaryMessage
+                : `Job stopped unexpectedly: ${job.name}.`,
+          });
+        if (update) {
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([
+            update.catch(() => undefined),
+            new Promise<void>((resolve) => {
+              timeout = setTimeout(
+                resolve,
+                LIFECYCLE_EXIT_NOTIFICATION_TIMEOUT_MS,
+              );
+              timeout.unref?.();
+            }),
+          ]).finally(() => clearTimeout(timeout));
+        }
+      } finally {
+        lifecycle.discardLifecycleNotification?.(runId);
+      }
+    },
+  };
+}
 
 function recoveryActionAffordances(input: {
   job: Job;
@@ -47,11 +156,19 @@ function recoveryActionAffordances(input: {
   ];
 }
 
-function runAgainActionAffordances(_input: {
+function runAgainActionAffordances(input: {
   job: Job;
   runId: string;
 }): MessageActionAffordance[] {
-  return [];
+  if (input.job.schedule_type !== 'manual') return [];
+  return [
+    {
+      kind: 'scheduler_run_now',
+      label: 'Run again',
+      jobId: input.job.id,
+      runId: input.runId,
+    },
+  ];
 }
 
 export function logMemoryDreamJobFailure(input: {
@@ -89,9 +206,42 @@ export async function notifySchedulerRunRecovered(input: {
   });
 }
 
+export async function notifySchedulerPermissionRecovery(input: {
+  job: Job;
+  recoveryTransitionId: string;
+  sendMessage: SchedulerSendMessage;
+}): Promise<boolean> {
+  if (input.job.silent) return false;
+  return sendJobNotification({
+    job: input.job,
+    text: `Job resumed and queued: ${input.job.name}.`,
+    phase: 'summary',
+    runId: permissionRecoveryNotificationRunId(input.recoveryTransitionId),
+    sendMessage: input.sendMessage,
+  });
+}
+
+export function permissionRecoveryNotificationRunId(
+  recoveryTransitionId: string,
+): string {
+  return `permission-recovery:${recoveryTransitionId}`;
+}
+
 export async function notifySchedulerSetupRequired(input: {
   job: Job;
   setupState: JobSetupState;
+  source?: SchedulerSetupStorySource;
+  runId?: string | null;
+  excludeRoute?: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  };
+  includeRoute?: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  };
   sendMessage: SchedulerSendMessage;
 }): Promise<boolean> {
   if (input.job.silent) return false;
@@ -99,20 +249,89 @@ export async function notifySchedulerSetupRequired(input: {
   if (input.setupState.notified_fingerprint === input.setupState.fingerprint) {
     return false;
   }
-  const blocker = input.setupState.blockers[0];
-  const action = setupActionLabel(blocker);
-  const reason = setupBlockerLabel(blocker, input.setupState.state);
+  const includedJob = input.includeRoute
+    ? withNotificationRoute(input.job, input.includeRoute)
+    : input.job;
+  const job = input.excludeRoute
+    ? withoutNotificationRoute(includedJob, input.excludeRoute)
+    : includedJob;
+  if (!job) return false;
   return sendJobNotification({
-    job: input.job,
-    text: [
-      `**🛠️ Setup needed** · ${input.job.name}`,
-      reason,
-      `Action: ${action}`,
-    ].join('\n'),
+    job,
+    text: formatSchedulerSetupStory(input),
     phase: 'summary',
     runId: `setup:${input.setupState.fingerprint}`,
     sendMessage: input.sendMessage,
   });
+}
+
+function withNotificationRoute(
+  job: Job,
+  included: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  },
+): Job {
+  const routes = job.notification_routes ?? [];
+  if (routes.some((route) => routesMatch(route, included))) {
+    return job;
+  }
+  return {
+    ...job,
+    notification_routes: [
+      ...routes,
+      {
+        ...included,
+        label: 'Setup approver',
+      },
+    ],
+  };
+}
+
+function withoutNotificationRoute(
+  job: Job,
+  excluded: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  },
+): Job | null {
+  if (job.notification_routes?.length) {
+    const notificationRoutes = job.notification_routes.filter(
+      (route) => !routesMatch(route, excluded),
+    );
+    return notificationRoutes.length > 0
+      ? { ...job, notification_routes: notificationRoutes }
+      : null;
+  }
+  const route = job.execution_context;
+  return route?.conversationJid === excluded.conversationJid &&
+    (route.threadId ?? job.thread_id ?? null) === excluded.threadId
+    ? null
+    : job;
+}
+
+function routesMatch(
+  stored: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string | null;
+  },
+  resolved: {
+    conversationJid: string;
+    threadId: string | null;
+    providerAccountId?: string;
+  },
+): boolean {
+  return (
+    stored.conversationJid === resolved.conversationJid &&
+    stored.threadId === resolved.threadId &&
+    // An omitted account means the resolved default account for this route.
+    // An explicit account remains distinct from every other explicit account.
+    (stored.providerAccountId ?? resolved.providerAccountId) ===
+      resolved.providerAccountId
+  );
 }
 
 export async function notifySchedulerTerminalRunState(input: {
@@ -125,6 +344,9 @@ export async function notifySchedulerTerminalRunState(input: {
   retryCount: number;
   pauseReason: string | null;
   durationMs?: number;
+  setupNotified?: boolean;
+  diagnostics?: JobRunDiagnostics;
+  toolDenial?: JobToolDenial | null;
   sendMessage: SchedulerSendMessage;
   memoryReviewNotification?: MemoryReviewCreatedNotification;
   updateLifecycleNotification?: (input: {
@@ -135,17 +357,66 @@ export async function notifySchedulerTerminalRunState(input: {
   }) => Promise<JobNotificationLifecycleUpdateResult>;
 }): Promise<boolean> {
   if (input.job.silent) return false;
+  // The delivered setup card is the SINGLE notification for a denied-tool /
+  // setup pause: when it was actually delivered (setupNotified) and the run
+  // paused for setup (pauseReason is set ONLY for setup denials by finalization
+  // — a robust correlation, unlike re-parsing the summary), suppress the
+  // terminal card. Exclude completed runs: a run that finished with only future
+  // runs paused still needs its completed-with-limits outcome.
+  //
+  // Any in-place "running" lifecycle message is retired best-effort (an EDIT of
+  // the existing message, not a new send). We deliberately do NOT fall back to a
+  // fresh terminal card on backends that cannot edit — the feature AC requires
+  // exactly one notification with no duplicate terminal card (a fallback would
+  // make it three: running + setup + terminal). The residual — a route that
+  // cannot edit may briefly show a stale "running" beside the authoritative
+  // setup card — is cosmetic and moot for quiet-until-terminal scheduled jobs
+  // (no running message). Tracked as deferral D-0052; do not reintroduce the
+  // fallback send without a lifecycle delete/clear primitive.
   if (
-    input.pauseReason === SETUP_REQUIRED_PAUSE_REASON &&
-    parseAutonomousToolDenial(input.summary)
+    input.runStatus !== 'completed' &&
+    input.setupNotified === true &&
+    input.pauseReason === SETUP_REQUIRED_PAUSE_REASON
   ) {
+    await input.updateLifecycleNotification?.({
+      job: input.job,
+      runId: input.runId,
+      runStatus: input.runStatus,
+      summaryMessage: formatRunStatusMessage({
+        job: input.job,
+        runId: input.runId,
+        runShortId: input.runShortId,
+        runStatus: input.runStatus,
+        summary: input.summary,
+        nextRun: input.nextRun,
+        retryCount: input.retryCount,
+        pauseReason: input.pauseReason,
+        durationMs: input.durationMs,
+        toolDenial: input.toolDenial,
+      }),
+    });
     return false;
   }
-  // A review-created run sends the actual review card + Approve/Reject/Edit
-  // buttons as a fresh terminal message. It deliberately bypasses the
-  // lifecycle-update edit path (which would replace an existing progress
-  // message with plain text and drop the buttons).
+  // A review-created run retires its running progress message first, then
+  // sends the actual review card + Approve/Reject/Edit buttons separately.
   if (input.memoryReviewNotification) {
+    await input.updateLifecycleNotification?.({
+      job: input.job,
+      runId: input.runId,
+      runStatus: input.runStatus,
+      summaryMessage: formatRunStatusMessage({
+        job: input.job,
+        runId: input.runId,
+        runShortId: input.runShortId,
+        runStatus: input.runStatus,
+        summary: input.summary,
+        nextRun: input.nextRun,
+        retryCount: input.retryCount,
+        pauseReason: input.pauseReason,
+        durationMs: input.durationMs,
+        toolDenial: input.toolDenial,
+      }),
+    });
     return sendMemoryReviewNotification({
       job: input.job,
       runId: input.runId,
@@ -165,29 +436,101 @@ export async function notifySchedulerTerminalRunState(input: {
       retryCount: input.retryCount,
       pauseReason: input.pauseReason,
       durationMs: input.durationMs,
+      diagnostics: input.diagnostics,
+      degradedReason: degradedReasonForDiagnostics(
+        input.runStatus,
+        input.diagnostics,
+        input.pauseReason,
+      ),
+      toolDenial: input.toolDenial,
     });
-  const updateResult =
+  const stats = terminalRunNotificationStats(input);
+  const jobNotificationView = boundJobNotificationView({
+    status: input.runStatus,
+    jobName: input.job.name,
+    ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
+    ...(stats ? { stats } : {}),
+    fallbackText: summaryMessage,
+    ...(input.nextRun === null ? {} : { nextRunAt: input.nextRun }),
+  });
+  const updateOutcomes =
     input.updateLifecycleNotification === undefined
-      ? 'unsupported'
+      ? undefined
       : await input.updateLifecycleNotification({
           job: input.job,
           runId: input.runId,
           runStatus: input.runStatus,
           summaryMessage,
         });
-  if (updateResult === 'updated') return true;
+  const fallbackJob = jobForLifecycleFallback(input.job, updateOutcomes);
   const actionAffordances =
     input.runStatus === 'completed'
       ? runAgainActionAffordances({ job: input.job, runId: input.runId })
       : recoveryActionAffordances({ job: input.job, runId: input.runId });
+  const notificationJob =
+    actionAffordances.length > 0 ? input.job : fallbackJob;
+  if (!notificationJob) return true;
   return sendJobNotification({
-    job: input.job,
+    job: notificationJob,
     text: summaryMessage,
     phase: 'summary',
     runId: input.runId,
     actionAffordances,
+    jobNotificationView,
     sendMessage: input.sendMessage,
   });
+}
+
+function jobForLifecycleFallback(
+  job: Job,
+  outcomes: JobNotificationLifecycleUpdateResult | undefined,
+): Job | null {
+  if (outcomes === undefined) return job;
+  if (outcomes.length === 0) return job;
+  const routes = outcomes
+    .filter((outcome) => outcome.status !== 'updated')
+    .map((outcome) => outcome.route);
+  if (routes.length === 0) return null;
+  return {
+    ...job,
+    notification_routes: routes.map((route) => ({ ...route })),
+  };
+}
+
+function degradedReasonForDiagnostics(
+  runStatus: TerminalRunStatus,
+  diagnostics: JobRunDiagnostics | undefined,
+  pauseReason: string | null,
+): string | undefined {
+  if (runStatus !== 'completed' || !diagnostics) return undefined;
+  // The denial that actually limited THIS run outranks a transient approval
+  // note about future runs; show both when both happened.
+  const parts: string[] = [];
+  if (diagnostics.terminalToolDenial) {
+    parts.push(
+      `Missing ${humanizeTechnicalIdentifier(diagnostics.terminalToolDenial.toolName)} access limited this run.`,
+    );
+  }
+  // The future-runs warning is emitted only when finalization actually
+  // paused the job for setup — a completed one-shot run with an allow_once
+  // has nothing to warn about. And since the setup card is suppressed on
+  // this path, list EVERY distinct approval, not just the first: fixing one
+  // and pausing again on the next would be the old loop in miniature.
+  if (pauseReason === SETUP_REQUIRED_PAUSE_REASON) {
+    const names = [
+      ...new Set(
+        diagnostics.transientPermissionApprovals.map((approval) =>
+          humanizeTechnicalIdentifier(approval.toolName),
+        ),
+      ),
+    ];
+    if (names.length > 0) {
+      parts.push(
+        `${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} approved for this run only; future runs need permanent approval.`,
+      );
+    }
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
 }
 
 function reviewDecisionAffordances(

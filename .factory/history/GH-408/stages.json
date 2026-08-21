@@ -1,0 +1,72 @@
+{
+  "issue": "GH-408",
+  "stages": [
+    {
+      "id": "GH408-T1",
+      "title": "Publish the canonical engineering contract",
+      "status": "done",
+      "started_at": "2026-08-21T06:27:37+00:00",
+      "base_sha": "5b5d65a8f316d5c67deb35969c7321baacc1ea2b",
+      "dirty_at_start": {},
+      "task_sha256": "a8f00ea8bb49dec89f1b1c416d453965ee2f806f9ea931c6018040deb91fe9a3",
+      "completed_at": "2026-08-21T06:33:43+00:00"
+    },
+    {
+      "id": "GH408-T2",
+      "title": "Enforce documentation governance deterministically",
+      "status": "done",
+      "started_at": "2026-08-21T06:35:39+00:00",
+      "base_sha": "74b153100b8ac673cd47e79f1393ae602d2df7a6",
+      "dirty_at_start": {
+        ".github/workflows/ci.yml": {
+          "digest": "8b8c08d180ccd4beeddf0c6e0f663d0464a6f93c4db7a21f943d4396c345d8a4",
+          "git": "1 .M N... 100644 100644 100644 0f64236bcce7094451a777d1fd3179fcba927072 0f64236bcce7094451a777d1fd3179fcba927072 .github/workflows/ci.yml\u0000\u0000100644 0f64236bcce7094451a777d1fd3179fcba927072 0\t.github/workflows/ci.yml\u0000\u0000H .github/workflows/ci.yml\u0000"
+        },
+        "package.json": {
+          "digest": "9a03e221a0bd2d655501c7729a8ac5b84217bc63df379b14cd833f6e48a3fd42",
+          "git": "1 .M N... 100644 100644 100644 6ba5ae19e3152741d3436f01b6aa5586623d9bdf 6ba5ae19e3152741d3436f01b6aa5586623d9bdf package.json\u0000\u0000100644 6ba5ae19e3152741d3436f01b6aa5586623d9bdf 0\tpackage.json\u0000\u0000H package.json\u0000"
+        },
+        "scripts/check_documentation.py": {
+          "digest": "b886615fd90f3745dcaa89974d19e8493bcbd8404bfdd127b18ff8d11c93f39c",
+          "git": "1 .M N... 100644 100644 100644 cf8f510f05822e6ce81af1cd786bd5da3c70105c cf8f510f05822e6ce81af1cd786bd5da3c70105c scripts/check_documentation.py\u0000\u0000100644 cf8f510f05822e6ce81af1cd786bd5da3c70105c 0\tscripts/check_documentation.py\u0000\u0000H scripts/check_documentation.py\u0000"
+        },
+        "scripts/test_check_documentation.py": {
+          "digest": "1938f501359a62bf2a93c3f22b41261199e6109c97ed4aca63acc8f8df62cc90",
+          "git": "1 .M N... 100644 100644 100644 d19f320f408ab703c18051e9630b4583c12072bd d19f320f408ab703c18051e9630b4583c12072bd scripts/test_check_documentation.py\u0000\u0000100644 d19f320f408ab703c18051e9630b4583c12072bd 0\tscripts/test_check_documentation.py\u0000\u0000H scripts/test_check_documentation.py\u0000"
+        }
+      },
+      "task_sha256": "b9763580ed90474e292f968e4ec7287a386b1527e7682cb05cc87896e4f45665",
+      "completed_at": "2026-08-21T06:41:11+00:00"
+    },
+    {
+      "id": "GH408-T3",
+      "title": "Make contributor and repository entry points authoritative",
+      "status": "done",
+      "started_at": "2026-08-21T06:41:21+00:00",
+      "base_sha": "41e59c6cfafedccfe64855648cc081985b322764",
+      "dirty_at_start": {},
+      "task_sha256": "6fcae64901510d87d53f9165bf66a39e3d13283a9b8ea1ea0d586e9cc476520c",
+      "completed_at": "2026-08-21T06:50:05+00:00"
+    },
+    {
+      "id": "GH408-T4",
+      "title": "Classify and reconcile the documentation corpus",
+      "status": "done",
+      "started_at": "2026-08-21T06:50:14+00:00",
+      "base_sha": "5ab56752ce0f3c2025731607e75cf82b27cb40ee",
+      "dirty_at_start": {},
+      "task_sha256": "677cbf4f9a8fa5cdad2cc4db640f34dfc75ce853b101889670847de87264a534",
+      "completed_at": "2026-08-21T06:59:35+00:00"
+    },
+    {
+      "id": "GH408-T5",
+      "title": "Prove issue 408 completion",
+      "status": "done",
+      "started_at": "2026-08-21T06:59:44+00:00",
+      "base_sha": "30be793f872f2da80166146bd69a618982d78e72",
+      "dirty_at_start": {},
+      "task_sha256": "4ea85fd1eb00d5eb359b98b9e1c04ee2b7fcf2b7a57bb66191a7317ad4349b9c",
+      "completed_at": "2026-08-21T07:56:25+00:00"
+    }
+  ]
+}

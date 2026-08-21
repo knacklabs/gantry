@@ -1,0 +1,26 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/test/unit",
+    "apps/core/test/integration/job-lifecycle.postgres.integration.test.ts",
+    "docs/decisions/0121",
+    "docs/specs/autonomous-deterministic-permissions.md"
+  ],
+  "score": 9,
+  "summary": "Whole-branch autoreview (codex gpt-5.6-sol@high, 2 passes) clean at 0.88 after one fix round. Single-seam guard at the host IPC tail; host-verified jobId consistently replaces the worker-supplied field; reviewed-rule allows record the host match reason (attribution split fixed). Tests: guard unit lanes both runner lanes, cache/classifier bypass, forged jobId, and the Postgres fix-and-continue lifecycle proof.",
+  "non_blocking_findings": [
+    {
+      "category": "silent-optional-dependency",
+      "area": "apps/core/src/jobs/execution-readiness.ts",
+      "summary": "deps.getToolRepository?.() silently evaluates readiness with no tool repository, making granted bindings invisible instead of failing loudly; cost three debugging rounds in this story"
+    }
+  ],
+  "recommendation": "ship",
+  "aspect": "quality",
+  "residual_risks": [],
+  "recorded_at": "2026-08-11T13:43:18+00:00",
+  "commit": "0274a1099d9a9a5ecb99dbe549d1d0883ec7b73a"
+}

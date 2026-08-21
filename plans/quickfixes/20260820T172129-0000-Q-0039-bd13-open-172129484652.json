@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0039-bd13",
+  "profile": "degraded",
+  "reason": "DIAG-2 autoreview P2: when a summary has no space/sentence boundary before the limit, hard-cut at the limit instead of char 1",
+  "started_at": "2026-08-20T17:21:29+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

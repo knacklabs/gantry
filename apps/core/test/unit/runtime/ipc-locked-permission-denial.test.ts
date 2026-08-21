@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 const tempDirs: string[] = [];
 
@@ -82,10 +83,12 @@ describe('locked agent parent-side permission IPC denial', () => {
     durability.configurePendingInteractionDurability({
       repository: repository as never,
     });
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
     const publishRuntimeEvent = vi.fn(async () => undefined);
 
     await processing.processPermissionInteractionIpc({
@@ -162,10 +165,12 @@ describe('locked agent parent-side permission IPC denial', () => {
     durability.configurePendingInteractionDurability({
       repository: repository as never,
     });
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
     const publishRuntimeEvent = vi.fn(async () => undefined);
 
     await processing.processPermissionInteractionIpc({
@@ -227,12 +232,14 @@ describe('locked agent parent-side permission IPC denial', () => {
     durability.configurePendingInteractionDurability({
       repository: repository as never,
     });
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      mode: 'cancel',
-      decidedBy: 'owner',
-      decisionClassification: 'user_reject',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'owner',
+        decisionClassification: 'user_reject',
+      }),
+    );
 
     await processing.processPermissionInteractionIpc({
       request: {

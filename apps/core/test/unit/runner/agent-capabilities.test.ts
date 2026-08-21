@@ -15,6 +15,7 @@ import {
   selectedMemoryIpcActions,
   selectedGantryMcpToolNames,
 } from '@agent-runner-src/gantry-mcp-tool-surface.js';
+import { applyProviderAffinity } from '@core/runner/mcp/tool-provider-affinity.js';
 import {
   callableAgentToolName,
   projectCallableAgentTools,
@@ -26,7 +27,10 @@ const SAFE_DEFAULT_ALLOWED_TOOLS = [
   'WebFetch',
   'ToolSearch',
   'Skill',
-  ...BASELINE_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName),
+  ...applyProviderAffinity(
+    BASELINE_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName),
+    'tg:test',
+  ),
 ] as const;
 
 const DEVELOPER_ALLOWED_TOOLS = [
@@ -215,6 +219,7 @@ describe('agent capability composition', () => {
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       appId: 'app-main',
       agentId: 'agent:telegram_team',
+      providerAccountId: 'provider-account:telegram:main',
       chatJid: 'tg:team',
       workspaceFolder: 'telegram_team',
       threadId: 'topic-1',
@@ -222,6 +227,7 @@ describe('agent capability composition', () => {
       browserProfileName: 'c-team-abc123abc123',
       ipcDir: '/tmp/ipc/team',
       ipcAuthToken: 'token',
+      attachmentIpcAuthToken: 'attachment-token',
       browserIpcAuthToken: 'browser-token',
       memoryIpcAuthToken: 'memory-token',
       ipcResponseVerifyKey: 'verify-key',
@@ -300,6 +306,7 @@ describe('agent capability composition', () => {
       env: {
         GANTRY_APP_ID: 'app-main',
         GANTRY_AGENT_ID: 'agent:telegram_team',
+        GANTRY_PROVIDER_ACCOUNT_ID: 'provider-account:telegram:main',
         GANTRY_CHAT_JID: 'tg:team',
         GANTRY_WORKSPACE_KEY: 'telegram_team',
         GANTRY_THREAD_ID: 'topic-1',
@@ -307,6 +314,7 @@ describe('agent capability composition', () => {
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: '',
         GANTRY_NO_PERMISSION_TOOLS: '',
+        GANTRY_PERMISSION_LANE: 'interactive',
         GANTRY_BROWSER_PROFILE_NAME: 'c-team-abc123abc123',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
         GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: '[]',
@@ -315,7 +323,7 @@ describe('agent capability composition', () => {
         GANTRY_SELECTED_SKILL_DISPLAYS_JSON: '[]',
         GANTRY_SELECTED_MCP_SERVERS_JSON: '[]',
         GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(
-          selectedGantryMcpToolNames([]),
+          selectedGantryMcpToolNames([], { chatJid: 'tg:team' }),
         ),
         GANTRY_CALLABLE_AGENT_MANIFEST_JSON: '[]',
         GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
@@ -323,6 +331,7 @@ describe('agent capability composition', () => {
         ),
         GANTRY_IPC_DIR: '/tmp/ipc/team',
         GANTRY_IPC_AUTH_TOKEN: 'token',
+        GANTRY_ATTACHMENT_IPC_AUTH_TOKEN: 'attachment-token',
         GANTRY_MEMORY_IPC_AUTH_TOKEN: 'memory-token',
         GANTRY_IPC_RESPONSE_VERIFY_KEY: 'verify-key',
         GANTRY_IPC_RESPONSE_KEY_ID: 'verify-key-id',
@@ -457,11 +466,14 @@ describe('agent capability composition', () => {
       runId: 'run-1',
       runLeaseToken: 'lease-1',
       runLeaseFencingVersion: 7,
+      isScheduledJob: true,
     });
 
     expect(profile.mcpServers.gantry?.env).toMatchObject({
       GANTRY_JOB_ID: 'job-1',
       GANTRY_JOB_RUN_ID: 'run-1',
+      GANTRY_RUN_ID: 'run-1',
+      GANTRY_PERMISSION_LANE: 'autonomous',
       GANTRY_JOB_RUN_LEASE_TOKEN: 'lease-1',
       GANTRY_JOB_RUN_LEASE_FENCING_VERSION: '7',
     });
@@ -498,12 +510,15 @@ describe('agent capability composition', () => {
     );
     expect(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON).toBe(
       JSON.stringify(
-        selectedGantryMcpToolNames([
-          'mcp__gantry__settings_desired_state',
-          'mcp__gantry__request_settings_update',
-          'mcp__gantry__service_restart',
-          'mcp__gantry__register_agent',
-        ]),
+        selectedGantryMcpToolNames(
+          [
+            'mcp__gantry__settings_desired_state',
+            'mcp__gantry__request_settings_update',
+            'mcp__gantry__service_restart',
+            'mcp__gantry__register_agent',
+          ],
+          { chatJid: 'tg:main' },
+        ),
       ),
     );
   });
@@ -840,7 +855,10 @@ describe('agent capability composition', () => {
     }
     expect(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON).toBe(
       JSON.stringify(
-        selectedGantryMcpToolNames([], { asyncTaskToolsEnabled: true }),
+        selectedGantryMcpToolNames([], {
+          asyncTaskToolsEnabled: true,
+          chatJid: 'tg:team',
+        }),
       ),
     );
 
@@ -1009,8 +1027,20 @@ describe('agent capability composition', () => {
     });
 
     // Authority-changing, scheduler, and reviewed mutation tools are not
-    // projected as allowed tools.
+    // projected as allowed tools — EXCEPT the birthright recovery proposals
+    // (0123), which must stay visible or autonomous runs cannot ask for fixes.
+    const recoveryProposals = new Set<string>([
+      'request_access',
+      'request_skill_install',
+      'request_skill_proposal',
+      'request_skill_dependency_install',
+      'request_mcp_server',
+    ]);
     for (const toolName of NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES) {
+      if (recoveryProposals.has(toolName)) {
+        expect(profile.allowedTools).toContain(gantryMcpFullToolName(toolName));
+        continue;
+      }
       expect(profile.allowedTools).not.toContain(
         gantryMcpFullToolName(toolName),
       );

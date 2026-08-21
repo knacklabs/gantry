@@ -36,6 +36,7 @@ import {
 import {
   classifyMcpToolAuditError,
   type McpToolAuditResultClass,
+  summarizeCapabilityRunAudit,
   summarizeMcpToolArguments,
   summarizeMcpToolError,
 } from './mcp-tool-audit.js';
@@ -490,9 +491,15 @@ export class McpToolProxy {
         toolReturned = true;
         const validationAudit = resultValidation.validate(result);
         try {
+          const capabilityRun = summarizeCapabilityRunAudit({
+            serverName: input.serverName,
+            toolName: input.toolName,
+            argumentPayload: input.arguments,
+            toolResult: result,
+          });
           await finalize(
             validationAudit.toolResultError ? 'failure' : 'success',
-            validationAudit,
+            { ...validationAudit, ...(capabilityRun ? { capabilityRun } : {}) },
           );
         } catch {
           // A remote MCP tool already returned. Do not make completed external
@@ -591,6 +598,7 @@ export class McpToolProxy {
     resultClass: McpToolAuditResultClass;
     latencyMs: number;
     argumentSummary: Record<string, unknown>;
+    capabilityRun?: NonNullable<ReturnType<typeof summarizeCapabilityRunAudit>>;
     selectedToolRule?: string;
     selectedCapability?: Pick<
       ReviewedMaterializedMcpCapability,

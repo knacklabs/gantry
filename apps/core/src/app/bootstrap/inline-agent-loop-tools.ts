@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-
 import type { CoreSendMessageDeps } from '../../application/core-tools/send-message.js';
 import {
   dispatchCallableAgentTool,
@@ -395,25 +394,7 @@ export function createInlineCoreTools(
         reviewedRuleDecision: decision,
         tail: async () => {
           const promotion = promotionRepository
-            ? {
-                repository: promotionRepository,
-                offer: async (promotionRequest: PermissionApprovalRequest) => {
-                  const interaction = await runDurablePermissionInteraction({
-                    request: promotionRequest,
-                    sourceAgentFolder: laneInput.group.folder,
-                    prompt: deps.requestPermissionApproval,
-                  });
-                  if (interaction.resolved)
-                    recordHumanPermissionPromotionSignal({
-                      repository: promotionRepository,
-                      appId: promotionRequest.appId,
-                      agentFolder: laneInput.group.folder,
-                      request: promotionRequest,
-                      decision: interaction.decision,
-                    });
-                  return interaction;
-                },
-              }
+            ? { repository: promotionRepository }
             : undefined;
           let classifierDecision:
             | Awaited<
@@ -455,13 +436,13 @@ export function createInlineCoreTools(
               publishRuntimeEvent: deps.publishRuntimeEvent,
               classifierConsult: deps.classifierConsult,
             });
-            if (classifierDecision?.decision === 'allow') {
-              return decisionForMode(request, 'allow_once', 'auto_classifier');
-            }
+            if (classifierDecision?.decision === 'allow')
+              // prettier-ignore
+              return decisionForMode(request, 'allow_once', 'auto_classifier', 'machine');
           }
           if (run.permissionMode !== 'ask' && run.isScheduledJob === true) {
             return {
-              ...decisionForMode(request, 'cancel', 'runtime'),
+              ...decisionForMode(request, 'cancel', 'runtime', 'machine'),
               reason: classifierDecision
                 ? `Classifier requested human approval: ${classifierDecision.reason}`
                 : 'This tool is not eligible for unattended auto-permission.',
@@ -488,6 +469,7 @@ export function createInlineCoreTools(
               ? ['allow_persistent_rule', 'allow_once', 'cancel']
               : ['allow_once', 'allow_persistent_rule', 'cancel']
             : ['allow_once', 'cancel'];
+          // prettier-ignore
           const interaction = await runDurablePermissionInteraction({
             request,
             sourceAgentFolder: laneInput.group.folder,
@@ -547,9 +529,10 @@ export function createInlineCoreTools(
                   decisionMode: permissionDecision.mode,
                 }),
               );
-              laneInput.jobActivity.finishPermissionRequest(request.requestId);
             },
-          });
+          }).finally(() => laneInput.jobActivity.finishPermissionRequest(request.requestId));
+          // prettier-ignore
+          if (interaction.kind === 'delivery_failure') throw new Error(`Couldn't deliver the approval prompt: ${interaction.failure.userMessage}`);
           if (interaction.resolved)
             recordHumanPermissionPromotionSignal({
               repository: promotionRepository,
@@ -579,7 +562,6 @@ export function createInlineCoreTools(
     recordThirdPartyMcpToolActivity,
   };
 }
-
 export function wireInlineAgentLoopTools(input: {
   app: Pick<
     RuntimeApp,

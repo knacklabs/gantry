@@ -68,6 +68,7 @@ export async function publishBrowserJobActivityEvent(input: {
     responseMode: eventAppSession?.defaultResponseMode,
     webhookId: eventAppSession?.defaultWebhookId,
     payload: {
+      phase: 'browser_action',
       tool: activity.tool,
       public_tool: activity.publicToolName ?? null,
       action: activity.action ?? null,

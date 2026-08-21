@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 
@@ -1083,6 +1084,9 @@ describe('agent-spawn timeout behavior', () => {
     await vi.advanceTimersByTimeAsync(10);
     await resultPromise;
 
+    expect(vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env?.GANTRY_RUN_ID).toBe(
+      'run-one',
+    );
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'app-one',
@@ -1164,6 +1168,7 @@ describe('agent-spawn timeout behavior', () => {
     };
     expect(permissionRunRestriction(restrictionKey)).toEqual({
       hideAuthorityTools: true,
+      runKind: 'interactive',
     });
     emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
     await vi.advanceTimersByTimeAsync(10);
@@ -4189,12 +4194,12 @@ describe('agent-spawn timeout behavior', () => {
       if (!(await isActiveRunLeaseForInteraction(request))) {
         throw new Error('stale delegated child run');
       }
-      return {
+      return permissionDecisionResult({
         approved: true,
         mode: 'allow_once' as const,
         decidedBy: 'owner',
         decisionClassification: 'user_temporary' as const,
-      };
+      });
     });
     const requestUserAnswer = vi.fn(async (request) => {
       if (!(await isActiveRunLeaseForInteraction(request))) {
@@ -4230,7 +4235,14 @@ describe('agent-spawn timeout behavior', () => {
           },
           { requestPermissionApproval },
         ),
-      ).resolves.toMatchObject({ approved: true });
+      ).resolves.toEqual(
+        permissionDecisionResult({
+          approved: true,
+          mode: 'allow_once',
+          decidedBy: 'owner',
+          decisionClassification: 'user_temporary',
+        }),
+      );
       await expect(
         processUserQuestionIpcRequest(
           {

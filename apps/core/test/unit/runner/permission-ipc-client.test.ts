@@ -191,6 +191,8 @@ describe('requestPermissionApprovalViaIpc', () => {
       approved: true,
       mode: 'allow_once',
       decidedBy: 'operator-1',
+      source: 'human_once',
+      repeatableForFutureRuns: false,
       reason: 'approved by operator',
       decisionClassification: 'user_temporary',
     };
@@ -213,6 +215,8 @@ describe('requestPermissionApprovalViaIpc', () => {
       approved: true,
       mode: 'allow_once',
       decidedBy: 'operator-1',
+      source: 'human_once',
+      repeatableForFutureRuns: false,
       decisionClassification: 'user_temporary',
     });
   });
@@ -383,6 +387,8 @@ describe('requestPermissionApprovalViaIpc', () => {
       approved: true,
       mode: 'allow_once',
       decidedBy: 'auto_classifier',
+      source: 'auto_classifier',
+      repeatableForFutureRuns: true,
       reason: 'allowed once',
       risk_level: 'high',
       risk_category: 'network',
@@ -407,6 +413,8 @@ describe('requestPermissionApprovalViaIpc', () => {
       approved: true,
       mode: 'allow_once',
       decidedBy: 'auto_classifier',
+      source: 'auto_classifier',
+      repeatableForFutureRuns: true,
       risk_level: 'high',
       risk_category: 'network',
       decisionClassification: 'user_temporary',

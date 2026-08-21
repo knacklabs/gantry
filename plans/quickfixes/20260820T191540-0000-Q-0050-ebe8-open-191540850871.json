@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0050-ebe8",
+  "profile": "degraded",
+  "reason": "NOTIFY-1: raise discord.ts file-size budget for the T6 native embed renderer",
+  "started_at": "2026-08-20T19:15:40+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

@@ -1,0 +1,27 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [
+    "G1: AttachmentOpenResult lacks the canonical fileName (computed at attachment-resolver.ts:326-329 but not returned) \u2014 the copy needs it.",
+    "G2: Telegram live attachments (and any provider without fetchHistoricalAttachment) have workspace-local storageRefs and no provider_fetch \u2014 unresolvable by the store path, so 'uniform across providers' was false as stated.",
+    "G3: the writer requires the destination directory to exist; the plan had not assigned the mkdir responsibility.",
+    "G4: long-running-list membership only prevents IPC head-of-line blocking; the runner-side timeout override is a separate mandatory change the plan conflated with it."
+  ],
+  "contradictions": [
+    "C1: plan proposed returning raw bytes from a resolver mode \u2014 bytes are streamed and never buffered; the CAS materializedPath already reaches the handler, so the mode only needs to skip view extraction and add fileName.",
+    "C2: a bare fs.copyFile was implied viable \u2014 it would bypass the hardened destination guarantees; stream a reader into writeInboundAttachment instead."
+  ],
+  "resolutions": [
+    "G1: extend AttachmentOpenResult with fileName in the materialize mode.",
+    "G2: workspace-local storageRefs return status already_in_workspace with the existing relative path (no copy); Slack live resolves via its provider_fetch re-fetch; fetcherless history stays honestly unreachable.",
+    "G3: handler mkdirs quarantine/ (0700) before the write, per provider-attachment-materialization.ts:100-102.",
+    "G4: add the type to ipc-long-running-task.ts AND give the tool its own 120s timeout constant (resolver self-abort 110s inherited).",
+    "C1: mode branches inside openWithinDeadline (inheriting tombstone checks), skips extraction, returns materializedPath + fileName.",
+    "C2: destination write goes through writeInboundAttachment with a reader (streamed, hardened)."
+  ],
+  "input_sha256": "4f9d559713c0fa5f60c9a2fffa933946cf46c996c97a85fa65e4d52073b8fea6",
+  "issue": "CONTENT-2",
+  "recorded_at": "2026-08-04T18:57:33+00:00",
+  "commit": "6efbf24adb70419139bd908f6622837fe8eb8e49"
+}

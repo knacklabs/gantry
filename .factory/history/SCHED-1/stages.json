@@ -1,0 +1,25 @@
+{
+  "issue": "SCHED-1",
+  "stages": [
+    {
+      "id": "SCHED-1-1",
+      "title": "Typed permission provenance + ask-gated scheduler mutations (B1+B3, decision 0107)",
+      "status": "done",
+      "started_at": "2026-08-05T04:24:29+00:00",
+      "base_sha": "57924700eb72c1792bf74e43b8cbe636e146733b",
+      "dirty_at_start": {},
+      "task_sha256": "8e7e9caa84f3481215bba596ca01ee61e5699fc3eb45fa553b94205bd7b23465",
+      "completed_at": "2026-08-05T04:31:29+00:00"
+    },
+    {
+      "id": "SCHED-1-2",
+      "title": "Unattended scheduler surface + host-side mutation rejection (B2+B4, decision 0106)",
+      "status": "done",
+      "started_at": "2026-08-05T05:52:24+00:00",
+      "base_sha": "14b80c855d9adbbf596298d2491bab652eb9ad70",
+      "dirty_at_start": {},
+      "task_sha256": "e2362da682919f9c28d91164eb97fac23825191bcd1feaaacc135348fa95f1d1",
+      "completed_at": "2026-08-05T06:09:52+00:00"
+    }
+  ]
+}

@@ -233,7 +233,7 @@ export function registerSchedulerTools(server: McpServer): void {
         .array(schedulerAccessRequirementSchema)
         .optional()
         .describe(
-          'Access this job needs as a single list. Each entry has a target: {kind:"capability", capability_id, implementation?} for reviewed semantic capabilities, {kind:"tool_rule", rule} for exact tools/Browser/scoped RunCommand(...), or {kind:"mcp_server", server}. Missing access pauses setup for user approval.',
+          'Declare every tool this task will need at job creation in this single list. Prefer reviewed semantic-capability IDs with {kind:"capability", capability_id, implementation?}; use {kind:"tool_rule", rule} for exact tools/Browser/scoped RunCommand(...) or {kind:"mcp_server", server} only when needed. Missing access pauses setup for user approval.',
         ),
       required_tools: z.array(z.string()).optional().describe('Deprecated.'),
       silent: z.boolean().optional(),

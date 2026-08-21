@@ -41,6 +41,8 @@ export interface CoordinatePermissionDecisionInput {
   effectHash?: string;
   /** Classifier-verdict cache (Task C); read only on a rail fall-through. */
   decisionMemory?: PermissionDecisionMemoryRepository;
+  /** Host-verified autonomous runs never read classifier verdicts. */
+  skipClassifierVerdictCache?: boolean;
   tail: () => Promise<PermissionApprovalDecision>;
 }
 
@@ -84,8 +86,14 @@ export async function coordinatePermissionDecision(
       ? await input.reviewedRuleDecision()
       : input.reviewedRuleDecision;
   if (reviewedRuleDecision?.status === 'allow') {
+    input.request.decisionReason = reviewedRuleDecision.reason;
     return {
-      ...decisionForMode(input.request, 'allow_once', 'reviewed_rule'),
+      ...decisionForMode(
+        input.request,
+        'allow_once',
+        'reviewed_rule',
+        'machine',
+      ),
       reason: reviewedRuleDecision.reason,
     };
   }
@@ -121,7 +129,11 @@ export async function coordinatePermissionDecision(
   }
   // CACHE STAGE (cache-hit-only shortcut). Reachable only past hard-deny/
   // locked/fixed-image (PERM-1 precedence, checked above) and past the rails.
-  if (input.effectHash && input.decisionMemory) {
+  if (
+    !input.skipClassifierVerdictCache &&
+    input.effectHash &&
+    input.decisionMemory
+  ) {
     const cached = await input.decisionMemory.getClassifierVerdict({
       appId: input.request.appId ?? 'default',
       agentFolder: input.request.sourceAgentFolder,
@@ -137,6 +149,7 @@ export async function coordinatePermissionDecision(
           input.request,
           'allow_once',
           'cached_classifier_verdict',
+          'machine',
         ),
         reason: cached.reason,
         risk_level: cached.risk_level,
@@ -256,13 +269,17 @@ function grantAllow(
   canonicalRoot: string,
 ): PermissionApprovalDecision {
   return {
-    ...decisionForMode(request, 'allow_once', 'trusted_root_grant'),
+    ...decisionForMode(request, 'allow_once', 'trusted_root_grant', 'machine'),
     reason: `Command runs inside a granted trusted root: ${canonicalRoot}.`,
   };
 }
 
-interface PermissionRunRestriction {
+export interface PermissionRunRestriction {
   hideAuthorityTools: boolean;
+  runKind: 'interactive' | 'scheduled';
+  memoryUserId?: string;
+  jobId?: string;
+  runId?: string;
 }
 
 const permissionRunRestrictions = new Map<string, PermissionRunRestriction>();
@@ -271,9 +288,17 @@ export function registerPermissionRunRestriction(input: {
   sourceAgentFolder: string;
   responseKeyId: string;
   hideAuthorityTools: boolean;
+  runKind: 'interactive' | 'scheduled';
+  memoryUserId?: string;
+  jobId?: string;
+  runId?: string;
 }): void {
   permissionRunRestrictions.set(restrictionKey(input), {
     hideAuthorityTools: input.hideAuthorityTools,
+    runKind: input.runKind,
+    ...(input.memoryUserId ? { memoryUserId: input.memoryUserId } : {}),
+    ...(input.jobId ? { jobId: input.jobId } : {}),
+    ...(input.runId ? { runId: input.runId } : {}),
   });
 }
 
@@ -304,7 +329,7 @@ function denied(
   decidedBy: string,
 ): PermissionApprovalDecision {
   return {
-    ...decisionForMode(request, 'cancel', decidedBy),
+    ...decisionForMode(request, 'cancel', decidedBy, 'machine'),
     reason,
   };
 }

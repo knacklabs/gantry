@@ -1,0 +1,19 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres",
+    "apps/core/src/infrastructure/pgboss",
+    "apps/core/src/jobs",
+    "apps/core/src/domain/ports",
+    "apps/core/test"
+  ],
+  "score": 9,
+  "summary": "Three review rounds (codex gpt-5.6-sol, high): round 1 caught failed-sweep-latches-guard, round 2 caught unbounded drain on the maintenance path; both fixed with pinning tests. Final branch pass clean: 'patch is correct (0.91)'.",
+  "recommendation": "ship",
+  "aspect": "quality",
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recorded_at": "2026-08-03T08:10:50+00:00",
+  "commit": "86ac8ef0da7ca6b60447dae6760d11d11aaa3bad"
+}

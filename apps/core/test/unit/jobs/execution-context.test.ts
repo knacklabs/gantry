@@ -106,6 +106,37 @@ describe('resolveExecutionContext', () => {
     });
   });
 
+  it('stages execution at the group level when a pinned thread has no matching route', () => {
+    // Regression: a job pinned to a topic/thread (execution_context.threadId)
+    // whose thread route is stale/absent used to dead-letter ("Execution
+    // context route not found") even though the group was live. Execution must
+    // resolve conversation-wide; the thread is delivery-only.
+    const groups = {
+      'chat-a': group('agent-folder', 'Conversation A'),
+    };
+
+    const resolved = resolveExecutionContext(
+      job({
+        workspace_key: 'agent-folder',
+        execution_context: {
+          conversationJid: 'chat-a',
+          threadId: 'stale-topic-6898',
+          workspaceKey: 'agent-folder',
+        },
+        notification_routes: [
+          { conversationJid: 'chat-a', threadId: null, label: 'primary' },
+        ],
+      }),
+      groups,
+    );
+
+    expect(resolved).not.toBeNull();
+    expect(resolved).toMatchObject({
+      group: groups['chat-a'],
+      executionJid: 'chat-a',
+    });
+  });
+
   it('resolves a provider conversation through the unique agent-qualified route', () => {
     const routeKey = makeAgentThreadQueueKey('sl:C123', 'agent:main_agent');
     const groups = {
@@ -133,6 +164,56 @@ describe('resolveExecutionContext', () => {
       threadId: null,
       stopAliasJids: ['sl:C123'],
     });
+  });
+
+  it('selects the execution account from the primary route, independent of the thread', () => {
+    // The provider account is a thread-independent discriminator: it comes from
+    // the conversation's PRIMARY route, never from a (stale) thread pin. Even in
+    // a multi-install conversation the run executes (no dead-letter).
+    const primaryKey = makeAgentThreadQueueKey(
+      'sl:C9',
+      'agent:main_agent',
+      undefined,
+      'acct-a',
+    );
+    const otherKey = makeAgentThreadQueueKey(
+      'sl:C9',
+      'agent:main_agent',
+      undefined,
+      'acct-b',
+    );
+    const groups = {
+      [primaryKey]: group('main_agent', 'Account A', 'acct-a'),
+      [otherKey]: group('main_agent', 'Account B', 'acct-b'),
+    };
+
+    const resolved = resolveExecutionContext(
+      job({
+        workspace_key: 'main_agent',
+        execution_context: {
+          conversationJid: 'sl:C9',
+          threadId: 'stale-topic-6898',
+          workspaceKey: 'main_agent',
+        },
+        notification_routes: [
+          {
+            conversationJid: 'sl:C9',
+            threadId: null,
+            label: 'primary',
+            providerAccountId: 'acct-a',
+          },
+          {
+            conversationJid: 'sl:C9',
+            threadId: null,
+            label: 'backup',
+            providerAccountId: 'acct-b',
+          },
+        ] as Job['notification_routes'],
+      }),
+      groups,
+    );
+
+    expect(resolved?.group).toBe(groups[primaryKey]);
   });
 
   it('uses execution_context agentId to select the provider conversation route', () => {
@@ -189,6 +270,49 @@ describe('resolveExecutionContext', () => {
     expect(resolved?.group).toBe(
       groups[makeAgentThreadQueueKey('sl:C123', 'agent:alpha')],
     );
+  });
+
+  it('skips a stale first-route account and resolves the later live account', () => {
+    // The first route names a removed account; a later route uniquely names a
+    // live one. Execution must use the LIVE account, not the stale first, and
+    // must not dead-letter.
+    const liveKey = makeAgentThreadQueueKey(
+      'sl:C7',
+      'agent:main_agent',
+      undefined,
+      'acct-live',
+    );
+    const groups = {
+      [liveKey]: group('main_agent', 'Live', 'acct-live'),
+    };
+
+    const resolved = resolveExecutionContext(
+      job({
+        workspace_key: 'main_agent',
+        execution_context: {
+          conversationJid: 'sl:C7',
+          threadId: null,
+          workspaceKey: 'main_agent',
+        },
+        notification_routes: [
+          {
+            conversationJid: 'sl:C7',
+            threadId: null,
+            label: 'stale',
+            providerAccountId: 'acct-removed',
+          },
+          {
+            conversationJid: 'sl:C7',
+            threadId: null,
+            label: 'primary',
+            providerAccountId: 'acct-live',
+          },
+        ] as Job['notification_routes'],
+      }),
+      groups,
+    );
+
+    expect(resolved?.group).toBe(groups[liveKey]);
   });
 
   it('uses the notification route provider account to select execution route', () => {

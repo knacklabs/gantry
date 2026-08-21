@@ -38,6 +38,7 @@
     "factory/skills/*/SKILL.md"
   ],
   "workspaces": [
+    "apps/web",
     "packages/contracts",
     "packages/sdk",
     "examples/nextjs-workflows"
@@ -46,6 +47,8 @@
     "build:contracts": "npm run build --workspace @gantry/contracts",
     "build:sdk": "npm run build --workspace @gantry/sdk",
     "build:examples": "npm run typecheck --workspace @gantry/example-nextjs-workflows && npm run build --workspace @gantry/example-nextjs-workflows",
+    "build:web": "npm run build --workspace @gantry/web",
+    "dev:web": "npm run dev --workspace @gantry/web",
     "clean": "rm -rf dist packages/contracts/dist packages/sdk/dist",
     "build:runtime": "npm run clean && npm run build:contracts && npm run build:sdk && tsc && npm run copy:migrations && chmod +x dist/cli/index.js",
     "build": "npm run build:runtime && npm run build:examples",
@@ -58,10 +61,12 @@
     "dev": "tsx apps/core/src/index.ts",
     "cli:dev": "tsx apps/core/src/cli/index.ts",
     "typecheck": "npm run build:contracts && tsc --noEmit",
+    "typecheck:web": "npm run typecheck --workspace @gantry/web",
     "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "docs:check": "python3 scripts/check_documentation.py",
+    "format:check:web": "npm run format:check --workspace @gantry/web",
     "check:architecture": "python3 scripts/check_architecture.py",
     "security:sbom": "npm sbom --omit=dev --sbom-format=cyclonedx",
     "security:package": "python3 scripts/check_package_contents.py",
@@ -69,13 +74,14 @@
     "prepare": "HUSKY=1 husky || true",
     "prepublishOnly": "npm run build",
     "lint": "eslint apps/core/src packages/contracts/src packages/sdk/src",
+    "lint:web": "npm run lint --workspace @gantry/web",
     "lint:fix": "eslint apps/core/src packages/contracts/src packages/sdk/src --fix",
     "test": "npm run build:contracts && npm run test:unit && npm run test:integration",
     "test:unit": "npm run build:contracts && vitest run -c vitest.unit.config.ts",
     "test:integration": "npm run build:contracts && vitest run -c vitest.integration.config.ts",
     "test:integration:postgres": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.integration.postgres.config.ts",
-    "test:integration:postgres:chaos": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.integration.postgres.chaos.config.ts",
-    "test:integration:postgres:hot-path": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && GANTRY_POSTGRES_HOT_PATH=1 vitest run -c vitest.integration.postgres.hot-path.config.ts",
+    "test:integration:postgres:chaos": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && GANTRY_POSTGRES_LANE=chaos vitest run -c vitest.integration.postgres.config.ts",
+    "test:integration:postgres:hot-path": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && GANTRY_POSTGRES_LANE=hot-path GANTRY_POSTGRES_HOT_PATH=1 vitest run -c vitest.integration.postgres.config.ts",
     "test:e2e": "npm run build:contracts && vitest run -c vitest.e2e.config.ts",
     "test:e2e:postgres": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.e2e.postgres.config.ts",
     "test:e2e:agent:hermetic": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.agent-e2e.config.ts",
@@ -112,7 +118,7 @@
     "grammy": "^1.42.0",
     "langchain": "1.4.4",
     "officeparser": "^6.1.1",
-    "pdfjs-dist": "^5.6.205",
+    "pdfjs-dist": "^6.2.108",
     "pg": "^8.16.3",
     "pg-boss": "^12.16.0",
     "playwright-core": "1.60.0-alpha-2026-04-27",
@@ -151,6 +157,7 @@
     "fast-uri": "3.1.5",
     "@emnapi/core": "^1.11.3",
     "@emnapi/runtime": "^1.11.3",
-    "@emnapi/wasi-threads": "^1.2.3"
+    "@emnapi/wasi-threads": "^1.2.3",
+    "pdfjs-dist": "^6.2.108"
   }
 }

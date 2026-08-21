@@ -4,7 +4,8 @@ import type { ReviewMessageView } from './review-message-view.js';
 import type { MessageActionAffordance } from './message-actions.js';
 import type { ObserverDigestMessageView } from './observer-digest-view.js';
 import type { BrainReviewCardView } from './brain-review-card.js';
-
+import type { PermissionApprovalResult } from './permission-approval-result.js';
+export type { PermissionApprovalResult } from './permission-approval-result.js';
 export type {
   MessageActionAffordanceKind,
   MemoryReviewActionDecision,
@@ -170,17 +171,18 @@ export type PermissionRiskCategory =
   | 'network'
   | 'filesystem'
   | 'benign';
-
 export interface PermissionApprovalRequest {
   requestId: string;
   appId?: string;
   agentId?: string;
   providerAccountId?: string;
+  personId?: string;
   responseNonce?: string;
   sourceAgentFolder: string;
   requestFamily?: 'tool' | 'admin' | 'review' | 'promotion';
   runHandle?: string;
   jobId?: string;
+  setupFingerprint?: string;
   jobName?: string;
   runId?: string;
   runLeaseToken?: string;
@@ -212,9 +214,8 @@ export interface PermissionApprovalRequest {
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
   hostInjectedCommandPrefix?: string;
-  /** 16K-limit sanitize of the same input; the permission DECISION layers
-   *  (rails + effect-key) evaluate this fuller view, not the 500-char display
-   *  `toolInput`. Set alongside `toolInput` in ipc-parsing. */
+  /** 16K-limit input evaluated by decision rails/effect keys, not the 500-char
+   * display `toolInput`; set alongside it in IPC parsing. */
   classifierToolInput?: Record<string, unknown>;
   toolInputSanitized?: boolean;
   toolInputSanitizedPaths?: string[];
@@ -225,6 +226,7 @@ export interface PermissionApprovalRequest {
    *  "remember this folder", so it approves without a tool-rule suggestion. */
   trustedRootLearn?: boolean;
   promotionHintCount?: number;
+  firstAskedAt?: string;
   interaction?: InteractionDescriptor;
   permissionBatch?: {
     requestIds: string[];
@@ -244,6 +246,12 @@ export type PermissionApprovalDecisionMode =
   | 'allow_once'
   | 'allow_persistent_rule'
   | 'cancel';
+
+// prettier-ignore
+export type PermissionDecisionSource =
+  | 'durable_rule' | 'birthright' | 'deterministic_policy'
+  | 'auto_classifier' | 'cached_classifier' | 'trusted_root'
+  | 'human_once' | 'human_persistent';
 
 export interface PermissionRecoveryEnvelope {
   version: 1;
@@ -310,6 +318,8 @@ export interface PermissionApprovalDecision {
   approved: boolean;
   mode?: PermissionApprovalDecisionMode;
   decidedBy?: string;
+  source?: PermissionDecisionSource;
+  repeatableForFutureRuns?: boolean;
   reason?: string;
   risk_level?: PermissionRiskLevel;
   risk_category?: PermissionRiskCategory;
@@ -318,7 +328,6 @@ export interface PermissionApprovalDecision {
   batchDecision?: 'review_each';
   permissionCallbackClaim?: PermissionCallbackClaimReference;
 }
-
 export interface UserQuestionOption {
   label: string;
   description: string;
@@ -511,11 +520,37 @@ export interface StreamingChunkOptions {
 export interface ProgressUpdateOptions {
   threadId?: string;
   providerAccountId?: string;
+  /** Provider-card identity sampled when the update entered its ordering chain. */
+  progressCardIdentity?: string;
   done?: boolean;
   replaceOnly?: boolean;
   generation?: number;
   actionOnly?: boolean;
   actionAffordances?: MessageActionAffordance[];
+}
+
+export interface StructuredJobResult {
+  headline?: string;
+  items: Array<{
+    outcome: 'done' | 'skipped' | 'failed';
+    label: string;
+    detail?: string;
+  }>;
+  nextAction?: string;
+}
+
+export interface JobNotificationView {
+  status: 'completed' | 'failed' | 'paused' | 'timeout' | 'dead_lettered';
+  jobName: string;
+  durationMs?: number;
+  stats?: {
+    toolCount: number;
+    browserUsed: boolean;
+    lastAction?: string;
+  };
+  result?: StructuredJobResult;
+  fallbackText: string;
+  nextRunAt?: string;
 }
 
 export interface MessageSendOptions {
@@ -528,15 +563,17 @@ export interface MessageSendOptions {
    * memory-review message (per-channel native blocks/card) with the decision
    * buttons. Channels without native buttons fall back to `text`. */
   reviewMessageView?: ReviewMessageView;
-  /** When set, channels with native support render the observer digest as one
-   * message of up to 3 insight groups, each with its four `observer_feedback`
-   * buttons. Channels without native buttons fall back to `text`. */
+  /** Structured terminal job notification for future native channel renderers.
+   * Channels currently send `fallbackText`. */
+  jobNotificationView?: JobNotificationView;
+  /** Native one-message observer digest with feedback buttons. */
   observerDigestView?: ObserverDigestMessageView;
   /** When set, channels with native support render the destructive-proposal
    * review card (headline + detail) with its Approve/Reject
    * `brain_dream_review_decision` buttons. Channels without native buttons fall
    * back to `text`. */
   brainReviewView?: BrainReviewCardView;
+  permissionCardView?: import('./permission-card.js').PermissionCardMessageView;
 }
 
 export interface MessageFileAttachment {
@@ -603,14 +640,12 @@ export interface MessageSink {
   ): Promise<void | MessageDeliveryResult>;
 }
 
-export interface MessageReactionSink {
-  addReaction(jid: string, messageRef: string, emoji: string): Promise<void>;
-}
-
-export interface TypingSink {
-  setTyping(jid: string, isTyping: boolean): Promise<void>;
-}
-
+export type {
+  ChannelLiveUxCapability,
+  MessageReactionRemovalSink,
+  MessageReactionSink,
+  TypingSink,
+} from './channel-live-ux.js';
 export interface StreamingSink {
   sendStreamingChunk(
     jid: string,
@@ -618,19 +653,20 @@ export interface StreamingSink {
     options?: StreamingChunkOptions,
   ): Promise<boolean>;
 }
-
 export interface StreamingStateSink {
   resetStreaming(jid: string, options?: { threadId?: string }): void;
 }
-
 export interface ProgressSink {
+  progressCardIdentity?(
+    jid: string,
+    options?: ProgressUpdateOptions,
+  ): string | undefined;
   sendProgressUpdate(
     jid: string,
     text: string,
     options?: ProgressUpdateOptions,
-  ): Promise<void>;
+  ): Promise<void | boolean>;
 }
-
 export interface GroupDiscoverySource {
   syncGroups(force: boolean): Promise<void>;
 }
@@ -640,7 +676,7 @@ export interface InteractionSurface {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision>;
+  ): Promise<PermissionApprovalResult>;
   requestUserAnswer(
     jid: string,
     request: UserQuestionRequest,

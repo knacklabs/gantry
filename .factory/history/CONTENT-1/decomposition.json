@@ -1,0 +1,76 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "CONTENT-1",
+  "tasks": [
+    {
+      "id": "CONTENT-1-1",
+      "title": "Six provider-content quick fixes",
+      "objective": "Replace the truncated-base64 binary fallback with typed guidance (audio/video/archive/iWork/unknown), read .eml as text, implement Slack snippet delivery (UTF-8 size chooses snippet vs .txt before upload; any provider failure falls back to the split text path so delivery is never lost), classify Discord voice notes as audio, keep Telegram location/venue/contact data (incl. venue address), and fold all human-readable Discord embed text under per-embed caps plus the router aggregate budget.",
+      "write_scope": [
+        "apps/core/src/shared",
+        "apps/core/src/channels",
+        "apps/core/src/messaging",
+        "apps/core/test",
+        "docs"
+      ],
+      "acceptance_criteria": [
+        "no code path emits base64 for unrecognized binaries; guidance is typed per family and unit-tested per family",
+        ".eml reads as raw text; .msg takes the guidance path",
+        "snippet vehicle chosen by UTF-8 bytes BEFORE upload (<=1MB snippet_type text, >1MB plain .txt); provider failure of the upload path falls back to existing split/truncate delivery \u2014 replay and failure paths tested",
+        "Discord audio/* attachments classify as audio; Telegram venue fixture asserts title+address+lat+lon; contact fixture asserts name+phone",
+        "embed folding covers title/description/url/fields/author.name/footer.text/media descriptions, bounded per-embed in UTF-8 bytes, and the combined body passes the router aggregate budget (max-body + multibyte fixture)"
+      ],
+      "required_tests": [
+        {
+          "id": "provider attachment materialization reads > describes binary attachments with typed guidance instead of base64",
+          "path": "apps/core/test/unit/shared/provider-attachment-materialization.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck"
+      ]
+    },
+    {
+      "id": "CONTENT-1-2",
+      "title": "Slack canvas read/create/update behind host-issued handles",
+      "objective": "Implement the slack canvas module, IPC handlers, and three runner MCP tools with split READ/WRITE capability sets and strict IPC bounds per the plan; channel_id-bound creation with files.info permalink and free-team handling; honest last-write-wins with host-side serialization; canvas+file scopes in the canonical install surfaces + doctor. READ ships behind runtime scope/error gates; the live export spike is deferred by recorded decision (see acceptance criterion 1).",
+      "write_scope": [
+        "apps/core/src/channels",
+        "apps/core/src/runner",
+        "apps/core/src/jobs",
+        "apps/core/src/app",
+        "apps/core/src/shared",
+        "apps/core/src/config",
+        "apps/core/test",
+        "docs",
+        "apps/core/src/cli",
+        "factory/scripts/pre_tool_use.py",
+        "factory/tests/test_gates.py",
+        "constitution/VENDORED_FROM",
+        "constitution/VENDOR_MANIFEST.json"
+      ],
+      "acceptance_criteria": [
+        "DEVIATION RECORDED (Ravi 2026-08-04): the live export spike is deferred \u2014 the bot token lacks files:read (host-side spike hit missing_scope; workspace reinstall is a pending human action). READ SHIPS implemented against the documented canvas-as-file export (url_private bearer fetch, body as bounded text), gated at runtime: missing_scope or export failure returns an honest error naming the required scopes and the reinstall; fake-HTTP tests are the proof. No live-spike evidence is required to close this task.",
+        "runner never supplies raw canvas ids; update handles mint exclusively from the WRITE set; a shared-in canvas gets a READ handle only \u2014 pinned by test",
+        "creation passes the host-derived channel_id; free_team_canvas_tab_already_exists returns the existing bound canvas; permalink via files.info with tested non-fatal failure",
+        "IPC bounds enforced host-side before provider calls (oversize markdown/title, multi-op, unknown fields all rejected loudly, boundary-tested)",
+        "section targeting fails explicitly on zero/multiple matches; stale handles rejected; lock/conflict provider errors surface as retryable messages; host serializes its own edits per canvas",
+        "canvases:read + canvases:write in the canonical install scope list, setup flow, and doctor with re-auth guidance; fresh-install and upgraded-install scope tests",
+        "Harness paths (factory/, constitution vendor stamps) are in scope solely for the review-driven companion-gate fix re-vendored from symphony-forge @ f9de7109. Fixed upstream first, then re-vendored."
+      ],
+      "required_tests": [
+        {
+          "id": "slack canvas tools > refuses update handles for canvases merely shared into the conversation",
+          "path": "apps/core/test/unit/channels/slack-canvas.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck"
+      ]
+    }
+  ],
+  "commit": "bb340b0aedde1d74e12ea5e821326488fea4cac4"
+}

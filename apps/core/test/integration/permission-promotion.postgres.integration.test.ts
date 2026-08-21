@@ -21,7 +21,7 @@ maybeDescribe('Postgres permission promotion counters', () => {
     if (runtime) await runtime.cleanup();
   });
 
-  it('increments atomically and claims a promotion offer once', async () => {
+  it('increments atomically and preserves denial evidence', async () => {
     const repository = runtime.repositories.permissionPromotions;
     const input = {
       appId: 'app-one',
@@ -31,19 +31,14 @@ maybeDescribe('Postgres permission promotion counters', () => {
     };
     await expect(repository.incrementAndGet(input)).resolves.toMatchObject({
       allowCount: 1,
-      lastOfferedAt: null,
       deniedAt: null,
     });
     await repository.incrementAndGet(input);
     await expect(repository.incrementAndGet(input)).resolves.toMatchObject({
       allowCount: 3,
-      lastOfferedAt: null,
     });
-    await expect(repository.markOffered(input)).resolves.toBe(true);
-    await expect(repository.markOffered(input)).resolves.toBe(false);
     await expect(repository.incrementAndGet(input)).resolves.toMatchObject({
       allowCount: 4,
-      lastOfferedAt: input.nowIso,
     });
     const deniedAt = '2026-07-12T01:00:00.000Z';
     await repository.markDenied({ ...input, nowIso: deniedAt });
@@ -54,8 +49,5 @@ maybeDescribe('Postgres permission promotion counters', () => {
     await expect(
       repository.incrementAndGet({ ...input, nowIso: deniedAt }),
     ).resolves.toMatchObject({ allowCount: 1, deniedAt });
-    await expect(
-      repository.markOffered({ ...input, nowIso: deniedAt }),
-    ).resolves.toBe(false);
   });
 });

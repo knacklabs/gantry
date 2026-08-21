@@ -278,9 +278,12 @@ function scriptedCoreTools(events: string[]) {
       answers: {},
     })),
     requestPermissionApproval: vi.fn(async () => ({
-      approved: true,
-      mode: 'allow_once',
-      decidedBy: 'integration-approver',
+      kind: 'decision' as const,
+      decision: {
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'integration-approver',
+      },
     })),
     publishRuntimeEvent: vi.fn(async (event) => {
       events.push(event.eventType);

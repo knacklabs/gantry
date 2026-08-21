@@ -4,13 +4,7 @@
 
 Symphony Forge is a dual-runtime software-factory template for turning in-repo architecture and decision docs into shipped applications.
 
-It provides:
-- planner-owned decomposition
-- bounded implementation tasks
-- deterministic verification
-- schema-validated evidence recording
-- autoreview-owned review
-- PR-ready proof artifacts
+It provides: planner-owned decomposition, bounded implementation tasks, deterministic verification, schema-validated evidence recording, autoreview-owned review, and PR-ready proof artifacts.
 
 `AGENTS.md` stays short on purpose. Use it as a map.
 
@@ -105,6 +99,7 @@ A task is not PR-ready until all of these exist:
 - Evidence enters `.factory/` only via `record_*` scripts validating `factory/schemas/` (pinned `generated_by`) — never hand-written.
 - Review runs as ONE autoreview pass — never inline, never nested reviewers — by invoking the autoreview SKILL HELPER directly (`"$AUTOREVIEW" --mode branch|commit|local`; it spawns the Codex engine in an isolated sandbox, definitive exit code). NEVER a `/codex:rescue`/companion `review` job (hangs at finalization). Applies to per-stage LOCAL autoreview and PR closeout.
 - Keep the template repo independent of any client-specific source repo.
+- Scheduled jobs stage and execute at the group/channel (conversation) level; a topic/thread is delivery-only and must NEVER decide or block execution. Decision: `docs/decisions/`.
 - Do not keep long policy blocks in `AGENTS.md`; move them into docs.
 - Talk to the human in plain, everyday English; precision belongs in commits, decisions and PR bodies. Policy: `docs/communication-style.md`.
 - PRs: orchestrator may push story branches + raise PRs once `pr_ready` (one per story); merging stays human-gated; every PR body opens with the plain-language goal/why before the technical delta; runtime-behavior PRs carry their agent-e2e delta (or state why not). Policy: `docs/review-instructions.md`.

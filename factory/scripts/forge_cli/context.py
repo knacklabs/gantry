@@ -87,8 +87,7 @@ def pending_context(base: Path) -> list[str]:
     return pending
 
 
-def cmd_scan(args: argparse.Namespace) -> None:
-    base = Path(args.repo).resolve() if args.repo else repo_root()
+def _scan_state(base: Path) -> tuple[dict, list[str], list[str]]:
     context_dir, ledger_path = context_paths(base)
     context_dir.mkdir(parents=True, exist_ok=True)
     ledger = load_json(ledger_path, default={"files": {}})
@@ -120,9 +119,26 @@ def cmd_scan(args: argparse.Namespace) -> None:
     for rel in sorted(set(ledger["files"]) - on_disk):
         drift.append(f"missing (marked removed): {rel}")
         ledger["files"][rel]["status"] = "removed"
+    return ledger, drift, refused
+
+
+def scan_inbox(base: Path) -> tuple[list[str], list[str]]:
+    """Refresh the context ledger without printing or exiting."""
+    _, ledger_path = context_paths(base)
+    ledger, drift, refused = _scan_state(base)
+    dump_json(ledger_path, ledger)
+    return drift, refused
+
+
+def cmd_scan(args: argparse.Namespace) -> None:
+    base = Path(args.repo).resolve() if args.repo else repo_root()
+    if args.check:
+        ledger, drift, refused = _scan_state(base)
+    else:
+        drift, refused = scan_inbox(base)
+        _, ledger_path = context_paths(base)
+        ledger = load_json(ledger_path, default={"files": {}})
     if refused:
-        if not args.check:
-            dump_json(ledger_path, ledger)  # register what passed; refuse the rest
         print("REFUSED (not registered — fix, then rescan):")
         for line in refused:
             print(f"- {line}")
@@ -134,7 +150,6 @@ def cmd_scan(args: argparse.Namespace) -> None:
                 print(f"- {line}")
             raise SystemExit(1)
     else:
-        dump_json(ledger_path, ledger)
         for line in drift:
             print(line)
     counts: dict[str, int] = {}
@@ -142,8 +157,6 @@ def cmd_scan(args: argparse.Namespace) -> None:
         counts[entry["status"]] = counts.get(entry["status"], 0) + 1
     summary = ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) or "empty"
     print(f"context ledger — {summary}")
-    if counts.get("pending"):
-        print("Harvest pending files per factory/prompts/harvester.md.")
 
 
 def cmd_list(args: argparse.Namespace) -> None:

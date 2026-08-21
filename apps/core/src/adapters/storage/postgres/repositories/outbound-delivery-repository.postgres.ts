@@ -10,10 +10,17 @@ import {
   type OutboundDeliveryItemId,
   type OutboundDeliveryReceipt,
   type OutboundDeliveryReceiptId,
+  type OutboundDeliveryPermissionPromptLocator,
   type OutboundDeliveryResolvedDestination,
 } from '../../../../domain/outbound-delivery/outbound-delivery.js';
 import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
 import type { OutboundDeliveryRepository } from '../../../../domain/ports/repositories.js';
+import type { PermissionCardMessageView } from '../../../../domain/permission-card.js';
+import type {
+  PreparedSetupPermissionPrompt,
+  SetupPermissionPromptPreparation,
+  SetupPermissionPromptRepository,
+} from '../../../../domain/ports/setup-permission-prompts.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
@@ -23,6 +30,12 @@ import {
 } from './canonical-graph-repository.postgres.js';
 import { claimDueOutboundDeliveryItems } from './outbound-delivery-repository.postgres.claims.js';
 import { resolveOutboundDeliveryDestination } from './outbound-delivery-repository.postgres.destinations.js';
+import {
+  beginDeliveryItemSend,
+  getSetupPermissionPromptForDispatch,
+  markDeliveryItemCancelled,
+  markDeliveryItemSent,
+} from './outbound-delivery-permission-card.postgres.js';
 import {
   buildPartialDeliveryError,
   computeLeaseExpiry,
@@ -42,8 +55,30 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
     private readonly deps: {
       now?: () => string;
       createClaimToken?: () => string;
+      setupPermissionPrompts?: SetupPermissionPromptRepository & {
+        reconcileSetupPermissionPrompts(input: {
+          now: string;
+          limit?: number;
+        }): Promise<unknown>;
+      };
     } = {},
   ) {}
+  async reconcileSetupPermissionPrompts(input: {
+    now: string;
+    limit?: number;
+  }): Promise<unknown> {
+    return this.deps.setupPermissionPrompts?.reconcileSetupPermissionPrompts(
+      input,
+    );
+  }
+  async prepareSetupPermissionPrompt(
+    input: SetupPermissionPromptPreparation,
+  ): Promise<PreparedSetupPermissionPrompt> {
+    if (!this.deps.setupPermissionPrompts) {
+      throw new Error('Setup permission prompt repository is unavailable.');
+    }
+    return this.deps.setupPermissionPrompts.prepareSetupPermissionPrompt(input);
+  }
   async enqueueDelivery(input: {
     delivery: OutboundDelivery;
     finalAnswer: OutboundDeliveryFinalAnswer;
@@ -80,6 +115,7 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
             status: input.delivery.status,
             settledAt: input.delivery.settledAt ?? null,
             lastError: input.delivery.lastError ?? null,
+            cancellationReasonJson: input.delivery.cancellationReason ?? null,
             createdAt: input.delivery.createdAt,
             updatedAt: input.delivery.updatedAt,
           })
@@ -110,6 +146,8 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
             input.items.map((item) => ({
               id: item.id,
               deliveryId: item.deliveryId,
+              permissionPromptId: item.permissionPromptId ?? null,
+              generation: item.generation ?? 0,
               ordinal: item.ordinal,
               canonicalText: item.canonicalText,
               providerPayloadJson:
@@ -123,10 +161,12 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
               claimToken: item.claimToken ?? null,
               claimOwner: null,
               claimExpiresAt: item.claimExpiresAt ?? null,
+              sendBegunAt: item.sendBegunAt ?? null,
               nextAttemptAt: item.nextAttemptAt,
               sentAt: item.sentAt ?? null,
               failedAt: item.failedAt ?? null,
               lastError: item.lastError ?? null,
+              cancellationReasonJson: item.cancellationReason ?? null,
               createdAt: item.createdAt,
               updatedAt: item.updatedAt,
             })),
@@ -169,117 +209,30 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
   }): Promise<OutboundDeliveryResolvedDestination | null> {
     return resolveOutboundDeliveryDestination(this.db, input);
   }
+  async getSetupPermissionPromptForDispatch(input: {
+    appId: OutboundDelivery['appId'];
+    promptId: string;
+    now: string;
+  }): Promise<PermissionCardMessageView | null> {
+    return getSetupPermissionPromptForDispatch(this.db, input);
+  }
+  async beginDeliveryItemSend(input: {
+    deliveryId: OutboundDeliveryId;
+    itemId: OutboundDeliveryItemId;
+    promptId: string;
+    claimToken: string;
+    begunAt: string;
+  }): Promise<'begun' | 'lease_lost' | 'prompt_closed'> {
+    return beginDeliveryItemSend(this.db, input);
+  }
   async markDeliveryItemSent(input: {
     deliveryId: OutboundDeliveryId;
     itemId: OutboundDeliveryItemId;
     claimToken: string;
     receipt: OutboundDeliveryReceipt;
+    permissionPromptLocator?: OutboundDeliveryPermissionPromptLocator;
   }): Promise<{ applied: boolean; delivery: OutboundDelivery | null }> {
-    return this.db.transaction(async (tx) => {
-      const itemRows = await tx
-        .select()
-        .from(pgSchema.outboundDeliveryItemsPostgres)
-        .where(
-          and(
-            eq(pgSchema.outboundDeliveryItemsPostgres.id, input.itemId),
-            eq(
-              pgSchema.outboundDeliveryItemsPostgres.deliveryId,
-              input.deliveryId,
-            ),
-          ),
-        )
-        .limit(1)
-        .for('update');
-      const itemRow = itemRows[0];
-      if (!itemRow) return { applied: false, delivery: null };
-      if (
-        input.receipt.deliveryId !== input.deliveryId ||
-        input.receipt.itemId !== input.itemId
-      ) {
-        return { applied: false, delivery: null };
-      }
-      if (itemRow.status === 'sent') {
-        const replay = await this.getReceiptByItemAndIdempotency(tx, {
-          itemId: input.itemId,
-          idempotencyKey: input.receipt.idempotencyKey,
-        });
-        if (!replay || !this.isExactReceiptReplay(replay, input.receipt)) {
-          return { applied: false, delivery: null };
-        }
-        const delivery = await this.getDeliveryById(tx, input.deliveryId);
-        return { applied: true, delivery };
-      }
-      if (
-        itemRow.status !== 'claimed' ||
-        itemRow.claimToken !== input.claimToken
-      ) {
-        return { applied: false, delivery: null };
-      }
-      const providerPayloadJson =
-        input.receipt.providerPayload === undefined
-          ? null
-          : encodeJson(
-              sanitizeRetryTailProviderPayload(input.receipt.providerPayload),
-            );
-      await tx
-        .insert(pgSchema.outboundDeliveryReceiptsPostgres)
-        .values({
-          id: input.receipt.id,
-          deliveryId: input.receipt.deliveryId,
-          itemId: input.receipt.itemId,
-          idempotencyKey: input.receipt.idempotencyKey,
-          providerMessageId: input.receipt.providerMessageId ?? null,
-          providerPayloadJson,
-          sentAt: input.receipt.sentAt,
-          createdAt: input.receipt.createdAt,
-        })
-        .onConflictDoNothing({
-          target: [
-            pgSchema.outboundDeliveryReceiptsPostgres.itemId,
-            pgSchema.outboundDeliveryReceiptsPostgres.idempotencyKey,
-          ],
-        });
-      const stored = await this.getReceiptByItemAndIdempotency(tx, {
-        itemId: input.itemId,
-        idempotencyKey: input.receipt.idempotencyKey,
-      });
-      if (!stored || !this.isExactReceiptReplay(stored, input.receipt)) {
-        return { applied: false, delivery: null };
-      }
-      const updated = await tx
-        .update(pgSchema.outboundDeliveryItemsPostgres)
-        .set({
-          status: 'sent',
-          sentAt: input.receipt.sentAt,
-          failedAt: null,
-          lastError: null,
-          claimToken: null,
-          claimOwner: null,
-          claimExpiresAt: null,
-          updatedAt: input.receipt.sentAt,
-        })
-        .where(
-          and(
-            eq(pgSchema.outboundDeliveryItemsPostgres.id, input.itemId),
-            eq(
-              pgSchema.outboundDeliveryItemsPostgres.deliveryId,
-              input.deliveryId,
-            ),
-            eq(pgSchema.outboundDeliveryItemsPostgres.status, 'claimed'),
-            eq(
-              pgSchema.outboundDeliveryItemsPostgres.claimToken,
-              input.claimToken,
-            ),
-          ),
-        )
-        .returning();
-      if (!updated[0]) return { applied: false, delivery: null };
-      const delivery = await this.recomputeDeliveryStatus(tx, {
-        deliveryId: input.deliveryId,
-        now: input.receipt.sentAt,
-      });
-      return { applied: true, delivery };
-    });
+    return markDeliveryItemSent(this.db, input);
   }
   async markDeliveryItemFailed(input: {
     deliveryId: OutboundDeliveryId;
@@ -367,6 +320,15 @@ export class PostgresOutboundDeliveryRepository implements OutboundDeliveryRepos
       });
       return { applied: true, delivery };
     });
+  }
+  async markDeliveryItemCancelled(input: {
+    deliveryId: OutboundDeliveryId;
+    itemId: OutboundDeliveryItemId;
+    claimToken: string;
+    reason: Record<string, unknown>;
+    cancelledAt: string;
+  }): Promise<{ applied: boolean }> {
+    return markDeliveryItemCancelled(this.db, input);
   }
   async markDeliveryItemPartiallyDelivered(input: {
     deliveryId: OutboundDeliveryId;

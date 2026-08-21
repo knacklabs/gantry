@@ -2,6 +2,7 @@ import type {
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
 } from '../domain/types.js';
 import {
   DurableInteractionPersistenceError,
@@ -23,7 +24,7 @@ interface PermissionApprovalSurfaceLike {
     targetJid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ) => Promise<PermissionApprovalDecision>;
+  ) => Promise<PermissionApprovalResult>;
   dropPendingInteraction?: (
     kind: 'permission' | 'question',
     request: PermissionApprovalRequest,
@@ -55,7 +56,15 @@ const permissionRequestScopeKey = (
   ]);
 
 export interface PermissionApprovalRequester {
-  (request: PermissionApprovalRequest): Promise<PermissionApprovalDecision>;
+  /**
+   * Reports delivery to the first caller for a request scope. Replays that
+   * coalesce onto the same pending request share its decision but do not
+   * receive a second delivery callback for the same provider prompt.
+   */
+  (
+    request: PermissionApprovalRequest,
+    onPromptDelivered?: (messageId: string) => void,
+  ): Promise<PermissionApprovalResult>;
   cancel(
     cancellation: PermissionApprovalCancellation,
   ): Promise<'settled' | 'queued' | 'not_found'>;
@@ -103,9 +112,10 @@ export function createPermissionApprovalRequester(input: {
   const pendingResolvers = new Map<
     string,
     {
-      promise: Promise<PermissionApprovalDecision>;
-      resolve: (decision: PermissionApprovalDecision) => void;
+      promise: Promise<PermissionApprovalResult>;
+      resolve: (result: PermissionApprovalResult) => void;
       reject: (reason?: unknown) => void;
+      onPromptDelivered?: (messageId: string) => void;
     }
   >();
   const coalescer = new PermissionBatchCoalescer({
@@ -136,20 +146,8 @@ export function createPermissionApprovalRequester(input: {
   async function dispatchSingle(
     request: PermissionApprovalRequest,
     cancellationAliases: PermissionApprovalRequest[] = [],
-  ): Promise<PermissionApprovalDecision> {
-    const result = await dispatchSingleResult(request, cancellationAliases);
-    return result.delivered
-      ? result.decision
-      : { approved: false, reason: result.reason };
-  }
-
-  async function dispatchSingleResult(
-    request: PermissionApprovalRequest,
-    cancellationAliases: PermissionApprovalRequest[] = [],
-  ): Promise<
-    | { delivered: true; decision: PermissionApprovalDecision }
-    | { delivered: false; reason: string }
-  > {
+    onPromptDelivered?: (messageId: string) => void,
+  ): Promise<PermissionApprovalResult> {
     const requestKey = permissionRequestScopeKey(request);
     const cancellationKeys = [
       requestKey,
@@ -164,7 +162,7 @@ export function createPermissionApprovalRequester(input: {
     if (queuedCancellation) {
       clearQueuedCancellation(queuedCancellationKey!);
       return {
-        delivered: true,
+        kind: 'decision',
         decision: {
           approved: false,
           mode: 'cancel',
@@ -176,7 +174,13 @@ export function createPermissionApprovalRequester(input: {
     }
     const routed = resolvePermissionApprovalTarget(request);
     if ('blockedReason' in routed) {
-      return { delivered: false, reason: routed.blockedReason };
+      return {
+        kind: 'delivery_failure',
+        code: 'target_missing',
+        retryable: true,
+        delivered: 'no',
+        userMessage: routed.blockedReason,
+      };
     }
     const channel = input.findBoundChannel(
       routed.targetJid,
@@ -188,12 +192,14 @@ export function createPermissionApprovalRequester(input: {
       : undefined;
     if (!approvalSurface) {
       return {
-        delivered: false,
-        reason: 'Target channel does not support permission approvals',
+        kind: 'delivery_failure',
+        code: 'surface_unsupported',
+        retryable: true,
+        delivered: 'no',
+        userMessage: 'Target channel does not support permission approvals',
       };
     }
     try {
-      let promptDelivered = false;
       const cancelPending = (
         cancellation: PermissionApprovalCancellation,
       ): Promise<'settled' | 'already_decided' | 'retryable' | 'not_found'> =>
@@ -205,13 +211,13 @@ export function createPermissionApprovalRequester(input: {
         );
         activeCancellationTargets.set(key, routed.targetJid);
       }
-      let decision: PermissionApprovalDecision;
+      let result: PermissionApprovalResult;
       try {
-        decision = await approvalSurface.requestPermissionApproval(
+        result = await approvalSurface.requestPermissionApproval(
           routed.targetJid,
           routed.request,
-          () => {
-            promptDelivered = true;
+          (messageId) => {
+            onPromptDelivered?.(messageId);
             input.interactionLifecycle.resetStreaming?.(routed.targetJid, {
               providerAccountId: routed.request.providerAccountId,
               threadId: routed.request.threadId,
@@ -233,23 +239,24 @@ export function createPermissionApprovalRequester(input: {
       const cancellation = cancellationAliases.length
         ? undefined
         : queuedCancellations.get(requestKey);
-      if (cancellation) {
-        decision = {
-          approved: false,
-          mode: 'cancel',
-          decidedBy: 'runtime',
-          reason: cancellation.reason,
-          decisionClassification: 'user_reject',
+      // Only a real decision may be replaced by the queued cancellation: a
+      // post-transmission delivery_failure must stay a delivery failure -
+      // synthesizing a user_reject here would settle a durable row whose
+      // card may still be live (transmission-boundary rule, 0128).
+      if (cancellation && result.kind === 'decision') {
+        result = {
+          kind: 'decision',
+          decision: {
+            approved: false,
+            mode: 'cancel',
+            decidedBy: 'runtime',
+            reason: cancellation.reason,
+            decisionClassification: 'user_reject',
+          },
         };
         clearQueuedCancellation(requestKey);
       }
-      return promptDelivered
-        ? { delivered: true, decision }
-        : {
-            delivered: false,
-            reason:
-              decision.reason || 'Permission approval prompt was not delivered',
-          };
+      return result;
     } catch (err) {
       input.interactionLifecycle.logger.error({
         err,
@@ -258,10 +265,22 @@ export function createPermissionApprovalRequester(input: {
         message: 'Target channel permission approval flow failed',
       });
       if (err instanceof DurableInteractionPersistenceError) {
+        // Deliberately NOT a delivery_failure: this is OUR durable row
+        // failing, not the provider call - there is no durable interaction
+        // a tap could resolve, so the request is dropped and the rejection
+        // propagates to the durable IPC lane, which owns the retry
+        // (pinned batch-persistence behavior; D-0046 tracks the
+        // record-before-delivery crash window).
         approvalSurface.dropPendingInteraction?.('permission', routed.request);
         throw err;
       }
-      return { delivered: false, reason: 'Permission approval flow failed' };
+      return {
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+        userMessage: 'Permission approval flow failed',
+      };
     }
   }
 
@@ -309,9 +328,16 @@ export function createPermissionApprovalRequester(input: {
     if (activePrompt) activePrompts.add(activePrompt);
     try {
       if (batch.requests.length === 1) {
-        const decision = await dispatchSingle(batch.requests[0]);
-        if (!resolveBatchRequest(batch.requests[0], decision)) {
-          await releaseDecisionClaim(decision);
+        const result = await dispatchSingle(
+          batch.requests[0],
+          [],
+          promptDeliveredCallback(batch.requests),
+        );
+        if (
+          !resolveBatchRequest(batch.requests[0], result) &&
+          result.kind === 'decision'
+        ) {
+          await releaseDecisionClaim(result.decision);
         }
         return;
       }
@@ -325,7 +351,18 @@ export function createPermissionApprovalRequester(input: {
       if (!summaries.every((summary) => summary.bulkEligible)) {
         batchRequest.decisionOptions = ['allow_persistent_rule', 'cancel'];
       }
-      batchDecision = await dispatchSingle(batchRequest, batch.requests);
+      const batchResult = await dispatchSingle(
+        batchRequest,
+        batch.requests,
+        promptDeliveredCallback(batch.requests),
+      );
+      if (batchResult.kind === 'delivery_failure') {
+        for (const request of batch.requests) {
+          resolveBatchRequest(request, batchResult);
+        }
+        return;
+      }
+      batchDecision = batchResult.decision;
       if (!batch.requests.every(hasBatchResolver)) {
         await releaseDecisionClaim(batchDecision);
         resolveIncompleteBatch(batch.requests);
@@ -348,9 +385,12 @@ export function createPermissionApprovalRequester(input: {
         }
         batchClaimSettled = Boolean(batchDecision.permissionCallbackClaim);
         for (const request of batch.requests) {
-          const decision = await dispatchSingle(request);
-          if (!resolveBatchRequest(request, decision)) {
-            await releaseDecisionClaim(decision);
+          const result = await dispatchSingle(request);
+          if (
+            !resolveBatchRequest(request, result) &&
+            result.kind === 'decision'
+          ) {
+            await releaseDecisionClaim(result.decision);
           }
         }
         return;
@@ -372,15 +412,15 @@ export function createPermissionApprovalRequester(input: {
               batchDecision.approved ? 'allow_once' : 'cancel',
               batchDecision.decidedBy,
             );
-        const resolved = resolveBatchRequest(
-          request,
-          batchDecision.permissionCallbackClaim
+        const resolved = resolveBatchRequest(request, {
+          kind: 'decision',
+          decision: batchDecision.permissionCallbackClaim
             ? {
                 ...derivedDecision,
                 permissionCallbackClaim: batchDecision.permissionCallbackClaim,
               }
             : derivedDecision,
-        );
+        });
         if (resolved && cancellation) clearQueuedCancellation(key);
         fanOutComplete = resolved && fanOutComplete;
       }
@@ -409,11 +449,38 @@ export function createPermissionApprovalRequester(input: {
     return pendingResolvers.has(permissionRequestScopeKey(request));
   }
 
+  function promptDeliveredCallback(
+    requests: readonly PermissionApprovalRequest[],
+  ): ((messageId: string) => void) | undefined {
+    const callbacks = [
+      ...new Map(
+        requests.flatMap((request) => {
+          const callback = pendingResolvers.get(
+            permissionRequestScopeKey(request),
+          )?.onPromptDelivered;
+          return callback
+            ? [[permissionRequestScopeKey(request), callback] as const]
+            : [];
+        }),
+      ).values(),
+    ];
+    if (callbacks.length === 0) return undefined;
+    let delivered = false;
+    return (messageId) => {
+      if (delivered) return;
+      delivered = true;
+      for (const callback of callbacks) callback(messageId);
+    };
+  }
+
   function resolveIncompleteBatch(requests: PermissionApprovalRequest[]): void {
     for (const request of requests) {
       resolveBatchRequest(request, {
-        approved: false,
-        reason: 'Permission batch dispatch failed',
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+        userMessage: 'Permission batch dispatch failed',
       });
     }
   }
@@ -433,33 +500,37 @@ export function createPermissionApprovalRequester(input: {
 
   function resolveBatchRequest(
     request: PermissionApprovalRequest,
-    decision: PermissionApprovalDecision,
+    result: PermissionApprovalResult,
   ): boolean {
     const key = permissionRequestScopeKey(request);
     const pending = pendingResolvers.get(key);
     if (!pending) return false;
     pendingResolvers.delete(key);
-    pending.resolve(decision);
+    pending.resolve(result);
     return true;
   }
 
-  const requestPermissionApproval: PermissionApprovalRequester = (request) => {
-    if (!request.runId) return dispatchSingle(request);
+  const requestPermissionApproval: PermissionApprovalRequester = (
+    request,
+    onPromptDelivered,
+  ) => {
+    if (!request.runId) {
+      return dispatchSingle(request, [], onPromptDelivered);
+    }
     const key = permissionRequestScopeKey(request);
     const existing = pendingResolvers.get(key);
     if (existing) return existing.promise;
-    let resolvePending!: (decision: PermissionApprovalDecision) => void;
+    let resolvePending!: (result: PermissionApprovalResult) => void;
     let rejectPending!: (reason?: unknown) => void;
-    const promise = new Promise<PermissionApprovalDecision>(
-      (resolve, reject) => {
-        resolvePending = resolve;
-        rejectPending = reject;
-      },
-    );
+    const promise = new Promise<PermissionApprovalResult>((resolve, reject) => {
+      resolvePending = resolve;
+      rejectPending = reject;
+    });
     pendingResolvers.set(key, {
       promise,
       resolve: resolvePending,
       reject: rejectPending,
+      ...(onPromptDelivered ? { onPromptDelivered } : {}),
     });
     coalescer.enqueue(request);
     return promise;

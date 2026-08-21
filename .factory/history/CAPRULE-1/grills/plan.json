@@ -1,0 +1,26 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "summary": "Root cause is verified (matcher is fine; capability/command grants never reach the scheduled evaluator). The one genuine unknown \u2014 which lane produced this deny and whether it touches the PERM-2 worker/host authority boundary \u2014 is gated behind a read-only Codex validation before any Part A code. Notification consolidation (Part B) is independent and reuses existing de-dup signals.",
+  "gaps": [
+    "The exact lane/boundary that gated THIS run is unconfirmed: worker-side autonomous set (tool-permission-gate.ts:123-131) vs a host-side projection gap (identity mismatch ipc-permission-classifier-decision.ts:126-128, or skill-activation gate agent-tool-runtime-rules.ts:157-162). Harness is 'auto' and the run used DeepAgents-style tools, so it likely gated on the host lane, which already threads definitions.",
+    "The precise mechanism for Part A (how host-reviewed capability authority reaches the scheduled decision) is not yet fixed; it depends on the validated lane."
+  ],
+  "contradictions": [
+    "Plan Part A says to include the agent's durable capability + command rules in the scheduled decision, but PERM-2 Task F (tool-permission-gate.ts:108-115) deliberately excludes worker-side durable grants so a compromised worker cannot self-grant."
+  ],
+  "resolutions": [
+    "Lane uncertainty -> CAPRULE-1-1 is a read-only Codex validation (forge delegate --read-only) that must confirm the lane/boundary BEFORE Part A implementation; Part A is gated on its verdict.",
+    "PERM-2 contradiction -> Part A keeps authority host-reviewed (route through resolveAgentToolRuntimePolicy / the host reviewedRuleDecision that already computes it), NOT worker self-grant from configured allowedTools; captured in decision 0116.",
+    "Scope -> Part A alone makes the KnackLabs job work (the pause vanishes); Part B (notification consolidation) is independent and reuses setupNotified/notified_fingerprint/previousFingerprint, so it can land separately if needed. No matcher/projection/resolveCapabilityRules changes (verified correct)."
+  ],
+  "open_items": [
+    "Whether Part B stays in CAPRULE-1 or splits to a fast-follow (user wants it in, given the screenshot feedback)."
+  ],
+  "questions_asked": 4,
+  "input_sha256": "9ae22737011a5a086e655e9db4eb326d183848763c016c41207b8bc5e047aa4b",
+  "issue": "CAPRULE-1",
+  "recorded_at": "2026-08-08T13:54:54+00:00",
+  "commit": "83d8395277b6af454c3e2a441a8db377f0df73a7"
+}

@@ -1,0 +1,45 @@
+{"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-11T16:38:13+00:00", "story": "CAPFIX-1", "detail": "docs/specs/capability-template-amendment.md"}
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-11T16:38:21+00:00", "story": "CAPFIX-1", "detail": "Capability template amendment via grantable card"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-11T16:48:23+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-11T16:48:24+00:00", "story": "CAPFIX-1", "detail": "plans/active/CAPFIX-1-capability-template-amendment-via-grantable-card.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T16:49:47+00:00", "story": "CAPFIX-1", "detail": "2 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-11T16:49:56+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-1 Amendment proposal path: target kind, host validation, widening classifier, durable record"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-11T17:10:51+00:00", "story": "CAPFIX-1", "detail": "Managed command policy refuses the required VITEST_JUNIT and FORGE_TEST_ID environment-prefixed commands; equivalent focused Vitest files pass, but the exact declared evidence commands remain unexecut"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T17:11:04+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-1 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-11T17:18:17+00:00", "story": "CAPFIX-1", "detail": "S-0001-9b97: Known managed-policy refusal of FORGE_TEST_ID exact commands - the stage-done gate runs them itself and the orchestrator corrects ids to exact JUnit names first (established AUTODET-1 procedure); your"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T17:26:42+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-1 (write)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T17:52:58+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T19:13:39+00:00", "story": "CAPFIX-1", "detail": "2 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T19:14:24+00:00", "story": "CAPFIX-1", "detail": "2 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T19:14:45+00:00", "story": "CAPFIX-1", "detail": "2 task(s)"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-11T19:14:45+00:00", "story": "CAPFIX-1", "detail": "passed"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-11T19:20:41+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-1 exact ipc-mcp-stdio file command failed twice because unrelated fs.watch cases hit managed-host EMFILE; the named strict-contract test passed in both JUnit reports."}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T19:22:08+00:00", "story": "CAPFIX-1", "detail": "2 task(s)"}
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-11T19:24:36+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-1 decision 0122 makes denial terminal per canonical proposal pair, but the committed repository scopes terminal dedup to reviewedSchemaHash and reopens the same pair after catalog revision; r"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T19:24:45+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-1 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-11T19:29:29+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-1: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-11T19:29:29+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-1 Amendment proposal path: target kind, host validation, widening classifier, durable record"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-11T19:29:53+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-2 Plain-language card, CAS catalog amendment, fix-and-continue, e2e proof"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-11T19:30:52+00:00", "story": "CAPFIX-1", "detail": "S-0002-b839: Environmental: managed-host EMFILE on unrelated fs.watch cases; the named strict-contract testcase passed in both JUnit reports and the stage-done gate re-ran the exact lane green. No action."}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-11T19:30:52+00:00", "story": "CAPFIX-1", "detail": "S-0003-fdf7: Implementation governs; decision 0122 text now refined to match: deny is terminal per canonical pair WITHIN a reviewed definition (reviewedSchemaHash scopes terminality); a catalog revision supersedes"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-11T19:44:44+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-2 live Postgres proof is discovered but skipped without GANTRY_TEST_DATABASE_URL, and managed command policy rejects the required environment-prefixed localhost command."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T19:45:06+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-2 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-11T19:46:43+00:00", "story": "CAPFIX-1", "detail": "S-0004-9701: Established procedure: worker sandbox has no Postgres/network; the orchestrator runs the live-Postgres lane on the host (gantry-e2e-pg, port 55432) and the stage-done gate re-runs the exact env-prefix"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T21:43:05+00:00", "story": "CAPFIX-1", "detail": "2 task(s)"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-11T21:43:05+00:00", "story": "CAPFIX-1", "detail": "passed"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-11T21:47:54+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-2 exact required test commands are blocked by managed shell policy: literal FORGE_TEST_ID values containing > and the GANTRY_TEST_DATABASE_URL invocation require approval unavailable in this "}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T21:48:06+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-2 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-11T21:52:42+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-2: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-11T21:52:42+00:00", "story": "CAPFIX-1", "detail": "CAPFIX-1-2 Plain-language card, CAS catalog amendment, fix-and-continue, e2e proof"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-11T21:58:06+00:00", "story": "CAPFIX-1"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-11T22:01:04+00:00", "story": "CAPFIX-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-11T22:01:05+00:00", "story": "CAPFIX-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-11T22:01:05+00:00", "story": "CAPFIX-1"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-11T22:01:41+00:00", "story": "CAPFIX-1", "detail": "S-0005-fc48: Established: the stage-done gate re-ran all three exact commands itself (env-prefixed URL included) and they passed - that is the durable proof path; worker-side managed-policy refusal needs no action"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-11T22:01:41+00:00", "story": "CAPFIX-1", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-11T22:01:41+00:00", "story": "CAPFIX-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-11T22:01:41+00:00", "story": "CAPFIX-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-11T22:01:42+00:00", "story": "CAPFIX-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-11T22:01:52+00:00", "story": "CAPFIX-1", "detail": "passed"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-11T22:07:51+00:00", "story": "CAPFIX-1"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-11T22:07:51+00:00", "story": "CAPFIX-1", "detail": "When a CLI capability's approved command shape doesn't fit how the command really works, the agent now asks for a fix instead of failing forever: one plain-language card lands in chat - what stopped, "}

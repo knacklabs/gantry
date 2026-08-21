@@ -75,13 +75,27 @@ must not start arbitrary MCP servers as a readiness side effect.
 ## Execution
 
 Scheduled job execution keeps protected capability and memory guards active
-before autonomous allowance. Eligible `auto`/`auto_strict` requests get a
-bounded classifier decision, but a request that still needs a human cannot hold
-the unattended runner indefinitely. The job enters the setup-required recovery
-path and delivers its approval through the existing job/source-conversation
-route. The current implementation releases the old lease and schedules new
+before autonomous allowance. Per
+[decision 0121](../decisions/0121-autodet-no-classifier-autonomous.md), a
+host-verified `jobId` makes the permission path deterministic: reviewed agent
+authority allows, while a miss becomes a terminal denial without consulting
+the classifier or its verdict cache. The job enters the setup-required recovery
+path and delivers its approval through the job/source-conversation route using
+decision 0124's bounded durable delivery contract: at most four attempts and a
+defined delivered, ambiguous, exhausted, expired, or cancelled outcome. Delivery failure
+is never a human denial. The current implementation releases the old lease and schedules new
 work after approval; same-fenced-run tool-call resume and explicit
 `controlApprovers` routing remain D-0008.
+
+Per decisions 0115 and 0126, every autonomous denial in the defined terminal sweep is
+terminal for the active run: declarative scheduled-run denials and the protected-capability,
+memory-boundary, and DeepAgents settings-denylist guards are included; the Anthropic
+model-validation, wait-only, and network guards are excluded. For an in-scope denial,
+the model cannot silently substitute another tool and continue. Gantry pauses
+the job in `Setup required`, names the denied tool in diagnostics and the setup
+card, and waits for approval or operator instructions before a fresh run. This
+setup pause does not consume retry/backoff or dead-letter budget. The
+zero-timeout permission protocol remains unchanged.
 
 `Allow for future`, when offered, stores a semantic
 `capability:<id>` grant when the request names one; otherwise it may apply
@@ -117,11 +131,12 @@ blocker and next action visible in the approval receipt and job status.
 
 When deterministic setup or permission blockers pause a job, Gantry emits
 `job.setup_required`, persists the refreshed setup state, and renders the
-operator-visible next action. User-facing agents and scheduled jobs do not get
-request/setup tools and do not queue target-agent recovery turns; an admin or
-operator must update the fixed worker image inventory or selected capabilities
-before the job can pass readiness. Generic job failures do not create recovery
-turns.
+operator-visible next action. Human-gated recovery-proposal tools remain input-gated
+birthright under decision 0123, except that decision 0125 removes the agent-authored
+capability-template-amendment target: a recognized template mismatch is compiled and filed
+by the verified host handler. Fixed worker-image inventory and unsupported setup still need
+an admin or operator action before readiness can pass. Generic job failures do not create
+recovery turns.
 
 Job creation can declare one canonical `access_requirements` list on
 `scheduler_upsert_job` instead of embedding provider-specific shell commands in

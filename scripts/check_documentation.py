@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 import sys
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit
@@ -66,6 +67,7 @@ ENGINEERING_POLICIES = (
 )
 DECISION_STATUSES = {"proposed", "accepted", "superseded"}
 PLAN_STATUSES = {"proposed", "approved", "in-progress", "completed", "abandoned"}
+INVENTORY_FIELDS = {"path", "category", "lifecycle", "authority", "intendedAction"}
 CANONICAL_REPOSITORY = "https://github.com/knacklabs/gantry"
 HISTORICAL_ARCHITECTURE_NAME = re.compile(
     r"(?:^|[-_])(?:audit|draft|goal-prompt|handoff|plan|review|validation)(?:[-_.]|$)",
@@ -541,6 +543,73 @@ def _check_repository_identity(root: Path, errors: list[str]) -> None:
         errors.append("package.json: engines.node must declare the supported Node.js range")
 
 
+def _check_documentation_inventory(root: Path, errors: list[str]) -> None:
+    inventory_path = root / "docs" / "documentation-inventory.json"
+    if not inventory_path.is_file():
+        errors.append("docs/documentation-inventory.json: missing governed-document inventory")
+        return
+    try:
+        inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        errors.append(f"docs/documentation-inventory.json: invalid JSON: {exc}")
+        return
+
+    source_roots = inventory.get("sourceRoots")
+    records = inventory.get("records")
+    counts = inventory.get("counts")
+    if not isinstance(source_roots, list) or not all(isinstance(item, str) for item in source_roots):
+        errors.append("docs/documentation-inventory.json: sourceRoots must be a string array")
+        return
+    if not isinstance(records, list):
+        errors.append("docs/documentation-inventory.json: records must be an array")
+        return
+
+    actual: set[str] = set()
+    for source in source_roots:
+        source_path = root / source
+        if source_path.is_file():
+            actual.add(source_path.relative_to(root).as_posix())
+        elif source_path.is_dir():
+            actual.update(
+                path.relative_to(root).as_posix()
+                for path in source_path.rglob("*")
+                if path.is_file() and not any(part.startswith(".") for part in path.relative_to(source_path).parts)
+            )
+
+    listed: list[str] = []
+    category_counts: dict[str, int] = {}
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            errors.append(f"docs/documentation-inventory.json: record {index} must be an object")
+            continue
+        missing_fields = sorted(INVENTORY_FIELDS - record.keys())
+        if missing_fields:
+            errors.append(
+                "docs/documentation-inventory.json: record "
+                f"{index} missing fields: {', '.join(missing_fields)}"
+            )
+            continue
+        record_path = record.get("path")
+        category = record.get("category")
+        if not isinstance(record_path, str) or not record_path:
+            errors.append(f"docs/documentation-inventory.json: record {index} has invalid path")
+            continue
+        listed.append(record_path)
+        if isinstance(category, str) and category:
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+    duplicates = sorted(record_path for record_path, count in Counter(listed).items() if count > 1)
+    for record_path in duplicates:
+        errors.append(f"docs/documentation-inventory.json: duplicate record: {record_path}")
+    listed_set = set(listed)
+    for record_path in sorted(actual - listed_set):
+        errors.append(f"docs/documentation-inventory.json: unclassified governed record: {record_path}")
+    for record_path in sorted(listed_set - actual):
+        errors.append(f"docs/documentation-inventory.json: inventory record is outside governed roots: {record_path}")
+    if counts != dict(sorted(category_counts.items())):
+        errors.append("docs/documentation-inventory.json: counts do not match classified records")
+
+
 def _check_governance(root: Path, errors: list[str]) -> None:
     if not _governance_enabled(root):
         return
@@ -549,6 +618,7 @@ def _check_governance(root: Path, errors: list[str]) -> None:
     _check_plan_lifecycle(root, errors)
     _check_taxonomy_and_indexes(root, errors)
     _check_repository_identity(root, errors)
+    _check_documentation_inventory(root, errors)
 
 
 def check_repository(root: Path) -> list[str]:

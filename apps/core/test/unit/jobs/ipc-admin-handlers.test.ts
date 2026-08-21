@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import { buildReviewedMcpCapabilityCandidate } from '@core/application/mcp/mcp-capability-candidate.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
@@ -29,7 +30,9 @@ async function loadAdminHandlers(runtimeHome: string) {
     })),
     getRuntimeRepositories: vi.fn(() => ({})),
     getRuntimeStorage: vi.fn(() => ({
-      repositories: { pendingAccessRequests },
+      repositories: {
+        pendingAccessRequests,
+      },
     })),
   }));
   const ipcAuth = await import('@core/runtime/ipc-auth.js');
@@ -163,7 +166,9 @@ function mcpCapabilityReviewDeps(
     disableAgentBinding: vi.fn(async () => null),
     appendAuditEvent: vi.fn(async () => undefined),
   };
-  const requestPermissionApproval = vi.fn(decide);
+  const requestPermissionApproval = vi.fn(async (request: any) =>
+    permissionDecisionResult(await decide(request)),
+  );
   const sendMessage = vi.fn(async () => undefined);
   const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
   return {
@@ -285,10 +290,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_mcp_server({
       data: taskData('remote-mcp', {
@@ -326,10 +333,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      reason: 'not today',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        reason: 'not today',
+      }),
+    );
     const sendMessage = vi.fn(async () => undefined);
 
     await adminTaskHandlers.request_mcp_server({
@@ -385,10 +394,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('direct-capability-request', {
@@ -427,10 +438,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('forged-capability-proposal', {
@@ -470,10 +483,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      reason: 'not now',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        reason: 'not now',
+      }),
+    );
     const now = '2026-06-02T00:00:00.000Z';
 
     await adminTaskHandlers.request_permission({
@@ -1095,10 +1110,12 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, syncRuntimeSettingsFromProjection, taskData } =
       await loadAdminHandlers(runtimeHome);
     const registerGroup = vi.fn(async () => undefined);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.register_agent({
       data: taskData('register-agent', {
@@ -1149,10 +1166,12 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, syncRuntimeSettingsFromProjection, taskData } =
       await loadAdminHandlers(runtimeHome);
     const registerGroup = vi.fn(async () => undefined);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.register_agent({
       data: taskData('register-other', {
@@ -1189,10 +1208,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-projected-browser', {
@@ -1230,10 +1251,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-generic-records', {
@@ -1307,10 +1330,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-semantic-toolname-records', {
@@ -1373,10 +1398,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-semantic-toolnames-records', {
@@ -1439,10 +1466,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-local-cli-proposal-records', {
@@ -1513,11 +1542,11 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, pendingAccessRequests, taskData } =
       await loadAdminHandlers(runtimeHome);
     let resolveApproval:
-      | ((value: { approved: false; reason: string }) => void)
+      | ((value: ReturnType<typeof permissionDecisionResult>) => void)
       | undefined;
     const requestPermissionApproval = vi.fn(
       () =>
-        new Promise<{ approved: false; reason: string }>((resolve) => {
+        new Promise<ReturnType<typeof permissionDecisionResult>>((resolve) => {
           resolveApproval = resolve;
         }),
     );
@@ -1575,7 +1604,9 @@ describe('admin IPC handlers', () => {
       code: 'capability_request_already_pending',
     });
 
-    resolveApproval?.({ approved: false, reason: 'test complete' });
+    resolveApproval?.(
+      permissionDecisionResult({ approved: false, reason: 'test complete' }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(pendingAccessRequests.markResolved).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1605,7 +1636,7 @@ describe('admin IPC handlers', () => {
         bindings.push(binding);
       }),
     };
-    let job = {
+    const job = {
       id: 'job-1',
       name: 'Sheet append job',
       workspace_key: 'main_agent',
@@ -1641,31 +1672,34 @@ describe('admin IPC handlers', () => {
         ],
       },
     };
-    const updateJob = vi.fn(async (_jobId: string, updates: object) => {
-      job = { ...job, ...updates };
-    });
+    const listJobs = vi.fn(async () => [job]);
+    const resumeSetupPausedJob = vi.fn(async () => true);
+    const refreshSetupPausedJob = vi.fn(async () => true);
+    const updateJob = vi.fn(async () => undefined);
     const onSchedulerChanged = vi.fn();
+    const publishRuntimeEvent = vi.fn(async () => undefined);
     const sendMessage = vi.fn(async () => undefined);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      mode: 'allow_persistent_rule',
-      decidedBy: 'U_APPROVER',
-      decisionClassification: 'user_permanent',
-      updatedPermissions: [
-        {
-          type: 'addRules',
-          behavior: 'allow',
-          destination: 'session',
-          rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
-        },
-      ],
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        mode: 'allow_persistent_rule',
+        decidedBy: 'U_APPROVER',
+        decisionClassification: 'user_permanent',
+        updatedPermissions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'RunCommand', ruleContent: 'npm test *' }],
+          },
+        ],
+      }),
+    );
 
     await adminTaskHandlers.request_permission({
       data: taskData('request-command-access', {
         type: 'request_permission',
         chatJid: 'sl:C123',
-        jobId: 'job-1',
         payload: {
           permissionKind: 'tool',
           capabilityRequestSource: 'request_access',
@@ -1682,8 +1716,11 @@ describe('admin IPC handlers', () => {
         getToolRepository: () => toolRepository,
         mirrorAgentToolRulesToSettings: vi.fn(async () => undefined),
         onSchedulerChanged,
+        publishRuntimeEvent,
         opsRepository: {
-          getJobById: vi.fn(async () => job),
+          listJobs,
+          resumeSetupPausedJob,
+          refreshSetupPausedJob,
           updateJob,
         },
       }) as never,
@@ -1692,16 +1729,32 @@ describe('admin IPC handlers', () => {
     });
 
     await vi.waitFor(() => {
-      expect(updateJob).toHaveBeenCalledWith(
-        'job-1',
+      expect(resumeSetupPausedJob).toHaveBeenCalledWith(
         expect.objectContaining({
-          status: 'active',
-          pause_reason: null,
-          setup_state: expect.objectContaining({ state: 'ready' }),
+          jobId: 'job-1',
+          expectedSetupCheckedAt: '2026-06-02T00:00:00.000Z',
+          expectedPauseReason: 'Setup required',
+          setupState: expect.objectContaining({ state: 'ready' }),
         }),
       );
     });
+    expect(listJobs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationJid: 'sl:C123',
+        statuses: ['paused'],
+        workspaceKey: 'main_agent',
+      }),
+    );
+    expect(refreshSetupPausedJob).not.toHaveBeenCalled();
+    expect(updateJob).not.toHaveBeenCalled();
     expect(onSchedulerChanged).toHaveBeenCalledWith('job-1');
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'permission.final_outcome',
+        jobId: 'job-1',
+        payload: expect.objectContaining({ permissionRecovery: 'queued' }),
+      }),
+    );
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:C123',
       expect.stringContaining('Job resumed: Sheet append job.'),
@@ -1716,12 +1769,14 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      mode: 'allow_once',
-      decidedBy: 'U_APPROVER',
-      decisionClassification: 'user_temporary',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'U_APPROVER',
+        decisionClassification: 'user_temporary',
+      }),
+    );
     const deps = depsWithAdminTools([], { requestPermissionApproval });
     const ipcBaseDir = path.join(runtimeHome, 'data', 'ipc');
 
@@ -1850,7 +1905,9 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, pendingAccessRequests, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({ approved: true }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({ approved: true }),
+    );
     const deps = depsWithAdminTools([], { requestPermissionApproval });
 
     await adminTaskHandlers.request_permission({
@@ -1893,11 +1950,11 @@ describe('admin IPC handlers', () => {
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
     let resolveApproval:
-      | ((value: { approved: false; reason: string }) => void)
+      | ((value: ReturnType<typeof permissionDecisionResult>) => void)
       | undefined;
     const requestPermissionApproval = vi.fn(
       () =>
-        new Promise<{ approved: false; reason: string }>((resolve) => {
+        new Promise<ReturnType<typeof permissionDecisionResult>>((resolve) => {
           resolveApproval = resolve;
         }),
     );
@@ -1931,7 +1988,9 @@ describe('admin IPC handlers', () => {
       code: 'skill_install_already_pending',
     });
 
-    resolveApproval?.({ approved: false, reason: 'test complete' });
+    resolveApproval?.(
+      permissionDecisionResult({ approved: false, reason: 'test complete' }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(readResponse(runtimeHome, 'skill-command-1')).toMatchObject({
       ok: false,
@@ -1946,10 +2005,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
     const data = taskData('skill-missing-app', {
       type: 'request_skill_proposal',
       chatJid: 'sl:C123',
@@ -1983,10 +2044,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.request_skill_install({
       data: taskData('skill-mixed-install', {
@@ -2020,10 +2083,12 @@ describe('admin IPC handlers', () => {
     runtimeHomes.push(runtimeHome);
     const { adminTaskHandlers, taskData } =
       await loadAdminHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'U_APPROVER',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'U_APPROVER',
+      }),
+    );
 
     await adminTaskHandlers.register_agent({
       data: taskData('register-cross-app', {

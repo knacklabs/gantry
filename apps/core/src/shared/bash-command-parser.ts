@@ -11,7 +11,9 @@ export interface BashCommandLeaf {
 }
 
 export type BashCommandParseResult =
-  | { ok: true; leaves: BashCommandLeaf[] }
+  // `piped` is true when the leaves are joined by at least one `|` (data flows
+  // between them), as opposed to control-flow-only `&&`/`||`/`;`.
+  | { ok: true; leaves: BashCommandLeaf[]; piped: boolean }
   | { ok: false; reason: string };
 
 const UNSAFE_COMMANDS = new Set([
@@ -249,6 +251,7 @@ function parseSegment(command: string): BashCommandParseResult {
   let token = '';
   let quote: "'" | '"' | null = null;
   let escaped = false;
+  let piped = false;
 
   const flushToken = () => {
     if (!token) return;
@@ -337,6 +340,7 @@ function parseSegment(command: string): BashCommandParseResult {
       const nested = parseSegment(command.slice(i + 1, end));
       if (!nested.ok) return nested;
       leaves.push(...nested.leaves);
+      if (nested.piped) piped = true;
       i = end;
       continue;
     }
@@ -362,6 +366,7 @@ function parseSegment(command: string): BashCommandParseResult {
       const flushed = flushLeaf();
       if (flushed) return flushed;
       if (ch === '|' && next === '|') i += 1;
+      else if (ch === '|') piped = true;
       continue;
     }
 
@@ -390,7 +395,7 @@ function parseSegment(command: string): BashCommandParseResult {
   if (leaves.length === 0) {
     return { ok: false, reason: 'Bash command has no executable leaves.' };
   }
-  return { ok: true, leaves };
+  return { ok: true, leaves, piped };
 }
 
 function parseRedirect(

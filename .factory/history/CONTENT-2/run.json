@@ -1,0 +1,17 @@
+{
+  "issue_key": "CONTENT-2",
+  "title": "Physical attachment hand-off: agents access real files in all providers",
+  "tracker": "linear",
+  "branch": "feat/CONTENT-2-physical-attachment-hand-off-agents-access-real-files-in-all-providers",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-04T18:46:15+00:00",
+  "updated_at": "2026-08-04T20:18:18+00:00",
+  "plan_file": "plans/completed/CONTENT-2-physical-attachment-hand-off-agents-access-real-files-in-all-providers.md",
+  "story": "CONTENT-2"
+}

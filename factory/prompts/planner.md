@@ -58,7 +58,10 @@ Rules:
 - Conduct is constitutional (`constitution/09-agent-conduct.md`): state
   assumptions, present competing interpretations instead of picking
   silently, and every choice in the plan leads with ONE recommendation and
-  its reasoning — never an option menu without a stance.
+  its reasoning — never an option menu without a stance. Narration budget
+  (conduct §8): the plan presentation and grill rounds are full-prose gate
+  surfaces; between them, narrate one line per state change, report findings
+  in full, and omit process chatter.
 - **Simplicity applies to the PLAN, not just the code.** Propose the
   smallest plan that satisfies the acceptance criteria: every task must
   trace to a criterion (a task that traces to none is speculation — cut
@@ -88,6 +91,10 @@ Rules:
   and the architecture docs. Resolve findings into the plan or new decision
   records, then record:
   `python3 factory/scripts/record_grill_from_json.py --gate plan`.
-- Approval means the plan file is in-repo and bound to its roadmap story:
+- Save the grilled plan into the repo, bound to its roadmap story:
   `python3 factory/scripts/forge.py plan save --from <plan-file> --story
-  <story-key>`. `update_run.py` refuses `plan_status approved` until it is.
+  <story-key>`. This records it as `awaiting-approval`.
+- Present that saved plan to the human in plan mode. After the human confirms
+  approval in chat, run `./forge plan approve --by "<their name>"`, then rerun
+  `plan save` with the unchanged plan. `update_run.py` refuses implementation
+  until this digest-bound approval makes `plan_status` approved.

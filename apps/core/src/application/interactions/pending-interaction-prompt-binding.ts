@@ -70,6 +70,8 @@ export async function bindPendingPermissionInteractionMessage(input: {
     const group = await active.repository.bindPendingPermissionPrompt({
       id: globalThis.crypto.randomUUID(),
       appId,
+      jobId: request.jobId ?? null,
+      setupFingerprint: request.setupFingerprint ?? null,
       sourceAgentFolder: request.sourceAgentFolder,
       interactionId: request.requestId,
       matchKind: requestIds.length > 1 ? 'batch' : 'individual',

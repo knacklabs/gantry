@@ -1,0 +1,20 @@
+{
+  "issue": "PERF-4",
+  "stages": [
+    {
+      "id": "PERF-4-1",
+      "title": "30-day TTL sweep for terminal live-admission work items",
+      "status": "done",
+      "started_at": "2026-08-03T04:24:37+00:00",
+      "base_sha": "5f67d49b501c7b92fdaba0efa99ec2c37b0760db",
+      "dirty_at_start": {
+        "plans/roadmap.json": {
+          "digest": "9a5b9d15b2936ce0c2d416485f2b2fc20a42babbe2fb93f1a050e7d11ea678a1",
+          "git": "1 .M N... 100644 100644 100644 82f4de4559f1d60ee4e355cf25b533994fb76e83 82f4de4559f1d60ee4e355cf25b533994fb76e83 plans/roadmap.json\u0000\u0000100644 82f4de4559f1d60ee4e355cf25b533994fb76e83 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+        }
+      },
+      "task_sha256": "230d8464402823ba5c100895d5a3696eccc85cb99f15848e7f2803b8140fafb7",
+      "completed_at": "2026-08-03T07:54:33+00:00"
+    }
+  ]
+}

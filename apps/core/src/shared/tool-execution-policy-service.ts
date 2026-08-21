@@ -2,14 +2,10 @@ import {
   evaluateAutonomousToolUse,
   normalizeRuntimeOwnedBashCommandForMatching,
 } from './tool-rule-matcher.js';
-import {
-  bashExecutableName,
-  nonDurableBashLeafReason,
-  normalizeBashLeafRuleContent,
-  parseBashCommand,
-} from './bash-command-parser.js';
+import { bashExecutableName, parseBashCommand } from './bash-command-parser.js';
 import { isDurableGantryMcpToolFullName } from './admin-mcp-tools.js';
 import {
+  isGantryFacadeExactToolRule,
   isKnownProjectedBrowserMcpToolName,
   publicGantryToolNameForSdkTool,
 } from './agent-tool-references.js';
@@ -33,12 +29,13 @@ import {
   isSkillCapabilityPath,
   protectedCapabilityPathMatch,
 } from './tool-execution-protected-paths.js';
-import {
-  containsGeneratedRuntimePath,
-  isGeneratedRuntimeToolResultPath,
-} from './generated-runtime-paths.js';
+import { isGeneratedRuntimeToolResultPath } from './generated-runtime-paths.js';
 import { type SemanticCapabilityDefinition } from './semantic-capabilities.js';
 import { resolveCapabilityRules } from './tool-execution-capability-resolution.js';
+import {
+  autonomousBashRecoveryMessage,
+  persistentAutonomousBashRecoveryRule,
+} from './autonomous-bash-recovery-rule.js';
 
 export type ToolExecutionOrigin =
   | 'sdk'
@@ -182,8 +179,9 @@ export class ToolExecutionPolicyService {
     autonomousAllowedToolRules?: readonly string[];
     // Reviewed capability bundles keyed by id. A granted `capability:<id>` tool
     // rule is resolved through these to the concrete authority its bundle
-    // declares (commandRules / allowedTools / runtimeToolRules); a rule whose
-    // definition is absent is skipped instead of poisoning the whole match.
+    // declares. Structured local_cli capabilities authorize capability_run,
+    // not shell execution. A rule whose definition is absent is skipped
+    // instead of poisoning the whole match.
     semanticCapabilityDefinitions?: Record<
       string,
       SemanticCapabilityDefinition
@@ -599,23 +597,86 @@ function autonomousGrantRecovery(
   if (isKnownProjectedBrowserMcpToolName(request.toolName)) {
     return 'request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false, "reason": "This autonomous run needs browser access." }';
   }
+  const toolName = publicGantryToolNameForSdkTool(request.toolName);
   if (request.toolName === 'Bash') {
-    const command = commandText(request.input);
-    const rule = command ? persistentBashRecoveryRule(command) : undefined;
-    if (!rule) {
-      return 'Update the autonomous run to use a reviewed semantic capability or invoke a scoped RunCommand(...) command directly. This command cannot be durably approved for autonomous runs.';
-    }
-    return `request_access { "target": { "kind": "run_command", "argvPattern": "${escapeJson(rule)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`;
+    return autonomousBashRecoveryMessage(
+      commandText(request.input),
+      escapeJson,
+    );
   }
   if (isDurableGantryMcpToolFullName(request.toolName)) {
     return `request_access { "target": { "kind": "tool", "name": "${escapeJson(request.toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }`;
+  }
+  if (isGantryFacadeExactToolRule(toolName)) {
+    return `request_access { "target": { "kind": "tool", "name": "${escapeJson(toolName)}" }, "temporaryOnly": false, "reason": "This autonomous run needs exact Gantry tool access." }`;
   }
   const thirdPartyMcp = thirdPartyMcpToolServerName(request.toolName);
   if (thirdPartyMcp) {
     return `request_mcp_server { "name": "${escapeJson(thirdPartyMcp)}", "transport": "stdio_template", "templateId": "npx-package", "args": ["<reviewed-package>"], "sandboxProfileId": "mcp-stdio", "reason": "This autonomous run needs the ${escapeJson(thirdPartyMcp)} MCP source connected before reviewed action capabilities can be requested." }`;
   }
-  const toolName = publicGantryToolNameForSdkTool(request.toolName);
   return `Use a reviewed semantic capability from the Agent Access summary for ${escapeJson(toolName)}, or use request_access target.kind=run_command only for a scoped command fallback. Exact tool grants are not accepted as durable authority.`;
+}
+
+export function autonomousToolRecoveryAction(input: {
+  toolName: string;
+  toolInput: unknown;
+  capabilityRequestToolsHidden?: boolean;
+}): string {
+  const request = new ToolExecutionClassifier().classify({
+    origin: 'sdk',
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+    executionMode: 'autonomous',
+  });
+  return autonomousGrantRecovery(
+    request,
+    input.capabilityRequestToolsHidden === true,
+  );
+}
+
+export function autonomousToolAuthorityAddition(input: {
+  toolName: string;
+  toolInput: unknown;
+  capabilityRequestToolsHidden?: boolean;
+}) {
+  if (input.capabilityRequestToolsHidden === true) return null;
+  const request = new ToolExecutionClassifier().classify({
+    origin: 'sdk',
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+    executionMode: 'autonomous',
+  });
+  if (isKnownProjectedBrowserMcpToolName(request.toolName)) {
+    return allowRuleAddition('capability:browser.use');
+  }
+  const toolName = publicGantryToolNameForSdkTool(request.toolName);
+  if (request.toolName === 'Bash') {
+    const command = commandText(request.input);
+    const rule = command
+      ? persistentAutonomousBashRecoveryRule(command)
+      : undefined;
+    return rule ? allowRuleAddition('RunCommand', rule) : null;
+  }
+  if (
+    isDurableGantryMcpToolFullName(request.toolName) ||
+    isGantryFacadeExactToolRule(toolName)
+  ) {
+    return allowRuleAddition(
+      isDurableGantryMcpToolFullName(request.toolName)
+        ? request.toolName
+        : toolName,
+    );
+  }
+  return null;
+}
+
+function allowRuleAddition(toolName: string, ruleContent?: string) {
+  // No destination: durable approval decides persistence (review R3).
+  return {
+    type: 'addRules' as const,
+    behavior: 'allow' as const,
+    rules: [{ toolName, ...(ruleContent ? { ruleContent } : {}) }],
+  };
 }
 
 function thirdPartyMcpToolServerName(toolName: string): string | undefined {
@@ -626,26 +687,13 @@ function thirdPartyMcpToolServerName(toolName: string): string | undefined {
 }
 
 function escapeJson(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
-}
-
-function persistentBashRecoveryRule(command: string): string | undefined {
-  const normalized = normalizeRuntimeOwnedBashCommandForMatching(command);
-  if (containsGeneratedRuntimePath(normalized)) return undefined;
-  const parsed = parseBashCommand(normalized);
-  if (!parsed.ok || parsed.leaves.length !== 1) return undefined;
-  const [leaf] = parsed.leaves;
-  if (!leaf || nonDurableBashLeafReason(leaf)) return undefined;
-  if (inlineInterpreterLeaf(leaf.argv)) return undefined;
-  if (leaf.redirects.some((redirect) => redirect.destructive)) return undefined;
-  return normalizeBashLeafRuleContent(leaf);
-}
-
-function inlineInterpreterLeaf(argv: readonly string[]): boolean {
-  const executable = bashExecutableName(argv[0] ?? '');
-  if (
-    !['node', 'python', 'python3', 'ruby', 'perl', 'php'].includes(executable)
-  )
-    return false;
-  return ['-c', '-e'].includes(argv[1] ?? '');
+  // Full JSON string-body escaping (backslashes, quotes, C0 controls). This text
+  // is read by an autonomous agent, and JSON.stringify leaves the non-C0 line
+  // controls U+0085/U+2028/U+2029 literal, so escape those too — else an
+  // injected line break could split the guidance into a fake instruction.
+  return JSON.stringify(value)
+    .slice(1, -1)
+    .replace(/\u0085/g, '\\u0085')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }

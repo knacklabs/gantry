@@ -7,7 +7,10 @@ import type {
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import type { McpServerRepository } from '../../domain/ports/repositories.js';
 import { nowIso } from '../../shared/time/datetime.js';
-import type { McpToolAuditResultClass } from './mcp-tool-audit.js';
+import type {
+  McpToolAuditResultClass,
+  summarizeCapabilityRunAudit,
+} from './mcp-tool-audit.js';
 import type { ReviewedMaterializedMcpCapability } from './mcp-tool-authorization.js';
 
 export async function publishMcpToolActivity(input: {
@@ -31,6 +34,7 @@ export async function publishMcpToolActivity(input: {
     resultClass: McpToolAuditResultClass;
     latencyMs: number;
     argumentSummary: Record<string, unknown>;
+    capabilityRun?: NonNullable<ReturnType<typeof summarizeCapabilityRunAudit>>;
     selectedToolRule?: string;
     selectedCapability?: Pick<
       ReviewedMaterializedMcpCapability,
@@ -66,6 +70,9 @@ export async function publishMcpToolActivity(input: {
     resultClass: activity.resultClass,
     latencyMs: activity.latencyMs,
     argumentSummary: activity.argumentSummary,
+    ...(activity.capabilityRun
+      ? { capabilityRun: activity.capabilityRun }
+      : {}),
     ...(activity.reason ? { reason: activity.reason } : {}),
     ...(activity.error ? { error: activity.error } : {}),
     ...(typeof activity.outputSchemaPresent === 'boolean'

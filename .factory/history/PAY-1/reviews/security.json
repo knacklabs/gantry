@@ -1,0 +1,21 @@
+{
+  "generated_by": "autoreview",
+  "score": 10,
+  "summary": "No security regression found. Control-server ports narrow the config surface reaching adapters (an improvement); the neutral E2E credential mapping keeps the GitHub secret name and scope unchanged with the key still reaching only the real-model step's env; the sandbox copy change is test-only; session-interaction approval wording changes carry no authorization change; provider-boundary exceptions were tightened or removed, never widened, and the one new exception (sentinel names) is exact-count capped with a ledgered review trigger.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "The frozen-doc marker mechanism is now allowlist-enforced; its abuse path (stamping a live doc) is a checker violation rather than a silent bypass."
+  ],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "git diff main...HEAD (14 commits)",
+    "apps/core/src/control/server",
+    "apps/core/src/channels",
+    ".github/workflows/ci.yml",
+    "scripts/"
+  ],
+  "aspect": "security",
+  "recorded_at": "2026-07-22T17:32:45+00:00",
+  "commit": "aacf96d15d433b315bea16be438b61920b9e5f07"
+}

@@ -1,10 +1,13 @@
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
+import type { LiveUxOperationOptions } from '../../domain/channel-live-ux.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { deliveryNotSent } from '../permission-approval-result.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
@@ -43,7 +46,7 @@ import {
   slackPermissionApproverIds,
 } from './permission-approval-delivery.js';
 import { renderSlackRichInteraction } from './rich-interaction.js';
-import { addSlackReaction } from './reactions.js';
+import { addSlackReaction, removeSlackReaction } from './reactions.js';
 import { requestSlackUserAnswer } from './user-question-delivery.js';
 import { historyCoverageInboundCallbacks } from '../conversation-history-coverage-lifecycle.js';
 import {
@@ -55,7 +58,7 @@ const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   readonly reportsHistoryCoverageInboundLiveness = true;
-  private interactionCallbacksEnabled = true;
+  protected interactionCallbacksEnabled = true;
   private deactivateHistoryCoverageInbound: (() => void) | null = null;
   private readonly reactionKeys = new Set<string>();
   protected async sendSnippetFallback(
@@ -141,17 +144,41 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     messageRef: string,
     emoji: string,
+    options: LiveUxOperationOptions = {},
   ): Promise<void> {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
     await addSlackReaction({
-      app: this.app,
+      botToken: this.botToken,
       jid,
       channelId: parsed.channelId,
       messageRef,
       emoji,
       reactionKeys: this.reactionKeys,
+      signal: options.signal,
+      reconcile: options.reconcile,
+    });
+  }
+
+  async removeReaction(
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options: LiveUxOperationOptions = {},
+  ): Promise<void> {
+    if (!this.app) return;
+    const parsed = this.parseJid(jid);
+    if (!parsed) return;
+    await removeSlackReaction({
+      botToken: this.botToken,
+      jid,
+      channelId: parsed.channelId,
+      messageRef,
+      emoji,
+      reactionKeys: this.reactionKeys,
+      signal: options.signal,
+      reconcile: options.reconcile,
     });
   }
 
@@ -503,10 +530,10 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     text: string,
     options: ProgressUpdateOptions = {},
-  ): Promise<void> {
-    if (!this.app) return;
+  ): Promise<boolean> {
+    if (!this.app) return false;
     const parsed = this.parseJid(jid);
-    if (!parsed) return;
+    if (!parsed) return false;
     const key = this.progressKey(jid, options.threadId);
     this.loadPersistedProgress();
     if (options.done) {
@@ -523,9 +550,9 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         },
         'Progress lifecycle slack dropped sealed generation',
       );
-      return;
+      return false;
     }
-    await sendSlackProgressUpdate({
+    return sendSlackProgressUpdate({
       app: this.app,
       channelId: parsed.channelId,
       key,
@@ -544,23 +571,25 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     request: PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalDecision> {
+  ): Promise<PermissionApprovalResult> {
     if (!this.interactionCallbacksEnabled) {
-      return {
-        approved: false,
-        reason: 'This Slack connection cannot collect approvals right now.',
-      };
+      return deliveryNotSent(
+        'surface_unsupported',
+        'This Slack connection cannot collect approvals right now.',
+      );
     }
     if (!this.app) {
-      return { approved: false, reason: 'Slack app is not connected' };
+      return deliveryNotSent(
+        'surface_unsupported',
+        'Slack app is not connected',
+      );
     }
-
     const parsed = this.parseJid(jid);
     if (!parsed) {
-      return {
-        approved: false,
-        reason: 'This Slack conversation could not be identified.',
-      };
+      return deliveryNotSent(
+        'target_missing',
+        'This Slack conversation could not be identified.',
+      );
     }
 
     if (
@@ -572,10 +601,10 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           pending.sourceAgentFolder === request.sourceAgentFolder,
       )
     ) {
-      return {
-        approved: false,
-        reason: 'This approval request is already awaiting a decision.',
-      };
+      return deliveryNotSent(
+        'surface_unsupported',
+        'This approval request is already awaiting a decision.',
+      );
     }
 
     const timeoutMs = PERMISSION_APPROVAL_TIMEOUT_MS;

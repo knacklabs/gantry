@@ -40,10 +40,17 @@ export function schedulerAccessFromContext(
       'Scheduler job operations must originate from the authenticated provider account.',
     );
   }
+  // Acting person = the creating turn's resolved memory identity, the same
+  // source personal memory already trusts. It is null for every non-DM or
+  // ineligible turn (the locked ID-1 DM boundary in resolveCanonicalMemoryPersonId),
+  // so a group-created job is shared and only an eligible DM turn carries a person.
+  const actingPersonId =
+    toTrimmedString(context.data.memoryUserId, { maxLen: 255 }) ?? null;
   return {
     sourceAgentFolder: context.sourceAgentFolder,
     originConversationJid,
     originProviderAccountId,
+    actingPersonId,
     conversationBindings: context.conversationBindings,
     sourceConversationJids: context.sourceAgentFolderJids,
     authThreadId: context.data.authThreadId,

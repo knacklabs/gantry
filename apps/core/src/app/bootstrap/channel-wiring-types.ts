@@ -8,6 +8,7 @@ import type {
   PermissionApprovalCancellation,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   ProgressUpdateOptions,
   RichInteractionRequest,
   StreamingChunkOptions,
@@ -15,6 +16,7 @@ import type {
   UserQuestionResponse,
   UserQuestionCancellation,
 } from '../../domain/types.js';
+import type { PreparedPermissionCardSend } from '../../domain/permission-card.js';
 import type { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import type {
   isSenderControlAllowed,
@@ -31,6 +33,10 @@ import type { Provider } from '../../channels/provider-registry.js';
 import type { logger } from '../../infrastructure/logging/logger.js';
 import type { RuntimeSecretProvider } from '../../domain/ports/runtime-secret-provider.js';
 import type { GroupJoinOnboardingCoordinator } from '../../domain/ports/group-join-onboarding.js';
+import type {
+  IdentityResolveInput,
+  IdentityResolveResult,
+} from '../../application/identity/person-identity-service.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type {
@@ -43,6 +49,10 @@ import type {
   ConversationContextHydrationResult,
   HydrationRequestObservation,
 } from '../../channels/channel-provider.js';
+import type {
+  ContentCanvasAction,
+  ContentCanvasResult,
+} from '../../shared/content-canvas.js';
 import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
 import type {
   HistoricalAttachmentFetcher,
@@ -74,7 +84,10 @@ export type RetryTailRecoveryEnqueue = (
   input: RetryTailRecoveryEnqueueInput,
 ) => Promise<void>;
 
-export type ChannelAccountOptions = { providerAccountId?: string };
+export type ChannelAccountOptions = {
+  providerAccountId?: string;
+  threadId?: string;
+};
 export type ChannelStreamResetOptions = ChannelAccountOptions & {
   threadId?: string;
 };
@@ -138,6 +151,13 @@ export interface ChannelWiringDeps {
   logger: Pick<typeof logger, 'info' | 'warn' | 'debug' | 'error'>;
   runtimeSecrets: RuntimeSecretProvider;
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
+  resolvePersonIdentity?: (
+    input: IdentityResolveInput,
+  ) => Promise<IdentityResolveResult>;
+  hasDirectConversationWithPerson?: (
+    appId: string,
+    personId: string,
+  ) => Promise<boolean>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
   brainHarvestTap?: BrainChannelHarvestTap;
   historyCoverage?: ConversationHistoryCoverageRepository;
@@ -193,6 +213,18 @@ export interface ChannelWiring {
       messageOptions?: MessageSendOptions;
     },
   ) => Promise<MessageDeliveryResult | undefined>;
+  prepareProviderPermissionCardSend: (
+    jid: string,
+    rawText: string,
+    options: {
+      permit: RecoveryDispatchPermit;
+      messageOptions: MessageSendOptions & {
+        permissionCardView: NonNullable<
+          MessageSendOptions['permissionCardView']
+        >;
+      };
+    },
+  ) => PreparedPermissionCardSend;
   createRecoveryDispatchPermit: (
     input: RecoveryDispatchPermitInput,
   ) => RecoveryDispatchPermit;
@@ -226,21 +258,36 @@ export interface ChannelWiring {
     isTyping: boolean,
     options?: ChannelAccountOptions,
   ) => Promise<void>;
+  progressCardIdentity?: (
+    jid: string,
+    options?: ProgressUpdateOptions,
+  ) => string | undefined;
   sendProgressUpdate: (
     jid: string,
     text: string,
     options?: ProgressUpdateOptions,
-  ) => Promise<void>;
+  ) => Promise<void | boolean>;
   addReaction: (
     jid: string,
     messageRef: string,
     emoji: string,
     options?: ChannelAccountOptions,
   ) => Promise<void>;
+  removeReaction: (
+    jid: string,
+    messageRef: string,
+    emoji: string,
+    options?: ChannelAccountOptions,
+  ) => Promise<void>;
+  reactionRemovalMode: (
+    jid: string,
+    options?: Pick<ChannelAccountOptions, 'providerAccountId'>,
+  ) => 'exact' | 'all' | undefined;
   syncGroups: (force: boolean) => Promise<void>;
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>;
+    onPromptDelivered?: (messageId: string) => void,
+  ) => Promise<PermissionApprovalResult>;
   cancelPermissionApproval: (
     cancellation: PermissionApprovalCancellation,
   ) => Promise<'settled' | 'queued' | 'not_found'>;
@@ -260,6 +307,11 @@ export interface ChannelWiring {
     request: RichInteractionRequest,
     options?: ChannelAccountOptions,
   ) => Promise<boolean>;
+  executeContentCanvasAction: (
+    jid: string,
+    action: ContentCanvasAction,
+    options?: ChannelAccountOptions,
+  ) => Promise<ContentCanvasResult>;
   hydrateConversationContext?: (
     request: ConversationContextHydrationRequest,
   ) => Promise<ConversationContextHydrationResult>;

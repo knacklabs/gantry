@@ -1,0 +1,31 @@
+{
+  "commit": "5744e58a4158f8f83a7b2f3180fcfb6b24681673",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "SCHED-1 blockers: required tests 'job execution diagnostics > keeps recurring jobs active across automatic allow-once decisions from every policy source' and 'scheduler mutation authority > host rejects mutations from scheduled or unknown run sources' pass; full unit suite 8487 + SDK boundary integration green; per-source pause regressions, decider-collision (map lookup, silent suppression, prototype keys), fail-closed partial provenance, missing-lane fail-closed surface, and corrected risk-pin tests all in.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npm run typecheck",
+      "npm test",
+      "npx vitest run -c vitest.integration.config.ts apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py"
+    ],
+    "tests_added_or_updated": [
+      "execution-diagnostics/finalization: per-source active regressions; human_once-only pause; partial/inconsistent provenance fail-closed; legacy fallback",
+      "gantry-tool-risk + permission-classifier: mutation verbs high/ask (pins corrected), scheduler-asks case",
+      "locked-tool-surface: interactive keeps defaults; missing lane fails closed to autonomous",
+      "ipc-scheduler-mutate-handlers: scheduled/missing source rejection; tool-permission-gate: typed silent sources + collision",
+      "permission-decision-coordinator: prototype-key + machine-collision human-origin regressions; SDK boundary env snapshot"
+    ],
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-05T05:51:53+00:00",
+    "commit": "5744e58a4158f8f83a7b2f3180fcfb6b24681673"
+  },
+  "updated_at": "2026-08-05T05:51:53+00:00"
+}

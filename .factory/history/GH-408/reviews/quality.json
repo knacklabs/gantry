@@ -1,0 +1,31 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "Local Codex quality review found no merge-blocking correctness or regression issue; external helper transmission was denied by the private-diff safety gate.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "inventory-drift-enforcement",
+      "area": "scripts/check_documentation.py",
+      "summary": "The current 251-record inventory is exact, but adding a future governed file does not yet fail CI when the inventory is not refreshed."
+    }
+  ],
+  "residual_risks": [
+    "Broad runtime suites were not rerun locally because disk exhaustion prevented a full dependency installation; no runtime source changed and normal CI remains required."
+  ],
+  "recommendation": "Approve GH-408; consider an inventory exact-set CI rule as a follow-up if ongoing inventory synchronization is desired.",
+  "reviewed_scope": [
+    "complete d1e6dd06..c777b51d branch diff",
+    "documentation checker and tests",
+    "engineering policy corpus",
+    "contributor entry points",
+    "documentation inventory",
+    "factory portability fallback"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "aspect": "quality",
+  "recorded_at": "2026-08-21T08:00:45+00:00",
+  "commit": "215a065ab85a22b9a7aee09694246474bf764c3f"
+}

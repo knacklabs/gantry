@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0035-b6e1",
+  "profile": "degraded",
+  "reason": "bump group.ts file-size budget 850->880: CLI safe-delete adds per-route session cleanup, main was already at the limit",
+  "started_at": "2026-08-20T11:23:16+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

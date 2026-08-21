@@ -2465,14 +2465,15 @@ describe('importFleetSettingsRevision', () => {
     ).toBe(true);
   });
 
-  it('migrates legacy per-agent bindings when reading settings revisions', () => {
-    const restored = settingsFromRevisionDocument({
+  it('rejects legacy per-agent bindings without cloning account secrets', () => {
+    const document = {
       providers: { slack: { enabled: true } },
       provider_accounts: {
         slack_main: {
-          agent: 'control',
+          agent: 'platform',
           provider: 'slack',
           label: 'Slack Main',
+          runtime_secret_refs: { bot_token: 'env:SLACK_BOT_TOKEN' },
         },
       },
       conversations: {
@@ -2497,20 +2498,20 @@ describe('importFleetSettingsRevision', () => {
           },
         },
       },
-    });
+    };
+    const original = structuredClone(document);
 
-    expect(
-      restored.conversations.shared_channel.installedAgents.control_binding,
-    ).toMatchObject({
-      agentId: 'control',
-      providerAccountId: 'slack_main',
-      trigger: '@control',
-      requiresTrigger: true,
-    });
-    expect(Object.values(restored.agents.control.bindings)[0]).toMatchObject({
-      jid: 'sl:C123',
-      trigger: '@control',
-      requiresTrigger: true,
+    expect(() => settingsFromRevisionDocument(document)).toThrowError(
+      'agents.control.bindings is no longer supported in settings revisions. Reset the stored settings revision and re-import canonical settings without agents.*.bindings.',
+    );
+    expect(document).toEqual(original);
+    expect(document.provider_accounts).toEqual({
+      slack_main: {
+        agent: 'platform',
+        provider: 'slack',
+        label: 'Slack Main',
+        runtime_secret_refs: { bot_token: 'env:SLACK_BOT_TOKEN' },
+      },
     });
   });
 });

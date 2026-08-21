@@ -167,6 +167,22 @@ describe('PostgresOutboundDeliveryRepository', () => {
 
       expect(status).toBe('pending');
     });
+
+    it('treats a cancelled permission item as a terminal cancelled aggregate', () => {
+      const status = deriveOutboundDeliveryStatus({
+        counts: {
+          pending: 0,
+          claimed: 0,
+          sent: 0,
+          failed: 0,
+          partiallyDelivered: 0,
+          cancelled: 1,
+        },
+        earliestUnsentStatus: 'cancelled',
+      });
+
+      expect(status).toBe('cancelled');
+    });
   });
 
   it('returns existing delivery for idempotent enqueue retries', async () => {

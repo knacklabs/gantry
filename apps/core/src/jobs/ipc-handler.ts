@@ -6,6 +6,11 @@ import { agentProfileTaskHandlers } from './ipc-agent-profile-handlers.js';
 import { fileArtifactTaskHandlers } from './ipc-file-artifact-handlers.js';
 import { agentTaskLifecycleHandlers } from './ipc-agent-task-lifecycle-handlers.js';
 import { attachmentOpenTaskHandlers } from './ipc-attachment-open-handler.js';
+import { canvasTaskHandlers } from './ipc-canvas-handlers.js';
+import {
+  capabilityRunTaskHandlers,
+  configureCapabilityTemplateMismatchHost,
+} from './ipc-capability-run-handler.js';
 import { schedulerCreateTaskHandlers } from './ipc-scheduler-create-handlers.js';
 import { schedulerMutateTaskHandlers } from './ipc-scheduler-mutate-handlers.js';
 import { schedulerQueryTaskHandlers } from './ipc-scheduler-query-handlers.js';
@@ -32,16 +37,22 @@ import {
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
 } from '../domain/types.js';
 
 const DENIED_BY_PROFILE_REASON = 'denied_by_profile';
+
+configureCapabilityTemplateMismatchHost({
+  getProposalRepository: () =>
+    getRuntimeStorage().repositories.capabilityTemplateAmendments,
+});
 
 export async function requestDurableTaskPermissionApproval(
   request: PermissionApprovalRequest,
   prompt: (
     request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>,
-): Promise<PermissionApprovalDecision> {
+  ) => Promise<PermissionApprovalResult>,
+): Promise<PermissionApprovalResult> {
   await beginDurablePermissionInteraction({
     request,
     sourceAgentFolder: request.sourceAgentFolder,
@@ -121,6 +132,8 @@ const taskHandlers: Record<string, TaskHandler> = {
   ...fileArtifactTaskHandlers,
   ...agentTaskLifecycleHandlers,
   ...attachmentOpenTaskHandlers,
+  ...canvasTaskHandlers,
+  ...capabilityRunTaskHandlers,
 };
 
 export type { TaskIpcData } from './ipc-types.js';

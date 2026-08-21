@@ -285,14 +285,14 @@ describe('skill registry integration flow', () => {
       disableAgentToolBinding: vi.fn(async () => null),
       listAgentToolBindings: vi.fn(async () => []),
     };
-    const requestPermissionApproval = vi.fn(
-      async () =>
-        options?.decision ?? {
-          approved: true,
-          decidedBy: 'Approver',
-          reason: 'approved',
-        },
-    );
+    const requestPermissionApproval = vi.fn(async () => ({
+      kind: 'decision' as const,
+      decision: options?.decision ?? {
+        approved: true,
+        decidedBy: 'Approver',
+        reason: 'approved',
+      },
+    }));
     const deps = {
       conversationRoutes: () =>
         options?.groups ?? {
@@ -654,9 +654,12 @@ describe('skill registry integration flow', () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const sendMessage = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'Approver',
-      reason: 'approved',
+      kind: 'decision' as const,
+      decision: {
+        approved: true,
+        decidedBy: 'Approver',
+        reason: 'approved',
+      },
     }));
     const deps = {
       conversationRoutes: () => ({
@@ -844,11 +847,13 @@ describe('skill registry integration flow', () => {
       | undefined;
     const requestPermissionApproval = vi.fn(
       () =>
-        new Promise<{ approved: true; decidedBy: string; reason: string }>(
-          (resolve) => {
-            resolveApproval = resolve;
-          },
-        ),
+        new Promise<{
+          kind: 'decision';
+          decision: { approved: true; decidedBy: string; reason: string };
+        }>((resolve) => {
+          resolveApproval = (decision) =>
+            resolve({ kind: 'decision', decision });
+        }),
     );
     const sendMessage = vi.fn(async () => undefined);
     const deps = {
@@ -1395,9 +1400,12 @@ describe('skill registry integration flow', () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const sendMessage = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'Approver',
-      reason: 'approved',
+      kind: 'decision' as const,
+      decision: {
+        approved: true,
+        decidedBy: 'Approver',
+        reason: 'approved',
+      },
     }));
     const hiddenReviewTail = 'Do not hide this instruction after preview.';
     const deps = {
@@ -1523,9 +1531,12 @@ describe('skill registry integration flow', () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const sendMessage = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'Approver',
-      reason: 'approved',
+      kind: 'decision' as const,
+      decision: {
+        approved: true,
+        decidedBy: 'Approver',
+        reason: 'approved',
+      },
     }));
     vi.mocked(syncRuntimeSettingsFromProjection).mockRejectedValueOnce(
       new Error('settings sync failed'),
@@ -1603,9 +1614,12 @@ describe('skill registry integration flow', () => {
   it('rejects agent-created skill packages when SKILL.md cannot be fully shown for channel approval', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'Approver',
-      reason: 'approved',
+      kind: 'decision' as const,
+      decision: {
+        approved: true,
+        decidedBy: 'Approver',
+        reason: 'approved',
+      },
     }));
     const deps = {
       conversationRoutes: () => ({
@@ -1662,9 +1676,12 @@ describe('skill registry integration flow', () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const sendMessage = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      decidedBy: 'Approver',
-      reason: 'not approved',
+      kind: 'decision' as const,
+      decision: {
+        approved: false,
+        decidedBy: 'Approver',
+        reason: 'not approved',
+      },
     }));
     const deps = {
       conversationRoutes: () => ({

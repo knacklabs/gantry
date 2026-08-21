@@ -1,0 +1,26 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 5,
+  "gaps": [
+    "Terminal delivery events must ALWAYS append - even when the job's fingerprint moved on or the job is deleted; only the JOB projection (notified_fingerprint CAS + blocker action update) is conditional, with reread-classify on CAS miss",
+    "Exactly ONE terminal event per (promptId, generation) via card_delivery_terminal:<promptId>:<generation>; expiry uses card_delivery_expired:<promptId>; there is NO retrying event - attempt state reads from the outbound item",
+    "ambiguous/exhausted are DISPLAY-LEVEL ONLY: blocker, action, and setup_fingerprint never change while the prompt lives; an arrived card stays tappable; exhausted resume enqueues a NEW GENERATION on the SAME prompt",
+    "Expiry sweeps are OPEN-ONLY (claimed prompts never clobbered); expiry clears notified_fingerprint and a resume issues a NEW prompt row; the job-side expiry mutation is one dedicated coordination transaction",
+    "setup.deliveryNotice is presentation only - derived from the LATEST job.setup_card_delivery event for the current prompt/fingerprint via the S2a event read; never a second outbound notification"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Appendix S3 pins truthful-events-vs-conditional-projection; review brief carries per-contract verdicts",
+    "Idempotency keys are in the shared contract table; reconciler owns projection + job CAS + event append in one transaction",
+    "Fingerprint stability is load-bearing: approval validation requires prompt fingerprint == job fingerprint, so mutating the blocker would invalidate the very prompt the owner can still answer",
+    "Reconciler is a separate service on the existing shared 5s tick (recovery coordinator contract), not folded into the S3 repository",
+    "deliveryNotice rides Control API + contracts/SDK + CLI + shared scheduler formatter with one mapper; activation still gated by S3-RESULT"
+  ],
+  "owner_questions": [],
+  "task_id": "JOBFLOW-1-S3-RECONCILE",
+  "input_sha256": "b06e4bf5deec3ae85e11049500fcfc2d8c65cf71e77743c19947637e158b1712",
+  "recorded_at": "2026-08-13T19:00:42+00:00",
+  "commit": "b3b7b00c5fc7a436437638fdbe6379fee23cf9e7"
+}

@@ -1,16 +1,20 @@
 # {{PROJECT_NAME}} — BRIEF.md
 
-## What
+## Summary
 
 <!-- One paragraph. What are we building and why it matters. Not how. -->
 
-## Who
+## Users
 
 <!-- 2-4 user types, one line each. Who touches this and what do they care about? -->
 
 - **Role** — what they do with the system
 
-## Flows
+## Target Outcome
+
+<!-- What becomes possible when this succeeds? State the observable result, not the implementation. -->
+
+## Key Flows
 
 <!-- The 3-7 key user journeys in plain English. Each flow is a sentence or two.
      Focus on WHAT happens, not implementation details.
@@ -33,7 +37,7 @@
 
 - Constraint description
 
-## Out of Scope (v1)
+## Out of Scope
 
 <!-- What we're explicitly NOT building. Prevents scope creep. -->
 

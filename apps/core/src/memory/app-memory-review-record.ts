@@ -21,7 +21,7 @@ interface MemoryReviewRowLike {
   itemVersionsJson: string;
   candidateVersionsJson: string;
   validationSummary: string;
-  reviewSnapshotJson: string | null;
+  reviewSnapshotJson: string;
   decisionSource: string | null;
   reviewerId: string | null;
   decision: string | null;
@@ -149,17 +149,14 @@ function isSnapshotEvidence(value: unknown): boolean {
   );
 }
 
-/**
- * Full shape-check of the frozen artifact. Any missing/malformed field returns
- * null so callers fall back to legacy (re-query) rendering rather than showing
- * a partial snapshot with undefined values.
- */
-function parseReviewSnapshot(
-  value: string | null,
-): MemoryReviewSnapshot | null {
-  if (!value) return null;
+/** Full shape-check of the frozen artifact. Corrupt snapshots fail closed. */
+function parseReviewSnapshot(value: string): MemoryReviewSnapshot {
+  const corrupt = (): never => {
+    throw new Error('memory review snapshot is missing or malformed');
+  };
+  if (!value) return corrupt();
   const parsed = parseJsonObject(value) as Record<string, unknown>;
-  if (parsed.schemaVersion !== 1) return null;
+  if (parsed.schemaVersion !== 1) return corrupt();
   const subject = parsed.subject;
   if (
     !isObject(subject) ||
@@ -168,32 +165,32 @@ function parseReviewSnapshot(
     typeof subject.subjectType !== 'string' ||
     typeof subject.subjectId !== 'string'
   ) {
-    return null;
+    return corrupt();
   }
   if (parsed.conflict !== undefined) {
-    if (!isObject(parsed.conflict)) return null;
-    if (!isActiveClaim(parsed.conflict.active)) return null;
+    if (!isObject(parsed.conflict)) return corrupt();
+    if (!isActiveClaim(parsed.conflict.active)) return corrupt();
     if (
       parsed.conflict.incoming !== undefined &&
       !isIncomingClaim(parsed.conflict.incoming)
     ) {
-      return null;
+      return corrupt();
     }
   }
   if (
     parsed.proposedCanonical !== undefined &&
     !isProposedCanonical(parsed.proposedCanonical)
   ) {
-    return null;
+    return corrupt();
   }
   if (parsed.retiring !== undefined) {
-    if (!Array.isArray(parsed.retiring)) return null;
-    if (!parsed.retiring.every(isActiveClaim)) return null;
+    if (!Array.isArray(parsed.retiring)) return corrupt();
+    if (!parsed.retiring.every(isActiveClaim)) return corrupt();
   }
-  if (!Array.isArray(parsed.evidence)) return null;
-  if (!parsed.evidence.every(isSnapshotEvidence)) return null;
+  if (!Array.isArray(parsed.evidence)) return corrupt();
+  if (!parsed.evidence.every(isSnapshotEvidence)) return corrupt();
   // Every evidence id cited by any claim must be present in evidence[], or the
-  // snapshot would render with missing evidence. Incomplete → legacy fallback.
+  // snapshot would render with missing evidence.
   const snapshot = parsed as unknown as MemoryReviewSnapshot;
   const present = new Set(snapshot.evidence.map((e) => e.id));
   const cited = [
@@ -202,7 +199,7 @@ function parseReviewSnapshot(
     ...(snapshot.proposedCanonical?.evidenceIds ?? []),
     ...(snapshot.retiring ?? []).flatMap((r) => r.evidenceIds),
   ];
-  if (cited.some((id) => !present.has(id))) return null;
+  if (cited.some((id) => !present.has(id))) return corrupt();
   return snapshot;
 }
 

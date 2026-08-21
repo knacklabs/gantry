@@ -100,15 +100,15 @@ coverage and environment limits in the guide and explicitly excludes a new
 
 ## Surface Impact
 
-| Surface | Classification | Impact |
-| --- | --- | --- |
-| Runtime behavior | Unchanged by design | Documentation and metadata only; no runtime source behavior changes. |
-| API | Unchanged by design | The guide describes the generated OpenAPI surface but does not modify it. |
-| Data/schema | Unchanged by design | Postgres schemas and migrations are read as evidence only. |
-| CLI/ops | Unchanged by design | CLI and deployment paths are documented but not changed. |
-| UI | Changed | Adds the self-contained static project explorer. |
-| Docs | Changed | Adds the guide and audit-coverage notes, refreshes current entry points, and repairs broken links. |
-| Tests | Read-only | Existing checks and browser behavior are run; no runtime test source changes are required. |
+| Surface          | Classification      | Impact                                                                                             |
+| ---------------- | ------------------- | -------------------------------------------------------------------------------------------------- |
+| Runtime behavior | Unchanged by design | Documentation and metadata only; no runtime source behavior changes.                               |
+| API              | Unchanged by design | The guide describes the generated OpenAPI surface but does not modify it.                          |
+| Data/schema      | Unchanged by design | Postgres schemas and migrations are read as evidence only.                                         |
+| CLI/ops          | Unchanged by design | CLI and deployment paths are documented but not changed.                                           |
+| UI               | Changed             | Adds the self-contained static project explorer.                                                   |
+| Docs             | Changed             | Adds the guide and audit-coverage notes, refreshes current entry points, and repairs broken links. |
+| Tests            | Read-only           | Existing checks and browser behavior are run; no runtime test source changes are required.         |
 
 ## Task Decomposition
 

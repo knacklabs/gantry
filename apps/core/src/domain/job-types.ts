@@ -1,4 +1,5 @@
 import type { ExecutionProviderId } from './sessions/sessions.js';
+import type { PermissionAuthorityAddition } from './permission-decision.js';
 
 export type JobScheduleType = 'manual' | 'cron' | 'interval' | 'once';
 
@@ -14,6 +15,7 @@ export interface JobExecutionContext {
   threadId: string | null;
   workspaceKey: string;
   sessionId?: string | null;
+  personId?: string | null;
 }
 
 export interface JobNotificationRoute {
@@ -69,18 +71,23 @@ export type JobSetupReadinessState =
   | 'browser_login_may_be_required'
   | 'mcp_missing_credential';
 
+export type JobSetupAction =
+  | { kind: 'approve_grant'; grant: PermissionAuthorityAddition }
+  | { kind: 'fix_proposal'; proposalId: string }
+  | { kind: 'instruction'; text: string };
+
 export interface JobSetupBlocker {
   state: Exclude<JobSetupReadinessState, 'ready'>;
-  message: string;
-  nextAction: string;
-  requirementType:
+  summary: string;
+  action: JobSetupAction;
+  type:
     | 'tool'
     | 'semantic_capability'
     | 'browser'
     | 'mcp_server'
     | 'credential'
     | 'local_cli';
-  requirementId: string;
+  id: string;
 }
 
 export interface JobSetupState {

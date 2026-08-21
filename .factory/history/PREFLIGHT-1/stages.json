@@ -1,0 +1,74 @@
+{
+  "issue": "PREFLIGHT-1",
+  "stages": [
+    {
+      "id": "PREFLIGHT-1-1",
+      "title": "Grantable builtin facade tools on setup cards (Part A, both lanes)",
+      "status": "done",
+      "started_at": "2026-08-09T04:22:02+00:00",
+      "base_sha": "ed33dd1b40ff6811e69b48517ab7c9236189c62d",
+      "dirty_at_start": {
+        "docs/specs/preflight-1.md": {
+          "digest": "e3b90a496f2095be6205bef12867371d292270dcbee79ec1e0edc50989d0f1c9",
+          "git": "? docs/specs/preflight-1.md\u0000\u0000\u0000"
+        },
+        "plans/abandoned/CAPRULE-2-neutral-capability-authorization-for-scheduled-runs-host-side-lane-agnostic.md": {
+          "digest": "10670b9701eaf16024a55f74c9811861cdf00ce068841e6d2c62db44c39ceb27",
+          "git": "? plans/abandoned/CAPRULE-2-neutral-capability-authorization-for-scheduled-runs-host-side-lane-agnostic.md\u0000\u0000\u0000"
+        },
+        "plans/quickfixes/20260809T024611-0000-Q-0020-422a-open-024611606749.json": {
+          "digest": "1ccaf91dfbd375f064890533c08c22dde59a3444d1e76b76774c722d4ec7a8ce",
+          "git": "? plans/quickfixes/20260809T024611-0000-Q-0020-422a-open-024611606749.json\u0000\u0000\u0000"
+        },
+        "plans/quickfixes/20260809T034451-0000-Q-0020-422a-done-034451518595.json": {
+          "digest": "867f8785cffb38294bddd64e38ebbdc9fcb134c1e5e2a559883ad208beced6ee",
+          "git": "? plans/quickfixes/20260809T034451-0000-Q-0020-422a-done-034451518595.json\u0000\u0000\u0000"
+        },
+        "plans/roadmap.json": {
+          "digest": "6e2e4e0c2e3a4edea5255c1cad88c7cc027de2f5e53bb63a5433dbba1462d70f",
+          "git": "1 .M N... 100644 100644 100644 388efcd1586286d010155c851109430311ff0c7c 388efcd1586286d010155c851109430311ff0c7c plans/roadmap.json\u0000\u0000100644 388efcd1586286d010155c851109430311ff0c7c 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+        }
+      },
+      "task_sha256": "59ad92d8dff725b9f305aca15ba6b0e2a1afcc4078c1d746f206087137b7d167",
+      "completed_at": "2026-08-09T04:53:32+00:00"
+    },
+    {
+      "id": "PREFLIGHT-1-2",
+      "title": "Single-event async actionable card at job creation (Part B)",
+      "status": "done",
+      "started_at": "2026-08-09T04:53:49+00:00",
+      "base_sha": "a87c037d4979e1a7251d382381fa1da20ef1f6b0",
+      "dirty_at_start": {
+        "plans/quickfixes/20260809T024611-0000-Q-0020-422a-open-024611606749.json": {
+          "digest": "1ccaf91dfbd375f064890533c08c22dde59a3444d1e76b76774c722d4ec7a8ce",
+          "git": "? plans/quickfixes/20260809T024611-0000-Q-0020-422a-open-024611606749.json\u0000\u0000\u0000"
+        },
+        "plans/quickfixes/20260809T034451-0000-Q-0020-422a-done-034451518595.json": {
+          "digest": "867f8785cffb38294bddd64e38ebbdc9fcb134c1e5e2a559883ad208beced6ee",
+          "git": "? plans/quickfixes/20260809T034451-0000-Q-0020-422a-done-034451518595.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "23508397b2b15d3e586807a896046bfe302cdecb7f156f96d68597a125ed8a1a",
+      "completed_at": "2026-08-09T06:56:41+00:00"
+    },
+    {
+      "id": "PREFLIGHT-1-3",
+      "title": "Declare-at-creation guidance so the agent populates access_requirements (Part C)",
+      "status": "done",
+      "started_at": "2026-08-09T06:56:53+00:00",
+      "base_sha": "801732278bfbb2b7ac86041f55fbbad76572f7ff",
+      "dirty_at_start": {
+        "plans/quickfixes/20260809T024611-0000-Q-0020-422a-open-024611606749.json": {
+          "digest": "1ccaf91dfbd375f064890533c08c22dde59a3444d1e76b76774c722d4ec7a8ce",
+          "git": "? plans/quickfixes/20260809T024611-0000-Q-0020-422a-open-024611606749.json\u0000\u0000\u0000"
+        },
+        "plans/quickfixes/20260809T034451-0000-Q-0020-422a-done-034451518595.json": {
+          "digest": "867f8785cffb38294bddd64e38ebbdc9fcb134c1e5e2a559883ad208beced6ee",
+          "git": "? plans/quickfixes/20260809T034451-0000-Q-0020-422a-done-034451518595.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "a42f34f287f4c56cd66b0741c5c0041c52e709f98c72bb7168dc1f1500c3ee96",
+      "completed_at": "2026-08-09T07:30:00+00:00"
+    }
+  ]
+}

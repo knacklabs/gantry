@@ -1,0 +1,34 @@
+{"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-11T11:03:30+00:00", "story": "AUTODET-1", "detail": "docs/specs/autonomous-deterministic-permissions.md"}
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-11T11:12:43+00:00", "story": "AUTODET-1", "detail": "Autonomous runs decide permissions deterministically \u2014 no classifier"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-11T11:44:50+00:00", "story": "AUTODET-1", "detail": "AUTODET-1 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-11T11:44:50+00:00", "story": "AUTODET-1", "detail": "plans/active/AUTODET-1-autonomous-runs-decide-permissions-deterministically-no-classifier.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T11:47:14+00:00", "story": "AUTODET-1", "detail": "2 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-11T11:47:30+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-1 Host tail guard: no classifier for jobId requests + truthful reason attribution"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-11T12:16:28+00:00", "story": "AUTODET-1", "detail": "passed"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T12:16:51+00:00", "story": "AUTODET-1", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T12:21:56+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T12:24:14+00:00", "story": "AUTODET-1", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T12:27:17+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-1 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-11T12:27:41+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-1: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-11T12:27:41+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-1 Host tail guard: no classifier for jobId requests + truthful reason attribution"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-11T12:27:49+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-2 Fix-and-continue integration proof + decision docs"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-11T12:37:09+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-2 Postgres integration test is implemented but cannot be executed: GANTRY_TEST_DATABASE_URL is unset, Docker API access is denied by the managed sandbox, and 127.0.0.1:5432 has no server."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T12:37:33+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-2 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-11T12:41:28+00:00", "story": "AUTODET-1", "detail": "S-0001-3cde: Postgres IS reachable from your sandbox over loopback TCP: GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/gantry_test (existing gantry-e2e-pg container; you only probed 5432). O"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-11T13:07:59+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-2 live Postgres proof cannot run: GANTRY_TEST_DATABASE_URL is unavailable, 127.0.0.1:5433 has no listener, Docker access is denied, and managed command policy rejects the required FORGE_TEST"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T13:17:17+00:00", "story": "AUTODET-1", "detail": "2 task(s)"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-11T13:17:51+00:00", "story": "AUTODET-1", "detail": "passed"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T13:18:23+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-2 (read-only)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T13:20:06+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-11T13:20:58+00:00", "story": "AUTODET-1", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-11T13:25:05+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-2 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-11T13:25:30+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-2: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-11T13:25:30+00:00", "story": "AUTODET-1", "detail": "AUTODET-1-2 Fix-and-continue integration proof + decision docs"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-11T13:30:51+00:00", "story": "AUTODET-1"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-11T13:42:53+00:00", "story": "AUTODET-1"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-11T13:43:18+00:00", "story": "AUTODET-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-11T13:43:18+00:00", "story": "AUTODET-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-11T13:43:18+00:00", "story": "AUTODET-1"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-11T13:43:39+00:00", "story": "AUTODET-1", "detail": "S-0002-1d5d: Resolved by the orchestrator: the worker sandbox cannot reach any Postgres (TCP + Docker denied), so the live-Postgres proof ran on the host - integration file 3/3 green against gantry-e2e-pg (results"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-11T13:43:51+00:00", "story": "AUTODET-1", "detail": "passed"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-11T13:43:58+00:00", "story": "AUTODET-1", "detail": "Scheduled jobs no longer live or die by a model's mood. An autonomous run's tool permissions are now a pure function of what the job was granted: a granted tool always runs, an ungranted one pauses th"}

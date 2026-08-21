@@ -3,6 +3,7 @@ import {
   PermissionApprovalDecision,
   PermissionApprovalCancellation,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
   RichInteractionRequest,
   ConversationRoute,
   UserQuestionCancellation,
@@ -70,7 +71,7 @@ export interface IpcDeps {
   onSchedulerChanged: (jobId?: string) => void;
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>;
+  ) => Promise<PermissionApprovalResult>;
   cancelPermissionApproval?: (
     cancellation: PermissionApprovalCancellation,
   ) => Promise<'settled' | 'queued' | 'not_found'>;
@@ -135,6 +136,7 @@ export interface IpcDeps {
     providerAccountId: string;
     conversationJid: string;
     threadId?: string;
+    mode?: 'view' | 'materialize';
   }) => Promise<AttachmentOpenResult>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];

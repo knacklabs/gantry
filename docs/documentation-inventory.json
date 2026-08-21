@@ -22,12 +22,12 @@
     "plans/completed"
   ],
   "counts": {
-    "architecture-decision": 107,
-    "current-architecture": 19,
+    "architecture-decision": 133,
+    "current-architecture": 21,
     "decision-index": 1,
-    "execution-plan": 2,
+    "execution-plan": 23,
     "generated-architecture-artifact": 11,
-    "historical-architecture-record": 109,
+    "historical-architecture-record": 115,
     "legacy-plan": 1,
     "repository-instruction": 1
   },
@@ -229,6 +229,13 @@
       "intendedAction": "maintain-and-verify-against-source"
     },
     {
+      "path": "docs/architecture/audits/audit-2026-08-bb340b0ae.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
       "path": "docs/architecture/auto-permission-action-based-goal-prompt.md",
       "category": "historical-architecture-record",
       "lifecycle": "historical",
@@ -314,6 +321,13 @@
     },
     {
       "path": "docs/architecture/channel-interactions.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/cli-capability-structured-invocation-design.md",
       "category": "historical-architecture-record",
       "lifecycle": "historical",
       "authority": "context-only",
@@ -552,6 +566,20 @@
     },
     {
       "path": "docs/architecture/inline-agent-feature-parity-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/job-notification-audit-brief.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/job-notification-gap-audit-2026-08-06.md",
       "category": "historical-architecture-record",
       "lifecycle": "historical",
       "authority": "context-only",
@@ -957,6 +985,20 @@
       "intendedAction": "maintain-and-verify-against-source"
     },
     {
+      "path": "docs/architecture/sched-4b-1-rearchitecture-brief.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/scheduler-incident-assessment-2026-08-05.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
       "path": "docs/architecture/security-performance-simplification-goal-prompt.md",
       "category": "historical-architecture-record",
       "lifecycle": "historical",
@@ -1011,6 +1053,20 @@
       "lifecycle": "historical",
       "authority": "context-only",
       "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/tool-provider-affinity.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-architecture-and-implementation",
+      "intendedAction": "maintain-in-place"
+    },
+    {
+      "path": "docs/architecture/web-ui-foundation.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-architecture-and-implementation",
+      "intendedAction": "maintain-in-place"
     },
     {
       "path": "docs/decisions/0000-credential-broker-boundary.md",
@@ -1762,6 +1818,188 @@
       "intendedAction": "retain-until-superseded"
     },
     {
+      "path": "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0107-typed-permission-decision-provenance.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0108-job-definition-revision-fencing.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0109-semantic-capability-job-dependencies.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0110-live-ux-capability-dispatcher.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0111-attachment-timeout-log-per-shared-open.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0112-legacy-single-canonical-shape.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0113-enforce-no-backcompat-architecture-check.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0114-canonical-job-owner.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0115-autonomous-tool-denial-terminal.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0116-scheduled-worker-host-authorization-handoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0117-scheduled-job-declare-tools-at-creation.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0118-identity-scoped-approval-and-grants.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0119-provider-neutral-group-approver-bootstrap.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0120-local-cli-structured-invocation.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0121-autodet-no-classifier-autonomous.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0122-capability-template-amendment.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0123-recovery-proposal-birthright.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0124-bounded-durable-card-delivery.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0125-host-only-template-amendment.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0126-typed-terminal-denial-event.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0127-tagged-setup-action-model.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0128-permission-approval-result.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0129-capsafe-local-cli-terminal-wildcard.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0130-capsafe-capability-run-dispatch-only.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0131-jobs-group-channel-staged.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
       "path": "docs/decisions/README.md",
       "category": "decision-index",
       "lifecycle": "current",
@@ -1776,7 +2014,49 @@
       "intendedAction": "retain-in-place"
     },
     {
-      "path": "plans/completed/GH-408-establish-repository-engineering-standards-and-documentation-governance.md",
+      "path": "plans/completed/AUTODET-1-autonomous-runs-decide-permissions-deterministically-no-classifier.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CAPFIX-1-capability-template-amendment-via-grantable-card.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CAPRULE-1-scheduled-runs-drop-capability-backed-runcommand-rules-from-the-autonomous-allowlist.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CLIRUN-1-structured-invocation-for-local-cli-capabilities.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CO-1-jobs-recovery-intent-as-columns-with-compare-and-set-transitions.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CONTENT-1-provider-content-gaps-honest-fallbacks-quick-fixes-slack-canvas-crud.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CONTENT-2-physical-attachment-hand-off-agents-access-real-files-in-all-providers.md",
       "category": "execution-plan",
       "lifecycle": "completed",
       "authority": "historical-outcome",
@@ -1784,6 +2064,111 @@
     },
     {
       "path": "plans/completed/DOCS-001-source-derived-gantry-documentation-and-project-explorer.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/GH-408-establish-repository-engineering-standards-and-documentation-governance.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/ID-1-identity-management-phases-2-3-reconcile-harden-land.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PAY-1-architecture-gate-paydown-check-architecture-exit-0.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PERF-4-live-admission-terminal-retention-30-day-ttl-sweep.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PREFLIGHT-1-scheduled-jobs-provision-tools-upfront-prime-discovery-grantable-setup-cards.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PSCOPE-1-person-scoped-grants-and-kind-aware-approval-authority.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PSCOPE-2-provider-neutral-installer-auto-seed-and-in-group-acknowledgement.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SCHED-1-scheduler-correctness-blockers-no-self-mutation-typed-permission-provenance.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SCHED-4A-approval-and-setup-notification-ux-explicit-scope-no-contradictory-cards-match-vs-grant-diagnosis.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SCHED-4B-actionable-job-cards-approve-from-card-full-setup-story-visible-recovery-provider-parity.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SCHED-6-autonomous-jobs-pause-and-ask-on-tool-denial-instead-of-silently-degrading.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SEC-2-inbound-attachments-one-atomic-o-nofollow-writer-for-telegram-slack.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SETUPRACE-1-atomic-claim-for-setup-pause-notifications-close-d-0053.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SIMP-2-construct-control-application-services-once-in-the-composition-root.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/TOOLS-1-provider-aware-tool-surface-affinity-filtered-projection-dynamic-per-provider-instructions.md",
       "category": "execution-plan",
       "lifecycle": "completed",
       "authority": "historical-outcome",

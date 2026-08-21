@@ -1,0 +1,25 @@
+{
+  "issue": "TOOLS-1",
+  "stages": [
+    {
+      "id": "TOOLS-1-1",
+      "title": "Provider-affinity tool projection (both selection paths, both lanes)",
+      "status": "done",
+      "started_at": "2026-08-04T17:22:05+00:00",
+      "base_sha": "83aff354cbaf380730928af97ff5e727d4e22972",
+      "dirty_at_start": {},
+      "task_sha256": "67f6b51a426e70fb7a4e809668b3dee1f5782dd51a56e79c6d183d33a8d1f0c5",
+      "completed_at": "2026-08-04T17:50:28+00:00"
+    },
+    {
+      "id": "TOOLS-1-2",
+      "title": "Dynamic per-provider tool instructions + tool classification doc",
+      "status": "done",
+      "started_at": "2026-08-04T17:50:41+00:00",
+      "base_sha": "568eadf44e1d5a28f516488fa1797066e4e1f431",
+      "dirty_at_start": {},
+      "task_sha256": "2414901d83e9c9378bb92aa429f22b5ea3c1b7099509500fd1bc37ca8f57f022",
+      "completed_at": "2026-08-04T18:07:58+00:00"
+    }
+  ]
+}

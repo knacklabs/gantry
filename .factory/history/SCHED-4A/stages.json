@@ -1,0 +1,15 @@
+{
+  "issue": "SCHED-4A",
+  "stages": [
+    {
+      "id": "SCHED-4A-1",
+      "title": "Approval/notification UX slice: scope-explicit receipts, folded cards, match diagnosis, repeat escalation",
+      "status": "done",
+      "started_at": "2026-08-05T11:52:08+00:00",
+      "base_sha": "9755df5ae2beff9aaa928e66448c70b67e170451",
+      "dirty_at_start": {},
+      "task_sha256": "05b8e9fe9e535ae17500999066bbf5043138902870c12613d0c21be0990e2b71",
+      "completed_at": "2026-08-05T16:18:21+00:00"
+    }
+  ]
+}

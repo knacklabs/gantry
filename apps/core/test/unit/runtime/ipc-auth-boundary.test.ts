@@ -271,6 +271,42 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
+  it('parses signed scheduler source provenance and rejects field tampering', () => {
+    const payload = {
+      requestId: 'scheduler-source-provenance',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      type: 'scheduler_update_job',
+      jobId: 'job-target',
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        sourceJobId: 'job-source',
+        sourceRunId: 'run-source',
+        sourceRunKind: 'scheduled',
+      },
+    };
+    const signed = signedPayload(payload);
+
+    expect(parseTaskIpcData(signed, 'team')).toMatchObject({
+      sourceJobId: 'job-source',
+      sourceRunId: 'run-source',
+      sourceRunKind: 'scheduled',
+    });
+    clearConsumedIpcRequestIds({ durable: 'consumed' });
+    expect(() =>
+      parseTaskIpcData(
+        {
+          ...signed,
+          context: {
+            ...payload.context,
+            sourceRunKind: 'interactive',
+          },
+        },
+        'team',
+      ),
+    ).toThrow('Invalid IPC task signature');
+  });
+
   it('preserves scheduler notification route provider account scope', () => {
     const payload = signedPayload(
       {
@@ -884,6 +920,7 @@ describe('validateIpcAuthRequest', () => {
       providerAccountId: 'slack-default',
     });
     const openEvidence = createAttachmentOpenProof(originIpcAuthValue, {
+      type: 'attachment_open',
       attachmentId,
       chatJid: 'sl:C1',
       taskId,
@@ -919,6 +956,43 @@ describe('validateIpcAuthRequest', () => {
       'team',
       threadId,
     );
+    const crossTypeReplay = signedPayload(
+      {
+        requestId: 'attachment-cross-type-replay',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_materialize',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: openEvidence },
+      },
+      'team',
+      threadId,
+    );
+    const materializeEvidence = createAttachmentOpenProof(originIpcAuthValue, {
+      type: 'attachment_materialize',
+      attachmentId,
+      chatJid: 'sl:C1',
+      taskId,
+      threadId,
+    });
+    const materialize = signedPayload(
+      {
+        requestId: 'attachment-materialize-origin-conversation',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_materialize',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: materializeEvidence },
+      },
+      'team',
+      threadId,
+    );
 
     expect(parseTaskIpcData(origin, 'team')).toMatchObject({
       type: 'attachment_open',
@@ -926,6 +1000,109 @@ describe('validateIpcAuthRequest', () => {
       providerAccountId: 'slack-default',
     });
     expect(() => parseTaskIpcData(forged, 'team')).toThrow(
+      'Invalid attachment open conversation proof',
+    );
+    expect(() => parseTaskIpcData(crossTypeReplay, 'team')).toThrow(
+      'Invalid attachment open conversation proof',
+    );
+    expect(parseTaskIpcData(materialize, 'team')).toMatchObject({
+      type: 'attachment_materialize',
+      chatJid: 'sl:C1',
+      providerAccountId: 'slack-default',
+    });
+  });
+
+  it('rejects attachment proofs minted without provider account scope', () => {
+    const attachmentId = 'message-attachment:provider-fetch:m1:slack:F1';
+    const taskId = 'attachment-open-legacy-provider-token';
+    const threadId = '1784545366.449119';
+    const context = {
+      responseKeyId: TEST_RESPONSE_KEY_ID,
+      threadId,
+      appId: 'app-1',
+      agentId: 'agent-1',
+      providerAccountId: 'slack-default',
+    };
+    const legacyIpcAuthValue = computeAttachmentIpcAuthToken('team', {
+      chatJid: 'sl:C1',
+      threadId,
+      appId: 'app-1',
+      agentId: 'agent-1',
+    });
+    const legacyEvidence = createAttachmentOpenProof(legacyIpcAuthValue, {
+      type: 'attachment_open',
+      attachmentId,
+      chatJid: 'sl:C1',
+      taskId,
+      threadId,
+    });
+    const payload = signedPayload(
+      {
+        requestId: 'attachment-legacy-provider-token',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_open',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: legacyEvidence },
+      },
+      'team',
+      threadId,
+    );
+
+    // The binding's providerAccountId is worker-supplied and outside the
+    // request-signing key; the proof is the only thing binding the claimed
+    // account to a host-issued credential. A scope-stripped proof must fail.
+    expect(() => parseTaskIpcData(payload, 'team')).toThrow(
+      'Invalid attachment open conversation proof',
+    );
+  });
+
+  it('rejects attachment proofs minted without thread scope for a thread-bound task', () => {
+    const attachmentId = 'message-attachment:provider-fetch:m1:slack:F1';
+    const taskId = 'attachment-open-threadless-proof';
+    const threadId = '1784545366.449119';
+    const context = {
+      responseKeyId: TEST_RESPONSE_KEY_ID,
+      threadId,
+      appId: 'app-1',
+      agentId: 'agent-1',
+      providerAccountId: 'slack-default',
+    };
+    const threadlessIpcAuthValue = computeAttachmentIpcAuthToken('team', {
+      chatJid: 'sl:C1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      providerAccountId: 'slack-default',
+    });
+    const threadlessEvidence = createAttachmentOpenProof(
+      threadlessIpcAuthValue,
+      {
+        type: 'attachment_open',
+        attachmentId,
+        chatJid: 'sl:C1',
+        taskId,
+      },
+    );
+    const payload = signedPayload(
+      {
+        requestId: 'attachment-threadless-proof',
+        nonce: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        type: 'attachment_open',
+        taskId,
+        chatJid: 'sl:C1',
+        targetJid: 'sl:C1',
+        context,
+        payload: { attachmentId, conversationProof: threadlessEvidence },
+      },
+      'team',
+      threadId,
+    );
+
+    expect(() => parseTaskIpcData(payload, 'team')).toThrow(
       'Invalid attachment open conversation proof',
     );
   });

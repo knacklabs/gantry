@@ -28,6 +28,7 @@ import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js'
 import { decisionForMode } from '@core/domain/permission-decision.js';
 import type {
   PermissionApprovalDecision,
+  PermissionApprovalResult,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
 } from '@core/domain/types.js';
@@ -286,9 +287,7 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
   function buttonDecision(
     mode: PermissionApprovalDecisionMode,
     beforeBind?: (request: PermissionApprovalRequest) => Promise<void>,
-  ): (
-    request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision> {
+  ): (request: PermissionApprovalRequest) => Promise<PermissionApprovalResult> {
     return async (request) => {
       await beforeBind?.(request);
       const decisionOptions: PermissionApprovalDecisionMode[] =
@@ -315,8 +314,11 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
         );
       }
       return {
-        ...decisionForMode(request, mode, APPROVER),
-        permissionCallbackClaim: claimed.claim,
+        kind: 'decision' as const,
+        decision: {
+          ...decisionForMode(request, mode, APPROVER),
+          permissionCallbackClaim: claimed.claim,
+        },
       };
     };
   }
@@ -680,8 +682,9 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
           promptActive = true;
           onPromptDelivered?.('cancel-chain-prompt');
           markPromptReady();
-          return new Promise<PermissionApprovalDecision>((resolve) => {
-            resolvePrompt = resolve;
+          return new Promise<PermissionApprovalResult>((resolve) => {
+            resolvePrompt = (decision: PermissionApprovalDecision) =>
+              resolve({ kind: 'decision', decision });
           });
         },
         cancelPendingPermission,

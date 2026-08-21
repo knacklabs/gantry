@@ -67,11 +67,6 @@ describe('gantryToolDefaultRisk', () => {
   });
 
   it.each([
-    'mcp__gantry__scheduler_update_job',
-    'mcp__gantry__scheduler_upsert_job',
-    'mcp__gantry__scheduler_pause_job',
-    'mcp__gantry__scheduler_resume_job',
-    'mcp__gantry__scheduler_run_now',
     'mcp__gantry__memory_save',
     'mcp__gantry__brain_write',
     'mcp__gantry__procedure_save',
@@ -93,6 +88,11 @@ describe('gantryToolDefaultRisk', () => {
     'mcp__gantry__service_restart', // service restart
     'mcp__gantry__register_agent', // authority-changing
     'mcp__gantry__scheduler_delete_job', // destructive (delete)
+    'mcp__gantry__scheduler_update_job',
+    'mcp__gantry__scheduler_upsert_job',
+    'mcp__gantry__scheduler_pause_job',
+    'mcp__gantry__scheduler_resume_job',
+    'mcp__gantry__scheduler_run_now',
     'mcp__gantry__mcp_call_tool', // unscoped dispatcher
     'mcp__gantry__async_run_command', // unscoped dispatcher
     'mcp__gantry__async_mcp_call', // unscoped dispatcher
@@ -105,6 +105,13 @@ describe('gantryToolDefaultRisk', () => {
     'mcp__gantry__send_message', // external mutation: destination/payload dependent
   ])('rates high-risk tool %s high (ask)', (tool) => {
     const risk = gantryToolDefaultRisk(tool);
+    expect(risk?.risk_level).toBe('high');
+    expect(AUTO_APPROVE.has(risk!.risk_level)).toBe(false);
+  });
+
+  it('keeps capability_run high-risk outside its dispatch-only runner boundary', () => {
+    const risk = gantryToolDefaultRisk('mcp__gantry__capability_run');
+
     expect(risk?.risk_level).toBe('high');
     expect(AUTO_APPROVE.has(risk!.risk_level)).toBe(false);
   });

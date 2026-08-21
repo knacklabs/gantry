@@ -578,7 +578,6 @@ describe('permission classifier decision events', () => {
       repository: {
         incrementAndGet: vi.fn(),
         get: vi.fn(),
-        markOffered: vi.fn(),
         markDenied,
       },
       appId: 'app:test',
@@ -622,7 +621,6 @@ describe('permission classifier decision events', () => {
       const repository = {
         incrementAndGet,
         get: vi.fn(),
-        markOffered: vi.fn(),
         markDenied,
       };
       const request = {
@@ -792,6 +790,29 @@ describe('permission classifier decision events', () => {
         permissionMode: 'auto',
         requestFamily: 'tool',
         agentFolder: 'researcher',
+        correlationId: 'request:gantry-memory',
+        actor: 'permission',
+        intentSource: 'operator_message',
+        turnIntentSummary: 'Save this note to memory.',
+        canonicalToolName: 'mcp__gantry__memory_save',
+        toolInput: { content: 'Remember this.' },
+        policyDecisionReason: 'No durable rule matched.',
+        approvedCapabilityIds: [],
+        classifierConfig: { memoryExtractorModel: 'extractor-model' },
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({ decision: 'allow', latencyMs: 0 });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it('asks for scheduler mutations in auto mode', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        permissionMode: 'auto',
+        requestFamily: 'tool',
+        agentFolder: 'researcher',
         correlationId: 'request:gantry-scheduler',
         actor: 'permission',
         intentSource: 'operator_message',
@@ -804,7 +825,7 @@ describe('permission classifier decision events', () => {
         publishRuntimeEvent: vi.fn(async () => undefined),
         classifierConsult,
       }),
-    ).resolves.toMatchObject({ decision: 'allow', latencyMs: 0 });
+    ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
     expect(classifierConsult).not.toHaveBeenCalled();
   });
 
@@ -1406,15 +1427,12 @@ describe('permission classifier decision events', () => {
             agentFolder: 'researcher',
             suggestionKey: 'researcher|RunCommand(cat README.md)',
             allowCount: 0,
-            lastOfferedAt: null,
             deniedAt: new Date().toISOString(),
             createdAt: '2026-07-12T00:00:00.000Z',
             updatedAt: '2026-07-12T00:00:00.000Z',
           })),
-          markOffered: vi.fn(),
           markDenied: vi.fn(),
         },
-        offer: vi.fn(),
       },
     });
 
@@ -1432,7 +1450,7 @@ describe('permission classifier decision events', () => {
       latencyMs: 1,
     }));
 
-    await consultPermissionClassifierBeforePrompt({
+    const result = await consultPermissionClassifierBeforePrompt({
       permissionMode: 'auto_strict',
       requestFamily: 'tool',
       appId: 'app:test',
@@ -1457,21 +1475,22 @@ describe('permission classifier decision events', () => {
             agentFolder: 'researcher',
             suggestionKey: 'researcher|RunCommand(cat README.md)',
             allowCount: 2,
-            lastOfferedAt: null,
             deniedAt: null,
             createdAt: '2026-07-12T00:00:00.000Z',
             updatedAt: new Date().toISOString(),
           })),
-          markOffered: vi.fn(),
           markDenied: vi.fn(),
         },
-        offer: vi.fn(),
       },
     });
 
     expect(classifierConsult).toHaveBeenCalledWith(
       expect.objectContaining({ recentlyApprovedExactToolShape: true }),
     );
+    expect(result).toMatchObject({
+      promotionHintCount: 2,
+      firstAskedAt: '2026-07-12T00:00:00.000Z',
+    });
   });
 
   it('keeps a recent denial authoritative over repeated approvals', async () => {
@@ -1506,15 +1525,12 @@ describe('permission classifier decision events', () => {
             agentFolder: 'researcher',
             suggestionKey: 'researcher|RunCommand(cat README.md)',
             allowCount: 2,
-            lastOfferedAt: null,
             deniedAt: new Date().toISOString(),
             createdAt: '2026-07-12T00:00:00.000Z',
             updatedAt: new Date().toISOString(),
           })),
-          markOffered: vi.fn(),
           markDenied: vi.fn(),
         },
-        offer: vi.fn(),
       },
     });
 
@@ -1591,18 +1607,15 @@ describe('permission classifier decision events', () => {
   });
 
   it('does not count classifier auto-allows as operator approvals', async () => {
-    const offer = vi.fn(async () => undefined);
     const incrementAndGet = vi.fn(async () => ({
       appId: 'app:test',
       agentFolder: 'researcher',
       suggestionKey: 'researcher|RunCommand(cat README.md)',
       allowCount: 3,
-      lastOfferedAt: null,
       deniedAt: null,
       createdAt: '2026-07-12T00:00:00.000Z',
       updatedAt: '2026-07-12T00:00:00.000Z',
     }));
-    const markOffered = vi.fn(async () => true);
     const publishRuntimeEvent = vi.fn(async () => undefined);
 
     await expect(
@@ -1635,10 +1648,8 @@ describe('permission classifier decision events', () => {
           repository: {
             incrementAndGet,
             get: vi.fn(async () => null),
-            markOffered,
             markDenied: vi.fn(async () => undefined),
           },
-          offer,
         },
       }),
     ).resolves.toMatchObject({
@@ -1655,8 +1666,6 @@ describe('permission classifier decision events', () => {
       }),
     );
     expect(incrementAndGet).not.toHaveBeenCalled();
-    expect(markOffered).not.toHaveBeenCalled();
-    expect(offer).not.toHaveBeenCalled();
   });
 
   it('publishes an allow verdict with the exact runtime envelope and payload', async () => {

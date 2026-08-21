@@ -2605,15 +2605,19 @@ describe('pending interaction durability', () => {
       terminalize,
       feedback: vi.fn(async () => {}),
     };
+    // Recovered-tap ordering (plan S3): FULL durable settlement (including
+    // Review-each expiry) completes BEFORE the provider card terminalizes;
+    // a failed terminalization stays retryable over the settled state.
     await expect(recoverDurablePermissionDecision(hooks)).resolves.toBe(
       'retryable',
     );
-    expect(repository.expirePendingPermissionReviewEach).not.toHaveBeenCalled();
+    expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
     expect(repository.prompts[0]).toMatchObject({
-      settlementState: 'settled',
+      settlementState: 'review_each_expired',
       claim: { id: claimed.claim.id },
     });
     expect(repository.releasePendingPermissionCallback).not.toHaveBeenCalled();
+    expect(rows.every((row) => row.status === 'cancelled')).toBe(true);
 
     terminalize.mockResolvedValueOnce(true);
     await expect(recoverDurablePermissionDecision(hooks)).resolves.toBe(
@@ -2628,8 +2632,6 @@ describe('pending interaction durability', () => {
         }),
       }),
     );
-    expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
-    expect(rows.every((row) => row.status === 'cancelled')).toBe(true);
   });
 
   it('expires and cancels every recovered Review-each member from a batch callback', async () => {

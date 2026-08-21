@@ -163,8 +163,10 @@ describe('fleetCapabilitySetupState', () => {
     });
     expect(state.state).toBe('missing_capability');
     expect(state.blockers).toHaveLength(1);
-    expect(state.blockers[0].requirementType).toBe('semantic_capability');
-    expect(state.blockers[0].nextAction).toContain('bake');
+    expect(state.blockers[0].type).toBe('semantic_capability');
+    const action = state.blockers[0].action;
+    expect(action.kind).toBe('instruction');
+    expect(action.kind === 'instruction' && action.text).toContain('bake');
   });
 
   it('produces a stable fingerprint and clears notified on change', () => {

@@ -7,9 +7,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+import factory_lib
 from factory_lib import (
-    client_signoff, dump_json, load_json, now_iso, repo_root, require_grill,
-    run_state_path, slugify,
+    client_signoff, dump_json, evidence_path, load_json, now_iso,
+    plan_digest_without_assumptions, repo_root, require_grill,
+    requirements_digest, run_state_path, slugify,
 )
 
 from .common import fail
@@ -17,8 +19,21 @@ from .events import append_event
 from .context import pending_context
 from .decisions import active_decision_ids, decision_records
 from .signal import open_signals
+from .specs import resolve_spec_reference
 
 FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
+
+REQUIRED_PLAN_SECTIONS = (
+    "Problem",
+    "Scope / Non-goals",
+    "Acceptance Criteria",
+    "Technical Approach",
+    "Decisions",
+    "Surface Impact",
+    "Task Decomposition",
+    "Risks",
+    "Verify Plan",
+)
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
@@ -53,12 +68,51 @@ def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     return fields, text[match.end():]
 
 
-def _stages_progress(base: Path, issue: str, location: str) -> str:
-    path = (
-        base / ".factory" / "stages.json"
-        if location == "active"
-        else base / ".factory" / "history" / issue / "stages.json"
+def _require_matching_plan_grill(
+    base: Path, plan: Path, issue: str, *, awaiting: bool = False,
+) -> None:
+    require_grill(
+        base, "plan",
+        ("docs/product/", "docs/decisions/", "docs/architecture/"),
+        ignore_names=("client-signoff", "epics-approved"),
     )
+    grill = load_json(evidence_path(base, issue, "grills/plan.json"), default={})
+    if grill.get("issue") != issue:
+        fail(f"the recorded plan grill is for {grill.get('issue')!r}, not "
+             f"{issue!r} — re-grill the current plan, then approve it")
+    if grill.get("input_sha256") != plan_digest_without_assumptions(plan):
+        if awaiting:
+            fail("plan approval refused: the plan grill does not match the awaiting "
+                 "plan. Re-grill the awaiting plan, then approve it again.")
+        fail(f"the plan grill was not recorded against THIS input ({plan.name}) — "
+             "re-grill the current version, then approve it again")
+
+
+def _require_matching_requirements_grill(
+    base: Path, spec: Path, issue: str,
+) -> None:
+    grill = load_json(
+        evidence_path(base, issue, "grills/requirements.json"), default={},
+    )
+    command = "record_grill_from_json.py --gate requirements"
+    if not grill:
+        fail("requirements grill required before plan drafting: re-grill the "
+             f"confirmed spec against the current repository, then record `{command}`")
+    if grill.get("verdict") != "pass":
+        fail(f"the requirements grill verdict is {grill.get('verdict')!r} — resolve "
+             f"the findings and re-record `{command}`")
+    if not grill.get("commit"):
+        fail(f"the requirements grill has no commit stamp — re-record `{command}`")
+    if grill.get("issue") != issue:
+        fail(f"the requirements grill is for {grill.get('issue')!r}, not {issue!r} — "
+             f"re-grill this story and record `{command}`")
+    if grill.get("input_sha256") != requirements_digest(base, spec):
+        fail("the requirements grill is stale — the confirmed spec or product tree "
+             f"changed. Re-grill the current story and record `{command}`")
+
+
+def _stages_progress(base: Path, issue: str, location: str) -> str:
+    path = evidence_path(base, issue, "stages.json")
     stages = load_json(path, default={}).get("stages", [])
     if not stages:
         return "-"
@@ -105,21 +159,15 @@ def cmd_save(args: argparse.Namespace) -> None:
              "capture is not authorization (decision 0014). Draft and confirm the "
              f"capability spec, then: ./forge roadmap link-spec {story} "
              "--spec docs/specs/<slug>.md")
+    spec_ref = item.get("spec")
+    if not isinstance(spec_ref, str) or not spec_ref.strip():
+        fail(f"{story} has no confirmed spec — link a confirmed spec before planning")
+    spec = resolve_spec_reference(base, spec_ref, confirmed=True)
+    _require_matching_requirements_grill(base, spec, issue)
     # Approval requires the plan to have been GRILLED (grill-me / griller.md
     # --gate plan): fresh, passing, for THIS task, and bound by digest to
     # THIS draft — grilling one version never approves an edited one.
-    require_grill(
-        base, "plan",
-        ("docs/product/", "docs/decisions/", "docs/architecture/"),
-        ignore_names=("client-signoff", "epics-approved"),
-        expect_digest_of=source,
-    )
-    plan_grill = load_json(base / ".factory" / "grills" / "plan.json", default={})
-    if plan_grill.get("issue") != issue:
-        fail(
-            f"the recorded plan grill is for {plan_grill.get('issue')!r}, not {issue!r} — "
-            "grill THIS task's plan (record_grill_from_json.py --gate plan)."
-        )
+    _require_matching_plan_grill(base, source, issue)
     contradictions = [
         signal for signal in open_signals(base) if signal.get("kind") == "contradiction"
     ]
@@ -129,7 +177,7 @@ def cmd_save(args: argparse.Namespace) -> None:
             + ", ".join(signal["id"] for signal in contradictions)
             + ". Resolve the contradiction before approving the plan."
         )
-    fields, body = parse_frontmatter(source.read_text())
+    fields, body = parse_frontmatter(source.read_text(encoding="utf-8"))
     if "decisions_reviewed" not in fields or not isinstance(
         fields["decisions_reviewed"], list
     ):
@@ -151,16 +199,22 @@ def cmd_save(args: argparse.Namespace) -> None:
         ]
         fail("decisions_reviewed contains unknown or inactive decisions: "
              + ", ".join(labels))
-    # Surfaces left implicit are how API/CLI/docs/tests drift ships: the plan
-    # must classify every surface, with a reason on anything not Changed.
-    if "## Surface Impact" not in body:
-        fail(
-            "the plan has no '## Surface Impact' section. Classify each surface "
-            "(runtime behavior, API, data/schema, CLI/ops, UI, docs, tests) as "
-            "Changed / Read-only / Unchanged by design / Deferred / N-A — "
-            "Deferred and Unchanged-by-design entries need a reason "
-            "(factory/prompts/planner.md)."
-        )
+    sections = factory_lib.parse_sections(body)
+    missing_sections = [
+        section for section in REQUIRED_PLAN_SECTIONS if not sections.get(section)
+    ]
+    if missing_sections:
+        fail("the plan is missing required sections: " + ", ".join(missing_sections))
+    plan_digest = plan_digest_without_assumptions(source)
+    marker_path = evidence_path(base, story, "plan-approval.json", for_write=True)
+    marker = load_json(marker_path, default={})
+    # Bind to (issue, story) as well as the body: a body digest alone could be
+    # replayed by saving the same text under a different --story/--issue, which
+    # would approve a plan the human never reviewed in that context.
+    approved = (marker.get("approved_plan_sha256") == plan_digest
+                and marker.get("issue") == issue
+                and marker.get("story") == story)
+    status = "approved" if approved else "awaiting-approval"
     title = args.title or state.get("title") or issue
     dest_dir = base / "plans" / "active"
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -168,24 +222,86 @@ def cmd_save(args: argparse.Namespace) -> None:
     decisions = "\n".join(f"  - {decision}" for decision in sorted(reviewed))
     decisions_value = f"\n{decisions}" if decisions else " []"
     header = (
-        f"---\nissue: {issue}\ntitle: {title}\nstatus: approved\n"
+        f"---\nissue: {issue}\ntitle: {title}\nstatus: {status}\n"
         f"saved: {now_iso()}\nstory: {story}\n"
-        f"decisions_reviewed:{decisions_value}\n---\n\n"
+        f"decisions_reviewed:{decisions_value}\n---\n"
     )
-    dest.write_text(header + body)
+    dest.write_text(header + body, encoding="utf-8")
     if state:
-        state["plan_status"] = "approved"
+        state["plan_status"] = status
         state["plan_file"] = dest.relative_to(base).as_posix()
         state["story"] = story
+        if approved:
+            state["approved_plan_sha256"] = plan_digest_without_assumptions(dest)
+        else:
+            state.pop("approved_plan_sha256", None)
         state["updated_at"] = now_iso()
         dump_json(run_state_path(base), state)
+    if not approved:
+        fail(
+            f"plan saved to {dest.relative_to(base)} with plan_status awaiting-approval. "
+            "A human must review it in plan mode, then run "
+            "`./forge plan approve --by \"<name>\"` and save the unchanged plan again."
+        )
+    # Consume the marker: it authorizes exactly one save (0029). Leaving it
+    # would let a later awaiting-approval reset re-approve the same body with no
+    # fresh human action — the replay hole autoreview flagged.
+    marker_path.unlink(missing_ok=True)
     append_event(base, "plan-approved", actor="planner-high", story=story,
                  detail=dest.relative_to(base).as_posix())
     print(f"Plan saved to {dest.relative_to(base)} (plan_status: approved)")
-    print(
-        "Decisions made while planning must exist as docs/decisions/ records "
-        "(forge.py decision new <slug>) and be referenced in the plan."
+
+
+def cmd_approve(args: argparse.Namespace) -> None:
+    base = Path(args.repo).resolve() if args.repo else repo_root()
+    approver = args.by.strip()
+    if not approver:
+        fail("plan approval requires --by with the human approver's name")
+    state = load_json(run_state_path(base), default={})
+    plan_file = state.get("plan_file")
+    plan = base / plan_file if isinstance(plan_file, str) else None
+    if plan is None or not plan.is_file():
+        # `plan save --issue <key>` with no run.json records no plan_file, so
+        # fall back to the active plan on disk. An explicit --issue selects
+        # among several; a single active plan needs no selector; anything
+        # ambiguous is refused rather than guessed.
+        issue = args.issue or state.get("issue_key")
+        active = sorted((base / "plans" / "active").glob("*.md"))
+        if issue:
+            issue_plans = [p for p in active if p.name.startswith(f"{issue}-")]
+            plan = issue_plans[0] if len(issue_plans) == 1 else None
+        elif len(active) == 1:
+            plan = active[0]
+    if plan is None or not plan.is_file():
+        fail("no current active plan to approve — pass --issue <key> to select "
+             "one, or run `forge plan save` first")
+        return  # unreachable (fail raises); narrows `plan` to a real path below
+    fields, _body = parse_frontmatter(plan.read_text(encoding="utf-8"))
+    if state.get("plan_status") != "awaiting-approval":
+        fail("plan approval requires an awaiting plan — save the current plan, "
+             "re-grill that awaiting version, then approve it")
+    issue = fields.get("issue") or state.get("issue_key")
+    _require_matching_plan_grill(base, plan, issue, awaiting=True)
+    # The approval is for THIS plan in THIS context: bind issue and story so a
+    # matching body cannot be replayed under a different story.
+    marker = {
+        "approved_plan_sha256": plan_digest_without_assumptions(plan),
+        "issue": issue,
+        "story": fields.get("story") or state.get("story") or issue,
+        "approver": approver,
+        "at": now_iso(),
+    }
+    dump_json(
+        evidence_path(base, marker["story"], "plan-approval.json", for_write=True),
+        marker,
     )
+    # A committed audit trail of who approved and when — the marker itself is
+    # ephemeral (0025), so the event is the durable record of the human gate.
+    # actor is the allowlisted "human"; the approver's name is the detail.
+    append_event(base, "plan-human-approved", actor="human",
+                 story=marker["story"] or "",
+                 detail=f"{marker['issue']} approved by {approver}")
+    print(f"Plan approved by {approver}")
 
 
 def cmd_list(args: argparse.Namespace) -> None:
@@ -197,7 +313,7 @@ def cmd_list(args: argparse.Namespace) -> None:
     rows = []
     for location in ("active", "completed"):
         for path in sorted((base / "plans" / location).glob("*.md")):
-            fields, _ = parse_frontmatter(path.read_text())
+            fields, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
             issue = str(fields.get("issue", "-"))
             story = str(fields.get("story", "-"))
             rows.append((
@@ -231,7 +347,7 @@ def cmd_assume(args: argparse.Namespace) -> None:
             "plan first with `forge.py plan save` — assumptions attach to a plan."
         )
     plan = plans[-1]
-    text = plan.read_text()
+    text = plan.read_text(encoding="utf-8")
     heading = "## Implementation Assumptions"
     entry = f"- {datetime.date.today().isoformat()}: {args.text.strip()}\n"
     if heading in text:
@@ -244,11 +360,8 @@ def cmd_assume(args: argparse.Namespace) -> None:
             "Dev: review these before merge; promote any that matter to docs/decisions/. -->\n"
             + entry
         )
-    plan.write_text(text)
+    plan.write_text(text, encoding="utf-8")
     from .assumptions import append_row
     entry_id = append_row(base, issue, args.text)
     print(f"Assumption recorded in {plan.relative_to(base)} and ledgered as {entry_id} "
           "(plans/assumptions.md)")
-    print("The orchestrator guides it: forge.py assumptions resolve "
-          f"{entry_id} --status confirmed|fix-needed|promoted --notes \"...\" — "
-          "pr_ready refuses while it is open.")

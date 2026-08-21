@@ -50,8 +50,10 @@ import type {
   OutboundDeliveryItemId,
   OutboundDeliveryReceipt,
   OutboundDeliveryReceiptId,
+  OutboundDeliveryPermissionPromptLocator,
   OutboundDeliveryResolvedDestination,
 } from '../outbound-delivery/outbound-delivery.js';
+import type { PermissionCardMessageView } from '../permission-card.js';
 import type {
   AgentMcpServerBinding,
   MaterializedMcpServer,
@@ -376,7 +378,27 @@ export interface OutboundDeliveryRepository {
     itemId: OutboundDeliveryItemId;
     claimToken: string;
     receipt: OutboundDeliveryReceipt;
+    permissionPromptLocator?: OutboundDeliveryPermissionPromptLocator;
   }): Promise<{ applied: boolean; delivery: OutboundDelivery | null }>;
+  getSetupPermissionPromptForDispatch?(input: {
+    appId: OutboundDelivery['appId'];
+    promptId: string;
+    now: string;
+  }): Promise<PermissionCardMessageView | null>;
+  beginDeliveryItemSend?(input: {
+    deliveryId: OutboundDeliveryId;
+    itemId: OutboundDeliveryItemId;
+    promptId: string;
+    claimToken: string;
+    begunAt: string;
+  }): Promise<'begun' | 'lease_lost' | 'prompt_closed'>;
+  markDeliveryItemCancelled?(input: {
+    deliveryId: OutboundDeliveryId;
+    itemId: OutboundDeliveryItemId;
+    claimToken: string;
+    reason: Record<string, unknown>;
+    cancelledAt: string;
+  }): Promise<{ applied: boolean }>;
   markDeliveryItemFailed(input: {
     deliveryId: OutboundDeliveryId;
     itemId: OutboundDeliveryItemId;
@@ -421,6 +443,7 @@ export interface ToolCatalogRepository {
     appId: AppId;
     agentId: AgentId;
     toolId: ToolId;
+    personId?: AgentToolBinding['personId'];
     updatedAt: string;
   }): Promise<AgentToolBinding | null>;
   listAgentToolBindings(input: {

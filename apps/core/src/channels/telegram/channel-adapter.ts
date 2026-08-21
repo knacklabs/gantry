@@ -2,11 +2,13 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import { ChannelOpts } from '../channel-provider.js';
 import { getProviderRuntimeSecret } from '../provider-runtime-secrets.js';
 import { TelegramChannelDelivery } from './channel-delivery.js';
+import { TELEGRAM_LIVE_UX_CAPABILITY } from './live-ux.js';
 
 export type TelegramChannelOpts = ChannelOpts;
 
 export class TelegramChannel extends TelegramChannelDelivery {
   name = 'telegram';
+  readonly liveUx = TELEGRAM_LIVE_UX_CAPABILITY;
 }
 
 export async function createTelegramChannel(

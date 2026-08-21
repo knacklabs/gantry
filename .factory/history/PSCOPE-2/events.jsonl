@@ -1,0 +1,43 @@
+{"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-10T08:55:24+00:00", "story": "PSCOPE-2", "detail": "docs/specs/pscope-1.md"}
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-10T12:02:31+00:00", "story": "PSCOPE-2", "detail": "Provider-neutral installer auto-seed and in-group acknowledgement"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-10T12:21:17+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-10T12:21:36+00:00", "story": "PSCOPE-2", "detail": "plans/active/PSCOPE-2-provider-neutral-installer-auto-seed-and-in-group-acknowledgement.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-10T12:23:23+00:00", "story": "PSCOPE-2", "detail": "3 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-10T12:23:51+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-1 Shared group-install bootstrap (seed installer, reconcile-safe, DM-established recognition)"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-10T12:27:03+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2 requires apps/core/src/app/index.ts and apps/core/src/app/bootstrap/channel-wiring-types.ts plus channel-persistence-handlers.ts in scope to inject the existing resolveRuntimePersonIdentity a"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-10T12:27:09+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-1 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-10T12:27:42+00:00", "story": "PSCOPE-2", "detail": "S-0001-62c1: Correct: ChannelOpts gains resolvePersonIdentity and the app bootstrap must inject it. apps/core/src/app added to PSCOPE-2-1 write_scope; decomposition re-recorded."}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-10T12:27:42+00:00", "story": "PSCOPE-2", "detail": "3 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-10T12:45:02+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-1 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-10T13:03:35+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-1: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-10T13:03:35+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-1 Shared group-install bootstrap (seed installer, reconcile-safe, DM-established recognition)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-10T13:03:42+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-2 Telegram rewire + delete the DM Yes/No propagation flow"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-10T13:05:13+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-2 requires deleting legacy recordPrompt/getById/dismiss/register members from apps/core/src/domain/ports/group-join-onboarding.ts, but that file is outside the declared write scope; leaving t"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-10T13:05:29+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-2 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-10T13:05:52+00:00", "story": "PSCOPE-2", "detail": "S-0002-7703: Correct: full DM-flow cleanup includes the port members. apps/core/src/domain and apps/core/src/app added to PSCOPE-2-2 write_scope; decomposition re-recorded."}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-10T13:05:52+00:00", "story": "PSCOPE-2", "detail": "3 task(s)"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-10T13:14:29+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-2 removes the final providerConnection read from apps/core/src/channels/telegram/group-join-onboarding.ts, so check:architecture requires deleting its stale entry in scripts/architecture-exce"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-10T13:14:57+00:00", "story": "PSCOPE-2", "detail": "S-0003-e638: Leave scripts/architecture-exceptions.json untouched; the ORCHESTRATOR will delete the stale providerConnection exception entry before commit (build-infra, outside worker scope by design). Proceed wit"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-10T14:12:51+00:00", "story": "PSCOPE-2", "detail": "3 task(s)"}
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-08-10T15:00:04+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-2 requires full DM prompt-target plumbing cleanup, but current committed code retains non-null DM-era onboarding fields (approver, prompt_conversation_jid, prompt_agent_folder, dismissed_at) "}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-10T15:00:29+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-2 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-10T15:04:39+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-2: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-10T15:04:39+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-2 Telegram rewire + delete the DM Yes/No propagation flow"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-10T15:04:48+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-3 Slack inviter extraction, Discord manual fallback, docs + parity"}
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-08-10T15:08:19+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-3 does not specify which Discord channel receives the GUILD_CREATE manual-setup message when a guild has multiple channels or no system_channel_id; a deterministic destination/fallback rule i"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-10T15:13:40+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-3 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-10T15:14:02+00:00", "story": "PSCOPE-2", "detail": "S-0005-eb05: system_channel_id when present, otherwise SKIP the message entirely (never guess a channel; posting into an arbitrary channel is worse than silence). Record the onboarding row either way so reconnect "}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-10T15:44:19+00:00", "story": "PSCOPE-2", "detail": "3 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-10T15:47:26+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-3 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-10T15:49:33+00:00", "story": "PSCOPE-2", "detail": "3 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-10T15:53:05+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-3 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-10T15:53:39+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-3: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-10T15:53:39+00:00", "story": "PSCOPE-2", "detail": "PSCOPE-2-3 Slack inviter extraction, Discord manual fallback, docs + parity"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-10T16:00:04+00:00", "story": "PSCOPE-2"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-10T16:13:40+00:00", "story": "PSCOPE-2"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-10T16:13:50+00:00", "story": "PSCOPE-2", "detail": "pass"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-10T16:13:50+00:00", "story": "PSCOPE-2"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-10T16:13:50+00:00", "story": "PSCOPE-2"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-10T16:13:50+00:00", "story": "PSCOPE-2"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-10T16:14:20+00:00", "story": "PSCOPE-2", "detail": "S-0004-43c6: Retain the physical columns: the bootstrap flow REUSES them (adder/approver hold the installer, the row is the dedup+claim record, dismissed_at participates in reclaim clearing). prompt_conversation_j"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-10T16:14:20+00:00", "story": "PSCOPE-2", "detail": "Adding the bot to a group is no longer dead air, and groups can finally bootstrap their first approver. When someone the bot already knows from a 1:1 chat adds it to a Telegram group or Slack channel,"}

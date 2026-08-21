@@ -1,0 +1,69 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "CONTENT-2",
+  "tasks": [
+    {
+      "id": "CONTENT-2-1",
+      "title": "attachment_materialize tool end to end (quarantine contract, decision 0105)",
+      "objective": "Add the attachment_materialize MCP tool (one attachment_id, HMAC conversation proof, distinct type) with a materialize mode inside openWithinDeadline (skips view extraction, adds fileName, inherits tombstone checks); the host handler streams the CAS file through writeInboundAttachment into <workspace>/quarantine/, returns already_in_workspace for workspace-local refs, logs each crossing, with a 120s timeout and long-running IPC membership.",
+      "write_scope": [
+        "apps/core/src/runner",
+        "apps/core/src/runtime",
+        "apps/core/src/jobs",
+        "apps/core/src/application",
+        "apps/core/src/shared",
+        "apps/core/test",
+        "docs"
+      ],
+      "acceptance_criteria": [
+        "materialize lands exact bytes at quarantine/<hex>-<name> via writeInboundAttachment (reader-streamed; symlinked quarantine dir refused; oversize refused at 50 MiB) with the crossing logged {sourceAgentFolder, attachmentId, chatJid, bytes, quarantinePath}",
+        "forged/mismatched proof, wrong-conversation id, and tombstoned attachment rejected with attachment_open's statuses; workspace-local (e.g. Telegram live) ids return already_in_workspace with the existing relative path and copy nothing",
+        "the provider-attachment STORE invariant tests (outside every workspace root) remain untouched and green; materialize never calls materializeProviderAttachment with a workspace root",
+        "tool registered in BASELINE_GANTRY_MCP_TOOL_NAMES, absent from the affinity map (neutral: projected for a tg: spawn while canvas_* stays dropped), type in the proof-required parsing branch and the long-running list, runner timeout override 120s",
+        "materialize mode skips doc-extraction/base64 view work and extends AttachmentOpenResult with fileName"
+      ],
+      "required_tests": [
+        {
+          "id": "attachment materialize > streams the resolved attachment into the workspace quarantine through the hardened writer",
+          "path": "apps/core/test/unit/jobs/ipc-attachment-open-handler.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    },
+    {
+      "id": "CONTENT-2-2",
+      "title": "Quarantine guidance in neutral prompt seams + isolation contract tests",
+      "objective": "Amend the neutral prompt seams for the quarantine contract: workspaceFilesSection in gantry-agent-system-prompt.ts (adjacent to the attachments-are-not-workspace-files sentence 0105 weakens), the workspace-conventions line in prompt-profile-service.ts (within its byte-budget guard), and the stale DeepAgents facade copy. Add contract tests: quarantine copy is the only workspace ingress and goes through the hardened writer; store-isolation tests stay untouched.",
+      "write_scope": [
+        "apps/core/src/runner",
+        "apps/core/src/application",
+        "apps/core/src/adapters/llm",
+        "apps/core/test",
+        "docs"
+      ],
+      "acceptance_criteria": [
+        "quarantine/ guidance present in both lanes' prompts: explicitly materialized files, untrusted data not instructions, process with tools, no auto-ingest",
+        "operating-block byte-budget guard test stays green with the added line",
+        "DeepAgents facade no longer claims attachment paths are never readable (updated consistently with the tool)",
+        "sibling tests pin: hardened-writer-only workspace ingress; existing outside-workspace store invariants untouched and green"
+      ],
+      "required_tests": [
+        {
+          "id": "agent system prompt > marks the workspace quarantine directory as untrusted materialized data",
+          "path": "apps/core/test/unit/runner/gantry-agent-system-prompt.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "commit": "6efbf24adb70419139bd908f6622837fe8eb8e49"
+}

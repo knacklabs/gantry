@@ -21,8 +21,12 @@ import {
   computeIpcAuthToken,
   computeMemoryIpcAuthToken,
 } from './ipc-auth.js';
+import {
+  readIpcSourceProvenance,
+  type IpcSourceProvenance,
+} from './ipc-source-provenance.js';
 
-interface IpcThreadBinding {
+interface IpcThreadBinding extends IpcSourceProvenance {
   appId?: string;
   agentId?: string;
   providerAccountId?: string;
@@ -147,6 +151,7 @@ function readTrustedThreadBinding(
     context && Object.prototype.hasOwnProperty.call(context, 'responseKeyId')
       ? readResponseKeyIdField(context.responseKeyId, `${label} responseKeyId`)
       : undefined;
+  const sourceProvenance = readIpcSourceProvenance(context, label);
   const contextAppId =
     context && Object.prototype.hasOwnProperty.call(context, 'appId')
       ? readAppIdField(context.appId, `${label} context.appId`)
@@ -201,6 +206,7 @@ function readTrustedThreadBinding(
         : undefined,
     ...(hasPayloadThreadId ? { payloadThreadId } : {}),
     ...(responseKeyId ? { responseKeyId } : {}),
+    ...sourceProvenance,
   };
 }
 

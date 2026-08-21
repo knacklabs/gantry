@@ -1,0 +1,17 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "The creation-time setup notification is dispatched fire-and-forget (async, not awaited), so channel-delivery latency never slows job creation; creation stays fast/silent. Part A adds no new work on the hot path (recovery-string generation only, on the already-denied branch). Part C is prompt text (no runtime cost). The only added I/O is one host getJobById + one markJobSetupNotified on the async notify path, which reuses existing infrastructure. No new synchronous or per-run overhead.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recommendation": "Land.",
+  "reviewed_scope": [
+    "apps/core/src/jobs/execution-readiness.ts",
+    "apps/core/src/application/jobs/job-management-readiness.ts",
+    "apps/core/src/application/jobs/job-management-create.ts"
+  ],
+  "aspect": "performance",
+  "recorded_at": "2026-08-09T08:22:27+00:00",
+  "commit": "074509a5939e68f2e9f307bc38b54f86ea45917c"
+}

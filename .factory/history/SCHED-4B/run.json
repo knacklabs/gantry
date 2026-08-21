@@ -1,0 +1,17 @@
+{
+  "issue_key": "SCHED-4B",
+  "title": "Actionable job cards: approve-from-card, full setup story, visible recovery, provider parity",
+  "tracker": "linear",
+  "branch": "feat/SCHED-4B-actionable-job-cards-approve-from-card-full-setup-story-visible-recovery-provider-parity",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-05T17:13:32+00:00",
+  "updated_at": "2026-08-07T14:05:18+00:00",
+  "plan_file": "plans/completed/SCHED-4B-actionable-job-cards-approve-from-card-full-setup-story-visible-recovery-provider-parity.md",
+  "story": "SCHED-4B"
+}

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import {
   createDefaultRuntimeSettings,
@@ -222,10 +223,12 @@ describe('runtime admin IPC handlers', () => {
       stopService: vi.fn(() => ({ ok: true, message: 'stopped' })),
     }));
     const { serviceRestartHandler, taskData } = await loadHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: false,
-      reason: 'not now',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        reason: 'not now',
+      }),
+    );
     const sendMessage = vi.fn(async () => undefined);
 
     await serviceRestartHandler({
@@ -342,10 +345,12 @@ describe('runtime admin IPC handlers', () => {
     }));
     const { requestSettingsUpdateHandler, taskData } =
       await loadHandlers(runtimeHome);
-    const requestPermissionApproval = vi.fn(async () => ({
-      approved: true,
-      decidedBy: 'tg:admin',
-    }));
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        decidedBy: 'tg:admin',
+      }),
+    );
 
     await expect(
       requestSettingsUpdateHandler({
@@ -404,7 +409,10 @@ describe('runtime admin IPC handlers', () => {
       const concurrent = createDefaultRuntimeSettings();
       concurrent.agent.defaultModel = 'haiku';
       saveRuntimeSettings(runtimeHome, concurrent);
-      return { approved: true, decidedBy: 'tg:admin' };
+      return permissionDecisionResult({
+        approved: true,
+        decidedBy: 'tg:admin',
+      });
     });
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
       tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
@@ -569,10 +577,12 @@ describe('runtime admin IPC handlers', () => {
       sourceAgentFolder: 'main_agent',
       deps: {
         ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          decidedBy: 'tg:admin',
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            decidedBy: 'tg:admin',
+          }),
+        ),
         sendMessage: vi.fn(async () => undefined),
         reloadRuntimeState,
       } as any,
@@ -680,10 +690,12 @@ describe('runtime admin IPC handlers', () => {
       sourceAgentFolder: 'main_agent',
       deps: {
         ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          decidedBy: 'tg:admin',
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            decidedBy: 'tg:admin',
+          }),
+        ),
         sendMessage,
         reloadRuntimeState,
       } as any,
@@ -824,10 +836,12 @@ describe('runtime admin IPC handlers', () => {
         sourceAgentFolder: 'main_agent',
         deps: {
           ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
-          requestPermissionApproval: vi.fn(async () => ({
-            approved: true,
-            decidedBy: 'tg:admin',
-          })),
+          requestPermissionApproval: vi.fn(async () =>
+            permissionDecisionResult({
+              approved: true,
+              decidedBy: 'tg:admin',
+            }),
+          ),
           sendMessage: vi.fn(async () => undefined),
           reloadRuntimeState: vi.fn(async () => undefined),
         } as any,
@@ -977,10 +991,12 @@ describe('runtime admin IPC handlers', () => {
     };
     const deps = {
       ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
-      requestPermissionApproval: vi.fn(async () => ({
-        approved: true,
-        decidedBy: 'tg:admin',
-      })),
+      requestPermissionApproval: vi.fn(async () =>
+        permissionDecisionResult({
+          approved: true,
+          decidedBy: 'tg:admin',
+        }),
+      ),
       sendMessage: vi.fn(async () => undefined),
       reloadRuntimeState: vi.fn(async () => undefined),
     } as any;
@@ -1132,10 +1148,12 @@ describe('runtime admin IPC handlers', () => {
       sourceAgentFolder: 'main_agent',
       deps: {
         ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          decidedBy: 'tg:admin',
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            decidedBy: 'tg:admin',
+          }),
+        ),
         sendMessage: vi.fn(async () => undefined),
         reloadRuntimeState,
       } as any,
@@ -1183,10 +1201,12 @@ describe('runtime admin IPC handlers', () => {
       sourceAgentFolder: 'main_agent',
       deps: {
         ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
-        requestPermissionApproval: vi.fn(async () => ({
-          approved: true,
-          decidedBy: 'tg:admin',
-        })),
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            decidedBy: 'tg:admin',
+          }),
+        ),
         sendMessage: vi.fn(async () => undefined),
       } as never,
       conversationBindings: {},

@@ -42,7 +42,19 @@ function makeJob(id: string): JobUpsertInput {
       state: 'missing_capability',
       checked_at: now,
       fingerprint: 'fingerprint-1',
-      blockers: [],
+      notified_fingerprint: null,
+      blockers: [
+        {
+          state: 'missing_capability',
+          type: 'semantic_capability',
+          id: 'capability:coordination-test',
+          summary: 'A required capability is missing for this job.',
+          action: {
+            kind: 'instruction',
+            text: 'Provision the missing capability, then resume the job.',
+          },
+        },
+      ],
     },
   };
 }

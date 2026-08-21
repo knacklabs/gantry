@@ -396,7 +396,7 @@ permissions:
     model: haiku # optional; defaults to the memory extractor slot model
 ```
 
-The full worker IPC order is:
+For interactive runs, the full worker IPC order is:
 
 ```text
 hard deny -> locked preset -> fixed image -> reviewed agent rule/capability
@@ -473,6 +473,12 @@ decision-memory repository. Inline third-party MCP uses the host coordinator
 and classifier without the cache. Core-tool paths use the same hard precedence
 and durable human interaction but do not all invoke classifier or cache.
 
+Autonomous runs are the explicit exception. Per
+[decision 0121](../decisions/0121-autodet-no-classifier-autonomous.md), a
+host-verified `jobId` skips both cached classifier verdicts and classifier
+consultation. Reviewed agent authority still allows; a miss deterministically
+denies and enters the existing setup-pause approval flow.
+
 Conversation-level data exposure is governed by Agent Access and the
 channel's approver configuration, not by this gate: whoever may converse
 with an agent may receive what its granted capabilities can already read.
@@ -485,10 +491,10 @@ Every classifier consultation verdict (including failure-coded asks) is publishe
 `permission.classifier_decision` runtime event, so the audit trail is
 complete and queryable.
 
-Unattended runs (scheduled jobs) get the same treatment: where a zero-timeout
-permission request used to deny immediately, an auto-mode runner waits a
-bounded classifier window; the host answers eligible requests allow-or-deny
-within it and denies ineligible ones immediately.
+Unattended runs (scheduled jobs) do not use auto-mode classification. Their
+zero-timeout tool call is answered from deterministic host authority: a
+reviewed-rule match allows, and a miss denies terminally so the job can pause
+and request a durable grant.
 
 Promotion is based only on explicitly human-attributed approvals; classifier
 auto-allows and system-generated decisions never increment the counter. After
@@ -905,7 +911,8 @@ Before calling a cutover complete, run targeted searches for:
    identity, command templates, preflight, protected paths, and account label.
 6. After review, run `request_access target.kind=capability` to confirm the capability is visible and
    selected for the target agent. Recurring jobs inherit that agent capability;
-   they must not create job-local authority.
+   they must invoke it through `capability_run` with a structured argument list
+   and must not create job-local authority or shell it through `RunCommand`.
 
 ## Scheduler Capability Requirements
 
@@ -924,7 +931,8 @@ the same path. It must also include pinned executable version and hash so setup
 can ask for one reviewed local CLI capability instead of raw command authority.
 It is not job-owned authority. User-defined semantic `local_cli` capability
 definitions require executable identity, command templates, protected paths, and
-denied environment overrides before runtime projects scoped command authority.
+denied environment overrides before `capability_run` can invoke them. Selection
+authorizes that structured path only; it does not project a `RunCommand` rule.
 Do not replace the reviewed capability with a broad CLI command grant.
 
 Examples:
@@ -940,9 +948,9 @@ Examples:
   target agent, not job-local authority.
 - Reusable user-defined local CLI capability: register a reviewed `local_cli`
   capability definition with pinned executable path, command template, auth
-  preflight, and protected credential paths. Runtime enforces it through the
-  selected semantic capability; do not approve broad CLI command rules as a
-  substitute.
+  preflight, and protected credential paths. Runtime enforces it through
+  `capability_run` and the selected semantic capability; do not invoke it via
+  `RunCommand` or approve broad CLI command rules as a substitute.
 - Unknown business CLI: register `capabilityId=acme.invoices.read`,
   display name `Acme invoices read`, command template
   `/usr/local/bin/acme invoices read *`, and a non-secret account label before

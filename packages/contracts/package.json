@@ -78,11 +78,6 @@
       "import": "./dist/pagination/index.js",
       "default": "./dist/pagination/index.js"
     },
-    "./primitives": {
-      "types": "./dist/contract-primitives.d.ts",
-      "import": "./dist/contract-primitives.js",
-      "default": "./dist/contract-primitives.js"
-    },
     "./permissions": {
       "types": "./dist/permissions/index.d.ts",
       "import": "./dist/permissions/index.js",

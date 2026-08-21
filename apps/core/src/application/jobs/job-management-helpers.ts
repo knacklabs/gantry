@@ -157,7 +157,6 @@ export function authenticatedContextFromAccess(
 export function assertExecutionContextMatchesAuthenticatedContext(input: {
   executionContext?: JobExecutionContextInput;
   authenticatedContext: AuthenticatedJobRouteContext;
-  enforceThread?: boolean;
 }): JobExecutionContextInput {
   const expected = input.authenticatedContext;
   const provided =
@@ -176,15 +175,10 @@ export function assertExecutionContextMatchesAuthenticatedContext(input: {
       'executionContext workspaceKey must match the authenticated workspace key.',
     );
   }
-  if (
-    input.enforceThread !== false &&
-    (provided.threadId ?? null) !== (expected.threadId ?? null)
-  ) {
-    throw new ApplicationError(
-      'FORBIDDEN',
-      'executionContext threadId must match authenticated thread binding.',
-    );
-  }
+  // Threads/topics are NOT an ownership boundary (Ravi, 2026-08-11): a
+  // topic shares its parent conversation's membership, so ownership and
+  // control scope to the conversation (DM/group/channel). The thread stays
+  // purely a delivery route.
   return provided;
 }
 
@@ -259,10 +253,12 @@ export function routesBeyondAuthenticatedContext(input: {
   authenticatedContext: AuthenticatedJobRouteContext;
 }): JobNotificationRouteInput[] {
   const { routes, authenticatedContext } = input;
+  // Same conversation + same provider account = same trust boundary; a
+  // different TOPIC of that conversation is not "beyond context" (threads
+  // are delivery routing, not ownership).
   return routes.filter(
     (route) =>
       route.conversationJid !== authenticatedContext.conversationJid ||
-      (route.threadId ?? null) !== (authenticatedContext.threadId ?? null) ||
       (route.providerAccountId ?? null) !==
         (authenticatedContext.providerAccountId ?? null),
   );

@@ -1,0 +1,36 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-05T03:16:07+00:00", "story": "SCHED-1", "detail": "Scheduler correctness blockers: no self-mutation, typed permission provenance"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-05T03:28:55+00:00", "story": "SCHED-1", "detail": "plans/active/SCHED-1-scheduler-correctness-blockers-no-self-mutation-typed-permission-provenance.md"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-05T03:29:04+00:00", "story": "SCHED-1", "detail": "plans/active/SCHED-1-scheduler-correctness-blockers-no-self-mutation-typed-permission-provenance.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T03:29:57+00:00", "story": "SCHED-1", "detail": "2 task(s)"}
+{"event": "implementing", "generated_by": "orchestrator", "at": "2026-08-05T03:29:58+00:00", "story": "SCHED-1"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-05T03:30:16+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 Typed permission provenance + ask-gated scheduler mutations (B1+B3, decision 0107)"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-05T03:31:45+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 requires gate emission changes in apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts, but apps/core/src/adapters is outside the task write scope; add that exact"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T03:31:53+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T03:32:31+00:00", "story": "SCHED-1", "detail": "2 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-05T03:32:31+00:00", "story": "SCHED-1", "detail": "S-0001-2f6b: Scope amended at the source: the decomposition is re-recorded with apps/core/src/adapters/llm in SCHED-1-1 write_scope (the gate emission lives at adapters/llm/anthropic-claude-agent/runner/tool-permi"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-05T03:32:31+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 Typed permission provenance + ask-gated scheduler mutations (B1+B3, decision 0107)"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-05T03:35:08+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 cannot carry source and repeatableForFutureRuns through permission IPC without editing apps/core/src/runtime/ipc-interaction-processing.ts and apps/core/src/runtime/interaction-resolution-re"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T03:35:22+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T03:35:50+00:00", "story": "SCHED-1", "detail": "2 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-05T03:35:50+00:00", "story": "SCHED-1", "detail": "S-0002-fe0b: Scope amended: apps/core/src/runtime added to SCHED-1-1 write_scope (the human-path decision flows through runtime/ipc-interaction-processing.ts and interaction-resolution-response.ts). The full prove"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-05T03:35:50+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 Typed permission provenance + ask-gated scheduler mutations (B1+B3, decision 0107)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T03:49:24+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 (write)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T04:23:16+00:00", "story": "SCHED-1", "detail": "SCHED-1-2 (read-only)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T04:24:29+00:00", "story": "SCHED-1", "detail": "2 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-05T04:24:29+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 Typed permission provenance + ask-gated scheduler mutations (B1+B3, decision 0107)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T04:30:20+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-05T04:31:29+00:00", "story": "SCHED-1", "detail": "SCHED-1-1 Typed permission provenance + ask-gated scheduler mutations (B1+B3, decision 0107)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-05T04:32:00+00:00", "story": "SCHED-1", "detail": "SCHED-1-2 Unattended scheduler surface + host-side mutation rejection (B2+B4, decision 0106)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T04:51:54+00:00", "story": "SCHED-1", "detail": "SCHED-1-2 (write)"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-05T05:16:49+00:00", "story": "SCHED-1"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-05T05:27:47+00:00", "story": "SCHED-1"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-05T05:51:53+00:00", "story": "SCHED-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-05T05:51:53+00:00", "story": "SCHED-1", "detail": "pass"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-05T05:51:53+00:00", "story": "SCHED-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-05T05:51:54+00:00", "story": "SCHED-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-05T05:51:54+00:00", "story": "SCHED-1"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T05:52:24+00:00", "story": "SCHED-1", "detail": "2 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-05T05:52:24+00:00", "story": "SCHED-1", "detail": "SCHED-1-2 Unattended scheduler surface + host-side mutation rejection (B2+B4, decision 0106)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T06:08:20+00:00", "story": "SCHED-1", "detail": "SCHED-1-2 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-05T06:09:52+00:00", "story": "SCHED-1", "detail": "SCHED-1-2 Unattended scheduler surface + host-side mutation rejection (B2+B4, decision 0106)"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-05T06:09:52+00:00", "story": "SCHED-1", "detail": "Recurring jobs no longer pause themselves: the runtime now distinguishes automatic policy approvals from genuine human one-time consent, and only the latter pauses a job \u2014 with every automatic path re"}

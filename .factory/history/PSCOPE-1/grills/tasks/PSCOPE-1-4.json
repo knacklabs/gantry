@@ -1,0 +1,27 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "issue": "PSCOPE-1",
+  "verdict": "pass",
+  "questions_asked": 6,
+  "summary": "Same grill as the prior digest (host-side stamp at request creation covers both durable paths; trace-verified), re-recorded after widening write_scope with apps/core/src/jobs and apps/core/src/application/jobs. The widening reflects work ALREADY measured in this stage's baseline window (the orchestrator's simplify + scheduled-job write commits), not new task surface.",
+  "gaps": [
+    "Omitting personId from the durablePermissionRequestSnapshot allowlist would silently drop it on the restart path.",
+    "A worker-supplied personId in raw/raw.context would be a forgeable identity claim.",
+    "Registry miss yields undefined personId.",
+    "The prompt envelope's renderedRequest is a second snapshot copy.",
+    "Widened scope could invite unrelated job-path edits."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "AC pins the snapshot round-trip; the required test asserts it and passes.",
+    "AC forbids parsing personId from the worker payload; the test forges one and asserts the host overwrites it.",
+    "Undefined personId = no person = shared grant, the simple-model semantic for group/ineligible turns.",
+    "renderedRequest is render-only; the grant path reads pending_interactions.payload_json.request; jsonb, no migration.",
+    "Job-path files carry only the already-reviewed scheduled-grant work (588e23d1f); the live-turn diff touches none of them."
+  ],
+  "task_id": "PSCOPE-1-4",
+  "input_sha256": "dac8db3a9a75a6cfc1c8ef96dfc085b7a8072da5ef1f778ab685e01a7156f19a",
+  "recorded_at": "2026-08-10T08:49:14+00:00",
+  "commit": "b8a0594cd16e1abb06973bfc8b00342ff1d88d58"
+}

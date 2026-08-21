@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0045-8a8a",
+  "profile": "degraded",
+  "reason": "NOTIFY-1 T4 fixes: surrogate-safe truncation in boundJobNotificationView + omit an empty structured result so renderers fall back to fallbackText",
+  "started_at": "2026-08-20T18:38:05+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

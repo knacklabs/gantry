@@ -23,6 +23,7 @@ import {
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
+  slackJobNotificationBlocks,
   slackMessageActionBlocks,
   slackReviewMessageBlocks,
 } from './message-action-affordances.js';
@@ -33,6 +34,11 @@ import {
   handleSlackThreadProgressStatus,
   isSlackTerminalSuccessText,
 } from './thread-progress-status.js';
+import {
+  currentProcessSlackProgress,
+  rejectOlderSlackProgressGeneration,
+  slackProgressBootNonce,
+} from './progress-restart.js';
 import {
   clampSlackRetryDelayMs,
   slackRateLimitRetryDelayMs,
@@ -68,6 +74,17 @@ export function slackActionBlocks(text: string, options: MessageSendOptions) {
         ? { providerAccountId: options.providerAccountId }
         : {}),
     });
+  }
+  if (options.jobNotificationView) {
+    return slackJobNotificationBlocks(
+      options.jobNotificationView,
+      options.actionAffordances,
+      {
+        ...(options.providerAccountId
+          ? { providerAccountId: options.providerAccountId }
+          : {}),
+      },
+    );
   }
   if (options.brainReviewView) {
     return slackBrainReviewBlocks(options.brainReviewView, {
@@ -413,7 +430,7 @@ export async function sendSlackProgressUpdate(input: {
   options: ProgressUpdateOptions;
   activeProgress: Map<string, ActiveProgressState>;
   persistProgress: () => void;
-}): Promise<void> {
+}): Promise<boolean> {
   if (!input.app) {
     logger.info(
       {
@@ -424,7 +441,7 @@ export async function sendSlackProgressUpdate(input: {
       },
       'Progress lifecycle slack skipped without app',
     );
-    return;
+    return false;
   }
   const actionOnly = Boolean(
     input.options.actionOnly && input.options.actionAffordances?.length,
@@ -443,16 +460,15 @@ export async function sendSlackProgressUpdate(input: {
       },
     })
   )
-    return;
-  if (actionOnly) return;
+    return true;
+  if (actionOnly) return false;
   if (!trimmed) {
     if (input.options.done) {
       input.activeProgress.delete(input.key);
       input.persistProgress();
     }
-    return;
+    return false;
   }
-
   let existing = input.activeProgress.get(input.key);
   const threadTs = slackThreadTsFromThreadId(input.options.threadId);
   if (
@@ -487,26 +503,14 @@ export async function sendSlackProgressUpdate(input: {
     },
     'Progress lifecycle slack receive',
   );
+  existing = await currentProcessSlackProgress(input, existing);
+  if (rejectOlderSlackProgressGeneration(input, existing)) return false;
   if (
     existing &&
     input.options.generation !== undefined &&
     existing.generation !== undefined &&
     existing.generation !== input.options.generation
   ) {
-    if (input.options.generation < existing.generation) {
-      logger.info(
-        {
-          channelId: input.channelId,
-          key: input.key,
-          done: input.options.done ?? false,
-          replaceOnly: input.options.replaceOnly ?? false,
-          generation: input.options.generation,
-          existingGeneration: existing.generation,
-        },
-        'Progress lifecycle slack dropped generation mismatch',
-      );
-      return;
-    }
     if (!input.options.done && !input.options.replaceOnly) {
       logger.info(
         {
@@ -533,12 +537,13 @@ export async function sendSlackProgressUpdate(input: {
       },
       'Progress lifecycle slack dropped replaceOnly without handle',
     );
-    return;
+    return false;
   }
-  if (!existing && input.options.done && isSlackTerminalSuccessText(trimmed))
-    return void (input.activeProgress.delete(input.key),
-    input.persistProgress());
-
+  if (!existing && input.options.done && isSlackTerminalSuccessText(trimmed)) {
+    input.activeProgress.delete(input.key);
+    input.persistProgress();
+    return true;
+  }
   if (!existing) {
     const blocks = slackActionBlocks(trimmed, input.options);
     const sent = (await input.app.client.chat.postMessage({
@@ -553,6 +558,7 @@ export async function sendSlackProgressUpdate(input: {
         threadId: threadTs,
         messageTs: sent.ts,
         lastText: trimmed,
+        ownerBootNonce: slackProgressBootNonce,
         ...(input.options.generation !== undefined
           ? { generation: input.options.generation }
           : {}),
@@ -571,9 +577,8 @@ export async function sendSlackProgressUpdate(input: {
       },
       'Progress lifecycle slack sent new message',
     );
-    return;
+    return true;
   }
-
   if (existing.lastText === trimmed) {
     if (input.options.done) {
       if (existing.messageTs) {
@@ -609,7 +614,7 @@ export async function sendSlackProgressUpdate(input: {
         'Progress lifecycle slack skipped unchanged text',
       );
     }
-    return;
+    return true;
   }
 
   if (existing.messageTs) {
@@ -652,6 +657,7 @@ export async function sendSlackProgressUpdate(input: {
     },
     'Progress lifecycle slack edited existing message',
   );
+  return true;
 }
 export function loadPersistedSlackProgress(
   botToken: string,
@@ -664,7 +670,9 @@ export function loadPersistedSlackProgress(
   for (const [key, state] of entries) {
     if (
       typeof state.channelId === 'string' &&
-      typeof state.lastText === 'string'
+      typeof state.lastText === 'string' &&
+      (state.ownerBootNonce === undefined ||
+        typeof state.ownerBootNonce === 'string')
     ) {
       activeProgress.set(key, state);
     }

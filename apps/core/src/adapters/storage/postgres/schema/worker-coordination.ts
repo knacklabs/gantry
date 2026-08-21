@@ -141,6 +141,10 @@ export const permissionPromptsPostgres = pgTable(
     appId: text('app_id')
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    // Plain audit identity: intentionally no jobs FK so terminal prompt history
+    // survives deletion of the target job.
+    jobId: text('job_id'),
+    setupFingerprint: text('setup_fingerprint'),
     sourceAgentFolder: text('source_agent_folder').notNull(),
     interactionId: text('interaction_id').notNull(),
     // match_kind is application-constrained to: individual | batch.
@@ -171,7 +175,8 @@ export const permissionPromptsPostgres = pgTable(
       mode: 'string',
     }),
     // settlement_state is application-constrained to:
-    // open | claimed | settled | review_each_expired | superseded.
+    // open | claimed | settled | review_each_expired | superseded |
+    // expired | cancelled.
     settlementState: text('settlement_state').notNull().default('open'),
     settledAt: timestamp('settled_at', {
       withTimezone: true,
@@ -212,6 +217,12 @@ export const permissionPromptsPostgres = pgTable(
     parentEnvelopeIdx: index('idx_permission_prompts_parent').on(
       table.parentEnvelopeId,
     ),
+    jobIdx: index('idx_permission_prompts_job').on(table.jobId),
+    activeSetupUnique: uniqueIndex('uq_permission_prompts_active_setup')
+      .on(table.jobId, table.setupFingerprint)
+      .where(
+        sql`${table.jobId} IS NOT NULL AND ${table.setupFingerprint} IS NOT NULL AND ${table.settlementState} IN ('open', 'claimed')`,
+      ),
   }),
 );
 

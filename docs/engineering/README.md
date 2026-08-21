@@ -21,19 +21,19 @@ not permission to silently choose either side.
 
 ## Policy index
 
-| Policy | Primary repository owner | Primary mechanical proof |
-| --- | --- | --- |
-| [Source organization](source-organization.md) | `apps/core/src/`, `packages/`, `ops/`, `scripts/`, `docs/`, `plans/`, `factory/` | `npm run check:architecture` |
-| [Coding standards](coding-standards.md) | TypeScript modules and their owning package | `npm run typecheck`, `npm run lint`, `npm run format:check` |
-| [Architecture rules](architecture-rules.md) | Domain, application, adapter, delivery, and composition boundaries under `apps/core/src/` | `npm run check:architecture` |
-| [Testing](testing.md) | Established test roots and Vitest configurations | `npm test` and the risk-specific test scripts in `package.json` |
-| [Dependencies](dependencies.md) | Package manifests, the lockfile, and Gantry-owned provider interfaces | Build, package-content, SBOM, and dependency security checks |
-| [API and contracts](api-and-contracts.md) | Control API, CLI, settings, `packages/contracts/`, and `packages/sdk/` | Typecheck, build, contract, generation, migration, and package checks |
-| [Errors and observability](errors-and-observability.md) | Domain errors, delivery adapters, process boundaries, telemetry, and audit records | Lint, typecheck, tests, and telemetry schemas |
-| [Configuration and secrets](configuration-and-secrets.md) | Settings schemas, startup validation, and the credential boundary | Schema validation, secret scanning, protected-file rules, and documentation checks |
-| [Persistence and migrations](persistence-and-migrations.md) | Postgres schema and repository adapters | Migration checks, real-Postgres integration tests, typecheck, and architecture checks |
-| [Performance](performance.md) | The boundary that owns the measured workload | Committed budgets, benchmarks, load/concurrency tests, and regression suites |
-| [Documentation governance](documentation.md) | `docs/`, `plans/`, and generated documentation sources | `npm run docs:check` |
+| Policy                                                      | Primary repository owner                                                                  | Primary mechanical proof                                                              |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [Source organization](source-organization.md)               | `apps/core/src/`, `packages/`, `ops/`, `scripts/`, `docs/`, `plans/`, `factory/`          | `npm run check:architecture`                                                          |
+| [Coding standards](coding-standards.md)                     | TypeScript modules and their owning package                                               | `npm run typecheck`, `npm run lint`, `npm run format:check`                           |
+| [Architecture rules](architecture-rules.md)                 | Domain, application, adapter, delivery, and composition boundaries under `apps/core/src/` | `npm run check:architecture`                                                          |
+| [Testing](testing.md)                                       | Established test roots and Vitest configurations                                          | `npm test` and the risk-specific test scripts in `package.json`                       |
+| [Dependencies](dependencies.md)                             | Package manifests, the lockfile, and Gantry-owned provider interfaces                     | Build, package-content, SBOM, and dependency security checks                          |
+| [API and contracts](api-and-contracts.md)                   | Control API, CLI, settings, `packages/contracts/`, and `packages/sdk/`                    | Typecheck, build, contract, generation, migration, and package checks                 |
+| [Errors and observability](errors-and-observability.md)     | Domain errors, delivery adapters, process boundaries, telemetry, and audit records        | Lint, typecheck, tests, and telemetry schemas                                         |
+| [Configuration and secrets](configuration-and-secrets.md)   | Settings schemas, startup validation, and the credential boundary                         | Schema validation, secret scanning, protected-file rules, and documentation checks    |
+| [Persistence and migrations](persistence-and-migrations.md) | Postgres schema and repository adapters                                                   | Migration checks, real-Postgres integration tests, typecheck, and architecture checks |
+| [Performance](performance.md)                               | The boundary that owns the measured workload                                              | Committed budgets, benchmarks, load/concurrency tests, and regression suites          |
+| [Documentation governance](documentation.md)                | `docs/`, `plans/`, and generated documentation sources                                    | `npm run docs:check`                                                                  |
 
 Each policy labels rules as **Mechanical**, **Review**, or **Recommendation**.
 Mechanical rules name an executable owner where one exists. Review rules require

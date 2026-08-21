@@ -234,20 +234,26 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
       request = nextRequest;
       if (input.mode === 'cancel') {
         return {
-          approved: false,
-          mode: 'cancel' as const,
-          reason: 'not approved',
+          kind: 'decision' as const,
+          decision: {
+            approved: false,
+            mode: 'cancel' as const,
+            reason: 'not approved',
+          },
         };
       }
       return {
-        approved: true,
-        mode: input.mode,
-        decidedBy: 'user:approver',
-        decisionClassification:
-          input.mode === 'allow_persistent_rule'
-            ? ('user_permanent' as const)
-            : ('user_temporary' as const),
-        updatedPermissions: nextRequest.suggestions ?? [],
+        kind: 'decision' as const,
+        decision: {
+          approved: true,
+          mode: input.mode,
+          decidedBy: 'user:approver',
+          decisionClassification:
+            input.mode === 'allow_persistent_rule'
+              ? ('user_permanent' as const)
+              : ('user_temporary' as const),
+          updatedPermissions: nextRequest.suggestions ?? [],
+        },
       };
     });
     await adminTaskHandlers.request_permission({

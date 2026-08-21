@@ -1,0 +1,17 @@
+{
+  "issue_key": "CONTENT-1",
+  "title": "Provider content gaps: honest fallbacks, quick fixes, Slack canvas CRUD",
+  "tracker": "linear",
+  "branch": "feat/CONTENT-1-provider-content-gaps-honest-fallbacks-quick-fixes-slack-canvas-crud",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-04T02:55:05+00:00",
+  "updated_at": "2026-08-04T16:10:11+00:00",
+  "plan_file": "plans/completed/CONTENT-1-provider-content-gaps-honest-fallbacks-quick-fixes-slack-canvas-crud.md",
+  "story": "CONTENT-1"
+}

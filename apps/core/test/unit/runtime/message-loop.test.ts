@@ -774,6 +774,121 @@ describe('decision 0080 authoritative second pending-message fetch', () => {
 });
 
 describe('thread queue routing', () => {
+  it.each([true, false])(
+    'acknowledges the newest provider message when continuation acceptance is %s',
+    async (accepted) => {
+      const message = {
+        ...makePendingMessage(1),
+        external_message_id: 'provider-message-1',
+        thread_id: 'thread-1',
+      };
+      mockGetMessagesSince.mockReturnValueOnce([message]);
+      const addReaction = vi.fn(async () => undefined);
+      const deps = makeDeps({
+        addReaction,
+        queue: {
+          ...makeDeps().queue,
+          sendMessage: vi.fn(() => accepted),
+        },
+      });
+
+      await processLiveAdmissionWorkItem(
+        deps,
+        makeAdmissionItem({
+          threadId: 'thread-1',
+          queueJid: makeAgentThreadQueueKey(
+            'group@g.us',
+            undefined,
+            'thread-1',
+          ),
+        }),
+      );
+
+      expect(addReaction).toHaveBeenCalledWith(
+        'group@g.us',
+        'provider-message-1',
+        'seen',
+        { threadId: 'thread-1' },
+      );
+    },
+  );
+
+  it('clears the newer thread when a continuation receipt back-scans to a plain-channel message', async () => {
+    mockGetMessagesSince.mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        external_message_id: 'provider-message-1',
+        thread_id: null,
+      },
+      {
+        ...makePendingMessage(2),
+        external_message_id: 'external-ingress:message-2',
+        thread_id: 'thread-1',
+      },
+    ]);
+    const addReaction = vi.fn(async () => undefined);
+    const deps = makeDeps({
+      addReaction,
+      queue: {
+        ...makeDeps().queue,
+        sendMessage: vi.fn(() => true),
+      },
+    });
+
+    await processLiveAdmissionWorkItem(
+      deps,
+      makeAdmissionItem({
+        threadId: 'thread-1',
+        queueJid: makeAgentThreadQueueKey('group@g.us', undefined, 'thread-1'),
+      }),
+    );
+
+    expect(addReaction).toHaveBeenCalledWith(
+      'group@g.us',
+      'provider-message-1',
+      'seen',
+      {},
+    );
+  });
+
+  it('re-enqueues immediately when a continuation receipt never settles', async () => {
+    const enqueueMessageCheck = vi.fn();
+    mockGetMessagesSince.mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        external_message_id: 'provider-message-1',
+      },
+    ]);
+    const deps = makeDeps({
+      addReaction: vi.fn(() => new Promise<void>(() => undefined)),
+      queue: {
+        ...makeDeps().queue,
+        sendMessage: vi.fn(() => false),
+        enqueueMessageCheck,
+      },
+    });
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, makeAdmissionItem()),
+    ).resolves.toBe('completed');
+    expect(enqueueMessageCheck).toHaveBeenCalledWith('group@g.us');
+  });
+
+  it('does not acknowledge a synthetic continuation reference', async () => {
+    mockGetMessagesSince.mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        external_message_id: 'external-ingress:message-1',
+      },
+    ]);
+    const addReaction = vi.fn(async () => undefined);
+    const deps = makeDeps({ addReaction });
+
+    await processLiveAdmissionWorkItem(deps, makeAdmissionItem());
+
+    expect(addReaction).not.toHaveBeenCalled();
+  });
+
   it('warns when a live admission item matches no messages', async () => {
     const queueJid = makeAgentThreadQueueKey(
       'group@g.us',

@@ -1,0 +1,32 @@
+{
+  "gate": "plan",
+  "verdict": "pass",
+  "issue": "AUTODET-1",
+  "questions_asked": 9,
+  "summary": "Plan interrogated against roadmap ACs, all active decisions (0000-0120), and the Codex read-only pipeline map. One AC found unimplementable as written (send_message destinations - no destination argument exists in the tool contract); resolved as satisfied-by-construction in plan+spec, flagged for human confirmation at approval. Single-seam shape confirmed simplest: host IPC tail guard only; worker matcher scope untouched.",
+  "gaps": [
+    "Roadmap AC-3 requires denying send_message to 'other destinations', but the tool schema has no destination parameter (schemas.ts:75; registry injects run conversation) - the AC is unimplementable as written",
+    "New deterministic denial needs typed provenance per 0107 - plan must name the decidedBy value",
+    "Guard predicate could be spoofed if keyed on worker-supplied fields instead of host-verified run context",
+    "Reason-string attribution: worker local-miss text rides IPC and can masquerade as host rationale on allows (the confusing 'allowed + no-match reason' pairing)",
+    "The ~45 historical classifier-allowed RunCommand variants become denials post-cutover - potential user-facing pause burst"
+  ],
+  "contradictions": [
+    "0043 classifier-risk-only-engine-authz: removing the classifier from the autonomous path must not contradict its charter - reconciled: 0043 governs WHAT the classifier judges (risk, not authz); this plan narrows WHERE it runs (interactive only); a new decision record amends the auto-mode contract explicitly"
+  ],
+  "resolutions": [
+    "AC-3: plan Non-goals + spec record own-conversation-only as the current contract; destination-bearing send_message is a named future public-contract decision; human confirmation requested at plan approval",
+    "Provenance: decidedBy=deterministic_rails for the new denial path, matching the existing unattended hard-floor cancellation vocabulary (0107)",
+    "Guard keys on the host-verified run-registry jobId (CAPRULE-1 host-stamp), never worker-supplied payload fields - pinned in plan Risks and to be pinned by unit test",
+    "Attribution fix in scope: host match reason becomes the recorded decisionReason on allows; worker text demoted to diagnostic context",
+    "Pause-burst trade accepted explicitly by Ravi in chat 2026-08-11 ('Remove entirely'); each variant is at most one grantable card then deterministic forever; noted in plan Risks"
+  ],
+  "open_items": [
+    "delivery-semantics recurring finding family is adjacent (send_message) but this plan changes authorization not delivery; closeout should confirm pause-card copy renders the truthful reason (non-blocking)",
+    "Decision number 0121 subject to origin/main collision check before push (known parallel-branch trap)"
+  ],
+  "generated_by": "griller",
+  "input_sha256": "cf81497478fd5b276c994ebb811ee8367e7927d2e4d7edfd369c070f0a1053a6",
+  "recorded_at": "2026-08-11T11:25:37+00:00",
+  "commit": "91d1fd8c05c18e4fcd23ef106aa56f1283734f8b"
+}

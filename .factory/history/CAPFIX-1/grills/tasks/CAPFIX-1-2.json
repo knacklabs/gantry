@@ -1,0 +1,27 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "task_id": "CAPFIX-1-2",
+  "questions_asked": 7,
+  "summary": "CAPFIX-1-2 contract interrogated against the approved plan, decision 0122 (as amended: tiered warnings), the landed stage-1 surface (proposal rows carry provider-qualified routing + jobId; widening kind derivable via classifyCapabilityTemplateProposal at render time), and the Codex seam map (permission-interaction.ts:201 body composition, permission-full-view.ts:38 diff payload, channel-prompts.ts:211 labels, job-permission-recovery.ts:74 recheck). This is the user-facing stage: design skills (emil-design-eng, frontend-design) must be loaded for the card copy work and attested in the test artifact. Re-grilled at closeout: JUnit ids exact; ~12-round review loop converged with D-0057 (durable dispatch/recovery outbox) as the sole consciously-deferred residual; design skills loaded and applied to the card copy.",
+  "gaps": [
+    "Stage-1 accepted residual: recorded proposals are acknowledged without a card - THIS stage must close that loop (record -> card dispatch -> decision -> CAS -> recheck) or the story fails its own fix-and-continue AC",
+    "Card copy tiering needs the widening KIND at render time - derive via classifyCapabilityTemplateProposal against the live catalog, do not add a schema column",
+    "The durable-send sanitizer strips unallowlisted views (bit #313 class) - buttons vanishing on delivery must be pinned by a provider test",
+    "JUnit placeholder ids to be corrected to exact names post-implementation (vitest truncates long interpolated names with an ellipsis - use the XML verbatim)"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Task objective and reviewer_focus already pin the full loop; the integration proof asserts mismatch -> proposal -> card -> approve -> amended -> resume -> success",
+    "Render-time derivation pinned in the brief note; equivalent proposals short-circuit as already_satisfied in stage 1",
+    "Sanitizer allowlist named in acceptance; telegram/slack/teams/discord card tests required",
+    "Established orchestrator procedure for JUnit id correction before stage done"
+  ],
+  "open_items": [
+    "Worker sandbox has no Postgres; the orchestrator runs the integration lane on the host (established)"
+  ],
+  "input_sha256": "343a3b1c1bca8ebbfa4d24ac7ef494db9d8b743c732ef38422ef9c5a8b12fa32",
+  "recorded_at": "2026-08-11T21:43:16+00:00",
+  "commit": "843410189a651954f312be65d170c30008b6ca93"
+}

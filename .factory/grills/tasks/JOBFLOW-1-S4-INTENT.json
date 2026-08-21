@@ -1,0 +1,26 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 5,
+  "gaps": [
+    "DURABLE INTENT (closes D-0057): the approval-intent row is inserted INSIDE the existing amendment repository transaction for BOTH amended and already_amended outcomes - approve-amend-resume survives a crash at any point",
+    "SCOPE: app-wide capability - target set = all jobs paused on that capability at approval time; completion = every target resumed OR superseded (blocker changed, job deleted); deleted-job targets close",
+    "Intent recovery is its OWN service on the shared 5s tick with backoff; a newer approved amendment for the same capability SUPERSEDES the intent",
+    "canonical_key migration: DONE in S4-COMPILER (20260814060000 recomputes argv-free identity in SQL, keep-newest, re-keys survivors) - this stage verifies, does not duplicate",
+    "ACTIVATION: HOST_CAPABILITY_TEMPLATE_PROPOSALS_ACTIVE flips true here - recognized mismatch produces a recorded proposal + fix_proposal blocker in production"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Argv redaction (--account <email>, NAME@host) extended before any persistence - partially landed in S4-COMPILER, extend per appendix",
+    "Recovery-coordinator contract: one periodic tick invokes SEPARATE services (matches the S3 reconciliation-loop precedent)",
+    "Post-grant repeat of the same argv is ALLOWED (0121)",
+    "A repeat readiness evaluation raises NO duplicate card (S5 gate will prove)",
+    "Activation rides the reviewed dormant machinery: compiler/handler/observability were review-hardened in S4-COMPILER (5 rounds); the intent row makes approve-amend-resume durable before the flag flips - decision 0125 and the appendix S4 activation clause"
+  ],
+  "owner_questions": [],
+  "task_id": "JOBFLOW-1-S4-INTENT",
+  "input_sha256": "59ae8117584d9730d24d9c543d95b5b878b9f0048ee3bcb387e218767ef9f6dc",
+  "recorded_at": "2026-08-14T09:42:08+00:00",
+  "commit": "7d11f96c321ed53e530ceb41604e232c405ae06b"
+}

@@ -8,6 +8,11 @@ const SCAN_ROOTS = ['apps/core/src/adapters/storage/postgres'];
 
 const ALLOWED_RAW_SQL_FILES = new Set([
   'apps/core/src/adapters/storage/postgres/repositories/file-artifact-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes amendment approval-intent snapshots
+  // per (app, capability) so concurrent approvals cannot double-insert.
+  'apps/core/src/adapters/storage/postgres/repositories/capability-template-amendment-repository.postgres.ts',
+  // Same lock, extracted intent module (adoption sweep + claim lifecycle).
+  'apps/core/src/adapters/storage/postgres/repositories/capability-template-approval-intent.postgres.ts',
   // pg_advisory_xact_lock guards run-slot capacity checks against concurrent
   // acquisition; same operational primitive as the file-artifact path lock.
   'apps/core/src/adapters/storage/postgres/repositories/worker-coordination-lease.postgres.ts',

@@ -38,6 +38,12 @@ export function readTeamsMessageAction(value: unknown):
       threadId?: string;
     }
   | {
+      kind: 'scheduler_pause_job';
+      jobId: string;
+      targetJid: string;
+      threadId?: string;
+    }
+  | {
       kind: 'memory_review_decision';
       reviewId: string;
       decision: MemoryReviewActionDecision;
@@ -132,12 +138,15 @@ export function readTeamsMessageAction(value: unknown):
         : {}),
     };
   }
-  if (payload.kind === 'scheduler_run_now') {
+  if (
+    payload.kind === 'scheduler_run_now' ||
+    payload.kind === 'scheduler_pause_job'
+  ) {
     if (typeof payload.jobId !== 'string' || !payload.jobId.trim()) {
       return null;
     }
     return {
-      kind: 'scheduler_run_now',
+      kind: payload.kind,
       jobId: payload.jobId,
       targetJid: payload.targetJid,
       ...(typeof payload.threadId === 'string'
@@ -357,6 +366,13 @@ export async function handleTeamsMessageAction(input: {
       jobId: payload.jobId,
       ...(payload.threadId ? { threadId: payload.threadId } : {}),
     });
+    return true;
+  }
+  if (payload.kind === 'scheduler_pause_job') {
+    await input.sendDenied(
+      teamsConversationIdFromJid(input.jid),
+      'Open the scheduler surface or use scheduler tools to pause this job.',
+    );
     return true;
   }
   await input.onMessageAction?.({

@@ -156,6 +156,8 @@ export function createChannelPersistenceHandlers({
 
   return {
     groupJoinOnboarding: resolved.groupJoinOnboarding,
+    resolvePersonIdentity: resolved.resolvePersonIdentity,
+    hasDirectConversationWithPerson: resolved.hasDirectConversationWithPerson,
     materializeProviderAttachment:
       createRuntimeProviderAttachmentMaterializer(app),
     ensureMessageRoute: ensureConfiguredConversationRoute,

@@ -148,7 +148,7 @@ export interface PermissionClassifierPromptConsultInput {
   reviewedMcpReadBindings?: McpReadBinding[];
   yoloMode?: yolo.YoloModeSettings;
   suggestions?: PermissionApprovalUpdate[];
-  promotion?: Pick<PermissionPromotionInput, 'repository' | 'offer'>;
+  promotion?: Pick<PermissionPromotionInput, 'repository'>;
   classifierConfig: PermissionClassifierRuntimeConfig;
   signal?: AbortSignal;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
@@ -159,6 +159,7 @@ export interface PermissionClassifierPromptConsultResult extends PermissionClass
   suggestions?: PermissionApprovalUpdate[];
   suggestionKey?: string;
   promotionHintCount?: number;
+  firstAskedAt?: string;
   /** Set when the YOLO denylist forced this ask — callers must not offer
    * persistent grants the denylist would never honor. */
   denylistHit?: true;
@@ -264,6 +265,9 @@ export async function consultPermissionClassifierBeforePrompt(
       input.canonicalToolName,
       input.toolInput,
     );
+  // Promotion history is deliberately per agent + tool shape. Reusing it
+  // across jobs lets repeated one-time approvals escalate consistently while
+  // preserving each agent's independent authority boundary.
   const suggestionKey = permissionSuggestionKey(input.agentFolder, suggestions);
   // prettier-ignore
   const promotionCounter = await readPromotionCounter({ promotion: input.promotion, appId: input.appId ?? 'default', agentFolder: input.agentFolder, suggestionKey });
@@ -433,19 +437,22 @@ export async function consultPermissionClassifierBeforePrompt(
     ...(promotionCounter &&
     !denylistHit &&
     promotionCounter.allowCount >= PERMISSION_PROMOTION_ALLOW_THRESHOLD
-      ? { promotionHintCount: promotionCounter.allowCount }
+      ? {
+          promotionHintCount: promotionCounter.allowCount,
+          firstAskedAt: promotionCounter.createdAt,
+        }
       : {}),
   };
 }
 
-export async function permissionPromotionHintCount(input: {
+export async function permissionPromotionHint(input: {
   promotion?: PermissionClassifierPromptConsultInput['promotion'];
   appId?: string;
   agentFolder: string;
   canonicalToolName: string;
   toolInput: unknown;
   suggestions?: PermissionApprovalUpdate[];
-}): Promise<number | undefined> {
+}): Promise<{ promotionHintCount: number; firstAskedAt: string } | undefined> {
   const suggestions =
     input.suggestions ??
     synthesizeHostPermissionSuggestions(
@@ -459,8 +466,17 @@ export async function permissionPromotionHintCount(input: {
     suggestionKey: permissionSuggestionKey(input.agentFolder, suggestions),
   });
   return counter && counter.allowCount >= PERMISSION_PROMOTION_ALLOW_THRESHOLD
-    ? counter.allowCount
+    ? {
+        promotionHintCount: counter.allowCount,
+        firstAskedAt: counter.createdAt,
+      }
     : undefined;
+}
+
+export async function permissionPromotionHintCount(
+  input: Parameters<typeof permissionPromotionHint>[0],
+): Promise<number | undefined> {
+  return (await permissionPromotionHint(input))?.promotionHintCount;
 }
 
 export function recordHumanPermissionPromotionSignal(input: {

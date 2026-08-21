@@ -7,13 +7,14 @@ import { logger, updateLogContext } from '../infrastructure/logging/logger.js';
 import { getRuntimeControlRepository, getRuntimeEventExchange, getConfiguredModelProvidersForApp, getWorkerCoordinationRepository } from '../adapters/storage/postgres/runtime-store.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
 import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
+import { evaluateToolAccessRequirements } from '../application/jobs/job-tool-access-requirements.js';
 import * as jobToolPolicy from '../application/jobs/job-tool-policy.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
 import { accumulateModelUsage } from '../shared/model-usage.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
-import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
+import { AgentOutput } from '../runtime/agent-spawn.js';
 import { resolveModelFamilyCandidatesForApp } from '../runtime/model-family-resolution.js';
 import { runJobAgentWithFailover } from './execution-failover.js';
 import { publishRunFailoverEvent } from '../runtime/failover-candidate-loop.js';
@@ -40,7 +41,7 @@ import {
   resolveExecutionMemoryContext,
 } from './execution-context.js';
 // prettier-ignore
-import { logMemoryDreamJobFailure, notifySchedulerTerminalRunState } from './execution-notifications.js';
+import { createSchedulerLifecycleRetirementTracker as trackLifecycle, logMemoryDreamJobFailure, notifySchedulerTerminalRunState, schedulerTerminalRunSummary as terminalSummary } from './execution-notifications.js';
 import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outcome.js';
 import {
   claimSchedulerRunLease,
@@ -59,17 +60,17 @@ import {
   resolveJobModel,
 } from './model-resolution.js';
 // prettier-ignore
-import { createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload, toolDenialEventPayload } from './execution-diagnostics.js';
+import { createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload } from './execution-diagnostics.js';
 import { pauseJobForSetupIfNeeded } from './execution-readiness.js';
 import {
   bindSchedulerRunEventState,
+  publishTerminalToolDenials,
   createRuntimeEventPublisher as createEventPublisher,
   createSchedulerJobEventEmitter,
   publishSchedulerCompletionEvent,
 } from './execution-runtime-events.js';
 import { resolveAppSessionForJob } from './app-session-resolution.js';
 import { finalizeSchedulerJobRun } from './execution-finalization.js';
-import { assertToolAccessRequirementsReadyForRun } from './execution-tool-access-requirements.js';
 import { closeBrowserAfterJobRun } from './execution-browser-cleanup.js';
 import { prelaunchBrowserForJobRun } from './execution-browser-prelaunch.js';
 import { isTrustedSystemJob } from '../shared/system-job-identity.js';
@@ -86,7 +87,6 @@ import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
-
 export async function runJob(
   job: Job,
   deps: SchedulerDependencies,
@@ -123,7 +123,8 @@ async function runActiveJob(
   const startedAtMs = nowMs();
   const startedAt = toIso(startedAtMs);
   const runtimeAppId = DEFAULT_JOB_RUNTIME_APP_ID;
-  const publishRuntimeEvent = createEventPublisher(getRuntimeEventExchange());
+  const runtimeEventExchange = getRuntimeEventExchange();
+  const publishRuntimeEvent = createEventPublisher(runtimeEventExchange);
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);
   const groups = deps.conversationRoutes();
@@ -173,12 +174,11 @@ async function runActiveJob(
     runId,
     publishRuntimeEvent,
   });
-  if (pausedForSetup) return;
+  if (pausedForSetup) return void deps.discardLifecycleNotification?.(runId);
   let executionProviderId = resolveJobExecutionProviderId({
     resolvedModel,
     executionAdapter: deps.executionAdapter,
     executionAdapters: deps.executionAdapters,
-    fallbackForInjectedRunner: Boolean(deps.runAgent),
   });
   const leaseContext = await claimSchedulerRunLease({
     deps,
@@ -195,7 +195,7 @@ async function runActiveJob(
     getCoordinationRepository: getWorkerCoordinationRepository,
     warn,
   });
-  if (!leaseContext) return;
+  if (!leaseContext) return void deps.discardLifecycleNotification?.(runId);
   const runLeaseAbort = createSchedulerRunLeaseAbort();
   const leaseHeartbeat = startSchedulerRunLeaseHeartbeat({
     runId,
@@ -207,9 +207,12 @@ async function runActiveJob(
     onLeaseLost: runLeaseAbort.abort,
     externalAbortSignal: control?.abortSignal,
   });
-  let terminalRunRecorded = false,
-    deletedDuringRun = false;
+  let settled = false,
+    deleted = false;
+  const lifecycle = trackLifecycle(currentJob, runId, deps);
   try {
+    // prettier-ignore
+    void deps.captureLifecycleNotification?.({ job: currentJob, runId })?.catch(() => deps.discardLifecycleNotification?.(runId));
     const claimedRun = await deps.opsRepository.getJobRunById(runId);
     const runShortId = claimedRun?.short_id ?? null;
     const eventState = await bindSchedulerRunEventState({
@@ -355,8 +358,10 @@ async function runActiveJob(
             loadAgentAccessSnapshot(deps, snapshotOwner),
             deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
           ]);
-          const inheritedToolPolicy =
-            resolveTurnToolPolicyFromSnapshot(accessSnapshot);
+          const inheritedToolPolicy = resolveTurnToolPolicyFromSnapshot(
+            accessSnapshot,
+            currentJob.execution_context?.personId,
+          );
           const toolPolicy: jobToolPolicy.JobToolPolicyResolution = {
             inheritedTools: inheritedToolPolicy.toolPolicyRules ?? [],
             effectiveAllowedTools: inheritedToolPolicy.toolPolicyRules ?? [],
@@ -371,14 +376,12 @@ async function runActiveJob(
               conversationId: execution.group.conversationId,
               threadId: execution.threadId ?? undefined,
             });
-          const toolAccessRequirementPreflight =
-            await assertToolAccessRequirementsReadyForRun({
-              toolAccessRequirements: splitAccessRequirements(
-                currentJob.access_requirements,
-              ).toolAccessRequirements,
-              effectiveAllowedTools: toolPolicy.effectiveAllowedTools,
-              emitJobEvent,
-            });
+          const toolAccessRequirements = evaluateToolAccessRequirements({
+            toolAccessRequirements: splitAccessRequirements(
+              currentJob.access_requirements,
+            ).toolAccessRequirements,
+            effectiveAllowedTools: toolPolicy.effectiveAllowedTools,
+          }).toolAccessRequirements;
           const finalReadinessPassed = !(await pauseJobForSetupIfNeeded({
             currentJob,
             deps,
@@ -447,7 +450,7 @@ async function runActiveJob(
               group: execution.group,
               candidates: jobFailoverCandidates,
               firstModel: resolvedModel.selectedModel,
-              spawn: deps.runAgent ?? spawnAgent,
+              spawn: deps.runAgent,
               runOptions,
               fallbackProviderId: executionProviderId,
               agentHarness,
@@ -495,8 +498,7 @@ async function runActiveJob(
                 assistantName: ASSISTANT_NAME,
                 memoryContextBlock: turnContext?.memoryContextBlock,
                 toolPolicyRules: toolPolicy.effectiveAllowedTools,
-                toolAccessRequirements:
-                  toolAccessRequirementPreflight.toolAccessRequirements,
+                toolAccessRequirements: toolAccessRequirements,
                 runtimeAccess: toolPolicy.runtimeAccess,
                 attachedSkillSourceIds: selectedSkillContext.ids,
                 selectedSkillDisplays: selectedSkillContext.displays,
@@ -570,6 +572,19 @@ async function runActiveJob(
                 diagnostics,
                 emitJobEvent,
               });
+              const browserActivityEvents = await runtimeEventExchange.list({
+                appId: (eventState.eventAppSession?.appId ??
+                  runtimeAppId) as never,
+                jobId: currentJob.id as never,
+                runId: runId as never,
+                eventTypes: [RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY],
+              });
+              await forwardRunnerRuntimeEvents({
+                events: browserActivityEvents.filter(
+                  (event) => event.actor === 'browser',
+                ),
+                diagnostics,
+              });
               await updateRunProviderMetadata({ force: true });
               if (output.status === 'error') {
                 recordJobAgentRunFailure();
@@ -621,18 +636,19 @@ async function runActiveJob(
     }
     const now = nowIso();
     await deletionGuard.isJobDeleted(true);
-    deletedDuringRun = deletionGuard.deletedDuringRun;
+    deleted = deletionGuard.deletedDuringRun;
     if (deletionGuard.deletedDuringRun) result = error = null;
     const safeResultSummary = deletionGuard.deletedDuringRun
       ? null
       : result || resultSummaryAccumulator.snapshot() || null;
+    // prettier-ignore
+    const denialAppendError = deletionGuard.deletedDuringRun ? null : await publishTerminalToolDenials({ denials: diagnostics.terminalToolDenials, error, currentJob, runId, runtimeAppId, eventState, eventControl, publishRuntimeEvent });
+    const denialAppendFailed = denialAppendError !== null;
+    if (denialAppendError) error = denialAppendError;
+    // prettier-ignore
     const {
-      runStatus,
-      nextRun,
-      retryCount,
-      pauseReason,
-      safeErrorSummary,
-      toolDenial,
+      runStatus, nextRun, retryCount, pauseReason,
+      safeErrorSummary, toolDenial, setupNotified,
     } = await finalizeSchedulerJobRun({
       currentJob,
       deps,
@@ -647,6 +663,8 @@ async function runActiveJob(
       runId,
       appSession: eventState.eventAppSession ?? preflightAppSession,
       publishRuntimeEvent,
+      denialAppendFailed,
+      listRuntimeEvents: (filter) => getRuntimeEventExchange().list(filter),
       updateJobState: async (jobUpdates, state) => {
         if (deletionGuard.deletedDuringRun) return;
         const finalizeWithLease = deps.opsRepository.finalizeJobRunWithLease;
@@ -676,10 +694,10 @@ async function runActiveJob(
           'Scheduler run lease finalization is unavailable for terminal job write.',
           'Scheduler run lease is no longer active during terminal finalization.',
         );
-        terminalRunRecorded = true;
+        settled = true;
       },
     });
-    if (!terminalRunRecorded && !deletionGuard.deletedDuringRun) {
+    if (!settled && !deletionGuard.deletedDuringRun) {
       const finalizeRunLease = deps.opsRepository.finalizeJobRunLease;
       await requireTerminalSettlement(
         finalizeRunLease?.call(deps.opsRepository, {
@@ -704,16 +722,18 @@ async function runActiveJob(
         'Scheduler run lease finalization is unavailable for terminal run write.',
         'Scheduler run lease is no longer active during terminal finalization.',
       );
-      terminalRunRecorded = true;
+      settled = true;
     }
     if (runLeaseAbort.isAborted())
       await failSessionRun(deps.opsRepository, agentRunId, error);
+    const summary = terminalSummary(safeErrorSummary, safeResultSummary);
     if (!deletionGuard.deletedDuringRun) {
       await leaseContext.recordRunnerControlEvent('terminal_state', {
         outcome: error ? 'failed' : 'completed',
         fencingVersion: leaseContext.lease.fencingVersion,
       });
     }
+    lifecycle.captureTerminal(runStatus, summary);
     await emitJobEvent(runtimeEventTypeForRunStatus(runStatus), {
       next_run: nextRun,
       retry_count: retryCount,
@@ -732,16 +752,6 @@ async function runActiveJob(
       emitJobEvent,
       logger,
     });
-    if (toolDenial)
-      await emitJobEvent(
-        RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-        toolDenialEventPayload(toolDenial, safeErrorSummary),
-      );
-    const summary = safeErrorSummary
-      ? safeErrorSummary.slice(0, 1_200)
-      : safeResultSummary
-        ? safeResultSummary.slice(0, 4_000)
-        : 'Completed, no reportable output.';
     logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
     const notified =
       !(await deletionGuard.shouldSuppressDelivery()) &&
@@ -753,9 +763,13 @@ async function runActiveJob(
         nextRun,
         retryCount,
         pauseReason,
+        setupNotified,
+        diagnostics,
+        toolDenial,
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,
+        updateLifecycleNotification: lifecycle.updateLifecycleNotification,
         ...(memoryReviewNotification ? { memoryReviewNotification } : {}),
       }));
     if (notified) {
@@ -813,17 +827,17 @@ async function runActiveJob(
     }
   } finally {
     leaseHeartbeat.stop();
-    if (!terminalRunRecorded && !deletedDuringRun) {
-      await completeFailedRunFailsafe({
-        opsRepository: deps.opsRepository,
-        jobId: currentJob.id,
-        runId,
-        leaseToken: leaseContext.lease.leaseToken,
-        workerInstanceId: leaseContext.lease.workerInstanceId,
-        fencingVersion: leaseContext.lease.fencingVersion,
-        recordRunnerControlEvent: leaseContext.recordRunnerControlEvent,
-        logger,
-      });
+    try {
+      if (!settled && !deleted)
+        await completeFailedRunFailsafe({
+          opsRepository: deps.opsRepository,
+          ...leaseContext.lease,
+          jobId: currentJob.id,
+          recordRunnerControlEvent: leaseContext.recordRunnerControlEvent,
+          logger,
+        });
+    } finally {
+      await lifecycle.retire(deleted);
     }
   }
 }

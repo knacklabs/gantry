@@ -1,0 +1,209 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "project": "PAY-1 \u2014 Architecture gate paydown",
+  "user_facing": false,
+  "doc_roots": [
+    "docs/architecture/architecture-debt-paydown-goal-prompt.md",
+    "plans/active/PAY-1-architecture-gate-paydown-check-architecture-exit-0.md"
+  ],
+  "epics": [
+    {
+      "id": "harness-hygiene",
+      "title": "Harness hygiene",
+      "objective": "check:architecture exit 0 so every story's verify gate is honest",
+      "source_refs": [
+        "docs/architecture/architecture-debt-paydown-goal-prompt.md"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "PAY-1-A",
+      "title": "File-size splits (5 leaf extractions)",
+      "epic_id": "harness-hygiene",
+      "objective": "Bring the 5 over-budget files under their line limits via behavior-preserving leaf extractions per plan T1 (exact line ranges and target filenames specified there).",
+      "write_scope": [
+        "apps/core/src/adapters/llm/observability/",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway-sdk-projection.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-tool-success-ledger.ts",
+        "apps/core/src/adapters/llm/deepagents-langchain/inline-lane/"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "File Size Budget section reports zero violations",
+        "public exports preserved (re-export from original modules where consumed externally)",
+        "npm run typecheck green",
+        "no test edited except import paths"
+      ],
+      "verify_commands": [
+        "npm run check:architecture",
+        "npm run typecheck",
+        "npm run test:unit -- apps/core/test/unit/runner apps/core/test/unit/adapters"
+      ],
+      "required_tests": [
+        "existing suites stay green; no new tests required for pure moves"
+      ],
+      "reviewer_focus": "no logic drift in moved code; import direction stays leafward (no cycles); export surface unchanged"
+    },
+    {
+      "id": "PAY-1-B",
+      "title": "Control-layer import ports",
+      "epic_id": "harness-hygiene",
+      "objective": "Remove runtime/adapters->config imports per plan T2: narrow settings view type (fleet-boot), injected getEffectiveMemoryState (control server), ControlAgentSettingsPort (routes/agents incl. writeAgentHarnessSetting), resolveObserverStatus port (routes/observer).",
+      "write_scope": [
+        "apps/core/src/control/server/",
+        "apps/core/src/app/index.ts",
+        "apps/core/src/app/bootstrap/fleet-boot.ts",
+        "apps/core/src/application/control-plane/control-plane-storage-model.ts"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Layer Import Rules section reports zero violations",
+        "route response shapes byte-compatible",
+        "existing exception entries for these sites removed, not raised",
+        "npm run typecheck green"
+      ],
+      "verify_commands": [
+        "npm run check:architecture",
+        "npm run typecheck",
+        "npm run test:unit -- apps/core/test/unit/control apps/core/test/unit/bootstrap"
+      ],
+      "required_tests": [
+        "unit coverage for the two new ports' composition-root implementations"
+      ],
+      "reviewer_focus": "ports are narrow (no config re-export through the port); composition root owns construction; no behavior change in route handlers"
+    },
+    {
+      "id": "PAY-1-C",
+      "title": "Provider neutrality (tests + prompt seam)",
+      "epic_id": "harness-hygiene",
+      "objective": "Plan T3+T4: neutral requireRealModelCredential() fixture reading E2E_MODEL_API_KEY (ci.yml maps the existing secret); reword the memory-lifecycle comment; move channel prompt wording behind a Provider prompt-presentation descriptor injected as a completed string (decisions 0037, 0038).",
+      "write_scope": [
+        "apps/core/test/agent-e2e/",
+        "apps/core/test/integration/memory-lifecycle.postgres.integration.test.ts",
+        ".github/workflows/ci.yml",
+        "apps/core/src/channels/provider-registry.ts",
+        "apps/core/src/channels/",
+        "apps/core/src/application/agents/prompt-profile-service.ts",
+        "apps/core/test/unit/runtime/prompt-profile.test.ts",
+        "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Provider Boundary and Provider-Specific Paths sections report zero violations",
+        "rendered channel context line byte-identical for telegram/slack/default (pinned by test)",
+        "haiku-turn scenario still gates/skips correctly and seeds credentials via API unchanged",
+        "no new provider-boundary exception entries"
+      ],
+      "verify_commands": [
+        "npm run check:architecture",
+        "npm run typecheck",
+        "npm run test:unit -- apps/core/test/unit/runtime/prompt-profile.test.ts apps/core/test/unit/runtime/agent-spawn-prompt.test.ts"
+      ],
+      "required_tests": [
+        "byte-equality test on the channel context line before/after",
+        "fixture helper skip-path unit coverage"
+      ],
+      "reviewer_focus": "prompt bytes unchanged; application layer imports no registry; credential flow untouched beyond env-var name"
+    },
+    {
+      "id": "PAY-1-D",
+      "title": "Doc-reference gate semantics + repairs",
+      "epic_id": "harness-hygiene",
+      "objective": "Plan T5 per decision 0036: placeholder-token skipping + frozen-doc marker in architecture_rules.py with tests; stamp the decision-named historical docs; repair ~10 live-doc short paths; footnote the two planned-file refs.",
+      "write_scope": [
+        "scripts/architecture_rules.py",
+        "scripts/tests/",
+        "docs/architecture/"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Active Doc References section reports zero violations",
+        "marker honored ONLY with the exact frozen comment shape; live docs stay checked (negative test)",
+        "placeholder tokens (<...>) skipped (test)",
+        "only decision-0036-named docs stamped"
+      ],
+      "verify_commands": [
+        "npm run check:architecture",
+        "python3 -m pytest scripts/tests -q"
+      ],
+      "required_tests": [
+        "marker positive + negative cases",
+        "placeholder-skip case",
+        "existing doc-reference tests stay green"
+      ],
+      "reviewer_focus": "marker cannot leak beyond dangling-reference checking; stamped set matches decision 0036 exactly; no live doc stamped"
+    },
+    {
+      "id": "PAY-1-E",
+      "title": "Remainder file-size splits (13 files)",
+      "epic_id": "harness-hygiene",
+      "objective": "Leaf-extract the 13 remaining over-budget files (assumption A-0001 inventory; mcp-tool-proxy EXCLUDED \u2014 it is ratcheted in PAY-1-F). Same recipe as PAY-1-A: cohesive units to sibling files, exports preserved, zero logic change.",
+      "write_scope": [
+        "apps/core/src/ (the 13 listed over-budget files + their new siblings)",
+        "test import-path updates only"
+      ],
+      "dependencies": [
+        "PAY-1-A",
+        "PAY-1-B",
+        "PAY-1-C"
+      ],
+      "acceptance_criteria": [
+        "File Size Budget reports ONLY mcp-tool-proxy.ts (ratcheted in F)",
+        "typecheck green",
+        "focused suites for touched areas green"
+      ],
+      "verify_commands": [
+        "python3 scripts/check_architecture.py",
+        "npm run typecheck",
+        "npm run test:unit"
+      ],
+      "required_tests": [
+        "existing suites stay green; import-path updates only"
+      ],
+      "reviewer_focus": "no logic drift; no cycles; export surface unchanged"
+    },
+    {
+      "id": "PAY-1-F",
+      "title": "Provider-path fixes + exception hygiene",
+      "epic_id": "harness-hygiene",
+      "objective": "Zero the remaining Provider Boundary + Provider-Specific rows: remove the stale routes/agents.ts provider-boundary exception; fix slack/telegram literals in control/server/session-interaction-approvals.ts and messaging/text-styles.ts via the channel-neutral seams; for shared/sdk-native-skill-names.ts evaluate relocation behind the adapter boundary vs an exact debt entry (the anthropic_sdk literal is a deliberate sentinel token \u2014 do not rename it); add the mcp-tool-proxy.ts file-size ratchet entry with expiry note 'CAP-1 closeout'.",
+      "write_scope": [
+        "scripts/architecture-exceptions.json",
+        "scripts/provider-boundary-exceptions.json",
+        "apps/core/src/control/server/session-interaction-approvals.ts",
+        "apps/core/src/messaging/text-styles.ts",
+        "apps/core/src/shared/sdk-native-skill-names.ts",
+        "related unit tests"
+      ],
+      "dependencies": [
+        "PAY-1-B",
+        "PAY-1-C"
+      ],
+      "acceptance_criteria": [
+        "Provider Boundary and Provider-Specific Paths report zero rows",
+        "every remaining exception entry carries an expiry/ratchet note (AC-5)",
+        "typecheck + focused suites green"
+      ],
+      "verify_commands": [
+        "python3 scripts/check_architecture.py",
+        "npm run typecheck"
+      ],
+      "required_tests": [
+        "behavior-pinning tests where literals move seams"
+      ],
+      "reviewer_focus": "sentinel semantics preserved; exceptions narrow with expiry; no cap raised without a ratchet note"
+    }
+  ],
+  "build_waves": [
+    [
+      "PAY-1-A",
+      "PAY-1-B",
+      "PAY-1-C",
+      "PAY-1-D"
+    ]
+  ],
+  "commit": "4dc45adab4a8e64e120f01f7eea1589833f9012b"
+}

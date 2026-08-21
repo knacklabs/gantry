@@ -14,6 +14,8 @@ import {
 } from '@core/channels/permission-interaction.js';
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
+import { decisionForMode as domainDecisionForMode } from '@core/domain/permission-decision.js';
+import { formatPermissionDeniedMessage } from '@core/shared/permission-decision-message.js';
 
 function requestWithSuggestions(
   suggestions: PermissionApprovalRequest['suggestions'],
@@ -26,7 +28,110 @@ function requestWithSuggestions(
   };
 }
 
+describe('permission receipts', () => {
+  it('says approved for this run only and that a scheduled job will ask again next run', () => {
+    const request = {
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      jobId: 'job-1',
+      toolName: 'RunCommand',
+      toolInput: { command: 'npm test' },
+    } satisfies PermissionApprovalRequest;
+
+    expect(
+      formatPermissionReceiptText(request.requestId, request, {
+        approved: true,
+        mode: 'allow_once',
+        repeatableForFutureRuns: false,
+      }),
+    ).toBe(
+      'Approved for this run only: Command (npm test). It will ask again next run.',
+    );
+  });
+});
+
+describe('permission match diagnosis', () => {
+  it('shows the approved pattern and sanitized attempted command for a RunCommand miss', () => {
+    const secret = 'abcdefghijklmnopqrstuvwxyz123456';
+    const request = {
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      closestRule: {
+        rule: 'RunCommand(gog sheets get *)',
+        reason: 'The pipeline shape did not match.',
+      },
+      toolInput: {
+        command: `gog sheets get sheet-id | head -50 -H "Authorization: bearer ${secret}"`,
+      },
+    } satisfies PermissionApprovalRequest;
+
+    const prompt = formatPermissionPromptText(request, 60_000);
+    expect(prompt).toContain('Approved pattern: RunCommand(gog sheets get *)');
+    expect(prompt).toContain('Attempted command:');
+    expect(prompt).toContain('[REDACTED_SECRET]');
+    expect(prompt).not.toContain(secret);
+
+    const unmatched = domainDecisionForMode(
+      request,
+      'cancel',
+      'operator',
+      'human',
+    );
+    const notGranted = domainDecisionForMode(
+      { ...request, closestRule: undefined },
+      'cancel',
+      'operator',
+      'human',
+    );
+    expect(
+      formatPermissionDeniedMessage(unmatched, unmatched.reason!),
+    ).toContain('attempted command did not match an approved pattern');
+    expect(
+      formatPermissionDeniedMessage(notGranted, notGranted.reason!),
+    ).toContain('Access for this tool was not granted');
+    expect(unmatched.reason).not.toBe(notGranted.reason);
+  });
+});
+
 describe('permission interaction', () => {
+  it('derives typed provenance and classification at the decision choke point', () => {
+    const request = requestWithSuggestions([]);
+    const automaticSources = [
+      ['reviewed_rule', 'durable_rule'],
+      ['birthright', 'birthright'],
+      ['deterministic_read_only', 'deterministic_policy'],
+      ['auto_classifier', 'auto_classifier'],
+      ['cached_classifier_verdict', 'cached_classifier'],
+      ['trusted_root_grant', 'trusted_root'],
+    ] as const;
+
+    for (const [decidedBy, source] of automaticSources) {
+      // Machine origin resolves through the decider map...
+      expect(
+        domainDecisionForMode(request, 'allow_once', decidedBy, 'machine'),
+      ).toMatchObject({
+        source,
+        repeatableForFutureRuns: true,
+        decisionClassification: 'user_permanent',
+      });
+      // ...but the channel wrapper is structurally human: an approverRef
+      // colliding with a machine decider is never promoted.
+      expect(decisionForMode(request, 'allow_once', decidedBy)).toMatchObject({
+        source: 'human_once',
+        repeatableForFutureRuns: false,
+        decisionClassification: 'user_temporary',
+      });
+    }
+    expect(
+      decisionForMode(request, 'allow_once', 'operator:free-form'),
+    ).toMatchObject({
+      source: 'human_once',
+      repeatableForFutureRuns: false,
+      decisionClassification: 'user_temporary',
+    });
+  });
+
   it('labels the generic MCP passthrough as access to any connected server', () => {
     const text = formatPermissionPromptText(
       {
@@ -159,6 +264,7 @@ describe('permission interaction', () => {
       expect.objectContaining({
         approved: true,
         mode: 'allow_persistent_rule',
+        repeatableForFutureRuns: false,
         reason: 'review each',
       }),
     );
@@ -200,6 +306,7 @@ describe('permission interaction', () => {
     expect(decision).toMatchObject({
       approved: true,
       mode: 'allow_persistent_rule',
+      repeatableForFutureRuns: false,
       decisionClassification: 'user_temporary',
       batchDecision: 'review_each',
     });
@@ -435,9 +542,10 @@ describe('permission interaction', () => {
     const request = {
       ...requestWithSuggestions([]),
       promotionHintCount: 3,
+      firstAskedAt: new Date().toISOString(),
     } satisfies PermissionApprovalRequest;
     const hint =
-      "You've allowed me to do this 3 times — want me to stop asking?";
+      'Approved once 3 times in 1 day — and it is asking again now. Approve permanently?';
     const oldHint = "'Allow for future' makes it permanent.";
     const prompt = formatPermissionPromptText(request, 60_000);
     const contextLines = buildPermissionPromptParts(
@@ -712,6 +820,7 @@ describe('permission interaction', () => {
     const receipt = formatPermissionReceiptText('permission_123', request, {
       approved: true,
       mode: 'allow_persistent_rule',
+      repeatableForFutureRuns: true,
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
@@ -857,7 +966,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      'Allowed once: Selected skill action (skills/linkedin-posting/post.py). The agent will continue this request.',
+      'Approved for this run only: Selected skill action (skills/linkedin-posting/post.py).',
     );
     expect(receipt).not.toContain('.llm-runtime');
   });
@@ -897,7 +1006,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      'Allowed once: Command (acme records append sheet-id A1:B2). The agent will continue this request.',
+      'Approved for this run only: Command (acme records append sheet-id A1:B2).',
     );
     expect(receipt).not.toContain('Route:');
   });
@@ -1000,7 +1109,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      'Allowed once: Command (gantry credentials --help > /tmp/gantry-help.txt). The agent will continue this request.',
+      'Approved for this run only: Command (gantry credentials --help > /tmp/gantry-help.txt).',
     );
   });
 
@@ -1491,7 +1600,7 @@ describe('permission interaction', () => {
     );
 
     expect(receipt).toContain(
-      'Allowed once: Command (git status --short). The agent will continue this request.',
+      'Approved for this run only: Command (git status --short).',
     );
     expect(receipt).not.toContain('From: agent chat');
     expect(receipt).not.toContain('Request ID');
@@ -1520,6 +1629,7 @@ describe('permission interaction', () => {
       {
         approved: true,
         mode: 'allow_persistent_rule',
+        repeatableForFutureRuns: true,
       },
     );
     expect(persistentReceipt).toBe(
@@ -1545,7 +1655,7 @@ describe('permission interaction', () => {
     );
 
     expect(receipt).toContain(
-      'Allowed once: Command (npm run lead-generator). The agent will continue this request.',
+      'Approved for this run only: Command (npm run lead-generator). It will ask again next run.',
     );
     expect(receipt).not.toContain('From: scheduled job');
     expect(receipt).not.toContain(
@@ -1577,6 +1687,7 @@ describe('permission interaction', () => {
       {
         approved: true,
         mode: 'allow_persistent_rule',
+        repeatableForFutureRuns: true,
         decidedBy: 'ravi',
       },
     );
@@ -1609,7 +1720,7 @@ describe('permission interaction', () => {
       },
     );
 
-    expect(receipt).toContain('Allowed once: Command');
+    expect(receipt).toContain('Approved for this run only: Command');
     // The secret span is masked but the rest of the command stays visible.
     expect(receipt).toContain('curl https://api.example.com');
     expect(receipt).toContain('[REDACTED_SECRET]');

@@ -37,7 +37,6 @@ apps/core/groups/global/*
 .tmp/
 .tmp-*
 plans/active/
-plans/completed/
 plans/debt/
 __pycache__/
 *.pyc
@@ -46,8 +45,18 @@ __pycache__/
 cov-tmp/
 tmp-coverage/
 .gstack-review-*.md
-.factory/*
-!.factory/README.md
+# Factory: the evidence trail under .factory/ is TRACKED (history/, grills/,
+# run.json, events.jsonl — matches the vendored harness). Only ephemeral working
+# files are ignored.
+.factory/tool-history.jsonl
+.factory/*.tmp.json
+.factory/plan-approval.json
+.factory/scratchpad.md
+# myclaw-local ephemeral: perf benchmarks + per-worktree LOCAL working artifacts
+.factory/benchmarks/
+.factory/*-local*.json
+.factory/*.LOCAL-*.json
+.factory/decomposition-input.json
 *.tgz
 *.zip
 .wrangler/
@@ -80,3 +89,14 @@ i-have-adhd/
 .gstack/**/brain-cache/
 .gstack/**/timeline.jsonl
 .gstack/slug-cache/
+
+# forge gstack: project-local store — projects/ is committed, machine noise is not
+.gstack/*
+!.gstack/projects/
+.gstack/**/brain-cache/
+.gstack/**/timeline.jsonl
+
+# forge 0025: briefs and the delegation mirror are read from disk, never from git
+.factory/briefs/
+.factory/diagnostic-briefs/
+.factory/delegations.jsonl

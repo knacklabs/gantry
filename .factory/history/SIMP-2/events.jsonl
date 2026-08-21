@@ -1,0 +1,39 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-03T02:35:51+00:00", "story": "SIMP-2", "detail": "Construct control application services once in the composition root"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-03T02:45:39+00:00", "story": "SIMP-2", "detail": "plans/active/SIMP-2-construct-control-application-services-once-in-the-composition-root.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-03T02:46:47+00:00", "story": "SIMP-2", "detail": "2 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-03T02:46:55+00:00", "story": "SIMP-2", "detail": "SIMP-2-1 Job management service: construct once in the composition root"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-03T02:54:27+00:00", "story": "SIMP-2", "detail": "Managed command policy rejects the required environment-prefixed Vitest JUnit commands before execution; the same jobs and guided-actions suites pass directly, but their exact JUnit evidence commands "}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-03T02:54:37+00:00", "story": "SIMP-2", "detail": "SIMP-2-1 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-03T02:54:41+00:00", "story": "SIMP-2", "detail": "S-0001-ee34: Not a blocker: your managed sandbox refuses env-prefixed argv, but the exact JUnit evidence commands (VITEST_JUNIT=1 FORGE_TEST_ID=... npx vitest run ... --outputFile ...) are executed by the orchestr"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-03T02:58:08+00:00", "story": "SIMP-2", "detail": "pass"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-03T03:00:32+00:00", "story": "SIMP-2", "detail": "2 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-03T03:00:33+00:00", "story": "SIMP-2", "detail": "SIMP-2-1 Job management service: construct once in the composition root"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-03T03:01:34+00:00", "story": "SIMP-2", "detail": "2 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-03T03:01:34+00:00", "story": "SIMP-2", "detail": "SIMP-2-1 Job management service: construct once in the composition root"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-03T03:05:25+00:00", "story": "SIMP-2", "detail": "SIMP-2-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-03T03:07:03+00:00", "story": "SIMP-2", "detail": "2 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-03T03:07:04+00:00", "story": "SIMP-2", "detail": "SIMP-2-1 Job management service: construct once in the composition root"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-03T03:10:43+00:00", "story": "SIMP-2", "detail": "SIMP-2-1 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-03T03:11:18+00:00", "story": "SIMP-2", "detail": "SIMP-2-1 Job management service: construct once in the composition root"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-03T03:11:26+00:00", "story": "SIMP-2", "detail": "SIMP-2-2 Session interaction module: one boot instance; liveAdmissionAppId becomes a method argument"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-03T03:13:09+00:00", "story": "SIMP-2", "detail": "SIMP-2-2 requires editing apps/core/src/application/sessions/session-interaction-module.ts to move liveAdmissionAppId from the constructor to acceptMessage, but apps/core/src/application is outside th"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-03T03:13:33+00:00", "story": "SIMP-2", "detail": "S-0002-432e: Scope gap is mine, not yours: apps/core/src/application/sessions belongs in this task's write scope (the liveAdmissionAppId constructor-to-method move is the task's core). Proceed with the edit now; t"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-03T03:14:39+00:00", "story": "SIMP-2", "detail": "SIMP-2-2 requires editing apps/core/src/application/sessions/session-interaction-module.ts to move liveAdmissionAppId from the constructor to acceptMessage, but apps/core/src/application is outside th"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-03T03:14:47+00:00", "story": "SIMP-2", "detail": "SIMP-2-2 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-03T03:14:53+00:00", "story": "SIMP-2", "detail": "S-0003-27f5: Fixed at the source: the decomposition is re-recorded with apps/core/src/application in SIMP-2-2's write_scope. Your next launch composes a brief with the correct scope \u2014 proceed with the constructor-"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-03T03:14:53+00:00", "story": "SIMP-2", "detail": "2 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-03T03:14:53+00:00", "story": "SIMP-2", "detail": "SIMP-2-2 Session interaction module: one boot instance; liveAdmissionAppId becomes a method argument"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-03T03:25:28+00:00", "story": "SIMP-2", "detail": "SIMP-2-2 (write)"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-03T03:29:13+00:00", "story": "SIMP-2", "detail": "pass"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-03T03:29:36+00:00", "story": "SIMP-2", "detail": "SIMP-2-2 Session interaction module: one boot instance; liveAdmissionAppId becomes a method argument"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-03T03:40:32+00:00", "story": "SIMP-2"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-03T04:00:29+00:00", "story": "SIMP-2"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-03T04:01:57+00:00", "story": "SIMP-2"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-03T04:01:57+00:00", "story": "SIMP-2"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-03T04:01:57+00:00", "story": "SIMP-2"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-03T04:06:41+00:00", "story": "SIMP-2", "detail": "pass"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-03T04:06:41+00:00", "story": "SIMP-2"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-03T04:06:41+00:00", "story": "SIMP-2"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-03T04:06:41+00:00", "story": "SIMP-2"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-03T04:15:55+00:00", "story": "SIMP-2"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-03T04:16:02+00:00", "story": "SIMP-2", "detail": "The control server now builds its job and session services once at startup instead of assembling them on every request (22 construction sites collapsed to 2). Everything that can change while the serv"}

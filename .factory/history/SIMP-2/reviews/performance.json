@@ -1,0 +1,18 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src/control/server",
+    "apps/core/src/application/sessions",
+    "apps/core/src/application/external-ingress",
+    "apps/core/test"
+  ],
+  "score": 9,
+  "summary": "Per-request construction of JobManagementService (13 sites) and SessionInteractionModule (9 sites incl. external ingress) eliminated; services built once at boot with lazy getters for replaceable repositories, so no repeated assembly on the request path and no added indirection cost beyond property getters.",
+  "recommendation": "ship",
+  "aspect": "performance",
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recorded_at": "2026-08-03T04:06:41+00:00",
+  "commit": "5686314227376ee8675a158ab0552a07e087c04a"
+}

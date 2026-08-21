@@ -4,6 +4,7 @@ import {
   GroupDiscoverySource,
   InteractionSurface,
   MessageReactionSink,
+  MessageReactionRemovalSink,
   MessageSink,
   OnInboundMessage,
   OnChatMetadata,
@@ -13,11 +14,13 @@ import {
   ProgressSink,
   PermissionApprovalRequest,
   ConversationRoute,
+  ChannelLiveUxCapability,
   RichInteractionSurface,
   StreamingSink,
   StreamingStateSink,
   TypingSink,
 } from '../domain/types.js';
+import type { PreparedPermissionCardSink } from '../domain/permission-card.js';
 import type { RuntimeSettings } from '../config/settings/runtime-settings.js';
 import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
@@ -28,6 +31,10 @@ import type {
   ConversationContextHydrationResult,
 } from '../domain/ports/conversation-context-hydration.js';
 import type { InboundAttachmentReader } from '../shared/inbound-attachment-writer.js';
+import type {
+  IdentityResolveInput,
+  IdentityResolveResult,
+} from '../application/identity/person-identity-service.js';
 
 export type {
   ConversationContextHydrationCoverage,
@@ -101,8 +108,16 @@ export interface ChannelOpts {
   conversationRoutes: () => Record<string, ConversationRoute>;
   runtimeSettings?: () => RuntimeSettings;
   runtimeLease?: RuntimeLeasePort;
+  liveUxBindingGeneration?: () => number | undefined;
   runtimeSecrets?: RuntimeSecretProvider;
   groupJoinOnboarding?: GroupJoinOnboardingCoordinator;
+  resolvePersonIdentity?: (
+    input: IdentityResolveInput,
+  ) => Promise<IdentityResolveResult>;
+  hasDirectConversationWithPerson?: (
+    appId: string,
+    personId: string,
+  ) => Promise<boolean>;
   distrustHistoryCoverage?: (providerAccountIds: readonly string[]) => void;
   setHistoryCoverageInboundActive?: (
     providerAccountIds: readonly string[],
@@ -124,16 +139,21 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export type ChannelAdapter = ChannelLifecyclePort &
   ChannelOwnershipPort &
-  MessageSink & { reportsHistoryCoverageInboundLiveness?: boolean } & Partial<
+  MessageSink & {
+    reportsHistoryCoverageInboundLiveness?: boolean;
+    liveUx?: ChannelLiveUxCapability;
+  } & Partial<
     StreamingSink &
       StreamingStateSink &
       TypingSink &
       ProgressSink &
       MessageReactionSink &
+      MessageReactionRemovalSink &
       GroupDiscoverySource &
       InteractionSurface &
       RichInteractionSurface &
       PlanReviewSurface &
+      PreparedPermissionCardSink &
       AgentTodoSink &
       ConversationContextHydrationSink
   >;

@@ -1,0 +1,17 @@
+{
+  "issue_key": "AUTODET-1",
+  "title": "Autonomous runs decide permissions deterministically \u2014 no classifier",
+  "tracker": "linear",
+  "branch": "feat/AUTODET-1-autonomous-runs-decide-permissions-deterministically-no-classifier",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-11T11:12:43+00:00",
+  "updated_at": "2026-08-11T13:43:58+00:00",
+  "plan_file": "plans/completed/AUTODET-1-autonomous-runs-decide-permissions-deterministically-no-classifier.md",
+  "story": "AUTODET-1"
+}

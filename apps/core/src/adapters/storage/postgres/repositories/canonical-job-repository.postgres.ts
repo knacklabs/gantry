@@ -1,11 +1,18 @@
-import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  listEventsForOwnerApp,
+  listFirstEventPerRun,
+  listLatestEventsPerJob,
+} from './canonical-job-events-first-per-run.postgres.js';
+// prettier-ignore
+const eventIdOrder = (order?: 'asc' | 'desc') => (order === 'asc' ? asc(pgSchema.runtimeEventsPostgres.eventId) : desc(pgSchema.runtimeEventsPostgres.eventId));
 
 import type {
   Job,
   JobRun,
 } from '../../../../domain/repositories/domain-types.js';
 // prettier-ignore
-import type { JobListFilters, JobRunListFilters, ReleasedStaleJobLease } from '../../../../domain/repositories/ops-repo.js';
+import type { JobAccessRequirementAppend, JobListFilters, JobRunListFilters, ReleasedStaleJobLease } from '../../../../domain/repositories/ops-repo.js';
 import type { RuntimeEventType } from '../../../../domain/events/runtime-event-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
@@ -13,6 +20,8 @@ import {
   type CanonicalJobCoordinationUpdate,
   coordinationColumnUpdate,
   markJobSetupNotified as markJobSetupNotifiedStatement,
+  refreshSetupPausedJob as refreshSetupPausedJobStatement,
+  resumeSetupPausedJob as resumeSetupPausedJobStatement,
 } from './canonical-job-coordination.postgres.js';
 export * from './canonical-job-records.js';
 import type {
@@ -36,6 +45,8 @@ import {
   settledRunLeaseFence,
   type RunLeaseFence,
 } from './run-lease-fence.postgres.js';
+import { appendCanonicalJobAccessRequirement } from './canonical-job-access-requirements.postgres.js';
+import { deleteCanonicalJobWithSetupCancellation } from './canonical-job-deletion.postgres.js';
 
 function canonicalAgentId(agentId: string): string {
   const trimmed = agentId.trim();
@@ -175,12 +186,26 @@ export class PostgresCanonicalJobRepository {
       filters?.conversationJid
         ? sql`${canonicalJobNotificationRoutes()} @> ${JSON.stringify([{ conversationJid: filters.conversationJid }])}::jsonb`
         : undefined,
+      filters?.pageAfter
+        ? sql`(
+            ${pgSchema.canonicalJobsPostgres.createdAt} < ${filters.pageAfter.createdAt}
+            or (${pgSchema.canonicalJobsPostgres.createdAt} = ${filters.pageAfter.createdAt}
+              and ${pgSchema.canonicalJobsPostgres.id} < ${filters.pageAfter.id})
+          )`
+        : undefined,
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
-    const ordered = filtered.orderBy(
-      desc(pgSchema.canonicalJobsPostgres.updatedAt),
-      desc(pgSchema.canonicalJobsPostgres.createdAt),
-    );
+    const ordered =
+      filters?.orderBy === 'created_at'
+        ? filtered.orderBy(
+            desc(pgSchema.canonicalJobsPostgres.createdAt),
+            desc(pgSchema.canonicalJobsPostgres.id),
+          )
+        : filtered.orderBy(
+            desc(pgSchema.canonicalJobsPostgres.updatedAt),
+            desc(pgSchema.canonicalJobsPostgres.createdAt),
+            desc(pgSchema.canonicalJobsPostgres.id),
+          );
     const rows = filters?.limit
       ? await ordered.limit(filters.limit)
       : await ordered;
@@ -252,6 +277,12 @@ export class PostgresCanonicalJobRepository {
       .where(eq(pgSchema.canonicalJobsPostgres.id, id));
   }
 
+  async appendJobAccessRequirement(
+    input: JobAccessRequirementAppend,
+  ): Promise<boolean> {
+    return appendCanonicalJobAccessRequirement(this.db, input);
+  }
+
   async markJobSetupNotified(
     id: string,
     expectedFingerprint: string,
@@ -259,10 +290,27 @@ export class PostgresCanonicalJobRepository {
     return markJobSetupNotifiedStatement(this.db, id, expectedFingerprint);
   }
 
+  async resumeSetupPausedJob(input: {
+    jobId: string;
+    expectedSetupCheckedAt: string;
+    expectedPauseReason: string;
+    nextRun: string;
+    setupState: NonNullable<Job['setup_state']>;
+  }): Promise<boolean> {
+    return resumeSetupPausedJobStatement(this.db, input);
+  }
+
+  async refreshSetupPausedJob(input: {
+    jobId: string;
+    expectedSetupCheckedAt: string;
+    expectedPauseReason: string;
+    setupState: NonNullable<Job['setup_state']>;
+  }): Promise<boolean> {
+    return refreshSetupPausedJobStatement(this.db, input);
+  }
+
   async deleteJob(id: string): Promise<void> {
-    await this.db
-      .delete(pgSchema.canonicalJobsPostgres)
-      .where(eq(pgSchema.canonicalJobsPostgres.id, id));
+    await deleteCanonicalJobWithSetupCancellation(this.db, id);
   }
 
   async claimDueRunStart(input: {
@@ -654,6 +702,52 @@ export class PostgresCanonicalJobRepository {
     return rows[0]?.appId;
   }
 
+  async listSetupDeliveryEventsPerJob(
+    appId: string,
+    jobIds: readonly string[],
+    eventType: RuntimeEventType,
+    perJobLimit: number,
+  ) {
+    return listLatestEventsPerJob(this.db, {
+      appId,
+      jobIds: [...jobIds],
+      eventType,
+      perJobLimit,
+    });
+  }
+
+  async listLatestSetupPromptIds(
+    appId: string,
+    jobIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    if (jobIds.length === 0) return new Map();
+    // Latest prompt per job INCLUDING settled ones: after expiry the
+    // retired prompt is still the newest, and its own 'expired' notice is
+    // exactly what the owner should see until resume issues a fresh row.
+    const rows = await this.db
+      .selectDistinctOn([pgSchema.permissionPromptsPostgres.jobId], {
+        jobId: pgSchema.permissionPromptsPostgres.jobId,
+        promptId: pgSchema.permissionPromptsPostgres.id,
+      })
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(
+        and(
+          eq(pgSchema.permissionPromptsPostgres.appId, appId),
+          inArray(pgSchema.permissionPromptsPostgres.jobId, [...jobIds]),
+        ),
+      )
+      .orderBy(
+        pgSchema.permissionPromptsPostgres.jobId,
+        desc(pgSchema.permissionPromptsPostgres.createdAt),
+        desc(pgSchema.permissionPromptsPostgres.id),
+      );
+    return new Map(
+      rows.flatMap((row) =>
+        row.jobId ? [[row.jobId, row.promptId] as const] : [],
+      ),
+    );
+  }
+
   async listEvents(
     limit = 200,
     filters?: {
@@ -662,6 +756,10 @@ export class PostgresCanonicalJobRepository {
       jobIds?: string[];
       ownerAppId?: string;
       runId?: string;
+      // prettier-ignore
+      runIds?: string[];
+      firstPerRun?: boolean;
+      order?: 'asc' | 'desc';
       eventType?: RuntimeEventType;
       sinceId?: number;
       since?: string;
@@ -669,7 +767,12 @@ export class PostgresCanonicalJobRepository {
   ): Promise<CanonicalJobEventRecord[]> {
     if (!filters?.jobId && filters?.jobIds?.length === 0) return [];
     if (!filters?.jobId && filters?.ownerAppId) {
-      return this.listEventsForOwnerApp(limit, filters);
+      // prettier-ignore
+      return listEventsForOwnerApp(this.db, limit, filters, canonicalJobSessionJoinClause(), eventIdOrder(filters?.order));
+    }
+    if (filters?.runIds && filters.firstPerRun) {
+      // prettier-ignore
+      return filters.runIds.length === 0 ? [] : listFirstEventPerRun(this.db, limit, { runIds: filters.runIds, eventType: filters.eventType, appId: filters.appId });
     }
     const query = this.db
       .select()
@@ -711,73 +814,7 @@ export class PostgresCanonicalJobRepository {
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
     const rows = await filtered
-      .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
-      .limit(limit);
-    return rows.map((row) => ({
-      id: String(row.eventId),
-      appId: row.appId,
-      runId: row.runId ?? '',
-      jobId: row.jobId ?? '',
-      type: row.eventType,
-      payloadJson: row.payloadJson,
-      createdAt: row.createdAt,
-    }));
-  }
-
-  private async listEventsForOwnerApp(
-    limit: number,
-    filters: NonNullable<
-      Parameters<PostgresCanonicalJobRepository['listEvents']>[1]
-    >,
-  ): Promise<CanonicalJobEventRecord[]> {
-    const clauses = [
-      eq(pgSchema.controlHttpSessionsPostgres.appId, filters.ownerAppId ?? ''),
-      filters.appId
-        ? eq(pgSchema.runtimeEventsPostgres.appId, filters.appId)
-        : undefined,
-      filters.runId
-        ? eq(pgSchema.runtimeEventsPostgres.runId, filters.runId)
-        : undefined,
-      filters.jobIds?.length
-        ? inArray(pgSchema.runtimeEventsPostgres.jobId, filters.jobIds)
-        : undefined,
-      filters.eventType
-        ? eq(pgSchema.runtimeEventsPostgres.eventType, filters.eventType)
-        : inArray(
-            pgSchema.runtimeEventsPostgres.eventType,
-            CANONICAL_JOB_EVENT_TYPES,
-          ),
-      filters.sinceId !== undefined
-        ? gt(pgSchema.runtimeEventsPostgres.eventId, filters.sinceId)
-        : undefined,
-      filters.since
-        ? gt(pgSchema.runtimeEventsPostgres.createdAt, filters.since)
-        : undefined,
-    ].filter(Boolean);
-    const rows = await this.db
-      .select({
-        eventId: pgSchema.runtimeEventsPostgres.eventId,
-        appId: pgSchema.runtimeEventsPostgres.appId,
-        runId: pgSchema.runtimeEventsPostgres.runId,
-        jobId: pgSchema.runtimeEventsPostgres.jobId,
-        eventType: pgSchema.runtimeEventsPostgres.eventType,
-        payloadJson: pgSchema.runtimeEventsPostgres.payloadJson,
-        createdAt: pgSchema.runtimeEventsPostgres.createdAt,
-      })
-      .from(pgSchema.controlHttpSessionsPostgres)
-      .innerJoin(
-        pgSchema.canonicalJobsPostgres,
-        canonicalJobSessionJoinClause(),
-      )
-      .innerJoin(
-        pgSchema.runtimeEventsPostgres,
-        eq(
-          pgSchema.runtimeEventsPostgres.jobId,
-          pgSchema.canonicalJobsPostgres.id,
-        ),
-      )
-      .where(and(...clauses))
-      .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
+      .orderBy(eventIdOrder(filters?.order))
       .limit(limit);
     return rows.map((row) => ({
       id: String(row.eventId),

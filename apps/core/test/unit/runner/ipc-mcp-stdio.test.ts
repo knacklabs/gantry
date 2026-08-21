@@ -159,6 +159,11 @@ function createMcpFixture(): {
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );
+  fs.mkdirSync(path.join(runnerDir, 'mcp'), { recursive: true });
+  fs.copyFileSync(
+    path.resolve('apps/core/src/runner/mcp/tool-provider-affinity.ts'),
+    path.join(runnerDir, 'mcp', 'tool-provider-affinity.ts'),
+  );
   symlinkPackage(root, 'zod', 'node_modules/zod');
   symlinkPackage(root, 'cron-parser', 'node_modules/cron-parser');
   copyBuiltContractsPackage(root);
@@ -400,6 +405,7 @@ async function runMcpFixture(
       GANTRY_WORKSPACE_KEY: 'team',
       GANTRY_AGENT_RUN_HANDLE: 'mcp-test-run',
       GANTRY_NO_PERMISSION_TOOLS: '',
+      GANTRY_PERMISSION_LANE: 'interactive',
       GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
       GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_GANTRY_MCP_TOOL_NAMES),
       ...envOverrides,
@@ -1521,6 +1527,25 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
   });
 
+  it('does not expose an agent-authored capability template amendment target', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: {
+        kind: 'capability_template_amendment',
+        capabilityId: 'google.sheets.read',
+        proposedTemplates: ['/usr/local/bin/gog sheets get * *'],
+        observedArgv: ['sheets', 'get', 'sheet-id', 'Sheet1!A:B'],
+      },
+      reason: 'The reviewed arity does not match the CLI invocation.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    const taskFiles = fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : [];
+    expect(taskFiles).toHaveLength(0);
+  });
+
   it('submits an MCP capability proposal without letting the agent author its definition', async () => {
     const fixture = createMcpFixture();
 
@@ -1695,6 +1720,60 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
         capabilityRequestSource: 'request_access',
         permissionKind: 'tool',
         toolName: 'mcp__gantry__request_settings_update',
+      },
+    });
+  });
+
+  it('submits request_access durable Gantry MCP tool targets as reviewed permission requests', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'tool', name: 'mcp_describe_tool' },
+      reason: 'Let scheduled jobs inspect attached MCP tool schemas.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        capabilityRequestSource: 'request_access',
+        permissionKind: 'tool',
+        toolName: 'mcp__gantry__mcp_describe_tool',
+      },
+    });
+  });
+
+  it('submits request_access full durable Gantry MCP tool names as reviewed permission requests', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'tool', name: 'mcp__gantry__todo_update' },
+      reason: 'Let scheduled jobs maintain visible progress.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        capabilityRequestSource: 'request_access',
+        permissionKind: 'tool',
+        toolName: 'mcp__gantry__todo_update',
       },
     });
   });

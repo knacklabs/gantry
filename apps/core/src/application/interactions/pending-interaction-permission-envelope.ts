@@ -10,14 +10,18 @@ export interface DurablePermissionFullView {
 export function durablePermissionRequestSnapshot(
   request: PermissionApprovalRequest,
 ): PermissionApprovalRequest {
+  const capabilityTemplateAmendment =
+    request.toolName === 'capability_template_amendment';
   return {
     requestId: request.requestId,
     appId: request.appId,
     agentId: request.agentId,
     providerAccountId: request.providerAccountId,
+    personId: request.personId,
     sourceAgentFolder: request.sourceAgentFolder,
     runHandle: request.runHandle,
     jobId: request.jobId,
+    setupFingerprint: request.setupFingerprint,
     runId: request.runId,
     targetJid: request.targetJid,
     approvalContextJid: request.approvalContextJid,
@@ -30,6 +34,25 @@ export function durablePermissionRequestSnapshot(
     decisionPolicy: request.decisionPolicy,
     semanticCapabilityDefinitions: request.semanticCapabilityDefinitions,
     permissionBatch: request.permissionBatch,
+    ...(capabilityTemplateAmendment
+      ? {
+          requestFamily: request.requestFamily,
+          displayName: request.displayName,
+          title: request.title,
+          description: request.description,
+          toolInput:
+            typeof request.toolInput?.diffPreview === 'string'
+              ? { diffPreview: request.toolInput.diffPreview }
+              : undefined,
+          interaction: request.interaction
+            ? {
+                id: request.interaction.id,
+                title: request.interaction.title,
+                body: request.interaction.body,
+              }
+            : undefined,
+        }
+      : {}),
   };
 }
 

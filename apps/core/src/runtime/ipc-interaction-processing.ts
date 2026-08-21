@@ -63,6 +63,7 @@ import {
   publishPendingInteractionRuntimeEvent,
   publishPermissionRuntimeEvent,
 } from './ipc-interaction-runtime-events.js';
+import { permissionRunRestriction } from './permission-decision-coordinator.js';
 
 export { publishPendingInteractionRuntimeEvent };
 export {
@@ -126,6 +127,33 @@ export async function processPermissionInteractionIpc(input: {
   if (lockStatus !== 'full') {
     await denyLockedPermissionInteraction(input, lockStatus);
     return;
+  }
+  // The acting identity fields come from the host's own spawn-time run
+  // registry, never the worker payload: a worker-supplied personId is a
+  // forgeable identity claim, and a worker-supplied jobId could point the
+  // grant path at another person's job (or a group job, widening the grant
+  // to shared). A live signed run always has a registry entry (parsing
+  // requires responseKeyId), so the forge scenario is covered by the
+  // overwrite. On a registry miss (host restarted mid-flight) keep the
+  // request's jobId: the grant path then resolves the job and fails closed,
+  // instead of silently widening to a shared grant.
+  const runRestriction = input.request.responseKeyId
+    ? permissionRunRestriction({
+        sourceAgentFolder: input.sourceAgentFolder,
+        responseKeyId: input.request.responseKeyId,
+      })
+    : undefined;
+  if (runRestriction) {
+    input.request.personId = runRestriction.memoryUserId;
+    input.request.jobId = runRestriction.jobId;
+  } else {
+    // Deliberate (decision 0118): keeping the request's jobId here is the
+    // safer residual, not an oversight. Stripping it would make EVERY durable
+    // grant on this edge shared; keeping it lets a legitimate scheduled
+    // request still resolve its person (or fail closed on a missing job),
+    // and a forged jobId can at worst reach the same shared endpoint that
+    // stripping would guarantee. Do not flip this to stripping again.
+    input.request.personId = undefined;
   }
   input.request.suggestions ??= synthesizeHostPermissionSuggestions(
     input.request.toolName,

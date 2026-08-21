@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0033-02a9",
+  "profile": "degraded",
+  "reason": "Job-visibility bug fix (bounded, 1 file + test): canAccessSchedulerJob hides jobs whose notification route has no providerAccountId, making the KnackLabs lead job invisible even from its own conversation. Unbound route matches any account; bound-to-different still fails (fail-closed preserved). Codex root-caused it; codex-write is repo-blocked so delegate is unavailable.",
+  "started_at": "2026-08-20T08:05:44+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

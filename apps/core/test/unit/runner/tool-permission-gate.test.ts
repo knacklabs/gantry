@@ -2,6 +2,12 @@ import dns from 'node:dns/promises';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  DURABLE_GRANT_EXCLUDED_DISPATCHERS,
+  HOST_AUTHORIZED_MCP_PROXY_DISPATCHERS,
+} from '@core/shared/admin-mcp-tools.js';
+import { gantryToolDefaultRisk } from '@core/application/permissions/gantry-tool-risk.js';
+
 const permissionMock = vi.hoisted(() => ({
   requestPermissionApproval: vi.fn(),
 }));
@@ -108,7 +114,7 @@ function decideWrappedReadOnlyRequest(request: {
       };
 }
 
-describe('createCanUseToolCallback', () => {
+describe('tool permission gate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     permissionMock.requestPermissionApproval.mockResolvedValue({
@@ -807,6 +813,99 @@ describe('createCanUseToolCallback', () => {
     expect(output).toContain('"jobId":"job-1"');
   });
 
+  it('scheduled worker-local miss honors an explicit host-granted RunCommand', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'reviewed_rule',
+      reason: 'Allowed once by the host coordinator.',
+    });
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: 'job-1',
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: [],
+      } as never,
+    });
+    const command =
+      '/opt/homebrew/bin/gog sheets get sheet-1 "Bot Recommendation!A1800:K2000" --account operator@example.test';
+
+    await expect(
+      canUseTool(
+        'RunCommand',
+        { command },
+        makePermissionOptions({ displayName: 'RunCommand' }) as never,
+      ),
+    ).resolves.toEqual({
+      behavior: 'allow',
+      updatedInput: {
+        command: expect.stringContaining(command),
+      },
+    });
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'RunCommand',
+        toolInput: {
+          command: expect.stringContaining(command),
+        },
+      }),
+    );
+  });
+
+  it('AUTODET-1-1 > anthropic lane worker-local miss hands off and observes deterministic terminal outcome', async () => {
+    const hostReason =
+      'Autonomous runs decide deterministically: RunCommand has no declared grant.';
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: false,
+      reason: hostReason,
+      decidedBy: 'deterministic_rails',
+    });
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: 'job-1',
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: [],
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'RunCommand',
+        { command: '/opt/homebrew/bin/gog sheets delete sheet-1' },
+        makePermissionOptions({
+          displayName: 'RunCommand',
+          decisionReason: undefined,
+        }) as never,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        behavior: 'deny',
+        interrupt: true,
+        message: expect.stringContaining(
+          'Tool not on autonomous run allowlist: RunCommand',
+        ),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+    const approvalRequest =
+      permissionMock.requestPermissionApproval.mock.calls[0]?.[0];
+    expect(approvalRequest?.decisionReason).toContain(
+      'Tool not on autonomous run allowlist: RunCommand',
+    );
+  });
+
   it('allows scheduled jobs to read local time without a custom command grant', async () => {
     const canUseTool = makeCallback({
       agentInput: {
@@ -933,13 +1032,17 @@ describe('createCanUseToolCallback', () => {
     },
   );
 
-  it.each(['birthright', 'deterministic_read_only'])(
+  it.each([
+    ['birthright', 'birthright'],
+    ['deterministic_read_only', 'deterministic_policy'],
+  ] as const)(
     'keeps %s approvals silent in model-visible post-tool context',
-    async (decidedBy) => {
+    async (decidedBy, source) => {
       permissionMock.requestPermissionApproval.mockResolvedValueOnce({
         approved: true,
         mode: 'allow_once',
         decidedBy,
+        source,
       });
       const recordPermissionApprovalContext = vi.fn();
       const canUseTool = makeCallback({ recordPermissionApprovalContext });
@@ -956,7 +1059,29 @@ describe('createCanUseToolCallback', () => {
     },
   );
 
-  it('denies exact facade access in autonomous jobs without permission prompts', async () => {
+  it('does not silence a human approver whose name collides with a silent decider', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'birthright',
+      source: 'human_once',
+      repeatableForFutureRuns: false,
+    });
+    const recordPermissionApprovalContext = vi.fn();
+    const canUseTool = makeCallback({ recordPermissionApprovalContext });
+
+    await expect(
+      canUseTool(
+        'Bash',
+        { command: 'npm test' },
+        makePermissionOptions() as never,
+      ),
+    ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
+
+    expect(recordPermissionApprovalContext).toHaveBeenCalled();
+  });
+
+  it('allows a canonical tool in autonomous jobs when the host coordinator authorizes it', async () => {
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -976,20 +1101,16 @@ describe('createCanUseToolCallback', () => {
       { file_path: 'package.json' },
       makePermissionOptions({ displayName: 'Read' }) as never,
     );
-    expect(decision).toEqual(
-      expect.objectContaining({
-        behavior: 'deny',
-        interrupt: false,
-        message: expect.stringContaining(
-          'Exact tool grants are not accepted as durable authority.',
-        ),
-      }),
-    );
-
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(decision).toEqual(expect.objectContaining({ behavior: 'allow' }));
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
-  it('returns nonpersistent autonomous Bash denials without pausing the job', async () => {
+  it('autonomous non-promptable denial is terminal and interrupts the run', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: false,
+      reason: 'No reviewed capability or command rule matched.',
+      decidedBy: 'runtime',
+    });
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -1018,7 +1139,7 @@ describe('createCanUseToolCallback', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         behavior: 'deny',
-        interrupt: false,
+        interrupt: true,
         message: expect.stringContaining(
           'cannot be durably approved for autonomous runs',
         ),
@@ -1030,8 +1151,9 @@ describe('createCanUseToolCallback', () => {
       .mock.calls.map((call) => String(call[0]))
       .join('');
     expect(output).toContain('"phase":"permission_denied"');
-    expect(output).toContain('"terminal":false');
-    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(output).toContain('"terminal":true');
+    expect(output).toContain('"tool":"RunCommand"');
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
   it('auto-denies un-provisioned tools for a locked agent without prompting', async () => {
@@ -1225,4 +1347,18 @@ describe('createCanUseToolCallback', () => {
     );
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
+});
+
+it('CAPSAFE-1-BOUNDARY', () => {
+  // Decision 0130: the mcp__gantry__capability_run wrapper is DISPATCH-ONLY — the
+  // runner may only hand a schema-valid envelope to the host, which re-authorizes
+  // app/agent/person/capability/reviewed-template/executable before execution. The
+  // bypass grants NO command authority: capability_run is a host-authorized proxy
+  // dispatcher, is excluded from durable grants, and stays HIGH-risk with no
+  // classifier-derived or cached auto-allow.
+  expect(HOST_AUTHORIZED_MCP_PROXY_DISPATCHERS).toContain('capability_run');
+  expect(DURABLE_GRANT_EXCLUDED_DISPATCHERS).toContain('capability_run');
+  expect(gantryToolDefaultRisk('mcp__gantry__capability_run')?.risk_level).toBe(
+    'high',
+  );
 });

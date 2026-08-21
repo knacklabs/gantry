@@ -1,0 +1,206 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-05T17:13:32+00:00", "story": "SCHED-4B", "detail": "Actionable job cards: approve-from-card, full setup story, visible recovery, provider parity"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-05T17:29:53+00:00", "story": "SCHED-4B", "detail": "plans/active/SCHED-4B-actionable-job-cards-approve-from-card-full-setup-story-visible-recovery-provider-parity.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T17:31:07+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "implementing", "generated_by": "orchestrator", "at": "2026-08-05T17:31:13+00:00", "story": "SCHED-4B"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-05T17:31:57+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 Prompt on pause + full setup story + provider affordance parity"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-05T17:34:41+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 must wire the standard requestPermissionApproval and cancellation seam into SchedulerDependencies, but the sole production composition site apps/core/src/app/bootstrap/runtime-services.ts i"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T17:35:09+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-05T17:35:17+00:00", "story": "SCHED-4B", "detail": "S-0001-d9b8: write_scope amended: apps/core/src/app added to both SCHED-4B stages and the decomposition re-recorded \u2014 wire the seam into SchedulerDependencies at runtime-services.ts as planned; keep bootstrap chan"}
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-08-05T17:41:59+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 acceptance requires Allow once to queue a usable immediate run or state when access is used, but pendingAccessRequests only counts/resolves rows and requestPermissionOnceLiveRules requires "}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T17:42:21+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-05T17:42:33+00:00", "story": "SCHED-4B", "detail": "S-0002-a59c: Do NOT build a new transient next-run store (that is a new grant path, out of scope). Setup-pause prompts narrow the option set via the EXISTING per-request option computation (request-permission-revi"}
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-05T17:46:34+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 says existing pendingAccessRequests consumption can support setup-pause Allow once, but the live repository only insertPending/markResolved/counts and request-only Allow once writes current"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T17:46:50+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-05T17:46:50+00:00", "story": "SCHED-4B", "detail": "S-0003-185e: Criterion amended and decomposition re-recorded: the transient-consumption arm is GONE. Setup-pause prompts offer Allow for future and Deny only (existing per-request option computation); allow_once i"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T17:47:22+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-05T18:10:35+00:00", "story": "SCHED-4B", "detail": "Managed command policy refuses required FORGE_TEST_ID commands containing a literal greater-than sign; equivalent file-level Vitest suites pass, but the exact commands need orchestrator execution."}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-05T18:10:48+00:00", "story": "SCHED-4B", "detail": "S-0004-9b2d: Not a blocker: run the suites file-level (as you did); the exact FORGE_TEST_ID env-prefixed commands are executed by the orchestrator at evidence-recording time, where the command policy permits them."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T18:10:53+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T18:18:48+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T18:25:28+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T18:30:07+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T18:39:51+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T18:43:32+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-05T18:49:43+00:00", "story": "SCHED-4B", "detail": "Managed command policy refuses the required env-prefixed VITEST_JUNIT/FORGE_TEST_ID commands because each test id contains >; equivalent focused Vitest files pass (5 files, 194 tests), but exact JUnit"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-05T18:49:50+00:00", "story": "SCHED-4B", "detail": "S-0005-afba: Acknowledged and not a blocker (same as S-0004): file-level suites are sufficient for you; the orchestrator runs the exact FORGE_TEST_ID commands at evidence-recording time. Do not raise this signal a"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T18:49:58+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T19:17:40+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-05T19:18:40+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 active plan behavioral check says setup-pause prompts offer Allow once, but the recorded decomposition and implementer brief require setup-pause prompts to omit Allow once; plan needs align"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-05T19:18:52+00:00", "story": "SCHED-4B", "detail": "S-0006-f55b: Authority ordering: the RECORDED DECOMPOSITION is authoritative over the saved plan prose. Setup-pause prompts omit allow_once (owner-approved amendment after discovery proved no transient consumption"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T19:18:54+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T19:23:10+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T20:08:24+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T20:43:47+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T20:49:19+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T21:29:13+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T21:37:36+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T22:16:26+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T22:27:14+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T23:01:03+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T23:07:34+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-05T23:46:32+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-05T23:57:29+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T00:31:40+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-06T00:37:35+00:00", "story": "SCHED-4B", "detail": "Managed command policy refuses the four declared VITEST_JUNIT/FORGE_TEST_ID invocations before Vitest because each exact test id contains a literal >; equivalent file-scoped suites pass 45/45, but the"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-06T00:37:43+00:00", "story": "SCHED-4B", "detail": "S-0007-1212: Third occurrence of the same non-issue: file-scoped suites are sufficient for you; the orchestrator runs the exact FORGE_TEST_ID commands at evidence-recording time. Stop raising this signal."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T00:37:54+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T01:17:03+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T01:23:20+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T02:05:09+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-06T02:19:08+00:00", "story": "SCHED-4B", "detail": "Managed command policy refuses the required VITEST_JUNIT/FORGE_TEST_ID-prefixed focused commands before Vitest starts; the same focused files pass directly, but the required JUnit reports cannot be pr"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-06T02:19:20+00:00", "story": "SCHED-4B", "detail": "S-0008-31fc: Fourth identical raise. Resolved permanently: file-scoped suites are your bar; JUnit evidence is produced by the orchestrator. Do not raise this again \u2014 finish the code work."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T02:19:23+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T02:53:36+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T03:01:57+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T03:39:26+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T03:47:16+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T04:24:22+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T04:29:15+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T05:15:44+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T05:31:41+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T06:12:42+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T06:23:12+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T07:00:23+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T07:07:06+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T07:45:41+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T07:54:06+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T08:32:35+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-06T08:41:28+00:00", "story": "SCHED-4B", "detail": "Managed command policy rejects the required env-prefixed VITEST_JUNIT/FORGE_TEST_ID commands before Vitest launches; equivalent direct focused Vitest runs pass, but the orchestrator must run the exact"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-06T08:41:38+00:00", "story": "SCHED-4B", "detail": "S-0009-5b0b: Fifth identical raise \u2014 resolved as always: file-scoped suites are your bar, the orchestrator produces JUnit evidence. Finish the code work and report the R9 A/B outcome."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T08:42:00+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T09:20:26+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T09:29:22+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T10:06:11+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T10:11:40+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T10:49:21+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T10:55:08+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T11:34:10+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-06T11:38:25+00:00", "story": "SCHED-4B", "detail": "Managed command policy rejects the required env-prefixed VITEST_JUNIT/FORGE_TEST_ID wrappers before Vitest starts; the same three declared files pass directly (51 tests), but the orchestrator must rer"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-06T11:38:32+00:00", "story": "SCHED-4B", "detail": "S-0010-8588: Sixth identical raise \u2014 resolved as always. File suites are your bar; orchestrator records JUnit. Done."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T11:38:45+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T12:21:21+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T12:29:47+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T13:09:58+00:00", "story": "SCHED-4B", "detail": "2 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T13:15:04+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-06T13:59:24+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 Prompt on pause + full setup story + provider affordance parity"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T14:03:53+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-06T14:31:28+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1 Prompt on pause + full setup story + provider affordance parity"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-06T14:35:31+00:00", "story": "SCHED-4B"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T14:45:18+00:00", "story": "SCHED-4B", "detail": "3 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T14:46:01+00:00", "story": "SCHED-4B", "detail": "3 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-06T14:46:19+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1B Fix SCHED-4B-1 full-suite regressions: shared durable short-circuit + unconfigured seam"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T14:54:25+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1B (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T15:36:12+00:00", "story": "SCHED-4B", "detail": "3 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-06T15:36:58+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1B Fix SCHED-4B-1 full-suite regressions: shared durable short-circuit + unconfigured seam"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T15:44:42+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1B (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-06T16:09:08+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1B Fix SCHED-4B-1 full-suite regressions: shared durable short-circuit + unconfigured seam"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-06T16:13:30+00:00", "story": "SCHED-4B"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T16:19:14+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-06T16:19:15+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1C Setup-pause lifecycle polish: delivery-failure fallback card + retire on leave-setup"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T16:26:57+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1C (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-06T17:02:37+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-1C Setup-pause lifecycle polish: delivery-failure fallback card + retire on leave-setup"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-06T17:02:57+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 Drained visible permission recovery + lifecycle retirement on every terminal exit"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T17:14:07+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T17:48:06+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T18:01:03+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T18:32:49+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T18:42:47+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T19:19:12+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T19:26:55+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T20:05:41+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T20:17:04+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T20:48:35+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T20:53:16+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T21:30:12+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T21:36:51+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T22:15:23+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T22:21:26+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-06T23:00:39+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-06T23:04:36+00:00", "story": "SCHED-4B", "detail": "Managed command policy refuses both required env-prefixed VITEST_JUNIT/FORGE_TEST_ID commands because approval is disabled; the same two focused files pass normally and with direct JUnit reporter outp"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-06T23:04:44+00:00", "story": "SCHED-4B", "detail": "S-0011-ea36: Seventh identical raise. File suites are your bar; the orchestrator records JUnit. Finish the code work."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T23:04:56+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-06T23:47:50+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 Drained visible permission recovery + lifecycle retirement on every terminal exit"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-06T23:56:37+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T00:20:02+00:00", "story": "SCHED-4B", "detail": "4 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T00:20:14+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 Drained visible permission recovery + lifecycle retirement on every terminal exit"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T00:23:40+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T00:51:31+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2 Drained visible permission recovery + lifecycle retirement on every terminal exit"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-07T00:55:20+00:00", "story": "SCHED-4B"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T01:00:47+00:00", "story": "SCHED-4B", "detail": "5 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T01:01:05+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2B Update recovery-caller tests to the new keyset/atomic-claim contract"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T01:14:35+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2B (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T01:42:31+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2B Update recovery-caller tests to the new keyset/atomic-claim contract"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T01:46:46+00:00", "story": "SCHED-4B"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T01:53:46+00:00", "story": "SCHED-4B", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T01:54:04+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2C Branch-review lifecycle polish: clear stale running card on all exits + retire prompt on cross-flow resume"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-07T02:00:10+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2C must pass the currently settling permission requestId from apps/core/src/application/interactions/pending-interaction-permission-recovery.ts so job recovery can retire cross-flow setup pro"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T02:00:24+00:00", "story": "SCHED-4B", "detail": "6 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-07T02:00:24+00:00", "story": "SCHED-4B", "detail": "S-0012-b89a: write_scope extended to include apps/core/src/application/interactions and the decomposition re-recorded. Thread the currently-settling permission requestId from pending-interaction-permission-recover"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T02:00:32+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2C (write)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T02:11:41+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2C (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T02:37:00+00:00", "story": "SCHED-4B", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T02:47:49+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2C (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T03:26:16+00:00", "story": "SCHED-4B", "detail": "6 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-07T03:32:53+00:00", "story": "SCHED-4B", "detail": "Managed command policy refuses the exact required test command because FORGE_TEST_ID contains a literal greater-than character; the entire lifecycle-retirement test file and full 8,560-test unit suite"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-07T03:33:02+00:00", "story": "SCHED-4B", "detail": "S-0013-1e98: Eighth identical raise. Full suite green is what matters; orchestrator records JUnit. Done."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T03:33:06+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2C (write)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T04:09:25+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2C Branch-review lifecycle polish: clear stale running card on all exits + retire prompt on cross-flow resume"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T04:16:14+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2C (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T04:40:49+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2C Branch-review lifecycle polish: clear stale running card on all exits + retire prompt on cross-flow resume"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T04:45:18+00:00", "story": "SCHED-4B"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T04:50:33+00:00", "story": "SCHED-4B", "detail": "7 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T04:50:33+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2D Branch-review edge cases: failsafe-independent card cleanup, partial-recovery prompt transition, multi-blocker review"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T05:05:52+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2D (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T05:32:53+00:00", "story": "SCHED-4B", "detail": "7 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T05:41:59+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2D (write)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T06:15:40+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2D Branch-review edge cases: failsafe-independent card cleanup, partial-recovery prompt transition, multi-blocker review"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T06:22:59+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2D (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T06:47:18+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2D Branch-review edge cases: failsafe-independent card cleanup, partial-recovery prompt transition, multi-blocker review"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T06:52:59+00:00", "story": "SCHED-4B"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T06:59:07+00:00", "story": "SCHED-4B", "detail": "8 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T06:59:07+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2E Branch-review concurrency: recovery re-evaluate on lost claim + lifecycle retire tracked separately from settlement"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-07T07:14:27+00:00", "story": "SCHED-4B", "detail": "The required FORGE_TEST_ID command is refused by managed command policy because its exact test id contains a literal >; the full test file and full unit suite pass, but the exact evidence invocation m"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-07T07:14:38+00:00", "story": "SCHED-4B", "detail": "S-0014-184e: Ninth identical raise. Full suite green is the bar; orchestrator records JUnit. Done."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T07:14:49+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2E (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T07:41:44+00:00", "story": "SCHED-4B", "detail": "8 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-07T07:54:03+00:00", "story": "SCHED-4B", "detail": "Managed command policy refuses the required environment-prefixed VITEST_JUNIT/FORGE_TEST_ID command; the focused file and full 8,568-test unit suite pass, but the exact declared JUnit wrapper could no"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-07T07:54:11+00:00", "story": "SCHED-4B", "detail": "S-0015-b45f: Tenth identical raise. Full suite green (8568) is the bar; orchestrator records JUnit. Done."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T07:54:24+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2E (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T08:24:47+00:00", "story": "SCHED-4B", "detail": "8 task(s)"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-07T08:26:01+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2E review fix 2E-4 requires retaining failed per-route card identities in apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts, but apps/core/src/app is outside this stage write sc"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T08:26:14+00:00", "story": "SCHED-4B", "detail": "8 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-07T08:26:14+00:00", "story": "SCHED-4B", "detail": "S-0016-98da: write_scope extended to include apps/core/src/app and re-recorded. The updater in scheduler-lifecycle-notification.ts must NOT delete a route's captured identity when its retirement outcome FAILED \u2014 r"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T08:42:00+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2E (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T09:08:03+00:00", "story": "SCHED-4B", "detail": "8 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T09:21:29+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2E (write)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T09:53:01+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2E Branch-review concurrency: recovery re-evaluate on lost claim + lifecycle retire tracked separately from settlement"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T10:00:36+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2E (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T10:24:34+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2E Branch-review concurrency: recovery re-evaluate on lost claim + lifecycle retire tracked separately from settlement"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T10:29:25+00:00", "story": "SCHED-4B"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T10:36:16+00:00", "story": "SCHED-4B", "detail": "9 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T10:36:16+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2F Setup-story timing: pre-run pauses must not read as stopped mid-run"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T10:49:44+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2F (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T11:18:12+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2F Setup-story timing: pre-run pauses must not read as stopped mid-run"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T11:23:45+00:00", "story": "SCHED-4B"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T11:34:51+00:00", "story": "SCHED-4B", "detail": "10 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T11:34:51+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2G Partial-recovery prompt uses the real setup source, not hard-coded permission_denied"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T11:44:54+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2G (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T12:16:47+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2G Partial-recovery prompt uses the real setup source, not hard-coded permission_denied"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T12:22:09+00:00", "story": "SCHED-4B"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T12:32:01+00:00", "story": "SCHED-4B", "detail": "11 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T12:32:01+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2H Approver always gets a card: generalize delivery-failure fallback + handle non-raised recovery outcomes"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-07T12:35:24+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2H needs apps/core/src/application/interactions/pending-interaction-permission-recovery.ts and apps/core/src/app/bootstrap/setup-pause-permission-wiring.ts added to write scope so the normal "}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T12:35:30+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2H (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-07T12:35:39+00:00", "story": "SCHED-4B", "detail": "11 task(s)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-07T12:35:39+00:00", "story": "SCHED-4B", "detail": "S-0017-f789: write_scope extended to include apps/core/src/application/interactions and apps/core/src/app and re-recorded. Thread the normal setup-card delivery fallback so BOTH the live request-access recovery ca"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T12:47:19+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2H (write)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-07T13:16:06+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2H Approver always gets a card: generalize delivery-failure fallback + handle non-raised recovery outcomes"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-07T13:24:00+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2H (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-07T13:47:27+00:00", "story": "SCHED-4B", "detail": "SCHED-4B-2H Approver always gets a card: generalize delivery-failure fallback + handle non-raised recovery outcomes"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T13:52:17+00:00", "story": "SCHED-4B"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-07T14:03:43+00:00", "story": "SCHED-4B"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-07T14:04:15+00:00", "story": "SCHED-4B"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-07T14:04:16+00:00", "story": "SCHED-4B"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-07T14:04:16+00:00", "story": "SCHED-4B"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-07T14:04:25+00:00", "story": "SCHED-4B", "detail": "pass"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-07T14:05:18+00:00", "story": "SCHED-4B", "detail": "Scheduled-job cards are now actionable. When a job pauses for missing access it raises the real permission prompt (Allow for future / Deny) built from the job's stored requirement, settled through the"}

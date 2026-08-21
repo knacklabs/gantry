@@ -1,0 +1,23 @@
+{
+  "generated_by": "autoreview",
+  "blocking_findings": [],
+  "reviewed_scope": [
+    "apps/core/src + test (CAPFIX-1 branch)",
+    "docs/decisions/0122",
+    "docs/specs/capability-template-amendment.md"
+  ],
+  "score": 9,
+  "summary": "Thin router + dedicated modules; ~20 review-driven fixes (tiered classifier, transactional claim+supersede, merge-not-replace, snapshot-bound CAS, app-wide recovery, consistent vocabulary). Provenance: ~15 local autoreview rounds over the full cumulative diff (branch-wide pass blocked by the known secret-gate phantom on drizzle snapshots); verify.py green.",
+  "non_blocking_findings": [
+    {
+      "category": "review-oscillation",
+      "area": "capability-template-amendment",
+      "summary": "late rounds re-litigated settled tradeoffs; invariants pinned inline + 0122"
+    }
+  ],
+  "recommendation": "ship",
+  "aspect": "quality",
+  "residual_risks": [],
+  "recorded_at": "2026-08-11T22:01:41+00:00",
+  "commit": "139be189a4fad89263bfb340515051daeab723cd"
+}

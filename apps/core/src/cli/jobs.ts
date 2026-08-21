@@ -1,14 +1,14 @@
 import * as p from '@clack/prompts';
 
 import { controlApiRequest } from './control-api.js';
+import { isInteractiveTerminal, loadDatabase } from './group-helpers.js';
 import {
   formatJobToolAccess,
   type JobToolAccessView,
 } from '../shared/tool-access-view.js';
 import {
   jobSetupBlockerFromUnknown,
-  setupActionLabel,
-  setupActionLabelFromNextAction,
+  formatJobSetupAction,
   setupReadinessLabel,
 } from '../shared/job-setup-labels.js';
 import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
@@ -43,11 +43,16 @@ interface JobRecord {
     state?: string;
     nextAction?: string | null;
     blockers?: Array<{
-      requirementType?: string;
-      requirementId?: string;
-      message?: string;
-      nextAction?: string;
+      type?: string;
+      id?: string;
+      summary?: string;
+      action?: unknown;
     }>;
+    deliveryNotice?: {
+      outcome?: string;
+      attempt?: number;
+      text?: string;
+    } | null;
   };
   recovery?: {
     state?: string;
@@ -100,6 +105,9 @@ export async function runJobsCommand(
   if (action === 'resume' && maybeJobId) {
     return resumeJob(runtimeHome, maybeJobId);
   }
+  if (action === 'delete' && maybeJobId) {
+    return deleteJob(runtimeHome, maybeJobId, rest);
+  }
   if (action === 'trigger' && maybeJobId) {
     return triggerJob(runtimeHome, maybeJobId);
   }
@@ -110,7 +118,7 @@ export async function runJobsCommand(
     return listJobEvents(runtimeHome, maybeJobId, rest);
   }
   p.log.error(
-    'Usage: gantry jobs list|show <job_id>|resume <job_id>|trigger <job_id>|set-route <job_id> --conversation <jid> --thread <id|null>|events <job_id> [--run <run_id>] [--full|--json]',
+    'Usage: gantry jobs list|show <job_id>|resume <job_id>|delete <job_id> [--yes]|trigger <job_id>|set-route <job_id> --conversation <jid> --thread <id|null>|events <job_id> [--run <run_id>] [--full|--json]',
   );
   return 1;
 }
@@ -181,12 +189,75 @@ async function resumeJob(runtimeHome: string, jobId: string): Promise<number> {
       'Setup Blockers:',
       ...setup.blockers.map(
         (blocker) =>
-          `  ${blocker.requirementType ?? 'requirement'}:${blocker.requirementId ?? 'unknown'} ${blocker.message ?? ''}`,
+          `  ${blocker.type ?? 'requirement'}:${blocker.id ?? 'unknown'} ${blocker.summary ?? ''}`,
       ),
     );
   }
   p.note(lines.join('\n'), `Job ${jobId}`);
   return 0;
+}
+
+async function deleteJob(
+  runtimeHome: string,
+  jobId: string,
+  args: string[],
+): Promise<number> {
+  if (args.some((arg) => arg !== '--yes')) {
+    p.log.error('Usage: gantry jobs delete <job_id> [--yes]');
+    return 1;
+  }
+
+  const assumeYes = args.includes('--yes');
+  if (!assumeYes) {
+    if (!isInteractiveTerminal()) {
+      p.log.error(
+        'Refusing destructive deletion in non-interactive mode without --yes.',
+      );
+      p.log.info('Next action: rerun with `--yes`.');
+      return 1;
+    }
+
+    const decision = await p.select({
+      message: `Delete job ${jobId}?`,
+      options: [
+        { label: 'Yes, delete it', value: 'yes' },
+        { label: 'No, cancel', value: 'no' },
+      ],
+    });
+    if (p.isCancel(decision) || decision !== 'yes') {
+      p.log.warn('Job deletion cancelled. No changes were made.');
+      return 0;
+    }
+  }
+
+  if (jobId.startsWith('system:dreaming:')) {
+    p.log.warn(
+      'System dreaming jobs are re-seeded from conversation routes and will reappear unless the underlying route is removed first.',
+    );
+  }
+
+  let db: Awaited<ReturnType<typeof loadDatabase>> | null = null;
+  try {
+    db = await loadDatabase(runtimeHome);
+  } catch (err) {
+    p.log.error(
+      `Could not open runtime database: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 1;
+  }
+
+  try {
+    await db.deleteJob(jobId);
+    p.log.success(`Deleted job ${jobId}.`);
+    return 0;
+  } catch (err) {
+    p.log.error(
+      `Could not delete job from database: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 1;
+  } finally {
+    await db.close();
+  }
 }
 
 async function triggerJob(runtimeHome: string, jobId: string): Promise<number> {
@@ -338,7 +409,7 @@ function jobNextActionLabel(job: JobRecord): string {
   return formatJobNextAction(job.setup, nextAction);
 }
 
-function formatJobDetail(job: JobRecord): string {
+export function formatJobDetail(job: JobRecord): string {
   const lines = [
     `ID: ${job.jobId}`,
     `Name: ${job.name}`,
@@ -351,6 +422,7 @@ function formatJobDetail(job: JobRecord): string {
     `Conversation: ${jobConversationLabel(job)}`,
     `Thread: ${jobThreadId(job) ?? 'none'}`,
     `Setup: ${setupReadinessLabel(job.setup?.state)}`,
+    `Setup delivery: ${job.setup?.deliveryNotice?.text ?? 'none'}`,
     `Next action: ${jobNextActionLabel(job)}`,
     `Access requirements: ${jobAccessRequirementsLabel(job)}`,
     formatJobToolAccess(job.toolAccess),
@@ -368,7 +440,7 @@ function formatJobDetail(job: JobRecord): string {
       'Setup Blockers:',
       ...job.setup.blockers.map(
         (blocker) =>
-          `  ${blocker.requirementType ?? 'requirement'}:${blocker.requirementId ?? 'unknown'} ${blocker.message ?? ''}`,
+          `  ${blocker.type ?? 'requirement'}:${blocker.id ?? 'unknown'} ${blocker.summary ?? ''}`,
       ),
     );
   }
@@ -403,11 +475,11 @@ function formatJobNextAction(
   fallbackNextAction?: unknown,
 ): string {
   const blocker = jobSetupBlockerFromUnknown(setup?.blockers?.[0]);
-  if (blocker) return setupActionLabel(blocker);
-  return setupActionLabelFromNextAction(
-    setup?.nextAction ?? fallbackNextAction,
-    'Fix setup, then resume the job.',
-  );
+  if (blocker) return formatJobSetupAction(blocker.action, blocker);
+  const nextAction = setup?.nextAction ?? fallbackNextAction;
+  return typeof nextAction === 'string' && nextAction.trim()
+    ? nextAction
+    : 'Fix setup, then resume the job.';
 }
 
 function formatJobEvents(

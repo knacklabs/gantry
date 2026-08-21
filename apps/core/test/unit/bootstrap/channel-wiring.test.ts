@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 vi.mock('@core/platform/sender-allowlist.js', () => ({
   loadSenderAllowlist: vi.fn(() => ({})),
@@ -344,11 +345,11 @@ describe('createChannelWiring', () => {
           onPromptDelivered?: (messageId: string) => void,
         ) => {
           onPromptDelivered?.('batch-prompt-1');
-          return {
+          return permissionDecisionResult({
             approved: true,
             mode: 'allow_once' as const,
             decidedBy: 'Ravi',
-          };
+          });
         },
       );
       const requester = createPermissionApprovalRequester({
@@ -377,8 +378,12 @@ describe('createChannelWiring', () => {
         }),
       );
       await expect(Promise.all([first, second])).resolves.toEqual([
-        expect.objectContaining({ approved: true, mode: 'allow_once' }),
-        expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        permissionDecisionResult(
+          expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        ),
+        permissionDecisionResult(
+          expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        ),
       ]);
       expect(resetStreaming).toHaveBeenCalledOnce();
     } finally {
@@ -397,22 +402,22 @@ describe('createChannelWiring', () => {
         ) => {
           onPromptDelivered?.(`prompt-${request.requestId}`);
           if (request.permissionBatch) {
-            return {
+            return permissionDecisionResult({
               ...decisionForMode(request, 'allow_persistent_rule', 'Ravi'),
               reason: 'persistent rule allowed via Telegram',
-            };
+            });
           }
           return request.requestId === 'permission-1'
-            ? {
+            ? permissionDecisionResult({
                 approved: true,
                 mode: 'allow_once' as const,
                 decidedBy: 'Ravi',
-              }
-            : {
+              })
+            : permissionDecisionResult({
                 approved: false,
                 mode: 'cancel' as const,
                 decidedBy: 'Ravi',
-              };
+              });
         },
       );
       const requester = createPermissionApprovalRequester({
@@ -433,8 +438,12 @@ describe('createChannelWiring', () => {
       await vi.advanceTimersByTimeAsync(1500);
 
       await expect(Promise.all([first, second])).resolves.toEqual([
-        expect.objectContaining({ approved: true, mode: 'allow_once' }),
-        expect.objectContaining({ approved: false, mode: 'cancel' }),
+        permissionDecisionResult(
+          expect.objectContaining({ approved: true, mode: 'allow_once' }),
+        ),
+        permissionDecisionResult(
+          expect.objectContaining({ approved: false, mode: 'cancel' }),
+        ),
       ]);
       expect(requestPermissionApproval).toHaveBeenCalledTimes(3);
     } finally {
@@ -450,7 +459,10 @@ describe('createChannelWiring', () => {
         requestPermissionApproval: vi.fn(
           async (_jid, _request, onPromptDelivered) => {
             onPromptDelivered?.('permission-prompt-1');
-            return { approved: false, mode: 'cancel' };
+            return permissionDecisionResult({
+              approved: false,
+              mode: 'cancel',
+            });
           },
         ),
       }),
@@ -2056,7 +2068,7 @@ describe('createChannelWiring', () => {
         onPromptDelivered?: (messageId: string) => void,
       ) => {
         onPromptDelivered?.('alpha-prompt');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
     const betaApproval = vi.fn(
@@ -2066,7 +2078,7 @@ describe('createChannelWiring', () => {
         onPromptDelivered?: (messageId: string) => void,
       ) => {
         onPromptDelivered?.('beta-prompt');
-        return { approved: false };
+        return permissionDecisionResult({ approved: false });
       },
     );
     const settings = makeRuntimeSettings({ telegram: false, slack: true });
@@ -2110,7 +2122,7 @@ describe('createChannelWiring', () => {
         threadId: 'thread-1',
         toolName: 'danger-tool',
       }),
-    ).resolves.toEqual({ approved: true });
+    ).resolves.toEqual(permissionDecisionResult({ approved: true }));
     expect(alphaApproval).toHaveBeenCalledOnce();
     expect(betaApproval).not.toHaveBeenCalled();
     expect(alphaReset).toHaveBeenCalledWith('sl:C123', {
@@ -2122,16 +2134,26 @@ describe('createChannelWiring', () => {
   it('routes live UX methods through the requested Provider Account', async () => {
     const app = makeApp();
     const alpha = {
+      liveUx: {
+        typing: 'expiring' as const,
+        reactions: { removal: 'exact' as const },
+      },
       resetStreaming: vi.fn(),
       setTyping: vi.fn(async () => undefined),
       addReaction: vi.fn(async () => undefined),
+      removeReaction: vi.fn(async () => undefined),
       renderAgentTodo: vi.fn(async () => true),
       renderRichInteraction: vi.fn(async () => true),
     };
     const beta = {
+      liveUx: {
+        typing: 'expiring' as const,
+        reactions: { removal: 'exact' as const },
+      },
       resetStreaming: vi.fn(),
       setTyping: vi.fn(async () => undefined),
       addReaction: vi.fn(async () => undefined),
+      removeReaction: vi.fn(async () => undefined),
       renderAgentTodo: vi.fn(async () => true),
       renderRichInteraction: vi.fn(async () => true),
     };
@@ -2165,8 +2187,18 @@ describe('createChannelWiring', () => {
 
     const account = { providerAccountId: 'slack_beta' };
     wiring.resetStreaming('sl:C123', account);
-    await wiring.setTyping('sl:C123', true, account);
-    await wiring.addReaction('sl:C123', 'm-1', 'eyes', account);
+    await wiring.setTyping('sl:C123', true, {
+      ...account,
+      threadId: 'thread-1',
+    });
+    await wiring.addReaction('sl:C123', 'm-1', 'eyes', {
+      ...account,
+      threadId: 'thread-1',
+    });
+    await wiring.removeReaction('sl:C123', 'm-1', 'eyes', {
+      ...account,
+      threadId: 'thread-1',
+    });
     await wiring.renderAgentTodo(
       'sl:C123',
       { summary: null, items: [{ id: '1', title: 'Work', status: 'pending' }] },
@@ -2192,11 +2224,22 @@ describe('createChannelWiring', () => {
     expect(alpha.setTyping).not.toHaveBeenCalled();
     expect(alpha.resetStreaming).not.toHaveBeenCalled();
     expect(alpha.addReaction).not.toHaveBeenCalled();
+    expect(alpha.removeReaction).not.toHaveBeenCalled();
     expect(alpha.renderAgentTodo).not.toHaveBeenCalled();
     expect(alpha.renderRichInteraction).not.toHaveBeenCalled();
     expect(beta.resetStreaming).toHaveBeenCalledWith('sl:C123');
-    expect(beta.setTyping).toHaveBeenCalledWith('sl:C123', true);
-    expect(beta.addReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes');
+    expect(beta.setTyping).toHaveBeenCalledWith('sl:C123', true, {
+      threadId: 'thread-1',
+      signal: expect.any(AbortSignal),
+    });
+    expect(beta.addReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes', {
+      threadId: 'thread-1',
+      signal: expect.any(AbortSignal),
+    });
+    expect(beta.removeReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes', {
+      threadId: 'thread-1',
+      signal: expect.any(AbortSignal),
+    });
     expect(beta.renderAgentTodo).toHaveBeenCalledOnce();
     expect(beta.renderRichInteraction).toHaveBeenCalledOnce();
   });
@@ -2292,10 +2335,12 @@ describe('createChannelWiring', () => {
         onPromptDelivered?: (messageId: string) => void,
       ) => {
         onPromptDelivered?.('alpha-approval-message');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
-    const betaApproval = vi.fn(async () => ({ approved: false }));
+    const betaApproval = vi.fn(async () =>
+      permissionDecisionResult({ approved: false }),
+    );
     const settings = makeRuntimeSettings({ telegram: false, slack: true });
     settings.providerAccounts = {
       slack_alpha: {
@@ -2335,7 +2380,7 @@ describe('createChannelWiring', () => {
         targetJid: 'sl:C123',
         toolName: 'danger-tool',
       }),
-    ).resolves.toEqual({ approved: true });
+    ).resolves.toEqual(permissionDecisionResult({ approved: true }));
     expect(alphaApproval).toHaveBeenCalledOnce();
     expect(betaApproval).not.toHaveBeenCalled();
   });
@@ -2349,9 +2394,9 @@ describe('createChannelWiring', () => {
         onPromptDelivered?: (messageId: string) => void,
       ) => {
         onPromptDelivered?.('shared-approval-message');
-        return {
+        return permissionDecisionResult({
           approved: request.providerAccountId === 'slack_beta',
-        };
+        });
       },
     );
     const callbackQuestion = vi.fn(
@@ -2360,7 +2405,9 @@ describe('createChannelWiring', () => {
         answers: { Account: request.providerAccountId ?? 'missing' },
       }),
     );
-    const outboundOnlyApproval = vi.fn(async () => ({ approved: false }));
+    const outboundOnlyApproval = vi.fn(async () =>
+      permissionDecisionResult({ approved: false }),
+    );
     const outboundOnlyQuestion = vi.fn(async () => ({
       requestId: 'unused',
       answers: {},
@@ -2408,7 +2455,7 @@ describe('createChannelWiring', () => {
         targetJid: 'sl:C123',
         toolName: 'danger-tool',
       }),
-    ).resolves.toEqual({ approved: true });
+    ).resolves.toEqual(permissionDecisionResult({ approved: true }));
     await expect(
       wiring.requestUserAnswer({
         requestId: 'q-beta-shared',
@@ -3597,7 +3644,7 @@ describe('createChannelWiring', () => {
       requestPermissionApproval: vi.fn(
         async (_jid, _request, onPromptDelivered) => {
           onPromptDelivered?.('target-approval-message');
-          return { approved: true };
+          return permissionDecisionResult({ approved: true });
         },
       ),
     });
@@ -3619,7 +3666,7 @@ describe('createChannelWiring', () => {
       toolName: 'danger-tool',
     });
 
-    expect(result.approved).toBe(true);
+    expect(result).toEqual(permissionDecisionResult({ approved: true }));
 
     const fallbackWiring = createChannelWiring(makeApp({}));
     const fallback = await fallbackWiring.requestPermissionApproval({
@@ -3629,8 +3676,11 @@ describe('createChannelWiring', () => {
     });
 
     expect(fallback).toEqual({
-      approved: false,
-      reason: 'Permission approval target is missing',
+      kind: 'delivery_failure',
+      code: 'target_missing',
+      retryable: true,
+      delivered: 'no',
+      userMessage: 'Permission approval target is missing',
     });
   });
 
@@ -3641,7 +3691,7 @@ describe('createChannelWiring', () => {
     const requestPermissionApproval = vi.fn(
       async (_jid, _request, onPromptDelivered) => {
         onPromptDelivered?.('outbound-approval-message');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
     const requestUserAnswer = vi.fn(async () => ({
@@ -3675,7 +3725,7 @@ describe('createChannelWiring', () => {
         targetJid: 'tg:other',
         toolName: 'danger-tool',
       }),
-    ).resolves.toEqual({ approved: true });
+    ).resolves.toEqual(permissionDecisionResult({ approved: true }));
     await expect(
       wiring.requestUserAnswer({
         requestId: 'q-outbound-only',
@@ -3698,7 +3748,7 @@ describe('createChannelWiring', () => {
     const requestPermissionApproval = vi.fn(
       async (_jid, _request, onPromptDelivered) => {
         onPromptDelivered?.('direct-approval-message');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
 
@@ -3725,7 +3775,7 @@ describe('createChannelWiring', () => {
       toolName: 'danger-tool',
     });
 
-    expect(result.approved).toBe(true);
+    expect(result).toEqual(permissionDecisionResult({ approved: true }));
     expect(requestPermissionApproval).toHaveBeenCalledWith(
       'tg:111',
       expect.objectContaining({
@@ -3742,7 +3792,7 @@ describe('createChannelWiring', () => {
     const requestPermissionApproval = vi.fn(
       async (_jid, _request, onPromptDelivered) => {
         onPromptDelivered?.('settings-dm-approval-message');
-        return { approved: true };
+        return permissionDecisionResult({ approved: true });
       },
     );
 
@@ -3769,7 +3819,7 @@ describe('createChannelWiring', () => {
       toolName: 'danger-tool',
     });
 
-    expect(result.approved).toBe(true);
+    expect(result).toEqual(permissionDecisionResult({ approved: true }));
     expect(requestPermissionApproval).toHaveBeenCalledWith(
       'tg:222',
       expect.objectContaining({
@@ -3989,6 +4039,62 @@ describe('createChannelWiring', () => {
       'Working on it...',
       { threadId: 'thread-1' },
     );
+  });
+
+  it('propagates a rejected provider progress update as ambiguous', async () => {
+    const app = makeApp({
+      'tg:group': { name: 'Group', folder: 'group' },
+    });
+    const channel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      sendProgressUpdate: vi.fn(async () => {
+        throw new Error('provider update rejected');
+      }),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await expect(
+      wiring.sendProgressUpdate('tg:group', 'Still working', {
+        replaceOnly: true,
+      }),
+    ).rejects.toThrow('provider update rejected');
+  });
+
+  it('preserves an explicit provider false as definitively not landed', async () => {
+    const app = makeApp({
+      'tg:group': { name: 'Group', folder: 'group' },
+    });
+    const channel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      sendProgressUpdate: vi.fn(async () => false),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await expect(
+      wiring.sendProgressUpdate('tg:group', 'Still working', {
+        replaceOnly: true,
+      }),
+    ).resolves.toBe(false);
   });
 
   it('reports agent todo render failure when the channel surface returns false', async () => {

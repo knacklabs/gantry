@@ -1,0 +1,11 @@
+{
+  "topic": "managed-macos-watcher-emfile",
+  "lesson": "Runner stdio file tests can pass the named assertion while the full file command fails with EMFILE from unrelated fs.watch cases; report this as an environment blocker, never green evidence.",
+  "source": "CAPFIX-1-1-verification",
+  "applies_to": [
+    "apps/core/test/unit/runner/ipc-mcp-stdio.test.ts"
+  ],
+  "severity": "medium",
+  "generated_by": "implementer",
+  "added_at": "2026-08-11T19:20:41+00:00"
+}

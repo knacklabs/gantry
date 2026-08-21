@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 
 import type { Agent } from '../../../../domain/agent/agent.js';
 import type { App } from '../../../../domain/app/app.js';
@@ -181,6 +181,7 @@ export class PostgresAgentRepository implements AgentRepository {
             and(
               eq(pgSchema.agentToolBindingsPostgres.appId, input.appId),
               eq(pgSchema.agentToolBindingsPostgres.agentId, input.agentId),
+              isNull(pgSchema.agentToolBindingsPostgres.personId),
             ),
           ),
         tx
@@ -246,6 +247,7 @@ export class PostgresAgentRepository implements AgentRepository {
           appId: binding.appId,
           agentId: binding.agentId,
           toolId: binding.toolId,
+          personId: binding.personId ?? null,
           configVersionId: binding.configVersionId ?? null,
           status: binding.status,
           createdAt: binding.createdAt,

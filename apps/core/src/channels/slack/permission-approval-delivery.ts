@@ -1,8 +1,11 @@
 import type { App } from '@slack/bolt';
 import type {
+  MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionApprovalResult,
 } from '../../domain/types.js';
+import type { PreparedPermissionCardSend } from '../../domain/permission-card.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../../shared/operational-error-counters.js';
 import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
@@ -21,6 +24,87 @@ import { slackPermissionDecisionActionId } from './permission-action-id.js';
 import type { PendingPermissionPrompt } from './channel-state.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import type { ChannelOpts } from '../channel-provider.js';
+import {
+  buildBoundedPermissionCard,
+  permissionCardCallback,
+} from '../permission-card.js';
+
+export function prepareSlackPermissionCardSend(input: {
+  app: App;
+  channelId: string;
+  approverUserIds: readonly string[];
+  options: MessageSendOptions & {
+    permissionCardView: NonNullable<MessageSendOptions['permissionCardView']>;
+  };
+}): PreparedPermissionCardSend {
+  if ([...new Set(input.approverUserIds)].filter(Boolean).length === 0) {
+    throw new Error(
+      'This Slack conversation has no configured approvers for permission cards.',
+    );
+  }
+  const view = input.options.permissionCardView;
+  const callback = permissionCardCallback(view);
+  const card = buildBoundedPermissionCard(view);
+  const actions = {
+    type: 'actions',
+    elements: [
+      ...(card.fullViewAvailable
+        ? [
+            {
+              type: 'button',
+              action_id: 'gantry_perm_full_view',
+              text: {
+                type: 'plain_text',
+                text: card.parts.fullView?.label ?? 'View details',
+              },
+              value: JSON.stringify({ callback }),
+            },
+          ]
+        : []),
+      ...permissionDecisionOptions(view.request).map((mode) => ({
+        type: 'button',
+        action_id: slackPermissionDecisionActionId(mode),
+        text: {
+          type: 'plain_text',
+          text: permissionButtonLabel(mode, view.request),
+        },
+        ...(mode === 'cancel'
+          ? { style: 'danger' as const }
+          : { style: 'primary' as const }),
+        value: JSON.stringify({ callback, decision: mode }),
+      })),
+    ],
+  };
+  const threadTs = slackThreadTsFromThreadId(input.options.threadId);
+  return {
+    send: async () => {
+      const sent = (await input.app.client.chat.postMessage({
+        channel: input.channelId,
+        text: card.text,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+        blocks: [
+          ...buildPermissionPromptContentBlocks(card.parts),
+          actions,
+        ] as any,
+      })) as { ts?: string; message_ts?: string };
+      const messageId = sent.ts || sent.message_ts;
+      if (!messageId) {
+        throw new Error('Slack did not return a permission card id.');
+      }
+      return {
+        delivery: { externalMessageId: messageId },
+        locator: {
+          provider: 'slack',
+          conversationId: input.channelId,
+          messageId,
+          ...(input.options.threadId
+            ? { threadId: input.options.threadId }
+            : {}),
+        },
+      };
+    },
+  };
+}
 
 export function slackPermissionApproverIds(
   runtimeSettings: ChannelOpts['runtimeSettings'],
@@ -60,7 +144,7 @@ export async function requestSlackPermissionApproval(input: {
     retryWindowMs: number,
   ) => Promise<void>;
   onPromptDelivered?: (messageId: string) => void;
-}): Promise<PermissionApprovalDecision> {
+}): Promise<PermissionApprovalResult> {
   const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
   const decisionOptions = permissionDecisionOptions(input.request);
   const callback = {
@@ -132,20 +216,6 @@ export async function requestSlackPermissionApproval(input: {
     },
     actionsBlock,
   ];
-  const postPromptDeliveryFailureNotice = async (reason: string) => {
-    try {
-      await input.app.client.chat.postMessage({
-        channel: input.channelId,
-        text: reason,
-        ...threadPayload,
-      });
-    } catch (err) {
-      logger.warn(
-        { jid: input.jid, requestId: input.request.requestId, err },
-        'Slack permission prompt failure notice could not be delivered',
-      );
-    }
-  };
   const postVisiblePrompt = async (): Promise<{ ts?: string } | null> => {
     const sent = (await input.app.client.chat.postMessage({
       channel: input.channelId,
@@ -173,12 +243,18 @@ export async function requestSlackPermissionApproval(input: {
       }
     }
   };
+  let transmissionBegan = false;
   try {
     if (userIds.length === 0) {
       const reason =
         'Approval prompt could not be shown because this Slack conversation has no configured approvers. Add at least one conversation approver and retry.';
-      await postPromptDeliveryFailureNotice(reason);
-      return { approved: false, reason };
+      return {
+        kind: 'delivery_failure',
+        code: 'surface_unsupported',
+        retryable: true,
+        delivered: 'no',
+        userMessage: reason,
+      };
     }
     const binding = {
       request: input.request,
@@ -193,6 +269,7 @@ export async function requestSlackPermissionApproval(input: {
     }
     let response: { ts?: string } | null;
     try {
+      transmissionBegan = true;
       response = await postVisiblePrompt();
     } catch (blocksErr) {
       logger.warn(
@@ -201,16 +278,17 @@ export async function requestSlackPermissionApproval(input: {
       );
       const reason =
         'Approval prompt could not be posted to this Slack thread. Check that the Slack app can post messages here and retry.';
-      await postPromptDeliveryFailureNotice(reason);
       throw blocksErr;
     }
     const messageTs = response?.ts;
     if (!messageTs) {
       const reason = 'Slack did not accept the approval prompt.';
-      await postPromptDeliveryFailureNotice(reason);
       return {
-        approved: false,
-        reason,
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+        userMessage: reason,
       };
     }
     let resolveDecision!: (decision: PermissionApprovalDecision) => void;
@@ -254,7 +332,9 @@ export async function requestSlackPermissionApproval(input: {
       });
       if (!bound) throw new Error('Slack permission message binding failed');
     } catch (err) {
-      if (err instanceof DurableInteractionPersistenceError) throw err;
+      // Post-send persistence failures become delivered:'unknown' (0128
+      // transmission boundary, review R7): the card may be live, so this
+      // must never be retried into a duplicate.
       incrementOperationalError('channels', 'permission_prompt');
       if (!livePending.settled) {
         livePending.settled = true;
@@ -265,22 +345,24 @@ export async function requestSlackPermissionApproval(input: {
         ) {
           input.pendingPermissionPrompts.delete(callback.providerAlias);
         }
-        resolveDecision({
-          approved: false,
-          reason: 'Failed to send approval prompt to Slack',
-        });
       }
       logger.error(
         { jid: input.jid, requestId: input.request.requestId, err },
         'Failed to send Slack permission prompt',
       );
-      return await decision;
+      return {
+        kind: 'delivery_failure',
+        code: 'provider_failed',
+        retryable: false,
+        delivered: 'unknown',
+        userMessage: 'Failed to send approval prompt to Slack',
+      };
     }
     input.onPromptDelivered?.(messageTs);
     // Ephemeral details preserve the richer prompt for active approvers, but the
     // durable thread card above is the sole required action surface.
     await postPrivateDetails(contentBlocks);
-    return await decision;
+    return { kind: 'decision', decision: await decision };
   } catch (err) {
     if (err instanceof DurableInteractionPersistenceError) throw err;
     incrementOperationalError('channels', 'permission_prompt');
@@ -289,8 +371,11 @@ export async function requestSlackPermissionApproval(input: {
       'Failed to send Slack permission prompt',
     );
     return {
-      approved: false,
-      reason: 'Failed to send approval prompt to Slack',
+      kind: 'delivery_failure',
+      code: 'provider_failed',
+      retryable: !transmissionBegan,
+      delivered: transmissionBegan ? 'unknown' : 'no',
+      userMessage: 'Failed to send approval prompt to Slack',
     };
   }
 }

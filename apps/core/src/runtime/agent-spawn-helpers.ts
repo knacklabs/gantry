@@ -156,6 +156,7 @@ export function buildBaseRunnerEnv(input: {
     ...(input.jobId ? { GANTRY_JOB_ID: input.jobId } : {}),
     ...(input.jobName ? { GANTRY_JOB_NAME: input.jobName } : {}),
     ...(input.runId ? { GANTRY_JOB_RUN_ID: input.runId } : {}),
+    ...(input.runId ? { GANTRY_RUN_ID: input.runId } : {}),
     ...(input.parentTaskId
       ? { GANTRY_PARENT_TASK_ID: input.parentTaskId }
       : {}),
