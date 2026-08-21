@@ -2,8 +2,79 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PostgresAgentRepository } from '@core/adapters/storage/postgres/repositories/agent-repository.postgres.js';
 import { assertExpectedMcpBindingsUnchanged } from '@core/adapters/storage/postgres/repositories/mcp-binding-authority-fence.postgres.js';
+import { agentToolBindingsPostgres } from '@core/adapters/storage/postgres/schema/schema.js';
 
 describe('PostgresAgentRepository MCP binding fence', () => {
+  it('upserts tool bindings on their database uniqueness scope', async () => {
+    let selectCall = 0;
+    const agentLock = { for: vi.fn(async () => []) };
+    const mcpLock = { for: vi.fn(async () => []) };
+    let conflict: Record<string, unknown> | undefined;
+    const tx = {
+      select: vi.fn(() => {
+        selectCall += 1;
+        return {
+          from: () => ({
+            where: () => {
+              if (selectCall === 1) return agentLock;
+              if (selectCall === 2) return mcpLock;
+              if (selectCall === 5) {
+                return { for: vi.fn(async () => []) };
+              }
+              return Promise.resolve([]);
+            },
+          }),
+        };
+      }),
+      insert: vi.fn(() => ({
+        values: () => ({
+          onConflictDoUpdate: vi.fn(async (input: Record<string, unknown>) => {
+            conflict = input;
+          }),
+        }),
+      })),
+    };
+    const db = {
+      transaction: vi.fn(
+        async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+          operation(tx),
+      ),
+    };
+    const repository = new PostgresAgentRepository(db as never);
+
+    await repository.replaceAgentCapabilityBindings({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      toolBindings: [
+        {
+          id: 'agent-tool-binding:new-id' as never,
+          appId: 'app:test' as never,
+          agentId: 'agent:test' as never,
+          toolId: 'tool:test' as never,
+          personId: null,
+          configVersionId: null,
+          status: 'active',
+          createdAt: '2026-08-21T00:00:00.000Z',
+          updatedAt: '2026-08-21T00:00:00.000Z',
+        },
+      ],
+      skillBindings: [],
+      mcpBindings: [],
+      expectedMcpBindingAgentIds: ['agent:test' as never],
+      expectedMcpBindings: [],
+      updatedAt: '2026-08-21T00:00:00.000Z',
+    });
+
+    expect(conflict).toMatchObject({
+      target: [
+        agentToolBindingsPostgres.agentId,
+        agentToolBindingsPostgres.toolId,
+        agentToolBindingsPostgres.configVersionId,
+        agentToolBindingsPostgres.personId,
+      ],
+    });
+  });
+
   it('matches semantic authority without depending on Postgres timestamp text', async () => {
     let selectCall = 0;
     const agentLock = { for: vi.fn(async () => []) };

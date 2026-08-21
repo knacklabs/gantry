@@ -254,7 +254,12 @@ export class PostgresAgentRepository implements AgentRepository {
           updatedAt: binding.updatedAt,
         })
         .onConflictDoUpdate({
-          target: pgSchema.agentToolBindingsPostgres.id,
+          target: [
+            pgSchema.agentToolBindingsPostgres.agentId,
+            pgSchema.agentToolBindingsPostgres.toolId,
+            pgSchema.agentToolBindingsPostgres.configVersionId,
+            pgSchema.agentToolBindingsPostgres.personId,
+          ],
           set: {
             configVersionId: binding.configVersionId ?? null,
             status: binding.status,
