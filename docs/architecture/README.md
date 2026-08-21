@@ -41,6 +41,21 @@ contracts into a new overview:
 - [Session Resume](./session-resume.md)
 - [Memory and Dreaming](../MEMORY.md)
 
+## Historical architecture records
+
+This directory also preserves goal prompts, assumptions, draft plans, audits,
+reviews, validations, measurements, and handoffs. Files that are not part of
+the current architecture path above do not become current runtime truth merely
+because they remain under `docs/architecture/`; they are context-only history
+unless a current indexed document independently verifies and adopts a claim.
+
+The machine-readable [documentation inventory](../documentation-inventory.json)
+classifies every governed architecture, implementation, feature, decision, and
+plan path by lifecycle, authority, and intended action. Historical files stay
+in place to preserve inbound links and decision context. Generated atlas
+artifacts remain derived evidence and must be regenerated from their pinned
+source workflow rather than hand-edited.
+
 ## Document contract
 
 Use architecture docs for system context, domain invariants, runtime flows,

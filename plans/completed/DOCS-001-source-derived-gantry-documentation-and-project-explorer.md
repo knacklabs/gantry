@@ -1,7 +1,7 @@
 ---
 issue: DOCS-001
 title: Source-derived Gantry documentation and project explorer
-status: approved
+status: completed
 saved: 2026-07-27T08:44:44+00:00
 ---
 
