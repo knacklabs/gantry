@@ -84,12 +84,14 @@ async function loadExactSkillReferences(
   const exactReferences = references.filter((reference) =>
     reference.startsWith('skill:'),
   );
-  const rows = await Promise.all(
-    exactReferences.map(async (reference) => {
-      const skill = await repository.getSkill(reference as SkillId);
-      return [reference, skill] as const;
-    }),
-  );
+  const rows: Array<readonly [string, SkillCatalogItem | null]> = [];
+  // Startup resolves every selected skill from the catalog. Keep these reads
+  // sequential so a settings revision with many skills cannot exhaust a
+  // session-mode Postgres pool while the runtime is booting.
+  for (const reference of exactReferences) {
+    const skill = await repository.getSkill(reference as SkillId);
+    rows.push([reference, skill]);
+  }
   return new Map(
     rows.flatMap(([reference, skill]) =>
       skill ? ([[reference, skill]] as const) : [],
