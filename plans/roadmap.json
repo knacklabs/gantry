@@ -684,10 +684,13 @@
         "Documentation taxonomy, lifecycle, authority, contributor workflow, repository identity, and deterministic drift checks satisfy GitHub issue 408 without changing runtime behavior."
       ],
       "order": 40,
-      "status": "pending",
+      "status": "done",
       "epic": "documentation",
       "skill": "fullstack",
-      "spec": "docs/specs/gh-408-engineering-standards-and-documentation-governance.md"
+      "spec": "docs/specs/gh-408-engineering-standards-and-documentation-governance.md",
+      "completed_at": "2026-08-21T08:01:38+00:00",
+      "history": ".factory/history/GH-408/",
+      "outcome": "Gantry contributors now have one tool-agnostic engineering contract, a risk-based validation workflow, deterministic documentation and lifecycle checks in CI, and a complete 251-record authority inventory that separates current architecture from retained history while preserving the DOCS-001 explorer and atlas unchanged."
     }
   ],
   "epics": [
@@ -776,5 +779,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-21T06:14:19+00:00"
+  "updated_at": "2026-08-21T08:01:38+00:00"
 }
