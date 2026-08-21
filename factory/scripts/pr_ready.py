@@ -34,7 +34,7 @@ from forge_cli.roadmap import load_items, mark_status
 from forge_cli.readiness import tests_passed
 from forge_cli.review_brief import declared_contracts
 from forge_cli.signal import signals_path
-from forge_cli.stages import load_stages
+from forge_cli.stages import clear_story_authority, load_stages
 
 # Commits touching only these paths after evidence was recorded do not
 # invalidate it: evidence/plan/doc records, harness machinery and adapters
@@ -353,6 +353,12 @@ for stage in (load_stages(root) or {}).get("stages", []):
         ["git", "update-ref", "-d", f"refs/forge/stage/{stage.get('id', '')}"],
         cwd=root, capture_output=True,
     )
+# The refs are gone; now drop the git-local authority itself. Archiving the
+# .factory mirror is not enough: a leftover .git/forge/stages.json keeps
+# load_stages reporting an active stage for this shipped story, phantom-
+# blocking the next quickfix / mode / stage start. Read AFTER the ref loop
+# above, which needs the stage list this clears.
+clear_story_authority(root)
 for artifact in (decomposition_state_path(root), verify_state_path(root),
                  tests_state_path(root), root / ".factory" / "grills" / "plan.json",
                  signals_path(root), stages_file, outcome_path(root)):

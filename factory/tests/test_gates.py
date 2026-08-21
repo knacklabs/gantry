@@ -2459,6 +2459,36 @@ def upgrade_into(repo: Path):
     )
 
 
+def test_upgrade_names_diverged_doc_contracts_and_writes_no_backup(repo):
+    edited = repo / "docs" / "product" / "README.md"
+    identical = repo / "docs" / "architecture" / "README.md"
+    edited.write_text("# Client-owned edit\n")
+    identical.write_bytes(
+        (HARNESS / "docs" / "architecture" / "README.md").read_bytes())
+    git(repo, "add", edited.relative_to(repo).as_posix())
+    git(repo, "commit", "-q", "-m", "edit a doc contract")
+
+    proc = upgrade_into(repo)
+
+    output = proc.stdout + proc.stderr
+    assert proc.returncode == 0, output
+    replaced = next(
+        line for line in output.splitlines()
+        if line.startswith("Replaced doc contracts:")
+    )
+    assert "docs/product/README.md" in replaced
+    assert "docs/architecture/README.md" in replaced
+    warning = next(
+        line for line in output.splitlines()
+        if line.startswith("WARNING: replaced doc contracts differed")
+    )
+    assert "docs/product/README.md" in warning
+    assert "docs/architecture/README.md" not in warning
+    assert "git diff -- docs/product/README.md" in warning
+    assert "docs/product/ (except its README.md doc contract)" in output
+    assert not list(repo.rglob("*.orig"))
+
+
 def test_upgrade_does_not_vendor_the_harness_source_marker(repo):
     # `forge upgrade` runs FROM the harness source, which carries the repo-kind
     # marker. It must never copy that marker into the upgraded client, or the
@@ -13666,6 +13696,59 @@ def test_missing_protected_stage_state_never_falls_back_to_workspace(
     mirror.write_text(json.dumps(forged))
     code, out = run(repo, "forge.py", "stage", "list")
     assert code == 0 and "No stage tracker" in out
+
+
+def test_shipped_or_orphaned_authority_does_not_phantom_block(repo, tmp_path):
+    """A shipped story's leftover git-local stage authority must not report a
+    phantom active stage. With no active issue (or a mismatched one) load_stages
+    returns {}, so quickfix / mode / stage start all open freely; `stage clear`
+    retires the authority left behind by a story that shipped before it existed.
+    """
+    start_stage(repo, tmp_path, STAGE_TASK)
+    lib = load_factory_lib(repo)
+    sys.path.insert(0, str(repo / "factory" / "scripts"))
+    try:
+        from forge_cli.stages import authoritative_stages_path
+    finally:
+        sys.path.pop(0)
+
+    # While the story is active the stage IS reported and blocks a new window.
+    code, out = run(repo, "forge.py", "stage", "list")
+    assert code == 0 and "[>]" in out
+    code, out = run(repo, "forge.py", "quickfix", "start", "phantom check")
+    assert code != 0 and "stage is active" in out
+
+    # Post-ship run.json is project fields only, no issue_key. The authority
+    # file is still on disk — the bug is that its clear never ran.
+    lib.dump_json(lib.run_state_path(repo), {"project": "app", "phase": "shipped"})
+    assert authoritative_stages_path(repo).is_file()
+
+    # load_stages returns {} with no active issue: no phantom stage.
+    code, out = run(repo, "forge.py", "stage", "list")
+    assert code == 0 and "No stage tracker" in out
+    # quickfix start is no longer blocked.
+    code, out = run(repo, "forge.py", "quickfix", "start", "unblocked")
+    assert code == 0, out
+    run(repo, "forge.py", "quickfix", "done")
+
+    # Mismatch case: a DIFFERENT active story must not adopt the leftover T1.
+    lib.dump_json(lib.run_state_path(repo),
+                  {"project": "app", "issue_key": "OTHER-9"})
+    code, out = run(repo, "forge.py", "stage", "list")
+    assert code == 0 and "No stage tracker" in out
+    code, out = run(repo, "forge.py", "mode", "lite",
+                    "--reason", "no phantom", "--by", "Test Human")
+    assert code == 0, out
+    run(repo, "forge.py", "mode", "done")
+
+    # `stage clear` retires the orphaned authority, idempotently.
+    control = authoritative_stages_path(repo).parent
+    code, out = run(repo, "forge.py", "stage", "clear")
+    assert code == 0 and "stages.json" in out, out
+    assert not authoritative_stages_path(repo).is_file()
+    assert not (control / "decomposition.json").exists()
+    code, out = run(repo, "forge.py", "stage", "clear")
+    assert code == 0 and "No git-local story authority" in out
 
 
 def test_stage_migrate_requires_confirmation_and_adopts_legacy_state(
