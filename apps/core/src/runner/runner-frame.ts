@@ -22,6 +22,7 @@ export interface RunnerRuntimeEventFrame {
   threadId?: string;
   eventType: string;
   actor?: string;
+  correlationId?: string;
   responseMode?: 'sse' | 'webhook' | 'both' | 'none';
   payload: unknown;
 }

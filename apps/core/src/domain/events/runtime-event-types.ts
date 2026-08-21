@@ -26,7 +26,7 @@ export const RUNTIME_EVENT_TYPES = {
   JOB_SETUP_REQUIRED: 'job.setup_required',
   JOB_SETUP_CARD_DELIVERY: 'job.setup_card_delivery',
   JOB_TOOL_DENIED: 'job.tool_denied',
-  JOB_TOOL_ACTIVITY: 'job.tool_activity',
+  TOOL_ACTIVITY: 'tool.activity',
   TASK_STARTED: 'task.started',
   TASK_PROGRESS: 'task.progress',
   TASK_UPDATED: 'task.updated',

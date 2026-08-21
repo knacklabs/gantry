@@ -44,6 +44,7 @@ import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-typ
 import type { DeepAgentsPermissionDenial } from './third-party-mcp-gate.js';
 import { instructionSetupAction } from '../../../../shared/job-setup-action.js';
 import { jobSetupActionEventPayload } from '../../../../domain/events/job-setup-action.js';
+import { terminalToolActivityPayload } from '../../../../domain/events/tool-activity.js';
 
 // Raw DeepAgents authority is fully disabled in v1: the default StateBackend has
 // no `execute` tool, and filesystem permissions deny reads/writes unless the
@@ -119,6 +120,7 @@ export async function runDeepAgentTurn(input: {
     ? AbortSignal.any([input.signal, terminalPermissionAbort.signal])
     : terminalPermissionAbort.signal;
   let terminalPermissionDenial: Error | undefined;
+  let toolActivitySequence = 0;
   const terminateScheduledDenial = (
     denial: DeepAgentsPermissionDenial,
   ): never => {
@@ -126,36 +128,65 @@ export async function runDeepAgentTurn(input: {
     // but every later parallel denial is still recorded as its own typed
     // event before rethrowing so the durable record is complete.
     const priorDenial = terminalPermissionDenial;
-    input.emit({
-      status: 'success',
-      result: null,
-      newSessionId: input.newSessionId,
-      runtimeEvents: [
-        {
-          appId: input.agentInput.appId,
-          agentId: input.agentInput.agentId,
-          runId: input.agentInput.runId,
-          jobId: input.agentInput.jobId,
-          conversationId: input.agentInput.chatJid,
-          threadId: input.agentInput.threadId,
-          eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-          actor: 'runner',
-          responseMode: 'none',
-          payload: {
-            phase: 'permission_denied',
-            tool: denial.toolName,
-            sdk_tool: denial.toolName,
-            ok: false,
-            terminal: true,
-            reason: denial.reason,
-            action: jobSetupActionEventPayload(denial.action),
-            denial_kind: denial.denialKind,
-            provenance_lane: DEEPAGENTS_ENGINE,
-            provenance_seam: denial.provenanceSeam,
+    if (!input.agentInput.parentTaskId) {
+      const terminalFailure = denial.invocationId
+        ? {
+            appId: input.agentInput.appId,
+            agentId: input.agentInput.agentId,
+            runId: input.agentInput.runId,
+            jobId: input.agentInput.jobId,
+            conversationId: input.agentInput.chatJid,
+            threadId: input.agentInput.threadId,
+            eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+            actor: 'runner',
+            correlationId: denial.invocationId,
+            responseMode: 'none' as const,
+            payload: terminalToolActivityPayload({
+              invocationId: denial.invocationId,
+              tool: denial.toolName,
+              outcome: 'failure',
+              seq: ++toolActivitySequence,
+            }),
+          }
+        : undefined;
+      input.emit({
+        status: 'success',
+        result: null,
+        newSessionId: input.newSessionId,
+        runtimeEvents: [
+          ...(terminalFailure ? [terminalFailure] : []),
+          {
+            appId: input.agentInput.appId,
+            agentId: input.agentInput.agentId,
+            runId: input.agentInput.runId,
+            jobId: input.agentInput.jobId,
+            conversationId: input.agentInput.chatJid,
+            threadId: input.agentInput.threadId,
+            eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+            actor: 'runner',
+            ...(denial.invocationId
+              ? { correlationId: denial.invocationId }
+              : {}),
+            responseMode: 'none',
+            payload: {
+              phase: 'permission_denied',
+              tool: denial.toolName,
+              sdk_tool: denial.toolName,
+              ok: false,
+              terminal: true,
+              ...(denial.invocationId
+                ? { invocationId: denial.invocationId }
+                : {}),
+              reason: denial.reason,
+              action: jobSetupActionEventPayload(denial.action),
+              denial_kind: denial.denialKind,
+              provenance_lane: DEEPAGENTS_ENGINE,
+              provenance_seam: denial.provenanceSeam,
+            },
           },
-        },
-      ],
-    });
+        ],
+      });
+    }
     if (priorDenial) throw priorDenial;
     terminalPermissionDenial = new Error(
       `Permission denied for ${denial.toolName}. ${denial.reason}`,
@@ -220,6 +251,7 @@ export async function runDeepAgentTurn(input: {
             onToolRuleDenial: (
               toolName: string,
               denial: DeclarativeToolRuleDenial,
+              invocationId?: string,
             ) => {
               if (!input.agentInput.isScheduledJob || !input.agentInput.jobId) {
                 return;
@@ -230,6 +262,7 @@ export async function runDeepAgentTurn(input: {
                 action: instructionSetupAction(denial.error.message),
                 denialKind: 'rule_denied',
                 provenanceSeam: 'declarative',
+                invocationId,
               });
             },
           }
@@ -344,6 +377,8 @@ export async function runDeepAgentTurn(input: {
           modelId: resolved.modelId,
           modelProfile: { maxInputTokens: profile.maxInputTokens },
           cacheProvider: cacheProviderForEndpoint(resolved.endpointFamily),
+          gantryOwnedToolNames: connected.gantryOwnedToolNames,
+          nextToolSequence: () => ++toolActivitySequence,
           runtimeEventContext: {
             appId: input.agentInput.appId,
             agentId: input.agentInput.agentId,
@@ -352,6 +387,7 @@ export async function runDeepAgentTurn(input: {
             conversationId: input.agentInput.chatJid,
             threadId: input.agentInput.threadId,
             actor: 'deepagents',
+            parentTaskId: input.agentInput.parentTaskId,
           },
           emit: input.emit,
           onFirstEvent: (eventName) => {

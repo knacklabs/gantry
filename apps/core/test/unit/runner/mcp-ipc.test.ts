@@ -216,10 +216,13 @@ describe('runner MCP browser IPC signature verification', () => {
     fs.mkdirSync(path.dirname(responsePath), { recursive: true });
     fs.writeFileSync(responsePath, JSON.stringify({ ...payload, signature }));
 
-    await expect(requestPromise).resolves.toEqual({
+    const response = await requestPromise;
+    expect(response).toEqual({
       ok: true,
       data: { running: true },
     });
+    expect(response.invocationId).toBe(requestId);
+    expect(Object.keys(response)).not.toContain('invocationId');
     expect(fs.existsSync(responsePath)).toBe(false);
   });
 

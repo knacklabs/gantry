@@ -4,7 +4,7 @@ import {
   parseJobToolDeniedEvent,
   type JobToolDenial,
 } from '../domain/events/job-tool-denial.js';
-import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { parseTerminalToolActivity } from '../domain/events/tool-activity.js';
 import type { JobRunDiagnostics } from './execution-diagnostics.js';
 import { formatDuration } from '../shared/human-format.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
@@ -23,79 +23,166 @@ const JOB_NOTIFICATION_VIEW_LIMITS = {
 
 export const JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH = 2_300;
 
-type RecordedJobAction = Pick<RuntimeEvent, 'eventType' | 'payload'>;
+type RecordedJobAction = Pick<
+  RuntimeEvent,
+  'eventType' | 'correlationId' | 'payload'
+>;
 
-/** Projects durable run actions without consulting runtime state. */
+interface RecordedToolResult {
+  invocationId: string;
+  key: string;
+  label: string;
+  outcome: 'done' | 'failed';
+  detail?: string;
+  seq?: number;
+  precedence: number;
+}
+
 export function structuredJobResultFromRecordedActions(
   actions: readonly RecordedJobAction[],
 ): JobNotificationView['result'] {
-  const items = actions.flatMap((event) => {
-    const payload = recordValue(event.payload);
-    if (!payload) return [];
-
-    if (
-      event.eventType === RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY &&
-      payload.phase === 'capability_run'
-    ) {
-      const summary = recordValue(payload.capabilityRun);
-      const capabilityId = stringValue(summary?.capabilityId);
-      if (!capabilityId || typeof payload.ok !== 'boolean') return [];
-      const detail =
-        stringValue(payload.ok ? summary?.stdout : summary?.stderr) ??
-        stringValue(payload.ok ? summary?.stderr : summary?.stdout);
-      return [
-        {
-          outcome: payload.ok ? ('done' as const) : ('failed' as const),
-          label: humanizeTechnicalIdentifier(capabilityId),
-          ...(detail ? { detail } : {}),
-        },
-      ];
-    }
-
-    if (
-      event.eventType === RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY &&
-      payload.phase === 'browser_action' &&
-      typeof payload.ok === 'boolean'
-    ) {
-      const action =
-        stringValue(payload.action) ??
-        stringValue(payload.public_tool) ??
-        stringValue(payload.tool);
-      if (!action) return [];
-      const detail =
-        stringValue(payload.error) ??
-        stringValue(payload.warning) ??
-        stringValue(payload.normalized_site);
-      return [
-        {
-          outcome: payload.ok ? ('done' as const) : ('failed' as const),
-          label: `Browser: ${humanizeTechnicalIdentifier(action)}`,
-          ...(detail ? { detail } : {}),
-        },
-      ];
-    }
-
+  const results = actions.flatMap((event): RecordedToolResult[] => {
     const denial = parseJobToolDeniedEvent(event);
-    if (!denial) return [];
+    if (denial?.invocationId) {
+      return [
+        {
+          invocationId: denial.invocationId,
+          key: `denial:${denial.toolName}`,
+          label: `Could not use ${humanizeTechnicalIdentifier(denial.toolName)}`,
+          outcome: 'failed',
+          detail: denial.reason,
+          precedence: 2,
+        },
+      ];
+    }
+    const activity = parseTerminalToolActivity(event);
+    if (!activity) return [];
     return [
       {
-        outcome: 'failed' as const,
-        label: `Could not use ${humanizeTechnicalIdentifier(denial.toolName)}`,
-        detail: denial.reason,
+        invocationId: activity.invocationId,
+        key: `${activity.family}:${activity.tool}`,
+        label:
+          activity.family === 'browser'
+            ? `Browser: ${humanizeTechnicalIdentifier(
+                activity.tool.replace(/^browser[._-]/, ''),
+              )}`
+            : activity.family === 'capability'
+              ? `Capability: ${humanizeTechnicalIdentifier(activity.tool)}`
+              : humanizeTechnicalIdentifier(activity.tool),
+        outcome: activity.outcome === 'success' ? 'done' : 'failed',
+        ...(activity.detail ? { detail: activity.detail } : {}),
+        ...(activity.seq !== undefined ? { seq: activity.seq } : {}),
+        precedence: activity.authoritative ? 1 : 0,
       },
     ];
   });
-  return items.length > 0 ? { items } : undefined;
+  const byInvocation = new Map<string, RecordedToolResult>();
+  for (const result of results) {
+    const current = byInvocation.get(result.invocationId);
+    const selected =
+      !current || compareRecordedToolResult(result, current) < 0
+        ? result
+        : current;
+    const seq = minimumSequence(current?.seq, result.seq);
+    byInvocation.set(result.invocationId, {
+      ...selected,
+      ...(seq !== undefined ? { seq } : {}),
+    });
+  }
+  const grouped = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      outcome: RecordedToolResult['outcome'];
+      count: number;
+      firstSeq?: number;
+      details: string[];
+    }
+  >();
+  for (const result of byInvocation.values()) {
+    const groupKey = `${result.key}\u0000${result.outcome}`;
+    const group = grouped.get(groupKey) ?? {
+      key: result.key,
+      label: result.label,
+      outcome: result.outcome,
+      count: 0,
+      details: [],
+    };
+    group.count += 1;
+    group.firstSeq = minimumSequence(group.firstSeq, result.seq);
+    if (result.detail) group.details.push(result.detail);
+    grouped.set(groupKey, group);
+  }
+  const groups = [...grouped.values()].sort((left, right) => {
+    if (left.outcome !== right.outcome) {
+      return left.outcome === 'failed' ? -1 : 1;
+    }
+    const sequenceOrder = compareOptionalSequence(
+      left.firstSeq,
+      right.firstSeq,
+    );
+    return sequenceOrder || compareText(left.key, right.key);
+  });
+  if (groups.length === 0) return undefined;
+  const visibleLimit =
+    groups.length > JOB_NOTIFICATION_VIEW_LIMITS.items
+      ? JOB_NOTIFICATION_VIEW_LIMITS.items - 1
+      : JOB_NOTIFICATION_VIEW_LIMITS.items;
+  const visibleGroups = groups.slice(0, visibleLimit);
+  const items = visibleGroups.map((group) => ({
+    outcome: group.outcome,
+    label: `${group.label}${group.count > 1 ? ` ×${group.count}` : ''}`,
+    ...(group.count === 1 && group.details.length > 0
+      ? { detail: [...group.details].sort(compareText)[0] }
+      : {}),
+  }));
+  if (groups.length > visibleGroups.length) {
+    const overflow = groups.slice(visibleGroups.length);
+    items.push({
+      outcome: overflow.some((group) => group.outcome === 'failed')
+        ? 'failed'
+        : 'done',
+      label: `+${overflow.length} more`,
+    });
+  }
+  return { items };
 }
 
-function recordValue(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+function compareRecordedToolResult(
+  left: RecordedToolResult,
+  right: RecordedToolResult,
+): number {
+  if (left.precedence !== right.precedence) {
+    return right.precedence - left.precedence;
+  }
+  if (left.outcome !== right.outcome) return left.outcome === 'failed' ? -1 : 1;
+  return (
+    compareText(left.key, right.key) ||
+    compareText(left.detail ?? '', right.detail ?? '')
+  );
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function minimumSequence(
+  left: number | undefined,
+  right: number | undefined,
+): number | undefined {
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  return Math.min(left, right);
+}
+
+function compareOptionalSequence(
+  left: number | undefined,
+  right: number | undefined,
+): number {
+  if (left === undefined) return right === undefined ? 0 : 1;
+  if (right === undefined) return -1;
+  return left - right;
 }
 
 // An empty structured result (no headline and no items) carries no meaning, so
@@ -154,7 +241,7 @@ export function boundJobNotificationView(
             .slice(0, JOB_NOTIFICATION_VIEW_LIMITS.items)
             .map((item) => ({
               ...item,
-              label: truncateJobNotificationText(
+              label: truncateJobNotificationItemLabel(
                 item.label,
                 JOB_NOTIFICATION_VIEW_LIMITS.itemLabel,
               ),
@@ -213,6 +300,17 @@ function truncateJobNotificationText(value: string, max: number): string {
     .slice(0, boundary)
     .trimEnd()
     .replace(/[.!?]+$/, '')}...`;
+}
+
+function truncateJobNotificationItemLabel(value: string, max: number): string {
+  const countSuffix = value.match(/ ×\d+$/)?.[0];
+  if (!countSuffix || value.length <= max) {
+    return truncateJobNotificationText(value, max);
+  }
+  return `${truncateJobNotificationText(
+    value.slice(0, -countSuffix.length),
+    max - countSuffix.length,
+  )}${countSuffix}`;
 }
 
 export function formatRunStatusMessage(args: {

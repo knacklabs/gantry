@@ -58,7 +58,7 @@ export async function closeBrowserAfterJobRun(input: {
   try {
     await input.deps.closeBrowserToolBackends?.(profileName);
     const closed = await input.deps.closeBrowserSession?.(profileName);
-    await input.emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY, {
+    await input.emitJobEvent(RUNTIME_EVENT_TYPES.TOOL_ACTIVITY, {
       phase: 'browser_cleanup',
       tool: 'Browser',
       profile_name: profileName,
@@ -100,7 +100,7 @@ export async function closeBrowserAfterJobRun(input: {
       { err, jobId: input.currentJob.id, profileName },
       'Failed to close scheduled job browser profile after run',
     );
-    await input.emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY, {
+    await input.emitJobEvent(RUNTIME_EVENT_TYPES.TOOL_ACTIVITY, {
       phase: 'browser_cleanup',
       tool: 'Browser',
       profile_name: profileName,

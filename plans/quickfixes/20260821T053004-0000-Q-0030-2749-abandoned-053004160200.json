@@ -1,0 +1,12 @@
+{
+  "event": "abandoned",
+  "id": "Q-0030-2749",
+  "profile": "lite",
+  "reason": "feat/JOBFLOW-1 already merged to main via #417; full-branch merge is wrong - needs targeted analysis not merge",
+  "opened_reason": "Merge main (#423 harness) into feat/JOBFLOW-1 for S5-GATE closeout \u2014 Codex resolves 12 core-path conflicts, autoreview + verify before commit",
+  "started_at": "2026-08-21T05:26:49+00:00",
+  "completed_at": "2026-08-21T05:30:04+00:00",
+  "files": [],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "8a8526e76884e9ca82160bff835f7c0140926ff7"
+}

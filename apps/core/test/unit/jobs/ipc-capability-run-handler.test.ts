@@ -59,6 +59,7 @@ describe('host capability template mismatch flow', () => {
       capabilityId: 'google.sheets.values.append',
       args: ['sheets', 'append', '--password', 'secret-value'],
       result: { stdout: 'Added 3 rows.', stderr: '' },
+      invocationId: 'capability-call-1',
     };
     try {
       delete process.env.GANTRY_AUDIT_CAPABILITY_ARGS;
@@ -66,35 +67,27 @@ describe('host capability template mismatch flow', () => {
       expect(publishRuntimeEvent.mock.calls[0]?.[0]).toMatchObject({
         runId: 'run-1',
         jobId: 'job-1',
-        eventType: 'job.tool_activity',
+        eventType: 'tool.activity',
         actor: 'host',
+        correlationId: 'capability-call-1',
         payload: {
-          phase: 'capability_run',
+          phase: 'success',
+          tool: 'google.sheets.values.append',
           ok: true,
-          capabilityRun: {
-            capabilityId: 'google.sheets.values.append',
-            argCount: 4,
-            stdout: 'Added 3 rows.',
-            stderr: '',
-          },
+          invocationId: 'capability-call-1',
+          authoritative: true,
+          detail: 'Added 3 rows.',
         },
       });
-      const withoutArgs = publishRuntimeEvent.mock.calls[0]?.[0].payload as {
-        capabilityRun: Record<string, unknown>;
-      };
-      expect(withoutArgs.capabilityRun).not.toHaveProperty('args');
+      expect(
+        JSON.stringify(publishRuntimeEvent.mock.calls[0]?.[0]),
+      ).not.toContain('secret-value');
 
       process.env.GANTRY_AUDIT_CAPABILITY_ARGS = '1';
       await publishCapabilityRunSuccessActivity(input);
-      const withArgs = publishRuntimeEvent.mock.calls[1]?.[0].payload as {
-        capabilityRun: { args: string[] };
-      };
-      expect(withArgs.capabilityRun.args).toEqual([
-        'sheets',
-        'append',
-        '--password',
-        '[REDACTED_SECRET]',
-      ]);
+      expect(
+        JSON.stringify(publishRuntimeEvent.mock.calls[1]?.[0]),
+      ).not.toContain('secret-value');
     } finally {
       if (originalArgAudit === undefined) {
         delete process.env.GANTRY_AUDIT_CAPABILITY_ARGS;

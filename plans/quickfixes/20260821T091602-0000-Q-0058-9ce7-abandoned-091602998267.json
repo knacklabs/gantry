@@ -1,0 +1,12 @@
+{
+  "event": "abandoned",
+  "id": "Q-0058-9ce7",
+  "profile": "lite",
+  "reason": "switch to degraded for the write exception",
+  "opened_reason": "review-fix: T7 projection must be neutral for any capability/CLI/MCP tool \u2014 remove hardcoded google.sheets label map, use generic humanizer",
+  "started_at": "2026-08-21T09:15:20+00:00",
+  "completed_at": "2026-08-21T09:16:02+00:00",
+  "files": [],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "b25e4923eceda53e80eb07d751b60435e7f1ced5"
+}

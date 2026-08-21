@@ -349,7 +349,10 @@ export async function notifySchedulerTerminalRunState(input: {
   setupNotified?: boolean;
   diagnostics?: JobRunDiagnostics;
   toolDenial?: JobToolDenial | null;
-  recordedActions?: readonly Pick<RuntimeEvent, 'eventType' | 'payload'>[];
+  recordedActions?: readonly Pick<
+    RuntimeEvent,
+    'eventType' | 'correlationId' | 'payload'
+  >[];
   sendMessage: SchedulerSendMessage;
   memoryReviewNotification?: MemoryReviewCreatedNotification;
   updateLifecycleNotification?: (input: {

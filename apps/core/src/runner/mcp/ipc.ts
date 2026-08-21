@@ -205,9 +205,13 @@ export async function requestMemoryAction(
 export async function requestBrowserAction(
   action: BrowserBackendAction,
   payload: Record<string, unknown>,
-  options: { timeoutMs?: number; publicToolName?: string } = {},
+  options: {
+    timeoutMs?: number;
+    publicToolName?: string;
+  } = {},
 ): Promise<{
   ok: boolean;
+  invocationId?: string;
   data?: unknown;
   error?: string;
 }> {
@@ -286,28 +290,45 @@ export async function requestBrowserAction(
         throw new Error('Invalid browser response signature');
       }
       fs.unlinkSync(responsePath);
-      return data;
+      return withBrowserInvocationId(data, requestId);
     } catch (err) {
       try {
         fs.unlinkSync(responsePath);
       } catch {
         // ignore
       }
-      return {
-        ok: false,
-        error:
-          err instanceof Error
-            ? err.message
-            : 'Failed to parse browser response',
-      };
+      return withBrowserInvocationId(
+        {
+          ok: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : 'Failed to parse browser response',
+        },
+        requestId,
+      );
     }
   }
 
   removeStaleRequestFile(reqPath);
-  return {
-    ok: false,
-    error: `Browser IPC timeout after ${formatDuration(timeoutMs)} waiting for browser service response`,
-  };
+  return withBrowserInvocationId(
+    {
+      ok: false,
+      error: `Browser IPC timeout after ${formatDuration(timeoutMs)} waiting for browser service response`,
+    },
+    requestId,
+  );
+}
+
+function withBrowserInvocationId<T extends { ok: boolean }>(
+  response: T,
+  invocationId: string,
+): T & { invocationId: string } {
+  Object.defineProperty(response, 'invocationId', {
+    value: invocationId,
+    enumerable: false,
+  });
+  return response as T & { invocationId: string };
 }
 
 export interface TaskResponseEnvelope {

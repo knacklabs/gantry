@@ -14,6 +14,15 @@ import {
   type TaskLifecycleContext,
   type TaskLifecycleEventInput,
 } from '../../../../runner/task-lifecycle-events.js';
+import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
+import {
+  privateToolActivityInvocationIdFromResult,
+  terminalToolActivityPayload,
+} from '../../../../domain/events/tool-activity.js';
+import {
+  canonicalGantryToolRuleName,
+  gantryOwnedToolActivityFamily,
+} from '../../../../shared/gantry-tool-facades.js';
 
 // Pure normalizer: turns an async iterable of LangGraph `streamEvents` (v2)
 // events into provider-neutral runner output frames. Kept free of any
@@ -34,10 +43,12 @@ import {
 
 export interface LangGraphStreamEvent {
   event: string;
+  run_id?: string;
   // The runnable name on `on_tool_start`/`on_tool_end` events is the tool name.
   name?: string;
   data?: {
     chunk?: unknown;
+    input?: unknown;
     output?: unknown;
   };
 }
@@ -86,7 +97,10 @@ export interface StreamNormalizerInput {
   // heartbeat uses this to mark tool activity so a long-running tool (e.g. the
   // shell tool) keeps the lease alive instead of looking idle.
   onToolStart?: (toolName: string) => void;
-  runtimeEventContext?: TaskLifecycleContext;
+  shouldEmitToolOutcome?: (invocationId: string) => boolean;
+  gantryOwnedToolNames?: ReadonlySet<string>;
+  nextToolSequence?: () => number;
+  runtimeEventContext?: TaskLifecycleContext & { parentTaskId?: string };
 }
 
 interface UsageAccumulator {
@@ -125,6 +139,14 @@ export async function normalizeDeepAgentStream(
   let sawPartialText = false;
   let sawFirstEvent = false;
   let sawFirstVisibleText = false;
+  let toolSequence = 0;
+  const pendingTools = new Map<
+    string,
+    Array<{ invocationId: string; tracerRunId?: string; seq: number }>
+  >();
+  const terminalToolIds = new Set<string>();
+  const terminalProviderRunIds = new Set<string>();
+  const nextToolSequence = () => input.nextToolSequence?.() ?? ++toolSequence;
 
   for await (const event of input.events) {
     if (!sawFirstEvent) {
@@ -156,6 +178,80 @@ export async function normalizeDeepAgentStream(
     }
     if (event.event === 'on_tool_start' && typeof event.name === 'string') {
       input.onToolStart?.(event.name);
+      const seq = nextToolSequence();
+      const tracerRunId = event.run_id?.trim();
+      const invocationId =
+        providerToolCallInvocationId(event.data?.input) ||
+        tracerRunId ||
+        `${input.newSessionId}:tool:${seq}`;
+      const pending = pendingTools.get(event.name) ?? [];
+      pending.push({ invocationId, tracerRunId, seq });
+      pendingTools.set(event.name, pending);
+    }
+    if (
+      (event.event === 'on_tool_end' || event.event === 'on_tool_error') &&
+      typeof event.name === 'string'
+    ) {
+      const pending = pendingTools.get(event.name) ?? [];
+      const tracerRunId = event.run_id?.trim();
+      const matchingPendingIndex = tracerRunId
+        ? pending.findIndex((tool) => tool.tracerRunId === tracerRunId)
+        : 0;
+      const pendingTool =
+        matchingPendingIndex >= 0
+          ? pending.splice(matchingPendingIndex, 1)[0]
+          : undefined;
+      const seq = pendingTool?.seq ?? nextToolSequence();
+      const family = input.gantryOwnedToolNames?.has(event.name)
+        ? gantryOwnedToolActivityFamily(event.name)
+        : undefined;
+      const resultInvocationId = family
+        ? privateToolActivityInvocationIdFromDeepAgentResult(event.data?.output)
+        : undefined;
+      const invocationId =
+        resultInvocationId ||
+        providerToolCallInvocationId(event.data?.output) ||
+        pendingTool?.invocationId ||
+        tracerRunId ||
+        `${input.newSessionId}:tool:${seq}`;
+      if (pending.length > 0) pendingTools.set(event.name, pending);
+      else pendingTools.delete(event.name);
+      if (
+        !terminalToolIds.has(invocationId) &&
+        (!tracerRunId || !terminalProviderRunIds.has(tracerRunId)) &&
+        (input.shouldEmitToolOutcome?.(invocationId) ?? true) &&
+        input.runtimeEventContext &&
+        !input.runtimeEventContext.parentTaskId
+      ) {
+        terminalToolIds.add(invocationId);
+        if (tracerRunId) terminalProviderRunIds.add(tracerRunId);
+        const outcome =
+          event.event === 'on_tool_error' ||
+          toolResultIsError(event.data?.output)
+            ? 'failure'
+            : 'success';
+        input.emit({
+          status: 'success',
+          result: null,
+          newSessionId: input.newSessionId,
+          runtimeEventOnly: true,
+          runtimeEvents: [
+            {
+              ...input.runtimeEventContext,
+              eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+              actor: input.runtimeEventContext.actor ?? 'deepagents',
+              correlationId: invocationId,
+              payload: terminalToolActivityPayload({
+                invocationId,
+                tool: canonicalGantryToolRuleName(event.name),
+                ...(family ? { family } : {}),
+                outcome,
+                seq,
+              }),
+            },
+          ],
+        });
+      }
     }
     const taskEvent = taskLifecycleRuntimeEventFromStreamEvent(
       input.runtimeEventContext,
@@ -186,6 +282,40 @@ export async function normalizeDeepAgentStream(
       input.modelProfile,
     ),
   };
+}
+
+function providerToolCallInvocationId(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const directToolCallId = stringValue(record.tool_call_id);
+  if (directToolCallId) return directToolCallId;
+  if (record.type === 'tool_call') return stringValue(record.id);
+  const toolCall =
+    record.toolCall &&
+    typeof record.toolCall === 'object' &&
+    !Array.isArray(record.toolCall)
+      ? (record.toolCall as Record<string, unknown>)
+      : undefined;
+  return stringValue(toolCall?.id);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function toolResultIsError(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(toolResultIsError);
+  if (!value || typeof value !== 'object') return false;
+  const result = value as Record<string, unknown>;
+  return (
+    result.isError === true ||
+    result.is_error === true ||
+    result.status === 'error' ||
+    Boolean(result.error) ||
+    toolResultIsError(result.content)
+  );
 }
 
 function taskLifecycleRuntimeEventFromStreamEvent(
@@ -284,6 +414,31 @@ function numberField(
   return typeof field === 'number' && Number.isFinite(field)
     ? field
     : undefined;
+}
+
+function privateToolActivityInvocationIdFromDeepAgentResult(
+  value: unknown,
+): string | undefined {
+  const direct = privateToolActivityInvocationIdFromResult(value);
+  if (direct || !Array.isArray(value) || !Array.isArray(value[1])) {
+    return direct;
+  }
+  // The MCP adapter projects the protocol-private `_meta` object as an
+  // `mcp_meta` artifact while keeping it out of model-visible tool content.
+  for (const artifact of value[1]) {
+    if (
+      !artifact ||
+      typeof artifact !== 'object' ||
+      Array.isArray(artifact) ||
+      (artifact as Record<string, unknown>).type !== 'mcp_meta'
+    ) {
+      continue;
+    }
+    return privateToolActivityInvocationIdFromResult({
+      _meta: (artifact as Record<string, unknown>).data,
+    });
+  }
+  return undefined;
 }
 
 function textFromChunk(chunk: unknown): string {

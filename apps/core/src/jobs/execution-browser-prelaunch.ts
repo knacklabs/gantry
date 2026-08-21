@@ -69,10 +69,10 @@ export async function prelaunchBrowserForJobRun(input: {
     };
     updateDiagnosticsFromRuntimeEvent(
       input.diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       payload,
     );
-    await input.emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY, payload);
+    await input.emitJobEvent(RUNTIME_EVENT_TYPES.TOOL_ACTIVITY, payload);
     return payload.ok
       ? null
       : {
@@ -97,7 +97,7 @@ export async function prelaunchBrowserForJobRun(input: {
       error,
       elapsed_ms: Math.max(0, nowMs() - startedAt),
     };
-    await input.emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY, payload);
+    await input.emitJobEvent(RUNTIME_EVENT_TYPES.TOOL_ACTIVITY, payload);
     return {
       error: `Setup required: Browser launch failed: ${error}`,
       setupState: setupStateForBrowserPrelaunchFailure({

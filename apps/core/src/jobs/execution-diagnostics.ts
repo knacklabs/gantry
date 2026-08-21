@@ -20,7 +20,7 @@ import {
 
 export const FORWARDED_RUNNER_EVENT_TYPES = new Set<RuntimeEventType>([
   RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
-  RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+  RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
   RUNTIME_EVENT_TYPES.TASK_STARTED,
   RUNTIME_EVENT_TYPES.TASK_PROGRESS,
   RUNTIME_EVENT_TYPES.TASK_UPDATED,
@@ -70,6 +70,7 @@ export function toolDenialEventPayload(
   safeErrorSummary: string | null,
 ): JobToolDeniedEventPayload {
   return {
+    invocationId: toolDenial.invocationId,
     error_summary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
     denied_tool: toolDenial.toolName,
     reason: toolDenial.reason,
@@ -91,6 +92,7 @@ export function jobToolDenialIdempotencyKey(
         denial.toolName,
         denial.denialKind,
         denial.provenanceSeam,
+        denial.invocationId,
       ]),
     )
     .digest('hex');
@@ -150,6 +152,7 @@ export function updateDiagnosticsFromRuntimeEvent(
   diagnostics: JobRunDiagnostics,
   eventType: RuntimeEventType,
   payload: Record<string, unknown>,
+  correlationId?: string,
 ): void {
   if (eventType === RUNTIME_EVENT_TYPES.JOB_HEARTBEAT) {
     diagnostics.lastHeartbeat = payload;
@@ -174,7 +177,7 @@ export function updateDiagnosticsFromRuntimeEvent(
     diagnostics.startupDiagnostics.push(startupDiagnosticSummary(payload));
     return;
   }
-  if (eventType !== RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY) return;
+  if (eventType !== RUNTIME_EVENT_TYPES.TOOL_ACTIVITY) return;
   const tool = stringValue(payload.tool);
   if (tool) {
     diagnostics.currentTool = tool;
@@ -205,7 +208,9 @@ export function updateDiagnosticsFromRuntimeEvent(
     const denialKind = stringValue(payload.denial_kind);
     const provenanceLane = stringValue(payload.provenance_lane);
     const provenanceSeam = stringValue(payload.provenance_seam);
+    const invocationId = correlationId ?? stringValue(payload.invocationId);
     if (
+      !invocationId ||
       !isJobToolDenialKind(denialKind) ||
       !isJobToolDenialProvenanceLane(provenanceLane) ||
       !isJobToolDenialProvenanceSeam(provenanceSeam)
@@ -224,6 +229,7 @@ export function updateDiagnosticsFromRuntimeEvent(
     const action = parseJobSetupActionValue(payload.action);
     if (!action) return;
     const typedDenial: JobToolDenial = {
+      invocationId,
       toolName: tool,
       reason:
         matchingWait?.reason && deniedReason
@@ -272,11 +278,16 @@ export function updateDiagnosticsFromRuntimeEvent(
 }
 
 export async function forwardRunnerRuntimeEvents(input: {
-  events?: readonly { eventType: unknown; payload?: unknown }[];
+  events?: readonly {
+    eventType: unknown;
+    correlationId?: string;
+    payload?: unknown;
+  }[];
   diagnostics: JobRunDiagnostics;
   emitJobEvent?: (
     eventType: RuntimeEventType,
     payload: Record<string, unknown>,
+    correlationId?: string,
   ) => Promise<void>;
 }): Promise<void> {
   if (!input.events?.length) return;
@@ -292,13 +303,15 @@ export async function forwardRunnerRuntimeEvents(input: {
       input.diagnostics,
       event.eventType,
       payload,
+      event.correlationId,
     );
-    await input.emitJobEvent?.(event.eventType, payload);
+    await input.emitJobEvent?.(event.eventType, payload, event.correlationId);
   }
 }
 
 export function runnerRuntimeEventKey(event: {
   eventType: unknown;
+  correlationId?: string;
   payload?: unknown;
 }): string | undefined {
   if (
@@ -315,13 +328,21 @@ export function runnerRuntimeEventKey(event: {
   } catch {
     payload = String(event.payload);
   }
-  return `${event.eventType}\u001f${payload}`;
+  return `${event.eventType}\u001f${event.correlationId ?? ''}\u001f${payload}`;
 }
 
 export function filterUnforwardedRunnerRuntimeEvents(
-  events: Array<{ eventType: unknown; payload?: unknown }> | undefined,
+  events:
+    | Array<{
+        eventType: unknown;
+        correlationId?: string;
+        payload?: unknown;
+      }>
+    | undefined,
   forwardedKeys: Set<string>,
-): Array<{ eventType: unknown; payload?: unknown }> | undefined {
+):
+  | Array<{ eventType: unknown; correlationId?: string; payload?: unknown }>
+  | undefined {
   return events?.filter((event) => {
     const eventKey = runnerRuntimeEventKey(event);
     return !eventKey || !forwardedKeys.has(eventKey);

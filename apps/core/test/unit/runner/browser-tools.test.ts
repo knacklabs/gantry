@@ -50,7 +50,7 @@ describe('runner browser MCP gateway tools', () => {
   it('delegates browser status to signed IPC without direct CDP probing', async () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
-    requestBrowserAction.mockResolvedValueOnce({
+    const response = {
       ok: true,
       data: {
         profile: 'gantry',
@@ -59,7 +59,12 @@ describe('runner browser MCP gateway tools', () => {
         cdpReady: true,
         port: 4567,
       },
+    };
+    Object.defineProperty(response, 'invocationId', {
+      value: 'browser-request-1',
+      enumerable: false,
     });
+    requestBrowserAction.mockResolvedValueOnce(response);
     const server = new TestMcpServer();
     registerBrowserTools(server as never);
 
@@ -71,7 +76,7 @@ describe('runner browser MCP gateway tools', () => {
       { timeoutMs: 120_000, publicToolName: 'browser_status' },
     );
     expect(fetch).not.toHaveBeenCalled();
-    expect(result).toEqual({
+    const visibleContent = {
       content: [
         {
           type: 'text',
@@ -87,6 +92,15 @@ describe('runner browser MCP gateway tools', () => {
           }),
         },
       ],
+    };
+    expect(result).toMatchObject(visibleContent);
+    expect(result).not.toHaveProperty('invocationId');
+    expect((result as { _meta?: unknown })._meta).toEqual({
+      invocationId: 'browser-request-1',
+    });
+    expect(JSON.parse(JSON.stringify(result))).toEqual({
+      ...visibleContent,
+      _meta: { invocationId: 'browser-request-1' },
     });
     vi.unstubAllGlobals();
   });

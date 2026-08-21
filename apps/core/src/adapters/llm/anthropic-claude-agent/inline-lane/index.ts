@@ -12,7 +12,7 @@ import {
   type SdkMcpToolDefinition,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { ZodRawShape } from 'zod';
+import { z, type ZodRawShape } from 'zod';
 
 import { applyNeutralCaTrustAliases } from '../../../../shared/neutral-ca-trust-env.js';
 import { mcpToolNameAllowedBySourceScope } from '../../../../shared/mcp-tool-scope.js';
@@ -26,6 +26,7 @@ import {
 } from '../../inline-lane-dispatcher.js';
 import {
   createInlineToolActivity,
+  INLINE_PROVIDER_INVOCATION_BINDING_KEY,
   type InlineToolActivity,
 } from '../../inline-lane-tool-activity.js';
 import { validateModelCredentialProjectionForEntry } from '../model-provider-credential-validation.js';
@@ -163,6 +164,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         hooks: remoteMcpAuditHooks(input, toolActivity),
         canUseTool: async (toolName, toolInput, options) => {
           if (toolsDisabled) {
+            await toolActivity.finish(options.toolUseID, toolName, 'failure');
             return {
               behavior: 'deny',
               message: `Tool ${toolName} is unavailable during response_schema repair.`,
@@ -174,13 +176,24 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
           );
           const isRemoteMcpTool = remoteMcpTool(input, toolName)?.allowed;
           if (isCoreTool) {
+            const bindingToken = toolActivity.bindProviderInvocation(
+              options.toolUseID,
+            );
             return {
               behavior: 'allow',
-              updatedInput: toolInput,
+              updatedInput: {
+                ...toolInput,
+                ...(bindingToken
+                  ? {
+                      [INLINE_PROVIDER_INVOCATION_BINDING_KEY]: bindingToken,
+                    }
+                  : {}),
+              },
               toolUseID: options.toolUseID,
             };
           }
           if (!isRemoteMcpTool) {
+            await toolActivity.finish(options.toolUseID, toolName, 'failure');
             return {
               behavior: 'deny',
               message: `Tool ${toolName} is unavailable in inline mode.`,
@@ -193,6 +206,9 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
               toolInput,
               { signal: options.signal },
             );
+          if (!authorization.allowed) {
+            await toolActivity.finish(options.toolUseID, toolName, 'failure');
+          }
           return authorization.allowed
             ? {
                 behavior: 'allow',
@@ -377,15 +393,30 @@ function createCoreSdkMcpServer(
       return createSdkTool(
         definition.name,
         definition.description,
-        shape,
-        async (args) =>
-          toolActivity.run(
+        {
+          ...shape,
+          [INLINE_PROVIDER_INVOCATION_BINDING_KEY]: z.string().optional(),
+        },
+        async (args) => {
+          const {
+            [INLINE_PROVIDER_INVOCATION_BINDING_KEY]: bindingToken,
+            ...toolInput
+          } = args as Record<string, unknown>;
+          const invocationId =
+            typeof bindingToken === 'string'
+              ? toolActivity.takeProviderInvocation(bindingToken)
+              : undefined;
+          return toolActivity.run(
             definition.name,
-            async () =>
-              (await input.coreTools.execute(definition.name, args, {
+            async (boundInvocationId) =>
+              (await input.coreTools.execute(definition.name, toolInput, {
                 signal: input.signal,
+                invocationId: boundInvocationId,
               })) as CallToolResult,
-          ),
+            invocationId,
+            'gantry',
+          );
+        },
       ) as SdkMcpToolDefinition<any>;
     }),
     alwaysLoad: true,
@@ -471,6 +502,12 @@ function remoteMcpAuditHooks(
     if (!tool) return { continue: true };
     if (!tool.allowed) {
       const reason = `Tool ${hookInput.tool_name} is outside its reviewed MCP scope.`;
+      await toolActivity.start(hookInput.tool_use_id, hookInput.tool_name);
+      await toolActivity.finish(
+        hookInput.tool_use_id,
+        hookInput.tool_name,
+        'failure',
+      );
       return {
         continue: false,
         decision: 'block',

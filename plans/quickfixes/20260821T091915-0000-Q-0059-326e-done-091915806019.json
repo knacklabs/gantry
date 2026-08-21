@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0059-326e",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "review-fix: T7 projection neutral for any capability/CLI/MCP \u2014 remove hardcoded google.sheets map",
+  "started_at": "2026-08-21T09:16:03+00:00",
+  "completed_at": "2026-08-21T09:19:15+00:00",
+  "files": [
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/jobs/status-formatting.test.ts"
+  ]
+}

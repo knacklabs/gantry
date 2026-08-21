@@ -40,6 +40,7 @@ function listDenialEvents(
 ): ReturnType<typeof vi.fn> {
   if (!denial) return vi.fn(async () => []);
   const value: JobToolDenial = {
+    invocationId: 'denial-1',
     toolName: 'Bash',
     reason: 'Denied by operator.',
     denialKind: 'permission_denied',
@@ -61,7 +62,9 @@ function listDenialEvents(
       appId: 'default',
       eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
       actor: 'scheduler',
+      correlationId: value.invocationId,
       payload: {
+        invocationId: value.invocationId,
         denied_tool: value.toolName,
         reason: value.reason,
         denial_kind: value.denialKind,
@@ -98,6 +101,7 @@ describe('execution finalization', () => {
     const { deps, sendMessage } = makeDeps();
     const diagnostics = createJobRunDiagnostics();
     diagnostics.terminalToolDenial = {
+      invocationId: 'denial-grant-naming',
       toolName: 'RunCommand',
       reason: 'Worker matcher found no matching allowedTools rule.',
       action: {
@@ -190,6 +194,7 @@ describe('execution finalization', () => {
     const { deps, updateJob } = makeDeps();
     const diagnostics = createJobRunDiagnostics();
     diagnostics.terminalToolDenial = {
+      invocationId: 'denial-attended',
       toolName: 'Bash',
       reason: 'Denied by operator.',
       denialKind: 'permission_denied',
@@ -226,7 +231,9 @@ describe('execution finalization', () => {
       appId: 'default',
       eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
       actor: 'scheduler' as const,
+      correlationId: `denial-${eventId}`,
       payload: {
+        invocationId: `denial-${eventId}`,
         denied_tool: toolName,
         reason: 'Denied by operator.',
         denial_kind: 'permission_denied',
@@ -299,7 +306,7 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
     const diagnostics = createJobRunDiagnostics();
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       {
         phase: 'permission_allowed',
         tool: 'Bash',
@@ -348,7 +355,7 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
     const diagnostics = createJobRunDiagnostics();
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       {
         phase: 'permission_allowed',
         tool: 'Bash',

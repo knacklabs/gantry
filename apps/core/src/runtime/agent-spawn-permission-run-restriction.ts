@@ -13,6 +13,7 @@ export function registerWorkerPermissionRunRestriction(input: {
   memoryUserId?: string;
   jobId?: string;
   runId?: string;
+  parentTaskId?: string;
 }): void {
   registerPermissionRunRestriction(input);
 }
@@ -28,6 +29,7 @@ export function setupPermissionRunRestriction(
     | 'memoryUserId'
     | 'jobId'
     | 'runId'
+    | 'parentTaskId'
   >,
   hideAuthorityTools: boolean,
 ) {
@@ -47,6 +49,7 @@ export function setupPermissionRunRestriction(
     memoryUserId: agentInput.memoryUserId,
     jobId: agentInput.jobId,
     runId: agentInput.runId,
+    parentTaskId: agentInput.parentTaskId,
   });
   return {
     ipcAuth,

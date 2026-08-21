@@ -6,6 +6,7 @@ import {
   resolveAppSessionForJob,
   type SchedulerEventAppSession,
 } from './app-session-resolution.js';
+import { terminalToolActivityPayload } from '../domain/events/tool-activity.js';
 
 interface RuntimeControlSessionReader {
   getAppSessionById(
@@ -14,7 +15,12 @@ interface RuntimeControlSessionReader {
 }
 
 export interface BrowserJobActivityInput {
-  jobId: string;
+  invocationId: string;
+  appId?: string;
+  agentId?: string;
+  conversationId: string;
+  threadId?: string;
+  jobId?: string;
   runId: string;
   tool: string;
   publicToolName?: string | null;
@@ -44,7 +50,9 @@ export async function publishBrowserJobActivityEvent(input: {
   const runtimeAppId = input.runtimeAppId ?? DEFAULT_JOB_RUNTIME_APP_ID;
   let eventAppSession: SchedulerEventAppSession | undefined;
   try {
-    const job = await input.getJobById(activity.jobId);
+    const job = activity.jobId
+      ? await input.getJobById(activity.jobId)
+      : undefined;
     if (job) {
       eventAppSession = await resolveAppSessionForJob(
         job,
@@ -59,26 +67,30 @@ export async function publishBrowserJobActivityEvent(input: {
   }
 
   await input.publishRuntimeEvent({
-    appId: (eventAppSession?.appId ?? runtimeAppId) as never,
-    eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+    appId: (eventAppSession?.appId ?? activity.appId ?? runtimeAppId) as never,
+    ...(activity.agentId ? { agentId: activity.agentId as never } : {}),
+    eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
     actor: 'browser',
+    correlationId: activity.invocationId,
     sessionId: eventAppSession?.sessionId as never,
-    jobId: activity.jobId as never,
+    ...(activity.jobId ? { jobId: activity.jobId as never } : {}),
     runId: activity.runId as never,
+    conversationId: activity.conversationId as never,
+    ...(activity.threadId ? { threadId: activity.threadId as never } : {}),
     responseMode: eventAppSession?.defaultResponseMode,
     webhookId: eventAppSession?.defaultWebhookId,
-    payload: {
-      phase: 'browser_action',
-      tool: activity.tool,
-      public_tool: activity.publicToolName ?? null,
-      action: activity.action ?? null,
-      ok: activity.ok,
-      elapsed_ms: activity.elapsedMs,
-      normalized_site: activity.normalizedSite ?? null,
-      policy_mode: activity.policyMode ?? null,
-      warning: activity.warning ?? null,
-      error: activity.error ?? null,
-    },
+    payload: terminalToolActivityPayload({
+      invocationId: activity.invocationId,
+      tool: activity.publicToolName ?? activity.action ?? activity.tool,
+      family: 'browser',
+      outcome: activity.ok ? 'success' : 'failure',
+      authoritative: true,
+      detail:
+        activity.error ??
+        activity.warning ??
+        activity.normalizedSite ??
+        undefined,
+    }),
   });
 }
 

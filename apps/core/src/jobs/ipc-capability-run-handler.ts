@@ -29,6 +29,7 @@ import {
 } from './structured-local-cli-invocation.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskHandler } from './ipc-types.js';
+import { terminalToolActivityPayload } from '../domain/events/tool-activity.js';
 
 // S4-COMPILER deliberately lands dormant. S4-INTENT flips this only after the
 // approve-amend-resume intent is durable, so a production mismatch cannot
@@ -175,12 +176,13 @@ export async function publishCapabilityRunSuccessActivity(input: {
   appId: string;
   agentId: string;
   runId: string;
-  jobId: string;
+  jobId?: string;
   conversationId: string;
   threadId?: string;
   capabilityId: string;
   args: string[];
   result: unknown;
+  invocationId: string;
 }): Promise<void> {
   const capabilityRun = summarizeCapabilityRunAudit({
     serverName: 'gantry',
@@ -197,18 +199,24 @@ export async function publishCapabilityRunSuccessActivity(input: {
       appId: input.appId as never,
       agentId: input.agentId as never,
       runId: input.runId as never,
-      jobId: input.jobId as never,
+      ...(input.jobId ? { jobId: input.jobId as never } : {}),
       conversationId: input.conversationId as never,
       ...(input.threadId ? { threadId: input.threadId as never } : {}),
-      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       actor: 'host',
+      correlationId: input.invocationId,
       responseMode: 'none',
-      payload: {
-        phase: 'capability_run',
-        tool: 'capability_run',
-        ok: true,
-        capabilityRun,
-      },
+      payload: terminalToolActivityPayload({
+        invocationId: input.invocationId,
+        tool: input.capabilityId,
+        family: 'capability',
+        outcome: 'success',
+        authoritative: true,
+        detail:
+          (typeof capabilityRun.stdout === 'string' && capabilityRun.stdout) ||
+          (typeof capabilityRun.stderr === 'string' && capabilityRun.stderr) ||
+          undefined,
+      }),
     });
   } catch {
     // The command already completed. An audit projection failure must not make
@@ -240,6 +248,7 @@ const capabilityRunHandler: TaskHandler = async (context) => {
   const payload = data.payload;
   const capabilityId = toTrimmedString(payload?.capabilityId, { maxLen: 255 });
   const rawArgs = payload?.args;
+  const invocationId = toTrimmedString(payload?.invocationId, { maxLen: 200 });
   const args = Array.isArray(rawArgs)
     ? rawArgs.filter((arg): arg is string => typeof arg === 'string')
     : null;
@@ -342,11 +351,7 @@ const capabilityRunHandler: TaskHandler = async (context) => {
       jobId: restriction.jobId,
     });
   const acceptSuccessfulRun = async (result: unknown): Promise<void> => {
-    if (
-      restriction.runKind === 'scheduled' &&
-      restriction.jobId &&
-      restriction.runId
-    ) {
+    if (!restriction.parentTaskId && restriction.runId && invocationId) {
       await publishCapabilityRunSuccessActivity({
         ...(context.deps.publishRuntimeEvent
           ? { publishRuntimeEvent: context.deps.publishRuntimeEvent }
@@ -354,12 +359,13 @@ const capabilityRunHandler: TaskHandler = async (context) => {
         appId: data.appId!,
         agentId: data.agentId!,
         runId: restriction.runId,
-        jobId: restriction.jobId,
+        ...(restriction.jobId ? { jobId: restriction.jobId } : {}),
         conversationId: data.chatJid!,
         ...(data.authThreadId ? { threadId: data.authThreadId } : {}),
         capabilityId,
         args,
         result,
+        invocationId,
       });
     }
     acceptData('Capability command completed.', result);
@@ -430,11 +436,14 @@ const capabilityRunHandler: TaskHandler = async (context) => {
         }
         if (
           restriction.runKind === 'scheduled' &&
+          !restriction.parentTaskId &&
           restriction.jobId &&
           restriction.runId &&
+          invocationId &&
           context.deps.publishRuntimeEvent
         ) {
           const denial: JobToolDenial = {
+            invocationId,
             toolName: 'capability_run',
             reason: error.message,
             denialKind: 'capability_template_mismatch',
@@ -452,6 +461,7 @@ const capabilityRunHandler: TaskHandler = async (context) => {
               threadId: data.authThreadId as never,
               eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
               actor: 'host',
+              correlationId: invocationId,
               responseMode: 'none',
               payload: toolDenialEventPayload(denial, error.message),
               idempotencyKey: jobToolDenialIdempotencyKey(
