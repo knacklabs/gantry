@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0041-9e0e",
+  "profile": "lite",
+  "reason": "NOTIFY-1 T2b: route confirmed browser JOB_TOOL_ACTIVITY events into the run diagnostics reducer with dedup so browserActivityCount reflects a real action, not just prelaunch",
+  "started_at": "2026-08-20T17:56:03+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi",
+  "base_sha": "cb0270ce158438b28e98d450d38b65740c37a55d"
+}

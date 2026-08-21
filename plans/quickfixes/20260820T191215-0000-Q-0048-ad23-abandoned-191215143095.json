@@ -1,0 +1,16 @@
+{
+  "event": "abandoned",
+  "id": "Q-0048-ad23",
+  "profile": "lite",
+  "reason": "T6 discord renderer done; reopening a degraded window to document the pre-bounded-content rationale for the rejected 4096-truncation finding",
+  "opened_reason": "NOTIFY-1 T6: native Discord embed renderer for jobNotificationView (title, stats, structured result or fallback, next-run) + existing buttons; fallback to content text when absent",
+  "started_at": "2026-08-20T19:03:19+00:00",
+  "completed_at": "2026-08-20T19:12:15+00:00",
+  "files": [
+    "apps/core/src/channels/discord-delivery.ts",
+    "apps/core/src/channels/discord.ts",
+    "apps/core/test/unit/channels/discord.test.ts"
+  ],
+  "by": "Ravi",
+  "base_sha": "f8928c2993d59dd30f27c73a2feaf0848ddb551c"
+}

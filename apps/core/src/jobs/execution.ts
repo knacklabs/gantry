@@ -123,7 +123,8 @@ async function runActiveJob(
   const startedAtMs = nowMs();
   const startedAt = toIso(startedAtMs);
   const runtimeAppId = DEFAULT_JOB_RUNTIME_APP_ID;
-  const publishRuntimeEvent = createEventPublisher(getRuntimeEventExchange());
+  const runtimeEventExchange = getRuntimeEventExchange();
+  const publishRuntimeEvent = createEventPublisher(runtimeEventExchange);
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);
   const groups = deps.conversationRoutes();
@@ -570,6 +571,19 @@ async function runActiveJob(
                 ),
                 diagnostics,
                 emitJobEvent,
+              });
+              const browserActivityEvents = await runtimeEventExchange.list({
+                appId: (eventState.eventAppSession?.appId ??
+                  runtimeAppId) as never,
+                jobId: currentJob.id as never,
+                runId: runId as never,
+                eventTypes: [RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY],
+              });
+              await forwardRunnerRuntimeEvents({
+                events: browserActivityEvents.filter(
+                  (event) => event.actor === 'browser',
+                ),
+                diagnostics,
               });
               await updateRunProviderMetadata({ force: true });
               if (output.status === 'error') {

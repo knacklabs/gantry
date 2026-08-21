@@ -1,0 +1,16 @@
+{
+  "event": "abandoned",
+  "id": "Q-0040-9822",
+  "profile": "lite",
+  "reason": "chunk 2a (heartbeat final flush) ships within the NOTIFY story; abandoning the ad-hoc window in favor of story tracking",
+  "opened_reason": "DIAG-2 stats accuracy 2a: emit a final heartbeat snapshot on stop (both runtimes) so sub-15s runs report real tool counts, not 0",
+  "started_at": "2026-08-20T17:46:56+00:00",
+  "completed_at": "2026-08-20T17:53:34+00:00",
+  "files": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/job-heartbeat.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/job-heartbeat.ts",
+    "apps/core/test/unit/adapters/deepagents-job-heartbeat.test.ts"
+  ],
+  "by": "Ravi",
+  "base_sha": "59d10fe9f127071b6841690773705b56f23a1a98"
+}

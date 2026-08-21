@@ -23,6 +23,7 @@ import {
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
+  slackJobNotificationBlocks,
   slackMessageActionBlocks,
   slackReviewMessageBlocks,
 } from './message-action-affordances.js';
@@ -73,6 +74,17 @@ export function slackActionBlocks(text: string, options: MessageSendOptions) {
         ? { providerAccountId: options.providerAccountId }
         : {}),
     });
+  }
+  if (options.jobNotificationView) {
+    return slackJobNotificationBlocks(
+      options.jobNotificationView,
+      options.actionAffordances,
+      {
+        ...(options.providerAccountId
+          ? { providerAccountId: options.providerAccountId }
+          : {}),
+      },
+    );
   }
   if (options.brainReviewView) {
     return slackBrainReviewBlocks(options.brainReviewView, {

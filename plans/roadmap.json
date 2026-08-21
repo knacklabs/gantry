@@ -1256,6 +1256,24 @@
       "kind": "refactor",
       "depends_on": [],
       "spec": "docs/specs/capsafe-1.md"
+    },
+    {
+      "key": "NOTIFY-1",
+      "title": "Runtime-neutral structured job-completion notifications with per-provider native cards",
+      "story": "As an operator, I get a meaningful, structured job-completion notification (what ran and what it did) rendered natively per channel, so I understand a run at a glance instead of reading truncated agent narration.",
+      "acceptance_criteria": [
+        "Terminal completed/failed card leads with a structured stats line (duration, tool count, browser used, last action) and a sentence/word-boundary-truncated summary, not raw narration",
+        "Stats are accurate and neutral across both the Anthropic SDK and deepagents runtimes (final heartbeat snapshot on stop; browserActivityCount reflects a confirmed browser action, not just prelaunch)",
+        "The card renders natively per provider (Telegram HTML, Slack Block Kit, Discord embed) via a typed jobNotificationView, with the neutral markdown string as fallback for persistence and unsupported channels"
+      ],
+      "order": 64,
+      "status": "pending",
+      "epic": "observability",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "Capturing in-flight diagnosability/notification work (base card + heartbeat flush already implemented) as a tracked story; spec to be confirmed before formal planning of remaining tasks"
     }
   ],
   "epics": [
@@ -1344,5 +1362,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-15T14:00:35+00:00"
+  "updated_at": "2026-08-20T17:54:40+00:00"
 }

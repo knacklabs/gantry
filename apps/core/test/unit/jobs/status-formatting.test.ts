@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
-import { formatRunStatusMessage } from '@core/jobs/status-formatting.js';
+import {
+  boundJobNotificationView,
+  formatRunStatusMessage,
+  JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH,
+} from '@core/jobs/status-formatting.js';
 import type { Job } from '@core/domain/types.js';
 
 function job(): Job {
@@ -25,6 +29,103 @@ function job(): Job {
 }
 
 describe('job status formatting', () => {
+  it('bounds structured notification views before provider rendering', () => {
+    const longText = (prefix: string) =>
+      `${prefix} ${'descriptive words '.repeat(100)}`;
+    const view = boundJobNotificationView({
+      status: 'completed',
+      jobName: longText('Job'),
+      stats: {
+        toolCount: 12,
+        browserUsed: true,
+        lastAction: longText('Action'),
+      },
+      result: {
+        headline: longText('Headline'),
+        items: Array.from({ length: 12 }, (_, index) => ({
+          outcome: 'done' as const,
+          label: longText(`Label ${index}`),
+          detail: longText(`Detail ${index}`),
+        })),
+        nextAction: longText('Next action'),
+      },
+      fallbackText: longText('Fallback'),
+      nextRunAt: longText('Next run'),
+    });
+    const text = [
+      view.jobName,
+      view.stats?.lastAction,
+      view.result?.headline,
+      ...(view.result?.items.flatMap((item) => [item.label, item.detail]) ??
+        []),
+      view.result?.nextAction,
+      view.fallbackText,
+      view.nextRunAt,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join('');
+
+    expect(view.result?.items).toHaveLength(10);
+    expect(view.result?.headline).toMatch(/\.\.\.$/);
+    expect(view.result?.headline.length).toBeLessThanOrEqual(160);
+    expect(
+      view.result?.items.every(
+        (item) => item.label.length <= 50 && item.label.endsWith('...'),
+      ),
+    ).toBe(true);
+    expect(
+      view.result?.items.every(
+        (item) =>
+          item.detail &&
+          item.detail.length <= 70 &&
+          item.detail.endsWith('...'),
+      ),
+    ).toBe(true);
+    expect(view.result?.nextAction).toMatch(/\.\.\.$/);
+    expect(view.result?.nextAction.length).toBeLessThanOrEqual(160);
+    expect(view.fallbackText).toMatch(/\.\.\.$/);
+    expect(view.fallbackText.length).toBeLessThanOrEqual(500);
+    expect(text.length).toBeLessThanOrEqual(
+      JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH,
+    );
+  });
+
+  it('truncates multibyte fields without splitting a surrogate pair', () => {
+    const view = boundJobNotificationView({
+      status: 'completed',
+      jobName: '😀'.repeat(200),
+      fallbackText: '😀'.repeat(400),
+    });
+    const loneSurrogate =
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    expect(view.jobName.endsWith('...')).toBe(true);
+    expect(loneSurrogate.test(view.jobName)).toBe(false);
+    expect(loneSurrogate.test(view.fallbackText)).toBe(false);
+    expect(view.jobName).not.toContain('�');
+  });
+
+  it('drops an empty structured result so the fallback is used', () => {
+    const view = boundJobNotificationView({
+      status: 'completed',
+      jobName: 'Test job',
+      result: { items: [] },
+      fallbackText: 'the narration fallback',
+    });
+    expect(view.result).toBeUndefined();
+    expect(view.fallbackText).toBe('the narration fallback');
+  });
+
+  it('keeps a next-action-only structured result', () => {
+    const view = boundJobNotificationView({
+      status: 'completed',
+      jobName: 'Test job',
+      result: { items: [], nextAction: 'Approve the pending record' },
+      fallbackText: 'fallback',
+    });
+    expect(view.result).toBeDefined();
+    expect(view.result?.nextAction).toBe('Approve the pending record');
+  });
+
   it('adds an explicit action when memory dreaming creates pending reviews', () => {
     const message = formatRunStatusMessage({
       job: job(),
@@ -150,6 +251,80 @@ describe('job status formatting', () => {
     expect(message).toContain('**⚠️ Completed with issues**');
     expect(message).toContain('LinkedIn session expired, re-authenticate.');
     expect(message).not.toContain('Needs attention:');
+  });
+
+  it('adds terminal run stats and truncates completed reports at a boundary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: `First sentence is complete. Second sentence carries a meaningful result. ${'Long narration continues without another sentence ending '.repeat(12)}`,
+      nextRun: null,
+      retryCount: 0,
+      durationMs: 34_000,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 34,
+        browserActivityCount: 1,
+        transientPermissionApprovals: [],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+        lastTool: 'capability_run',
+      },
+    });
+
+    expect(message).toContain(
+      '34s, 34 tools, browser used, last capability_run',
+    );
+    expect(message).toContain('Second sentence carries a meaningful result...');
+    expect(message).not.toContain('narratio...');
+  });
+
+  it('hard-cuts a boundary-less summary at the limit, not after one character', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: 'a'.repeat(500),
+      nextRun: null,
+      retryCount: 0,
+    });
+
+    // A single long token (URL/hash) has no boundary before the limit, so it
+    // hard-cuts near the limit rather than collapsing to "a...".
+    expect(message).toContain(`${'a'.repeat(150)}`);
+    expect(message).toContain('...');
+    expect(message).not.toMatch(/(?:^|\s)a\.\.\./);
+  });
+
+  it('does not treat punctuation inside a token as a sentence boundary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: `Version 2.0 was deployed successfully to the cluster ${'and traffic shifted over '.repeat(20)}`,
+      nextRun: null,
+      retryCount: 0,
+    });
+
+    expect(message).not.toContain('Version 2...');
+    expect(message).toContain('Version 2.0 was deployed successfully');
+  });
+
+  it('truncates a newline-separated summary at a word boundary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: `firsttoken\n${'x'.repeat(500)}`,
+      nextRun: null,
+      retryCount: 0,
+    });
+
+    expect(message).toContain('firsttoken...');
   });
 
   it('strips trailing agent-authored all-none receipt lines', () => {

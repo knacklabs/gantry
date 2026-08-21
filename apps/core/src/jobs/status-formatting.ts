@@ -1,7 +1,139 @@
-import type { Job } from '../domain/types.js';
+import type { Job, JobNotificationView } from '../domain/types.js';
 import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
+import type { JobRunDiagnostics } from './execution-diagnostics.js';
 import { formatDuration } from '../shared/human-format.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
+
+const JOB_NOTIFICATION_VIEW_LIMITS = {
+  jobName: 120,
+  lastAction: 80,
+  nextRunAt: 80,
+  headline: 160,
+  itemLabel: 50,
+  itemDetail: 70,
+  nextAction: 160,
+  fallbackText: 500,
+  items: 10,
+} as const;
+
+export const JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH = 2_300;
+
+// An empty structured result (no headline and no items) carries no meaning, so
+// it is dropped and renderers fall back to fallbackText instead of a blank card.
+function hasStructuredResultContent(
+  result: JobNotificationView['result'],
+): result is NonNullable<JobNotificationView['result']> {
+  return Boolean(
+    result &&
+    (result.headline?.trim() ||
+      result.items.length > 0 ||
+      result.nextAction?.trim()),
+  );
+}
+
+/**
+ * Keeps provider-native job notification cards within their shared message
+ * budget before channel renderers add provider-specific markup.
+ */
+export function boundJobNotificationView(
+  view: JobNotificationView,
+): JobNotificationView {
+  return {
+    ...view,
+    jobName: truncateJobNotificationText(
+      view.jobName,
+      JOB_NOTIFICATION_VIEW_LIMITS.jobName,
+    ),
+    ...(view.stats
+      ? {
+          stats: {
+            ...view.stats,
+            ...(view.stats.lastAction
+              ? {
+                  lastAction: truncateJobNotificationText(
+                    view.stats.lastAction,
+                    JOB_NOTIFICATION_VIEW_LIMITS.lastAction,
+                  ),
+                }
+              : {}),
+          },
+        }
+      : {}),
+    result: hasStructuredResultContent(view.result)
+      ? {
+          ...view.result,
+          ...(view.result.headline
+            ? {
+                headline: truncateJobNotificationText(
+                  view.result.headline,
+                  JOB_NOTIFICATION_VIEW_LIMITS.headline,
+                ),
+              }
+            : {}),
+          items: view.result.items
+            .slice(0, JOB_NOTIFICATION_VIEW_LIMITS.items)
+            .map((item) => ({
+              ...item,
+              label: truncateJobNotificationText(
+                item.label,
+                JOB_NOTIFICATION_VIEW_LIMITS.itemLabel,
+              ),
+              ...(item.detail
+                ? {
+                    detail: truncateJobNotificationText(
+                      item.detail,
+                      JOB_NOTIFICATION_VIEW_LIMITS.itemDetail,
+                    ),
+                  }
+                : {}),
+            })),
+          ...(view.result.nextAction
+            ? {
+                nextAction: truncateJobNotificationText(
+                  view.result.nextAction,
+                  JOB_NOTIFICATION_VIEW_LIMITS.nextAction,
+                ),
+              }
+            : {}),
+        }
+      : undefined,
+    fallbackText: truncateJobNotificationText(
+      view.fallbackText,
+      JOB_NOTIFICATION_VIEW_LIMITS.fallbackText,
+    ),
+    ...(view.nextRunAt
+      ? {
+          nextRunAt: truncateJobNotificationText(
+            view.nextRunAt,
+            JOB_NOTIFICATION_VIEW_LIMITS.nextRunAt,
+          ),
+        }
+      : {}),
+  };
+}
+
+function truncateJobNotificationText(value: string, max: number): string {
+  if (value.length <= max) return value;
+  // Budget in UTF-16 code units (what providers count) but only cut on whole
+  // code points, so a surrogate pair (emoji, supplementary chars) is never
+  // split into an invalid half that a provider request would reject.
+  let truncated = '';
+  for (const codePoint of value) {
+    if (truncated.length + codePoint.length > max - 3) break;
+    truncated += codePoint;
+  }
+  const sentenceMatch = truncated.match(/^.*[.!?](?=\s)/s);
+  const wordMatch = truncated.match(/^.*\s/s);
+  const boundary = sentenceMatch
+    ? sentenceMatch[0].length
+    : wordMatch
+      ? wordMatch[0].length
+      : truncated.length;
+  return `${truncated
+    .slice(0, boundary)
+    .trimEnd()
+    .replace(/[.!?]+$/, '')}...`;
+}
 
 export function formatRunStatusMessage(args: {
   job: Job;
@@ -13,6 +145,7 @@ export function formatRunStatusMessage(args: {
   retryCount: number;
   pauseReason?: string | null;
   durationMs?: number;
+  diagnostics?: JobRunDiagnostics;
   degradedReason?: string;
   toolDenial?: JobToolDenial | null;
 }): string {
@@ -30,8 +163,10 @@ export function formatRunStatusMessage(args: {
       : ` · ${formatDuration(args.durationMs)}`;
   const summary = notificationOutcome(displaySummary, args.runStatus, denial);
   const action = notificationAction(args.runStatus, displaySummary, denial);
+  const stats = terminalRunStats(args);
   const lines = [
     `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
+    ...(stats ? [stats] : []),
     summary,
   ];
   if (args.degradedReason) lines.push(`⚠️ Degraded: ${args.degradedReason}`);
@@ -123,7 +258,53 @@ function statusLabel(
 function compactSummary(summary: string, max = 180): string {
   const normalized = humanizeSummary(summary);
   if (normalized.length <= max) return normalized;
-  return `${normalized.slice(0, max - 3)}...`;
+  const truncated = normalized.slice(0, max - 3);
+  // A sentence boundary is a terminator followed by whitespace. Punctuation
+  // inside a token (2.0, file.txt, a URL) is not a boundary, so fall back to the
+  // last word boundary, then to a hard cut for a single over-long token.
+  const sentenceMatch = truncated.match(/^.*[.!?](?=\s)/s);
+  const wordMatch = truncated.match(/^.*\s/s);
+  const boundary = sentenceMatch
+    ? sentenceMatch[0].length
+    : wordMatch
+      ? wordMatch[0].length
+      : truncated.length;
+  return `${truncated
+    .slice(0, boundary)
+    .trimEnd()
+    .replace(/[.!?]+$/, '')}...`;
+}
+
+function terminalRunStats(args: {
+  runStatus: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered';
+  durationMs?: number;
+  diagnostics?: JobRunDiagnostics;
+}): string | null {
+  const stats = terminalRunNotificationStats(args);
+  if (!stats || args.durationMs === undefined) return null;
+  return `${formatDuration(args.durationMs)}, ${stats.toolCount} tool${stats.toolCount === 1 ? '' : 's'}, ${stats.browserUsed ? 'browser used' : 'browser not used'}, last ${stats.lastAction}`;
+}
+
+export function terminalRunNotificationStats(args: {
+  runStatus: 'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered';
+  durationMs?: number;
+  diagnostics?: JobRunDiagnostics;
+}): JobNotificationView['stats'] | undefined {
+  if (
+    (args.runStatus !== 'completed' && args.runStatus !== 'failed') ||
+    !args.diagnostics ||
+    args.durationMs === undefined
+  ) {
+    return undefined;
+  }
+  const { diagnostics } = args;
+  const toolCount = diagnostics.totalToolCalls;
+  const lastAction = diagnostics.lastTool ?? diagnostics.currentTool ?? 'none';
+  return {
+    toolCount,
+    browserUsed: diagnostics.browserActivityCount > 0,
+    lastAction,
+  };
 }
 
 function humanizeSummary(summary: string): string {

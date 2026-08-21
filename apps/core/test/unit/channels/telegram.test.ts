@@ -1094,6 +1094,52 @@ describe('TelegramChannel', () => {
     ).toEqual([`mr:a:${reviewId}`, `mr:r:${reviewId}`, `mr:e:${reviewId}`]);
   });
 
+  it('renders a structured job notification as a native card and otherwise sends its plain fallback', async () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+    await channel.connect({ inbound: false });
+
+    await channel.sendMessage('tg:100200300', 'plain fallback text', {
+      jobNotificationView: {
+        status: 'completed',
+        jobName: 'Lead enrichment',
+        durationMs: 65_000,
+        stats: {
+          toolCount: 2,
+          browserUsed: true,
+          lastAction: 'browser_act',
+        },
+        result: {
+          headline: "Enriched this morning's leads",
+          items: [
+            { outcome: 'done', label: 'Added Acme', detail: 'owner found' },
+            { outcome: 'skipped', label: 'Skipped Globex' },
+          ],
+          nextAction: 'Review the new leads',
+        },
+        fallbackText: 'plain fallback text',
+        nextRunAt: '2026-08-21T09:00:00.000Z',
+      },
+    });
+
+    const nativeCall = currentBot().api.sendMessage.mock.calls.at(-1);
+    expect(nativeCall?.[1]).toContain(
+      '<b>✅ Completed</b> · Lead enrichment · 1m 05s',
+    );
+    expect(nativeCall?.[1]).toContain(
+      '2 tools, browser used, last browser_act',
+    );
+    expect(nativeCall?.[1]).toContain('✅ Added Acme — owner found');
+    expect(nativeCall?.[1]).toContain('⏭️ Skipped Globex');
+    expect(nativeCall?.[1]).toContain('<blockquote expandable>');
+    expect(nativeCall?.[2]).toMatchObject({ parse_mode: 'HTML' });
+
+    await channel.sendMessage('tg:100200300', 'plain fallback text');
+
+    const fallbackCall = currentBot().api.sendMessage.mock.calls.at(-1);
+    expect(fallbackCall?.[0]).toBe('100200300');
+    expect(fallbackCall?.[1]).toBe('plain fallback text');
+  });
+
   it('renders todo messages in the active Telegram topic', async () => {
     const opts = createTestOpts();
     const channel = new TelegramChannel('test-token', opts);

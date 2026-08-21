@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0040-9822",
+  "profile": "lite",
+  "reason": "DIAG-2 stats accuracy 2a: emit a final heartbeat snapshot on stop (both runtimes) so sub-15s runs report real tool counts, not 0",
+  "started_at": "2026-08-20T17:46:56+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi",
+  "base_sha": "59d10fe9f127071b6841690773705b56f23a1a98"
+}

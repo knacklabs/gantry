@@ -1,0 +1,17 @@
+{
+  "event": "abandoned",
+  "id": "Q-0041-9e0e",
+  "profile": "lite",
+  "reason": "NOTIFY-1 T2b (browser-action routing) ships within the story branch; window closed in favor of story tracking",
+  "opened_reason": "NOTIFY-1 T2b: route confirmed browser JOB_TOOL_ACTIVITY events into the run diagnostics reducer with dedup so browserActivityCount reflects a real action, not just prelaunch",
+  "started_at": "2026-08-20T17:56:03+00:00",
+  "completed_at": "2026-08-20T18:06:22+00:00",
+  "files": [
+    "apps/core/src/jobs/browser-activity-events.ts",
+    "apps/core/src/jobs/execution-diagnostics.ts",
+    "apps/core/src/jobs/execution.ts",
+    "apps/core/test/unit/jobs/execution.test.ts"
+  ],
+  "by": "Ravi",
+  "base_sha": "cb0270ce158438b28e98d450d38b65740c37a55d"
+}

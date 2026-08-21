@@ -71,6 +71,7 @@ export function startJobHeartbeat(input: {
   };
   const timer = setInterval(emitHeartbeat, JOB_HEARTBEAT_INTERVAL_MS);
   timer.unref?.();
+  let stopped = false;
 
   return {
     markActivity,
@@ -80,7 +81,12 @@ export function startJobHeartbeat(input: {
       lastTool = currentTool;
       lastActivityAtMs = nowMs();
     },
-    stop: () => clearInterval(timer),
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(timer);
+      emitHeartbeat();
+    },
   };
 }
 

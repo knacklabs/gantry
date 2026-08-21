@@ -1,0 +1,19 @@
+{
+  "event": "abandoned",
+  "id": "Q-0046-1882",
+  "profile": "lite",
+  "reason": "NOTIFY-1 T5 (Slack Block Kit renderer) ships within the story branch",
+  "opened_reason": "NOTIFY-1 T5: native Slack Block Kit renderer for jobNotificationView (header, stats context, structured result or fallback section, next-run), mirroring reviewMessageView; fallback to mrkdwn text when absent",
+  "started_at": "2026-08-20T18:49:40+00:00",
+  "completed_at": "2026-08-20T19:01:06+00:00",
+  "files": [
+    "apps/core/src/channels/slack/channel-delivery-helpers.ts",
+    "apps/core/src/channels/slack/message-action-affordances.ts",
+    "apps/core/src/channels/telegram/message-action-affordances.ts",
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/channels/review-message-send.test.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "by": "Ravi",
+  "base_sha": "38d85646c931a1b3d5f699064d798d5597f98d29"
+}
