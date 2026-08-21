@@ -5,7 +5,12 @@ boundaries, decisions, security model, and operations.
 
 ## Start Here
 
+- [Static project explorer](index.html) - four reader paths and five offline-capable architecture views.
+- [Company adoption guide](product/company-adoption-guide.md) - fit, trade-offs, ownership, rollout, readiness, and evaluation.
+- [Basic-to-advanced learning path](getting-started.md) - setup through fleet deployment.
 - [Repository README](../README.md) - install, setup, and runtime overview.
+- [Static project explorer](../index.html) - visual architecture and feature map.
+- [Codebase guide](CODEBASE_GUIDE.md) - source-derived runtime and contributor guide.
 - [Product brief](product/BRIEF.md) - concise product intent and scope.
 - [Requirements](REQUIREMENTS.md) - product and architecture requirements.
 - [Specification](SPEC.md) - expected runtime behavior and constraints.
@@ -16,6 +21,7 @@ boundaries, decisions, security model, and operations.
 - [Architecture overview](architecture/overview.md) - top-down runtime map.
 - [Runtime components](architecture/runtime-components.md) - contributor source-reading guide.
 - [Memory](MEMORY.md) - memory boundary model and dreaming lifecycle.
+- [Interactive architecture atlas](architecture/atlas/README.md) - five revision-pinned, self-contained diagrams.
 
 ## Decisions And Safety
 
@@ -24,5 +30,14 @@ boundaries, decisions, security model, and operations.
 
 ## Operations
 
-- [Validation loop](validation-loop.md) - deterministic validation flow.
+- [Quality and validation](QUALITY.md) - deterministic validation flow.
 - [Debug checklist](DEBUG_CHECKLIST.md) - operational troubleshooting.
+
+## Contributing And Engineering
+
+- [Engineering standards](engineering/README.md) - canonical, tool-agnostic
+  rules for source, architecture, testing, contracts, operations, and docs.
+- [Contributor guide](../CONTRIBUTING.md) - environment setup, workflow,
+  validation matrix, migrations, and pull-request readiness.
+- [Factory workflow](FACTORY.md) - optional maintainer automation that helps
+  apply the engineering contract; contributors do not need it.

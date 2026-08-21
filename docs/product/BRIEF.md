@@ -3,6 +3,11 @@
 Gantry is a provider-neutral and channel-neutral agent runtime for teams that
 need AI agents to run safely inside product and operations workflows.
 
+For adoption decisions, use the [company adoption guide](./company-adoption-guide.md).
+For a practitioner path from local setup to fleet rehearsal, use
+[Getting started](../getting-started.md). The [static project explorer](../index.html)
+links those paths to the current architecture atlas.
+
 ## Product Intent
 
 - Run agents behind controlled channel, tool, memory, scheduling, and audit boundaries.
@@ -13,7 +18,9 @@ need AI agents to run safely inside product and operations workflows.
 ## Current Scope
 
 - CLI and package-based runtime setup.
-- Slack, Telegram, Teams, Discord, and web or SDK-facing runtime concepts.
+- Active Slack, Telegram, Discord, and web or SDK-facing runtime transports.
+- Microsoft Teams setup and discovery scaffolding; production message
+  transport remains outside the current implementation.
 - Postgres-backed settings, credential references, memory, jobs, events, and audit state.
 - Provider-neutral model routing through catalog aliases and gateway-owned credentials.
 - Guided conversation installation for adding one existing agent and provider

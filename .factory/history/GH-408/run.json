@@ -1,0 +1,17 @@
+{
+  "issue_key": "GH-408",
+  "title": "Establish repository engineering standards and documentation governance",
+  "tracker": "linear",
+  "branch": "feat/GH-408-establish-repository-engineering-standards-and-documentation-governance",
+  "phase": "pr-ready",
+  "plan_status": "approved",
+  "decomposition_status": "recorded",
+  "implementation_status": "pending",
+  "tests_status": "passed",
+  "verify_status": "passed",
+  "review_status": "passed",
+  "created_at": "2026-08-21T06:12:11+00:00",
+  "updated_at": "2026-08-21T08:01:38+00:00",
+  "plan_file": "plans/completed/GH-408-establish-repository-engineering-standards-and-documentation-governance.md",
+  "story": "GH-408"
+}

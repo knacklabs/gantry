@@ -1,0 +1,2178 @@
+{
+  "schemaVersion": 1,
+  "generatedOn": "2026-08-21",
+  "purpose": "Complete lifecycle and authority classification for the documentation roots governed by GH-408.",
+  "authorityOrder": [
+    "implementation-and-tests",
+    "accepted-current-decisions",
+    "current-architecture-and-implementation",
+    "supported-feature-documentation",
+    "approved-active-plans",
+    "generated-evidence",
+    "historical-context"
+  ],
+  "sourceRoots": [
+    "docs/architecture",
+    "docs/implementation",
+    "docs/features",
+    "docs/decisions",
+    "docs/Plans",
+    "plans/active",
+    "plans/archive",
+    "plans/completed"
+  ],
+  "counts": {
+    "architecture-decision": 133,
+    "current-architecture": 21,
+    "decision-index": 1,
+    "execution-plan": 23,
+    "generated-architecture-artifact": 11,
+    "historical-architecture-record": 115,
+    "legacy-plan": 1,
+    "repository-instruction": 1
+  },
+  "records": [
+    {
+      "path": "docs/architecture/agent-e2e-ci-merge-gate-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/agent-e2e-plan-validation-round2.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/agent-e2e-plan-validation-round3.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/agent-e2e-plan-validation.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/agent-e2e-test-matrix.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/agent-output-style-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/agent-runtime.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/agents-as-tools-assumptions.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/agents-as-tools-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/AGENTS.md",
+      "category": "repository-instruction",
+      "lifecycle": "current",
+      "authority": "scoped-contributor-instruction",
+      "intendedAction": "maintain-in-place"
+    },
+    {
+      "path": "docs/architecture/anthropic-claude-adapter-materialization.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/arch-quick-wins-assumptions.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/architecture-debt-paydown-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/artifact-store-s3-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/atlas/delivery-receipts.json",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/fleet-execution.architecture.html",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/fleet-execution.architecture.json",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/gantry-system.architecture.html",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/gantry-system.architecture.json",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/known-limitations.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/atlas/live-turn.sequence.html",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/live-turn.sequence.json",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/memory-dreaming.dataflow.html",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/memory-dreaming.dataflow.json",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/permission-execution.lifecycle.html",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/permission-execution.lifecycle.json",
+      "category": "generated-architecture-artifact",
+      "lifecycle": "generated-current",
+      "authority": "derived-evidence",
+      "intendedAction": "regenerate-from-pinned-source"
+    },
+    {
+      "path": "docs/architecture/atlas/README.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/atlas/source-evidence.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/audits/audit-2026-08-bb340b0ae.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/auto-permission-action-based-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/auto-permission-action-based-HANDOFF.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/auto-permission-classifier-closeout-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/auto-permission-interactive-trust-design.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/auto-permission-mode-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/auto-permission-run-origin-trust-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/autonomous-jobs.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/browser-capability.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/canonical-domain-model.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/cap-1-reconciliation-report.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/capability-management.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/cd-envelope-durability-fix.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/channel-interactions.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/cli-capability-structured-invocation-design.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/codebase-refactor-principles.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/codex-guardian-classifier-reference.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/codex-harness.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/codex-self-improvement.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/compact-human-settings-yaml.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/company-brain-core-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/company-brain-core.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/company-brain-harvest-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/components.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/conversation-file-trust-program.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/conversation-quality-assumptions.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/conversation-quality-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/coordination-representation-audit-2026-07-18.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/credential-management.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/cross-provider-conversation-context-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/current-verification-commands.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/deepagents-agent-engine-handoff-plan.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/deepagents-cache-savings-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/deployment-profiles.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/dev-control-and-observability-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/dev-experience-gap-analysis.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/dev-guardrails-and-usage-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/durable-async-tool-burst-queue-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/durable-state-boundary.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/durable-work-primitive-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/e2e-tests-review-238.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/event-driven-waits-agent-subagent-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/fable-architecture-review-2026-07-16.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/framework-boundaries.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/gantry-agent-system-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/generative-ui-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/git-permission-rca.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/goals-index.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/inline-agent-feature-parity-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/job-notification-audit-brief.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/job-notification-gap-audit-2026-08-06.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/lat-3a-measurement.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/lat-4a-measurement.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/lightweight-agent-modes-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/live-horizontal-execution.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/local-files-policy.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/local-state-inventory.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/mcp-capability-authoring-assumptions.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/mcp-capability-authoring-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/mcp-hybrid-search-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/mcp-skill-acquisition-alignment-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/media-render-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/media-render-phase1.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/media-render-plan-validation-round2.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/media-render-plan-validation.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/memory-continuity-fixes-plan.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/messaging-hotpath-and-liveness-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/model-management-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/multi-agent-provider-configuration.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/multi-agent-provider-onboarding-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/multi-worker-execution.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/non-blocking-session-compaction-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/onboarding-stale-settings-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/operator-trust-runtime-honesty.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/otel-llm-observability-assumptions.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/otel-llm-observability-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/otel-permission-spans-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/outbound-attachments-audit-2026-07-19.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/overview.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/permission-durable-storage-assumptions.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/permission-durable-storage-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/permission-durable-storage-plan-validation.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/permission-engine-redesign-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/permission-floor-and-promotion-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/permission-simplification-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/permission-storage-fable-codex-verification.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/personal-and-enterprise-modes.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/platform-roadmap-2026-07.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/ponytail-audit-2026-07-14.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/ponytail-audit-2026-07-16.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/postgres-query-policy.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/pr237-arch-review.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/pr237-final-review.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/pr237-issues-for-dev.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/pr237-validation.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/proactive-observer-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/production-readiness-scale-up-plan.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/provider-content-gaps-plan-draft.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/README.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/refactor-baseline.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/refactor-gap-closure-plan.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/runtime-components.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/runtime-flows.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/runtime-hardening-audit-2026-07-22.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/runtime-permission-ux-assumptions.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/runtime-permission-ux-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/runtime-refactor-plan.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/scaling-and-deployment.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/sched-4b-1-rearchitecture-brief.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/scheduler-incident-assessment-2026-08-05.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/security-performance-simplification-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/session-resume.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/setup-management-ux-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/status-cost-cache-visibility-goal-prompt.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/system-atlas.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-explanation",
+      "intendedAction": "maintain-and-verify-against-source"
+    },
+    {
+      "path": "docs/architecture/target-folder-structure.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/tool-awareness-plan-brief.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/tool-awareness-plan.md",
+      "category": "historical-architecture-record",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "docs/architecture/tool-provider-affinity.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-architecture-and-implementation",
+      "intendedAction": "maintain-in-place"
+    },
+    {
+      "path": "docs/architecture/web-ui-foundation.md",
+      "category": "current-architecture",
+      "lifecycle": "current",
+      "authority": "current-architecture-and-implementation",
+      "intendedAction": "maintain-in-place"
+    },
+    {
+      "path": "docs/decisions/0000-credential-broker-boundary.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0001-agent-runtime-platform.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0002-symphony-forge-adoption.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0003-early-stage-no-backcompat.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0004-gantry-naming-and-public-repo.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0005-runtime-stack.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0006-config-secret-source-boundary.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0007-settings-runtime-truth.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0008-storage-backend-cutover.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0009-canonical-domain-schema-cutover.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0010-claude-runtime-materialization.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0011-provider-session-artifact-store.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0012-browser-capability-boundary.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0013-runtime-event-exchange.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0014-external-ingress-vs-outbound-webhooks.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0015-model-catalog-and-cache-accounting.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0016-event-bus-outbox-boundary.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0017-jsonb-runtime-payload-boundary.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0018-provider-neutral-agent-execution-adapter.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0019-simple-permission-and-job-tool-lifecycle.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0020-mcp-source-vs-action-capability.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0021-capability-artifacts.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0022-delivery-vehicle.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0023-deployment-modes.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0024-locked-preset.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0025-settings-authority.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0026-agent-engine-selection.md",
+      "category": "architecture-decision",
+      "lifecycle": "superseded",
+      "authority": "historical-decision",
+      "intendedAction": "retain-with-supersession"
+    },
+    {
+      "path": "docs/decisions/0027-process-roles-and-multi-live.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0028-agent-harness-selection.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0029-agent-communication-reaction-binding.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0030-agent-communication-reasoning-safety.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0031-send-message-files-authority.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0032-signed-artifact-links-deferred.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0033-teams-reactions-deferred.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0034-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0035-epics-approved.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0036-doc-reference-historical-records.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0037-channel-prompt-presentation-descriptor.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0038-neutral-e2e-model-credential-env.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0039-github-pm-mirror.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0040-permission-execution-two-axis-model.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0041-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0042-decision-view-16k-prefix-stripped.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0043-classifier-risk-only-engine-authz.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0044-ci-runner-isolation.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0045-inbound-attachment-descriptor-writer.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0046-llm-process-local-admission.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0047-ipc-replay-bounded-background-cleanup.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0048-job-latest-run-batch-projection.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0049-live-admission-active-cap-and-overload.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0050-agent-removal-projection-cleanup.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0051-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0052-birthright-self-surface.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0053-permission-no-timeout-interactive.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0054-decision-provenance-and-risk-label.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0055-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0056-durable-cancellation-invariant.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0057-arch1-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0058-readonly-scheduler-birthright.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0059-tool-surface-tiering.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0060-async-completion-contract.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0061-parallel-tool-execution.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0062-perm6-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0063-perm7-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0064-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0065-perm8-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0066-race-1-skill-artifact-app-isolation.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0067-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0068-race-2-cluster-fenced-settings-projection.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0069-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0070-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0071-race-4-browser-profile-lock-aba.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0072-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0073-race-6-profile-mirror-version-guard.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0074-race-8-mandatory-atomic-async-admission.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0075-race-9-serialize-file-backed-settings-write.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0076-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0077-race-5-lease-loss-lifecycle.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0078-lat-3a-single-memory-hydration-per-turn.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0079-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0080-lat-3b-retain-authoritative-second-fetch.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0081-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0082-fence-1-durable-lease-generation.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0083-conv-001-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0084-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0085-lat-4a-fused-inbound-envelope-transaction.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0086-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0087-lat-5-durable-provider-history-coverage.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0088-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0089-thread-turns-read-channel-context.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0090-sender-allowlist-trigger-only.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0091-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0092-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0093-client-signoff-is-a-pinned-project-gate.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0094-conversation-file-trust-program.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0095-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0096-thread-recency-message-timestamp.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0097-public-session-conversation-aggregate.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0098-streamed-message-projection-timing.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0099-rate-limits-singleton-authority.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0100-mig-1-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0101-oidc-generic-google-first.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0102-runtime-hardening-audit-harvest.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0103-live-admission-terminal-retention.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0104-co-1-recovery-intent-reframe.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0105-physical-attachment-workspace-handoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0106-docs-001-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0107-typed-permission-decision-provenance.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0108-job-definition-revision-fencing.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0109-semantic-capability-job-dependencies.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0110-live-ux-capability-dispatcher.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0111-attachment-timeout-log-per-shared-open.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0112-legacy-single-canonical-shape.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0113-enforce-no-backcompat-architecture-check.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0114-canonical-job-owner.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0115-autonomous-tool-denial-terminal.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0116-scheduled-worker-host-authorization-handoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0117-scheduled-job-declare-tools-at-creation.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0118-identity-scoped-approval-and-grants.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0119-provider-neutral-group-approver-bootstrap.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0120-local-cli-structured-invocation.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0121-autodet-no-classifier-autonomous.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0122-capability-template-amendment.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0123-recovery-proposal-birthright.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0124-bounded-durable-card-delivery.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0125-host-only-template-amendment.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0126-typed-terminal-denial-event.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0127-tagged-setup-action-model.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0128-permission-approval-result.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0129-capsafe-local-cli-terminal-wildcard.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0130-capsafe-capability-run-dispatch-only.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0131-jobs-group-channel-staged.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/README.md",
+      "category": "decision-index",
+      "lifecycle": "current",
+      "authority": "lifecycle-index",
+      "intendedAction": "maintain"
+    },
+    {
+      "path": "docs/Plans/agent-e2e-reliability-gate.md",
+      "category": "legacy-plan",
+      "lifecycle": "historical",
+      "authority": "context-only",
+      "intendedAction": "retain-in-place"
+    },
+    {
+      "path": "plans/completed/AUTODET-1-autonomous-runs-decide-permissions-deterministically-no-classifier.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CAPFIX-1-capability-template-amendment-via-grantable-card.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CAPRULE-1-scheduled-runs-drop-capability-backed-runcommand-rules-from-the-autonomous-allowlist.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CLIRUN-1-structured-invocation-for-local-cli-capabilities.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CO-1-jobs-recovery-intent-as-columns-with-compare-and-set-transitions.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CONTENT-1-provider-content-gaps-honest-fallbacks-quick-fixes-slack-canvas-crud.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/CONTENT-2-physical-attachment-hand-off-agents-access-real-files-in-all-providers.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/DOCS-001-source-derived-gantry-documentation-and-project-explorer.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/GH-408-establish-repository-engineering-standards-and-documentation-governance.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/ID-1-identity-management-phases-2-3-reconcile-harden-land.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PAY-1-architecture-gate-paydown-check-architecture-exit-0.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PERF-4-live-admission-terminal-retention-30-day-ttl-sweep.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PREFLIGHT-1-scheduled-jobs-provision-tools-upfront-prime-discovery-grantable-setup-cards.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PSCOPE-1-person-scoped-grants-and-kind-aware-approval-authority.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/PSCOPE-2-provider-neutral-installer-auto-seed-and-in-group-acknowledgement.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SCHED-1-scheduler-correctness-blockers-no-self-mutation-typed-permission-provenance.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SCHED-4A-approval-and-setup-notification-ux-explicit-scope-no-contradictory-cards-match-vs-grant-diagnosis.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SCHED-4B-actionable-job-cards-approve-from-card-full-setup-story-visible-recovery-provider-parity.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SCHED-6-autonomous-jobs-pause-and-ask-on-tool-denial-instead-of-silently-degrading.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SEC-2-inbound-attachments-one-atomic-o-nofollow-writer-for-telegram-slack.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SETUPRACE-1-atomic-claim-for-setup-pause-notifications-close-d-0053.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/SIMP-2-construct-control-application-services-once-in-the-composition-root.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/TOOLS-1-provider-aware-tool-surface-affinity-filtered-projection-dynamic-per-provider-instructions.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    }
+  ]
+}
