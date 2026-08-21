@@ -68,7 +68,10 @@ jobs:
 
       - name: Update validated Gantry database pool settings
         run: |
-          [[ "$POSTGRES_POOL_MAX" =~ ^[1-9]$|^1[0-2]$ ]]
+          # The migrator holds one pooled connection for its advisory lock and
+          # uses another for Drizzle, so a pool of 1 deadlocks until the
+          # database statement timeout. Keep the production floor at 2.
+          [[ "$POSTGRES_POOL_MAX" =~ ^[2-9]$|^1[0-2]$ ]]
           [[ "$PGBOSS_POOL_MAX" =~ ^[1-2]$ ]]
           aws ssm put-parameter \
             --name GANTRY_POSTGRES_POOL_MAX \
