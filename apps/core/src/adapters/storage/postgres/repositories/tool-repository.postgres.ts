@@ -146,7 +146,16 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
         updatedAt: binding.updatedAt,
       })
       .onConflictDoUpdate({
-        target: pgSchema.agentToolBindingsPostgres.id,
+        // Legacy projections can retain the same logical binding under a
+        // different deterministic id. The database treats the scoped binding
+        // columns as canonical, so reconcile that row instead of failing a
+        // repeated permission decision with a duplicate-key error.
+        target: [
+          pgSchema.agentToolBindingsPostgres.agentId,
+          pgSchema.agentToolBindingsPostgres.toolId,
+          pgSchema.agentToolBindingsPostgres.configVersionId,
+          pgSchema.agentToolBindingsPostgres.personId,
+        ],
         set: {
           configVersionId: binding.configVersionId ?? null,
           status: binding.status,

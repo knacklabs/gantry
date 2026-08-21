@@ -8,9 +8,11 @@ import { persistentPermissionBindingId } from '@core/application/permissions/per
 describe('agent_tool_bindings repository', () => {
   it('persists and reads a person-scoped binding distinct from a shared binding', async () => {
     const rows: Record<string, unknown>[] = [];
+    const conflicts: Array<Record<string, unknown>> = [];
     const values = vi.fn((row: Record<string, unknown>) => ({
-      onConflictDoUpdate: vi.fn(async () => {
+      onConflictDoUpdate: vi.fn(async (config: Record<string, unknown>) => {
         rows.push(row);
+        conflicts.push(config);
       }),
     }));
     const db = {
@@ -70,6 +72,18 @@ describe('agent_tool_bindings repository', () => {
     expect(values).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ personId: 'person:alice' }),
+    );
+    expect(conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          target: expect.arrayContaining([
+            agentToolBindingsPostgres.agentId,
+            agentToolBindingsPostgres.toolId,
+            agentToolBindingsPostgres.configVersionId,
+            agentToolBindingsPostgres.personId,
+          ]),
+        }),
+      ]),
     );
     expect(personBindingId).not.toBe(sharedId);
   });
