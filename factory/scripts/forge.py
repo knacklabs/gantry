@@ -455,6 +455,11 @@ def main() -> None:
     p_sm.add_argument("--confirm-workspace-state", action="store_true")
     p_sm.add_argument("--repo")
     p_sm.set_defaults(func=stages_mod.cmd_migrate)
+    p_sclr = st_sub.add_parser(
+        "clear",
+        help="drop a shipped/orphaned story's git-local authority (idempotent)")
+    p_sclr.add_argument("--repo")
+    p_sclr.set_defaults(func=stages_mod.cmd_clear)
     p_cx = sub.add_parser("codex", help="delegated Codex runs (diagnostics)")
     cx_sub = p_cx.add_subparsers(dest="codex_command", required=True)
     p_cxs = cx_sub.add_parser("status", help="is the delegated run still moving?")
