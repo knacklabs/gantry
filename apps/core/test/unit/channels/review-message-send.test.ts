@@ -47,7 +47,7 @@ describe('memory-review native send', () => {
           stats: {
             toolCount: 2,
             browserUsed: true,
-            lastAction: 'browser_click',
+            lastAction: 'browser_act',
           },
           result: {
             headline: "Enriched this morning's leads",
@@ -79,7 +79,7 @@ describe('memory-review native send', () => {
     );
     expect(statsBlock).toMatchObject({ type: 'context' });
     expect(JSON.stringify(statsBlock)).toContain(
-      '1m 05s · 2 tools · browser used · last browser_click',
+      '1m 05s · 2 tools · browser used · last browser_act',
     );
     const bodyBlock = nativePayload.blocks.find(
       (block) =>

@@ -252,7 +252,7 @@ describe('DiscordChannel', () => {
         stats: {
           toolCount: 2,
           browserUsed: true,
-          lastAction: 'browser_click',
+          lastAction: 'browser_act',
         },
         result: {
           headline: "Enriched this morning's leads",
@@ -279,7 +279,7 @@ describe('DiscordChannel', () => {
         title: '✅ Completed · Lead enrichment',
         color: 0x57f287,
         description: expect.stringContaining(
-          '1m 05s · 2 tools · browser used · last browser_click',
+          '1m 05s · 2 tools · browser used · last browser_act',
         ),
         footer: { text: 'Next run: 2026-08-21T09:00:00.000Z' },
       }),

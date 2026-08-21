@@ -716,7 +716,7 @@ describe('jobs/execution-notifications', () => {
         pendingPermissionToolNames: [],
         totalToolCalls: 4,
         browserActivityCount: 1,
-        lastTool: 'browser_click',
+        lastTool: 'browser_act',
         transientPermissionApprovals: [],
         startupDiagnostics: [],
         latestStreamedOutputChars: 0,
@@ -735,7 +735,7 @@ describe('jobs/execution-notifications', () => {
         stats: {
           toolCount: 4,
           browserUsed: true,
-          lastAction: 'browser_click',
+          lastAction: 'browser_act',
         },
         nextRunAt: '2026-05-18T02:35:00.000Z',
       },

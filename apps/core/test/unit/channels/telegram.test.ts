@@ -1106,7 +1106,7 @@ describe('TelegramChannel', () => {
         stats: {
           toolCount: 2,
           browserUsed: true,
-          lastAction: 'browser_click',
+          lastAction: 'browser_act',
         },
         result: {
           headline: "Enriched this morning's leads",
@@ -1126,7 +1126,7 @@ describe('TelegramChannel', () => {
       '<b>✅ Completed</b> · Lead enrichment · 1m 05s',
     );
     expect(nativeCall?.[1]).toContain(
-      '2 tools, browser used, last browser_click',
+      '2 tools, browser used, last browser_act',
     );
     expect(nativeCall?.[1]).toContain('✅ Added Acme — owner found');
     expect(nativeCall?.[1]).toContain('⏭️ Skipped Globex');
