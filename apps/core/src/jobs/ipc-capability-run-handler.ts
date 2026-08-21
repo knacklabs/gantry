@@ -2,6 +2,8 @@ import {
   closeEgressGateway,
   ensureEgressGateway,
 } from '../runtime/egress-gateway.js';
+import { summarizeCapabilityRunAudit } from '../application/mcp/mcp-tool-audit.js';
+import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { jobSetupActionEventPayload } from '../domain/events/job-setup-action.js';
 import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
@@ -166,6 +168,54 @@ function templateSetsEqual(
   );
 }
 
+export async function publishCapabilityRunSuccessActivity(input: {
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => Promise<unknown> | unknown;
+  appId: string;
+  agentId: string;
+  runId: string;
+  jobId: string;
+  conversationId: string;
+  threadId?: string;
+  capabilityId: string;
+  args: string[];
+  result: unknown;
+}): Promise<void> {
+  const capabilityRun = summarizeCapabilityRunAudit({
+    serverName: 'gantry',
+    toolName: 'capability_run',
+    argumentPayload: {
+      capabilityId: input.capabilityId,
+      args: input.args,
+    },
+    toolResult: input.result,
+  });
+  if (!input.publishRuntimeEvent || !capabilityRun) return;
+  try {
+    await input.publishRuntimeEvent({
+      appId: input.appId as never,
+      agentId: input.agentId as never,
+      runId: input.runId as never,
+      jobId: input.jobId as never,
+      conversationId: input.conversationId as never,
+      ...(input.threadId ? { threadId: input.threadId as never } : {}),
+      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      actor: 'host',
+      responseMode: 'none',
+      payload: {
+        phase: 'capability_run',
+        tool: 'capability_run',
+        ok: true,
+        capabilityRun,
+      },
+    });
+  } catch {
+    // The command already completed. An audit projection failure must not make
+    // its external side effect appear retryable.
+  }
+}
+
 const capabilityRunHandler: TaskHandler = async (context) => {
   const { data } = context;
   // Bound execution to the CALLER's absolute deadline (stamped by the runner
@@ -291,8 +341,31 @@ const capabilityRunHandler: TaskHandler = async (context) => {
       runId: restriction.runId,
       jobId: restriction.jobId,
     });
+  const acceptSuccessfulRun = async (result: unknown): Promise<void> => {
+    if (
+      restriction.runKind === 'scheduled' &&
+      restriction.jobId &&
+      restriction.runId
+    ) {
+      await publishCapabilityRunSuccessActivity({
+        ...(context.deps.publishRuntimeEvent
+          ? { publishRuntimeEvent: context.deps.publishRuntimeEvent }
+          : {}),
+        appId: data.appId!,
+        agentId: data.agentId!,
+        runId: restriction.runId,
+        jobId: restriction.jobId,
+        conversationId: data.chatJid!,
+        ...(data.authThreadId ? { threadId: data.authThreadId } : {}),
+        capabilityId,
+        args,
+        result,
+      });
+    }
+    acceptData('Capability command completed.', result);
+  };
   try {
-    acceptData('Capability command completed.', await runInvocation());
+    await acceptSuccessfulRun(await runInvocation());
   } catch (error) {
     if (error instanceof StructuredLocalCliInvocationError) {
       if (error.code === 'capability_template_mismatch') {
@@ -332,10 +405,7 @@ const capabilityRunHandler: TaskHandler = async (context) => {
             // once under current authority instead of blocking the job on a
             // setup instruction.
             try {
-              acceptData(
-                'Capability command completed.',
-                await runInvocation(),
-              );
+              await acceptSuccessfulRun(await runInvocation());
               return;
             } catch (retryError) {
               if (

@@ -5,8 +5,10 @@ import {
   boundJobNotificationView,
   formatRunStatusMessage,
   JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH,
+  structuredJobResultFromRecordedActions,
 } from '@core/jobs/status-formatting.js';
 import type { Job } from '@core/domain/types.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 
 function job(): Job {
   return {
@@ -29,6 +31,93 @@ function job(): Job {
 }
 
 describe('job status formatting', () => {
+  it('notify1-t7-projection', () => {
+    const result = structuredJobResultFromRecordedActions([
+      {
+        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        payload: {
+          phase: 'capability_run',
+          tool: 'capability_run',
+          ok: true,
+          capabilityRun: {
+            capabilityId: 'google.sheets.values.append',
+            stdout: 'Added 3 rows.',
+            stderr: '',
+          },
+        },
+      },
+      {
+        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        payload: {
+          phase: 'browser_action',
+          tool: 'Browser',
+          public_tool: 'browser_open',
+          action: 'navigate',
+          ok: true,
+          normalized_site: 'docs.google.com',
+        },
+      },
+      {
+        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        payload: {
+          phase: 'capability_run',
+          tool: 'capability_run',
+          ok: false,
+          capabilityRun: {
+            capabilityId: 'notion.pages.archive',
+            stdout: '',
+            stderr: 'Archive failed.',
+          },
+        },
+      },
+      {
+        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+        payload: {
+          denied_tool: 'slack.messages.send',
+          reason: 'Slack access was not approved.',
+          denial_kind: 'permission_denied',
+          provenance_lane: DEFAULT_AGENT_ENGINE,
+          provenance_seam: 'gate',
+          action: { kind: 'instruction', text: 'Approve Slack access.' },
+          error_summary: null,
+        },
+      },
+    ]);
+
+    expect(result?.items).toEqual([
+      {
+        outcome: 'done',
+        label: 'Added rows to Google Sheets',
+        detail: 'Added 3 rows.',
+      },
+      {
+        outcome: 'done',
+        label: 'Browser: Navigate',
+        detail: 'docs.google.com',
+      },
+      {
+        outcome: 'failed',
+        label: 'Notion Pages Archive',
+        detail: 'Archive failed.',
+      },
+      {
+        outcome: 'failed',
+        label: 'Could not use Slack Messages Send',
+        detail: 'Slack access was not approved.',
+      },
+    ]);
+    expect(structuredJobResultFromRecordedActions([])).toBeUndefined();
+
+    const view = boundJobNotificationView({
+      status: 'completed',
+      jobName: 'Recorded actions',
+      result,
+      fallbackText: 'The job completed.',
+    });
+    expect(view.result?.items).toEqual(result?.items);
+    expect(view.fallbackText).toBe('The job completed.');
+  });
+
   it('bounds structured notification views before provider rendering', () => {
     const longText = (prefix: string) =>
       `${prefix} ${'descriptive words '.repeat(100)}`;

@@ -1,5 +1,10 @@
 import type { Job, JobNotificationView } from '../domain/types.js';
-import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
+import type { RuntimeEvent } from '../domain/events/events.js';
+import {
+  parseJobToolDeniedEvent,
+  type JobToolDenial,
+} from '../domain/events/job-tool-denial.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import type { JobRunDiagnostics } from './execution-diagnostics.js';
 import { formatDuration } from '../shared/human-format.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
@@ -17,6 +22,91 @@ const JOB_NOTIFICATION_VIEW_LIMITS = {
 } as const;
 
 export const JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH = 2_300;
+
+type RecordedJobAction = Pick<RuntimeEvent, 'eventType' | 'payload'>;
+
+const GOOGLE_SHEETS_ACTION_LABELS: Record<string, string> = {
+  'google.sheets.read': 'Read Google Sheets',
+  'google.sheets.values.get': 'Read Google Sheets values',
+  'google.sheets.values.append': 'Added rows to Google Sheets',
+  'google.sheets.values.update': 'Updated Google Sheets values',
+  'google.sheets.values.write': 'Wrote Google Sheets values',
+};
+
+/** Projects durable run actions without consulting runtime state. */
+export function structuredJobResultFromRecordedActions(
+  actions: readonly RecordedJobAction[],
+): JobNotificationView['result'] {
+  const items = actions.flatMap((event) => {
+    const payload = recordValue(event.payload);
+    if (!payload) return [];
+
+    if (
+      event.eventType === RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY &&
+      payload.phase === 'capability_run'
+    ) {
+      const summary = recordValue(payload.capabilityRun);
+      const capabilityId = stringValue(summary?.capabilityId);
+      if (!capabilityId || typeof payload.ok !== 'boolean') return [];
+      const detail =
+        stringValue(payload.ok ? summary?.stdout : summary?.stderr) ??
+        stringValue(payload.ok ? summary?.stderr : summary?.stdout);
+      return [
+        {
+          outcome: payload.ok ? ('done' as const) : ('failed' as const),
+          label:
+            GOOGLE_SHEETS_ACTION_LABELS[capabilityId] ??
+            humanizeTechnicalIdentifier(capabilityId),
+          ...(detail ? { detail } : {}),
+        },
+      ];
+    }
+
+    if (
+      event.eventType === RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY &&
+      payload.phase === 'browser_action' &&
+      typeof payload.ok === 'boolean'
+    ) {
+      const action =
+        stringValue(payload.action) ??
+        stringValue(payload.public_tool) ??
+        stringValue(payload.tool);
+      if (!action) return [];
+      const detail =
+        stringValue(payload.error) ??
+        stringValue(payload.warning) ??
+        stringValue(payload.normalized_site);
+      return [
+        {
+          outcome: payload.ok ? ('done' as const) : ('failed' as const),
+          label: `Browser: ${humanizeTechnicalIdentifier(action)}`,
+          ...(detail ? { detail } : {}),
+        },
+      ];
+    }
+
+    const denial = parseJobToolDeniedEvent(event);
+    if (!denial) return [];
+    return [
+      {
+        outcome: 'failed' as const,
+        label: `Could not use ${humanizeTechnicalIdentifier(denial.toolName)}`,
+        detail: denial.reason,
+      },
+    ];
+  });
+  return items.length > 0 ? { items } : undefined;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
 
 // An empty structured result (no headline and no items) carries no meaning, so
 // it is dropped and renderers fall back to fallbackText instead of a blank card.

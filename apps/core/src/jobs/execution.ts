@@ -752,6 +752,15 @@ async function runActiveJob(
       emitJobEvent,
       logger,
     });
+    const recordedActions = await runtimeEventExchange.list({
+      appId: (eventState.eventAppSession?.appId ?? runtimeAppId) as never,
+      jobId: currentJob.id as never,
+      runId: runId as never,
+      eventTypes: [
+        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+      ],
+    });
     logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
     const notified =
       !(await deletionGuard.shouldSuppressDelivery()) &&
@@ -766,6 +775,7 @@ async function runActiveJob(
         setupNotified,
         diagnostics,
         toolDenial,
+        recordedActions,
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,

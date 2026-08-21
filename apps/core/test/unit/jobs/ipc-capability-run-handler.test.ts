@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   HOST_CAPABILITY_TEMPLATE_PROPOSALS_ACTIVE,
   compileAndRecordHostCapabilityTemplateMismatch,
+  publishCapabilityRunSuccessActivity,
 } from '@core/jobs/ipc-capability-run-handler.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 
@@ -45,6 +46,64 @@ function localCliTool(commandTemplates = [`${executablePath} sheets get *`]) {
 }
 
 describe('host capability template mismatch flow', () => {
+  it('notify1-t7-producer', async () => {
+    const originalArgAudit = process.env.GANTRY_AUDIT_CAPABILITY_ARGS;
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const input = {
+      publishRuntimeEvent,
+      appId: 'app:test',
+      agentId: 'agent:main',
+      runId: 'run-1',
+      jobId: 'job-1',
+      conversationId: 'tg:owner',
+      capabilityId: 'google.sheets.values.append',
+      args: ['sheets', 'append', '--password', 'secret-value'],
+      result: { stdout: 'Added 3 rows.', stderr: '' },
+    };
+    try {
+      delete process.env.GANTRY_AUDIT_CAPABILITY_ARGS;
+      await publishCapabilityRunSuccessActivity(input);
+      expect(publishRuntimeEvent.mock.calls[0]?.[0]).toMatchObject({
+        runId: 'run-1',
+        jobId: 'job-1',
+        eventType: 'job.tool_activity',
+        actor: 'host',
+        payload: {
+          phase: 'capability_run',
+          ok: true,
+          capabilityRun: {
+            capabilityId: 'google.sheets.values.append',
+            argCount: 4,
+            stdout: 'Added 3 rows.',
+            stderr: '',
+          },
+        },
+      });
+      const withoutArgs = publishRuntimeEvent.mock.calls[0]?.[0].payload as {
+        capabilityRun: Record<string, unknown>;
+      };
+      expect(withoutArgs.capabilityRun).not.toHaveProperty('args');
+
+      process.env.GANTRY_AUDIT_CAPABILITY_ARGS = '1';
+      await publishCapabilityRunSuccessActivity(input);
+      const withArgs = publishRuntimeEvent.mock.calls[1]?.[0].payload as {
+        capabilityRun: { args: string[] };
+      };
+      expect(withArgs.capabilityRun.args).toEqual([
+        'sheets',
+        'append',
+        '--password',
+        '[REDACTED_SECRET]',
+      ]);
+    } finally {
+      if (originalArgAudit === undefined) {
+        delete process.env.GANTRY_AUDIT_CAPABILITY_ARGS;
+      } else {
+        process.env.GANTRY_AUDIT_CAPABILITY_ARGS = originalArgAudit;
+      }
+    }
+  });
+
   it('signals covered (re-attempt, not block) when the reviewed remainder already authorizes the call', async () => {
     const claimPending = vi.fn();
     const result = await compileAndRecordHostCapabilityTemplateMismatch({
