@@ -1776,11 +1776,11 @@
       "intendedAction": "retain-in-place"
     },
     {
-      "path": "plans/active/GH-408-establish-repository-engineering-standards-and-documentation-governance.md",
+      "path": "plans/completed/GH-408-establish-repository-engineering-standards-and-documentation-governance.md",
       "category": "execution-plan",
-      "lifecycle": "approved",
-      "authority": "approved-future-work",
-      "intendedAction": "execute-then-archive"
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
     },
     {
       "path": "plans/completed/DOCS-001-source-derived-gantry-documentation-and-project-explorer.md",
