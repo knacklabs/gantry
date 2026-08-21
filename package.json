@@ -60,6 +60,7 @@
     "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
+    "docs:check": "python3 scripts/check_documentation.py",
     "check:architecture": "python3 scripts/check_architecture.py",
     "security:sbom": "npm sbom --omit=dev --sbom-format=cyclonedx",
     "security:package": "python3 scripts/check_package_contents.py",
