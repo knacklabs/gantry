@@ -5,6 +5,17 @@ permissions:
 
 on:
   workflow_dispatch:
+    inputs:
+      postgres_pool_max:
+        description: Gantry Postgres pool size for this deployment
+        required: false
+        default: '6'
+        type: string
+      pgboss_pool_max:
+        description: Gantry pg-boss pool size for this deployment
+        required: false
+        default: '1'
+        type: string
   push:
     branches:
       - develop
@@ -17,6 +28,8 @@ env:
   TASK_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent
   CONTAINER_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent-container
   HEALTH_CHECK_START_PERIOD_SECONDS: 240
+  POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '6' }}
+  PGBOSS_POOL_MAX: ${{ inputs.pgboss_pool_max || '1' }}
 
 jobs:
   deploy:
@@ -52,6 +65,21 @@ jobs:
 
       - name: Download task definition
         run: aws ecs describe-task-definition --task-definition ${{ env.TASK_NAME }} --query taskDefinition > task-definition.json
+
+      - name: Update validated Gantry database pool settings
+        run: |
+          [[ "$POSTGRES_POOL_MAX" =~ ^[1-9]$|^1[0-2]$ ]]
+          [[ "$PGBOSS_POOL_MAX" =~ ^[1-2]$ ]]
+          aws ssm put-parameter \
+            --name GANTRY_POSTGRES_POOL_MAX \
+            --type String \
+            --value "$POSTGRES_POOL_MAX" \
+            --overwrite
+          aws ssm put-parameter \
+            --name GANTRY_PGBOSS_POOL_MAX \
+            --type String \
+            --value "$PGBOSS_POOL_MAX" \
+            --overwrite
 
       - name: Allow fleet runtime startup before container health checks
         run: |
