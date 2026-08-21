@@ -42,10 +42,10 @@ it('keeps the approved public copy and removes fragment credentials', () => {
   expect(source).toContain('!overflow-visible');
   expect(source).toContain('!rounded-none');
   expect(source).toContain('CircleAlert');
-  expect(source).toContain('Work with clear control.');
-  expect(source).toContain('Access is deliberate.');
+  expect(source).toContain('Secure console access.');
+  expect(source).toContain('Access is managed.');
   expect(source).toContain('Preparing your console');
-  expect(source).toContain('Checking your authorized session.');
+  expect(source).toContain('Checking your session.');
   expect(rootRoute).toContain('beforeLoad: async');
   expect(rootRoute).toContain("throw redirect({ to: '/auth/sign-in' })");
   expect(rootRoute).toContain('pendingComponent: AuthLoadingPage');

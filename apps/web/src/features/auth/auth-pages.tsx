@@ -50,9 +50,9 @@ export function LocalAuthorizationPage() {
   return (
     <AuthCard
       eyebrow="AUTHORIZE BROWSER"
-      signalTitle="Local access, confirmed."
-      signalDescription="Secure your local console session from the command line, then return to work."
-      signalMetadata="LOCAL MODE · LOOPBACK ONLY"
+      signalTitle="Secure local access."
+      signalDescription="Authorize this browser to access the local Gantry console."
+      signalMetadata="LOCAL CONSOLE · LOOPBACK ONLY"
       status={
         message
           ? message === 'This browser is authorized.'
@@ -70,11 +70,11 @@ export function HostedSignInPage() {
   return (
     <AuthCard
       eyebrow="CONSOLE ACCESS"
-      signalTitle="Work with clear control."
-      signalDescription="Secure access to your agents, jobs, and operations—through the identity provider your organization trusts."
-      signalMetadata="OIDC · SESSION PROTECTED · DEFAULT APP"
+      signalTitle="Secure console access."
+      signalDescription="Sign in through your organization’s identity provider to access the Gantry console."
+      signalMetadata="SECURE SIGN-IN · PROTECTED SESSION"
       title="Welcome back"
-      description="Sign in with your company account to continue to the Gantry console."
+      description="Sign in to access the Gantry console."
       action={<GoogleSignInButton />}
     />
   );
@@ -84,12 +84,12 @@ export function AuthLoadingPage() {
   return (
     <AuthCard
       eyebrow="VERIFYING SESSION"
-      signalTitle="Access, checked with care."
-      signalDescription="Your console session is being verified before we continue."
-      signalMetadata="SESSION CHECK · DEFAULT APP"
+      signalTitle="Verifying your access."
+      signalDescription="We’re verifying your session before opening the console."
+      signalMetadata="SECURE SESSION CHECK"
       status="loading"
       title="Preparing your console"
-      description="Checking your authorized session. This usually takes a moment."
+      description="Checking your session. This should only take a moment."
       action={
         <p className="auth-page-loading-status">
           <span aria-hidden="true" />
@@ -109,13 +109,13 @@ export function NoAccessPage({ disabled = false }: { disabled?: boolean }) {
   return (
     <AuthCard
       eyebrow={disabled ? 'ACCESS DISABLED' : 'ACCESS REQUIRED'}
-      signalTitle={disabled ? 'Access has changed.' : 'Access is deliberate.'}
+      signalTitle={disabled ? 'Access unavailable.' : 'Access is managed.'}
       signalDescription={
         disabled
-          ? 'Your account no longer has access to this Gantry console.'
-          : 'Gantry console access is granted by your organization, not by default.'
+          ? 'An administrator has disabled access to this console.'
+          : 'Console access is managed by your organization.'
       }
-      signalMetadata="HOSTED MODE · IDENTITY VERIFIED"
+      signalMetadata="SECURE SIGN-IN · IDENTITY VERIFIED"
       status="attention"
       title={
         disabled
@@ -154,9 +154,9 @@ export function CallbackFailurePage() {
   return (
     <AuthCard
       eyebrow="SIGN-IN INTERRUPTED"
-      signalTitle="A clear route back."
-      signalDescription="Start a new identity-provider session without carrying the previous attempt forward."
-      signalMetadata="OIDC · NEW SESSION"
+      signalTitle="Try again securely."
+      signalDescription="Start a new sign-in session to continue."
+      signalMetadata="SECURE SIGN-IN · NEW SESSION"
       status="attention"
       title="Sign in"
       description="Sign-in could not be completed. Start again from Gantry."
@@ -176,9 +176,9 @@ export function ReauthenticationPage() {
   return (
     <AuthCard
       eyebrow="REAUTHENTICATION"
-      signalTitle="Confirm before changing access."
-      signalDescription="A recent identity check protects administrative changes."
-      signalMetadata="TEN-MINUTE WINDOW"
+      signalTitle="Confirm your identity."
+      signalDescription="For your security, sign in again before making this change."
+      signalMetadata="SECURE IDENTITY CHECK"
       status="shield"
       title="Sign in again"
       description="Sign in again to continue."
@@ -198,9 +198,9 @@ export function HostedSetupPage() {
   return (
     <AuthCard
       eyebrow="HOSTED SIGN-IN SETUP"
-      signalTitle="Connect identity with care."
-      signalDescription="Test a candidate configuration before it becomes the active console sign-in path."
-      signalMetadata="CANDIDATE CONFIGURATION"
+      signalTitle="Configure secure sign-in."
+      signalDescription="Test your sign-in configuration before activating it for the console."
+      signalMetadata="SIGN-IN CONFIGURATION"
       status="shield"
       title="Hosted sign-in setup"
       description="An Administrator can test and activate a candidate sign-in configuration."
@@ -254,9 +254,9 @@ export function InvitationPage() {
   return (
     <AuthCard
       eyebrow="INVITATION"
-      signalTitle="Your access is waiting."
-      signalDescription="Continue with the invited identity to join this Gantry console."
-      signalMetadata="IDENTITY VERIFICATION"
+      signalTitle="You’ve been invited."
+      signalDescription="Sign in with the invited account to continue."
+      signalMetadata="SECURE IDENTITY CHECK"
       status={message ? 'attention' : 'loading'}
       title="Invitation"
       description={message ?? 'Preparing sign-in…'}
