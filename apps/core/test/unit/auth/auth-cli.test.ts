@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   createLocalAuthorizationUrl: vi.fn(),
   ensureSettings: vi.fn(),
   error: vi.fn(),
+  fetch: vi.fn(),
   getPending: vi.fn(),
   isCancel: vi.fn(() => false),
   note: vi.fn(),
@@ -45,6 +46,8 @@ import { runUiCommand } from '@core/cli/auth.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal('fetch', mocks.fetch);
+  mocks.fetch.mockResolvedValue({ ok: true });
   mocks.ensureSettings.mockReturnValue({
     authentication: {
       mode: 'local',
@@ -94,6 +97,7 @@ it('authentication CLI > uses one-time local authorization and trusted access ap
   await expect(runUiCommand('/tmp/gantry', [])).resolves.toBe(0);
   await expect(runUiCommand('/tmp/gantry', ['authorize'])).resolves.toBe(0);
   expect(mocks.createLocalAuthorizationUrl).toHaveBeenCalledTimes(2);
+  expect(mocks.fetch).toHaveBeenCalledTimes(2);
   expect(printed.mock.calls.flat()).toEqual([
     'http://127.0.0.1:3939/ui/auth/local#token=one',
     'http://127.0.0.1:3939/ui/auth/local#token=two',
@@ -133,4 +137,16 @@ it('authentication CLI > uses one-time local authorization and trusted access ap
     'subject-not-shown',
   );
   expect(mocks.release).toHaveBeenCalledTimes(3);
+});
+
+it('authentication CLI > refuses to create a local authorization link when Gantry is unavailable', async () => {
+  mocks.fetch.mockRejectedValueOnce(new Error('connection refused'));
+
+  await expect(runUiCommand('/tmp/gantry', [])).resolves.toBe(1);
+
+  expect(mocks.error).toHaveBeenCalledWith(
+    'Gantry is not running at http://127.0.0.1:3939. Start it with `gantry service start`, then run `gantry ui` again.',
+  );
+  expect(mocks.acquire).not.toHaveBeenCalled();
+  expect(mocks.createLocalAuthorizationUrl).not.toHaveBeenCalled();
 });

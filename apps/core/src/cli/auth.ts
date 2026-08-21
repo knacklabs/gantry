@@ -8,6 +8,19 @@ function usage(): string {
   return ['Usage:', '  gantry ui', '  gantry ui authorize'].join('\n');
 }
 
+async function isLocalControlServerAvailable(
+  canonicalOrigin: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch(new URL('/ui/auth/local', canonicalOrigin), {
+      signal: AbortSignal.timeout(3_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function runUiCommand(
   runtimeHome: string,
   args: string[],
@@ -27,6 +40,16 @@ export async function runUiCommand(
     }
     p.log.error(
       'Browser authorization links are available only in local authentication mode.',
+    );
+    return 1;
+  }
+  if (
+    !(await isLocalControlServerAvailable(
+      settings.authentication.canonicalOrigin,
+    ))
+  ) {
+    p.log.error(
+      `Gantry is not running at ${settings.authentication.canonicalOrigin}. Start it with \`gantry service start\`, then run \`gantry ui\` again.`,
     );
     return 1;
   }
