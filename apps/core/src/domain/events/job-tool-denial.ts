@@ -26,7 +26,7 @@ export type JobToolDenialProvenanceSeam =
   | 'capability_run';
 
 export interface JobToolDenial {
-  invocationId: string;
+  invocationId?: string;
   toolName: string;
   reason: string;
   denialKind: JobToolDenialKind;
@@ -36,7 +36,7 @@ export interface JobToolDenial {
 }
 
 export interface JobToolDeniedEventPayload {
-  invocationId: string;
+  invocationId?: string;
   denied_tool: string;
   reason: string;
   denial_kind: JobToolDenialKind;
@@ -93,8 +93,6 @@ export function parseJobToolDeniedEvent(
   }
   const action = parseJobSetupActionValue(payload.action);
   if (
-    typeof payload.invocationId !== 'string' ||
-    !payload.invocationId.trim() ||
     typeof payload.denied_tool !== 'string' ||
     !payload.denied_tool.trim() ||
     typeof payload.reason !== 'string' ||
@@ -111,7 +109,9 @@ export function parseJobToolDeniedEvent(
     return null;
   }
   return {
-    invocationId: payload.invocationId.trim(),
+    ...(typeof payload.invocationId === 'string' && payload.invocationId.trim()
+      ? { invocationId: payload.invocationId.trim() }
+      : {}),
     toolName: payload.denied_tool,
     reason: payload.reason,
     denialKind: payload.denial_kind as JobToolDenialKind,

@@ -64,7 +64,7 @@ function listDenialEvents(
       actor: 'scheduler',
       correlationId: value.invocationId,
       payload: {
-        invocationId: value.invocationId,
+        ...(value.invocationId ? { invocationId: value.invocationId } : {}),
         denied_tool: value.toolName,
         reason: value.reason,
         denial_kind: value.denialKind,
@@ -150,6 +150,42 @@ describe('execution finalization', () => {
     );
     expect(sendMessage.mock.calls[0]?.[1]).not.toContain(
       'Worker matcher found no matching allowedTools rule.',
+    );
+  });
+
+  it('AUTODET-1-2 > prepares setup interaction from a deterministic denial without invocation id', async () => {
+    const { deps, sendMessage } = makeDeps();
+    const diagnostics = createJobRunDiagnostics();
+
+    await finalizeSchedulerJobRun({
+      currentJob: makeJob({
+        notification_routes: [
+          {
+            conversationJid: 'tg:job-owner',
+            threadId: 'thread-1',
+            label: 'primary',
+          },
+        ],
+      }),
+      deps,
+      scheduledFor: '2024-01-01T00:00:00.000Z',
+      now: '2024-01-01T00:00:01.000Z',
+      error: DENIAL_ERROR,
+      diagnostics,
+      pausedForSetupDuringRun: false,
+      deletedDuringRun: false,
+      runtimeAppId: 'default',
+      runId: 'run-without-denial-invocation-id',
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      listRuntimeEvents: listDenialEvents({
+        invocationId: undefined,
+        toolName: 'RunCommand',
+      }),
+    });
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage.mock.calls[0]?.[1]).toContain(
+      'Approve exact command access, then resume the job.',
     );
   });
 
