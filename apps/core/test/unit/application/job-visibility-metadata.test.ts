@@ -15,6 +15,7 @@ function makeDenialEvent(overrides: Partial<JobEvent> = {}): JobEvent {
     run_id: 'run-1',
     event_type: 'job.tool_denied',
     payload: JSON.stringify({
+      invocationId: 'invocation-1',
       denied_tool: 'mcp__gantry__browser_act',
       reason: 'Browser access is missing.',
       denial_kind: 'permission_denied',
@@ -363,6 +364,7 @@ describe('job visibility metadata', () => {
         listRecentJobEvents: vi.fn(async () => [
           makeDenialEvent({
             payload: JSON.stringify({
+              invocationId: 'invocation-1',
               denied_tool: 'RunCommand',
               reason: 'Command access is missing.',
               denial_kind: 'permission_denied',

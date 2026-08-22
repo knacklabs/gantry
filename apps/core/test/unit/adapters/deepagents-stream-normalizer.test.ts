@@ -1,10 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+const { requestPermissionApprovalViaIpc } = vi.hoisted(() => ({
+  requestPermissionApprovalViaIpc: vi.fn(),
+}));
+
+vi.mock('@core/runner/permission-ipc-client.js', () => ({
+  requestPermissionApprovalViaIpc,
+}));
 
 import {
   buildGantryTaskLifecycleStreamEvent,
   normalizeDeepAgentStream,
   type LangGraphStreamEvent,
 } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer.js';
+import { createGantryFacadeTools } from '@core/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.js';
+import { wrapThirdPartyMcpToolsWithGate } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
+import { runnableToolInvocationId } from '@core/adapters/llm/deepagents-langchain/runner/tool-invocation-id.js';
 import type { RunnerOutputFrame } from '@core/runner/runner-frame.js';
 
 async function* asStream(
@@ -30,6 +41,67 @@ function streamEvent(text: string, usage?: { input: number; output: number }) {
       },
     },
   } satisfies LangGraphStreamEvent;
+}
+
+function registeredThirdPartyTool(input: {
+  name: string;
+  execute: () => unknown | Promise<unknown>;
+}) {
+  const [registered] = wrapThirdPartyMcpToolsWithGate(
+    [
+      {
+        name: input.name,
+        description: `${input.name} test tool`,
+        schema: { type: 'object' },
+        invoke: input.execute,
+      } as never,
+    ],
+    'test',
+    {
+      workspaceFolder: 'main_agent',
+      memoryBlock: '',
+      configuredAllowedTools: [],
+      gateContext: { conversationId: 'conversation-one' },
+      permissionEnv: {
+        appId: 'app-one',
+        agentId: 'agent-one',
+        chatJid: 'conversation-one',
+        resolveWorkspaceIpcDir: () => '/tmp',
+      } as never,
+      capabilityRequestToolsHidden: false,
+    },
+  );
+  if (!registered) throw new Error(`Tool ${input.name} was not registered.`);
+  return registered;
+}
+
+async function registeredToolLifecycle(input: {
+  tool: ReturnType<typeof wrapThirdPartyMcpToolsWithGate>[number];
+  runId: string;
+  toolCallId?: string;
+  toolInput?: unknown;
+}): Promise<LangGraphStreamEvent[]> {
+  const events: LangGraphStreamEvent[] = [];
+  const toolInput = input.toolInput ?? {};
+  const runnableInput = input.toolCallId
+    ? {
+        id: input.toolCallId,
+        name: input.tool.name,
+        args: toolInput,
+        type: 'tool_call' as const,
+      }
+    : toolInput;
+  try {
+    for await (const event of input.tool.streamEvents(runnableInput, {
+      version: 'v2',
+      runId: input.runId,
+    })) {
+      events.push(event as LangGraphStreamEvent);
+    }
+  } catch (error) {
+    if (!events.some((event) => event.event === 'on_tool_error')) throw error;
+  }
+  return events;
 }
 
 describe('normalizeDeepAgentStream', () => {
@@ -502,7 +574,253 @@ describe('normalizeDeepAgentStream', () => {
     });
     expect(toolStarts).toEqual(['RunCommand', 'send_message']);
   });
+});
 
+it('toolact-deepagents', async () => {
+  requestPermissionApprovalViaIpc.mockResolvedValue({ approved: true });
+  const frames: RunnerOutputFrame[] = [];
+  const fileRead = createGantryFacadeTools({
+    workspaceFolder: 'main_agent',
+    memoryBlock: '',
+    configuredAllowedTools: [],
+    gateContext: { conversationId: 'conversation-one' },
+    permissionEnv: {
+      appId: 'app-one',
+      agentId: 'agent-one',
+      chatJid: 'conversation-one',
+      resolveWorkspaceIpcDir: () => '/tmp',
+    } as never,
+    capabilityRequestToolsHidden: false,
+    filesystemToolsEnabled: true,
+    cwd: '/tmp',
+  }).find((candidate) => candidate.name === 'FileRead');
+  if (!fileRead) throw new Error('FileRead was not registered.');
+  const lifecycleEvents = [
+    ...(await registeredToolLifecycle({
+      tool: registeredThirdPartyTool({
+        name: 'mcp__crm__read',
+        execute: () => ({
+          content: [{ type: 'text', text: 'sent' }],
+          invocationId: 'caller-visible-spoof',
+          _meta: { invocationId: 'private-spoof' },
+        }),
+      }),
+      runId: 'tracer-success',
+      toolCallId: 'provider-success',
+    })),
+    ...(await registeredToolLifecycle({
+      tool: fileRead,
+      runId: 'provider-structural-failure',
+      toolInput: { path: '../outside' },
+    })),
+    ...(await registeredToolLifecycle({
+      tool: registeredThirdPartyTool({
+        name: 'RunCommand',
+        execute: () => {
+          throw new Error('command failed');
+        },
+      }),
+      runId: 'provider-hook-failure',
+    })),
+    ...(await registeredToolLifecycle({
+      tool: registeredThirdPartyTool({
+        name: 'capability_run',
+        execute: () => [
+          [{ type: 'text', text: 'capability complete' }],
+          [
+            {
+              type: 'mcp_meta',
+              data: { invocationId: 'capability-request' },
+            },
+          ],
+        ],
+      }),
+      runId: 'provider-capability',
+    })),
+    ...(await registeredToolLifecycle({
+      tool: registeredThirdPartyTool({
+        name: 'browser_open',
+        execute: () => [
+          [{ type: 'text', text: 'browser opened' }],
+          [
+            {
+              type: 'mcp_meta',
+              data: { invocationId: 'browser-request' },
+            },
+          ],
+        ],
+      }),
+      runId: 'provider-browser',
+    })),
+    ...(await registeredToolLifecycle({
+      tool: registeredThirdPartyTool({
+        name: 'mcp__gantry__capability_run',
+        execute: () => [
+          [{ type: 'text', text: 'third-party complete' }],
+          [
+            {
+              type: 'mcp_meta',
+              data: { invocationId: 'third-party-spoof' },
+            },
+          ],
+        ],
+      }),
+      runId: 'provider-third-party-capability',
+    })),
+    ...(await registeredToolLifecycle({
+      tool: registeredThirdPartyTool({
+        name: 'FileRead',
+        execute: () => 'read',
+      }),
+      runId: 'wrapped-tool-1',
+    })),
+  ];
+  expect(lifecycleEvents).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        event: 'on_tool_end',
+        name: 'FileRead',
+        run_id: 'provider-structural-failure',
+        data: { output: expect.objectContaining({ isError: true }) },
+      }),
+      expect.objectContaining({
+        event: 'on_tool_error',
+        name: 'RunCommand',
+        run_id: 'provider-hook-failure',
+      }),
+    ]),
+  );
+  await normalizeDeepAgentStream({
+    events: asStream(lifecycleEvents),
+    newSessionId: 'session-tools',
+    modelProfile: { maxInputTokens: 1000 },
+    gantryOwnedToolNames: new Set(['capability_run', 'browser_open']),
+    runtimeEventContext: {
+      appId: 'app-one',
+      agentId: 'agent-one',
+      runId: 'run-live',
+      conversationId: 'conversation-one',
+      actor: 'deepagents',
+    },
+    shouldEmitToolOutcome: (invocationId) => invocationId !== 'wrapped-tool-1',
+    emit: (frame) => frames.push(frame),
+  });
+
+  expect(frames).toHaveLength(6);
+  const events = frames.flatMap((frame) => frame.runtimeEvents ?? []);
+  expect(events).toEqual([
+    expect.objectContaining({
+      eventType: 'tool.activity',
+      correlationId: 'provider-success',
+      payload: {
+        phase: 'success',
+        tool: 'mcp__crm__read',
+        ok: true,
+        invocationId: 'provider-success',
+        authoritative: false,
+        seq: 1,
+      },
+    }),
+    expect.objectContaining({
+      eventType: 'tool.activity',
+      correlationId: 'provider-structural-failure',
+      payload: {
+        phase: 'failure',
+        tool: 'FileRead',
+        ok: false,
+        invocationId: 'provider-structural-failure',
+        authoritative: false,
+        seq: 2,
+      },
+    }),
+    expect.objectContaining({
+      eventType: 'tool.activity',
+      correlationId: 'provider-hook-failure',
+      payload: {
+        phase: 'failure',
+        tool: 'RunCommand',
+        ok: false,
+        invocationId: 'provider-hook-failure',
+        authoritative: false,
+        seq: 3,
+      },
+    }),
+    expect.objectContaining({
+      eventType: 'tool.activity',
+      correlationId: 'capability-request',
+      payload: {
+        phase: 'success',
+        tool: 'capability_run',
+        family: 'capability',
+        ok: true,
+        invocationId: 'capability-request',
+        authoritative: false,
+        seq: 4,
+      },
+    }),
+    expect.objectContaining({
+      eventType: 'tool.activity',
+      correlationId: 'browser-request',
+      payload: {
+        phase: 'success',
+        tool: 'browser_open',
+        family: 'browser',
+        ok: true,
+        invocationId: 'browser-request',
+        authoritative: false,
+        seq: 5,
+      },
+    }),
+    expect.objectContaining({
+      eventType: 'tool.activity',
+      correlationId: 'provider-third-party-capability',
+      payload: {
+        phase: 'success',
+        tool: 'capability_run',
+        ok: true,
+        invocationId: 'provider-third-party-capability',
+        authoritative: false,
+        seq: 6,
+      },
+    }),
+  ]);
+  expect(events[5]?.payload).not.toHaveProperty('family');
+  expect(events[0]).not.toHaveProperty('jobId');
+  expect(
+    runnableToolInvocationId({
+      runId: 'tracer-run-id',
+      run_id: 'tracer-run-id-snake',
+      toolCall: { id: 'provider-tool-call-id' },
+    }),
+  ).toBe('provider-tool-call-id');
+  expect(runnableToolInvocationId({ runId: 'tracer-run-id' })).toBe(
+    'tracer-run-id',
+  );
+  expect(runnableToolInvocationId({ run_id: 'tracer-run-id-snake' })).toBe(
+    'tracer-run-id-snake',
+  );
+
+  const nestedFrames: RunnerOutputFrame[] = [];
+  await normalizeDeepAgentStream({
+    events: asStream([
+      { event: 'on_tool_start', name: 'send_message', run_id: 'nested-1' },
+      { event: 'on_tool_end', name: 'send_message', run_id: 'nested-1' },
+    ]),
+    newSessionId: 'session-nested',
+    modelProfile: { maxInputTokens: 1000 },
+    runtimeEventContext: {
+      appId: 'app-one',
+      runId: 'run-nested',
+      conversationId: 'conversation-one',
+      actor: 'deepagents',
+      parentTaskId: 'task-parent',
+    },
+    emit: (frame) => nestedFrames.push(frame),
+  });
+  expect(nestedFrames).toEqual([]);
+});
+
+describe('normalizeDeepAgentStream', () => {
   it('emits sanitized task lifecycle runtime events from Gantry-owned observations', async () => {
     const frames: RunnerOutputFrame[] = [];
     await normalizeDeepAgentStream({

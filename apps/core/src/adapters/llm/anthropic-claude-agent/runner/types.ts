@@ -111,6 +111,7 @@ export interface AgentRunnerRuntimeEventOutput {
   threadId?: string;
   eventType: string;
   actor?: string;
+  correlationId?: string;
   responseMode?: 'sse' | 'webhook' | 'both' | 'none';
   payload: unknown;
 }

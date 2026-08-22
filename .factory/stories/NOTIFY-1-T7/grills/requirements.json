@@ -1,0 +1,17 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Requirements validated against the repo: insertion points exist \u2014 ipc-capability-run-handler.ts success path (~line 295), execution.ts completion query (~line 575), status-formatting.ts pure formatters, execution-notifications.ts view builder (~line 447).",
+    "Data gap confirmed real: scheduled capability_run success emits nothing run-scoped; addressed by the producer reusing DIAG-1 summarizeCapabilityRunAudit + redactCapabilityArgv (both exist in application/mcp/mcp-tool-audit.ts).",
+    "StructuredJobResult and JobNotificationView types already carry result (domain/types.ts); boundJobNotificationView already bounds it \u2014 no schema change needed.",
+    "Scope bounded to apps/core/src/jobs + apps/core/src/domain + apps/core/test/unit/jobs; best-effort with neutral fallback preserved."
+  ],
+  "issue": "NOTIFY-1-T7",
+  "input_sha256": "adea7ae65c2efb9b21b444861db810a706992fcfb4bc995ee95611f9eb76de5f",
+  "recorded_at": "2026-08-21T11:05:17+00:00",
+  "commit": "46ab6ffc56be2c48104e9d70bab409be017da069"
+}

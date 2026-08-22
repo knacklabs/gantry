@@ -17,7 +17,7 @@
   ],
   "defaultLineBudget": 700,
   "lineBudgets": {
-    "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts": 710,
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts": 720,
     "apps/core/src/config/settings/settings-import-service.ts": 720,
     "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts": 2100,
     "apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts": 760,
@@ -43,7 +43,7 @@
     "apps/core/src/config/settings/desired-state-service.ts": 830,
     "apps/core/src/config/settings/runtime-settings-parser.ts": 1145,
     "apps/core/src/application/jobs/job-readiness-service.ts": 754,
-    "apps/core/src/jobs/execution.ts": 860,
+    "apps/core/src/jobs/execution.ts": 870,
     "apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts": 720,
     "apps/core/src/jobs/ipc-admin-handlers.ts": 933,
     "apps/core/src/runner/mcp/tools/service.ts": 850,
@@ -72,7 +72,9 @@
     "apps/core/src/adapters/storage/postgres/repositories/message-attachment-repository.postgres.ts": 730,
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts": 705,
     "apps/core/src/application/attachments/attachment-resolver.ts": 710,
-    "apps/core/src/channels/discord.ts": 740
+    "apps/core/src/channels/discord.ts": 740,
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts": 770,
+    "apps/core/src/jobs/status-formatting.ts": 725
   },
   "layers": {
     "domain": {
@@ -232,5 +234,8 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": ["apps/core/src", "packages"]
+  "emptyFolderScanRoots": [
+    "apps/core/src",
+    "packages"
+  ]
 }

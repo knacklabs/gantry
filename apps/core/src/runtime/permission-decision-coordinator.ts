@@ -280,6 +280,7 @@ export interface PermissionRunRestriction {
   memoryUserId?: string;
   jobId?: string;
   runId?: string;
+  parentTaskId?: string;
 }
 
 const permissionRunRestrictions = new Map<string, PermissionRunRestriction>();
@@ -292,6 +293,7 @@ export function registerPermissionRunRestriction(input: {
   memoryUserId?: string;
   jobId?: string;
   runId?: string;
+  parentTaskId?: string;
 }): void {
   permissionRunRestrictions.set(restrictionKey(input), {
     hideAuthorityTools: input.hideAuthorityTools,
@@ -299,6 +301,7 @@ export function registerPermissionRunRestriction(input: {
     ...(input.memoryUserId ? { memoryUserId: input.memoryUserId } : {}),
     ...(input.jobId ? { jobId: input.jobId } : {}),
     ...(input.runId ? { runId: input.runId } : {}),
+    ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
   });
 }
 

@@ -2,7 +2,7 @@ import type { AgentRunnerInput } from './types.js';
 import { DEFAULT_AGENT_ENGINE } from '../../../../shared/agent-engine.js';
 import { autonomousToolAuthorityAddition } from '../../../../shared/tool-execution-policy-service.js';
 import { log } from './logging.js';
-import { emitJobToolActivity } from './tool-permission-events.js';
+import { emitToolActivity } from './tool-permission-events.js';
 import {
   approveGrantSetupAction,
   instructionSetupAction,
@@ -18,6 +18,7 @@ export function denyNonPromptableAutonomousRecovery(input: {
   recoveryMessage: string;
   toolName: string;
   toolPolicyReason: string;
+  invocationId: string;
 }): { behavior: 'deny'; message: string; interrupt: true } | undefined {
   const action = autonomousDenialSetupAction({
     toolName: input.toolName,
@@ -28,7 +29,7 @@ export function denyNonPromptableAutonomousRecovery(input: {
   if (action.kind === 'approve_grant') return undefined;
   const message = `Tool not on autonomous run allowlist: ${input.toolName}. ${input.recoveryMessage}`;
   log(`Autonomous run denied tool ${input.toolName}: ${message}`);
-  emitJobToolActivity(
+  emitToolActivity(
     input.agentInput,
     input.getNewSessionId,
     'permission_denied',
@@ -36,6 +37,7 @@ export function denyNonPromptableAutonomousRecovery(input: {
     {
       ok: false,
       terminal: true,
+      invocationId: input.invocationId,
       action: jobSetupActionEventPayload(action),
       reason: input.toolPolicyReason,
       denial_kind: 'permission_denied',

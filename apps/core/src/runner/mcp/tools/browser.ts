@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { formatBrowserToolResponse } from '../formatting.js';
 import { requestBrowserAction } from '../ipc.js';
 import { formatOperatorError } from '../../../shared/operator-error.js';
+import { withPrivateToolActivityInvocationId } from '../../../domain/events/tool-activity.js';
 
 type BrowserToolSchema = Record<string, z.ZodTypeAny>;
 type PublicBrowserToolName =
@@ -102,15 +103,30 @@ async function callBrowserBackend(
     timeoutMs,
     publicToolName,
   });
-  if (!response.ok) return formatBrowserFailure(action, response.error);
-  if (isBrowserMcpResult(response.data)) {
-    return response.data;
+  if (!response.ok) {
+    return withInvocationId(
+      formatBrowserFailure(action, response.error),
+      response.invocationId,
+    );
   }
-  return {
-    content: [
-      { type: 'text' as const, text: formatBrowserToolResponse(response) },
-    ],
-  };
+  if (isBrowserMcpResult(response.data)) {
+    return withInvocationId(response.data, response.invocationId);
+  }
+  return withInvocationId(
+    {
+      content: [
+        { type: 'text' as const, text: formatBrowserToolResponse(response) },
+      ],
+    },
+    response.invocationId,
+  );
+}
+
+function withInvocationId(
+  result: BrowserMcpToolResult,
+  invocationId: string | undefined,
+): BrowserMcpToolResult {
+  return withPrivateToolActivityInvocationId(result, invocationId);
 }
 
 function isBrowserMcpResult(value: unknown): value is BrowserMcpToolResult {
@@ -149,7 +165,10 @@ function register(
   server.tool(
     name,
     `${description} Uses the host-derived Gantry browser profile. Add timeout_ms only to change the IPC/backend deadline.`,
-    { ...schema, timeout_ms: z.number().optional() },
+    {
+      ...schema,
+      timeout_ms: z.number().optional(),
+    },
     async (args) => (await handler(args)) as never,
   );
 }

@@ -1,5 +1,9 @@
 import type { Job } from '../domain/types.js';
-import type { RuntimeEventPublishInput } from '../domain/events/events.js';
+import type {
+  RuntimeEvent,
+  RuntimeEventFilter,
+  RuntimeEventPublishInput,
+} from '../domain/events/events.js';
 import {
   RUNTIME_EVENT_TYPES,
   type RuntimeEventType,
@@ -48,6 +52,30 @@ interface RuntimeControlEventRepository {
     triggerId: string,
     status: 'completed' | 'failed',
   ): Promise<void>;
+}
+
+const RECORDED_TOOL_ACTION_BATCH_SIZE = 500;
+
+export async function listRecordedToolActions(input: {
+  filter: RuntimeEventFilter;
+  listRuntimeEvents(filter: RuntimeEventFilter): Promise<RuntimeEvent[]>;
+}): Promise<RuntimeEvent[]> {
+  const actions: RuntimeEvent[] = [];
+  let afterEventId = input.filter.afterEventId;
+  for (;;) {
+    const batch = await input.listRuntimeEvents({
+      ...input.filter,
+      ...(afterEventId === undefined ? {} : { afterEventId }),
+      limit: RECORDED_TOOL_ACTION_BATCH_SIZE,
+    });
+    actions.push(...batch);
+    if (batch.length < RECORDED_TOOL_ACTION_BATCH_SIZE) return actions;
+    const nextEventId = batch.at(-1)?.eventId;
+    if (nextEventId === undefined || nextEventId === afterEventId) {
+      return actions;
+    }
+    afterEventId = nextEventId;
+  }
 }
 
 export interface SchedulerRunEventState {
@@ -139,8 +167,9 @@ export function createSchedulerJobEventEmitter(input: {
 }): (
   eventType: RuntimeEventType,
   payload: Record<string, unknown> | null,
+  correlationId?: string,
 ) => Promise<void> {
-  return async (eventType, payload): Promise<void> => {
+  return async (eventType, payload, correlationId): Promise<void> => {
     if (await input.deletionGuard.isJobDeleted(true)) return;
     try {
       const appSession =
@@ -150,6 +179,7 @@ export function createSchedulerJobEventEmitter(input: {
       await input.publishRuntimeEvent({
         appId: eventAppId as never,
         eventType,
+        ...(correlationId ? { correlationId } : {}),
         payload,
         actor: 'scheduler',
         sessionId: appSession?.sessionId as never,
@@ -234,6 +264,7 @@ export async function publishTerminalToolDenials(input: {
         eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
         payload: toolDenialEventPayload(denial, safeError),
         actor: 'scheduler',
+        correlationId: denial.invocationId,
         sessionId: appSession?.sessionId as never,
         jobId: input.currentJob.id as never,
         runId: input.runId as never,

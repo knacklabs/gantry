@@ -759,12 +759,14 @@ describe('coordinatePermissionDecision', () => {
       runKind: 'scheduled',
       jobId: 'job-1',
       runId: 'run-1',
+      parentTaskId: 'task-parent',
     });
     expect(permissionRunRestriction(key)).toEqual({
       hideAuthorityTools: true,
       runKind: 'scheduled',
       jobId: 'job-1',
       runId: 'run-1',
+      parentTaskId: 'task-parent',
     });
     unregisterPermissionRunRestriction(key);
     expect(permissionRunRestriction(key)).toBeUndefined();

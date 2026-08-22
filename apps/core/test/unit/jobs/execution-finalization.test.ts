@@ -40,6 +40,7 @@ function listDenialEvents(
 ): ReturnType<typeof vi.fn> {
   if (!denial) return vi.fn(async () => []);
   const value: JobToolDenial = {
+    invocationId: 'denial-1',
     toolName: 'Bash',
     reason: 'Denied by operator.',
     denialKind: 'permission_denied',
@@ -61,7 +62,9 @@ function listDenialEvents(
       appId: 'default',
       eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
       actor: 'scheduler',
+      correlationId: value.invocationId,
       payload: {
+        ...(value.invocationId ? { invocationId: value.invocationId } : {}),
         denied_tool: value.toolName,
         reason: value.reason,
         denial_kind: value.denialKind,
@@ -98,6 +101,7 @@ describe('execution finalization', () => {
     const { deps, sendMessage } = makeDeps();
     const diagnostics = createJobRunDiagnostics();
     diagnostics.terminalToolDenial = {
+      invocationId: 'denial-grant-naming',
       toolName: 'RunCommand',
       reason: 'Worker matcher found no matching allowedTools rule.',
       action: {
@@ -149,6 +153,42 @@ describe('execution finalization', () => {
     );
   });
 
+  it('AUTODET-1-2 > prepares setup interaction from a deterministic denial without invocation id', async () => {
+    const { deps, sendMessage } = makeDeps();
+    const diagnostics = createJobRunDiagnostics();
+
+    await finalizeSchedulerJobRun({
+      currentJob: makeJob({
+        notification_routes: [
+          {
+            conversationJid: 'tg:job-owner',
+            threadId: 'thread-1',
+            label: 'primary',
+          },
+        ],
+      }),
+      deps,
+      scheduledFor: '2024-01-01T00:00:00.000Z',
+      now: '2024-01-01T00:00:01.000Z',
+      error: DENIAL_ERROR,
+      diagnostics,
+      pausedForSetupDuringRun: false,
+      deletedDuringRun: false,
+      runtimeAppId: 'default',
+      runId: 'run-without-denial-invocation-id',
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      listRuntimeEvents: listDenialEvents({
+        invocationId: undefined,
+        toolName: 'RunCommand',
+      }),
+    });
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage.mock.calls[0]?.[1]).toContain(
+      'Approve exact command access, then resume the job.',
+    );
+  });
+
   it('classifies an Anthropic autonomous denial as failed for fresh retry, not resumably paused', async () => {
     const { deps, updateJob } = makeDeps();
     const state = await finalizeSchedulerJobRun({
@@ -190,6 +230,7 @@ describe('execution finalization', () => {
     const { deps, updateJob } = makeDeps();
     const diagnostics = createJobRunDiagnostics();
     diagnostics.terminalToolDenial = {
+      invocationId: 'denial-attended',
       toolName: 'Bash',
       reason: 'Denied by operator.',
       denialKind: 'permission_denied',
@@ -226,7 +267,9 @@ describe('execution finalization', () => {
       appId: 'default',
       eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
       actor: 'scheduler' as const,
+      correlationId: `denial-${eventId}`,
       payload: {
+        invocationId: `denial-${eventId}`,
         denied_tool: toolName,
         reason: 'Denied by operator.',
         denial_kind: 'permission_denied',
@@ -299,7 +342,7 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
     const diagnostics = createJobRunDiagnostics();
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       {
         phase: 'permission_allowed',
         tool: 'Bash',
@@ -348,7 +391,7 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
     const diagnostics = createJobRunDiagnostics();
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       {
         phase: 'permission_allowed',
         tool: 'Bash',

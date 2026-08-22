@@ -1,0 +1,17 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Universal scope validated: rename JOB_TOOL_ACTIVITY->TOOL_ACTIVITY, drop isScheduledJob gates, tool-activity is a universal runtime signal with job notification as one consumer.",
+    "Correlation-ID backbone is the unifying design closing dedup, host/generic correlation, and streaming-replay gaps (Codex-validated); invocationId+seq at start, stamped on all tool events.",
+    "Complete both-runtime recording: anthropic PostToolUse/PostToolUseFailure with full structural classifier; deepagents on_tool_end/on_tool_error with runtimeEventOnly; inline failure-on-isError + middleware coverage.",
+    "Neutral projection groups by RAW key (not display label), failed-first with +N overflow, camelCase split + MCP suffix; retention bounds live-turn volume; delegation top-level-only contract explicit."
+  ],
+  "input_sha256": "213fd6d3dc67478498bf53bc5067b3287a81e6582b5a6bf82a1652481ff5106d",
+  "issue": "NOTIFY-1-T7",
+  "recorded_at": "2026-08-21T11:05:43+00:00",
+  "commit": "46ab6ffc56be2c48104e9d70bab409be017da069"
+}

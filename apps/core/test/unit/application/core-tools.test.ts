@@ -102,7 +102,11 @@ describe('core tool registry', () => {
     );
 
     await expect(
-      registry.execute('task_get', { taskId: 'task-1' }),
+      registry.execute(
+        'task_get',
+        { taskId: 'task-1' },
+        { invocationId: 'tool-call-1' },
+      ),
     ).resolves.toMatchObject({
       isError: true,
       error: {
@@ -114,7 +118,8 @@ describe('core tool registry', () => {
     expect(backend.task_get).not.toHaveBeenCalled();
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+        correlationId: 'tool-call-1',
         payload: expect.objectContaining({
           phase: 'deny',
           reason: expect.stringContaining('list tasks first'),

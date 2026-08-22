@@ -20,6 +20,7 @@ function runtimeEventDedupKey(input: {
   jobId?: string;
   conversationId?: string;
   threadId?: string | null;
+  correlationId?: string;
   payload?: unknown;
 }): string {
   let payload: string;
@@ -36,6 +37,7 @@ function runtimeEventDedupKey(input: {
     input.jobId ?? '',
     input.conversationId ?? '',
     input.threadId ?? '',
+    input.correlationId ?? '',
     payload,
   ].join('\u001f');
 }
@@ -90,6 +92,7 @@ export async function forwardRuntimeEvents(input: {
       jobId: event.jobId,
       conversationId: event.conversationId ?? input.chatJid,
       threadId: event.threadId ?? input.sessionThreadId,
+      correlationId: event.correlationId,
       payload: event.payload,
     });
     if (input.forwardedKeys.has(eventKey)) continue;
@@ -109,6 +112,7 @@ export async function forwardRuntimeEvents(input: {
           : {}),
         eventType: event.eventType,
         actor: event.actor ?? 'runner',
+        ...(event.correlationId ? { correlationId: event.correlationId } : {}),
         responseMode: event.responseMode ?? 'none',
         payload: event.payload,
       });

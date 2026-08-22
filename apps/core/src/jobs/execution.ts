@@ -67,6 +67,7 @@ import {
   publishTerminalToolDenials,
   createRuntimeEventPublisher as createEventPublisher,
   createSchedulerJobEventEmitter,
+  listRecordedToolActions,
   publishSchedulerCompletionEvent,
 } from './execution-runtime-events.js';
 import { resolveAppSessionForJob } from './app-session-resolution.js';
@@ -517,12 +518,17 @@ async function runActiveJob(
               },
               streamHandler: async (streamedOutput: AgentOutput) => {
                 if (runLeaseAbort.isAborted()) return;
-                for (const event of streamedOutput.runtimeEvents ?? []) {
+                const unforwardedRuntimeEvents =
+                  filterUnforwardedRunnerRuntimeEvents(
+                    streamedOutput.runtimeEvents,
+                    streamedRuntimeEventKeys,
+                  );
+                for (const event of unforwardedRuntimeEvents ?? []) {
                   const eventKey = runnerRuntimeEventKey(event);
                   if (eventKey) streamedRuntimeEventKeys.add(eventKey);
                 }
                 await forwardRunnerRuntimeEvents({
-                  events: streamedOutput.runtimeEvents,
+                  events: unforwardedRuntimeEvents,
                   diagnostics,
                   emitJobEvent,
                 });
@@ -577,7 +583,7 @@ async function runActiveJob(
                   runtimeAppId) as never,
                 jobId: currentJob.id as never,
                 runId: runId as never,
-                eventTypes: [RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY],
+                eventTypes: [RUNTIME_EVENT_TYPES.TOOL_ACTIVITY],
               });
               await forwardRunnerRuntimeEvents({
                 events: browserActivityEvents.filter(
@@ -752,6 +758,23 @@ async function runActiveJob(
       emitJobEvent,
       logger,
     });
+    let recordedActions: Awaited<ReturnType<typeof listRecordedToolActions>>;
+    try {
+      recordedActions = await listRecordedToolActions({
+        filter: {
+          appId: (eventState.eventAppSession?.appId ?? runtimeAppId) as never,
+          jobId: currentJob.id as never,
+          runId: runId as never,
+          eventTypes: [
+            RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+            RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+          ],
+        },
+        listRuntimeEvents: (filter) => runtimeEventExchange.list(filter),
+      });
+    } catch {
+      recordedActions = [];
+    }
     logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
     const notified =
       !(await deletionGuard.shouldSuppressDelivery()) &&
@@ -766,6 +789,7 @@ async function runActiveJob(
         setupNotified,
         diagnostics,
         toolDenial,
+        recordedActions,
         durationMs: Math.max(0, nowMs() - startedAtMs),
         runShortId,
         sendMessage: deps.sendMessage,

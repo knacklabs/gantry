@@ -1294,6 +1294,27 @@
       "depends_on": [],
       "origin": "adhoc",
       "spec_debt_reason": "Capturing in-flight diagnosability/notification work (base card + heartbeat flush already implemented) as a tracked story; spec to be confirmed before formal planning of remaining tasks"
+    },
+    {
+      "key": "NOTIFY-1-T7",
+      "title": "Deterministic structured job result from recorded run actions",
+      "story": "As an operator, I want a scheduled job's completion notification to show what it actually did (capabilities run, browser actions, failures) derived deterministically from recorded run actions, so that I see the real outcome instead of raw truncated narration.",
+      "acceptance_criteria": [
+        "Scheduled capability_run success emits a run-scoped record (capabilityId + outcome, args opt-in gated + redacted) so the outcome is queryable at completion",
+        "Notification result.items are projected deterministically from recorded capability + browser + denial actions; thin semantic map for known capabilities, generic humanized fallback for unknown",
+        "Neutral fallbackText is always produced; empty recorded actions yield no result (fallback used); the view stays bounded"
+      ],
+      "order": 65,
+      "status": "done",
+      "epic": "observability",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/notify-1-t7-deterministic-job-result.md",
+      "completed_at": "2026-08-22T04:03:17+00:00",
+      "history": ".factory/stories/NOTIFY-1-T7/",
+      "outcome": "Every scheduled job (and every live turn) now produces a structured, neutral summary of what it actually did for any tool on either runtime and provider - grouped actions with counts, failed-first, family-aware labels (e.g. 'Google Sheets Values Append x3', 'WebSearch x5', 'Browser: Open') - instead of falling back to raw narration. A single tool.activity event is recorded per tool call on both worker runtimes and both inline lanes with per-invocation correlation; Gantry-owned capability/browser events dedup against the generic event via trusted, provenance-gated result metadata (decision 0132), so a third-party tool can never spoof correlation. Someone reading a finished job now sees exactly which actions ran and which failed."
     }
   ],
   "epics": [
@@ -1390,5 +1411,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-22T08:47:50+00:00"
+  "updated_at": "2026-08-22T09:21:01+00:00"
 }

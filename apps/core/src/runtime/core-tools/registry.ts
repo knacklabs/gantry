@@ -372,11 +372,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
             isRetryable: false,
             message: denial.reason,
           };
-          if (
-            deps.context.isScheduledJob &&
-            deps.context.jobId &&
-            deps.publishRuntimeEvent
-          ) {
+          if (deps.publishRuntimeEvent && context?.invocationId) {
             await deps
               .publishRuntimeEvent({
                 appId: deps.context.appId as never,
@@ -385,12 +381,14 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
                 jobId: deps.context.jobId as never,
                 conversationId: deps.context.conversationId as never,
                 threadId: deps.context.threadId as never,
-                eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+                eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
                 actor: 'inline-agent',
+                correlationId: context.invocationId,
                 responseMode: 'none',
                 payload: {
                   phase: 'deny',
                   tool: ruleName,
+                  invocationId: context.invocationId,
                   ok: false,
                   reason: error.message,
                   error,
