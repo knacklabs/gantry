@@ -1009,11 +1009,16 @@ def _run_required_tests(base: Path, stage_id: str, task: dict) -> None:
                 try:
                     with blocked_termination_signals():
                         process_baseline = _process_table()
+                        spawn_options = (
+                            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                            if os.name == "nt"
+                            else {"start_new_session": True,
+                                  "preexec_fn": unblock_termination_signals_in_child}
+                        )
                         proc = subprocess.Popen(
                             tokens, cwd=base, stdout=stdout_log,
                             stderr=stderr_log, text=True, env=env,
-                            start_new_session=True,
-                            preexec_fn=unblock_termination_signals_in_child,
+                            **spawn_options,
                         )
                         process_identity = _capture_spawn_identity(proc)
                     if not _wait_and_reap(
@@ -1103,11 +1108,16 @@ def _run_verify_commands(base: Path, stage_id: str, task: dict) -> None:
             try:
                 with blocked_termination_signals():
                     process_baseline = _process_table()
+                    spawn_options = (
+                        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                        if os.name == "nt"
+                        else {"start_new_session": True,
+                              "preexec_fn": unblock_termination_signals_in_child}
+                    )
                     proc = subprocess.Popen(
                         str(command), cwd=base, shell=True, stdout=stdout_log,
-                        stderr=stderr_log, text=True, start_new_session=True,
-                        env=env,
-                        preexec_fn=unblock_termination_signals_in_child,
+                        stderr=stderr_log, text=True, env=env,
+                        **spawn_options,
                     )
                     process_identity = _capture_spawn_identity(proc)
                 if not _wait_and_reap(

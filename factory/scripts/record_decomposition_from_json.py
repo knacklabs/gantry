@@ -4,9 +4,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
+import posixpath
 import shlex
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from factory_lib import (
     decomposition_state_path, dump_json, gate, head_sha,
@@ -215,8 +215,16 @@ for pos, task in enumerate(tasks, 1):
                 f"decomposition task {task['id']}: required_tests entry "
                 f"{proof_pos} needs exactly non-empty id, path and command strings."
             )
-        rel = Path(proof["path"])
-        if rel.is_absolute() or ".." in rel.parts or os.path.normpath(proof["path"]) != proof["path"]:
+        # Repo-relative paths are always posix (forward slashes), independent of
+        # the host OS. Using os.path here validated with ntpath on Windows, which
+        # rewrites "a/b/c" to "a\\b\\c" and rejected every valid path.
+        rel = PurePosixPath(proof["path"])
+        if (
+            "\\" in proof["path"]
+            or rel.is_absolute()
+            or ".." in rel.parts
+            or posixpath.normpath(proof["path"]) != proof["path"]
+        ):
             raise SystemExit(
                 f"decomposition task {task['id']}: required test path "
                 f"{proof['path']!r} must be a normalized repo-relative path."

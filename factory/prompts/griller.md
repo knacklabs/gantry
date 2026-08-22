@@ -38,7 +38,13 @@ Five gates, five scopes:
   work with no named consumer — shims, deprecation paths, migration flows
   the BRIEF and decisions justify for NOBODY (conduct §5: a breaking
   replacement deletes the old path unless live users are named), choices missing
-  from the plan's Decisions section. Reconcile the plan explicitly against
+  from the plan's Decisions section — INCLUDING any technology, framework,
+  package-manager, test-runner, library, data-access, or build-tool pick that
+  appears in the plan or tasks as an ecosystem default with no stated best-fit
+  justification and no raised open question (conduct §9: silent tooling defaults
+  are prohibited — a pick whose fit is unclear must be asked of the human, not
+  defaulted; fail the plan on any tooling choice reached for on autopilot).
+  Reconcile the plan explicitly against
   EVERY ID from `forge decision list --active`; a conflict becomes a
   contradiction signal or a superseding decision, never a silent exception.
   Also hunt unbounded tasks and a Verify Plan that can't actually falsify the

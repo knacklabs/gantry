@@ -49,6 +49,14 @@ Decisions section rules:
 - Every choice NOT derivable from BRIEF, architecture, or existing decision
   records is a decision (library pick, data-model shape, queue vs cron,
   API contract change, tradeoff accepted).
+- **Technology/tooling picks are decisions, never silent defaults (conduct
+  §9).** Every framework, package manager, test runner, library, data-access,
+  or build-tool choice is named here with a one-line reason it is the BEST fit
+  for this environment — NOT the ecosystem-conventional default reached for on
+  autopilot. When the best fit is unclear or confidence is low, do not default:
+  raise it as an `open_items` question for the human before building on it. A
+  tooling choice that appears in the code but not here (no justification, no
+  raised question) is exactly the defect the plan grill fails.
 - Each one must exist as a record — `python3 factory/scripts/forge.py decision
   new <slug>` — BEFORE decomposition is recorded, and be referenced here by
   path (e.g. `docs/decisions/0007-queue-over-cron.md`).

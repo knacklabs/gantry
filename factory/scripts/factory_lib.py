@@ -644,7 +644,21 @@ def dump_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+# Git's control dir is constant for a worktree over a process's lifetime, but
+# resolving it shells out to git twice. The board resolves it ~100× per poll
+# (once per run_state_path / evidence_path call), which turned a single request
+# into ~16s of subprocess churn on Windows. Memoise per resolved root so a
+# request costs two git calls, not two hundred. Only successful results are
+# cached; a failure re-runs so a transient git error is not pinned for the
+# process's life.
+_GIT_CONTROL_DIR_CACHE: dict[Path, Path] = {}
+
+
 def git_control_dir(root: Path) -> Path:
+    resolved = root.resolve()
+    cached = _GIT_CONTROL_DIR_CACHE.get(resolved)
+    if cached is not None:
+        return cached
     proc = subprocess.run(
         ["git", "rev-parse", "--absolute-git-dir"],
         cwd=root,
@@ -663,12 +677,14 @@ def git_control_dir(root: Path) -> Path:
         proc.returncode != 0
         or top.returncode != 0
         or not proc.stdout.strip()
-        or Path(top.stdout.strip()).resolve() != root.resolve()
+        or Path(top.stdout.strip()).resolve() != resolved
     ):
         raise SystemExit(
             "Cannot resolve Git's protected control directory for factory state."
         )
-    return Path(proc.stdout.strip()) / "forge"
+    result = Path(proc.stdout.strip()) / "forge"
+    _GIT_CONTROL_DIR_CACHE[resolved] = result
+    return result
 
 
 def protected_decomposition_state_path(root: Path) -> Path:

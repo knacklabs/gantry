@@ -93,6 +93,24 @@ whether the sentence changes what the reader does next; if it does not,
 it does not ship. Narration is a budget, not a diary — spend it where it
 buys attention, because attention is the scarcest gate in the loop.
 
+## 9. Technology choices are deliberate, never a default
+
+Agents default to the ecosystem-conventional tool — the framework's bundled
+test runner, the language's baseline package manager, "whatever the scaffolder
+emits" — and let it ride as if it were free. It is not a choice; it is a
+default wearing the costume of one. For EVERY technology, tooling, framework,
+library, package manager, test runner, data-access/build tool, or comparable
+pick: choose the BEST fit for THIS environment and its constraints, and name it
+with a one-line reason in the plan's Decisions section (or a decision record).
+When the best fit is genuinely unclear, confidence is low, or two options are
+close enough that it matters — STOP and ask the human which to use, before
+building on the choice. Silent ecosystem defaults are prohibited: an
+unjustified, unremarked tooling choice is a plan defect the grill fails,
+exactly like an over-built plan (§2) or a reflexive compat layer (§5).
+Confident and the fit is clear → decide and justify; unsure or conflicted →
+ask. Consistency is the point: this holds for every such choice, every plan —
+never justified once and defaulted the next time.
+
 ---
 
 Working when: diffs contain fewer unnecessary changes, fewer rewrites from
