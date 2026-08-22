@@ -1,0 +1,80 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": false,
+  "project": "",
+  "story": "NOTIFY-1-T7",
+  "epic": "observability",
+  "plan_file": "plans/active/NOTIFY-1-T7-deterministic-structured-job-result-from-recorded-run-actions.md",
+  "tasks": [
+    {
+      "id": "NOTIFY-1-T7",
+      "title": "Move required tool-activity tests to top-level it for JUnit attribution",
+      "objective": "Three required tests are nested in describe blocks, so vitest JUnit names them 'describe > it' and the forge stage gate (which needs testcase name == id and runs with -t id) cannot attribute them (nested test is skipped). Move each required test to a TOP-LEVEL it() named exactly toolact-projection / toolact-anthropic / toolact-deepagents, out of its describe, keeping it passing. Change ONLY test structure; no product code.",
+      "dependencies": [],
+      "doc_references": [],
+      "acceptance_criteria": [
+        "The three required tests toolact-projection, toolact-anthropic, toolact-deepagents are top-level it() calls named exactly by their id (not nested in a describe); each passes and its JUnit testcase name equals the id with the file attribute set"
+      ],
+      "write_scope": [
+        "apps/core/src/jobs",
+        "apps/core/src/domain",
+        "apps/core/src/adapters/llm",
+        "apps/core/src/shared",
+        "apps/core/src/adapters/storage/postgres",
+        "apps/core/test/unit/jobs",
+        "apps/core/test/unit/adapters",
+        "apps/core/test/unit/runner",
+        "apps/core/test/unit/shared",
+        "apps/core/test/integration",
+        "scripts",
+        "apps/core/src/application/jobs",
+        "apps/core/src/runtime",
+        "apps/core/src/runner",
+        "apps/core/test/unit/application",
+        "apps/core/test/unit/runtime",
+        "apps/core/test/e2e",
+        "apps/core/test/unit/adapters/storage/postgres",
+        "apps/core/test/unit/application/runtime-events",
+        "apps/core/test/unit/control",
+        "apps/core/src/control",
+        "packages/sdk",
+        "docs/decisions"
+      ],
+      "required_tests": [
+        {
+          "id": "toolact-projection",
+          "path": "apps/core/test/unit/jobs/status-formatting.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "toolact-anthropic",
+          "path": "apps/core/test/unit/runner/query-loop.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "toolact-deepagents",
+          "path": "apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "universal emission on all 4 seams; provenance-gated _meta correlation/dedup; family-aware neutral projection; both-runtime parity.",
+      "plan_contracts": [
+        {
+          "id": "TOOLACT-1-J1",
+          "statement": "The three required tests toolact-projection, toolact-anthropic, toolact-deepagents are top-level it() calls named exactly by their id (not nested in a describe); each passes and its JUnit testcase name equals the id with the file attribute set",
+          "source": "plans/active/NOTIFY-1-T7-deterministic-structured-job-result-from-recorded-run-actions.md"
+        }
+      ],
+      "review_budget": {
+        "max_changed_files": 85,
+        "max_changed_lines": 4000,
+        "reason": "repo-wide TOOL_ACTIVITY rename extends to the public OpenAPI event union + REGENERATED SDK client (packages/sdk src+dist generated files are large but mechanical/generated); substantive review remains the 4 recording seams + correlation-id + projection."
+      }
+    }
+  ],
+  "plan_sha256": "f70e68df2a4ab48bb28923a9b3b02e164c4d58d6f62e3047e0ad527064d9490f",
+  "commit": "b9a357f61296e4dad27ea24b44b9417f12b9a053"
+}
