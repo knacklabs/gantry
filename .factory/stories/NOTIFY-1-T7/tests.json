@@ -3,7 +3,7 @@
   "automated": {
     "generated_by": "implementer",
     "status": "pass",
-    "summary": "Universal tool-activity + neutral structured job result across both worker runtimes (Anthropic SDK PostToolUse hook, DeepAgents lifecycle) and both inline lanes, with per-invocation correlation, provenance-gated Gantry _meta dedup (decision 0132), family-aware projection and retention. Full verify.py green: 8922 unit tests pass, integration boundary suites incl. claude-agent-sdk-boundary 23/23, structural (format + architecture) and dual-runtime gates pass. Required proofs toolact-projection, toolact-anthropic, toolact-deepagents pass as attributed top-level tests.",
+    "summary": "Universal tool-activity + neutral structured job result across both worker runtimes (Anthropic SDK PostToolUse hook, DeepAgents lifecycle) and both inline lanes, with per-invocation correlation, provenance-gated Gantry _meta dedup (decision 0133), family-aware projection and retention. Full verify.py green: 8922 unit tests pass, integration boundary suites incl. claude-agent-sdk-boundary 23/23, structural (format + architecture) and dual-runtime gates pass. Required proofs toolact-projection, toolact-anthropic, toolact-deepagents pass as attributed top-level tests.",
     "blocking_findings": [],
     "commands_run": [
       "python3 factory/scripts/verify.py",

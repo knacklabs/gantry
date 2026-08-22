@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0058-fb01",
+  "profile": "quickfix",
+  "reason": "Resolve merged decision identifier collision blocking scaffold check",
+  "started_at": "2026-08-22T09:30:54+00:00",
+  "completed_at": "2026-08-22T09:31:27+00:00",
+  "files": []
+}

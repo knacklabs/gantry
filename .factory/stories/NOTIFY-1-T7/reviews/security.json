@@ -2,11 +2,11 @@
   "generated_by": "autoreview",
   "status": "passed",
   "score": 9,
-  "summary": "The one security-relevant risk surfaced in review \u2014 a third-party MCP tool spoofing the correlation invocationId via its own result payload \u2014 is closed: result-metadata extraction is restricted to the private _meta.invocationId path AND gated on trusted registration provenance (host allowed-tools + reserved mcp__gantry__ namespace / registered-tool marker), so a third-party tool can never be classed Gantry-owned by name (decision 0132). Caller-visible browser/capability result shape is unchanged; no _meta clobbering; no secret leakage in recorded detail (bounded, redacted capability audit summary).",
+  "summary": "The one security-relevant risk surfaced in review \u2014 a third-party MCP tool spoofing the correlation invocationId via its own result payload \u2014 is closed: result-metadata extraction is restricted to the private _meta.invocationId path AND gated on trusted registration provenance (host allowed-tools + reserved mcp__gantry__ namespace / registered-tool marker), so a third-party tool can never be classed Gantry-owned by name (decision 0133). Caller-visible browser/capability result shape is unchanged; no _meta clobbering; no secret leakage in recorded detail (bounded, redacted capability audit summary).",
   "blocking_findings": [],
   "non_blocking_findings": [],
   "residual_risks": [
-    "Gantry correlation depends on MCP result _meta surviving the SDK round-trip (spec-supported, our own tool's metadata); documented in decision 0132."
+    "Gantry correlation depends on MCP result _meta surviving the SDK round-trip (spec-supported, our own tool's metadata); documented in decision 0133."
   ],
   "recommendation": "approve",
   "aspect": "security",

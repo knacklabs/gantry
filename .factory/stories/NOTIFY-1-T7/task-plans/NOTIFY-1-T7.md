@@ -17,7 +17,7 @@ Do NOT change, revert, re-implement, rename, or "clean up" anything. Make ZERO e
 - Generic events use the provider identity; Gantry-owned capability/browser events
   dedup via the private result `_meta`, gated on TRUSTED registration provenance
   (host allowed-tools + reserved `mcp__gantry__` namespace / registered-tool
-  marker) — never a third-party tool by name. See decision 0132.
+  marker) — never a third-party tool by name. See decision 0133.
 - Per-invocation inline provider-id binding; DeepAgents prefers provider
   `toolCall.id` over tracer `runId`; retention prunes live + completed-notified
   activity; denial stays `job.tool_denied` (decisions 0115/0126).
