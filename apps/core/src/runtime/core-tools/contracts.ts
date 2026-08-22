@@ -14,6 +14,7 @@ export interface McpCompatibleToolResult {
 
 export interface CoreToolHandlerContext {
   signal?: AbortSignal;
+  invocationId?: string;
 }
 
 export interface CoreToolDefinition {

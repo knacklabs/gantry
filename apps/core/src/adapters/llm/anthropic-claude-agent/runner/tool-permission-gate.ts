@@ -37,7 +37,7 @@ import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import {
   emitGateDenialActivity,
-  emitJobToolActivity,
+  emitToolActivity,
   emitYoloDenylistHit,
   formatPermissionAllowedMessage,
   permissionAllowedActivityPayload,
@@ -144,13 +144,13 @@ export function createCanUseToolCallback(
     lockedAccessPreset || input.agentInput.hideAuthorityTools === true;
   return async (toolName, rawToolInput, permissionOpts) => {
     input.recordToolActivity(toolName);
-    emitJobToolActivity(
+    emitToolActivity(
       input.agentInput,
       input.getNewSessionId,
       'sdk_tool_request',
       toolName,
       {
-        toolUseID: permissionOpts.toolUseID,
+        invocationId: permissionOpts.toolUseID,
       },
     );
     const toolInput = forceBackgroundNativeAgentInput(toolName, rawToolInput);
@@ -161,6 +161,7 @@ export function createCanUseToolCallback(
         agentInput: input.agentInput,
         getNewSessionId: input.getNewSessionId,
         toolName,
+        invocationId: permissionOpts.toolUseID,
         reason: message,
         decision: 'removed_native_subagent_tool',
         action: instructionSetupAction(message),
@@ -174,7 +175,7 @@ export function createCanUseToolCallback(
     const waitOnlyDenial = waitOnlyBashMonitoringDenial(toolName, toolInput);
     if (waitOnlyDenial) {
       log(`Permission denied by wait-only Bash guard: ${waitOnlyDenial}`);
-      emitJobToolActivity(
+      emitToolActivity(
         input.agentInput,
         input.getNewSessionId,
         'deny',
@@ -183,6 +184,7 @@ export function createCanUseToolCallback(
           ok: false,
           reason: waitOnlyDenial,
           decision: 'wait_only_bash_guard',
+          invocationId: permissionOpts.toolUseID,
         },
       );
       return {
@@ -271,7 +273,7 @@ export function createCanUseToolCallback(
       input.agentInput.agentId ||
       input.workspaceFolder;
     const allowToolUse = (reason = 'allowed') => {
-      emitJobToolActivity(
+      emitToolActivity(
         input.agentInput,
         input.getNewSessionId,
         'allow',
@@ -279,6 +281,7 @@ export function createCanUseToolCallback(
         {
           ok: true,
           reason,
+          invocationId: permissionOpts.toolUseID,
         },
       );
       return { behavior: 'allow' as const, updatedInput: trustInput() };
@@ -297,7 +300,7 @@ export function createCanUseToolCallback(
       const modelDenial = validateAgentToolInput(toolInput, currentModel);
       if (modelDenial) {
         log(`Permission denied by model catalog guard: ${modelDenial}`);
-        emitJobToolActivity(
+        emitToolActivity(
           input.agentInput,
           input.getNewSessionId,
           'deny',
@@ -306,6 +309,7 @@ export function createCanUseToolCallback(
             ok: false,
             reason: modelDenial,
             decision: 'model_catalog_guard',
+            invocationId: permissionOpts.toolUseID,
           },
         );
         return {
@@ -337,6 +341,7 @@ export function createCanUseToolCallback(
         agentInput: input.agentInput,
         getNewSessionId: input.getNewSessionId,
         toolName,
+        invocationId: permissionOpts.toolUseID,
         reason: protectedCapabilityDenial,
         decision: 'protected_capability_denied',
         action: instructionSetupAction(protectedCapabilityDenial),
@@ -359,6 +364,7 @@ export function createCanUseToolCallback(
         agentInput: input.agentInput,
         getNewSessionId: input.getNewSessionId,
         toolName,
+        invocationId: permissionOpts.toolUseID,
         reason: memoryGuardDenial,
         decision: 'memory_boundary_guard',
         action: instructionSetupAction(memoryGuardDenial),
@@ -436,6 +442,7 @@ export function createCanUseToolCallback(
           agentInput: input.agentInput,
           getNewSessionId: input.getNewSessionId,
           toolName,
+          invocationId: permissionOpts.toolUseID,
           reason: yoloDenylistReason,
           action: instructionSetupAction(yoloDenylistReason),
         });
@@ -467,7 +474,7 @@ export function createCanUseToolCallback(
         `Autonomous run requesting permission for tool ${toolName}: ${recoveryMessage}`,
       );
       input.emitInteractionBoundary();
-      emitJobToolActivity(
+      emitToolActivity(
         input.agentInput,
         input.getNewSessionId,
         'permission_wait',
@@ -475,6 +482,7 @@ export function createCanUseToolCallback(
         {
           ok: false,
           reason: yoloDenylistReason ?? toolDecision.reason,
+          invocationId: permissionOpts.toolUseID,
           ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },
       );
@@ -516,12 +524,15 @@ export function createCanUseToolCallback(
         )) {
           liveApprovedRules.add(rule);
         }
-        emitJobToolActivity(
+        emitToolActivity(
           input.agentInput,
           input.getNewSessionId,
           'permission_allowed',
           toolName,
-          permissionAllowedActivityPayload(decision),
+          {
+            ...permissionAllowedActivityPayload(decision),
+            invocationId: permissionOpts.toolUseID,
+          },
         );
         logPermissionApproval(toolName, decision, 'Autonomous run permission');
         recordPermissionApprovalContext(
@@ -552,6 +563,7 @@ export function createCanUseToolCallback(
         recoveryMessage,
         toolName,
         toolPolicyReason: yoloDenylistReason ?? toolDecision.reason,
+        invocationId: permissionOpts.toolUseID,
       });
       if (nonPromptableDenial) return nonPromptableDenial;
       const reason = decision.reason || 'Denied by operator';
@@ -561,6 +573,7 @@ export function createCanUseToolCallback(
         agentInput: input.agentInput,
         getNewSessionId: input.getNewSessionId,
         toolName,
+        invocationId: permissionOpts.toolUseID,
         reason,
         denialKind: 'permission_denied',
         action: autonomousDenialSetupAction({
@@ -593,7 +606,7 @@ export function createCanUseToolCallback(
     }
     const publicToolName = permissionRequestToolName(toolName);
     input.emitInteractionBoundary();
-    emitJobToolActivity(
+    emitToolActivity(
       input.agentInput,
       input.getNewSessionId,
       'permission_wait',
@@ -601,6 +614,7 @@ export function createCanUseToolCallback(
       {
         ok: false,
         reason: yoloDenylistReason ?? currentToolDecision.reason,
+        invocationId: permissionOpts.toolUseID,
       },
     );
     const permissionPlan = scheduledPermissionSuggestionPlan(
@@ -652,12 +666,15 @@ export function createCanUseToolCallback(
       )) {
         liveApprovedRules.add(rule);
       }
-      emitJobToolActivity(
+      emitToolActivity(
         input.agentInput,
         input.getNewSessionId,
         'permission_allowed',
         toolName,
-        permissionAllowedActivityPayload(decision),
+        {
+          ...permissionAllowedActivityPayload(decision),
+          invocationId: permissionOpts.toolUseID,
+        },
       );
       logPermissionApproval(toolName, decision, 'Permission');
       recordPermissionApprovalContext(
@@ -680,7 +697,7 @@ export function createCanUseToolCallback(
     }
     const reason = decision.reason || 'Denied by operator';
     log(`Permission denied for tool ${toolName}: ${reason}`);
-    emitJobToolActivity(
+    emitToolActivity(
       input.agentInput,
       input.getNewSessionId,
       'permission_denied',
@@ -688,6 +705,7 @@ export function createCanUseToolCallback(
       {
         ok: false,
         reason,
+        invocationId: permissionOpts.toolUseID,
       },
     );
     return {

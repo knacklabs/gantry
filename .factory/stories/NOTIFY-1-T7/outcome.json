@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Every scheduled job (and every live turn) now produces a structured, neutral summary of what it actually did for any tool on either runtime and provider - grouped actions with counts, failed-first, family-aware labels (e.g. 'Google Sheets Values Append x3', 'WebSearch x5', 'Browser: Open') - instead of falling back to raw narration. A single tool.activity event is recorded per tool call on both worker runtimes and both inline lanes with per-invocation correlation; Gantry-owned capability/browser events dedup against the generic event via trusted, provenance-gated result metadata (decision 0132), so a third-party tool can never spoof correlation. Someone reading a finished job now sees exactly which actions ran and which failed.",
+  "issue": "NOTIFY-1-T7",
+  "commit": "49018da81bc381cb6ace90182cf36c02391aed9c",
+  "recorded_at": "2026-08-22T03:57:10+00:00"
+}

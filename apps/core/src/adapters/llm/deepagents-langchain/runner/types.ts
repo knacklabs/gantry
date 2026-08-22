@@ -37,6 +37,7 @@ export interface DeepAgentRunnerInput {
   isScheduledJob?: boolean;
   jobId?: string;
   runId?: string;
+  parentTaskId?: string;
   assistantName?: string;
   promptMode?: GantryAgentPromptMode;
   compiledSystemPrompt?: string;

@@ -39,6 +39,23 @@ export function canonicalGantryToolRuleName(
     : canonicalToolName;
 }
 
+export function gantryOwnedToolActivityFamily(
+  toolName: string,
+): 'browser' | 'capability' | undefined {
+  const canonicalToolName = canonicalGantryToolRuleName(toolName);
+  if (canonicalToolName === 'capability_run') return 'capability';
+  if (
+    canonicalToolName === 'browser_status' ||
+    canonicalToolName === 'browser_open' ||
+    canonicalToolName === 'browser_inspect' ||
+    canonicalToolName === 'browser_act' ||
+    canonicalToolName === 'browser_close'
+  ) {
+    return 'browser';
+  }
+  return undefined;
+}
+
 const PROVIDER_NATIVE_TOOL_REPLACEMENTS = new Map<string, string>([
   ['WebFetch', 'WebRead'],
   ['Glob', 'FileSearch'],

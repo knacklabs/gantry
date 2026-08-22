@@ -18,6 +18,10 @@ describe('publishBrowserJobActivityEvent', () => {
 
     await publishBrowserJobActivityEvent({
       activity: {
+        invocationId: 'browser-call-1',
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
         jobId: 'job-1',
         runId: 'run-1',
         tool: 'navigate',
@@ -39,14 +43,17 @@ describe('publishBrowserJobActivityEvent', () => {
         sessionId: 'session-1',
         responseMode: 'webhook',
         webhookId: 'webhook-1',
-        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
         actor: 'browser',
+        correlationId: 'browser-call-1',
         jobId: 'job-1',
         runId: 'run-1',
         payload: expect.objectContaining({
           tool: 'navigate',
+          phase: 'success',
           ok: true,
-          elapsed_ms: 12,
+          invocationId: 'browser-call-1',
+          authoritative: true,
         }),
       }),
     );

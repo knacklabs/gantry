@@ -268,6 +268,7 @@ describe('ipc-browser-handler', () => {
         requestId: 'req-job-browser',
         action: 'navigate',
         payload: { url: 'https://example.test' },
+        chatJid: 'conversation-1',
         jobId: 'job-1',
         runId: 'run-1',
         publicToolName: 'browser_act',
@@ -284,6 +285,7 @@ describe('ipc-browser-handler', () => {
     expect(response.ok).toBe(true);
     expect(publishBrowserJobActivity).toHaveBeenCalledWith(
       expect.objectContaining({
+        invocationId: 'req-job-browser',
         jobId: 'job-1',
         runId: 'run-1',
         tool: 'Browser',
@@ -295,6 +297,30 @@ describe('ipc-browser-handler', () => {
     );
   });
 
+  it('suppresses delegated browser activity at the host boundary', async () => {
+    const publishBrowserJobActivity = vi.fn(async () => undefined);
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-delegated-browser',
+        action: 'navigate',
+        payload: { url: 'https://example.test' },
+        chatJid: 'conversation-1',
+        runId: 'run-1',
+      },
+      {
+        sourceAgentFolder: 'main',
+        browserProfileName: 'c-main-abc123abc123',
+        browserIpcAuthorized: true,
+        callBrowserTool: vi.fn(async () => ({ content: 'tool-result' })),
+        publishBrowserJobActivity,
+        suppressToolActivity: true,
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(publishBrowserJobActivity).not.toHaveBeenCalled();
+  });
+
   it('publishes backend-only job browser calls without public tool metadata', async () => {
     const callBrowserTool = vi.fn(async () => ({ content: 'tool-result' }));
     const publishBrowserJobActivity = vi.fn(async () => undefined);
@@ -303,6 +329,7 @@ describe('ipc-browser-handler', () => {
         requestId: 'req-job-browser-private-only',
         action: 'navigate',
         payload: { url: 'https://example.test' },
+        chatJid: 'conversation-1',
         jobId: 'job-1',
         runId: 'run-1',
       },
@@ -318,6 +345,7 @@ describe('ipc-browser-handler', () => {
     expect(response.ok).toBe(true);
     expect(publishBrowserJobActivity).toHaveBeenCalledWith(
       expect.objectContaining({
+        invocationId: 'req-job-browser-private-only',
         tool: 'Browser',
         action: 'navigate',
         publicToolName: undefined,
@@ -334,6 +362,7 @@ describe('ipc-browser-handler', () => {
         requestId: 'req-job-browser-open',
         action: 'open',
         payload: {},
+        chatJid: 'conversation-1',
         jobId: 'job-1',
         runId: 'run-1',
         publicToolName: 'browser_open',
@@ -351,6 +380,7 @@ describe('ipc-browser-handler', () => {
         requestId: 'req-job-browser-open-url',
         action: 'navigate',
         payload: { url: 'https://example.test' },
+        chatJid: 'conversation-1',
         jobId: 'job-1',
         runId: 'run-1',
         publicToolName: 'browser_open',
@@ -367,6 +397,7 @@ describe('ipc-browser-handler', () => {
     expect(publishBrowserJobActivity).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
+        invocationId: 'req-job-browser-open',
         action: 'open',
         publicToolName: 'browser_open',
       }),
@@ -374,6 +405,7 @@ describe('ipc-browser-handler', () => {
     expect(publishBrowserJobActivity).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
+        invocationId: 'req-job-browser-open-url',
         action: 'navigate',
         publicToolName: 'browser_open',
       }),

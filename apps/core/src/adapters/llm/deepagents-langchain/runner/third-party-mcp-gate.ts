@@ -16,6 +16,7 @@ import {
   approveGrantSetupAction,
   instructionSetupAction,
 } from '../../../../shared/job-setup-action.js';
+import { runnableToolInvocationId } from './tool-invocation-id.js';
 
 // Wraps each selected third-party (configured) MCP tool with the provider-neutral
 // runner tool gate before the underlying tool can execute. The decision order
@@ -42,6 +43,7 @@ export interface ThirdPartyMcpGateConfig {
 }
 
 export interface DeepAgentsPermissionDenial {
+  invocationId?: string;
   toolName: string;
   reason: string;
   action: JobSetupAction;
@@ -69,12 +71,14 @@ export function deepAgentsDenial(
   toolName: string,
   policyRequest: { toolName: string; toolInput: unknown },
   reason: string,
+  invocationId?: string,
 ): DeepAgentsPermissionDenial {
   const recoveryAction = autonomousToolRecoveryAction({
     ...policyRequest,
     capabilityRequestToolsHidden: config.capabilityRequestToolsHidden,
   });
   return {
+    ...(invocationId ? { invocationId } : {}),
     toolName,
     reason,
     action: (() => {
@@ -101,10 +105,12 @@ export function preCheckDenialResult(
   config: Pick<ThirdPartyMcpGateConfig, 'onPermissionDenied'>,
   toolName: string,
   preChecks: { reason: string },
+  invocationId?: string,
 ): unknown {
   if (config.onPermissionDenied) {
     return config.onPermissionDenied({
       toolName,
+      ...(invocationId ? { invocationId } : {}),
       reason: preChecks.reason,
       action: instructionSetupAction(preChecks.reason),
       denialKind: 'rule_denied',
@@ -127,8 +133,12 @@ function wrapOne(
   serverName: string,
   config: ThirdPartyMcpGateConfig,
 ): StructuredToolInterface {
-  const gatedFunc = async (input: unknown): Promise<unknown> => {
+  const gatedFunc = async (
+    input: unknown,
+    runnableConfig?: unknown,
+  ): Promise<unknown> => {
     config.signal?.throwIfAborted();
+    const invocationId = runnableToolInvocationId(runnableConfig);
     const toolName = canonicalThirdPartyMcpToolName(
       serverName,
       underlying.name,
@@ -144,7 +154,7 @@ function wrapOne(
       yoloMode: config.gateContext.yoloMode,
     });
     if (preChecks) {
-      return preCheckDenialResult(config, toolName, preChecks);
+      return preCheckDenialResult(config, toolName, preChecks, invocationId);
     }
 
     const approval = await requestPermissionApprovalViaIpc(
@@ -162,7 +172,7 @@ function wrapOne(
     );
     if (approval.approved) {
       config.signal?.throwIfAborted();
-      return invokeUnderlying(underlying, input);
+      return invokeUnderlying(underlying, input, runnableConfig);
     }
     const reason = approval.reason || 'Denied by operator';
     if (config.onPermissionDenied) {
@@ -172,6 +182,7 @@ function wrapOne(
           toolName,
           { toolName, toolInput: input },
           reason,
+          invocationId,
         ),
       );
     }
@@ -189,8 +200,9 @@ function wrapOne(
 async function invokeUnderlying(
   underlying: StructuredToolInterface,
   input: unknown,
+  config?: unknown,
 ): Promise<unknown> {
-  return underlying.invoke(input as never);
+  return underlying.invoke(input as never, config as never);
 }
 
 export function canonicalThirdPartyMcpToolName(

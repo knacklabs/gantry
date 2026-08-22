@@ -51,8 +51,9 @@ export function humanizeTechnicalIdentifier(value: string | undefined): string {
     .replace(/^capability:/, '')
     .replace(/^mcp__gantry__browser_[A-Za-z0-9_-]+$/, 'Browser')
     .replace(/^mcp__gantry__/, 'Gantry ')
-    .replace(/^mcp__([^_]+)__.*/, '$1 MCP')
+    .replace(/^mcp__([^_]+)__(.+)$/, '$1 MCP $2')
     .replace(/^mcp:/, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replaceAll(/[._:-]+/g, ' ')
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());

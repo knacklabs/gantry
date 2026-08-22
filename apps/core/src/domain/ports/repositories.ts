@@ -350,6 +350,7 @@ export interface AgentRunRepository {
 export interface RuntimeEventRepository {
   appendRuntimeEvent(input: RuntimeEventPublishInput): Promise<RuntimeEvent>;
   listRuntimeEvents(filter: RuntimeEventFilter): Promise<RuntimeEvent[]>;
+  deleteExpiredToolActivityEvents(cutoffIso: string): Promise<void>;
   queryUsage(input: UsageQuery): Promise<UsageAggregate[]>;
 }
 

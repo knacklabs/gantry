@@ -937,7 +937,10 @@ Always mention the migration impact.
     expect(input.coreTools.execute).toHaveBeenCalledWith(
       'send_message',
       { text: 'hello' },
-      { signal: input.signal },
+      {
+        signal: input.signal,
+        invocationId: expect.any(String),
+      },
     );
     await tools
       .find((tool) => tool.name === 'mcp__crm__read')
@@ -965,6 +968,21 @@ Always mention the migration impact.
         toolName: 'read',
         outcome: 'success',
         result: 'remote result',
+      }),
+    );
+    expect(input.emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          expect.objectContaining({
+            jobId: undefined,
+            correlationId: expect.any(String),
+            payload: expect.objectContaining({
+              phase: 'success',
+              invocationId: expect.any(String),
+            }),
+          }),
+        ],
       }),
     );
     expect(saver?.end).toHaveBeenCalledOnce();
@@ -1615,7 +1633,7 @@ Always mention the migration impact.
         runtimeEventOnly: true,
         runtimeEvents: [
           expect.objectContaining({
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             payload: expect.objectContaining({
               phase: 'started',
               tool: 'send_message',
@@ -1629,7 +1647,7 @@ Always mention the migration impact.
         runtimeEventOnly: true,
         runtimeEvents: [
           expect.objectContaining({
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             payload: expect.objectContaining({
               phase: 'started',
               tool: 'mcp__crm__read',
@@ -1638,6 +1656,23 @@ Always mention the migration impact.
         ],
       }),
     );
+    const activityEvents = input.emitOutput.mock.calls.flatMap(
+      ([output]) => output.runtimeEvents ?? [],
+    );
+    const correlationsFor = (tool: string) =>
+      activityEvents
+        .filter((event) => event.payload.tool === tool)
+        .map((event) => event.correlationId);
+    const coreInvocationId =
+      input.coreTools.execute.mock.calls[0]?.[2]?.invocationId;
+    expect(coreInvocationId).toEqual(expect.any(String));
+    expect(correlationsFor('send_message')).toEqual([
+      coreInvocationId,
+      coreInvocationId,
+    ]);
+    const remoteCorrelations = correlationsFor('mcp__crm__read');
+    expect(remoteCorrelations).toHaveLength(2);
+    expect(new Set(remoteCorrelations).size).toBe(1);
   });
 
   it('rejects remote MCP hosts on the runtime egress denylist', async () => {

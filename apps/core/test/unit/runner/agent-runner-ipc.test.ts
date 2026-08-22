@@ -199,6 +199,10 @@ function createRunnerFixture(): {
     path.join(domainEventsDir, 'runtime-event-types.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/domain/events/tool-activity.ts'),
+    path.join(domainEventsDir, 'tool-activity.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/domain/events/job-setup-action.ts'),
     path.join(domainEventsDir, 'job-setup-action.ts'),
   );
@@ -3047,7 +3051,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(runtimeEvents).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             payload: expect.objectContaining({
               phase: 'permission_denied',
               tool: 'WebSearch',

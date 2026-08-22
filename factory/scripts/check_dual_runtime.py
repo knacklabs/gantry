@@ -58,7 +58,11 @@ def canon_files(root: Path) -> list[Path]:
 def nonblank_lines(path: Path) -> list[str]:
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError:
+    # runtime_files() walks EVERY file under .claude/.codex, and client repos
+    # legitimately carry binary skill assets (shadcn ships a logo PNG). A file
+    # that is not text cannot duplicate canon — skip it rather than crash the
+    # whole linter on the first image it meets.
+    except (OSError, UnicodeDecodeError):
         return []
     return [line for line in text.splitlines() if line.strip()]
 
@@ -147,7 +151,7 @@ def check_canon_markers(root: Path) -> None:
             continue
         try:
             text = f.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             continue
         for match in CANON_MARKER.finditer(text):
             ref = match.group(1)

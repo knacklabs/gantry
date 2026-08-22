@@ -41,6 +41,8 @@ interface BrowserRequest {
   requestId: string;
   action: BrowserBackendAction;
   payload: Record<string, unknown>;
+  chatJid: string;
+  threadId?: string;
   jobId?: string;
   runId?: string;
   appId?: string;
@@ -64,6 +66,7 @@ type BrowserContext = Pick<
   publishBrowserJobActivity?: IpcDomainContext['deps']['publishBrowserJobActivity'];
   closeBrowserToolBackends?: IpcDomainContext['deps']['closeBrowserToolBackends'];
   getBrowserUsageSettings?: IpcDomainContext['deps']['getBrowserUsageSettings'];
+  suppressToolActivity?: boolean;
   timeoutMs?: number;
   deadlineAtMs?: number;
 };
@@ -490,16 +493,18 @@ async function handleBrowserToolAction(
       ok: response?.ok ?? false,
       result: response?.ok ? 'success' : 'error',
     });
-    await publishBrowserJobActivity({
-      request,
-      publish: context.publishBrowserJobActivity,
-      elapsedMs: nowMs() - startedAt,
-      ok: response?.ok ?? false,
-      normalizedSite: usageDecision.normalizedSite,
-      policyMode: usageDecision.policyMode,
-      warning: usageDecision.warning,
-      error: response?.ok ? undefined : response?.error,
-    });
+    if (!context.suppressToolActivity) {
+      await publishBrowserJobActivity({
+        request,
+        publish: context.publishBrowserJobActivity,
+        elapsedMs: nowMs() - startedAt,
+        ok: response?.ok ?? false,
+        normalizedSite: usageDecision.normalizedSite,
+        policyMode: usageDecision.policyMode,
+        warning: usageDecision.warning,
+        error: response?.ok ? undefined : response?.error,
+      });
+    }
   }
 }
 
@@ -513,10 +518,15 @@ async function publishBrowserJobActivity(input: {
   warning?: string;
   error?: string;
 }): Promise<void> {
-  if (!input.request.jobId || !input.request.runId || !input.publish) return;
+  if (!input.request.runId || !input.publish) return;
   try {
     await input.publish({
-      jobId: input.request.jobId,
+      invocationId: input.request.requestId,
+      ...(input.request.appId ? { appId: input.request.appId } : {}),
+      ...(input.request.agentId ? { agentId: input.request.agentId } : {}),
+      conversationId: input.request.chatJid,
+      ...(input.request.threadId ? { threadId: input.request.threadId } : {}),
+      ...(input.request.jobId ? { jobId: input.request.jobId } : {}),
       runId: input.request.runId,
       tool: 'Browser',
       publicToolName: input.request.publicToolName,

@@ -343,7 +343,7 @@ async function executeInlineRun(input: {
     resetTimeout();
     if (marksActivity) lastActivityAtMs = currentTimeMs();
     for (const event of output.runtimeEvents ?? []) {
-      if (event.eventType !== RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY) continue;
+      if (event.eventType !== RUNTIME_EVENT_TYPES.TOOL_ACTIVITY) continue;
       const payload = event.payload as Record<string, unknown> | undefined;
       if (payload?.phase !== 'started') continue;
       if (typeof payload.tool === 'string') {

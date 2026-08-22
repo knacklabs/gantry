@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 import { PostgresRuntimeEventRepository } from '@core/adapters/storage/postgres/repositories/runtime-event-repository.postgres.js';
 import { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
@@ -14,6 +16,7 @@ class FakeDrizzleDb {
   failOutboxInsert = false;
   failDeliveryInsert = false;
   runtimeEventConflict = false;
+  deleteWhere: SQL | undefined;
 
   async execute(): Promise<void> {
     this.operations.push('lock:message_attachments');
@@ -100,6 +103,20 @@ class FakeDrizzleDb {
           };
         }
         throw new Error('Unexpected insert table');
+      },
+    };
+  }
+
+  delete(table: unknown) {
+    if (table !== pgSchema.runtimeEventsPostgres) {
+      throw new Error('Unexpected delete table');
+    }
+    const db = this;
+    db.operations.push('delete:runtime_events');
+    return {
+      async where(condition: SQL) {
+        db.deleteWhere = condition;
+        return undefined;
       },
     };
   }
@@ -192,6 +209,24 @@ function createWiredRepository(
 }
 
 describe('PostgresRuntimeEventRepository', () => {
+  it('prunes expired live and notified-job tool activity in one delete', async () => {
+    const db = new FakeDrizzleDb();
+
+    await expect(
+      createRepository(db).deleteExpiredToolActivityEvents(
+        '2026-08-19T00:00:00.000Z',
+      ),
+    ).resolves.toBeUndefined();
+    expect(db.operations).toEqual(['delete:runtime_events']);
+    const query = new PgDialect().sqlToQuery(db.deleteWhere!);
+    expect(query.sql).toMatch(/"runtime_events"\."job_id" is null/);
+    expect(query.sql).toMatch(
+      /exists \(\s*select 1 from "agent_runs"[\s\S]*?"agent_runs"\."id" = "runtime_events"\."run_id"[\s\S]*?"agent_runs"\."notified_at" is not null\s*\)/,
+    );
+    expect(query.params).toContain(RUNTIME_EVENT_TYPES.TOOL_ACTIVITY);
+    expect(query.params).toContain('2026-08-19T00:00:00.000Z');
+  });
+
   it('commits the runtime event and webhook delivery in one transaction', async () => {
     const db = new FakeDrizzleDb();
     const repository = createRepository(db);

@@ -959,8 +959,8 @@ describe('Claude Agent SDK boundary integration', () => {
 
     const guardedCall = sdkState.calls[0];
     const preToolUseHooks = guardedCall?.options.hooks.PreToolUse[0].hooks;
-    expect(preToolUseHooks).toHaveLength(2);
-    const declarativePreToolUse = preToolUseHooks[1];
+    expect(preToolUseHooks).toHaveLength(3);
+    const declarativePreToolUse = preToolUseHooks[2];
     const denied = await declarativePreToolUse({
       hook_event_name: 'PreToolUse',
       tool_name: 'deploy',
@@ -1034,7 +1034,7 @@ describe('Claude Agent SDK boundary integration', () => {
       undefined,
     );
     const ordinaryCall = sdkState.calls[1];
-    expect(ordinaryCall?.options.hooks.PreToolUse[0].hooks).toHaveLength(1);
+    expect(ordinaryCall?.options.hooks.PreToolUse[0].hooks).toHaveLength(2);
     const ordinaryPostToolUseHooks =
       ordinaryCall?.options.hooks.PostToolUse[0].hooks;
     expect(ordinaryPostToolUseHooks).toHaveLength(1);

@@ -11,9 +11,325 @@ vi.hoisted(() => {
 
 import { usageEventIdForMessage } from '@core/adapters/llm/anthropic-claude-agent/runner/query-usage-event-id.js';
 import { recordSuccessfulToolUse } from '@core/adapters/llm/anthropic-claude-agent/runner/query-loop.js';
+import { composeAgentCapabilities } from '@core/adapters/llm/anthropic-claude-agent/agent-capabilities.js';
+import { createPostToolUseHook } from '@core/adapters/llm/anthropic-claude-agent/runner/query-tool-activity-hook.js';
+import { terminalToolActivityRuntimeEvent } from '@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-events.js';
+import { createInlineToolActivity } from '@core/adapters/llm/inline-lane-tool-activity.js';
+import {
+  privateToolActivityInvocationIdFromResult,
+  withPrivateToolActivityInvocationId,
+} from '@core/domain/events/tool-activity.js';
 import { createPermissionApprovalContextChannel } from '@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js';
 import { canonicalGantryToolRuleName } from '@core/shared/gantry-tool-facades.js';
 import { RunScopedToolSuccessLedger } from '@core/runner/tool-gate-core.js';
+
+it('toolact-anthropic', async () => {
+  const agentInput = {
+    appId: 'app-1',
+    agentId: 'agent-1',
+    runId: 'run-live',
+    chatJid: 'conversation-1',
+    workspaceFolder: '/tmp',
+    permissionMode: 'default' as const,
+  };
+  const events: NonNullable<
+    ReturnType<typeof terminalToolActivityRuntimeEvent>
+  >[] = [];
+  const capabilityProfile = composeAgentCapabilities({
+    mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+    chatJid: 'conversation-1',
+    workspaceFolder: '/tmp',
+    configuredAllowedTools: ['mcp__gantry__capability_run'],
+    externalMcpServers: {
+      crm: { command: 'crm-mcp' },
+    },
+    externalMcpAllowedTools: ['mcp__crm__capability_run'],
+  });
+  expect(capabilityProfile.allowedTools).toContain('mcp__crm__capability_run');
+  expect(capabilityProfile.gantryOwnedTools).toContain(
+    'mcp__gantry__capability_run',
+  );
+  expect(capabilityProfile.gantryOwnedTools).not.toContain(
+    'mcp__crm__capability_run',
+  );
+  let seq = 0;
+  const trustedGantryFamilies = new Map([
+    ['provider-capability', 'capability' as const],
+    ['provider-browser', 'browser' as const],
+  ]);
+  const postToolUse = vi.fn(async () => ({ continue: true as const }));
+  const hook = createPostToolUseHook({
+    postToolUse: postToolUse as never,
+    takeGantryOwnedToolActivityFamily: (providerInvocationId) => {
+      const family = trustedGantryFamilies.get(providerInvocationId);
+      trustedGantryFamilies.delete(providerInvocationId);
+      return family;
+    },
+    emitTerminalToolOutcome: (outcome) => {
+      const event = terminalToolActivityRuntimeEvent({
+        agentInput,
+        ...outcome,
+        seq: ++seq,
+      });
+      if (event) events.push(event);
+    },
+  });
+  const invoke = (hookInput: Record<string, unknown>, toolUseID?: string) =>
+    hook(hookInput as never, toolUseID, {
+      signal: new AbortController().signal,
+    });
+
+  await invoke({
+    hook_event_name: 'PostToolUse',
+    tool_name: 'mcp__crm__read',
+    tool_use_id: 'provider-success',
+    tool_response: {
+      invocationId: 'caller-visible-spoof',
+      _meta: { invocationId: 'private-spoof' },
+    },
+  });
+  await invoke(
+    {
+      hook_event_name: 'PostToolUse',
+      tool_name: 'WebSearch',
+      tool_response: { isError: true, invocationId: 'structural-spoof' },
+    },
+    'provider-structural-failure',
+  );
+  await invoke({
+    hook_event_name: 'PostToolUseFailure',
+    tool_name: 'Bash',
+    tool_use_id: 'provider-hook-failure',
+    error: 'command failed',
+  });
+  await invoke({
+    hook_event_name: 'PostToolUse',
+    tool_name: 'mcp__gantry__capability_run',
+    tool_use_id: 'provider-third-party-capability',
+    tool_response: { _meta: { invocationId: 'third-party-spoof' } },
+  });
+  await invoke({
+    hook_event_name: 'PostToolUse',
+    tool_name: 'mcp__gantry__capability_run',
+    tool_use_id: 'provider-capability',
+    tool_response: { _meta: { invocationId: 'capability-request' } },
+  });
+  await invoke({
+    hook_event_name: 'PostToolUse',
+    tool_name: 'mcp__gantry__browser_open',
+    tool_use_id: 'provider-browser',
+    tool_response: { _meta: { invocationId: 'browser-request' } },
+  });
+
+  expect(
+    events.map((event) => ({
+      correlationId: event.correlationId,
+      payload: event.payload,
+    })),
+  ).toEqual([
+    {
+      correlationId: 'provider-success',
+      payload: expect.objectContaining({
+        phase: 'success',
+        tool: 'mcp__crm__read',
+        invocationId: 'provider-success',
+      }),
+    },
+    {
+      correlationId: 'provider-structural-failure',
+      payload: expect.objectContaining({
+        phase: 'failure',
+        tool: 'WebSearch',
+        invocationId: 'provider-structural-failure',
+      }),
+    },
+    {
+      correlationId: 'provider-hook-failure',
+      payload: expect.objectContaining({
+        phase: 'failure',
+        tool: 'RunCommand',
+        invocationId: 'provider-hook-failure',
+      }),
+    },
+    {
+      correlationId: 'provider-third-party-capability',
+      payload: expect.objectContaining({
+        phase: 'success',
+        tool: 'capability_run',
+        invocationId: 'provider-third-party-capability',
+      }),
+    },
+    {
+      correlationId: 'capability-request',
+      payload: expect.objectContaining({
+        family: 'capability',
+        phase: 'success',
+        tool: 'capability_run',
+        invocationId: 'capability-request',
+      }),
+    },
+    {
+      correlationId: 'browser-request',
+      payload: expect.objectContaining({
+        family: 'browser',
+        phase: 'success',
+        tool: 'Browser',
+        invocationId: 'browser-request',
+      }),
+    },
+  ]);
+  expect(events[3]?.payload).not.toHaveProperty('family');
+  expect(postToolUse).toHaveBeenCalledTimes(6);
+
+  expect(
+    privateToolActivityInvocationIdFromResult({
+      invocationId: 'direct-id',
+      structuredContent: { _meta: { invocationId: 'nested-id' } },
+    }),
+  ).toBeUndefined();
+  const visibleResult = {
+    content: [{ type: 'text', text: 'done' }],
+    _meta: { traceId: 'trace-1' },
+  };
+  const correlated = withPrivateToolActivityInvocationId(
+    visibleResult,
+    'gantry-owned-id',
+  );
+  expect(correlated).not.toBe(visibleResult);
+  expect(visibleResult._meta).toEqual({ traceId: 'trace-1' });
+  expect(Object.keys(correlated)).toEqual(Object.keys(visibleResult));
+  expect(privateToolActivityInvocationIdFromResult(correlated)).toBe(
+    'gantry-owned-id',
+  );
+  expect((correlated as typeof visibleResult)._meta).toEqual({
+    traceId: 'trace-1',
+    invocationId: 'gantry-owned-id',
+  });
+  expect(JSON.parse(JSON.stringify(correlated))).toEqual({
+    content: visibleResult.content,
+    _meta: { traceId: 'trace-1', invocationId: 'gantry-owned-id' },
+  });
+  expect(correlated).not.toHaveProperty('invocationId');
+  const transportedCorrelation = withPrivateToolActivityInvocationId(
+    { content: visibleResult.content },
+    'transported-id',
+  );
+  expect(JSON.parse(JSON.stringify(transportedCorrelation))).toEqual({
+    content: visibleResult.content,
+    _meta: { invocationId: 'transported-id' },
+  });
+  expect(Object.keys(transportedCorrelation)).not.toContain('invocationId');
+
+  // Both inline provider lanes share this activity seam. Generic results
+  // cannot replace provider identity; Gantry-owned results may correlate via
+  // their private metadata.
+  const inlineTerminalCorrelations: Array<string | undefined> = [];
+  const inlineToolActivity = createInlineToolActivity({
+    input: { chatJid: 'conversation-1' },
+    coreTools: {
+      tools: [{ name: 'mcp__crm__read' }, { name: 'capability_run' }],
+    },
+    emitOutput: async (output) => {
+      for (const event of output.runtimeEvents ?? []) {
+        if (event.payload.phase === 'success') {
+          inlineTerminalCorrelations.push(event.correlationId);
+        }
+      }
+    },
+  });
+  await inlineToolActivity.run(
+    'mcp__crm__read',
+    async () => ({ _meta: { invocationId: 'inline-private-spoof' } }),
+    'inline-provider-generic',
+  );
+  await inlineToolActivity.run(
+    'capability_run',
+    async () => ({ _meta: { invocationId: 'inline-third-party-spoof' } }),
+    'inline-provider-third-party-capability',
+  );
+  await inlineToolActivity.run(
+    'capability_run',
+    async () => ({ _meta: { invocationId: 'inline-capability-request' } }),
+    'inline-provider-capability',
+    'gantry',
+  );
+  expect(inlineTerminalCorrelations).toEqual([
+    'inline-provider-generic',
+    'inline-provider-third-party-capability',
+    'inline-capability-request',
+  ]);
+
+  const concurrentCorrelations: Array<string | undefined> = [];
+  const concurrentActivity = createInlineToolActivity({
+    input: { chatJid: 'conversation-1' },
+    coreTools: { tools: [{ name: 'capability_run' }] },
+    emitOutput: async (output) => {
+      for (const event of output.runtimeEvents ?? []) {
+        if (event.payload.phase === 'success') {
+          concurrentCorrelations.push(event.correlationId);
+        }
+      }
+    },
+  });
+  const firstBinding = concurrentActivity.bindProviderInvocation(
+    'inline-provider-first',
+  );
+  concurrentActivity.bindProviderInvocation('inline-provider-never-started');
+  const secondBinding = concurrentActivity.bindProviderInvocation(
+    'inline-provider-second',
+  );
+  if (!firstBinding || !secondBinding) {
+    throw new Error('Provider invocation bindings were not created.');
+  }
+  let releaseFirst!: () => void;
+  let releaseSecond!: () => void;
+  const firstGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  const secondGate = new Promise<void>((resolve) => {
+    releaseSecond = resolve;
+  });
+  const secondRun = concurrentActivity.run(
+    'capability_run',
+    async () => {
+      await secondGate;
+      return {};
+    },
+    concurrentActivity.takeProviderInvocation(secondBinding),
+    'gantry',
+  );
+  const firstRun = concurrentActivity.run(
+    'capability_run',
+    async () => {
+      await firstGate;
+      return {};
+    },
+    concurrentActivity.takeProviderInvocation(firstBinding),
+    'gantry',
+  );
+  releaseFirst();
+  await firstRun;
+  releaseSecond();
+  await secondRun;
+  await concurrentActivity.run('capability_run', async () => ({}));
+  expect(concurrentCorrelations.slice(0, 2)).toEqual([
+    'inline-provider-first',
+    'inline-provider-second',
+  ]);
+  expect(concurrentCorrelations).not.toContain('inline-provider-never-started');
+  concurrentActivity.close();
+  inlineToolActivity.close();
+
+  expect(
+    terminalToolActivityRuntimeEvent({
+      agentInput: { ...agentInput, parentTaskId: 'task-1' },
+      invocationId: 'toolu-nested',
+      toolName: 'Bash',
+      outcome: 'success',
+      seq: 6,
+    }),
+  ).toBeNull();
+});
 
 describe('Claude query loop usage event IDs', () => {
   it('uses stable provider IDs when present', () => {

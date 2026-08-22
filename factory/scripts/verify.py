@@ -62,7 +62,12 @@ verify = {
     "results": results,
 }
 dump_json(verify_state_path(root, for_write=True), verify)
-if state:
+# During a stage-done proof run (forge sets FORGE_PROCESS_TOKEN) verify stays
+# read-only: mutating run.json or appending an event here churns the protected
+# authority and events ledger between the proof's before/after snapshots, so the
+# stage refused its own read-only check. Standalone runs still update run-state so
+# `forge next` reflects the latest verify result.
+if state and not os.environ.get("FORGE_PROCESS_TOKEN"):
     state["verify_status"] = "passed" if all_ok else "failed"
     state["updated_at"] = now_iso()
     dump_json(run_state_path(root), state)

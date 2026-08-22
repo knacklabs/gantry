@@ -1,6 +1,18 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, eq, gt, gte, inArray, lt, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import type {
   EventBusPublisherPort,
@@ -361,6 +373,25 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       .orderBy(asc(pgSchema.runtimeEventsPostgres.eventId))
       .limit(filter.limit ?? 100);
     return rows.map((row) => this.eventFromRow(row));
+  }
+
+  async deleteExpiredToolActivityEvents(cutoffIso: string): Promise<void> {
+    const events = pgSchema.runtimeEventsPostgres;
+    const runs = pgSchema.agentRunsPostgres;
+    await this.db.delete(events).where(
+      and(
+        eq(events.eventType, RUNTIME_EVENT_TYPES.TOOL_ACTIVITY),
+        lt(events.createdAt, cutoffIso),
+        or(
+          isNull(events.jobId),
+          sql`exists (
+              select 1 from ${runs}
+              where ${runs.id} = ${events.runId}
+                and ${runs.notifiedAt} is not null
+            )`,
+        ),
+      ),
+    );
   }
 
   async queryUsage(input: UsageQuery): Promise<UsageAggregate[]> {
