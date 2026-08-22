@@ -11,7 +11,11 @@ import {
   reviewMessageFallbackText,
   type ReviewMessageView,
 } from '../memory/review-message-view.js';
-import { formatRunStatusMessage } from './status-formatting.js';
+import {
+  boundJobNotificationView,
+  formatRunStatusMessage,
+  terminalRunNotificationStats,
+} from './status-formatting.js';
 import type { JobRunDiagnostics } from './execution-diagnostics.js';
 import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
 import {
@@ -432,6 +436,7 @@ export async function notifySchedulerTerminalRunState(input: {
       retryCount: input.retryCount,
       pauseReason: input.pauseReason,
       durationMs: input.durationMs,
+      diagnostics: input.diagnostics,
       degradedReason: degradedReasonForDiagnostics(
         input.runStatus,
         input.diagnostics,
@@ -439,6 +444,15 @@ export async function notifySchedulerTerminalRunState(input: {
       ),
       toolDenial: input.toolDenial,
     });
+  const stats = terminalRunNotificationStats(input);
+  const jobNotificationView = boundJobNotificationView({
+    status: input.runStatus,
+    jobName: input.job.name,
+    ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
+    ...(stats ? { stats } : {}),
+    fallbackText: summaryMessage,
+    ...(input.nextRun === null ? {} : { nextRunAt: input.nextRun }),
+  });
   const updateOutcomes =
     input.updateLifecycleNotification === undefined
       ? undefined
@@ -462,6 +476,7 @@ export async function notifySchedulerTerminalRunState(input: {
     phase: 'summary',
     runId: input.runId,
     actionAffordances,
+    jobNotificationView,
     sendMessage: input.sendMessage,
   });
 }

@@ -48,7 +48,7 @@ describe('startDeepAgentJobHeartbeat', () => {
     vi.advanceTimersByTime(15_000);
     heartbeat.stop();
 
-    expect(frames).toHaveLength(1);
+    expect(frames).toHaveLength(2);
     const event = frames[0].runtimeEvents?.[0];
     expect(event?.eventType).toBe(RUNTIME_EVENT_TYPES.JOB_HEARTBEAT);
     expect(event?.actor).toBe('runner');
@@ -75,6 +75,27 @@ describe('startDeepAgentJobHeartbeat', () => {
     vi.advanceTimersByTime(15_000);
     heartbeat.stop();
 
+    const payload = frames[0].runtimeEvents?.[0]?.payload as Record<
+      string,
+      unknown
+    >;
+    expect(payload.totalToolCalls).toBe(2);
+    expect(payload.currentTool).toBe('mcp__gantry__file');
+    expect(payload.lastTool).toBe('mcp__gantry__file');
+  });
+
+  it('emits the latest tool counters when stopped before the interval', () => {
+    const frames: RunnerOutputFrame[] = [];
+    const heartbeat = startDeepAgentJobHeartbeat({
+      agentInput: SCHEDULED_INPUT,
+      writeFrame: (frame) => frames.push(frame),
+      getSessionId: () => undefined,
+    });
+    heartbeat.recordToolActivity('mcp__gantry__send_message');
+    heartbeat.recordToolActivity('mcp__gantry__file');
+    heartbeat.stop();
+
+    expect(frames).toHaveLength(1);
     const payload = frames[0].runtimeEvents?.[0]?.payload as Record<
       string,
       unknown

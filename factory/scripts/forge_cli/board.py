@@ -10,7 +10,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from factory_lib import (
-    load_json, now_iso, parse_sections, repo_root, run_state_path, task_rows,
+    evidence_path, load_json, now_iso, parse_sections, repo_root, run_state_path,
+    task_rows,
 )
 from record_signoff import REQUIRED_BRIEF_HEADINGS
 
@@ -38,7 +39,8 @@ def _plan_records(base: Path, location: str) -> list[dict]:
 
 
 def _stage_summary(base: Path) -> dict:
-    data = load_json(base / ".factory" / "stages.json", default={})
+    story = load_json(run_state_path(base), default={}).get("issue_key", "")
+    data = load_json(evidence_path(base, story, "stages.json"), default={})
     items = data.get("stages", [])
     return {
         "issue": data.get("issue"),
@@ -93,11 +95,8 @@ def _plan_evidence(
     empty_reviews = {aspect: False for aspect in ("quality", "performance", "security")}
     if not plan:
         return None, {"verify": False, "tests": False, "reviews": empty_reviews}, []
-    if plan.get("location") == "completed":
-        root = base / ".factory" / "history" / str(plan.get("issue", ""))
-    else:
-        root = base / ".factory"
-    stages_data = load_json(root / "stages.json", default={})
+    story = str(plan.get("story") or plan.get("issue") or "")
+    stages_data = load_json(evidence_path(base, story, "stages.json"), default={})
     stages = stages_data.get("stages", [])
     progress = None
     if stages:
@@ -106,19 +105,21 @@ def _plan_evidence(
             "total": len(stages),
         }
     tasks = merge_task_detail(
-        load_json(root / "decomposition.json", default={}), stages, derived_rows,
+        load_json(evidence_path(base, story, "decomposition.json"), default={}),
+        stages, derived_rows,
     )
     # The same predicates pr_ready gates on: a tick here must mean the gate
     # would open, not merely that a file is on disk.
-    recorded = load_json(root / "tests.json", default={})
+    recorded = load_json(evidence_path(base, story, "tests.json"), default={})
     evidence = {
-        "verify": verify_passed(load_json(root / "verify.json", default={})),
+        "verify": verify_passed(load_json(
+            evidence_path(base, story, "verify.json"), default={})),
         "tests": tests_passed(recorded.get("automated")) and (
             tests_passed(recorded.get("functional"), functional=True)
             if recorded.get("functional") else True),
         "reviews": {
-            aspect: review_passed(load_json(root / "reviews" / f"{aspect}.json",
-                                            default={}))
+            aspect: review_passed(load_json(
+                evidence_path(base, story, f"reviews/{aspect}.json"), default={}))
             for aspect in ("quality", "performance", "security")
         },
     }
@@ -273,7 +274,7 @@ def aggregate_state(base: Path) -> dict:
         for record in spec_records(base)
     ]
     spec_status = {record["path"]: record.get("status", "draft") for record in specs}
-    run = load_json(base / ".factory" / "run.json", default={})
+    run = load_json(run_state_path(base), default={})
     active = run.get("issue_key")
     live_task_rows = task_rows(base) if active else []
     record_origin = load_json(base / ".factory" / "record-origin.json", default=None)
@@ -438,30 +439,24 @@ def story_detail(base: Path, key: str) -> dict | None:
     plan_body = ""
     if plan:
         _, plan_body = parse_frontmatter((base / plan["path"]).read_text(encoding="utf-8"))
-    # Live .factory/ belongs to whatever story is ACTIVE. Handing it to any
-    # other story shows one story's proof under another's name.
     active = load_json(run_state_path(base), default={}).get("issue_key")
-    if plan and plan.get("location") == "completed":
-        root = base / ".factory" / "history" / str(plan.get("issue", ""))
-    elif active == key:
-        root = base / ".factory"
-    else:
-        root = base / ".factory" / "history" / key
     evidence = {
-        name: load_json(root / f"{name}.json", default=None)
+        name: load_json(evidence_path(base, key, f"{name}.json"), default=None)
         for name in ("decomposition", "verify", "tests", "stages", "outcome")
     }
     evidence["reviews"] = {
-        aspect: load_json(root / "reviews" / f"{aspect}.json", default=None)
+        aspect: load_json(
+            evidence_path(base, key, f"reviews/{aspect}.json"), default=None)
         for aspect in ("quality", "performance", "security")
     }
+    grills = evidence_path(base, key, "grills")
     evidence["grills"] = {
         path.stem: load_json(path, default=None)
-        for path in sorted((root / "grills").glob("*.json"))
+        for path in sorted(grills.glob("*.json"))
     }
     evidence["task_grills"] = {
         path.stem: load_json(path, default=None)
-        for path in sorted((root / "grills" / "tasks").glob("*.json"))
+        for path in sorted((grills / "tasks").glob("*.json"))
     }
     spec_path = item.get("spec")
     spec = None

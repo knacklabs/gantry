@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0046-1882",
+  "profile": "lite",
+  "reason": "NOTIFY-1 T5: native Slack Block Kit renderer for jobNotificationView (header, stats context, structured result or fallback section, next-run), mirroring reviewMessageView; fallback to mrkdwn text when absent",
+  "started_at": "2026-08-20T18:49:40+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi",
+  "base_sha": "38d85646c931a1b3d5f699064d798d5597f98d29"
+}

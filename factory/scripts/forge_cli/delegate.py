@@ -34,7 +34,8 @@ from pathlib import Path
 
 from factory_lib import (
     git_control_dir, load_json, now_iso, protected_decomposition_state_path,
-    repo_root, require_ready_task, run_state_path, safe_factory_append,
+    repo_root, require_ready_task, require_task_worktree, run_state_path,
+    safe_factory_append,
     safe_factory_write_bytes, sha256_of, task_digest, validate_payload,
 )
 
@@ -1206,6 +1207,7 @@ def cmd_delegate(args: argparse.Namespace) -> None:
     # contract, not an implicit read-only downgrade.
     active = stage.get("status") == "active"
     if active and not args.read_only:
+        require_task_worktree(base)
         task = require_ready_task(base, args.id)
         scope = task.get("write_scope") or []
     write = bool(active and scope) and not args.read_only

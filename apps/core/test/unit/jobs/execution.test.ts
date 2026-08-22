@@ -2591,28 +2591,33 @@ describe('jobs/execution', () => {
     );
   });
 
-  it('keeps browser activity diagnostics without enforcing use after the run', async () => {
+  it('records confirmed browser activity published through the runtime event exchange', async () => {
     const job = makeJob({
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
     });
     const opsRepository = makeOpsRepository(job);
     const toolRepository = makeToolRepository(['Browser']);
-    const runAgent = vi.fn(async (_group, _input, _onProcess, onStream) => {
-      await onStream({
-        status: 'success',
-        result: null,
-        runtimeEvents: [
-          {
-            eventType: 'job.tool_activity',
-            payload: {
-              tool: 'Browser',
-              public_tool: 'browser_open',
-              action: 'navigate',
-              ok: true,
-            },
-          },
-        ],
-      } as never);
+    const openBrowserSession = vi.fn(async (profileName: string) => ({
+      profile: profileName,
+      profileName,
+      running: true,
+      cdpReady: true,
+    }));
+    const runAgent = vi.fn(async (_group, input) => {
+      await runtimeStoreMock.publish({
+        appId: 'default',
+        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        actor: 'browser',
+        jobId: 'job-1',
+        runId: input.runId,
+        payload: {
+          phase: 'browser_action',
+          tool: 'Browser',
+          public_tool: 'browser_open',
+          action: 'navigate',
+          ok: true,
+        },
+      });
       return {
         status: 'success',
         result: 'browser done',
@@ -2629,6 +2634,7 @@ describe('jobs/execution', () => {
         opsRepository: opsRepository as never,
         getToolRepository: () => toolRepository as never,
         getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+        openBrowserSession,
         runAgent: runAgent as never,
       },
       'tg:scheduler',
@@ -2768,7 +2774,7 @@ describe('jobs/execution', () => {
         eventType: 'job.completed',
         payload: expect.objectContaining({
           diagnostics: expect.objectContaining({
-            browser_activity_count: 1,
+            browser_activity_count: 0,
           }),
         }),
       }),
@@ -2871,6 +2877,7 @@ describe('jobs/execution', () => {
           {
             eventType: 'job.tool_activity',
             payload: {
+              phase: 'browser_action',
               tool: 'Browser',
               public_tool: 'browser_open',
               action: 'navigate',
@@ -2880,6 +2887,7 @@ describe('jobs/execution', () => {
           {
             eventType: 'job.tool_activity',
             payload: {
+              phase: 'browser_action',
               tool: 'Browser',
               public_tool: 'browser_inspect',
               action: 'snapshot',

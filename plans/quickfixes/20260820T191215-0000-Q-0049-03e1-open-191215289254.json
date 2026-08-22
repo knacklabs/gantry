@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0049-03e1",
+  "profile": "degraded",
+  "reason": "NOTIFY-1 T6: document that Discord embed content is pre-bounded so the 4096 description cap is defense-only",
+  "started_at": "2026-08-20T19:12:15+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

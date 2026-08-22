@@ -1,0 +1,14 @@
+{
+  "event": "abandoned",
+  "id": "Q-0033-c933",
+  "profile": "degraded",
+  "reason": "race-free per-route session deletion landed; bounded CLI fix ships as a standard client PR, review evidence is the PR autoreview not factory .factory/reviews",
+  "opened_reason": "apply autoreview P1: move folder session wipe to after desired-state prune (TOCTOU + delegate-retention)",
+  "started_at": "2026-08-20T10:14:21+00:00",
+  "completed_at": "2026-08-20T10:42:13+00:00",
+  "files": [
+    "apps/core/src/cli/group.ts",
+    "apps/core/test/unit/cli/group-remove.test.ts",
+    "apps/core/src/cli/runtime-group-db.ts"
+  ]
+}

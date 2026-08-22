@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0032-405e",
+  "profile": "lite",
+  "reason": "bounded CLI fix: folder-safe agent-route removal (deleteSession footgun) + add gantry jobs delete",
+  "started_at": "2026-08-20T09:57:23+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi",
+  "base_sha": "5bd36b2e7d6067e20e1061fbda3b95991b631a48"
+}

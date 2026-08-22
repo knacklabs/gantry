@@ -6,7 +6,7 @@ from pathlib import Path
 
 from factory_lib import (
     client_signoff, dump_json, ensure_issue_key, load_json, now_iso, repo_root,
-    run_state_path, slugify,
+    run_state_path, slugify, story_dir,
 )
 from forge_cli.events import append_event
 from forge_cli.roadmap import activation_state, mark_status
@@ -14,7 +14,10 @@ from forge_cli.roadmap import activation_state, mark_status
 
 def stale_task_state(base: Path) -> list[Path]:
     """Report task-scoped factory artifacts left in the working state."""
-    factory = base / ".factory"
+    previous = load_json(run_state_path(base), default={})
+    key = previous.get("issue_key") or previous.get("story")
+    factory = story_dir(base, key) if key and story_dir(base, key).is_dir() \
+        else base / ".factory"
     return [
         path for path in (
             factory / "decomposition.json",
@@ -54,6 +57,9 @@ def main(argv: list[str] | None = None) -> None:
             f"{issue_key} is BLOCKED on the roadmap — waiting on: {', '.join(waiting)}. "
             "Ship the dependencies first (./forge roadmap parallel shows the ready frontier)."
         )
+    if outcome == "done":
+        print(f"Roadmap: {issue_key} is already done")
+        return
     branch = args.branch or f"feat/{issue_key}-{slugify(args.title)}"
     previous = load_json(run_state_path(root), default={})
     signed_off = client_signoff(root)[0]
@@ -97,20 +103,22 @@ def main(argv: list[str] | None = None) -> None:
                 "Finish it (pr_ready.py archives the evidence) or pass --discard-active "
                 "to abandon it deliberately."
             )
-        for stale in stale_files:
-            stale.unlink()
-        if active_plans:
+        if not prev_archived:
+            for stale in stale_files:
+                stale.unlink()
+        if active_plans and not prev_archived:
             debt = root / "plans" / "debt"
             debt.mkdir(parents=True, exist_ok=True)
             for plan in active_plans:
                 plan.rename(debt / plan.name)
                 print(f"Abandoned plan moved to plans/debt/{plan.name}")
-    dump_json(run_state_path(root), state)
+    # Directory existence is the atomic layout marker. Create it only after
+    # every intake refusal/legacy cleanup has completed, then all subsequent
+    # story writes route through the scoped layout.
+    story_dir(root, issue_key).mkdir(parents=True, exist_ok=True)
+    dump_json(run_state_path(root, issue_key, for_write=True), state)
     append_event(root, "intake", actor="orchestrator", story=issue_key, detail=args.title)
-    if outcome == "done":
-        print(f"Initialized factory state for {issue_key} -> {branch}; "
-              f"Roadmap: {issue_key} is already done")
-    elif outcome == "activate" and mark_status(root, issue_key, "active"):
+    if outcome == "activate" and mark_status(root, issue_key, "active"):
         print(f"Initialized factory state for {issue_key} -> {branch}; "
               f"Roadmap: {issue_key} marked active (plans/roadmap.json)")
     else:

@@ -458,17 +458,43 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       }
     }
 
+    let remainingRoutes: number;
     try {
       await db.deleteConversationRoute(found.jid);
-      await db.deleteSession(found.group.folder);
+      remainingRoutes = Object.entries(
+        await db.getAllConversationRoutes(),
+      ).filter(([, group]) => group.folder === found.group.folder).length;
     } catch (err) {
       p.log.error(`Could not remove agent from database: ${errorMessage(err)}`);
       return 1;
     }
 
+    const routeKey = parseAgentThreadQueueKey(found.jid);
+    // Clear only the removed route's own session -- its conversation scope key
+    // and every thread-variant descendant (resetScope matches `${scope}::%`) --
+    // so a folder still shared by other live routes is never touched.
+    // Deliberately not a folder-wide wipe on the last route: that would gate a
+    // bulk delete on a stale route count that a concurrent route write could
+    // invalidate, and per-route removal already clears each route's sessions.
+    try {
+      await db.deleteSession(found.group.folder, routeKey.threadId ?? null, {
+        conversationJid: routeKey.chatJid,
+        providerAccountId:
+          found.group.providerAccountId ?? routeKey.providerAccountId,
+        conversationKind: found.group.conversationKind,
+        agentId: found.group.agentId ?? routeKey.agentId,
+      });
+    } catch (err) {
+      // Consistent with the sender-policy cleanup below: the agent is already
+      // removed, so a failed session cleanup is a warning, not a hard failure.
+      p.log.warn(
+        `Agent removed, but session cleanup failed for folder ${found.group.folder}: ${errorMessage(err)}.`,
+      );
+    }
+
     const policyPrune = await pruneAgentSenderPolicyOverride(
       runtimeHome,
-      parseAgentThreadQueueKey(found.jid).chatJid,
+      routeKey.chatJid,
       found.group.folder,
     );
     if (policyPrune.error) {
@@ -483,9 +509,6 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
 
     // Route deletion alone is not durable -- reconciliation re-imports the
     // agent from desired state. Drop the definition once its last route is gone.
-    const remainingRoutes = Object.entries(
-      await db.getAllConversationRoutes(),
-    ).filter(([, group]) => group.folder === found.group.folder).length;
     const desiredPrune = await pruneDesiredStateAgent({
       runtimeHome,
       folder: found.group.folder,

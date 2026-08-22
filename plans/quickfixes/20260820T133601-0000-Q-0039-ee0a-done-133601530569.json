@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0039-ee0a",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "DIAG-1 autoreview P1: redact the value following a sensitive option flag in capability_run args, not just per-argument",
+  "started_at": "2026-08-20T13:12:25+00:00",
+  "completed_at": "2026-08-20T13:36:01+00:00",
+  "files": [
+    "apps/core/src/application/mcp/mcp-tool-audit.ts",
+    "apps/core/test/unit/application/mcp-tool-proxy.test.ts"
+  ]
+}

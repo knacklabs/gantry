@@ -529,6 +529,30 @@ export interface ProgressUpdateOptions {
   actionAffordances?: MessageActionAffordance[];
 }
 
+export interface StructuredJobResult {
+  headline?: string;
+  items: Array<{
+    outcome: 'done' | 'skipped' | 'failed';
+    label: string;
+    detail?: string;
+  }>;
+  nextAction?: string;
+}
+
+export interface JobNotificationView {
+  status: 'completed' | 'failed' | 'paused' | 'timeout' | 'dead_lettered';
+  jobName: string;
+  durationMs?: number;
+  stats?: {
+    toolCount: number;
+    browserUsed: boolean;
+    lastAction?: string;
+  };
+  result?: StructuredJobResult;
+  fallbackText: string;
+  nextRunAt?: string;
+}
+
 export interface MessageSendOptions {
   threadId?: string;
   providerAccountId?: string;
@@ -539,6 +563,9 @@ export interface MessageSendOptions {
    * memory-review message (per-channel native blocks/card) with the decision
    * buttons. Channels without native buttons fall back to `text`. */
   reviewMessageView?: ReviewMessageView;
+  /** Structured terminal job notification for future native channel renderers.
+   * Channels currently send `fallbackText`. */
+  jobNotificationView?: JobNotificationView;
   /** Native one-message observer digest with feedback buttons. */
   observerDigestView?: ObserverDigestMessageView;
   /** When set, channels with native support render the destructive-proposal

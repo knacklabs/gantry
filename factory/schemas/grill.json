@@ -1,7 +1,7 @@
 {
   "artifact": "grill",
-  "phase": "handover gates (spec confirmation, pre-signoff, pre-roadmap, pre-plan, per-task)",
-  "recorded_by": "record_grill_from_json.py --gate spec|signoff|epics|plan|task",
+  "phase": "handover gates (spec confirmation, pre-signoff, pre-roadmap, pre-draft requirements, pre-plan, per-task)",
+  "recorded_by": "record_grill_from_json.py --gate spec|signoff|epics|requirements|plan|task",
   "generated_by": ["griller"],
   "required": {
     "generated_by": "str",
@@ -25,7 +25,10 @@
     "new_abstractions": "list",
     "rounds": "list",
     "citations": "list",
-    "escalation_packet": "dict"
+    "escalation_packet": "dict",
+    "approved_task_plan_sha256": "str",
+    "approved_by": "str",
+    "approved_at": "str"
   },
   "verdict_note": "verdict: pass | blocked. pass requires zero unresolved blocking gaps/contradictions — every entry in gaps/contradictions must have a matching resolution (a doc edit or decision record) or be explicitly parked in open_items as non-blocking."
 }

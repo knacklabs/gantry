@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0039-ee0a",
+  "profile": "degraded",
+  "reason": "DIAG-1 autoreview P1: redact the value following a sensitive option flag in capability_run args, not just per-argument",
+  "started_at": "2026-08-20T13:12:25+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

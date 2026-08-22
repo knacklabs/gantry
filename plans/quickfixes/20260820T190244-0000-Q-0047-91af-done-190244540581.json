@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0047-91af",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "NOTIFY-1: raise file-size budgets for 3 files the structured-notification feature legitimately grew (types, execution, telegram-delivery)",
+  "started_at": "2026-08-20T19:02:10+00:00",
+  "completed_at": "2026-08-20T19:02:44+00:00",
+  "files": [
+    "scripts/architecture-map.json"
+  ]
+}

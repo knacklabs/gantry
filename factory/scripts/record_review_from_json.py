@@ -2,16 +2,21 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 from factory_lib import (
-    dump_json, gate, head_sha, load_json, now_iso,
-    protected_decomposition_state_path, repo_root, require_skills, review_dir,
-    read_stdin_utf8, run_state_path, validate_payload,
+    branch_diff_digest, dump_json, gate, head_sha, load_json, now_iso,
+    evidence_path, protected_decomposition_state_path, repo_root, require_skills,
+    read_stdin_utf8, run_state_path, story_dir, validate_payload,
 )
 from forge_cli.events import append_event
+from forge_cli.readiness import review_passed
 from forge_cli.review_brief import declared_contracts
+from forge_cli.stages import (
+    load_stages, stage_review_binding, task_for, write_stages,
+)
 
 
 def ensure_list(value):
@@ -48,7 +53,10 @@ def ensure_findings(field: str, value):
 
 
 parser = argparse.ArgumentParser(description="Record a review artifact from structured JSON")
-parser.add_argument("--aspect", required=True, choices=["quality", "performance", "security"])
+parser.add_argument(
+    "--aspect", required=True,
+    choices=["quality", "performance", "security", "stage-local"],
+)
 parser.add_argument("--input", help="Path to a JSON file. If omitted, read JSON from stdin.")
 args = parser.parse_args()
 
@@ -70,7 +78,9 @@ state = gate(
 )
 validate_payload(root, "review", payload)
 require_skills(root, "review", payload)
-path = review_dir(root) / f"{args.aspect}.json"
+path = evidence_path(
+    root, state.get("issue_key"), f"reviews/{args.aspect}.json", for_write=True,
+)
 review = dict(payload)
 review["aspect"] = args.aspect
 for key in ("blocking_findings", "non_blocking_findings"):
@@ -135,11 +145,67 @@ if args.aspect == "quality" and state.get("decomposition_status") == "recorded":
                 "quality review contract_verdicts missing declared contract ids: "
                 + ", ".join(missing_ids)
             )
+if args.aspect != "stage-local" and state.get("issue_key"):
+    token_path = story_dir(root, state["issue_key"]) / "review-run.json"
+    token = load_json(token_path, default={})
+    fields = ("review_run_id", "brief_sha256", "branch_diff_digest")
+    if any(not isinstance(token.get(field), str) or not token[field]
+           for field in fields):
+        raise SystemExit(
+            "Missing current branch review run; run `./forge review-brief --all` first."
+        )
+    expected_run_id = hashlib.sha256(
+        (token["brief_sha256"] + token["branch_diff_digest"]).encode()
+    ).hexdigest()
+    if token["review_run_id"] != expected_run_id:
+        raise SystemExit(
+            "Invalid review-run token; rerun `./forge review-brief --all`."
+        )
+    if token["branch_diff_digest"] != branch_diff_digest(root):
+        raise SystemExit(
+            "Branch changed after the review run was minted; rerun "
+            "`./forge review-brief --all`."
+        )
+    review.update({field: token[field] for field in fields})
 for key in ("residual_risks", "reviewed_scope"):
     review[key] = ensure_list(payload.get(key))
 review.setdefault("recommendation", "approve-with-caveats")
 review["recorded_at"] = now_iso()
 review["commit"] = head_sha(root)
+if args.aspect == "stage-local":
+    if not review_passed(review):
+        raise SystemExit(
+            "stage-local review must be clean: score >= 8 and no blocking findings"
+        )
+    from forge_cli.delegate import delegation_exclusion
+    with delegation_exclusion(root, "stages", kind="stage-state", namespace="state"):
+        stages = load_stages(root)
+        active = [stage for stage in stages.get("stages", [])
+                  if stage.get("status") == "active"]
+        if len(active) != 1:
+            raise SystemExit(
+                "stage-local review requires exactly one active stage "
+                f"(found {len(active)})"
+            )
+        stage = active[0]
+        task = task_for(root, stage.get("id", ""))
+        if not task:
+            raise SystemExit(
+                f"active stage {stage.get('id')} has no recorded task contract"
+            )
+        stage["local_review_stamp"] = {
+            **stage_review_binding(root, stage, task),
+            "recorded_at": review["recorded_at"],
+            "generated_by": review.get("generated_by", "autoreview"),
+        }
+        write_stages(root, stages)
+    append_event(
+        root, "review-stage-local",
+        actor=review.get("generated_by", "autoreview"),
+        story=state.get("issue_key", ""), detail=stage.get("id", ""),
+    )
+    print(f"Recorded clean stage-local review stamp for {stage.get('id')}")
+    raise SystemExit(0)
 dump_json(path, review)
 if state.get("issue_key"):
     state["review_status"] = "in-progress"

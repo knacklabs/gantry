@@ -18,3 +18,5 @@ plans/quickfixes.jsonl merge=union
 
 # Git Bash executes this launcher on every platform; CRLF breaks POSIX parsing.
 forge text eol=lf
+
+.factory/signals.jsonl merge=union

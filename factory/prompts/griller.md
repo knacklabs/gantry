@@ -84,8 +84,35 @@ Method:
 4. Record the outcome (schema: `factory/schemas/grill.json`,
    `"generated_by": "griller"`):
 
+   A task-grill input uses this recorded shape (the recorder adds its own
+   task id, digests, commit, and timestamps):
+
+```json
+{
+  "generated_by": "griller",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": ["What was sanctioned"],
+  "inspected_refs": ["path/or/path:symbol"],
+  "current_flow": "What the repository does now",
+  "criteria_map": {"criterion": "proof"},
+  "decision": "keep",
+  "new_abstractions": ["None"],
+  "rounds": [{"question": "Finding or choice", "options": ["Recommended", "Alternative"], "chosen": "Recommended"}],
+  "citations": [{"finding": "Repo-answerable finding", "source": "path:symbol"}],
+  "open_items": []
+}
+```
+
+   Each `rounds` entry has a non-empty `question`, two to four non-empty
+   string `options`, and a `chosen` value equal to one option. Each citation
+   is `{finding, source}`. Every string in `gaps` must be covered by an equal
+   `rounds[].question` or `citations[].finding`; a zero-gap grill may therefore
+   have zero rounds.
+
 ```bash
-python3 factory/scripts/record_grill_from_json.py --gate <spec|signoff|epics|plan|task> --input <json> [--input-digest <artifact>] [--task <id> --task-digest <contract-hash>]
+python3 factory/scripts/record_grill_from_json.py --gate <spec|signoff|epics|plan|task> --input <json> [--input-digest <artifact>] [--task <id>]
 ```
 
 5. For the spec, signoff, epics, and plan gates, commit the resolution edits
@@ -100,7 +127,8 @@ python3 factory/scripts/record_grill_from_json.py --gate <spec|signoff|epics|pla
    digest — grilling version A never approves an edited version B; if the
    artifact changes, re-grill it. For `--gate task`, pass `--task <id>` and
    `--task-digest <contract-hash>` instead; the recorder stores the result at
-   `.factory/grills/tasks/<id>.json`.
+   `.factory/grills/tasks/<id>.json`; its grounding digest is derived by the
+   recorder rather than accepted from the caller.
 
 A `pass` with unresolved findings is refused by the recorder. Grill hard;
 downstream implementation inherits whatever you let through.

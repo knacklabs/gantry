@@ -42,7 +42,9 @@ import {
   MCP_TOOL_PROXY_CLIENT_ADAPTERS,
   McpToolProxy,
 } from '@core/application/mcp/mcp-tool-proxy.js';
+import { publishMcpToolActivity } from '@core/application/mcp/mcp-tool-proxy-audit.js';
 import { connectMcpToolProxyClient } from '@core/application/mcp/mcp-tool-proxy-connection.js';
+import { summarizeCapabilityRunAudit } from '@core/application/mcp/mcp-tool-audit.js';
 import {
   fetchMcpToolListPages,
   MAX_MCP_REMOTE_TOOL_METADATA_BYTES,
@@ -1486,6 +1488,135 @@ describe('McpToolProxy', () => {
         }),
       }),
     );
+  });
+
+  it('records bounded capability_run details (args opted in) without changing normal tool audit payloads', async () => {
+    process.env.GANTRY_AUDIT_CAPABILITY_ARGS = '1';
+    const capabilityRuntimeEvents = vi.fn(async () => undefined);
+    const capabilityAuditEvents = vi.fn(async () => undefined);
+    const longArg = `sheet-${'x'.repeat(2_000)}`;
+    const longStdout = `written-${'x'.repeat(2_000)}`;
+    const capabilityRun = summarizeCapabilityRunAudit({
+      serverName: 'gantry',
+      toolName: 'capability_run',
+      argumentPayload: {
+        capabilityId: 'google.sheets.values.append',
+        args: [
+          'sheets',
+          'append',
+          longArg,
+          '--password',
+          'value-one',
+          '--api-key',
+          '--token',
+          'value-two',
+          '--secret',
+          '--verbose',
+          'value-three',
+        ],
+      },
+      toolResult: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              stdout: longStdout,
+              stderr: 'capability finished',
+            }),
+          },
+        ],
+      },
+    });
+    await publishMcpToolActivity({
+      mcpServers: { appendAuditEvent: capabilityAuditEvents } as never,
+      options: { publishRuntimeEvent: capabilityRuntimeEvents },
+      activity: {
+        input: {
+          appId: 'app-one' as never,
+          agentId: 'agent-one' as never,
+          serverName: 'gantry',
+          toolName: 'capability_run',
+        },
+        resultClass: 'success',
+        latencyMs: 1,
+        argumentSummary: { kind: 'object' },
+        capabilityRun,
+      },
+    });
+
+    const capabilityPayload = capabilityRuntimeEvents.mock.calls.at(-1)?.[0]
+      .payload as Record<string, unknown>;
+    expect(capabilityPayload).toMatchObject({
+      capabilityRun: {
+        capabilityId: 'google.sheets.values.append',
+        argCount: 11,
+        args: [
+          'sheets',
+          'append',
+          `${longArg.slice(0, 2_000)}...`,
+          '--password',
+          '[REDACTED_SECRET]',
+          '--api-key',
+          '--token',
+          '[REDACTED_SECRET]',
+          '--secret',
+          '--verbose',
+          '[REDACTED_SECRET]',
+        ],
+        stdout: `${longStdout.slice(0, 2_000)}...`,
+        stderr: 'capability finished',
+      },
+    });
+    expect(capabilityAuditEvents.mock.calls.at(-1)?.[0]).toMatchObject({
+      metadata: expect.objectContaining({
+        capabilityRun: capabilityPayload.capabilityRun,
+      }),
+    });
+
+    const normalRuntimeEvents = vi.fn(async () => undefined);
+    await publishMcpToolActivity({
+      mcpServers: { appendAuditEvent: vi.fn(async () => undefined) } as never,
+      options: { publishRuntimeEvent: normalRuntimeEvents },
+      activity: {
+        input: {
+          appId: 'app-one' as never,
+          agentId: 'agent-one' as never,
+          serverName: 'github',
+          toolName: 'create_issue',
+        },
+        resultClass: 'success',
+        latencyMs: 1,
+        argumentSummary: { kind: 'object' },
+      },
+    });
+    expect(
+      normalRuntimeEvents.mock.calls.at(-1)?.[0].payload,
+    ).not.toHaveProperty('capabilityRun');
+    delete process.env.GANTRY_AUDIT_CAPABILITY_ARGS;
+  });
+
+  it('omits raw capability_run args unless audit logging is opted in', () => {
+    delete process.env.GANTRY_AUDIT_CAPABILITY_ARGS;
+    const summary = summarizeCapabilityRunAudit({
+      serverName: 'gantry',
+      toolName: 'capability_run',
+      argumentPayload: {
+        capabilityId: 'google.sheets.values.append',
+        args: ['--password', 'value-one'],
+      },
+      toolResult: {
+        content: [
+          { type: 'text', text: JSON.stringify({ stdout: 'ok', stderr: '' }) },
+        ],
+      },
+    });
+    expect(summary).toMatchObject({
+      capabilityId: 'google.sheets.values.append',
+      argCount: 2,
+      stdout: 'ok',
+      stderr: '',
+    });
+    expect(summary).not.toHaveProperty('args');
   });
 
   it('does not idle-close the MCP client while a tool call is active', async () => {

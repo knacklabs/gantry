@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0033-02a9",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Job-visibility bug fix (bounded, 1 file + test): canAccessSchedulerJob hides jobs whose notification route has no providerAccountId, making the KnackLabs lead job invisible even from its own conversation. Unbound route matches any account; bound-to-different still fails (fail-closed preserved). Codex root-caused it; codex-write is repo-blocked so delegate is unavailable.",
+  "started_at": "2026-08-20T08:05:44+00:00",
+  "completed_at": "2026-08-20T08:11:30+00:00",
+  "files": [
+    "apps/core/src/application/jobs/job-management-access.ts",
+    "apps/core/test/unit/application/jobs-use-cases.test.ts"
+  ]
+}

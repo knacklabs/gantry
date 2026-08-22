@@ -15,7 +15,10 @@
     "recommendation": "str",
     "reviewed_scope": "list",
     "skills_used": "list",
-    "contract_verdicts": "list"
+    "contract_verdicts": "list",
+    "review_run_id": "str",
+    "brief_sha256": "str",
+    "branch_diff_digest": "str"
   },
   "required_skills": {
     "user_facing": ["review-animations"]

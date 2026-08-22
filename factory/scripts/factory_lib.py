@@ -43,12 +43,136 @@ def factory_dir(root: Path | None = None) -> Path:
     return (root or repo_root()) / ".factory"
 
 
-def run_state_path(root: Path | None = None) -> Path:
-    return factory_dir(root) / "run.json"
+def story_dir(root: Path, key: str) -> Path:
+    """Return the canonical evidence directory for one story."""
+    if not isinstance(key, str) or not key or key in (".", "..") \
+            or "/" in key or "\\" in key:
+        raise ValueError("story key must be one path component")
+    return factory_dir(root) / "stories" / key
 
 
-def decomposition_state_path(root: Path | None = None) -> Path:
-    return factory_dir(root) / "decomposition.json"
+def story_uses_scoped_layout(root: Path, key: str) -> bool:
+    """Return whether a story is marked for scoped state."""
+    return story_dir(root, key).is_dir()
+
+
+def evidence_path(
+    root: Path,
+    key: str | None,
+    name: str,
+    *,
+    for_write: bool = False,
+) -> Path:
+    """Resolve story evidence, retaining legacy live and history reads.
+
+    Intake creates the story directory for the new layout. Its presence is
+    therefore also the write-layout marker; an active story without it is a
+    legacy story whose live singleton must remain writable.
+    """
+    relative = Path(name)
+    if relative.is_absolute() or not relative.parts or any(
+            part in ("", ".", "..") for part in relative.parts):
+        raise ValueError("evidence name must be a contained relative path")
+    live = factory_dir(root) / relative
+    if not key:
+        return live
+
+    scoped_dir = story_dir(root, key)
+    scoped = scoped_dir / relative
+    state = load_json(run_state_path(root), default={})
+    active = (state.get("issue_key") or state.get("story")) == key
+    if for_write:
+        return scoped if story_uses_scoped_layout(root, key) or not active else live
+    if scoped.exists():
+        return scoped
+    if active and live.exists():
+        return live
+
+    archived = factory_dir(root) / "history" / key / relative
+    if archived.exists():
+        return archived
+    return scoped
+
+
+def _active_story_key(root: Path) -> str:
+    state = load_json(run_state_path(root), default={})
+    key = state.get("issue_key") or state.get("story")
+    return key if isinstance(key, str) else ""
+
+
+_RUN_STATE_ROOTS: dict[Path, Path] = {}
+
+
+def run_state_path(
+    root: Path | None = None,
+    key: str | None = None,
+    *,
+    for_write: bool = False,
+) -> Path:
+    """Resolve the worktree-local run pointer, with legacy fallback.
+
+    The protected pointer is authoritative for reads. Intake supplies the
+    story key for writes, so only a story with the scoped-layout marker writes
+    there; a legacy story continues using tracked run.json.
+    """
+    base = root or repo_root()
+    legacy = factory_dir(base) / "run.json"
+    try:
+        protected = git_control_dir(base) / "run.json"
+    except SystemExit:
+        if legacy.is_file() and not for_write:
+            return legacy
+        raise
+    if for_write and key:
+        path = protected if story_uses_scoped_layout(base, key) else legacy
+        if path == protected:
+            _RUN_STATE_ROOTS[protected] = base
+        return path
+    if protected.is_file():
+        _RUN_STATE_ROOTS[protected] = base
+        return protected
+    return legacy
+
+
+def derive_phase(root: Path, state: dict[str, Any]) -> str:
+    """Derive durable lifecycle progress while retaining transient phases."""
+    stored = state.get("phase", "")
+    key = state.get("issue_key") or state.get("story")
+    if not isinstance(key, str) or not key or not story_uses_scoped_layout(root, key):
+        return stored if isinstance(stored, str) else ""
+
+    scoped = story_dir(root, key)
+    implied = ""
+    if (scoped / "decomposition.json").is_file():
+        implied = "implementing"
+    if (scoped / "tests.json").is_file() or (scoped / "verify.json").is_file():
+        implied = "testing"
+    if (scoped / "tests.json").is_file() and (scoped / "verify.json").is_file():
+        implied = "reviewing"
+    reviews = scoped / "reviews"
+    if all((reviews / f"{aspect}.json").is_file()
+           for aspect in ("quality", "performance", "security")):
+        implied = "functional-check"
+
+    order = (
+        "discovery", "planning", "decomposing", "awaiting-approval",
+        "implementing", "testing", "reviewing", "functional-check",
+        "pr-ready", "shipped", "done",
+    )
+    if stored not in order or implied not in order:
+        return stored if isinstance(stored, str) else implied
+    return order[max(order.index(stored), order.index(implied))]
+
+
+def decomposition_state_path(
+    root: Path | None = None,
+    key: str | None = None,
+    *,
+    for_write: bool = False,
+) -> Path:
+    base = root or repo_root()
+    story = key or _active_story_key(base)
+    return evidence_path(base, story, "decomposition.json", for_write=for_write)
 
 
 def clean_git_env() -> dict[str, str]:
@@ -58,16 +182,32 @@ def clean_git_env() -> dict[str, str]:
     }
 
 
-def verify_state_path(root: Path | None = None) -> Path:
-    return factory_dir(root) / "verify.json"
+def verify_state_path(
+    root: Path | None = None,
+    key: str | None = None,
+    *,
+    for_write: bool = False,
+) -> Path:
+    base = root or repo_root()
+    story = key or _active_story_key(base)
+    return evidence_path(base, story, "verify.json", for_write=for_write)
 
 
-def tests_state_path(root: Path | None = None) -> Path:
-    return factory_dir(root) / "tests.json"
+def tests_state_path(
+    root: Path | None = None,
+    key: str | None = None,
+    *,
+    for_write: bool = False,
+) -> Path:
+    base = root or repo_root()
+    story = key or _active_story_key(base)
+    return evidence_path(base, story, "tests.json", for_write=for_write)
 
 
-def review_dir(root: Path | None = None) -> Path:
-    return factory_dir(root) / "reviews"
+def review_dir(root: Path | None = None, key: str | None = None) -> Path:
+    base = root or repo_root()
+    story = key or _active_story_key(base)
+    return evidence_path(base, story, "reviews")
 
 
 FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
@@ -492,7 +632,11 @@ def now_iso() -> str:
 def load_json(path: Path, default: Any = None) -> Any:
     if not path.exists():
         return default
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    run_root = _RUN_STATE_ROOTS.get(path)
+    if run_root is not None and isinstance(data, dict):
+        data = {**data, "phase": derive_phase(run_root, data)}
+    return data
 
 
 def dump_json(path: Path, data: Any) -> None:
@@ -529,6 +673,38 @@ def git_control_dir(root: Path) -> Path:
 
 def protected_decomposition_state_path(root: Path) -> Path:
     return git_control_dir(root) / "decomposition.json"
+
+
+def task_marker_path(key: str, task_id: str) -> Path:
+    """Return the committed marker shared by task start and task closeout."""
+    for label, value in (("story key", key), ("task id", task_id)):
+        if (
+            not isinstance(value, str) or not value
+            or value in {".", ".."} or Path(value).name != value
+            or "\\" in value
+        ):
+            raise ValueError(f"{label} must be one path component")
+    return Path(".factory") / "stories" / key / "tasks" / task_id / "pr-ready.json"
+
+
+def task_marker_on_main(root: Path, key: str, task_id: str) -> bool:
+    """Refresh origin/main and report whether its tree contains the task marker."""
+    marker = task_marker_path(key, task_id)
+    fetch = subprocess.run(
+        ["git", "fetch", "origin", "main"], cwd=root, capture_output=True,
+        text=True, env=clean_git_env(), encoding="utf-8", errors="surrogateescape",
+    )
+    if fetch.returncode != 0:
+        detail = fetch.stderr.strip() or fetch.stdout.strip()
+        raise SystemExit(
+            "fetching origin/main failed" + (f": {detail}" if detail else "")
+        )
+    present = subprocess.run(
+        ["git", "cat-file", "-e", f"origin/main:{marker.as_posix()}"],
+        cwd=root, capture_output=True, text=True, env=clean_git_env(),
+        encoding="utf-8", errors="surrogateescape",
+    )
+    return present.returncode == 0
 
 
 def _windows_reparse_point(path: Path) -> bool:
@@ -761,7 +937,7 @@ def load_review_artifacts(
     problems: list[str] = []
     head = head_sha(root) if require_head else None
     for aspect in ("quality", "performance", "security"):
-        path = review_dir(root) / f"{aspect}.json"
+        path = evidence_path(root, _active_story_key(root), f"reviews/{aspect}.json")
         data = load_json(path, default={})
         if not data:
             problems.append(str(path.relative_to(root)))
@@ -780,6 +956,158 @@ def load_review_artifacts(
                 f"{aspect} review must be stamped at HEAD {expected} (got {shown})"
             )
     return reviews, problems
+
+
+def branch_diff_digest(root: Path) -> str:
+    """Hash the committed product diff from origin/main to the current HEAD."""
+    from forge_cli.stages import WORKFLOW_PATHS, committed_paths
+
+    merge_base = subprocess.run(
+        ["git", "merge-base", "origin/main", "HEAD"],
+        cwd=root, capture_output=True, text=True, env=clean_git_env(),
+        encoding="utf-8", errors="surrogateescape",
+    )
+    if merge_base.returncode != 0 or not merge_base.stdout.strip():
+        raise SystemExit(
+            "Cannot bind the branch review: origin/main has no merge base with HEAD."
+        )
+    base_sha = merge_base.stdout.strip()
+    current_head = head_sha(root)
+    paths = sorted(
+        path for path in committed_paths(root, base_sha, current_head)
+        if not path.startswith(WORKFLOW_PATHS)
+    )
+    if not paths:
+        return hashlib.sha256(b"").hexdigest()
+    diff = subprocess.run(
+        ["git", "diff", "--binary", "--no-ext-diff", base_sha, current_head,
+         "--", *paths],
+        cwd=root, capture_output=True, env=clean_git_env(),
+    )
+    if diff.returncode != 0:
+        raise SystemExit("Cannot bind the branch review: git diff failed.")
+    return hashlib.sha256(diff.stdout).hexdigest()
+
+
+def require_coherent_review_run(root: Path, reviews: dict[str, dict]) -> list[str]:
+    """Return close-gate problems for a split or stale three-lens review run."""
+    aspects = ("quality", "performance", "security")
+    if any(aspect not in reviews for aspect in aspects):
+        return []
+    fields = ("review_run_id", "brief_sha256", "branch_diff_digest")
+    bindings = [tuple(reviews[aspect].get(field) for field in fields)
+                for aspect in aspects]
+    if any(not isinstance(value, str) or not value for binding in bindings
+           for value in binding):
+        return [
+            "quality, performance, and security reviews must echo one "
+            "review_run_id, brief_sha256, and branch_diff_digest from "
+            "`./forge review-brief --all`"
+        ]
+    if len(set(bindings)) != 1:
+        return [
+            "quality, performance, and security reviews must share one "
+            "review_run_id, brief_sha256, and branch_diff_digest"
+        ]
+    review_run_id, brief_sha256, recorded_digest = bindings[0]
+    expected_run_id = hashlib.sha256(
+        (brief_sha256 + recorded_digest).encode()
+    ).hexdigest()
+    if review_run_id != expected_run_id:
+        return [
+            "review_run_id must equal sha256(brief_sha256 + branch_diff_digest)"
+        ]
+    current_digest = branch_diff_digest(root)
+    if recorded_digest != current_digest:
+        return [
+            "branch review is stale: branch_diff_digest does not match the "
+            "current committed product diff; rerun `./forge review-brief --all` "
+            "and all three lenses"
+        ]
+    return []
+
+
+def require_all_stages_done(root: Path) -> list[str]:
+    """Return decomposition task ids whose execution stage is not done."""
+    from forge_cli.stages import load_stages
+
+    decomposition = load_json(protected_decomposition_state_path(root), default={})
+    stages = {
+        stage.get("id"): stage
+        for stage in load_stages(root).get("stages", [])
+        if isinstance(stage, dict)
+    }
+    return [
+        task["id"]
+        for task in decomposition.get("tasks", [])
+        if isinstance(task, dict)
+        and isinstance(task.get("id"), str)
+        and stages.get(task["id"], {}).get("status") != "done"
+    ]
+
+
+def require_closeout_order(root: Path) -> list[str]:
+    """Return closeout problems in their required prerequisite order."""
+    from forge_cli.outcome import load_outcome
+    from forge_cli.readiness import tests_passed
+
+    problems: list[str] = []
+    head = head_sha(root)
+    expected = head[:8] if head else "missing"
+
+    open_stages = require_all_stages_done(root)
+    if open_stages:
+        problems.append(
+            f"stage completion: {', '.join(open_stages)} not done — work each "
+            "stage (forge stage start → local autoreview until clean → commit → "
+            "forge stage done; WORKFLOW.md Stage Loop)"
+        )
+
+    verify = load_json(verify_state_path(root), default={})
+    if not verify or not verify.get("ok"):
+        problems.append("successful .factory/verify.json")
+    elif verify.get("commit") != head:
+        stamp = verify.get("commit")
+        shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
+        problems.append(
+            f"verify must be stamped at HEAD {expected} (got {shown})"
+        )
+
+    reviews, review_problems = load_review_artifacts(root, require_head=True)
+    problems.extend(review_problems)
+    problems.extend(require_coherent_review_run(root, reviews))
+
+    decomposition = load_json(protected_decomposition_state_path(root), default={})
+    if bool(decomposition.get("user_facing", True)):
+        tests = load_json(tests_state_path(root), default={})
+        functional = tests.get("functional", {}) if tests else {}
+        if not functional:
+            problems.append(".factory/tests.json:functional")
+        elif not tests_passed(functional, functional=True):
+            problems.append(
+                "functional testing must have no blockers, no failed status and score >= 8"
+            )
+        if functional and tests.get("commit") != head:
+            stamp = tests.get("commit")
+            shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
+            problems.append(
+                f"functional testing must be stamped at HEAD {expected} (got {shown})"
+            )
+
+    outcome = load_outcome(root) or {}
+    if not outcome.get("outcome"):
+        problems.append(
+            "the shipped outcome — `forge.py outcome set \"<what changed and what "
+            "someone can now do>\"` (one paragraph, in a reader's language)"
+        )
+    elif outcome.get("commit") != head:
+        stamp = outcome.get("commit")
+        shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
+        problems.append(
+            f"outcome must be stamped at HEAD {expected} (got {shown}) — rerun "
+            "`forge.py outcome set`"
+        )
+    return problems
 
 
 SCHEMA_TYPES = {"str": str, "int": int, "bool": bool, "list": list, "dict": dict}
@@ -894,7 +1222,8 @@ def require_grill(
     the grill) from staleness. `expect_digest_of` binds the grill to the
     exact artifact being gated: the recorded input_sha256 must match that
     file, so grilling proposal A never approves proposal B."""
-    path = factory_dir(root) / "grills" / f"{gate}.json"
+    key = _active_story_key(root) if gate == "plan" else ""
+    path = evidence_path(root, key, f"grills/{gate}.json")
     data = load_json(path, default={})
     if not data:
         raise SystemExit(
@@ -912,7 +1241,11 @@ def require_grill(
             f".factory/grills/{gate}.json has no commit stamp — re-record with current tooling."
         )
     if expect_digest_of is not None:
-        actual = sha256_of(expect_digest_of)
+        actual = (
+            plan_digest_without_assumptions(expect_digest_of)
+            if gate == "plan"
+            else sha256_of(expect_digest_of)
+        )
         if data.get("input_sha256") != actual:
             raise SystemExit(
                 f"the {gate} grill was not recorded against THIS input "
@@ -941,12 +1274,11 @@ def require_grill(
 
 
 def require_task_grill(
-    root: Path,
-    task_id: str,
-    task: dict,
+    root: Path, task_id: str, task: dict, *, treeish: str = "",
 ) -> None:
     """Require a passing grill bound to the current grounding inputs."""
-    path = factory_dir(root) / "grills" / "tasks" / f"{task_id}.json"
+    key = _active_story_key(root)
+    path = evidence_path(root, key, f"grills/tasks/{task_id}.json")
     data = load_json(path, default={})
     record_command = (
         "python3 factory/scripts/record_grill_from_json.py --gate task "
@@ -968,7 +1300,7 @@ def require_task_grill(
             f".factory/grills/tasks/{task_id}.json has no commit stamp — re-record "
             f"with current tooling using `{record_command}`."
         )
-    if data.get("input_sha256") != grounding_digest(root, task):
+    if data.get("input_sha256") != grounding_digest(root, task, treeish=treeish):
         raise SystemExit(
             f"the {task_id} task grill is STALE — its grounding inputs changed. "
             f"Re-grill and record `{record_command}`; --task-digest was removed "
@@ -1001,10 +1333,51 @@ def plan_digest_without_assumptions(path: Path) -> str:
     return hashlib.sha256(approved_text.encode()).hexdigest()
 
 
-def product_tree_digest(root: Path) -> str:
-    """Hash the deterministic index blob list, excluding workflow-only paths."""
+def approved_plan_digest(
+    root: Path, state: dict[str, Any], plan: Path,
+) -> str | None:
+    """Return the approval-time digest, backfilling legacy approved runs once."""
+    digest = state.get("approved_plan_sha256")
+    if isinstance(digest, str) and digest:
+        return digest
+    if "approved_plan_sha256" in state or state.get("plan_status") != "approved":
+        return None
+    digest = plan_digest_without_assumptions(plan)
+    state["approved_plan_sha256"] = digest
+    dump_json(run_state_path(root), state)
+    return digest
+
+
+def require_approved_plan_digest(root: Path) -> str:
+    """Return the live approved-plan digest or require a fresh approval."""
+    state = load_json(run_state_path(root), default={})
+    plan_file = state.get("plan_file")
+    plan = root / plan_file if isinstance(plan_file, str) else None
+    approved = (
+        approved_plan_digest(root, state, plan)
+        if plan is not None and plan.is_file()
+        else None
+    )
+    if (
+        not isinstance(approved, str)
+        or not approved
+        or plan is None
+        or not plan.is_file()
+        or plan_digest_without_assumptions(plan) != approved
+    ):
+        raise SystemExit(
+            "approved plan binding is missing or no longer matches the live plan. "
+            "Re-grill the current plan and re-approve it."
+        )
+    return approved
+
+
+def product_tree_digest(root: Path, treeish: str = "") -> str:
+    """Hash product blobs from the index, or from a named historical tree."""
+    git_args = (["ls-tree", "-r", "-z", treeish]
+                if treeish else ["ls-files", "--stage", "-z"])
     proc = subprocess.run(
-        ["git", "ls-files", "--stage", "-z"],
+        ["git", *git_args],
         cwd=root,
         capture_output=True,
         text=True,
@@ -1014,7 +1387,7 @@ def product_tree_digest(root: Path) -> str:
     )
     if proc.returncode != 0:
         raise SystemExit(
-            "cannot derive the task grounding digest from the Git index: "
+            "cannot derive the task grounding digest from Git: "
             + proc.stderr.strip()
         )
     blobs: list[tuple[str, str]] = []
@@ -1025,12 +1398,21 @@ def product_tree_digest(root: Path) -> str:
         if path.startswith((".factory/", "plans/")):
             continue
         fields = metadata.split()
-        blobs.append((path, fields[1]))
+        blobs.append((path, fields[2] if treeish else fields[1]))
     payload = json.dumps(sorted(blobs), separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def grounding_digest(root: Path, task: dict) -> str:
+def requirements_digest(root: Path, spec_path: Path) -> str:
+    """Bind a confirmed spec body to the current product tree."""
+    raw = spec_path.read_bytes()
+    frontmatter = re.match(br"\A---\r?\n.*?\r?\n---\r?\n", raw, re.DOTALL)
+    body = raw[frontmatter.end():] if frontmatter else raw
+    payload = body + b"\x00" + product_tree_digest(root).encode("ascii")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def grounding_digest(root: Path, task: dict, *, treeish: str = "") -> str:
     """Bind a task grill to its full contract, approved plan, and product tree."""
     decomposition = load_json(protected_decomposition_state_path(root), default={})
     plan_file = decomposition.get("plan_file")
@@ -1058,7 +1440,7 @@ def grounding_digest(root: Path, task: dict) -> str:
         {
             "contract": task,
             "plan_sha256": plan_digest_without_assumptions(plan),
-            "product_tree_sha256": product_tree_digest(root),
+            "product_tree_sha256": product_tree_digest(root, treeish),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -1090,8 +1472,28 @@ def _task_grill_fresh(root: Path, task: dict, grill: dict) -> bool:
     )
 
 
+def _task_plan_state(root: Path, task: dict, grill: dict) -> str:
+    """Derive the post-grill task-plan state without storing a status."""
+    task_id = task.get("id")
+    key = _active_story_key(root)
+    plan = evidence_path(root, key, f"task-plans/{task_id}.md")
+    if not plan.is_file():
+        return "author-task-plan"
+    approved = (
+        isinstance(grill.get("approved_by"), str)
+        and bool(grill["approved_by"].strip())
+        and isinstance(grill.get("approved_at"), str)
+        and bool(grill["approved_at"].strip())
+        and grill.get("approved_task_plan_sha256")
+        == plan_digest_without_assumptions(plan)
+    )
+    return "approved" if approved else "await-approval"
+
+
 def task_rows(root: Path) -> list[dict]:
     """Derive every live task row from the same inputs as frontier routing."""
+    run_state = load_json(run_state_path(root), default={})
+    is_task_level = bool(run_state.get("base_main_sha"))
     tasks = load_json(
         protected_decomposition_state_path(root), default={}
     ).get("tasks", [])
@@ -1102,23 +1504,30 @@ def task_rows(root: Path) -> list[dict]:
         if isinstance(stage, dict)
     }
     rows = []
+    key = _active_story_key(root)
     for task in tasks:
         task_id = task.get("id")
         stage = stage_by_id.get(task_id, {})
-        grill = load_json(
-            factory_dir(root) / "grills" / "tasks" / f"{task_id}.json",
-            default={},
-        )
+        grill_path = evidence_path(root, key, f"grills/tasks/{task_id}.json")
+        grill = load_json(grill_path, default={})
         fresh = _task_grill_fresh(root, task, grill) if grill else False
         status = stage.get("status")
-        if status == "done":
+        marker_present = (
+            task_marker_on_main(root, key, task_id) if is_task_level else False
+        )
+        if marker_present or (not is_task_level and status == "done"):
             state = "done"
+        elif is_task_level and status == "done":
+            state = "await-merge"
         elif status == "active":
             state = "active"
         elif not _task_contract_complete(task):
             state = "skeleton"
+        elif not fresh:
+            state = "ready"
         else:
-            state = "grilled" if fresh else "ready"
+            plan_state = _task_plan_state(root, task, grill)
+            state = "grilled" if plan_state == "approved" else plan_state
 
         budget = None
         if state == "active":
@@ -1156,6 +1565,8 @@ def task_rows(root: Path) -> list[dict]:
 
 def task_frontier_state(root: Path) -> tuple[str, dict] | None:
     """Return the next JIT action and earliest unfinished task, without raising."""
+    run_state = load_json(run_state_path(root), default={})
+    is_task_level = bool(run_state.get("base_main_sha"))
     tasks = load_json(
         protected_decomposition_state_path(root), default={}
     ).get("tasks", [])
@@ -1165,33 +1576,81 @@ def task_frontier_state(root: Path) -> tuple[str, dict] | None:
         for stage in stages.get("stages", [])
         if isinstance(stage, dict)
     }
+    key = _active_story_key(root)
     frontier = next(
         (
             candidate
             for candidate in tasks
-            if stage_by_id.get(candidate.get("id"), {}).get("status") != "done"
+            if (
+                not task_marker_on_main(root, key, candidate.get("id"))
+                if is_task_level else
+                stage_by_id.get(candidate.get("id"), {}).get("status") != "done"
+            )
         ),
         None,
     )
     if frontier is None:
         return None
     task_id = frontier.get("id")
+    stage = stage_by_id.get(task_id, {})
+
+    if is_task_level and stage.get("status") == "done":
+        return "await-merge", frontier
 
     if not _task_contract_complete(frontier):
         return "author-contract", frontier
 
-    grill = load_json(
-        factory_dir(root) / "grills" / "tasks" / f"{task_id}.json",
-        default={},
+    grill_path = evidence_path(root, key, f"grills/tasks/{task_id}.json")
+    grill = load_json(grill_path, default={})
+    if not _task_grill_fresh(root, frontier, grill):
+        return "grill", frontier
+    plan_state = _task_plan_state(root, frontier, grill)
+    if plan_state != "approved":
+        return plan_state, frontier
+    state = "delegate" if stage.get("status") == "active" else "stage-start"
+    return state, frontier
+
+
+def require_task_worktree(root: Path, *, allow_completed: bool = False) -> None:
+    """Bind task-level actions to the worktree recorded by `task start`."""
+    state = load_json(run_state_path(root), default={})
+    task_id = state.get("task_id")
+    # task_id is the task-level marker `forge task start` sets; a story-level run
+    # carries `branch` (from intake) but no task_id and must not be gated here.
+    if not (isinstance(task_id, str) and task_id):
+        return
+    branch = state.get("branch")
+    if not (isinstance(branch, str) and branch):
+        raise SystemExit(
+            "task worktree pointer names a task_id without a branch — "
+            "re-run `./forge task start`"
+        )
+    proc = subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=root, capture_output=True, text=True, env=clean_git_env(),
+        encoding="utf-8", errors="surrogateescape",
     )
-    if _task_grill_fresh(root, frontier, grill):
-        stage = stage_by_id.get(task_id, {})
-        state = "delegate" if stage.get("status") == "active" else "stage-start"
-        return state, frontier
-    return "grill", frontier
+    current_branch = proc.stdout.strip() if proc.returncode == 0 else ""
+    frontier = task_frontier_state(root)
+    frontier_id = frontier[1].get("id") if frontier else None
+    stage = next((stage for stage in load_json(
+        git_control_dir(root) / "stages.json", default={}
+    ).get("stages", []) if stage.get("id") == task_id), {})
+    completed = stage.get("status") == "done"
+    task_matches = frontier_id == task_id or (allow_completed and completed)
+    if current_branch != branch or not task_matches:
+        raise SystemExit(
+            "task worktree required: expected "
+            f"branch {branch!r} at frontier {task_id!r}, found "
+            f"branch {current_branch or '<detached>'!r} at frontier "
+            f"{frontier_id or 'none'!r}"
+        )
 
 
-def require_ready_task(root: Path, task_id: str) -> dict:
+def require_ready_task(
+    root: Path, task_id: str, *, require_approval: bool = True,
+    allow_completed: bool = False,
+) -> dict:
     """Require the JIT execution contract and its fresh, passing grill."""
     tasks = load_json(
         protected_decomposition_state_path(root), default={}
@@ -1206,7 +1665,13 @@ def require_ready_task(root: Path, task_id: str) -> dict:
         )
 
     frontier_state = task_frontier_state(root)
-    if frontier_state is None or frontier_state[1].get("id") != task_id:
+    stage = next((stage for stage in load_json(
+        git_control_dir(root) / "stages.json", default={}
+    ).get("stages", []) if stage.get("id") == task_id), {})
+    completed = stage.get("status") == "done"
+    if (
+        frontier_state is None or frontier_state[1].get("id") != task_id
+    ) and not (allow_completed and completed):
         frontier_id = frontier_state[1].get("id") if frontier_state else "none"
         raise SystemExit(
             f"{task_id} is not the earliest unfinished task ({frontier_id}); "
@@ -1224,7 +1689,96 @@ def require_ready_task(root: Path, task_id: str) -> dict:
                 "remains available for exploration only."
             )
 
-    require_task_grill(root, task_id, task)
+    treeish = ""
+    if allow_completed and completed:
+        from forge_cli.stages import stage_baseline
+        treeish = stage_baseline(root, stage)
+    require_task_grill(root, task_id, task, treeish=treeish)
+    if require_approval:
+        key = _active_story_key(root)
+        grill = load_json(
+            evidence_path(root, key, f"grills/tasks/{task_id}.json"), default={},
+        )
+        plan_state = _task_plan_state(root, task, grill)
+        if plan_state == "author-task-plan":
+            raise SystemExit(
+                f"Task plan required first: author {task_id} in plan mode, then run "
+                f"`./forge task plan save {task_id} --from <path>`."
+            )
+        if plan_state == "await-approval":
+            raise SystemExit(
+                f"Task plan approval required: a human must approve the current "
+                f"{task_id} plan with `./forge task approve {task_id} --by \"<name>\"`."
+            )
+    return task
+
+
+def task_seal_shared_problems(root: Path, issue_key: str) -> list[str]:
+    """Predicates shared by task sealing and story closeout readiness."""
+    from forge_cli.assumptions import blocking_for_issue
+    from forge_cli.quickfix import _lite_product_files, load_active, profile_of
+    from forge_cli.signal import open_signals
+    from forge_cli.stages import product_tree_snapshot
+
+    problems: list[str] = []
+    signals = open_signals(root)
+    if signals:
+        ids = ", ".join(f"{signal['id']} ({signal['kind']})" for signal in signals)
+        problems.append(
+            f"resolution of {len(signals)} open worker signal(s): {ids} — "
+            "`forge.py signal resolve <id> --notes ...`"
+        )
+    window = load_active(root)
+    if window:
+        profile = profile_of(window)
+        closer = "quickfix done" if profile == "quickfix" else "mode done"
+        problems.append(
+            f"closure of {profile} window {window['id']} ({window['reason']}) — "
+            f"`forge.py {closer}`"
+        )
+    assumptions = blocking_for_issue(root, issue_key) if issue_key else []
+    if assumptions:
+        ids = ", ".join(f"{row['id']} ({row['status']})" for row in assumptions)
+        problems.append(
+            f"orchestrator guidance on {len(assumptions)} assumption(s): {ids} — "
+            "resolve via `forge.py assumptions resolve <id> "
+            "--status confirmed|promoted --notes ...`"
+        )
+    dirty_product = _lite_product_files(
+        root, list(product_tree_snapshot(root).get("dirty", {})),
+    )
+    if dirty_product:
+        problems.append(
+            "clean product worktree and index: staged or unstaged product changes "
+            f"remain ({', '.join(dirty_product[:5])})"
+        )
+    return problems
+
+
+def require_task_sealed(root: Path, task_id: str) -> dict:
+    """Require the approved, reviewed, committed seal for one completed task."""
+    from forge_cli.stages import _require_reviewed_commit, load_stages
+
+    state = load_json(run_state_path(root), default={})
+    if state.get("task_id") != task_id:
+        raise SystemExit(
+            f"task worktree required: this worktree is bound to "
+            f"{state.get('task_id') or 'no task'!r}, not {task_id!r}"
+        )
+    require_task_worktree(root, allow_completed=True)
+    task = require_ready_task(root, task_id, allow_completed=True)
+    stage = next(
+        (candidate for candidate in load_stages(root).get("stages", [])
+         if candidate.get("id") == task_id),
+        None,
+    )
+    if not stage or stage.get("status") != "done":
+        raise SystemExit(f"task {task_id} is not sealed: stage status must be done")
+    _require_reviewed_commit(root, stage, task)
+    issue_key = state.get("issue_key") or state.get("story") or ""
+    problems = task_seal_shared_problems(root, issue_key)
+    if problems:
+        raise SystemExit("Task not PR ready:\n- " + "\n- ".join(problems))
     return task
 
 

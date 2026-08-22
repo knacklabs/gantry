@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0049-03e1",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "NOTIFY-1 T6: document that Discord embed content is pre-bounded so the 4096 description cap is defense-only",
+  "started_at": "2026-08-20T19:12:15+00:00",
+  "completed_at": "2026-08-20T19:13:09+00:00",
+  "files": [
+    "apps/core/src/channels/discord-delivery.ts"
+  ]
+}

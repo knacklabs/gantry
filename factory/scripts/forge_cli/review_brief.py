@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 from pathlib import Path
 
 from factory_lib import (
-    load_json, protected_decomposition_state_path, repo_root,
-    safe_factory_write_bytes,
+    branch_diff_digest, load_json, now_iso, protected_decomposition_state_path,
+    repo_root, run_state_path, safe_factory_write_bytes,
 )
 
 
@@ -84,4 +86,23 @@ def cmd_review_brief(args: argparse.Namespace) -> None:
     body = ("\n".join(lines).rstrip() + "\n").encode()
     if not safe_factory_write_bytes(base, relative, body):
         raise SystemExit(f"Could not safely write .factory/{relative}")
+    if args.all:
+        state = load_json(run_state_path(base), default={})
+        story = state.get("issue_key")
+        if not isinstance(story, str) or not story:
+            raise SystemExit("Cannot mint a branch review run without an active story.")
+        brief_sha256 = hashlib.sha256(body).hexdigest()
+        diff_digest = branch_diff_digest(base)
+        token = {
+            "review_run_id": hashlib.sha256(
+                (brief_sha256 + diff_digest).encode()
+            ).hexdigest(),
+            "brief_sha256": brief_sha256,
+            "branch_diff_digest": diff_digest,
+            "minted_at": now_iso(),
+        }
+        token_relative = f"stories/{story}/review-run.json"
+        token_body = (json.dumps(token, indent=2) + "\n").encode()
+        if not safe_factory_write_bytes(base, token_relative, token_body):
+            raise SystemExit(f"Could not safely write .factory/{token_relative}")
     print(f".factory/{relative}")

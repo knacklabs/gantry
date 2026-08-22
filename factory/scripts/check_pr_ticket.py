@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require a pull request to complete exactly one roadmap story or work window."""
+"""Require a pull request to declare every completed work record."""
 from __future__ import annotations
 
 import argparse
@@ -16,9 +16,16 @@ from forge_cli.scaffold import (
 
 ROADMAP = "plans/roadmap.json"
 TICKET_LINE = re.compile(
-    r"^\s*Ticket:\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*$",
+    r"^\s*Ticket:\s*([A-Za-z0-9][A-Za-z0-9._-]*"
+    r"(?:/[A-Za-z0-9][A-Za-z0-9._-]*)?)\s*$",
     re.MULTILINE,
 )
+TASK_MARKER_PATH = re.compile(
+    r"^\.factory/stories/([^/]+)/tasks/([^/]+)/pr-ready\.json$"
+)
+TASK_MARKER_FIELDS = frozenset({
+    "task_id", "branch", "base_main_sha", "commit", "sealed_at",
+})
 
 # A harness re-vendor (`forge upgrade`) replaces only vendored, harness-owned
 # paths and ALWAYS rewrites the vendor manifest. It completes no roadmap story,
@@ -124,13 +131,41 @@ def is_harness_revendor(root: Path, base: str) -> bool:
     )
 
 
-def branch_ticket(branch: str, story_keys: set[str]) -> str | None:
+def branch_ticket(
+    branch: str, story_keys: set[str], task_records: set[str],
+) -> str | None:
+    task_matches = [
+        record for record in task_records
+        if branch == f"feat/{record.replace('/', '-', 1)}"
+    ]
+    if task_matches:
+        return max(task_matches, key=len)
     matches = [
         key for key in story_keys
         if any(branch.startswith(f"{prefix}/{key}-")
                for prefix in ("feat", "feature"))
     ]
     return max(matches, key=len) if matches else None
+
+
+def completed_task_markers(root: Path, added: set[str]) -> set[str]:
+    completed: set[str] = set()
+    for path in sorted(added):
+        match = TASK_MARKER_PATH.fullmatch(path)
+        if not match:
+            continue
+        key, task_id = match.groups()
+        try:
+            marker = json.loads(git(root, "show", f"HEAD:{path}"))
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"{path} at HEAD is not valid JSON: {exc}") from exc
+        if (
+            isinstance(marker, dict)
+            and TASK_MARKER_FIELDS <= marker.keys()
+            and marker.get("task_id") == task_id
+        ):
+            completed.add(f"{key}/{task_id}")
+    return completed
 
 
 def completed_windows(root: Path, added: set[str]) -> set[str]:
@@ -159,16 +194,22 @@ def main() -> int:
     base_items = roadmap_at(root, args.base)
     head_items = roadmap_at(root, "HEAD")
     added = added_paths(root, args.base)
+    completed_tasks = completed_task_markers(root, added)
 
     candidates = set(TICKET_LINE.findall(args.pr_body))
-    if inferred := branch_ticket(args.head_branch, set(head_items)):
+    if inferred := branch_ticket(
+        args.head_branch, set(head_items), completed_tasks,
+    ):
         candidates.add(inferred)
 
     completed_stories = {
         key for key, head_item in head_items.items()
         if (key not in base_items or base_items[key].get("status") != "done")
         and head_item.get("status") == "done"
-        and any(path.startswith(f".factory/history/{key}/") for path in added)
+        and (
+            any(path.startswith(f".factory/history/{key}/") for path in added)
+            or f".factory/stories/{key}/shipped.json" in added
+        )
     }
     completed_window_ids = completed_windows(root, added)
 
@@ -179,6 +220,7 @@ def main() -> int:
     # undeclared. Declaring all of them keeps the PR fully traceable.
     completed = (
         {("story", key) for key in completed_stories}
+        | {("task", record) for record in completed_tasks}
         | {("window", wid) for wid in completed_window_ids}
     )
     undeclared = {(kind, key) for kind, key in completed if key not in candidates}
@@ -195,7 +237,8 @@ def main() -> int:
         print(
             "PR ticket check FAILED: no completed work record in "
             f"{args.base}..HEAD — a PR must complete a roadmap story (done-flip "
-            "with added history) or a work window (added done record)."
+            "with added history), task (added validated marker), or work window "
+            "(added done record)."
         )
         return 1
     if undeclared:
@@ -209,7 +252,7 @@ def main() -> int:
             print(
                 "PR ticket check FAILED: every completed work record must be "
                 f"declared, but these are not: {missing}. Add a `Ticket:` line "
-                "for each (or a feat/<key>- or feature/<key>- branch)."
+                "for each (or use its canonical feature branch)."
             )
         return 1
 

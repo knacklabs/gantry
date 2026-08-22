@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0048-ad23",
+  "profile": "lite",
+  "reason": "NOTIFY-1 T6: native Discord embed renderer for jobNotificationView (title, stats, structured result or fallback, next-run) + existing buttons; fallback to content text when absent",
+  "started_at": "2026-08-20T19:03:19+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi",
+  "base_sha": "f8928c2993d59dd30f27c73a2feaf0848ddb551c"
+}

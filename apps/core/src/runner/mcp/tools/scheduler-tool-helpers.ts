@@ -24,6 +24,12 @@ if (process.env.GANTRY_GROUP_FOLDER !== undefined) {
 }
 
 const ambientWorkspaceKey = process.env.GANTRY_WORKSPACE_KEY?.trim() ?? '';
+// The provider account (installation) the creating turn is bound to. Stamped
+// onto default notification routes so a job's route names its authoritative
+// account — jobs whose route omits it are invisible to their own account-scoped
+// list (canAccessSchedulerJob is fail-closed on account match).
+const ambientProviderAccountId =
+  process.env.GANTRY_PROVIDER_ACCOUNT_ID?.trim() || undefined;
 
 export async function requestSchedulerData(
   type: string,
@@ -234,6 +240,7 @@ export function canonicalTargetFromArgs(
     conversationJid: string;
     threadId: string | null;
     label: string;
+    providerAccountId?: string;
   }>;
   error?: string;
 } {
@@ -311,6 +318,9 @@ export function canonicalTargetFromArgs(
       conversationJid: baseExecutionContext.conversationJid,
       threadId: baseExecutionContext.threadId,
       label: shortcut ? routeLabelForShortcut(shortcut) : 'primary',
+      ...(ambientProviderAccountId
+        ? { providerAccountId: ambientProviderAccountId }
+        : {}),
     },
   ];
   return {
