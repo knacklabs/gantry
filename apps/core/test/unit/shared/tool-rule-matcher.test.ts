@@ -175,41 +175,41 @@ describe('autonomous tool rule matcher', () => {
       ).toMatchObject({
         allowed: false,
         reason: expect.stringMatching(
-          /did not match|could not be parsed safely/,
+          /Piped|did not match|could not be parsed safely/,
         ),
       });
     }
   });
 
-  it('matches Bash rules per parsed argv leaf without shell state changes', () => {
+  it('matches control-flow RunCommand leaves but never pipes', () => {
     expect(
       evaluateAutonomousToolUse({
-        rules: ['RunCommand(git status)', 'RunCommand(head)'],
-        toolName: 'Bash',
-        toolInput: { command: 'git status | head' },
+        rules: ['RunCommand(date *)'],
+        toolName: 'RunCommand',
+        toolInput: { command: 'date first && date second' },
       }),
     ).toMatchObject({ allowed: true });
 
     expect(
       evaluateAutonomousToolUse({
-        rules: ['RunCommand(git status)'],
-        toolName: 'Bash',
-        toolInput: { command: 'git status | head' },
+        rules: ['RunCommand(date *)'],
+        toolName: 'RunCommand',
+        toolInput: { command: 'date first | date second' },
       }),
     ).toMatchObject({
       allowed: false,
-      reason: expect.stringContaining('head'),
+      reason: expect.stringContaining('Piped'),
     });
 
     expect(
       evaluateAutonomousToolUse({
-        rules: ['RunCommand(git status)'],
-        toolName: 'Bash',
-        toolInput: { command: 'git status && rm -rf /' },
+        rules: ['RunCommand(date *)'],
+        toolName: 'RunCommand',
+        toolInput: { command: 'date first && uptime' },
       }),
     ).toMatchObject({
       allowed: false,
-      reason: expect.stringContaining('rm -rf /'),
+      reason: expect.stringContaining('uptime'),
     });
   });
 
@@ -346,7 +346,7 @@ describe('autonomous tool rule matcher', () => {
       }),
     ).toMatchObject({
       allowed: false,
-      reason: expect.stringContaining('head -20'),
+      reason: expect.stringContaining('Piped'),
     });
   });
 
