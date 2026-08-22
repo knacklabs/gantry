@@ -758,18 +758,23 @@ async function runActiveJob(
       emitJobEvent,
       logger,
     });
-    const recordedActions = await listRecordedToolActions({
-      filter: {
-        appId: (eventState.eventAppSession?.appId ?? runtimeAppId) as never,
-        jobId: currentJob.id as never,
-        runId: runId as never,
-        eventTypes: [
-          RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-          RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-        ],
-      },
-      listRuntimeEvents: (filter) => runtimeEventExchange.list(filter),
-    });
+    let recordedActions: Awaited<ReturnType<typeof listRecordedToolActions>>;
+    try {
+      recordedActions = await listRecordedToolActions({
+        filter: {
+          appId: (eventState.eventAppSession?.appId ?? runtimeAppId) as never,
+          jobId: currentJob.id as never,
+          runId: runId as never,
+          eventTypes: [
+            RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+            RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+          ],
+        },
+        listRuntimeEvents: (filter) => runtimeEventExchange.list(filter),
+      });
+    } catch {
+      recordedActions = [];
+    }
     logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
     const notified =
       !(await deletionGuard.shouldSuppressDelivery()) &&
