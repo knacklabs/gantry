@@ -8,7 +8,7 @@ no per-provider code. Plus retention, deterministic ordering, and per-invocation
 correlation/dedup.
 
 ## INTENDED design decisions — do NOT report these as findings
-1. **Gantry tool correlation is response-`_meta`, by design (decision 0132).**
+1. **Gantry tool correlation is response-`_meta`, by design (decision 0133).**
    The generic terminal event and the authoritative `capability_run` /
    `browser_action` event must share one `invocationId` to dedup. The authoritative
    event is emitted in the MCP subprocess and only has `taskId`; that subprocess
@@ -18,7 +18,7 @@ correlation/dedup.
    provider id. Third-party tools ALWAYS use the provider id and their result
    `_meta` is never read (the read is gated on `gantryOwnedToolActivityFamily`).
    This is secure (no third-party hijack) and is the only correlation the
-   architecture supports. See `docs/decisions/0132-gantry-tool-correlation-response-meta.md`.
+   architecture supports. See `docs/decisions/0133-gantry-tool-correlation-response-meta.md`.
    Do not propose removing the `_meta` read or "always use the provider id".
 2. **The denial event stays `job.tool_denied`** — tool denial is job-scoped
    (decisions 0115/0126); only `tool.activity` is universal. Not an inconsistency.

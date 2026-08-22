@@ -1,0 +1,448 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "project": "",
+  "story": "WEB-AUTH-1",
+  "doc_roots": [
+    "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
+    "docs/specs/authentication-access-web-ui.md",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md",
+    "docs/decisions/0101-oidc-generic-google-first.md"
+  ],
+  "epics": [
+    {
+      "id": "web-authentication",
+      "title": "Browser authentication and console access",
+      "tasks": [
+        "WEB-AUTH-1-1",
+        "WEB-AUTH-1-2",
+        "WEB-AUTH-1-3",
+        "WEB-AUTH-1-4",
+        "WEB-AUTH-1-5",
+        "WEB-AUTH-1-6"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "WEB-AUTH-1-1",
+      "title": "Auth persistence and settings foundations",
+      "objective": "Add the durable auth data model, settings shape, repository primitives, and trusted identity attestation needed by every later browser-auth path.",
+      "acceptance_criteria": [
+        "Postgres migrations and repositories cover local authorization codes, OIDC transactions, browser sessions, console access grants, and invitations.",
+        "All reusable tokens and references are stored as hashes only, one-use records are consumed atomically, and the final active Administrator invariant is transactionally enforced.",
+        "Authentication settings add local or hosted mode, canonical origin, generic OIDC candidate and active configuration, and client-secret references without changing runtime.deployment_mode.",
+        "OIDC issuer plus subject aliases and verified email aliases reuse the existing Person and user_aliases model; email never selects or silently links a Person."
+      ],
+      "dependencies": [],
+      "write_scope": [
+        "apps/core/src/application/auth/auth-foundations.ts",
+        "apps/core/src/shared/auth-tokens.ts",
+        "apps/core/src/adapters/storage/postgres/schema/authentication.ts",
+        "apps/core/src/adapters/storage/postgres/schema/index.ts",
+        "apps/core/src/adapters/storage/postgres/schema/migrations/20260818105732_authentication_access.sql",
+        "apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260818105732_snapshot.json",
+        "apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json",
+        "apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts",
+        "apps/core/src/config/index.ts",
+        "apps/core/src/config/settings/browser-auth-settings.ts",
+        "apps/core/src/config/settings/runtime-settings-defaults.ts",
+        "apps/core/src/config/settings/runtime-settings-parser.ts",
+        "apps/core/src/config/settings/runtime-settings-renderer.ts",
+        "apps/core/src/config/settings/runtime-settings-types.ts",
+        "apps/core/src/config/settings/settings-revision-document.ts",
+        "packages/contracts/src/settings/index.ts",
+        "apps/core/test/unit/auth/auth-foundations.test.ts",
+        "apps/core/test/unit/auth/authentication-repository.test.ts",
+        "apps/core/test/unit/auth/authentication-settings.test.ts",
+        "apps/core/test/unit/config/settings-import-app-provider-roundtrip.test.ts",
+        "apps/core/src/config/settings/runtime-settings-authentication-parser.ts",
+        "apps/core/test/unit/storage/postgres-raw-sql-allowlist.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "auth foundations > auth persistence policy stores only hashes and enforces expiry",
+          "path": "apps/core/test/unit/auth/auth-foundations.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run db:migrations:check"
+      ],
+      "review_budget": {
+        "max_changed_files": 24,
+        "max_changed_lines": 21000,
+        "reason": "Initial Drizzle snapshot is large; authored work remains one persistence/settings boundary."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-FOUNDATION-0",
+          "statement": "Postgres migrations and repositories cover local authorization codes, OIDC transactions, browser sessions, console access grants, and invitations.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-FOUNDATION-1",
+          "statement": "All reusable tokens and references are stored as hashes only, one-use records are consumed atomically, and the final active Administrator invariant is transactionally enforced.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-FOUNDATION-2",
+          "statement": "Authentication settings add local or hosted mode, canonical origin, generic OIDC candidate and active configuration, and client-secret references without changing runtime.deployment_mode.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-FOUNDATION-3",
+          "statement": "OIDC issuer plus subject aliases and verified email aliases reuse the existing Person and user_aliases model; email never selects or silently links a Person.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
+      ],
+      "reviewer_focus": "Hash-only storage, atomic one-use consumption, final-active-Administrator locking, and client-secret references that never project raw values."
+    },
+    {
+      "id": "WEB-AUTH-1-2",
+      "title": "Browser server trust boundary and local authorization",
+      "objective": "Add the reusable browser trust-boundary policy for local authorization: cookie semantics, CSRF and canonical-origin checks, loopback recognition, and an exhaustive browser-role scope map.",
+      "acceptance_criteria": [
+        "Browser and Bearer credentials are mutually exclusive; browser session and CSRF cookies use the required local and hosted attributes, and authentication responses are no-store capable.",
+        "Browser mutations can require exact canonical Origin plus a synchronizer CSRF token, while local browser authorization recognizes only loopback hosts.",
+        "Every Control scope is classified as Administrator, Viewer-safe read, or browser-ineligible, with Viewer access read-only by policy."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-1"
+      ],
+      "write_scope": [
+        "apps/core/src/control/server/browser-auth-boundary.ts",
+        "apps/core/src/control/server/browser-scope-policy.ts",
+        "apps/core/test/unit/auth/browser-auth-boundary.test.ts",
+        "apps/core/test/unit/auth/browser-scope-policy.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "browser auth boundary > keeps browser cookie and Bearer authentication mutually exclusive",
+          "path": "apps/core/test/unit/auth/browser-auth-boundary.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "browser scope policy > classifies every Control scope and keeps Viewer read-only",
+          "path": "apps/core/test/unit/auth/browser-scope-policy.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck"
+      ],
+      "review_budget": {
+        "max_changed_files": 4,
+        "max_changed_lines": 350,
+        "reason": "Pure shared policy boundary with direct unit proof."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-BOUNDARY-0",
+          "statement": "Browser and Bearer credentials are mutually exclusive; browser session and CSRF cookies use the required local and hosted attributes, and authentication responses are no-store capable.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-BOUNDARY-1",
+          "statement": "Browser mutations can require exact canonical Origin plus a synchronizer CSRF token, while local browser authorization recognizes only loopback hosts.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-BOUNDARY-2",
+          "statement": "Every Control scope is classified as Administrator, Viewer-safe read, or browser-ineligible, with Viewer access read-only by policy.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
+      ],
+      "reviewer_focus": "Cookie flags, exact-origin and CSRF policy, loopback-only recognition, Bearer/session mutual exclusion, and exhaustive Viewer scope classification."
+    },
+    {
+      "id": "WEB-AUTH-1-3",
+      "title": "Hosted OIDC, grants, invitations, and reauthentication",
+      "objective": "Restore the provider-neutral OIDC adapter and Control-server browser facade for local and hosted authentication, grants, invitations, reauthentication, and profile-restricted UI delivery.",
+      "acceptance_criteria": [
+        "Generic OIDC validates discovery issuer, state, nonce, PKCE, signature, audience, expiry, replay, and allowlisted outbound transport without exposing provider errors.",
+        "Public local and hosted auth routes consume only opaque, hashed browser credentials; local authorization remains loopback-only and one-use, while browser and Bearer routes reject each other.",
+        "Hosted identity is keyed by issuer plus subject, verified email is separate, access grants and invitations enforce role, expiry, email matching, reauthentication, rotation, and revocation semantics.",
+        "Only the full Control profile mounts UI and browser-auth routes; authentication responses are no-store and operational worker profiles do not expose the browser surface."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-2"
+      ],
+      "write_scope": [
+        "apps/core/src/adapters/auth/oidc-adapter.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/credential-secret-crypto.ts",
+        "apps/core/src/control/server/browser-oidc.ts",
+        "apps/core/src/control/server/index.ts",
+        "apps/core/src/control/server/routes/browser-auth.ts",
+        "apps/core/src/control/server/ui-static.ts",
+        "apps/core/src/domain/events/runtime-event-types.ts",
+        "apps/core/test/harness/control-http-server.ts",
+        "apps/core/test/unit/auth/oidc-adapter.test.ts",
+        "apps/core/test/unit/auth/browser-auth-routes.test.ts",
+        "apps/core/test/unit/control/route-profile.test.ts",
+        "package.json",
+        "package-lock.json",
+        "scripts/architecture-exceptions.json",
+        "scripts/architecture-map.json"
+      ],
+      "required_tests": [
+        {
+          "id": "OIDC adapter > validates signed issuer, audience, expiry, and nonce claims",
+          "path": "apps/core/test/unit/auth/oidc-adapter.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "browser authentication routes > keeps browser protocol routes separate and replay-safe",
+          "path": "apps/core/test/unit/auth/browser-auth-routes.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck"
+      ],
+      "review_budget": {
+        "max_changed_files": 15,
+        "max_changed_lines": 6500,
+        "reason": "One authenticated browser facade requires the provider-neutral adapter, safe event vocabulary, full-profile wiring, package declaration, focused contract tests, and the two existing architecture-policy entries that cap this documented composition seam."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-HOSTED-0",
+          "statement": "Generic OIDC validates discovery issuer, state, nonce, PKCE, signature, audience, expiry, replay, and allowlisted outbound transport without exposing provider errors.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-HOSTED-1",
+          "statement": "Public local and hosted auth routes consume only opaque, hashed browser credentials; local authorization remains loopback-only and one-use, while browser and Bearer routes reject each other.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-HOSTED-2",
+          "statement": "Hosted identity is keyed by issuer plus subject, verified email is separate, access grants and invitations enforce role, expiry, email matching, reauthentication, rotation, and revocation semantics.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-HOSTED-3",
+          "statement": "Only the full Control profile mounts UI and browser-auth routes; authentication responses are no-store and operational worker profiles do not expose the browser surface.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
+      ],
+      "reviewer_focus": "OIDC signature and claim validation, pinned outbound transport, opaque session boundaries, loopback enforcement, safe audit event types, token/error hygiene, and full-profile-only route mounting."
+    },
+    {
+      "id": "WEB-AUTH-1-4",
+      "title": "Auth operations, audit events, and documentation",
+      "objective": "Add the required CLI operations, safe audit events, candidate OIDC test and activation behavior, and operator documentation.",
+      "acceptance_criteria": [
+        "gantry ui and gantry ui authorize create local authorization links, and gantry auth access approve <reference> --role administrator|viewer writes the grant and audit event transactionally after confirmation.",
+        "First-admin and lost-admin access references expire after 15 minutes and are stored as hashes on awaiting grants.",
+        "OIDC candidate testing never changes active runtime behavior, failed tests preserve active configuration, and activation promotes the candidate through settings revisions.",
+        "Audit events cover login classification, logout, revocation, invitations, access and role changes, reauthentication, configuration activation, and CLI recovery without tokens, raw claims, secrets, PKCE verifiers, or upstream errors.",
+        "Docs cover local startup, hosted proxy and cache requirements, setup, first-admin approval, lost-admin recovery, and broken-OIDC recovery."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-3"
+      ],
+      "write_scope": [
+        ".env.example",
+        "apps/core/src/cli/auth.ts",
+        "apps/core/src/cli/auth-access.ts",
+        "apps/core/src/cli/index.ts",
+        "apps/core/test/unit/auth/auth-cli.test.ts",
+        "docs/operations/authentication-access.md",
+        "scripts/architecture-exceptions.json",
+        "scripts/architecture-map.json",
+        "apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts",
+        "apps/core/test/unit/auth/authentication-repository.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "authentication CLI > uses one-time local authorization and trusted access approval",
+          "path": "apps/core/test/unit/auth/auth-cli.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "authentication repository > records CLI recovery audit in the approval transaction",
+          "path": "apps/core/test/unit/auth/authentication-repository.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 10,
+        "max_changed_lines": 550,
+        "reason": "The bounded restore also corrects the existing repository owner so grant approval and the safe CLI-recovery audit event share one transaction, with a focused unit proof."
+      },
+      "reviewer_focus": "Trusted first and lost administrator approval, one-time local authorization output, transactionality, safe operator messaging, no secret/raw-claim output, active-versus-candidate OIDC settings behavior, and CLI architecture boundary declarations. Confirm the CLI recovery audit insert uses the same transaction as grant activation and has only safe fields.",
+      "plan_contracts": [
+        {
+          "id": "AUTH-OPS-0",
+          "statement": "gantry ui and gantry ui authorize create local authorization links, and gantry auth access approve <reference> --role administrator|viewer writes the grant and audit event transactionally after confirmation.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-OPS-1",
+          "statement": "First-admin and lost-admin access references expire after 15 minutes and are stored as hashes on awaiting grants.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-OPS-2",
+          "statement": "OIDC candidate testing never changes active runtime behavior, failed tests preserve active configuration, and activation promotes the candidate through settings revisions.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-OPS-3",
+          "statement": "Audit events cover login classification, logout, revocation, invitations, access and role changes, reauthentication, configuration activation, and CLI recovery without tokens, raw claims, secrets, PKCE verifiers, or upstream errors.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-OPS-4",
+          "statement": "Docs cover local startup, hosted proxy and cache requirements, setup, first-admin approval, lost-admin recovery, and broken-OIDC recovery.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
+      ]
+    },
+    {
+      "id": "WEB-AUTH-1-5",
+      "title": "Authentication and Access web UI",
+      "objective": "Add public auth pages, protected session-aware shell loading, and the approved Settings to Authentication and Access experience using existing React primitives.",
+      "acceptance_criteria": [
+        "Public local authorization, hosted sign-in, invitation, callback failure, no-access, disabled-access, retry, setup, and reauthentication screens use the exact approved copy.",
+        "The AppShell is protected by session-aware route loading, while public auth routes live outside the shell.",
+        "Settings to Authentication and Access shows the approved adaptive local and hosted tabs, Administrator and Viewer roles only, invitations, access administration, session management, OIDC setup, receipts, and final-admin error behavior.",
+        "The UI preserves existing dialogs, tables, fields, stale-data behavior, focus restoration, keyboard navigation, theme tokens, responsive behavior, and reduced-motion support.",
+        "Viewer restrictions are server-enforced and reflected in the UI without converting unrelated fixture-backed console features to live APIs."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-4"
+      ],
+      "write_scope": [
+        "apps/web/src/app/app-navigation.tsx",
+        "apps/web/src/app/root-route.tsx",
+        "apps/web/src/app/router.tsx",
+        "apps/web/src/app/routes/auth-routes.tsx",
+        "apps/web/src/features/auth/auth-pages.tsx",
+        "apps/web/src/features/auth/auth-pages.test.ts",
+        "apps/web/src/features/auth/authentication-access-route.tsx",
+        "apps/web/src/styles.css",
+        "apps/web/vitest.config.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "keeps the approved public copy and removes fragment credentials",
+          "path": "apps/web/src/features/auth/auth-pages.test.ts",
+          "command": "FORGE_JUNIT=1 npm --workspace @gantry/web run test -- --run ../../{path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps access changes explicit and restores focus to receipts",
+          "path": "apps/web/src/features/auth/auth-pages.test.ts",
+          "command": "FORGE_JUNIT=1 npm --workspace @gantry/web run test -- --run ../../{path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck --workspace @gantry/web",
+        "npm run build --workspace @gantry/web",
+        "npm run lint --workspace @gantry/web"
+      ],
+      "review_budget": {
+        "max_changed_files": 9,
+        "max_changed_lines": 1820,
+        "reason": "The existing approved UI is a single public/protected routing and access-management slice: route registration, app-shell protection, auth screens, settings screen, styles, navigation and focused source contract tests. The Vitest configuration emits path-attributed JUnit only for Forge proof commands."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-UI-0",
+          "statement": "Public local authorization, hosted sign-in, invitation, callback failure, no-access, disabled-access, retry, setup, and reauthentication screens use the exact approved copy.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-UI-1",
+          "statement": "The AppShell is protected by session-aware route loading, while public auth routes live outside the shell.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-UI-2",
+          "statement": "Settings to Authentication and Access shows the approved adaptive local and hosted tabs, Administrator and Viewer roles only, invitations, access administration, session management, OIDC setup, receipts, and final-admin error behavior.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-UI-3",
+          "statement": "The UI preserves existing dialogs, tables, fields, stale-data behavior, focus restoration, keyboard navigation, theme tokens, responsive behavior, and reduced-motion support.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        },
+        {
+          "id": "AUTH-UI-4",
+          "statement": "Viewer restrictions are server-enforced and reflected in the UI without converting unrelated fixture-backed console features to live APIs.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#technical-approach"
+        }
+      ],
+      "reviewer_focus": "Public versus protected routing, fragment removal before local authorization, exact approved copy, Google-brand button geometry, light/dark-independent auth surfaces, keyboard/focus and reduced-motion behavior, receipt focus restoration, client-safe browser facade calls, and Viewer UI restrictions."
+    },
+    {
+      "id": "WEB-AUTH-1-6",
+      "title": "Integrated auth verification and cleanup proof",
+      "objective": "Prove the full browser-auth boundary with focused and full verification, security cleanup searches, autoreview, and the required functional check.",
+      "acceptance_criteria": [
+        "Unit, OIDC contract, disposable-Postgres integration, HTTP boundary, CLI, and web tests cover the approved lifetimes, copy, role behavior, replay rejection, cookie flags, CSRF/origin checks, final-admin invariant, safe errors, and Viewer restrictions.",
+        "Cleanup searches prove there is no email-keyed identity, first-user-wins branch, browser Bearer credential, /auth/recover, recovery cookie/session, raw token logging, or mock-only Operator role.",
+        "Core and web format, lint, typecheck, build, architecture checks, migration checks, disposable-Postgres suites, and python3 factory/scripts/verify.py complete or report explicit environment-limited gaps.",
+        "One autoreview pass covers quality, performance, and security, and the required functional-checker flow is completed because the feature is user-facing."
+      ],
+      "dependencies": [
+        "WEB-AUTH-1-5"
+      ],
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres/schema/migrations/20260818105732_authentication_access.sql",
+        "apps/core/test/integration/authentication-repository.postgres.integration.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "consumes a local authorization code once under concurrent requests",
+          "path": "apps/core/test/integration/authentication-repository.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run db:migrations:check",
+        "npm run typecheck",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 2,
+        "max_changed_lines": 160,
+        "reason": "Restores one missing disposable-Postgres authentication repository regression test and fixes its unshipped tenant-schema foreign keys."
+      },
+      "plan_contracts": [
+        {
+          "id": "AUTH-VERIFY-0",
+          "statement": "Unit, OIDC contract, disposable-Postgres integration, HTTP boundary, CLI, and web tests cover the approved lifetimes, copy, role behavior, replay rejection, cookie flags, CSRF/origin checks, final-admin invariant, safe errors, and Viewer restrictions.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#test-plan"
+        },
+        {
+          "id": "AUTH-VERIFY-1",
+          "statement": "Cleanup searches prove there is no email-keyed identity, first-user-wins branch, browser Bearer credential, /auth/recover, recovery cookie/session, raw token logging, or mock-only Operator role.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#test-plan"
+        },
+        {
+          "id": "AUTH-VERIFY-2",
+          "statement": "Core and web format, lint, typecheck, build, architecture checks, migration checks, disposable-Postgres suites, and python3 factory/scripts/verify.py complete or report explicit environment-limited gaps.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#test-plan"
+        },
+        {
+          "id": "AUTH-VERIFY-3",
+          "statement": "One autoreview pass covers quality, performance, and security, and the required functional-checker flow is completed because the feature is user-facing.",
+          "source": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md#test-plan"
+        }
+      ],
+      "reviewer_focus": "Disposable database isolation, migration-column coverage, concurrent atomic consume proof, and safe cleanup with no persistent Gantry database access."
+    }
+  ],
+  "epic": "web-authentication",
+  "plan_file": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md",
+  "plan_sha256": "8f156263b545bcef9cb566173c0c1367deb2d6bc342a38ab04616562d2f275ec",
+  "commit": "103f151d8916f0f091899388cd48fc6ac6aa638b"
+}

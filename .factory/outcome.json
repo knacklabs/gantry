@@ -1,7 +1,0 @@
-{
-  "generated_by": "implementer",
-  "outcome": "Scheduled (autonomous) jobs no longer stall silently at a permission wall. When a run needs access it lacks, or a capability whose command template does not fit the exact call, the job pauses and raises a real one-tap card (Allow for future / Deny) built from its stored requirement, delivered durably with a crash-safe send-begun checkpoint. Approving a plain request grants the capability (adding an under-declared tool to the job) and resumes the same run; approving a template mismatch amends the template and resumes; both survive a crash. Run leases are fenced so a lapsed run cannot double-write its terminal state, and deleting a job cancels any in-flight card in one transaction. Proven live 2026-08-14: the KnackLabs job ran end to end, wrote leads, and settled its lease cleanly.",
-  "issue": "JOBFLOW-1",
-  "commit": "0f3ff0351a3aef3a133f77ef378bccf0b80bd34e",
-  "recorded_at": "2026-08-14T15:19:02+00:00"
-}

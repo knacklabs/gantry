@@ -87,6 +87,8 @@ function usage(): string {
     '  gantry stop',
     '  gantry restart',
     '  gantry logs',
+    '  gantry ui [authorize]',
+    '  gantry auth access approve <reference> --role administrator|viewer',
     '  gantry local setup|start|stop|status|logs|doctor',
     '  gantry provider list|connect|doctor|account',
     '  gantry conversation info|approvers  # direct/private and group/channel permission approvers',
@@ -553,6 +555,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     process.env.GANTRY_HOME = runtimeHome;
     const { runBrowserCommand } = await import('./browser.js');
     return runBrowserCommand(runtimeHome, rest);
+  }
+
+  if (command === 'ui') {
+    const { runUiCommand } = await import('./auth.js');
+    return runUiCommand(runtimeHome, rest);
+  }
+
+  if (command === 'auth') {
+    const { runAuthCommand } = await import('./auth-access.js');
+    return runAuthCommand(runtimeHome, rest);
   }
 
   if (command === 'model') {

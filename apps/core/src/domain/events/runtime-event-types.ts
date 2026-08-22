@@ -68,6 +68,17 @@ export const RUNTIME_EVENT_TYPES = {
   RUN_DEAD_LETTERED: 'run.dead_lettered',
   PROACTIVE_SURFACING_OUTCOME: 'proactive.surfacing.outcome',
   WEBHOOK_TEST: 'webhook.test',
+  AUTH_LOGIN_SUCCEEDED: 'auth.login.succeeded',
+  AUTH_LOGIN_FAILED: 'auth.login.failed',
+  AUTH_LOGOUT: 'auth.logout',
+  AUTH_SESSION_REVOKED: 'auth.session.revoked',
+  AUTH_INVITATION_CREATED: 'auth.invitation.created',
+  AUTH_INVITATION_ACCEPTED: 'auth.invitation.accepted',
+  AUTH_INVITATION_REVOKED: 'auth.invitation.revoked',
+  AUTH_ACCESS_CHANGED: 'auth.access.changed',
+  AUTH_REAUTHENTICATED: 'auth.reauthenticated',
+  AUTH_CONFIGURATION_ACTIVATED: 'auth.configuration.activated',
+  AUTH_ACCESS_RECOVERED: 'auth.access.recovered',
 } as const;
 
 export type RuntimeEventType =

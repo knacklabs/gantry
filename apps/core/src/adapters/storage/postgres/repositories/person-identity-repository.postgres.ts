@@ -188,6 +188,87 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     });
   }
 
+  /**
+   * Internal OIDC attestation boundary. Callers have already validated the
+   * issuer, signature, audience, nonce, and subject; email is only attached to
+   * that resolved Person and is never used to select it.
+   */
+  async attestOidcIdentity(input: {
+    appId: string;
+    issuer: string;
+    subject: string;
+    displayName?: string;
+    verifiedEmail?: string;
+  }): Promise<IdentityResolveResult> {
+    const resolved = await this.resolveIdentity({
+      appId: input.appId,
+      provider: 'oidc',
+      providerAccountId: input.issuer,
+      externalUserId: input.subject,
+      displayName: input.displayName,
+      evidenceType: 'web_user',
+    });
+    const personId = resolved.personId;
+    const oidcAlias = resolved.matchedAlias ?? resolved.createdAlias;
+    if (!personId || !oidcAlias)
+      throw new Error('OIDC identity attestation failed');
+    const timestamp = nowIso();
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(pgSchema.userAliasesPostgres)
+        .set({
+          verificationStatus: 'verified',
+          verifiedAt: timestamp,
+          verifiedBy: 'system:oidc',
+          updatedAt: timestamp,
+        })
+        .where(eq(pgSchema.userAliasesPostgres.id, oidcAlias.id));
+      const email = input.verifiedEmail?.trim().toLowerCase();
+      if (email) {
+        await lockPersonAliasKey(tx, {
+          appId: input.appId,
+          provider: 'email',
+          externalUserId: email,
+        });
+        const [existing] = await tx
+          .select()
+          .from(pgSchema.userAliasesPostgres)
+          .where(
+            and(
+              eq(pgSchema.userAliasesPostgres.appId, input.appId),
+              eq(pgSchema.userAliasesPostgres.provider, 'email'),
+              eq(pgSchema.userAliasesPostgres.externalUserId, email),
+              isNull(pgSchema.userAliasesPostgres.retiredAt),
+            ),
+          )
+          .limit(1);
+        if (existing && existing.userId !== personId) return;
+        if (existing)
+          await tx
+            .update(pgSchema.userAliasesPostgres)
+            .set({
+              verificationStatus: 'verified',
+              verifiedAt: timestamp,
+              verifiedBy: 'system:oidc',
+              updatedAt: timestamp,
+            })
+            .where(eq(pgSchema.userAliasesPostgres.id, existing.id));
+        else
+          await this.insertAlias(tx, {
+            appId: input.appId,
+            personId,
+            provider: 'email',
+            externalUserId: email,
+            displayName: email,
+            verificationStatus: 'verified',
+            evidence: { evidenceType: 'oidc_verified_email' },
+            timestamp,
+          });
+      }
+    });
+    return { ...resolved, verificationStatus: 'verified' };
+  }
+
   private async appendResolutionAudit(
     executor: Executor,
     result: IdentityResolveResult,
@@ -861,7 +942,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       externalUserId: string;
       displayName?: string | null;
       evidence?: Record<string, unknown>;
-      verificationStatus: 'unverified';
+      verificationStatus: 'unverified' | 'verified';
       timestamp: string;
       aliasId?: string;
     },
@@ -886,8 +967,10 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       externalUserId: input.externalUserId,
       displayName: input.displayName ?? input.externalUserId,
       verificationStatus: input.verificationStatus,
-      verifiedAt: null,
-      verifiedBy: null,
+      verifiedAt:
+        input.verificationStatus === 'verified' ? input.timestamp : null,
+      verifiedBy:
+        input.verificationStatus === 'verified' ? 'system:oidc' : null,
       evidenceJson: input.evidence || {},
       createdAt: input.timestamp,
       updatedAt: input.timestamp,

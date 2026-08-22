@@ -1,0 +1,192 @@
+{
+  "issue": "WEB-AUTH-1",
+  "stages": [
+    {
+      "id": "WEB-AUTH-1-1",
+      "title": "Auth persistence and settings foundations",
+      "status": "done",
+      "started_at": "2026-08-19T08:52:26+00:00",
+      "base_sha": "332f82dc5cf8dfa068068ca236d379ba22bf8d46",
+      "dirty_at_start": {
+        ".factory/decomposition.json": {
+          "digest": "6a05e9805a947693363f73926e6c4b2b40cb9b926a9bb00a5fab79e4fbdf0fc8",
+          "git": "? .factory/decomposition.json\u0000\u0000\u0000"
+        },
+        ".factory/events.jsonl": {
+          "digest": "d71034ea949f79cd92dcea1185ceefb2f0f624bbe68facfdbfcbc0b914dfb617",
+          "git": "1 .M N... 100644 100644 100644 b3788fd42a1570c3d8e5e0a9807c9b912e1ba3d9 b3788fd42a1570c3d8e5e0a9807c9b912e1ba3d9 .factory/events.jsonl\u0000\u0000100644 b3788fd42a1570c3d8e5e0a9807c9b912e1ba3d9 0\t.factory/events.jsonl\u0000\u0000H .factory/events.jsonl\u0000"
+        },
+        ".factory/grills/tasks/WEB-AUTH-1-1.json": {
+          "digest": "5c0aa2093b4ec79859d058af11fcbd212aad818be0a6a7569cf23e0dec1a8ff1",
+          "git": "? .factory/grills/tasks/WEB-AUTH-1-1.json\u0000\u0000\u0000"
+        },
+        ".factory/run.json": {
+          "digest": "bee70e67eca5434ccbadbd7bb82d011229c0a64a1e45066007579ca38ab635e5",
+          "git": "1 .M N... 100644 100644 100644 34f09a6af53a4d11aff5075dd76dc5cc2496a664 34f09a6af53a4d11aff5075dd76dc5cc2496a664 .factory/run.json\u0000\u0000100644 34f09a6af53a4d11aff5075dd76dc5cc2496a664 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "bb51e2b03988c9c7c69968ba06ec3850fea08f11a51f614104db3ef72de91e57",
+          "git": "? .factory/stages.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "cbcda04191426c615da8ec32dd3b22a9eb137f8b0c1ab21afb7c603f79aa2f3a",
+      "completed_at": "2026-08-19T09:25:57+00:00"
+    },
+    {
+      "id": "WEB-AUTH-1-2",
+      "title": "Browser server trust boundary and local authorization",
+      "status": "done",
+      "started_at": "2026-08-20T09:39:22+00:00",
+      "base_sha": "9facfe5f7014546d60113b784a509568a66ba4c9",
+      "dirty_at_start": {
+        ".factory/decomposition.json": {
+          "digest": "1e975500b2db56889fe6dd06626b9439dd2886659dc0571088a6e32a4d5833af",
+          "git": "1 .M N... 100644 100644 100644 6e59579bf95e11bdcc7a585b102ee8ba4c4a45a6 6e59579bf95e11bdcc7a585b102ee8ba4c4a45a6 .factory/decomposition.json\u0000\u0000100644 6e59579bf95e11bdcc7a585b102ee8ba4c4a45a6 0\t.factory/decomposition.json\u0000\u0000H .factory/decomposition.json\u0000"
+        },
+        ".factory/events.jsonl": {
+          "digest": "3e0632dd2de4f5ed1e62a088f344b84e57eb316fc25dc410e2b56bd040a07116",
+          "git": "1 .M N... 100644 100644 100644 9f1f6ba8c2507049df5899db52e5aa87ff734fc0 9f1f6ba8c2507049df5899db52e5aa87ff734fc0 .factory/events.jsonl\u0000\u0000100644 9f1f6ba8c2507049df5899db52e5aa87ff734fc0 0\t.factory/events.jsonl\u0000\u0000H .factory/events.jsonl\u0000"
+        },
+        ".factory/grills/tasks/WEB-AUTH-1-2.json": {
+          "digest": "2792f818e3570ed087bdc692bbac9203bab4f7fa78d2eb0c86d53a1e4c34d2ce",
+          "git": "? .factory/grills/tasks/WEB-AUTH-1-2.json\u0000\u0000\u0000"
+        },
+        ".factory/run.json": {
+          "digest": "35ed191a4700290eedadd9cacb6fea821095916b71708fb2cc83e5e5cbe0ac70",
+          "git": "1 .M N... 100644 100644 100644 98158885a632558c2782c03e8194de9fa60d5365 98158885a632558c2782c03e8194de9fa60d5365 .factory/run.json\u0000\u0000100644 98158885a632558c2782c03e8194de9fa60d5365 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "6b88b0fec63006f243393553c165c042476a716a781b8993baef1fe6bea68e79",
+          "git": "1 .M N... 100644 100644 100644 cfcaa6b1a651cd19934d8641c2aea0db91a72abc cfcaa6b1a651cd19934d8641c2aea0db91a72abc .factory/stages.json\u0000\u0000100644 cfcaa6b1a651cd19934d8641c2aea0db91a72abc 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        }
+      },
+      "task_sha256": "820f9225a3c5aa7f2d91ada7bbd952402ec563131d8e306617ab5f2736b335ab",
+      "completed_at": "2026-08-20T09:51:38+00:00"
+    },
+    {
+      "id": "WEB-AUTH-1-3",
+      "title": "Hosted OIDC, grants, invitations, and reauthentication",
+      "status": "done",
+      "started_at": "2026-08-20T09:54:07+00:00",
+      "base_sha": "933535392aa4a491e1021a6c5eed8a87a92b6080",
+      "dirty_at_start": {
+        ".factory/decomposition.json": {
+          "digest": "a69dfe1cdc3d6f1531bac3d9873171d8f76524deea75fa00a842ee9148d7732a",
+          "git": "1 .M N... 100644 100644 100644 9317e38494e98c46b5a17e399e11991053ed1b2f 9317e38494e98c46b5a17e399e11991053ed1b2f .factory/decomposition.json\u0000\u0000100644 9317e38494e98c46b5a17e399e11991053ed1b2f 0\t.factory/decomposition.json\u0000\u0000H .factory/decomposition.json\u0000"
+        },
+        ".factory/events.jsonl": {
+          "digest": "7bd3bc03417b967599bafb8d0c4b8b697f294860d0ec46b56bfd8ce0c7259d99",
+          "git": "1 .M N... 100644 100644 100644 74ae1f0898cf77461db0fcecab1120e049af779e 74ae1f0898cf77461db0fcecab1120e049af779e .factory/events.jsonl\u0000\u0000100644 74ae1f0898cf77461db0fcecab1120e049af779e 0\t.factory/events.jsonl\u0000\u0000H .factory/events.jsonl\u0000"
+        },
+        ".factory/grills/tasks/WEB-AUTH-1-3.json": {
+          "digest": "24e06d650c485d46f8f55bb8cce00d2e4219bfdee0f82f6085322fa4d3f34fc2",
+          "git": "? .factory/grills/tasks/WEB-AUTH-1-3.json\u0000\u0000\u0000"
+        },
+        ".factory/run.json": {
+          "digest": "8258de14611f0b6398fca0f8ba04f52cae2e516bff3f5c52a1a844e85ae296a4",
+          "git": "1 .M N... 100644 100644 100644 e39ae5444191b3cc4abbaac3fee5d91f81069dc6 e39ae5444191b3cc4abbaac3fee5d91f81069dc6 .factory/run.json\u0000\u0000100644 e39ae5444191b3cc4abbaac3fee5d91f81069dc6 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
+        }
+      },
+      "task_sha256": "920a08bf33440e9406b3539423d9a76a20c4cf5feaee2efc0e022be90e5edc5d",
+      "completed_at": "2026-08-20T11:57:58+00:00"
+    },
+    {
+      "id": "WEB-AUTH-1-4",
+      "title": "Auth operations, audit events, and documentation",
+      "status": "done",
+      "started_at": "2026-08-20T12:02:16+00:00",
+      "base_sha": "55e25ad92925cec297535576df0feec2322c1ccb",
+      "dirty_at_start": {
+        ".factory/decomposition.json": {
+          "digest": "f66aa41760c79e4ba8e244402b1bb1c206917e8aa4aa68112f5a5f4a1cc1d5f2",
+          "git": "1 .M N... 100644 100644 100644 ac710ccf2f30023495e49d6a007dd1b75d7ed445 ac710ccf2f30023495e49d6a007dd1b75d7ed445 .factory/decomposition.json\u0000\u0000100644 ac710ccf2f30023495e49d6a007dd1b75d7ed445 0\t.factory/decomposition.json\u0000\u0000H .factory/decomposition.json\u0000"
+        },
+        ".factory/events.jsonl": {
+          "digest": "4027f414818c686ebe9417c74f01bcc9be816169ae3ddce9b120a64104cb72b3",
+          "git": "1 .M N... 100644 100644 100644 0cb1ef0fbd3507cebadfc1c3a775ae960f1c08e1 0cb1ef0fbd3507cebadfc1c3a775ae960f1c08e1 .factory/events.jsonl\u0000\u0000100644 0cb1ef0fbd3507cebadfc1c3a775ae960f1c08e1 0\t.factory/events.jsonl\u0000\u0000H .factory/events.jsonl\u0000"
+        },
+        ".factory/grills/tasks/WEB-AUTH-1-4.json": {
+          "digest": "e130106270959d888938f4bb85ab1d81338518ee03e681f1928f9ea84e4fb348",
+          "git": "? .factory/grills/tasks/WEB-AUTH-1-4.json\u0000\u0000\u0000"
+        },
+        ".factory/run.json": {
+          "digest": "52f3822a2f0ec7aa7a5ae8cad2b115d67cc65e67208602e26c0ab3d38db2fc4b",
+          "git": "1 .M N... 100644 100644 100644 52af410c5696d074104eff6ce3e260cd5195e0d5 52af410c5696d074104eff6ce3e260cd5195e0d5 .factory/run.json\u0000\u0000100644 52af410c5696d074104eff6ce3e260cd5195e0d5 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "ee51db33463b39030b0e077df49352a19e2680c04fd94bccb97947ca762be0e0",
+          "git": "1 .M N... 100644 100644 100644 7b883cbc92e10682205215d8109eaab9208c518e 7b883cbc92e10682205215d8109eaab9208c518e .factory/stages.json\u0000\u0000100644 7b883cbc92e10682205215d8109eaab9208c518e 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        }
+      },
+      "task_sha256": "87c2ff7dced697a3fb052ebb35b19f0c577d2c887ddf7dab0e130ad12b5b50af",
+      "completed_at": "2026-08-20T12:31:23+00:00"
+    },
+    {
+      "id": "WEB-AUTH-1-5",
+      "title": "Authentication and Access web UI",
+      "status": "done",
+      "started_at": "2026-08-20T12:33:28+00:00",
+      "base_sha": "0d76c566ef570d7a1e6c1370a092808146329d8d",
+      "dirty_at_start": {
+        ".factory/decomposition.json": {
+          "digest": "c2f641a0a925ac4c59feeb9b4552f303b9802f37ee2f445a9fc907f15203acf0",
+          "git": "1 .M N... 100644 100644 100644 2211724574264f36d64807c138641764f1e6e0bc 2211724574264f36d64807c138641764f1e6e0bc .factory/decomposition.json\u0000\u0000100644 2211724574264f36d64807c138641764f1e6e0bc 0\t.factory/decomposition.json\u0000\u0000H .factory/decomposition.json\u0000"
+        },
+        ".factory/events.jsonl": {
+          "digest": "6e68e8427def1ea5ea1df1838859130cb685bcd86d3db1aea6f1e41b34fcfe41",
+          "git": "1 .M N... 100644 100644 100644 ae91c696503181c71699995da08841878a0d01b4 ae91c696503181c71699995da08841878a0d01b4 .factory/events.jsonl\u0000\u0000100644 ae91c696503181c71699995da08841878a0d01b4 0\t.factory/events.jsonl\u0000\u0000H .factory/events.jsonl\u0000"
+        },
+        ".factory/grills/tasks/WEB-AUTH-1-5.json": {
+          "digest": "6cba3f1cf92be0effe450ca1d68fec6efa18fe0ed04a47983ed08e69f4518325",
+          "git": "? .factory/grills/tasks/WEB-AUTH-1-5.json\u0000\u0000\u0000"
+        },
+        ".factory/run.json": {
+          "digest": "70bca25629cf400215dbbf469b636224887daec801f04ac0455fd2489bcf322f",
+          "git": "1 .M N... 100644 100644 100644 5f6f7e3e68b06f5088ae490c95acd36ea88ab3d8 5f6f7e3e68b06f5088ae490c95acd36ea88ab3d8 .factory/run.json\u0000\u0000100644 5f6f7e3e68b06f5088ae490c95acd36ea88ab3d8 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "45836567c9964dc9cfe662d1e3f709fb166516ed2432c272bb9a255b05dce5fc",
+          "git": "1 .M N... 100644 100644 100644 c76743c781ca9143fa6f071cffe6d7f5d8119686 c76743c781ca9143fa6f071cffe6d7f5d8119686 .factory/stages.json\u0000\u0000100644 c76743c781ca9143fa6f071cffe6d7f5d8119686 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        }
+      },
+      "task_sha256": "c6b0a497b08b570eb65eb1b9bff531456a58d61b1140f221d0ba74295bf8906f",
+      "completed_at": "2026-08-20T13:15:50+00:00"
+    },
+    {
+      "id": "WEB-AUTH-1-6",
+      "title": "Integrated auth verification and cleanup proof",
+      "status": "done",
+      "started_at": "2026-08-20T13:22:57+00:00",
+      "base_sha": "103f151d8916f0f091899388cd48fc6ac6aa638b",
+      "dirty_at_start": {
+        ".factory/decomposition.json": {
+          "digest": "b31dd71294240e0f8c5f6dd3ca75d4c89e2a59a6718df1ecc184acab4dfdb82c",
+          "git": "1 .M N... 100644 100644 100644 eb998fc4966a7db7a789f35c9221f027e9ae9778 eb998fc4966a7db7a789f35c9221f027e9ae9778 .factory/decomposition.json\u0000\u0000100644 eb998fc4966a7db7a789f35c9221f027e9ae9778 0\t.factory/decomposition.json\u0000\u0000H .factory/decomposition.json\u0000"
+        },
+        ".factory/events.jsonl": {
+          "digest": "52be09d8fd0b4a78fbc37428dbba5cb00f862296cf3e77356874ddee84cb99e8",
+          "git": "1 .M N... 100644 100644 100644 ec1be620316652db3c1ef6b8ccd32d11993a6055 ec1be620316652db3c1ef6b8ccd32d11993a6055 .factory/events.jsonl\u0000\u0000100644 ec1be620316652db3c1ef6b8ccd32d11993a6055 0\t.factory/events.jsonl\u0000\u0000H .factory/events.jsonl\u0000"
+        },
+        ".factory/grills/tasks/WEB-AUTH-1-6.json": {
+          "digest": "9c3c54f33cc0e173926ff1be3f050b4e2f6a2c1fee2347d8102eedb16e0c7fc3",
+          "git": "? .factory/grills/tasks/WEB-AUTH-1-6.json\u0000\u0000\u0000"
+        },
+        ".factory/run.json": {
+          "digest": "11aebda3b223631b05837d57e45d948f2e8b3809a7f26032387847e23b24860e",
+          "git": "1 .M N... 100644 100644 100644 2b688f9db64da8848cb9042500523ea009b52385 2b688f9db64da8848cb9042500523ea009b52385 .factory/run.json\u0000\u0000100644 2b688f9db64da8848cb9042500523ea009b52385 0\t.factory/run.json\u0000\u0000H .factory/run.json\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "ed03ba57231ea7614e8673f299d0ce6a6a4aa1da7f64d6deb26901451f1cac23",
+          "git": "1 .M N... 100644 100644 100644 95a29bfa71e62c28cba30dc9e10ed61415a029f1 95a29bfa71e62c28cba30dc9e10ed61415a029f1 .factory/stages.json\u0000\u0000100644 95a29bfa71e62c28cba30dc9e10ed61415a029f1 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        }
+      },
+      "task_sha256": "aebe5b6357f84bbc9aed649080fc1f0c9fb4ac7ae5c7c27482f9fb5ec357f23a",
+      "completed_at": "2026-08-20T13:42:42+00:00",
+      "contract_changed": {
+        "at": "2026-08-20T13:42:42+00:00",
+        "from": "4265fdf109c3f23092fd31b662ff6f1d14896c9728ff3187f11909ad7eccc382",
+        "to": "aebe5b6357f84bbc9aed649080fc1f0c9fb4ac7ae5c7c27482f9fb5ec357f23a"
+      }
+    }
+  ]
+}

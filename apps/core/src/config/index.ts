@@ -201,6 +201,17 @@ export function getPublicRuntimeSettings() {
       artifactStore: settings.runtime.artifactStore,
       deploymentMode: settings.runtime.deploymentMode,
     },
+    authentication: {
+      mode: settings.authentication.mode,
+      canonicalOrigin: settings.authentication.canonicalOrigin,
+      ...(settings.authentication.activeOidc
+        ? {
+            activeProviderLabel:
+              settings.authentication.activeOidc.providerLabel,
+          }
+        : {}),
+      candidateConfigured: Boolean(settings.authentication.candidateOidc),
+    },
     browser: {
       usage: {
         enabled: settings.browser.usage.enabled,

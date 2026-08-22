@@ -2,22 +2,13 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "questions_asked": 4,
-  "gaps": [
-    "0117 today accepts rare lost/duplicate cards; the spec promises bounded delivery with defined recovery - a product-guarantee change the owner must own",
-    "Spec baseline assumes PR #414 content merged"
-  ],
-  "contradictions": [
-    "S3 typed-result cutover touches every interactive approval consumer and all four chat adapters - scope had to be accepted or trimmed"
-  ],
-  "resolutions": [
-    "Owner confirmed the 0117 guarantee flip in chat (2026-08-12): bounded delivery is the point of the epic; S1 amends 0117 + echoes",
-    "Owner chose merge-#414-first as the baseline; merging stays human-gated",
-    "Owner accepted the full cutover: the delivery-failure-equals-denial bug lives in shared code; trimming reintroduces split-brain. Per-caller branching enumerated in the plan appendix"
-  ],
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
   "open_items": [],
-  "summary": "Spec distills a plan already interrogated by 15 adversarial validation passes; the three owner-level decisions (guarantee flip, baseline, blast radius) were put to the owner directly and confirmed in chat; spec confirmed as planning source.",
-  "input_sha256": "9d042fcb245f6c4b11396a40e8e3c73c67c377ec95d382893656ad307dcc4c66",
-  "recorded_at": "2026-08-12T12:24:03+00:00",
-  "commit": "fbdb482d68f4d728cffbbb836bad9fc26c1a71f8"
+  "summary": "The approved design, current machine-Bearer boundary, identity model, settings revision model, and web shell were reconciled. The specification deliberately keeps browser sessions separate from /v1 Bearer authentication, uses issuer plus subject identity, and limits access roles to Administrator and Viewer. Detailed UI and protocol copy remains in the approved design referenced by the specification.",
+  "questions_asked": 0,
+  "input_sha256": "a381b8fbf38d7fb286e0ee6d92acc3062722c9c17f31dda426f4e48fd991f801",
+  "recorded_at": "2026-08-18T10:44:43+00:00",
+  "commit": "4b4dda2578d47b6d355fe43984776423c45f14ec"
 }

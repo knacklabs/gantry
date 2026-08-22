@@ -36,6 +36,9 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   // pg_advisory_xact_lock serializes conversation ownership checks even when
   // the conversation row does not exist yet.
   'apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts',
+  // pg_advisory_xact_lock serializes all access-grant mutations per app,
+  // preserving the final active Administrator invariant.
+  'apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts',
   // LISTEN/NOTIFY is wakeup-only; durable rows remain authoritative.
   'apps/core/src/adapters/storage/postgres/live-admission-notify.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',

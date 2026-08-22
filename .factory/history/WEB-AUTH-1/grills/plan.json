@@ -1,0 +1,15 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "issue": "WEB-AUTH-1",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
+  "open_items": [],
+  "summary": "The plan maps every roadmap criterion to a bounded stage and retains the required browser-versus-Bearer separation. It uses existing Postgres, settings, identity, secret, transport, server, CLI, and web primitives; only jose becomes a direct dependency because the approved design requires standards-based signature validation. The unrelated recurring delivery finding is explicitly tripwired rather than absorbed into auth scope.",
+  "questions_asked": 0,
+  "input_sha256": "406d435e3f2bea001149882e26bb318a2733ab184012414f6dcba2d136f4fda5",
+  "recorded_at": "2026-08-18T10:48:01+00:00",
+  "commit": "05c9c54075d12ca67bbb2c80af4d78b644e04a42"
+}

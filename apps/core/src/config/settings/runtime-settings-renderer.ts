@@ -688,6 +688,43 @@ function renderRuntimeProcessYaml(
   lines.push(...renderArtifactStoreYamlLines(runtime.artifactStore), '');
 }
 
+function renderAuthenticationYaml(
+  lines: string[],
+  authentication: RuntimeSettings['authentication'],
+): void {
+  lines.push(
+    'authentication:',
+    `  mode: ${quoteYamlString(authentication.mode)}`,
+    `  canonical_origin: ${quoteYamlString(authentication.canonicalOrigin)}`,
+  );
+  for (const [key, value] of [
+    ['active_oidc', authentication.activeOidc],
+    ['candidate_oidc', authentication.candidateOidc],
+  ] as const) {
+    if (!value) continue;
+    lines.push(
+      `  ${key}:`,
+      `    issuer: ${quoteYamlString(value.issuer)}`,
+      `    client_id: ${quoteYamlString(value.clientId)}`,
+      `    client_secret_ref: ${quoteYamlString(value.clientSecretRef)}`,
+      `    company_domain: ${quoteYamlString(value.companyDomain)}`,
+      `    provider_label: ${quoteYamlString(value.providerLabel)}`,
+    );
+  }
+  lines.push('');
+}
+
+function isDefaultAuthentication(
+  authentication: RuntimeSettings['authentication'],
+): boolean {
+  return (
+    authentication.mode === 'local' &&
+    authentication.canonicalOrigin === 'http://127.0.0.1:3939' &&
+    !authentication.activeOidc &&
+    !authentication.candidateOidc
+  );
+}
+
 export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
   const lines: string[] = [];
   if (settings.desiredState.authoritative) {
@@ -709,6 +746,9 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
   }
   if (!isDefaultRuntime(settings.runtime)) {
     renderRuntimeProcessYaml(lines, settings.runtime);
+  }
+  if (!isDefaultAuthentication(settings.authentication)) {
+    renderAuthenticationYaml(lines, settings.authentication);
   }
   if (!isDefaultBrowserSettings(settings.browser)) {
     renderBrowserSettingsYaml(lines, settings.browser);

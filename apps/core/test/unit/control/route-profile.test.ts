@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Minimal storage stub so /readyz and /metrics (mounted in both profiles) can
@@ -32,10 +36,16 @@ const APP_ID = 'default';
 
 type Server = Awaited<ReturnType<typeof startTestControlServer>>;
 let server: Server | undefined;
+let uiDistDir: string | undefined;
+let uiOutsidePath: string | undefined;
 
 afterEach(async () => {
   await server?.close();
   server = undefined;
+  if (uiDistDir) fs.rmSync(uiDistDir, { recursive: true, force: true });
+  if (uiOutsidePath) fs.rmSync(uiOutsidePath, { force: true });
+  uiDistDir = undefined;
+  uiOutsidePath = undefined;
 });
 
 async function get(server: Server, path: string, withAuth = false) {
@@ -97,6 +107,7 @@ describe('control server route profile', () => {
     expect(
       (await send(server, 'PUT', '/v1/settings/desired-state')).status,
     ).not.toBe(404);
+    expect((await get(server, '/ui/api/auth/not-a-route')).status).toBe(404);
     // Operational endpoints still work in full profile.
     expect((await get(server, '/healthz')).status).toBe(200);
   });
@@ -109,5 +120,53 @@ describe('control server route profile', () => {
     });
 
     expect((await get(server, '/v1/agents', true)).status).not.toBe(404);
+  });
+
+  it('serves the bundled UI only from the full profile', async () => {
+    uiDistDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-ui-'));
+    fs.writeFileSync(
+      path.join(uiDistDir, 'index.html'),
+      '<!doctype html><title>Gantry</title>',
+    );
+    uiOutsidePath = `${uiDistDir}.secret`;
+    fs.writeFileSync(uiOutsidePath, 'secret');
+    fs.mkdirSync(path.join(uiDistDir, 'assets'));
+    fs.writeFileSync(
+      path.join(uiDistDir, 'assets', 'app.js'),
+      'console.log(1)',
+    );
+
+    server = await startTestControlServer({
+      token: TOKEN,
+      appId: APP_ID,
+      scopes: ['agents:admin'],
+      routeProfile: 'full',
+      uiDistDir,
+    });
+    const page = await get(server, '/ui/auth/sign-in');
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('<title>Gantry</title>');
+    expect(page.headers.get('cache-control')).toBe('no-store');
+    const asset = await get(server, '/ui/assets/app.js');
+    expect(asset.headers.get('cache-control')).toContain('immutable');
+    expect(
+      await (
+        await get(server, `/ui/%2e%2e/${path.basename(uiOutsidePath)}`)
+      ).text(),
+    ).not.toContain('secret');
+    await server.close();
+    server = undefined;
+
+    server = await startTestControlServer({
+      token: TOKEN,
+      appId: APP_ID,
+      scopes: ['agents:admin'],
+      routeProfile: 'ops',
+      uiDistDir,
+    });
+    expect((await get(server, '/ui/')).status).toBe(404);
+    expect((await get(server, '/auth/oidc/start')).status).toBe(404);
+    expect((await get(server, '/auth/oidc/start', true)).status).toBe(404);
+    expect((await get(server, '/ui/api/auth/session')).status).toBe(404);
   });
 });

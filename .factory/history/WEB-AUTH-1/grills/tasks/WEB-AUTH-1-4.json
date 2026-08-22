@@ -1,0 +1,55 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
+  "issue": "WEB-AUTH-1",
+  "task_id": "WEB-AUTH-1-4",
+  "decision": "keep",
+  "summary": "The 10-file, 480-line stage remains a single CLI and repository-owner slice. The 550-line review budget explicitly accommodates the approved operator documentation and the atomic audit proof; no unrelated surface is admitted.",
+  "questions_asked": 4,
+  "inspected_refs": [
+    "apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/schema/events.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/runtime-event-repository.postgres.ts",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+  ],
+  "current_flow": "The CLI resolves a hash-only access reference and delegates to the repository transaction, which activates the grant and records a safe recovery audit event. The bounded stage restores only CLI entry points, documentation, non-secret environment naming, architecture declarations, and focused tests.",
+  "criteria_map": {
+    "gantry ui and gantry ui authorize create local authorization links, and gantry auth access approve <reference> --role administrator|viewer writes the grant and audit event transactionally after confirmation.": "CLI commands reuse existing local authorization and access-reference methods; approveAccessReference activates the grant and inserts auth.access.recovered within one transaction.",
+    "First-admin and lost-admin access references expire after 15 minutes and are stored as hashes on awaiting grants.": "Existing hash-only, expiry-checked repository lookup remains authoritative.",
+    "OIDC candidate testing never changes active runtime behavior, failed tests preserve active configuration, and activation promotes the candidate through settings revisions.": "Existing settings/auth services remain the sole candidate and activation owner; docs state the invariant.",
+    "Audit events cover login classification, logout, revocation, invitations, access and role changes, reauthentication, configuration activation, and CLI recovery without tokens, raw claims, secrets, PKCE verifiers, or upstream errors.": "The existing event vocabulary is reused; CLI recovery adds only role and safe grant context through the transaction.",
+    "Docs cover local startup, hosted proxy and cache requirements, setup, first-admin approval, lost-admin recovery, and broken-OIDC recovery.": "The operations document covers all required operator flows."
+  },
+  "new_abstractions": [],
+  "rounds": [
+    {
+      "question": "Where must the recovery audit event be written to make it atomic with the grant?",
+      "options": [
+        "The authentication repository transaction",
+        "A post-commit CLI event call"
+      ],
+      "chosen": "The authentication repository transaction"
+    },
+    {
+      "question": "Does this require a new generic audit abstraction?",
+      "options": [
+        "Reuse runtime_events schema directly at the repository owner",
+        "Add a new cross-layer service"
+      ],
+      "chosen": "Reuse runtime_events schema directly at the repository owner"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "CLI recovery must be audited without exposing secrets and must be transactional with approval.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    }
+  ],
+  "input_sha256": "4b6b971aa2819ea4214c2d868400e1ccaeac44100e6098aa614c7e839f50798a",
+  "recorded_at": "2026-08-20T12:30:43+00:00",
+  "commit": "03b55bdbbf0a9613b45a98edcb8c1b7e96669457"
+}

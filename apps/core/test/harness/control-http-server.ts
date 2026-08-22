@@ -6,7 +6,10 @@ import type { ControlRouteContext } from '@core/control/server/handler-context.j
 export async function reserveControlPort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
     const server = net.createServer();
+    const onError = (error: Error) => reject(error);
+    server.once('error', onError);
     server.listen(0, '127.0.0.1', () => {
+      server.off('error', onError);
       const address = server.address();
       if (!address || typeof address === 'string') {
         reject(new Error('Could not reserve test port'));
@@ -32,6 +35,7 @@ export async function startTestControlServer(input: {
     appId: string;
   }>;
   runtimeApp?: unknown;
+  uiDistDir?: string;
   routeProfile?: 'full' | 'ops';
   processRole?: 'all' | 'control' | 'live-worker' | 'job-worker';
   liveExecution?: boolean;
@@ -54,6 +58,7 @@ export async function startTestControlServer(input: {
       input.runtimeApp ??
       ({ queue: { enqueueMessageCheck: async () => undefined } } as never),
     routeProfile: input.routeProfile,
+    ...(input.uiDistDir ? { uiDistDir: input.uiDistDir } : {}),
     ...(input.processRole ? { processRole: input.processRole } : {}),
     ...(input.liveExecution !== undefined
       ? { liveExecution: input.liveExecution }

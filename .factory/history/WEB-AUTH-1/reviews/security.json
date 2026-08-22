@@ -1,0 +1,20 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "One branch-level autoreview found no actionable security regression. The browser facade uses opaque hashed credentials, strict same-origin/CSRF checks, protected role policy, and safe OIDC error projection.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "A deployed hosted environment still requires its administrator to configure Google/OIDC redirect registration and proxy headers exactly as documented."
+  ],
+  "recommendation": "Approve.",
+  "reviewed_scope": [
+    "WEB-AUTH-1 branch diff against origin/main"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "aspect": "security",
+  "recorded_at": "2026-08-20T14:08:42+00:00",
+  "commit": "4d034ab8314cb9dc87a42d78b0a3e19abc189e82"
+}

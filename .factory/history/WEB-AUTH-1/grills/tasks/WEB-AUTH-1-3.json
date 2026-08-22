@@ -1,0 +1,45 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "WEB-AUTH-1-3",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
+  "open_items": [],
+  "summary": "The 13-file budget exactly covers the committed OIDC/browser facade, its safe audit event vocabulary, package declaration, and focused tests; no unrelated surface is admitted.",
+  "inspected_refs": [
+    "apps/core/src/adapters/auth/oidc-adapter.ts",
+    "apps/core/src/control/server/routes/browser-auth.ts",
+    "apps/core/src/domain/events/runtime-event-types.ts",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+  ],
+  "current_flow": "Hosted OIDC and browser-auth trust boundaries are implemented and validated. Browser callbacks use a state cookie, operations workers reject browser auth routes before authentication parsing, and public UI remains deferred to its dedicated stage.",
+  "criteria_map": {
+    "Generic OIDC validates discovery issuer, state, nonce, PKCE, signature, audience, expiry, replay, and allowlisted outbound transport without exposing provider errors.": "oidc-adapter.ts owns discovery, PKCE/token exchange, JWKS validation, issuer, audience, expiry, and nonce checks using constrained transport.",
+    "Public local and hosted auth routes consume only opaque, hashed browser credentials; local authorization remains loopback-only and one-use, while browser and Bearer routes reject each other.": "browser-auth.ts consumes opaque local and browser credentials through Stage 2 helpers and repository atomic consumption.",
+    "Hosted identity is keyed by issuer plus subject, verified email is separate, access grants and invitations enforce role, expiry, email matching, reauthentication, rotation, and revocation semantics.": "browser-auth.ts uses durable identity, grant, invitation, session, rotation, and reauthentication repository methods.",
+    "Only the full Control profile mounts UI and browser-auth routes; authentication responses are no-store and operational worker profiles do not expose the browser surface.": "index.ts and ui-static.ts mount browser routes and UI only in the full profile."
+  },
+  "decision": "keep",
+  "new_abstractions": [],
+  "rounds": [
+    {
+      "question": "Should the event vocabulary be omitted to preserve an arbitrary 12-file limit?",
+      "options": [
+        "Set the exact 13-file capability budget",
+        "Drop required safe audit events"
+      ],
+      "chosen": "Set the exact 13-file capability budget"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "Browser authentication requires secret-free audit events and profile-bound routing.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    }
+  ],
+  "input_sha256": "3fdd021a87d3a9d28fe9007f6d4a65d8ee01b593f0eb94e7f06cd965e251515f",
+  "recorded_at": "2026-08-20T11:57:34+00:00",
+  "commit": "508c4e77e23cfb814048bb892194b8fb6efa81c1"
+}

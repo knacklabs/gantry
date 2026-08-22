@@ -59,6 +59,24 @@ describe('settings revision app-provider round-trip', () => {
         },
       },
     };
+    settings.authentication = {
+      mode: 'hosted',
+      canonicalOrigin: 'https://console.example.com',
+      activeOidc: {
+        issuer: 'https://accounts.google.com',
+        clientId: 'gantry-console',
+        clientSecretRef: 'env:GOOGLE_OIDC_CLIENT_SECRET',
+        companyDomain: 'example.com',
+        providerLabel: 'Google',
+      },
+      candidateOidc: {
+        issuer: 'https://login.example.com',
+        clientId: 'candidate-console',
+        clientSecretRef: 'env:CANDIDATE_OIDC_SECRET',
+        companyDomain: 'example.com',
+        providerLabel: 'Example SSO',
+      },
+    };
 
     const restored = settingsFromRevisionDocument(
       settingsToRevisionDocument(settings),
@@ -70,6 +88,7 @@ describe('settings revision app-provider round-trip', () => {
         [agentId]: { providerAccountId: accountId },
       },
     });
+    expect(restored.authentication).toEqual(settings.authentication);
     const validation = validateLoadedRuntimeSettings(
       '/tmp/gantry-settings-roundtrip',
       restored,

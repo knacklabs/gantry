@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0033-6ebb",
+  "profile": "quickfix",
+  "reason": "Include the web workspace manifest in the runtime image dependency layer so Docker builds can run the existing web-inclusive runtime build.",
+  "started_at": "2026-08-20T14:22:27+00:00",
+  "completed_at": "2026-08-20T14:28:06+00:00",
+  "files": []
+}

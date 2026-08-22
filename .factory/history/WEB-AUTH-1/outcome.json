@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Gantry now provides a local and hosted browser sign-in path with separate opaque sessions, access administration, invitations, safe OIDC configuration, and recovery commands without changing the existing machine Bearer API.",
+  "issue": "WEB-AUTH-1",
+  "commit": "4d034ab8314cb9dc87a42d78b0a3e19abc189e82",
+  "recorded_at": "2026-08-20T14:08:42+00:00"
+}

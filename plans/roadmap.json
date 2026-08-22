@@ -1258,6 +1258,26 @@
       "spec": "docs/specs/capsafe-1.md"
     },
     {
+      "key": "WEB-AUTH-1",
+      "title": "Authentication and Access Web UI",
+      "story": "As a Gantry operator, I can securely authorize a browser locally or sign in through a company OIDC provider so that console access is revocable and role-enforced.",
+      "acceptance_criteria": [
+        "Local browser authorization is loopback-only, single-use, and creates a revocable session.",
+        "Hosted OIDC sessions use issuer plus subject identity and preserve Bearer API authentication.",
+        "Administrators can manage access, invitations, sessions, and OIDC setup without exposing secrets."
+      ],
+      "order": 64,
+      "status": "done",
+      "epic": "web-authentication",
+      "skill": "fullstack",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/authentication-access-web-ui.md",
+      "completed_at": "2026-08-20T14:08:42+00:00",
+      "history": ".factory/history/WEB-AUTH-1/",
+      "outcome": "Gantry now provides a local and hosted browser sign-in path with separate opaque sessions, access administration, invitations, safe OIDC configuration, and recovery commands without changing the existing machine Bearer API."
+    },
+    {
       "key": "NOTIFY-1",
       "title": "Runtime-neutral structured job-completion notifications with per-provider native cards",
       "story": "As an operator, I get a meaningful, structured job-completion notification (what ran and what it did) rendered natively per channel, so I understand a run at a glance instead of reading truncated agent narration.",
@@ -1294,7 +1314,7 @@
       "spec": "docs/specs/notify-1-t7-deterministic-job-result.md",
       "completed_at": "2026-08-22T04:03:17+00:00",
       "history": ".factory/stories/NOTIFY-1-T7/",
-      "outcome": "Every scheduled job (and every live turn) now produces a structured, neutral summary of what it actually did for any tool on either runtime and provider - grouped actions with counts, failed-first, family-aware labels (e.g. 'Google Sheets Values Append x3', 'WebSearch x5', 'Browser: Open') - instead of falling back to raw narration. A single tool.activity event is recorded per tool call on both worker runtimes and both inline lanes with per-invocation correlation; Gantry-owned capability/browser events dedup against the generic event via trusted, provenance-gated result metadata (decision 0132), so a third-party tool can never spoof correlation. Someone reading a finished job now sees exactly which actions ran and which failed."
+      "outcome": "Every scheduled job (and every live turn) now produces a structured, neutral summary of what it actually did for any tool on either runtime and provider - grouped actions with counts, failed-first, family-aware labels (e.g. 'Google Sheets Values Append x3', 'WebSearch x5', 'Browser: Open') - instead of falling back to raw narration. A single tool.activity event is recorded per tool call on both worker runtimes and both inline lanes with per-invocation correlation; Gantry-owned capability/browser events dedup against the generic event via trusted, provenance-gated result metadata (decision 0133), so a third-party tool can never spoof correlation. Someone reading a finished job now sees exactly which actions ran and which failed."
     }
   ],
   "epics": [
@@ -1380,8 +1400,16 @@
       "source_refs": [
         "docs/architecture/artifact-store-s3-goal-prompt.md"
       ]
+    },
+    {
+      "id": "web-authentication",
+      "title": "Web authentication and access",
+      "objective": "Give each Gantry deployment a secure browser authentication and console-access model without changing machine API-key clients.",
+      "source_refs": [
+        "docs/specs/authentication-access-web-ui.md"
+      ]
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-22T04:03:17+00:00"
+  "updated_at": "2026-08-22T09:21:01+00:00"
 }

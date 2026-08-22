@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0034-0200",
+  "profile": "quickfix",
+  "reason": "Make gantry ui detect an unavailable local control server and add an additive migration bridge for the amended authentication migration",
+  "started_at": "2026-08-21T12:13:57+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
