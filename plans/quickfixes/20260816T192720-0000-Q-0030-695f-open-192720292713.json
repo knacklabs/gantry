@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0030-695f",
+  "profile": "lite",
+  "reason": "Ship the verified OpenAI GPT-5.6 Responses API compatibility fix",
+  "started_at": "2026-08-16T19:27:20+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "user",
+  "base_sha": "f95f9451879d543b020ceff843d0642526a0a21b"
+}
