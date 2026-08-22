@@ -49,8 +49,11 @@ CODEX_HARNESS_OWNED_SKILLS = tuple(
 # release, etc.) is left exactly as the project has it.
 PROJECT_OWNED = [
     "harness.yaml", "AGENTS.md", ".factory/", "plans/", "prototype/",
-    "docs/product/", "docs/decisions/", "docs/architecture/", "docs/context/",
-    "docs/specs/", "docs/memory/",
+    "docs/product/ (except its README.md doc contract)",
+    "docs/decisions/ (except its README.md doc contract)",
+    "docs/architecture/ (except its README.md doc contract)",
+    "docs/context/ (except its README.md doc contract)",
+    "docs/specs/ (except its README.md doc contract)", "docs/memory/",
     ".github/ (except the harness factory workflows)",
     ".claude/ and .codex/ additions the harness does not ship (project skills, agents, launch.json)",
 ]
@@ -524,10 +527,16 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
         if src.exists():
             shutil.copy2(
                 src, assert_target_file_destination(target, target / name))
+    replaced_doc_contracts: list[str] = []
+    diverged_doc_contracts: list[str] = []
     for src_rel, dst_rel in DOC_CONTRACTS:
         src = harness / src_rel
         if src.exists():
             dst = target / dst_rel
+            replaced_doc_contracts.append(dst_rel)
+            if (not dst.is_symlink() and dst.is_file()
+                    and dst.read_bytes() != src.read_bytes()):
+                diverged_doc_contracts.append(dst_rel)
             assert_target_destination(target, dst.parent).mkdir(
                 parents=True, exist_ok=True)
             shutil.copy2(src, assert_target_file_destination(target, dst))
@@ -711,7 +720,13 @@ def cmd_upgrade(args: argparse.Namespace) -> None:
                  "left untouched) — diff manually if the phase contract changed upstream.")
     print(f"Upgraded {target} to symphony-forge @ {commit[:8]}")
     print("Replaced (harness-owned): "
-          + ", ".join(UPGRADE_TREES + UPGRADE_FILES + COPY_WORKFLOWS) + ", doc contracts")
+          + ", ".join(UPGRADE_TREES + UPGRADE_FILES + COPY_WORKFLOWS))
+    print("Replaced doc contracts: " + ", ".join(replaced_doc_contracts))
+    if diverged_doc_contracts:
+        paths = " ".join(diverged_doc_contracts)
+        print("WARNING: replaced doc contracts differed from the new template: "
+              + ", ".join(diverged_doc_contracts)
+              + f". Review the upgrade with git diff -- {paths}")
     if ensured:
         print("Added (missing on this older scaffold): " + ", ".join(ensured))
     print("Untouched (project-owned): " + ", ".join(PROJECT_OWNED) + drift)
