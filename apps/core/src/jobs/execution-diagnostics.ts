@@ -210,7 +210,6 @@ export function updateDiagnosticsFromRuntimeEvent(
     const provenanceSeam = stringValue(payload.provenance_seam);
     const invocationId = correlationId ?? stringValue(payload.invocationId);
     if (
-      !invocationId ||
       !isJobToolDenialKind(denialKind) ||
       !isJobToolDenialProvenanceLane(provenanceLane) ||
       !isJobToolDenialProvenanceSeam(provenanceSeam)
@@ -229,7 +228,7 @@ export function updateDiagnosticsFromRuntimeEvent(
     const action = parseJobSetupActionValue(payload.action);
     if (!action) return;
     const typedDenial: JobToolDenial = {
-      invocationId,
+      ...(invocationId ? { invocationId } : {}),
       toolName: tool,
       reason:
         matchingWait?.reason && deniedReason
