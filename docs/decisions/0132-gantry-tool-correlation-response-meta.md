@@ -1,6 +1,6 @@
 ---
-status: proposed
-confirmed_by: ""
+status: accepted
+confirmed_by: "Ravi Kiran Vemula"
 date: 2026-08-22
 stories: [NOTIFY-1-T7]
 ---
