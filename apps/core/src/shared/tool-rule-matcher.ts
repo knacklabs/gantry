@@ -272,7 +272,7 @@ export function evaluateAutonomousToolUse(input: {
 }): ToolRuleEvaluationResult {
   const toolName = input.toolName.trim();
   if (!toolName) return { allowed: false, reason: 'Tool name is required.' };
-  if (toolName === 'Bash') {
+  if (toolName === 'Bash' || toolName === RUN_COMMAND_TOOL_NAME) {
     return evaluateBashToolUse({
       rules: normalizeToolRules(input.rules),
       toolInput: input.toolInput,
@@ -384,6 +384,13 @@ function evaluateBashToolUse(input: {
     return {
       allowed: false,
       reason: `Bash command could not be parsed safely: ${detail}`,
+    };
+  }
+  if (parsedCommand.piped) {
+    return {
+      allowed: false,
+      reason:
+        'Piped RunCommand commands cannot be authorized from per-leaf rules.',
     };
   }
   const parsedRules = input.rules

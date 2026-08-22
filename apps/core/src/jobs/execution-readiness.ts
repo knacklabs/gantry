@@ -231,7 +231,7 @@ export async function notifyJobSetupRequired(input: {
           });
     notified =
       prompt.status === 'raised' || prompt.status === 'already_pending'
-        ? false
+        ? true
         : promptPreparationFailed
           ? false
           : cardNotified;
