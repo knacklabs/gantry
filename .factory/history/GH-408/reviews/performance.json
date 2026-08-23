@@ -1,0 +1,20 @@
+{
+  "generated_by": "autoreview",
+  "score": 10,
+  "summary": "Local Codex performance review found no runtime, query, I/O, concurrency, memory, or hot-path change.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recommendation": "Approve; documentation checking runs once in CI and does not affect the shipped runtime.",
+  "reviewed_scope": [
+    "complete branch diff",
+    "documentation checker execution",
+    "runtime/source path unchanged proof"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "aspect": "performance",
+  "recorded_at": "2026-08-21T08:00:48+00:00",
+  "commit": "215a065ab85a22b9a7aee09694246474bf764c3f"
+}

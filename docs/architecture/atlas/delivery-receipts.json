@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "generator": {
+    "name": "Archify",
+    "version": "2.13.0",
+    "repository": "https://github.com/tt-a1i/archify"
+  },
+  "source": {
+    "repository": "https://github.com/knacklabs/gantry",
+    "revision": "69ac5b71650d1d8ff99c24eb15fa368b9c3eb418"
+  },
+  "quality_profile": "showcase",
+  "artifacts": [
+    {
+      "diagram_type": "architecture",
+      "specification": "gantry-system.architecture.json",
+      "output": "gantry-system.architecture.html",
+      "specification_sha256": "ba3f09bd6815e1408d2e382c03ccf23bfac69372d8e1b404fdecdf3a79f63a3a",
+      "artifact_sha256": "354f756b9c5cab0767d628787af29837f50b97da2f5fc46c1b80f550c77ba8ad",
+      "validation": {"checks_passed": 9, "check_count": 9, "errors": 0, "warnings": 0},
+      "repository_evidence_references": 14,
+      "visual_review": "passed",
+      "correction_rounds": 0
+    },
+    {
+      "diagram_type": "sequence",
+      "specification": "live-turn.sequence.json",
+      "output": "live-turn.sequence.html",
+      "specification_sha256": "c491ea316838b45443ffc8ea6ff53f4a2e6506472db09ee984486a3e2ecfc985",
+      "artifact_sha256": "984ca2992343f3042ce08b1d14e1a1261ef79a15dceef7500f9f5218ce1712c0",
+      "validation": {"checks_passed": 9, "check_count": 9, "errors": 0, "warnings": 0},
+      "visual_review": "passed",
+      "correction_rounds": 0
+    },
+    {
+      "diagram_type": "dataflow",
+      "specification": "memory-dreaming.dataflow.json",
+      "output": "memory-dreaming.dataflow.html",
+      "specification_sha256": "511de2b522bd228888ef616e6f141c36e1dbda01069f515c636590f7fb1de369",
+      "artifact_sha256": "25e5a59614a0660a2d4fbc0752c4610763fa5941661932c566918b30f0de7ac8",
+      "validation": {"checks_passed": 9, "check_count": 9, "errors": 0, "warnings": 0},
+      "visual_review": "passed",
+      "correction_rounds": 0
+    },
+    {
+      "diagram_type": "lifecycle",
+      "specification": "permission-execution.lifecycle.json",
+      "output": "permission-execution.lifecycle.html",
+      "specification_sha256": "d3439fd083f9f2b5dda77cb4e0b9401c0c8646d85d723b747905824d5a538301",
+      "artifact_sha256": "bdc72305cdef3c077552f55f1149407119df320514a0460c38c79d77e9562a1e",
+      "validation": {"checks_passed": 9, "check_count": 9, "errors": 0, "warnings": 0},
+      "visual_review": "passed",
+      "correction_rounds": 0
+    },
+    {
+      "diagram_type": "architecture",
+      "specification": "fleet-execution.architecture.json",
+      "output": "fleet-execution.architecture.html",
+      "specification_sha256": "85fe337504813d29a7dce16f7e39a1c1d7c71c915cd68dd3a16f0da9d47b6773",
+      "artifact_sha256": "fa3a6cba243142c5d68d76786b5b8ab398ebd720acefef5f18537955acdfd0ea",
+      "validation": {"checks_passed": 9, "check_count": 9, "errors": 0, "warnings": 0},
+      "repository_evidence_references": 11,
+      "visual_review": "passed",
+      "correction_rounds": 0
+    }
+  ]
+}

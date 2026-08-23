@@ -26,9 +26,7 @@
       "epic": "permission-engine",
       "skill": "backend",
       "order": 2,
-      "depends_on": [
-        "PAY-1"
-      ],
+      "depends_on": ["PAY-1"],
       "story": "Slice #1 of the hardened goal-prompt: deterministic rails precede any cache/classifier allow; git operations in trusted roots stop prompting.",
       "acceptance_criteria": [
         "git clone/pull/fetch/status in trusted roots produce zero permission prompts in live runs",
@@ -47,9 +45,7 @@
       "epic": "permission-engine",
       "skill": "backend",
       "order": 3,
-      "depends_on": [
-        "PERM-1"
-      ],
+      "depends_on": ["PERM-1"],
       "story": "Async host-side decision coordinator (cache -> classifier -> human) per the plan-validation-hardened goal-prompt; parse-fail and interpreter-with-string leaves always ask.",
       "acceptance_criteria": [
         "single authority path: every lane reaches the coordinator via authenticated IPC on rule-miss",
@@ -65,9 +61,7 @@
       "epic": "observer",
       "skill": "backend",
       "order": 4,
-      "depends_on": [
-        "PAY-1"
-      ],
+      "depends_on": ["PAY-1"],
       "story": "Verify, one autoreview pass, and merge the rescued WIP branches feature/observer-s2-emission (e055dc14a) and feature/observer-s3-batch (a51a4909d) \u2014 the staged work was uncommitted tmp diffs until rescued 2026-07-22; exclude scratch docs from the review diff without deleting the design record.",
       "acceptance_criteria": [
         "S2 floor (conf>=0.6, evidence>=1, dedup cosine>=0.86) merged behind observer.enabled default-off",
@@ -116,9 +110,7 @@
         "docs/architecture/scheduler-incident-assessment-2026-08-05.md"
       ],
       "order": 6,
-      "depends_on": [
-        "SCHED-1"
-      ],
+      "depends_on": ["SCHED-1"],
       "completed_at": "2026-08-05T09:40:00+00:00",
       "outcome": "Repaired by the interactive agent under the new ask-gated approval flow (the attended path decision 0110 intends): raw gog/RunCommand requirements replaced with the three semantic Sheets capabilities, prompt rewritten with hard semantic rules and a 12-minute budget, access approved by Ravi, job resumed once. Proof run 2026-08-05: completed, 2 leads verified and written (rows 1943-1944), job stayed ACTIVE with Setup Ready \u2014 no self-pause, no Setup-needed card. Kai Workspace cleanup sheet deliberately descoped pending a second Google account binding (open item).",
       "backfill_evidence_missing": true
@@ -153,9 +145,7 @@
         "terminal transaction reloads the job; changed revision preserves operator definition/status, updates only run-owned state, recomputes readiness+next_run from the latest definition",
         "regressions: human pause mid-run stays paused; schedule change mid-run yields next_run from the new schedule; requirement edits survive"
       ],
-      "source_refs": [
-        "docs/decisions/0108-job-definition-revision-fencing.md"
-      ],
+      "source_refs": ["docs/decisions/0108-job-definition-revision-fencing.md"],
       "order": 8
     },
     {
@@ -226,9 +216,7 @@
       "epic": "observer",
       "skill": "backend",
       "order": 12,
-      "depends_on": [
-        "OBS-1"
-      ],
+      "depends_on": ["OBS-1"],
       "acceptance_criteria": [
         "both transports fill the same declared-capability slot as the Anthropic batch path",
         "transport selection is config-driven; no provider literals outside adapters",
@@ -264,9 +252,7 @@
       "epic": "capability-search",
       "skill": "backend",
       "order": 13,
-      "depends_on": [
-        "PAY-1"
-      ],
+      "depends_on": ["PAY-1"],
       "story": "Rescued WIP snapshot feature/capability-authoring @ 13ae2e698 (source of record). Imported WITHOUT a goal-prompt as a closeout exception (epics grill 2026-07-22): finishing in-flight work, not a new goal. Verify, one autoreview pass, merge; it edits mcp-tool-proxy.ts so nothing else may touch that file concurrently.",
       "acceptance_criteria": [
         "branch verified (typecheck + unit + relevant integration) and reviewed via one autoreview pass",
@@ -284,9 +270,7 @@
       "epic": "observer",
       "skill": "backend",
       "order": 14,
-      "depends_on": [
-        "OBS-2"
-      ],
+      "depends_on": ["OBS-2"],
       "acceptance_criteria": [
         "staging -> settlement -> freshness revalidation -> delivery pipeline per goal-prompt",
         "evidence permalinks + feedback capture + delivery artifact recorded",
@@ -300,9 +284,7 @@
       "epic": "observer",
       "skill": "backend",
       "order": 15,
-      "depends_on": [
-        "OBS-3"
-      ],
+      "depends_on": ["OBS-3"],
       "acceptance_criteria": [
         "gantry observer setup wizard step (extends apps/core/src/cli/setup-flow.ts)",
         "preview + status surfaces work without enabling delivery",
@@ -316,9 +298,7 @@
       "epic": "agent-e2e-gate",
       "skill": "backend",
       "order": 16,
-      "depends_on": [
-        "PAY-1"
-      ],
+      "depends_on": ["PAY-1"],
       "story": "Matrix doc is behind reality (PRs #256-#261 added tests without flipping rows). Reconciling fires deferral D-0002 (persona/topology harness re-draft). Also reconcile feature/agent-e2e-haiku-turn: 15 commits, +382/-11 real diff vs main beyond merged #246 \u2014 salvage or discard with a citation.",
       "acceptance_criteria": [
         "every matrix row states its true status with PR/test citations",
@@ -334,9 +314,7 @@
       "epic": "agent-e2e-gate",
       "skill": "backend",
       "order": 17,
-      "depends_on": [
-        "E2E-1"
-      ],
+      "depends_on": ["E2E-1"],
       "acceptance_criteria": [
         "packaged boot/restart, haiku model gate, all-tools coverage, security/recovery rows implemented per reconciled gap list",
         "rows flip with citations per the standing merge-bar discipline"
@@ -349,9 +327,7 @@
       "epic": "agent-e2e-gate",
       "skill": "backend",
       "order": 18,
-      "depends_on": [
-        "E2E-2"
-      ],
+      "depends_on": ["E2E-2"],
       "acceptance_criteria": [
         "agent-e2e-gate is a required status check on main",
         "full matrix green at flip time"
@@ -364,9 +340,7 @@
       "epic": "coordination-hardening",
       "skill": "backend",
       "order": 19,
-      "depends_on": [
-        "PAY-1"
-      ],
+      "depends_on": ["PAY-1"],
       "acceptance_criteria": [
         "audit item B1 implemented: recovery intent as columns with compare-and-set transitions",
         "no JSON-blob state machine remains for recovery intent",
@@ -384,9 +358,7 @@
       "epic": "capability-search",
       "skill": "backend",
       "order": 20,
-      "depends_on": [
-        "CAP-1"
-      ],
+      "depends_on": ["CAP-1"],
       "acceptance_criteria": [
         "FTS ranking + light stemming on mcp_search_tools",
         "opt-in semantic layer reusing memory embedding provider + cache, degrading to FTS",
@@ -400,9 +372,7 @@
       "epic": "ponytail",
       "skill": "backend",
       "order": 21,
-      "depends_on": [
-        "PAY-1"
-      ],
+      "depends_on": ["PAY-1"],
       "story": "Phases 1-7 committed on feature/ponytail-audit through 9ffa146c2 (93-table baseline + Phase-8 runbook); post-Phase-7 in-flight diff rescued as e4104edc8. HARD GATE: executes ONLY on the user's explicit cutover go, behind a fully green ship gate + required e2e rows; any red = STOP.",
       "acceptance_criteria": [
         "explicit user cutover go recorded before execution",
@@ -419,9 +389,7 @@
       "epic": "observability",
       "skill": "backend",
       "order": 22,
-      "depends_on": [
-        "PAY-1"
-      ],
+      "depends_on": ["PAY-1"],
       "story": "Completes the observability taxonomy shipped in #220 (base) and #262 (tool-execution spans). Reconciled 2026-07-22: not started; no lane work exists.",
       "acceptance_criteria": [
         "permission/decision spans per otel-permission-spans-goal-prompt.md",
@@ -436,9 +404,7 @@
       "epic": "post-cutover",
       "skill": "backend",
       "order": 23,
-      "depends_on": [
-        "PONY-1"
-      ],
+      "depends_on": ["PONY-1"],
       "story": "Starts after the Ponytail cutover lands (it refactors jobs/interactions state the cutover moves). Fires deferral D-0001 (data retention) at start.",
       "acceptance_criteria": [
         "goal-prompt acceptance list satisfied",
@@ -463,9 +429,7 @@
       "epic": "post-cutover",
       "skill": "backend",
       "order": 25,
-      "depends_on": [
-        "PONY-1"
-      ],
+      "depends_on": ["PONY-1"],
       "story": "Starts after the Ponytail lane closes (shares the settings parser/renderer surface). Folds status-cost-cache-visibility UX remainder.",
       "acceptance_criteria": [
         "model-management goal-prompt acceptance list satisfied",
@@ -490,9 +454,7 @@
       "epic": "coordination-hardening",
       "skill": "backend",
       "order": 27,
-      "depends_on": [
-        "CO-1"
-      ],
+      "depends_on": ["CO-1"],
       "acceptance_criteria": [
         "audit item B2 implemented: advisory locks, TOCTOU fallback, serializer unify",
         "each fix carries a regression test"
@@ -505,9 +467,7 @@
       "epic": "coordination-hardening",
       "skill": "backend",
       "order": 28,
-      "depends_on": [
-        "PAY-1"
-      ],
+      "depends_on": ["PAY-1"],
       "acceptance_criteria": [
         "audit Group C implemented: schema-driven merge, fail-loud on unknown fields",
         "round-trip export/import test green"
@@ -537,9 +497,7 @@
       "epic": "artifact-store",
       "skill": "backend",
       "order": 30,
-      "depends_on": [
-        "PAY-1"
-      ],
+      "depends_on": ["PAY-1"],
       "story": "LOW PRIORITY (live uses local backend). Protocol decided: pending-row + upload + verified commit + TTL janitor. feature/s3-file-artifacts holds one [HOLD] stage-1 commit built commit-first BEFORE the protocol decision \u2014 rework to the decided protocol, do not merge as-is.",
       "acceptance_criteria": [
         "goal-prompt protocol implemented with verified-commit semantics",
@@ -853,9 +811,7 @@
         "canvas create/update/read tools enforce the split-capability trust boundary and IPC bounds per the plan",
         "TEAMS-1 roadmap entry carries the deferred Teams criteria"
       ],
-      "source_refs": [
-        "docs/architecture/provider-content-gaps-plan-draft.md"
-      ],
+      "source_refs": ["docs/architecture/provider-content-gaps-plan-draft.md"],
       "order": 46,
       "completed_at": "2026-08-04T16:10:11+00:00",
       "history": ".factory/history/CONTENT-1/",
@@ -873,9 +829,7 @@
         "each provider's compiled system prompt carries its own tool guidance built from imported limit constants, and no other provider's",
         "docs/architecture/tool-provider-affinity.md records the full tool classification"
       ],
-      "source_refs": [
-        "docs/architecture/tool-provider-affinity.md"
-      ],
+      "source_refs": ["docs/architecture/tool-provider-affinity.md"],
       "order": 47,
       "completed_at": "2026-08-04T18:29:57+00:00",
       "history": ".factory/history/TOOLS-1/",
@@ -904,9 +858,7 @@
       "epic": "provider-content",
       "skill": "backend",
       "kind": "feature",
-      "depends_on": [
-        "CONTENT-1"
-      ],
+      "depends_on": ["CONTENT-1"],
       "story": "An attachment_materialize tool copies a conversation-scoped attachment (host-issued ref, signed proof \u2014 the attachment_open trust model) into a quarantined subdirectory of the agent's CURRENT workspace, size-capped, on explicit request, so agents can process files with any tool (scripts over CSVs, proper conversions, native model PDF/image reads, re-upload of results). Requires its own decision record: crossing the deliberate workspace/attachment-store isolation, with the quarantine contract (dedicated dir, never auto-read into context, prompt guidance that contents are untrusted data not instructions). Provider-neutral by construction: operates on the shared provider-attachments store, so Slack, Telegram, and Discord are covered identically at ship time and Teams inherits automatically when FILE-1C Graph capture lands. Decision 0105 (accepted) holds the quarantine contract. Generalizes the native-PDF hand-off follow-up recorded during PR #379.",
       "acceptance_criteria": [
         "decision record for the workspace-boundary crossing and quarantine contract, accepted before implementation",
@@ -934,9 +886,7 @@
         "provider credential isolation, per-app/route audit, provider path confinement, streaming, cancellation, rate limits, and child-runner gateway support unchanged",
         "contract test: identical provider URL/headers/body/frames/usage/errors/cancellation before and after"
       ],
-      "depends_on": [
-        "SEC-3"
-      ],
+      "depends_on": ["SEC-3"],
       "source_refs": [
         "docs/architecture/runtime-hardening-audit-2026-07-22.md"
       ],
@@ -1090,9 +1040,7 @@
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
-      "depends_on": [
-        "ID-1"
-      ],
+      "depends_on": ["ID-1"],
       "spec": "docs/specs/pscope-1.md",
       "completed_at": "2026-08-10T09:22:13+00:00",
       "history": ".factory/history/PSCOPE-1/",
@@ -1112,9 +1060,7 @@
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
-      "depends_on": [
-        "PSCOPE-1"
-      ],
+      "depends_on": ["PSCOPE-1"],
       "spec": "docs/specs/pscope-1.md",
       "completed_at": "2026-08-10T16:14:20+00:00",
       "history": ".factory/history/PSCOPE-2/",
@@ -1199,9 +1145,7 @@
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
-      "depends_on": [
-        "CAPFIX-1"
-      ],
+      "depends_on": ["CAPFIX-1"],
       "spec": "docs/specs/capability-version-bump-card.md"
     },
     {
@@ -1296,6 +1240,44 @@
       "spec_debt_reason": "Capturing in-flight diagnosability/notification work (base card + heartbeat flush already implemented) as a tracked story; spec to be confirmed before formal planning of remaining tasks"
     },
     {
+      "key": "DOCS-002",
+      "title": "Source-derived Gantry architecture atlas and adoption guide",
+      "story": "As a company evaluator, operator, or developer, I can move from Gantry's value proposition to verified runtime architecture and advanced deployment guidance so that I can evaluate, adopt, operate, and extend the platform with confidence.",
+      "acceptance_criteria": [
+        "A layered public documentation entrypoint routes evaluators, operators, developers, and architects to source-derived guides.",
+        "Five showcase-validated Archify artifacts cover system architecture, live execution, memory and dreaming, permission lifecycle, and fleet scaling.",
+        "The documentation explains every major current feature family, multi-agent routing, horizontal scaling, and basic-to-advanced operation without presenting planned work as shipped.",
+        "The company adoption guide explains fit, advantages, trade-offs, rollout phases, stakeholder responsibilities, and evaluation metrics without unsupported commercial claims.",
+        "Root/docs navigation and changed public documentation have zero broken local links, while historical decisions and audits retain their meaning.",
+        "No runtime behavior, API, schema, settings, or package contracts change."
+      ],
+      "order": 39,
+      "status": "done",
+      "epic": "documentation",
+      "skill": "fullstack",
+      "spec": "docs/specs/architecture-atlas-and-adoption.md",
+      "completed_at": "2026-08-03T14:39:57+00:00",
+      "history": ".factory/history/DOCS-002/",
+      "outcome": "Gantry now has a source-derived, revision-pinned documentation experience that lets evaluators, operators, developers, and architects understand the product from first setup through multi-agent operation, memory and dreaming, permissions, deployment, and horizontal scaling; companies can explore five interactive architecture views, follow role-specific learning paths, assess adoption trade-offs honestly, and rely on deterministic link, fragment, provenance, and generated-artifact checks to keep the published guidance trustworthy."
+    },
+    {
+      "key": "GH-408",
+      "title": "Establish repository engineering standards and documentation governance",
+      "story": "As a contributor, I can find and verify Gantry's engineering contract and documentation authority so that I can make merge-ready changes without tribal knowledge or tool-specific instructions.",
+      "acceptance_criteria": [
+        "Canonical engineering standards document source organization, coding, architecture, testing, dependencies, contracts, errors, configuration, persistence, performance, and documentation governance.",
+        "Documentation taxonomy, lifecycle, authority, contributor workflow, repository identity, and deterministic drift checks satisfy GitHub issue 408 without changing runtime behavior."
+      ],
+      "order": 40,
+      "status": "done",
+      "epic": "documentation",
+      "skill": "fullstack",
+      "spec": "docs/specs/gh-408-engineering-standards-and-documentation-governance.md",
+      "completed_at": "2026-08-21T08:01:38+00:00",
+      "history": ".factory/history/GH-408/",
+      "outcome": "Gantry contributors now have one tool-agnostic engineering contract, a risk-based validation workflow, deterministic documentation and lifecycle checks in CI, and a complete 310-record authority inventory that separates current architecture from retained history while preserving the DOCS-001 explorer and atlas unchanged."
+    },
+    {
       "key": "NOTIFY-1-T7",
       "title": "Deterministic structured job result from recorded run actions",
       "story": "As an operator, I want a scheduled job's completion notification to show what it actually did (capabilities run, browser actions, failures) derived deterministically from recorded run actions, so that I see the real outcome instead of raw truncated narration.",
@@ -1339,9 +1321,7 @@
       "id": "observer",
       "title": "Curious Observer program",
       "objective": "Harvest -> nightly dream -> value floor + batch judge -> daily private digest",
-      "source_refs": [
-        "docs/architecture/proactive-observer-goal-prompt.md"
-      ]
+      "source_refs": ["docs/architecture/proactive-observer-goal-prompt.md"]
     },
     {
       "id": "agent-e2e-gate",
@@ -1356,25 +1336,19 @@
       "id": "capability-search",
       "title": "Capability authoring + MCP hybrid search",
       "objective": "Agents author capabilities; tool search gains FTS + optional semantic layer",
-      "source_refs": [
-        "docs/architecture/mcp-hybrid-search-goal-prompt.md"
-      ]
+      "source_refs": ["docs/architecture/mcp-hybrid-search-goal-prompt.md"]
     },
     {
       "id": "ponytail",
       "title": "Ponytail cutover",
       "objective": "Land the phased re-derive: Phase-8 offline cutover, gated on explicit user go",
-      "source_refs": [
-        "docs/architecture/ponytail-audit-2026-07-16.md"
-      ]
+      "source_refs": ["docs/architecture/ponytail-audit-2026-07-16.md"]
     },
     {
       "id": "observability",
       "title": "OTel observability remainder",
       "objective": "Permission/decision spans completing the shipped #220/#262 taxonomy",
-      "source_refs": [
-        "docs/architecture/otel-permission-spans-goal-prompt.md"
-      ]
+      "source_refs": ["docs/architecture/otel-permission-spans-goal-prompt.md"]
     },
     {
       "id": "post-cutover",
@@ -1397,17 +1371,13 @@
       "id": "artifact-store",
       "title": "Artifact store S3 bytes",
       "objective": "S3/MinIO file-artifact bytes with verified commit + TTL janitor",
-      "source_refs": [
-        "docs/architecture/artifact-store-s3-goal-prompt.md"
-      ]
+      "source_refs": ["docs/architecture/artifact-store-s3-goal-prompt.md"]
     },
     {
       "id": "web-authentication",
       "title": "Web authentication and access",
       "objective": "Give each Gantry deployment a secure browser authentication and console-access model without changing machine API-key clients.",
-      "source_refs": [
-        "docs/specs/authentication-access-web-ui.md"
-      ]
+      "source_refs": ["docs/specs/authentication-access-web-ui.md"]
     }
   ],
   "generated_by": "human",

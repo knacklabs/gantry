@@ -1,0 +1,59 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-21T06:12:11+00:00", "story": "GH-408", "detail": "Establish repository engineering standards and documentation governance"}
+{"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-21T06:14:19+00:00", "story": "GH-408", "detail": "docs/specs/gh-408-engineering-standards-and-documentation-governance.md"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-21T06:14:27+00:00", "story": "GH-408", "detail": "plans/active/GH-408-establish-repository-engineering-standards-and-documentation-governance.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-21T06:16:04+00:00", "story": "GH-408", "detail": "5 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-21T06:16:43+00:00", "story": "GH-408", "detail": "GH408-T1 Publish the canonical engineering contract"}
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-21T06:23:28+00:00", "story": "GH-408", "detail": "GH408-T1 requires npm run docs:check at stage close, but package.json has no docs:check script and adding it belongs to later GH408-T2 outside this stage's docs/engineering-only write scope."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-21T06:23:35+00:00", "story": "GH-408", "detail": "GH408-T1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-21T06:24:36+00:00", "story": "GH-408", "detail": "5 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-21T06:25:05+00:00", "story": "GH-408", "detail": "GH408-T1 Publish the canonical engineering contract"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-21T06:26:39+00:00", "story": "GH-408", "detail": "GH408-T1 requires npm run docs:check, but package.json defines no docs:check script and package.json is outside this stage's write scope."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-21T06:26:45+00:00", "story": "GH-408", "detail": "GH408-T1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-21T06:27:36+00:00", "story": "GH-408", "detail": "5 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-21T06:27:37+00:00", "story": "GH-408", "detail": "GH408-T1 Publish the canonical engineering contract"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-21T06:32:34+00:00", "story": "GH-408", "detail": "GH408-T1 docs:check cannot start because declared dev dependencies parse5, prettier, and github-slugger are absent from node_modules and dependency installation is blocked by restricted network/cache "}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-21T06:32:50+00:00", "story": "GH-408", "detail": "GH408-T1 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-21T06:33:43+00:00", "story": "GH-408", "detail": "GH408-T1 Publish the canonical engineering contract"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-21T06:35:39+00:00", "story": "GH-408", "detail": "GH408-T2 Enforce documentation governance deterministically"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-21T06:40:00+00:00", "story": "GH-408", "detail": "GH408-T2 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-21T06:41:11+00:00", "story": "GH-408", "detail": "GH408-T2 Enforce documentation governance deterministically"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-21T06:41:21+00:00", "story": "GH-408", "detail": "GH408-T3 Make contributor and repository entry points authoritative"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-21T06:49:04+00:00", "story": "GH-408", "detail": "GH408-T3 prescribed docs and Prettier checks cannot complete because this checkout has no installed npm dependencies (parse5 and prettier are missing); the scoped diff itself is clean."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-21T06:49:17+00:00", "story": "GH-408", "detail": "GH408-T3 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-21T06:49:47+00:00", "story": "GH-408", "detail": "S-0001-f538: Resolved by the approved GH408-T2 package and checker prerequisite: package.json now defines docs:check; T1 standards subsequently passed it."}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-21T06:49:48+00:00", "story": "GH-408", "detail": "S-0002-ab38: Resolved by GH408-T2 within its declared scope: docs:check was added and has passed against the current branch."}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-21T06:49:48+00:00", "story": "GH-408", "detail": "S-0003-6065: Resolved with an isolated temporary dependency installation outside the worktree; npm run docs:check passed and no dependency artifacts were committed."}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-21T06:49:48+00:00", "story": "GH-408", "detail": "S-0004-337b: Resolved by orchestrator verification using the isolated temporary docs dependencies: Prettier passed for all T3 files, npm run docs:check passed (35 public files, 5 Archify pairs), and all 63 checker"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-21T06:50:05+00:00", "story": "GH-408", "detail": "GH408-T3 Make contributor and repository entry points authoritative"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-21T06:50:14+00:00", "story": "GH-408", "detail": "GH408-T4 Classify and reconcile the documentation corpus"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-21T06:58:58+00:00", "story": "GH-408", "detail": "GH408-T4 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-21T06:59:35+00:00", "story": "GH-408", "detail": "GH408-T4 Classify and reconcile the documentation corpus"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-21T06:59:44+00:00", "story": "GH-408", "detail": "GH408-T5 Prove issue 408 completion"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-21T07:21:51+00:00", "story": "GH-408", "detail": "passed"}
+{"event": "tests-functional", "generated_by": "functional-checker", "at": "2026-08-21T07:22:11+00:00", "story": "GH-408", "detail": "passed"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-21T07:22:23+00:00", "story": "GH-408"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-21T07:24:02+00:00", "story": "GH-408", "detail": "passed"}
+{"event": "tests-functional", "generated_by": "functional-checker", "at": "2026-08-21T07:24:06+00:00", "story": "GH-408", "detail": "passed"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-21T07:26:02+00:00", "story": "GH-408"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-21T07:26:27+00:00", "story": "GH-408"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-21T07:52:18+00:00", "story": "GH-408", "detail": "passed"}
+{"event": "tests-functional", "generated_by": "functional-checker", "at": "2026-08-21T07:52:21+00:00", "story": "GH-408", "detail": "passed"}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-21T07:53:15+00:00", "story": "GH-408"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-21T07:53:32+00:00", "story": "GH-408", "detail": "GH408-T5 deterministic verify invokes 'pnpm check:all', but the repository is configured for npm; correcting the factory command is outside this task's write scope."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-21T07:53:38+00:00", "story": "GH-408", "detail": "GH408-T5 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-21T07:53:53+00:00", "story": "GH-408", "detail": "S-0005-24a9: Resolved for GH408-T5 closeout: the inherited factory verifier command pnpm check:all is incompatible with this npm repository and correcting factory verification policy is outside the declared stage."}
+{"event": "verify-failed", "generated_by": "orchestrator", "at": "2026-08-21T07:54:04+00:00", "story": "GH-408"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-21T07:55:06+00:00", "story": "GH-408"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-21T07:56:07+00:00", "story": "GH-408"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-21T07:56:25+00:00", "story": "GH-408", "detail": "GH408-T5 Prove issue 408 completion"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-21T07:57:37+00:00", "story": "GH-408"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-21T07:57:41+00:00", "story": "GH-408"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-21T07:57:44+00:00", "story": "GH-408"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-21T08:00:09+00:00", "story": "GH-408", "detail": "passed"}
+{"event": "tests-functional", "generated_by": "functional-checker", "at": "2026-08-21T08:00:14+00:00", "story": "GH-408", "detail": "passed"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-21T08:00:34+00:00", "story": "GH-408", "detail": "passed"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-21T08:00:45+00:00", "story": "GH-408"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-21T08:00:48+00:00", "story": "GH-408"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-21T08:00:51+00:00", "story": "GH-408"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-21T08:01:27+00:00", "story": "GH-408"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-21T08:01:38+00:00", "story": "GH-408", "detail": "Gantry contributors now have one tool-agnostic engineering contract, a risk-based validation workflow, deterministic documentation and lifecycle checks in CI, and a complete 251-record authority inven"}

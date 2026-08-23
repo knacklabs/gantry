@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Permissioned capability execution",
+    "subtitle": "Mandatory host rules run before optional inference or human approval (source 69ac5b7)",
+    "output": "docs/architecture/atlas/permission-execution.lifecycle.html",
+    "viewBox": [1120, 760],
+    "animation": "none",
+    "visual_preset": "blueprint",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "mandatory",
+        "label": "Apply mandatory authority",
+        "focus": ["requested", "hardDeny", "deployment", "authority", "rails"],
+        "note": "Hard denies and deployment policy cannot be weakened by classifiers or model output."
+      },
+      {
+        "id": "review",
+        "label": "Resolve reviewed actions",
+        "focus": ["rails", "cache", "classifier", "human"],
+        "note": "Cached decisions and risk classification are optional inputs to reviewed authority."
+      },
+      {
+        "id": "outcomes",
+        "label": "Record terminal outcomes",
+        "focus": ["allowed", "denied", "cancelled"],
+        "note": "Allow, deny, and cancellation settle durably with provenance and audit evidence."
+      }
+    ]
+  },
+  "lanes": [
+    {"id": "main", "label": "Mandatory host authority — fixed order"},
+    {"id": "review", "label": "Optional reviewed authority"},
+    {"id": "terminal", "label": "Durable outcome"}
+  ],
+  "states": [
+    {"id": "requested", "type": "start", "label": "Requested", "sublabel": "normalized capability action", "lane": "main", "col": 0, "step": "01", "tag": "runner"},
+    {"id": "hardDeny", "type": "decision", "label": "Hard deny", "sublabel": "non-overridable prohibition", "lane": "main", "col": 1, "step": "02", "tag": "host rule"},
+    {"id": "deployment", "type": "decision", "label": "Deployment policy", "sublabel": "locked preset · fixed image", "lane": "main", "col": 2, "step": "03", "tag": "host rule"},
+    {"id": "authority", "type": "decision", "label": "Authority mode", "sublabel": "blocked · allowed · reviewed", "lane": "main", "col": 3, "step": "04", "tag": "policy axis"},
+    {"id": "rails", "type": "active", "label": "Deterministic rails", "sublabel": "scope · path · argument checks", "lane": "main", "col": 4, "step": "05", "tag": "enforcement"},
+    {"id": "cache", "type": "neutral", "label": "Decision cache", "sublabel": "matching durable grant", "lane": "review", "col": 0, "step": "06", "tag": "optional", "width": 110},
+    {"id": "classifier", "type": "active", "label": "Risk classifier", "sublabel": "advice, not engine authority", "lane": "review", "col": 1, "step": "07", "tag": "optional", "width": 110},
+    {"id": "human", "type": "waiting", "label": "Human decision", "sublabel": "conversation approver", "lane": "review", "col": 2, "step": "08", "tag": "no silent timeout", "width": 110},
+    {"id": "denied", "type": "failure", "label": "Denied", "sublabel": "reason + provenance", "lane": "terminal", "col": 0, "tag": "terminal"},
+    {"id": "cancelled", "type": "failure", "label": "Cancelled", "sublabel": "durable cancellation", "lane": "terminal", "col": 1, "tag": "terminal"},
+    {"id": "allowed", "type": "success", "label": "Allowed", "sublabel": "execute within rails", "lane": "terminal", "col": 2, "tag": "terminal"}
+  ],
+  "transitions": [
+    {"id": "enter", "from": "requested", "to": "hardDeny", "variant": "security", "route": "straight"},
+    {"id": "denyMatch", "from": "hardDeny", "to": "denied", "variant": "security", "fromSide": "bottom", "toSide": "top", "via": [[248, 214], [248, 390], [402, 390]]},
+    {"id": "denyClear", "from": "hardDeny", "to": "deployment", "variant": "emphasis", "route": "straight"},
+    {"id": "deploymentClear", "from": "deployment", "to": "authority", "variant": "emphasis", "route": "straight"},
+    {"id": "policyClear", "from": "authority", "to": "rails", "variant": "emphasis", "route": "straight"},
+    {"id": "reviewed", "from": "rails", "to": "cache", "variant": "security", "fromSide": "bottom", "toSide": "top", "via": [[710, 214], [800, 214], [800, 250], [402, 250]]},
+    {"id": "cacheMiss", "from": "cache", "to": "classifier", "variant": "dashed", "route": "straight"},
+    {"id": "classify", "from": "classifier", "to": "human", "variant": "security", "route": "straight"},
+    {"id": "approve", "from": "human", "to": "allowed", "variant": "emphasis", "route": "straight"},
+    {"id": "cancel", "from": "human", "to": "cancelled", "variant": "security", "fromSide": "right", "toSide": "top", "via": [[820, 307], [820, 390], [556, 390]]}
+  ],
+  "cards": [
+    {"dot": "rose", "title": "Policy order is authority", "items": ["Hard deny, locked preset, fixed-image constraints, authority mode, and deterministic rails execute in order", "Optional classification cannot override a mandatory denial", "The model never grants itself a capability"]},
+    {"dot": "amber", "title": "Review can pause safely", "items": ["Conversation approvers receive the decision context", "Interactive approval does not silently time out into allow", "Transient and durable grants remain distinct"]},
+    {"dot": "emerald", "title": "Every settlement is evidence", "items": ["Allowed work remains constrained by deterministic rails", "Denied and cancelled requests preserve reason and provenance", "Durable cancellation prevents stale execution from resuming"]}
+  ]
+}

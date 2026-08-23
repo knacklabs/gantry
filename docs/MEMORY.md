@@ -3,6 +3,17 @@
 Gantry memory is app-grade runtime state. Personal setup is just the default
 single-app case; SDK and channel usage use the same model boundary.
 
+Memory and company brain are separate systems. Memory is app/agent/subject
+state used for personal and conversation continuity. Company brain is
+app-scoped shared knowledge made of canonical pages, entities, graph edges,
+embeddings, and brain dream decisions. `common` memory does not turn memory
+into company brain, and brain content does not bypass memory or capability
+policy. See [Company Brain Core](./architecture/company-brain-core.md).
+
+Status: lexical memory recall is current and always on. Vector recall is
+optional. Scheduled memory dreaming is shipped but default off. Company-brain
+channel harvest is separately default off per conversation.
+
 ## Boundary Model
 
 Every memory record has:

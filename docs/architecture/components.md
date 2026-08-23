@@ -10,7 +10,7 @@ Gantry is an **agent runtime**: the host process that gives AI agents a controll
 
 The runtime sits between five worlds and brokers work between them:
 
-- **Human chat surfaces**: Slack, Microsoft Teams, Telegram, plus a first-class web/SDK channel for in-product chat.
+- **Human chat surfaces**: Slack, Discord, Telegram, plus a first-class web/SDK channel for in-product chat. Microsoft Teams currently has setup/discovery scaffolding, but no production message transport.
 - **Customer applications**: backend services such as NestJS apps, Next.js apps, and workers that embed Gantry through the SDK.
 - **Signed application events**: external systems such as CRMs, monitoring tools, and schedulers that push work in through scoped ingress credentials.
 - **Approved business tools**: the actions an agent is permitted to use, such as internal APIs, databases behind approved connectors, browser automation with persistent profiles, CRM tools, and MCP-connected services.
@@ -41,23 +41,23 @@ When work starts, Gantry combines that frozen configuration with explicit runtim
 
 ## 3. Providers, Conversations, and Threads
 
-Gantry uses one neutral conversation model across Slack, Telegram, Teams, Web, and app-originated sessions. The agent runs against the conversation abstraction, while adapters handle provider-specific details.
+Gantry uses one neutral conversation model across Slack, Discord, Telegram, Web, and app-originated sessions. The agent runs against the conversation abstraction, while adapters handle provider-specific details. Microsoft Teams is represented in the provider registry for setup and discovery, but its runtime transport is not implemented.
 
 The model has three levels:
 
-- **Provider connection.** The credentialed link to an external system, such as a Slack workspace, Telegram bot, Teams tenant, or built-in app channel.
-- **Conversation.** A top-level scope inside a provider: a Slack channel, Telegram DM, Teams chat, web session, or app conversation.
+- **Provider connection.** The credentialed link to an external system, such as a Slack workspace, Discord bot, Telegram bot, or built-in app channel.
+- **Conversation.** A top-level scope inside a provider: a Slack channel, Discord channel, Telegram DM, web session, or app conversation.
 - **Thread or topic.** An optional sub-scope inside a conversation, such as a Slack thread, Telegram forum topic, or branched discussion.
 
 The same agent definition can be bound to fifty conversations across four providers and behave correctly in each one.
 
-**Why it matters:** the customer's experience stays native. Slack users stay in Slack. Teams users stay in Teams. Product users stay inside the product. The team writes the agent once instead of rebuilding it for every channel.
+**Why it matters:** the customer's experience stays native. Slack, Discord, and Telegram users stay in their chat tools, while product users stay inside the product. The team writes the agent once instead of rebuilding it for every supported channel. Teams can join this model after its runtime transport is implemented.
 
 ---
 
 ## 4. Security and Approval
 
-The concept that shapes the entire runtime: **every conversation is its own security perimeter, and every tool call passes through a two-axis gate**: *who* is asking, and *what* is being asked. A message, SDK call, or signed ingress request never grants tool access by itself; policy does.
+The concept that shapes the entire runtime: **every conversation is its own security perimeter, and every tool call passes through a two-axis gate**: _who_ is asking, and _what_ is being asked. A message, SDK call, or signed ingress request never grants tool access by itself; policy does.
 
 Four concepts, in order:
 
@@ -66,8 +66,8 @@ Four concepts, in order:
 - **Per-conversation adminlist (approvers).** A separate list of users who can authorize risky actions. The allowlist answers "who can ask." The adminlist answers "whose approval counts when the agent needs permission."
 
 - **Available tools vs allowed tools.** Tool access is two layers, not one.
-  - *Available* = every tool the agent's configuration mounts: built-in tools, tools from skills, and tools exposed by connected MCP servers.
-  - *Allowed* = the strict subset of those available tools that the agent is permitted to use *right now in this context*. Allowed is the intersection of the agent's configured policy, the conversation's policy, runtime decisions made by approvers, and any per-job allowlist. An agent can have a tool available and still be blocked from using it.
+  - _Available_ = every tool the agent's configuration mounts: built-in tools, tools from skills, and tools exposed by connected MCP servers.
+  - _Allowed_ = the strict subset of those available tools that the agent is permitted to use _right now in this context_. Allowed is the intersection of the agent's configured policy, the conversation's policy, runtime decisions made by approvers, and any per-job allowlist. An agent can have a tool available and still be blocked from using it.
 
 - **Runtime approval flow.** When the agent attempts a tool call that policy flags as risky, execution pauses. An approval request is posted into the conversation for the adminlist, and the approver picks one of three outcomes:
   - **Allow once** - single-use grant for this exact call.
@@ -84,11 +84,11 @@ Three foundational guarantees sit underneath this model: **multi-tenancy** for a
 
 ## 5. Scoped Memory
 
-In Gantry, **memory is scoped, not global**. A memory item is tied to the customer app, the agent, and the relevant subject such as a user, conversation, or thread. There is no shared global brain that quietly leaks information between customers, teams, or contexts.
+In Gantry, **memory is scoped, not global**. A memory item is tied to the customer app, the agent, and the relevant subject such as a user or parent conversation. There is no shared global brain that quietly leaks information between customers, teams, or contexts.
 
 The memory system has four important properties:
 
-- **Boundaries.** Every memory record is keyed by the combination of the customer's app, the agent, the subject (user, conversation, or thread), and optionally the thread itself. The runtime physically cannot return a memory record across these boundaries; the boundary is enforced at the data layer, not asked nicely of the prompt.
+- **Boundaries.** Every memory record is keyed by the customer's app, agent, and durable subject boundary. Threads and topics affect routing and session continuity, but do not split durable memory into separate thread islands. The runtime enforces the durable boundary at the data layer, not by asking the prompt to behave.
 - **Scopes.** When an agent is bound to a conversation, the binding chooses how wide the memory should be: a user, a whole conversation, an agent's footprint inside the app, or app-wide common knowledge.
 - **Kinds.** Memory is typed: preferences, decisions, facts, corrections, constraints, references, procedures. Each kind has its own lifecycle rules: a preference might decay slowly, a correction supersedes the fact it corrects, and a constraint is sticky until explicitly revoked.
 - **Evidence.** Every durable memory record points back to the raw evidence: the original message, tool output, or human input that created it. Memory is auditable. A customer can ask "why does the agent think I prefer X?" and get a real answer.
@@ -176,7 +176,7 @@ The trusted backend has four integration channels available to it:
 
 - **Runtime events (SSE).** A long-lived event stream of typed, numbered events. The backend can consume it and forward updates to its own web UI, dashboard, or analytics pipeline. Clients that disconnect can reconnect from the last event they saw.
 - **Outbound webhooks.** HMAC-signed POSTs to a URL the customer has registered. Fire-and-forget: the runtime retries on failure, surfaces persistently failing endpoints in a dead-letter queue, and gives the customer tools to inspect, replay, or purge those deliveries. Best for backend-to-backend integrations where the receiver is its own server.
-- **Inbound signed ingress.** External systems push events *into* Gantry over signed inbound endpoints, scoped to allowed session messages, job triggers, or job templates. Each ingress has its own rotatable secret, so a customer can give a third-party vendor a narrow credential instead of a full API key.
+- **Inbound signed ingress.** External systems push events _into_ Gantry over signed inbound endpoints, scoped to allowed session messages, job triggers, or job templates. Each ingress has its own rotatable secret, so a customer can give a third-party vendor a narrow credential instead of a full API key.
 - **Approved app tools.** Through any of the above, an action request can ask the agent to use approved tools: an internal app API, a database connector, a persistent browser profile, a CRM, or an MCP-connected service. The selected capability policy and runtime approval flow still decide which tools the agent may actually use.
 
 **Why it matters:** most agent platforms force one delivery model, such as chat-only streaming or webhook-only integrations. Gantry lets the same runtime handle realtime observation, backend callbacks, inbound events, and approved tool actions without architectural rework.

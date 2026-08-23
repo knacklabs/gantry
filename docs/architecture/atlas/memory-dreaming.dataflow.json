@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Memory and dreaming are evidence pipelines",
+    "subtitle": "Scoped app memory and company brain remain separate, reviewable systems (source 69ac5b7)",
+    "output": "docs/architecture/atlas/memory-dreaming.dataflow.html",
+    "viewBox": [1180, 820],
+    "animation": "none",
+    "visual_preset": "editorial",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "app-memory",
+        "label": "Build scoped app memory",
+        "focus": ["evidence", "extractor", "validator", "memory", "recall"],
+        "note": "Evidence becomes candidates, then host-validated facts scoped by app, agent, and subject."
+      },
+      {
+        "id": "dreaming",
+        "label": "Review dream proposals",
+        "focus": ["memory", "dreamer", "review", "recall"],
+        "note": "The model proposes untrusted JSON; host rules decide safe updates and review requests."
+      },
+      {
+        "id": "brain",
+        "label": "Build company knowledge",
+        "focus": ["harvest", "brainExtract", "brainDream", "brainGraph", "brainQuery"],
+        "note": "Opt-in channel harvest feeds a separate app-scoped graph with evidence-backed changes."
+      }
+    ]
+  },
+  "stages": [
+    {"label": "Evidence"},
+    {"label": "Extract"},
+    {"label": "Validate / propose"},
+    {"label": "Durable state"},
+    {"label": "Use / review"}
+  ],
+  "nodes": [
+    {"id": "evidence", "type": "messagebus", "label": "Session evidence", "sublabel": "messages · actions · corrections", "stage": 0, "row": 0, "tag": "scoped"},
+    {"id": "extractor", "type": "backend", "label": "Fact extractor", "sublabel": "candidate JSON", "stage": 1, "row": 0, "tag": "untrusted"},
+    {"id": "validator", "type": "security", "label": "Host validator", "sublabel": "schema · scope · confidence", "stage": 2, "row": 0, "tag": "authority"},
+    {"id": "memory", "type": "database", "label": "Memory items", "sublabel": "evidence · status · audit", "stage": 3, "row": 0, "tag": "app/agent/subject"},
+    {"id": "recall", "type": "backend", "label": "Scoped recall", "sublabel": "lexical + optional vector RRF", "stage": 4, "row": 0, "tag": "fallback safe"},
+    {"id": "dreamer", "type": "backend", "label": "Memory dreamer", "sublabel": "consolidate · contradict · merge", "stage": 2, "row": 2, "tag": "untrusted proposal"},
+    {"id": "review", "type": "security", "label": "Human review", "sublabel": "provider cards · API · CLI · MCP", "stage": 4, "row": 2, "tag": "destructive paths"},
+    {"id": "harvest", "type": "messagebus", "label": "Channel harvest", "sublabel": "opt-in conversations only", "stage": 0, "row": 4, "tag": "default off", "width": 150},
+    {"id": "brainExtract", "type": "backend", "label": "Brain extraction", "sublabel": "pages · entities · edges", "stage": 1, "row": 4, "tag": "evidence linked"},
+    {"id": "brainDream", "type": "security", "label": "Brain dream gate", "sublabel": "additive apply · destructive review", "stage": 2, "row": 4, "tag": "host validated"},
+    {"id": "brainGraph", "type": "database", "label": "Company brain", "sublabel": "app-scoped knowledge graph", "stage": 3, "row": 4, "tag": "separate store"},
+    {"id": "brainQuery", "type": "backend", "label": "Brain query", "sublabel": "search · traverse · inspect evidence", "stage": 4, "row": 4, "tag": "auditable"}
+  ],
+  "flows": [
+    {"id": "observed", "from": "evidence", "to": "extractor", "label": "bounded evidence", "classification": "conversation scope", "variant": "emphasis", "route": "straight", "labelAt": [208, 200]},
+    {"id": "candidates", "from": "extractor", "to": "validator", "label": "fact candidates", "classification": "untrusted model output", "variant": "security", "route": "straight", "labelAt": [423, 200]},
+    {"id": "accepted", "from": "validator", "to": "memory", "label": "validated facts", "classification": "durable", "variant": "emphasis", "route": "straight", "labelAt": [638, 200]},
+    {"id": "retrieve", "from": "memory", "to": "recall", "label": "ranked relevant facts", "classification": "scope filtered", "variant": "default", "route": "straight", "labelAt": [853, 200]},
+    {"id": "dreamInput", "from": "memory", "to": "dreamer", "label": "eligible active facts", "classification": "scheduled", "variant": "dashed", "route": "vertical-channel", "fromSide": "bottom", "toSide": "right", "labelAt": [654, 286]},
+    {"id": "reviewDream", "from": "dreamer", "to": "review", "label": "merge / delete / contradiction", "classification": "review request", "variant": "security", "route": "straight", "labelAt": [745, 430]},
+    {"id": "harvested", "from": "harvest", "to": "brainExtract", "label": "approved transcript evidence", "classification": "opt-in", "variant": "emphasis", "route": "straight", "labelAt": [208, 570]},
+    {"id": "brainCandidates", "from": "brainExtract", "to": "brainDream", "label": "knowledge candidates", "classification": "evidence backed", "variant": "security", "route": "straight", "labelAt": [423, 570]},
+    {"id": "brainApply", "from": "brainDream", "to": "brainGraph", "label": "validated additive operations", "classification": "audited", "variant": "emphasis", "route": "straight", "labelAt": [638, 570]},
+    {"id": "brainRead", "from": "brainGraph", "to": "brainQuery", "label": "pages · entities · edges", "classification": "app scope", "variant": "default", "route": "straight", "labelAt": [853, 570]}
+  ],
+  "cards": [
+    {"dot": "cyan", "title": "App memory", "items": ["Facts are scoped by app, agent, and subject", "Lexical retrieval always works; embeddings add optional hybrid ranking", "Every accepted item retains evidence and audit state"]},
+    {"dot": "rose", "title": "Dreaming is not autonomous truth", "items": ["LLM output is an untrusted proposal", "Host validation applies only safe operations", "Destructive, merge, and contradiction paths can require human review"]},
+    {"dot": "violet", "title": "Company brain is separate", "items": ["Channel harvesting is default-off and conversation opt-in", "Pages, entities, and edges form an app-scoped graph", "Brain decisions preserve evidence and review history"]}
+  ]
+}
