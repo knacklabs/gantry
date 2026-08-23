@@ -1832,7 +1832,7 @@ describe('setup pause prompts', () => {
     expect(preparePermissionInteraction).not.toHaveBeenCalled();
   });
 
-  it('prepares the approver card as the one terminal setup notification', async () => {
+  it('prepares the approver card and keeps only the divergent job notification path', async () => {
     const job = makeJob();
     const preparePermissionInteraction = vi.fn(async () => ({ created: true }));
     configure({ job: () => job, preparePermissionInteraction });
@@ -1847,7 +1847,7 @@ describe('setup pause prompts', () => {
         deps: { sendMessage, opsRepository: { markJobSetupNotified } } as never,
         publishRuntimeEvent: async () => undefined,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
 
     expect(preparePermissionInteraction).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledOnce();
@@ -1860,7 +1860,7 @@ describe('setup pause prompts', () => {
       expect.anything(),
       expect.anything(),
     );
-    expect(markJobSetupNotified).toHaveBeenCalledWith(job.id, 'fingerprint-1');
+    expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
   it('does not send a prose fallback on the approver route while durable delivery is pending', async () => {
@@ -1889,11 +1889,11 @@ describe('setup pause prompts', () => {
         } as never,
         publishRuntimeEvent: async () => undefined,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
 
     expect(preparePermissionInteraction).toHaveBeenCalledOnce();
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(markJobSetupNotified).toHaveBeenCalledWith(job.id, 'fingerprint-1');
+    expect(markJobSetupNotified).not.toHaveBeenCalled();
   });
 
   it('reports an existing composite prompt as already pending without another send', async () => {
