@@ -9,6 +9,10 @@ import {
 } from '../../../../shared/tool-execution-policy-service.js';
 import { denyMemoryBoundaryToolUse } from '../../../../shared/memory-boundary.js';
 import { applyBashTrustEnv } from './bash-trust-env.js';
+import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
+import { semanticCapabilityRuntimeRules } from '../../../../shared/semantic-capabilities.js';
+import { semanticCapabilityRule } from '../../../../shared/semantic-capability-ids.js';
+import { readRunnerSkillActionCapabilities } from './permission-suggestions.js';
 
 const BLOCK_MESSAGE =
   'Gantry blocks direct edits to agent capability configuration. Request the missing action or source setup through the Gantry access flow so the change is reviewed, stored durably, and activated through approved access.';
@@ -16,6 +20,29 @@ const BLOCK_MESSAGE =
 export interface ProtectedCapabilityDecision {
   reason: string;
   recoveryAction?: string;
+}
+
+export function attributedSkillActionRules(
+  liveRules: readonly string[],
+  skillActionCapabilities: readonly SemanticCapabilityDefinition[],
+): string[] {
+  const liveRuleSet = new Set(liveRules);
+  const selectedSkillAliases = skillActionCapabilities.flatMap((capability) => {
+    const source = capability.source;
+    const runtimeRules = semanticCapabilityRuntimeRules(capability);
+    return source &&
+      typeof source === 'object' &&
+      !Array.isArray(source) &&
+      (source as Record<string, unknown>).kind === 'skill_action' &&
+      runtimeRules.length > 0 &&
+      runtimeRules.every((rule) => liveRuleSet.has(rule))
+      ? [semanticCapabilityRule(capability.capabilityId)]
+      : [];
+  });
+  // The alias adds attribution, not authority: it is projected only when every
+  // concrete rule in the reviewed skill action is already present in the
+  // host-projected rule set for this exact run.
+  return [...selectedSkillAliases, ...liveRules];
 }
 
 export function evaluateProtectedCapabilityToolUse(
@@ -34,14 +61,33 @@ export async function protectedCapabilityPreToolUseHook(
 export function createSafetyPreToolUseHook(
   memoryBlock: string,
   toolNetworkEnv: Record<string, string | undefined> = {},
+  selectedAccess: {
+    isScheduledJob?: boolean;
+    jobId?: string;
+    allowedToolRules?: readonly string[];
+    selectedCapabilityIds?: readonly string[];
+    /** Preflight-only declarations; never used to mint runtime authority. */
+    toolAccessRequirements?: readonly string[];
+    semanticCapabilities?: readonly SemanticCapabilityDefinition[];
+  } = {},
 ): (input: HookInput) => Promise<SyncHookJSONOutput> {
-  return (input) => safetyPreToolUseHook(input, memoryBlock, toolNetworkEnv);
+  return (input) =>
+    safetyPreToolUseHook(input, memoryBlock, toolNetworkEnv, selectedAccess);
 }
 
 async function safetyPreToolUseHook(
   input: HookInput,
   memoryBlock: string,
   toolNetworkEnv: Record<string, string | undefined> = {},
+  selectedAccess: {
+    isScheduledJob?: boolean;
+    jobId?: string;
+    allowedToolRules?: readonly string[];
+    selectedCapabilityIds?: readonly string[];
+    /** Preflight-only declarations; never used to mint runtime authority. */
+    toolAccessRequirements?: readonly string[];
+    semanticCapabilities?: readonly SemanticCapabilityDefinition[];
+  } = {},
 ): Promise<SyncHookJSONOutput> {
   if (input.hook_event_name !== 'PreToolUse') {
     return { continue: true };
@@ -61,8 +107,43 @@ async function safetyPreToolUseHook(
     origin: 'sdk',
     toolName: input.tool_name,
     toolInput: input.tool_input,
+    executionMode: selectedAccess.isScheduledJob ? 'autonomous' : 'interactive',
+    runContext: selectedAccess.jobId
+      ? { jobId: selectedAccess.jobId }
+      : undefined,
   });
-  const decision = new ToolExecutionPolicyService().evaluate({ request });
+  const semanticCapabilities = [
+    ...(selectedAccess.semanticCapabilities ?? []),
+    ...readRunnerSkillActionCapabilities(),
+  ];
+  const semanticCapabilityDefinitions = Object.fromEntries(
+    semanticCapabilities.map((capability) => [
+      capability.capabilityId,
+      capability,
+    ]),
+  );
+  const selectedCapabilityRules = [
+    // Resolve selected semantic aliases first. Runtime policy projection also
+    // includes their concrete rules; putting those first would de-duplicate
+    // the later alias expansion before it can retain capability attribution.
+    ...new Set(selectedAccess.selectedCapabilityIds ?? []),
+  ].map(semanticCapabilityRule);
+  const selectedToolRules = [
+    ...selectedCapabilityRules,
+    ...attributedSkillActionRules(
+      selectedAccess.allowedToolRules ?? [],
+      semanticCapabilities,
+    ),
+  ];
+  const decision = new ToolExecutionPolicyService().evaluate({
+    request,
+    ...(selectedAccess.isScheduledJob
+      ? {
+          autonomousAllowedToolRules: selectedToolRules,
+        }
+      : { allowedToolRules: selectedToolRules }),
+    semanticCapabilityDefinitions,
+  });
   if (decision.status !== 'deny') {
     return allowPreToolUseWithTrustEnv(
       input.tool_name,

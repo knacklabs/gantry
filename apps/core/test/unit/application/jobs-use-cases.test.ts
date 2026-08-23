@@ -2386,6 +2386,59 @@ describe('job application use cases', () => {
     expect(triggerQueue.enqueue).toHaveBeenCalledWith('job-1', 'trigger-1');
   });
 
+  it('uses persisted ready state without repeating trigger-time readiness reads', async () => {
+    const control = {
+      getAppSessionById: vi.fn(async () => ({
+        sessionId: 'session-1',
+        appId: 'app-one',
+        conversationJid: 'app:app-one:conv-1',
+        workspaceKey: 'team',
+        defaultResponseMode: 'sse',
+        defaultWebhookId: null,
+      })),
+      getAppSessionByChatJid: vi.fn(),
+      createJobTrigger: vi.fn(async () => ({
+        triggerId: 'trigger-1',
+        jobId: 'job-1',
+        runId: null,
+        status: 'pending',
+      })),
+      markTriggerCompleted: vi.fn(),
+    };
+    const getCredentialBroker = vi.fn(async () => {
+      throw new Error('trigger-time readiness should not run');
+    });
+    const triggerQueue = {
+      isReady: () => true,
+      enqueue: vi.fn(),
+    };
+    const service = new JobManagementService({
+      ops: makeOps(
+        makeJob({
+          session_id: 'session-1',
+          setup_state: {
+            state: 'ready',
+            checked_at: '2026-08-19T00:00:00.000Z',
+            fingerprint: 'ready-fingerprint',
+            blockers: [],
+          },
+        }),
+      ) as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: control as never,
+      runtimeEvents: { publish: vi.fn() },
+      triggerQueue,
+      getCredentialBroker,
+    });
+
+    await expect(
+      service.triggerJob({ appId: 'app-one', jobId: 'job-1' }),
+    ).resolves.toEqual({ triggerId: 'trigger-1' });
+    expect(getCredentialBroker).not.toHaveBeenCalled();
+    expect(triggerQueue.enqueue).toHaveBeenCalledWith('job-1', 'trigger-1');
+  });
+
   it('checks per-job trigger quota before app trigger quota', async () => {
     const control = {
       getAppSessionById: vi.fn(async () => ({

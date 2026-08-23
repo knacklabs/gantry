@@ -77,6 +77,7 @@ import {
 } from './agent-spawn-mcp-source-records.js';
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
+import { launchBrowser } from './browser-capability.js';
 import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
 import { validateAgentPreSpawnAdmission } from './agent-spawn-admission.js';
 import { resolveSpawnModel } from './agent-spawn-model-resolution.js';
@@ -95,7 +96,6 @@ import {
   buildRunnerSandboxSpawnInput,
   buildBaseRunnerEnv,
   buildAndLogRunnerRuntimeDetails,
-  type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
 import {
   prepareAgentSpawn,
@@ -618,6 +618,36 @@ async function spawnAgentWithContext(
         resolveSelectedSkillEnvForSpawn({ options, effectiveRuntimeAccess }),
     );
     Object.assign(env, pickSelectedCapabilityEnv(selectedSkillEnv.env));
+    const browserAutomationActions = effectiveRuntimeAccess.filter(
+      (access) =>
+        access.sourceType === 'skill_action' &&
+        access.browserAccess === 'managed_browser',
+    );
+    if (browserAutomationActions.length > 0) {
+      if (!browserProfileForRun) {
+        throw new Error(
+          'Managed browser skill actions require a scoped browser profile.',
+        );
+      }
+      const browserStatus = await launchBrowser({
+        profileName: browserProfileForRun,
+      });
+      if (
+        !browserStatus.running ||
+        !browserStatus.cdpReady ||
+        !browserStatus.port
+      ) {
+        throw new Error(
+          'Managed browser skill action could not start the Gantry browser profile.',
+        );
+      }
+      // The endpoint is projected only for a reviewed, selected skill action.
+      // Execution remains bounded by the action's exact command rule, scoped
+      // credentials/network, profile lease, and the outer runner sandbox.
+      env.GANTRY_BROWSER_CDP_ENDPOINT = `http://127.0.0.1:${browserStatus.port}`;
+      env.GANTRY_BROWSER_PROFILE_NAME = browserProfileForRun;
+      env.GANTRY_BROWSER_MANAGED_AUTOMATION = '1';
+    }
     mcpConfigPath = hostStartup.measure('mcpConfigMs', () =>
       allMcpCapabilities.length > 0
         ? writeRunnerMcpConfigFile(

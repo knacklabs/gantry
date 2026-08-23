@@ -90,6 +90,43 @@ describe('agent tool catalog references', () => {
     expect(saveTool).not.toHaveBeenCalled();
   });
 
+  it('reuses an existing built-in Gantry row before creating a durable permission row', async () => {
+    const rule = 'mcp__gantry__mcp_list_tools';
+    const existing: ToolCatalogItem = {
+      id: `tool:${rule}` as never,
+      appId: 'default' as never,
+      name: rule,
+      kind: 'host',
+      provider: 'gantry',
+      displayName: 'List MCP tools',
+      description: 'Canonical built-in tool row.',
+      category: 'admin',
+      risk: 'high',
+      selectable: true,
+      status: 'active',
+      adapterRef: `builtin:${rule}`,
+      createdAt: '2026-08-07T00:00:00.000Z' as never,
+      updatedAt: '2026-08-07T00:00:00.000Z' as never,
+    };
+    const saveTool = vi.fn(async () => undefined);
+    const repository = {
+      listTools: vi.fn(async () => [existing]),
+      getTool: vi.fn(async () => null),
+      saveTool,
+    } as unknown as ToolCatalogRepository;
+
+    const item = await ensureAgentToolCatalogItem({
+      repository,
+      appId: 'default' as never,
+      reference: rule,
+      now: '2026-08-11T00:00:00.000Z',
+    });
+
+    expect(item).toBe(existing);
+    expect(repository.getTool).not.toHaveBeenCalled();
+    expect(saveTool).not.toHaveBeenCalled();
+  });
+
   it('creates separate active rows when two apps durably grant the same non-admin Gantry tool', async () => {
     const tools = new Map<string, ToolCatalogItem>();
     const saveTool = vi.fn(async (tool: ToolCatalogItem) => {

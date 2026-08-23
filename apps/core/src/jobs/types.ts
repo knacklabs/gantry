@@ -26,7 +26,10 @@ import type { JobReadinessBrowserStatus } from '../application/jobs/job-readines
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
-import type { BrowserSessionStatus } from '../runtime/browser-capability-types.js';
+import type {
+  BrowserSessionStatus,
+  LaunchBrowserOptions,
+} from '../runtime/browser-capability-types.js';
 import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
 import type { Job, JobRunStatus } from '../domain/types.js';
@@ -85,7 +88,10 @@ export interface SchedulerDependencies {
   getBrowserStatus?: (
     profileName: string,
   ) => Promise<JobReadinessBrowserStatus | undefined>;
-  openBrowserSession?: (profileName: string) => Promise<BrowserSessionStatus>;
+  openBrowserSession?: (
+    profileName: string,
+    options?: Omit<LaunchBrowserOptions, 'profileName'>,
+  ) => Promise<BrowserSessionStatus>;
   executionAdapter?: AgentExecutionAdapter;
   executionAdapters?: AgentExecutionAdapterRegistry;
   runnerSandboxProvider: RunnerSandboxProvider;

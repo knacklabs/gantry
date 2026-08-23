@@ -32,6 +32,8 @@ export interface SkillActionPermission {
   requiredEnvVars: string[];
   commandTemplates: string[];
   networkHosts: string[];
+  browserAccess?: 'managed_browser';
+  executionMode?: 'deterministic';
 }
 
 export interface SkillActionSourceMetadata {
@@ -39,6 +41,8 @@ export interface SkillActionSourceMetadata {
   skillId: string;
   skillName: string;
   actionId: string;
+  browserAccess?: 'managed_browser';
+  executionMode?: 'deterministic';
 }
 
 export interface SkillActionCapabilitySourceSkill {
@@ -107,6 +111,12 @@ export function skillActionSemanticCapability(input: {
     skillId: input.skillId,
     skillName: input.skillName,
     actionId: input.action.id,
+    ...(input.action.browserAccess
+      ? { browserAccess: input.action.browserAccess }
+      : {}),
+    ...(input.action.executionMode
+      ? { executionMode: input.action.executionMode }
+      : {}),
   };
   return {
     capabilityId: input.action.capabilityId,
@@ -142,12 +152,18 @@ export function skillActionSource(
   const skillName =
     typeof source.skillName === 'string' ? source.skillName : '';
   const actionId = typeof source.actionId === 'string' ? source.actionId : '';
+  const browserAccess =
+    source.browserAccess === 'managed_browser' ? 'managed_browser' : undefined;
+  const executionMode =
+    source.executionMode === 'deterministic' ? 'deterministic' : undefined;
   if (!skillId || !skillName || !actionId) return undefined;
   return {
     kind: 'skill_action',
     skillId,
     skillName,
     actionId,
+    ...(browserAccess ? { browserAccess } : {}),
+    ...(executionMode ? { executionMode } : {}),
   };
 }
 
@@ -218,6 +234,23 @@ function parseSkillActionPermission(
   const networkHosts = stringArray(raw.networkHosts, 'networkHosts', {
     optional: true,
   }).map((host) => normalizeSkillActionNetworkHost(host, capabilityId));
+  const browserAccess = raw.browserAccess;
+  if (browserAccess !== undefined && browserAccess !== 'managed_browser') {
+    throw new Error(
+      `Skill action ${capabilityId} browserAccess must be managed_browser.`,
+    );
+  }
+  const executionMode = raw.executionMode;
+  if (executionMode !== undefined && executionMode !== 'deterministic') {
+    throw new Error(
+      `Skill action ${capabilityId} executionMode must be deterministic.`,
+    );
+  }
+  if (executionMode && browserAccess !== 'managed_browser') {
+    throw new Error(
+      `Skill action ${capabilityId} deterministic execution requires managed_browser access.`,
+    );
+  }
   return {
     id,
     capabilityId,
@@ -228,6 +261,8 @@ function parseSkillActionPermission(
     requiredEnvVars: [...new Set(requiredEnvVars)],
     commandTemplates: [...new Set(commandTemplates)],
     networkHosts: [...new Set(networkHosts)],
+    ...(browserAccess ? { browserAccess } : {}),
+    ...(executionMode ? { executionMode } : {}),
   };
 }
 

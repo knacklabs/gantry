@@ -430,7 +430,8 @@ export async function exportCurrentDesiredState(input: {
       const providerAccountId = group.providerAccountId?.trim();
       return (
         !providerAccountId ||
-        !isCanonicalFallbackProviderAccountId(providerAccountId)
+        (providerAccountId !== `control:${appId}` &&
+          !isCanonicalFallbackProviderAccountId(providerAccountId))
       );
     })
     .map(([jid, group]) => {

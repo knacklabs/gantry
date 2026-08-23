@@ -75,6 +75,30 @@ describe('AgentCapabilityAdministrationService', () => {
 
   it('replaces a full access document and validates selections against requested sources', async () => {
     const state = createState();
+    state.tools.set('tool:mcp__gantry__scheduler_list_jobs', {
+      id: 'tool:mcp__gantry__scheduler_list_jobs',
+      appId: 'app:one',
+      name: 'mcp__gantry__scheduler_list_jobs',
+      kind: 'host',
+      provider: 'gantry',
+      displayName: 'Scheduler list jobs',
+      category: 'admin',
+      risk: 'low',
+      selectable: true,
+      status: 'active',
+      adapterRef: 'builtin:mcp__gantry__scheduler_list_jobs',
+      createdAt: '2026-04-30T00:00:00.000Z',
+      updatedAt: '2026-04-30T00:00:00.000Z',
+    });
+    state.toolBindings.push({
+      id: 'agent-tool-binding:agent:one:tool:mcp__gantry__scheduler_list_jobs',
+      appId: 'app:one',
+      agentId: 'agent:one',
+      toolId: 'tool:mcp__gantry__scheduler_list_jobs',
+      status: 'active',
+      createdAt: '2026-04-30T00:00:00.000Z',
+      updatedAt: '2026-04-30T00:00:00.000Z',
+    });
     const service = new AgentCapabilityAdministrationService(
       state.repositories,
       { now: () => '2026-05-01T00:00:00.000Z' },
@@ -90,12 +114,14 @@ describe('AgentCapabilityAdministrationService', () => {
       },
       capabilities: [
         { id: 'skill.one.publish', version: 'catalog' },
+        { id: 'mcp__gantry__scheduler_list_jobs', version: 'builtin' },
         { id: 'browser.use', version: 'builtin' },
       ],
     });
 
     expect(response.sources.skills).toEqual([{ id: 'skill:one', name: 'One' }]);
     expect(response.capabilities).toEqual([
+      { id: 'mcp__gantry__scheduler_list_jobs', version: 'builtin' },
       { id: 'skill.one.publish', version: 'catalog' },
       { id: 'browser.use', version: 'builtin' },
     ]);
@@ -112,6 +138,27 @@ describe('AgentCapabilityAdministrationService', () => {
         status: 'active',
       }),
     ]);
+  });
+
+  it('does not add a new exact Gantry tool through full access replacement', async () => {
+    const state = createState();
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+      { now: () => '2026-05-01T00:00:00.000Z' },
+    );
+
+    await expect(
+      service.replaceAccessDocument({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        sources: { skills: [], mcpServers: [], tools: [] },
+        capabilities: [
+          { id: 'mcp__gantry__scheduler_list_jobs', version: 'builtin' },
+        ],
+      }),
+    ).rejects.toThrow(
+      'Capability id must use lowercase dot-separated words such as app.resource.action.',
+    );
   });
 
   it('round-trips scoped MCP source tools through the full access document', async () => {

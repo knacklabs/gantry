@@ -43,11 +43,11 @@
     "apps/core/src/config/settings/desired-state-service.ts": 830,
     "apps/core/src/config/settings/runtime-settings-parser.ts": 1145,
     "apps/core/src/application/jobs/job-readiness-service.ts": 754,
-    "apps/core/src/jobs/execution.ts": 870,
+    "apps/core/src/jobs/execution.ts": 921,
     "apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts": 720,
     "apps/core/src/jobs/ipc-admin-handlers.ts": 933,
     "apps/core/src/runner/mcp/tools/service.ts": 850,
-    "apps/core/src/runtime/agent-spawn.ts": 835,
+    "apps/core/src/runtime/agent-spawn.ts": 857,
     "apps/core/src/runtime/browser-capability.ts": 780,
     "apps/core/src/runtime/group-agent-runner.ts": 780,
     "apps/core/src/runtime/group-processing.ts": 840,
@@ -57,7 +57,7 @@
     "apps/core/src/runtime/ipc.ts": 833,
     "apps/core/src/session/session-commands.ts": 740,
     "packages/sdk/src/index.ts": 711,
-    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts": 760,
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts": 831,
     "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-repository.postgres.ts": 721,
     "apps/core/src/application/agents/prompt-profile-service.ts": 783,
     "apps/core/src/application/mcp/mcp-tool-proxy.ts": 800,
@@ -73,8 +73,9 @@
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts": 705,
     "apps/core/src/application/attachments/attachment-resolver.ts": 710,
     "apps/core/src/channels/discord.ts": 740,
-    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts": 770,
-    "apps/core/src/jobs/status-formatting.ts": 725
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts": 831,
+    "apps/core/src/jobs/status-formatting.ts": 725,
+    "apps/core/src/shared/tool-execution-policy-service.ts": 747
   },
   "layers": {
     "domain": {
@@ -234,8 +235,5 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": [
-    "apps/core/src",
-    "packages"
-  ]
+  "emptyFolderScanRoots": ["apps/core/src", "packages"]
 }

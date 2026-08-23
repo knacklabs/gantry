@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { resolveJobToolPolicy } from '@core/application/jobs/job-tool-policy.js';
 import type { Job } from '@core/domain/types.js';
@@ -86,6 +86,49 @@ describe('job tool policy', () => {
       effectiveAllowedTools: ['Browser'],
       runtimeAccess: [],
     });
+  });
+
+  it('ignores stale permission-rule bindings when resolving scheduled job tools', async () => {
+    const getTool = vi.fn(async () => {
+      throw new Error('stale binding should be resolved through snapshot');
+    });
+
+    await expect(
+      resolveJobToolPolicy({
+        job: makeJob(),
+        appId: 'default',
+        agentId: 'agent:team',
+        toolRepository: {
+          listAgentToolAccessSnapshot: async () => ({
+            activeBindings: [
+              {
+                binding: {
+                  toolId: 'tool:permission-rule:stale',
+                  status: 'active',
+                },
+                definition: null,
+              },
+              {
+                binding: { toolId: 'tool:Browser', status: 'active' },
+                definition: {
+                  id: 'tool:Browser',
+                  appId: 'default',
+                  name: 'Browser',
+                },
+              },
+            ],
+            appActiveDefinitions: [],
+          }),
+          listAgentToolBindings: async () => [],
+          getTool,
+        } as never,
+      }),
+    ).resolves.toEqual({
+      inheritedTools: ['Browser'],
+      effectiveAllowedTools: ['Browser'],
+      runtimeAccess: [],
+    });
+    expect(getTool).not.toHaveBeenCalled();
   });
 
   it('rejects stale inherited host-private browser MCP rules from agent tool bindings', async () => {

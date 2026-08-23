@@ -69,10 +69,12 @@ const getConfiguredModelProvidersForAppMock = vi.mocked(
   runtimeStore.getConfiguredModelProvidersForApp,
 );
 const { runJob } = await import('@core/jobs/execution.js');
+const { jobRequiresManagedBrowser } =
+  await import('@core/jobs/execution-browser-prelaunch.js');
+const { resolveDeterministicManagedBrowserActions } =
+  await import('@core/jobs/deterministic-source-sync.js');
 const { evaluateJobReadiness } =
   await import('@core/application/jobs/job-readiness-service.js');
-const { RUNTIME_RESULT_SUMMARY_MAX_CHARS } =
-  await import('@core/runtime/session-resume-runtime.js');
 const compactMemory = await import('@core/jobs/compact-memory.js');
 const collectJobCompletionMemoryMock = vi.mocked(
   compactMemory.collectJobCompletionMemory,
@@ -259,6 +261,151 @@ function makeToolRepository(toolNames: string[]) {
 }
 
 describe('jobs/execution', () => {
+  it('uses only the reviewed browser source actions for deterministic source sync', () => {
+    const job = makeJob({
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.browser-source-sync.portal-a',
+          },
+        },
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.browser-source-sync.portal-b',
+          },
+        },
+      ],
+    });
+    const capability = (id: string, command: string, actionId: string) => ({
+      capabilityId: id,
+      displayName: id,
+      category: 'browser-source-skills',
+      risk: 'write' as const,
+      can: 'sync',
+      cannot: 'run arbitrary commands',
+      credentialSource: 'skill_secret' as const,
+      implementationBindings: [
+        { kind: 'tool_rule' as const, rule: `RunCommand(${command})` },
+      ],
+      networkHosts: ['source-sync.example.com:443'],
+      source: {
+        kind: 'skill_action' as const,
+        skillId: 'skill:browser-source',
+        skillName: 'browser-source-skills',
+        actionId,
+        browserAccess: 'managed_browser' as const,
+        executionMode: 'deterministic' as const,
+      },
+    });
+
+    expect(
+      resolveDeterministicManagedBrowserActions(job, [
+        capability(
+          'skill.browser-source-sync.portal-a',
+          'skills/browser-source-skills/scripts/portal-a-worker.mjs sync',
+          'portal-a',
+        ),
+        capability(
+          'skill.browser-source-sync.portal-b',
+          'skills/browser-source-skills/scripts/portal-b-worker.mjs sync',
+          'portal-b',
+        ),
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        capabilityId: 'skill.browser-source-sync.portal-a',
+      }),
+      expect.objectContaining({
+        capabilityId: 'skill.browser-source-sync.portal-b',
+      }),
+    ]);
+  });
+
+  it('does not activate deterministic source sync for an unreviewed command', () => {
+    const job = makeJob({
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.browser-source-sync.portal-a',
+          },
+        },
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.browser-source-sync.portal-b',
+          },
+        },
+      ],
+    });
+    const unsafe = (id: string) => ({
+      capabilityId: id,
+      displayName: id,
+      category: 'browser-source-skills',
+      risk: 'write' as const,
+      can: 'sync',
+      cannot: 'run arbitrary commands',
+      credentialSource: 'skill_secret' as const,
+      implementationBindings: [
+        {
+          kind: 'tool_rule' as const,
+          rule: 'RunCommand(curl https://example.com)',
+        },
+      ],
+      source: {
+        kind: 'skill_action' as const,
+        skillId: 'skill:browser-source',
+        skillName: 'browser-source-skills',
+        actionId: 'source',
+        browserAccess: 'managed_browser' as const,
+        executionMode: 'deterministic' as const,
+      },
+    });
+    expect(
+      resolveDeterministicManagedBrowserActions(job, [
+        unsafe('skill.browser-source-sync.portal-a'),
+        unsafe('skill.browser-source-sync.portal-b'),
+      ]),
+    ).toBeNull();
+  });
+
+  it('prelaunches a managed profile for a reviewed browser skill without exposing Browser', () => {
+    const job = makeJob({
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'skill.browser-source-sync.portal-a',
+          },
+        },
+      ],
+    });
+
+    expect(
+      jobRequiresManagedBrowser(job, [
+        {
+          capabilityId: 'skill.browser-source-sync.portal-a',
+          displayName: 'Synchronize Portal A records',
+          category: 'browser-source-skills',
+          risk: 'write',
+          can: 'Synchronize Portal A records.',
+          cannot: 'Use an arbitrary browser.',
+          credentialSource: 'skill_secret',
+          implementationBindings: [],
+          source: {
+            kind: 'skill_action',
+            skillId: 'skill:browser-source',
+            skillName: 'browser-source-skills',
+            actionId: 'portal-a',
+            browserAccess: 'managed_browser',
+          },
+        },
+      ]),
+    ).toBe(true);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     runtimeStoreMock.publish.mockResolvedValue(undefined);
@@ -1644,6 +1791,26 @@ describe('jobs/execution', () => {
         attachedSkillSourceIds: ['skill:release'],
         selectedSkillDisplays: ['release (skill:release)'],
         attachedMcpSourceIds: ['mcp:github'],
+        capabilityCatalog: expect.objectContaining({
+          installedSkills: [
+            expect.objectContaining({
+              stableRef: 'skill:release',
+              displayName: 'release',
+            }),
+          ],
+          readyActions: [
+            expect.objectContaining({
+              stableRef: 'repo.search.repositories',
+              displayName: 'Repo search repositories',
+            }),
+          ],
+          connectedMcpSources: [
+            expect.objectContaining({
+              stableRef: 'mcp:github',
+              displayName: 'github',
+            }),
+          ],
+        }),
       }),
       expect.any(Function),
       expect.any(Function),
@@ -2124,35 +2291,18 @@ describe('jobs/execution', () => {
         agentId: 'agent:scheduler_agent',
       },
     );
-    expect(toolRepository.listAgentToolBindings).toHaveBeenCalledTimes(1);
-    expect(toolRepository.getTool).toHaveBeenCalledTimes(1);
+    expect(toolRepository.listAgentToolBindings).not.toHaveBeenCalled();
+    expect(toolRepository.getTool).not.toHaveBeenCalled();
     expect(toolRepository.listTools).not.toHaveBeenCalled();
-    expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledTimes(1);
+    expect(skillRepository.listEnabledSkillsForAgent).not.toHaveBeenCalled();
     expect(skillRepository.listAgentSkillBindings).not.toHaveBeenCalled();
     expect(skillRepository.getSkill).not.toHaveBeenCalled();
     expect(
       mcpServerRepository.listMaterializedServersForAgent,
-    ).toHaveBeenCalledTimes(1);
+    ).not.toHaveBeenCalled();
     expect(mcpServerRepository.listAgentBindings).not.toHaveBeenCalled();
     expect(mcpServerRepository.getServer).not.toHaveBeenCalled();
     expect(mcpServerRepository.getServerByName).not.toHaveBeenCalled();
-    expect(
-      toolRepository.listAgentToolBindings.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      toolRepository.listAgentToolAccessSnapshot.mock.invocationCallOrder[0]!,
-    );
-    expect(
-      skillRepository.listEnabledSkillsForAgent.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      skillRepository.listAgentSkillAccessSnapshot.mock.invocationCallOrder[0]!,
-    );
-    expect(
-      mcpServerRepository.listMaterializedServersForAgent.mock
-        .invocationCallOrder[0],
-    ).toBeLessThan(
-      mcpServerRepository.listAgentMcpAccessSnapshot.mock
-        .invocationCallOrder[0]!,
-    );
     expect(runAgent).toHaveBeenCalledOnce();
     expect(opsRepository.updateJob).not.toHaveBeenCalledWith(
       job.id,

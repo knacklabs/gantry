@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   applyBashTrustEnv,
@@ -27,6 +27,12 @@ const TRUST_PREFIX = [
 ].join(' ');
 
 describe('applyBashTrustEnv', () => {
+  afterEach(() => {
+    delete process.env.GANTRY_SKILL_ACTIONS_JSON;
+    delete process.env.SOURCE_SYNC_INTERNAL_API_URL;
+    delete process.env.SOURCE_WORKER_API_KEY;
+  });
+
   it('prefixes approved Bash commands with neutral CA trust aliases', () => {
     const updated = applyBashTrustEnv(
       'Bash',
@@ -175,5 +181,64 @@ describe('applyBashTrustEnv', () => {
       },
       hostInjectedCommandPrefix: currentPrefix,
     });
+  });
+
+  it('projects only the matched reviewed skill action secrets into its command', () => {
+    process.env.SOURCE_SYNC_INTERNAL_API_URL = 'http://source-service:3000';
+    process.env.SOURCE_WORKER_API_KEY = "worker's-secret";
+    process.env.GANTRY_SKILL_ACTIONS_JSON = JSON.stringify([
+      {
+        capabilityId: 'skill.browser-source-sync.portal-a',
+        displayName: 'Synchronize Portal A candidates',
+        category: 'Browser source sync',
+        risk: 'write',
+        can: 'Synchronize Portal A candidates.',
+        cannot: 'Run arbitrary commands.',
+        credentialSource: 'skill_secret',
+        implementationBindings: [
+          {
+            kind: 'tool_rule',
+            rule: 'RunCommand(skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync)',
+          },
+        ],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        redactionPolicy: {
+          env: ['SOURCE_WORKER_API_KEY', 'SOURCE_SYNC_INTERNAL_API_URL'],
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'browser-source-sync',
+          skillName: 'Browser_Source_Sync',
+          actionId: 'sync_portal-a',
+        },
+      },
+    ]);
+
+    const result = applyBashTrustEnvWithProvenance(
+      'Bash',
+      {
+        command: 'skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync',
+      },
+      {},
+    );
+
+    expect(result.toolInput.command).toBe(
+      "GODEBUG=netdns=go SOURCE_SYNC_INTERNAL_API_URL='http://source-service:3000' " +
+        "SOURCE_WORKER_API_KEY='worker'\\''s-secret' " +
+        'skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync',
+    );
+    expect(result.hostInjectedCommandPrefix).not.toContain('undefined');
+
+    expect(
+      applyBashTrustEnvWithProvenance(
+        'Bash',
+        { command: 'printf unrelated' },
+        {},
+      ).toolInput.command,
+    ).toBe('GODEBUG=netdns=go printf unrelated');
   });
 });

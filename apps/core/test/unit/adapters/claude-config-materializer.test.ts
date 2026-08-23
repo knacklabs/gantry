@@ -73,6 +73,32 @@ describe('Claude config materializer', () => {
     expect(
       fs.existsSync(path.join(materialization.skillsDir, 'enabled-skill')),
     ).toBe(true);
+    expect(materialization.skillsDir).toBe(
+      path.join(tempRoot, 'agents', 'test', 'skills'),
+    );
+    const claudeSkillsDir = path.join(
+      materialization.claudeConfigDir,
+      'skills',
+    );
+    expect(fs.lstatSync(claudeSkillsDir).isDirectory()).toBe(true);
+    expect(fs.lstatSync(claudeSkillsDir).isSymbolicLink()).toBe(false);
+    expect(
+      fs.readFileSync(
+        path.join(claudeSkillsDir, 'enabled-skill', 'SKILL.md'),
+        'utf8',
+      ),
+    ).toBe(
+      fs.readFileSync(
+        path.join(materialization.skillsDir, 'enabled-skill', 'SKILL.md'),
+        'utf8',
+      ),
+    );
+    expect(materialization.protectedFilesystemDenyReadPaths).not.toContain(
+      path.resolve(materialization.skillsDir),
+    );
+    expect(materialization.protectedFilesystemDenyWritePaths).toContain(
+      path.resolve(materialization.skillsDir),
+    );
     expect(
       fs.existsSync(path.join(materialization.skillsDir, 'disabled-skill')),
     ).toBe(false);
@@ -216,6 +242,66 @@ describe('Claude config materializer', () => {
     ).toBe('context');
     expect(fs.existsSync(path.join(skillsDir, 'draft'))).toBe(false);
     expect(fs.existsSync(path.join(skillsDir, 'invalid'))).toBe(false);
+  });
+
+  it('makes only reviewed skill action entrypoints executable', async () => {
+    const skillsDir = path.join(tempRoot, 'skills');
+    await materializeClaudeSkills({
+      skillsDir,
+      skillSource: {
+        listSkills: async () => [
+          {
+            id: 'skill:browser-source-sync',
+            name: 'Browser_Source_Sync',
+            enabled: true,
+            assets: [
+              {
+                path: 'SKILL.md',
+                content: Buffer.from('# Browser Source Sync'),
+              },
+              {
+                path: 'scripts/portal-a-source-sync.mjs',
+                content: Buffer.from('#!/usr/bin/env node\n'),
+              },
+              {
+                path: 'scripts/context.md',
+                content: Buffer.from('not executable'),
+              },
+            ],
+            actionPermissions: [
+              {
+                id: 'portal-a',
+                capabilityId: 'skill.browser-source-sync.portal-a',
+                displayName: 'Portal A source sync',
+                risk: 'write',
+                can: 'Run the reviewed Portal A source sync worker.',
+                cannot: 'Run arbitrary commands.',
+                requiredEnvVars: [],
+                commandTemplates: [
+                  'skills/Browser_Source_Sync/scripts/portal-a-source-sync.mjs sync',
+                ],
+                networkHosts: [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const script = path.join(
+      skillsDir,
+      'Browser_Source_Sync',
+      'scripts',
+      'portal-a-source-sync.mjs',
+    );
+    const context = path.join(
+      skillsDir,
+      'Browser_Source_Sync',
+      'scripts',
+      'context.md',
+    );
+    expect(fs.statSync(script).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(context).mode & 0o777).toBe(0o600);
   });
 
   it('rejects enabled skills that collide with Claude-native skill names', async () => {

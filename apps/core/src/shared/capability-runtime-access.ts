@@ -30,6 +30,7 @@ export interface SkillActionCapabilityRuntimeAccess extends CapabilityRuntimeAcc
   declaredEnvRefs: string[];
   commandRules: string[];
   networkBindings: CommandBoundNetworkBinding[];
+  browserAccess?: 'managed_browser';
 }
 
 export interface McpServerCapabilityRuntimeAccess extends CapabilityRuntimeAccessBase {

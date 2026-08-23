@@ -27,9 +27,15 @@ import type {
   ToolId,
 } from '../../domain/tools/tools.js';
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
-import { isGantryFacadeExactToolRule } from '../../shared/agent-tool-references.js';
+import {
+  displayToolReference,
+  isGantryFacadeExactToolRule,
+} from '../../shared/agent-tool-references.js';
 import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
-import { isAdminMcpToolFullName } from '../../shared/admin-mcp-tools.js';
+import {
+  isAdminMcpToolFullName,
+  isDurableGantryMcpToolFullName,
+} from '../../shared/admin-mcp-tools.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import { nextMcpSourceBindings } from './agent-mcp-source-bindings.js';
 import {
@@ -127,9 +133,24 @@ export async function replaceAgentAccessDocument(input: {
       skillRepository: input.repositories.skills,
       toolRepository: input.repositories.tools,
     });
+  const existingExactToolSelections = new Set(
+    (
+      await Promise.all(
+        toolBindings
+          .filter((binding) => binding.status === 'active')
+          .map(async (binding) => ({
+            binding,
+            tool: await input.repositories.tools.getTool(binding.toolId),
+          })),
+      )
+    ).flatMap(({ binding, tool }) =>
+      tool ? [displayToolReference({ toolId: binding.toolId, tool })] : [],
+    ),
+  );
   const selectedToolReferences = resolveSelectedToolReferences(
     input.capabilities,
     semanticCapabilityDefinitions,
+    existingExactToolSelections,
   );
   const capabilityToolIds = await Promise.all(
     selectedToolReferences.map(async (reference) => {
@@ -247,21 +268,37 @@ function assertUniqueSkillMaterializationKeys(
   );
 }
 
-function capabilitySelectionToToolReference(capabilityId: string): string {
+function capabilitySelectionToToolReference(
+  capabilityId: string,
+  existingExactToolSelections: ReadonlySet<string>,
+): string {
   const id = capabilityId.trim();
   if (id === 'browser.use') return 'Browser';
   if (id.startsWith('RunCommand(')) return id;
   if (isAdminMcpToolFullName(id) || isGantryFacadeExactToolRule(id)) return id;
+  // Full-document updates must preserve already-reviewed exact Gantry grants.
+  // Keep this retention-only: adding a new exact tool still goes through the
+  // normal permission review flow instead of the access-document API.
+  if (
+    isDurableGantryMcpToolFullName(id) &&
+    existingExactToolSelections.has(id)
+  ) {
+    return id;
+  }
   return `capability:${id}`;
 }
 
 function resolveSelectedToolReferences(
   capabilities: ReadonlyArray<{ id: string; version: string }>,
   semanticCapabilityDefinitions: Record<string, SemanticCapabilityDefinition>,
+  existingExactToolSelections: ReadonlySet<string>,
 ): string[] {
   return unique(
     capabilities.flatMap((capability) => {
-      const reference = capabilitySelectionToToolReference(capability.id);
+      const reference = capabilitySelectionToToolReference(
+        capability.id,
+        existingExactToolSelections,
+      );
       const validation = validateDurableAccessRule(reference, {
         semanticCapabilityDefinitions,
       });

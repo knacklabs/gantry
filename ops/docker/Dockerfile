@@ -78,6 +78,12 @@ RUN apt-get update \
       socat \
       ripgrep \
       gosu \
+      chromium \
+      xvfb \
+      x11vnc \
+      novnc \
+      websockify \
+      fluxbox \
     && rm -rf /var/lib/apt/lists/*
 # bubblewrap backs runtime.sandbox.provider=sandbox_runtime (the whole-runner
 # OS sandbox on Linux). Creating its namespaces inside Docker additionally

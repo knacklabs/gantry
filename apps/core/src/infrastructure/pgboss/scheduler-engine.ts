@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { PgBoss, type Job as PgBossJob } from 'pg-boss';
 
+import { resolvePgBossPostgresPoolMax } from '../../shared/postgres-pool-limits.js';
+
 import {
   STORAGE_POSTGRES_SCHEMA,
   STORAGE_POSTGRES_URL,
@@ -121,6 +123,7 @@ export class PgBossSchedulerEngine {
     }
     const boss = new PgBoss({
       connectionString: STORAGE_POSTGRES_URL,
+      max: resolvePgBossPostgresPoolMax(),
       schema: 'pgboss',
       createSchema: true,
       migrate: true,
