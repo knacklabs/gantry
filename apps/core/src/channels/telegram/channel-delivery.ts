@@ -111,7 +111,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
           throw new Error('Telegram replacement message id is invalid.');
         }
         await this.bot.api.editMessageText(numericId, messageId, text, {
-          reply_markup: telegramActionReplyMarkup(options.actionAffordances) ?? {
+          reply_markup: telegramActionReplyMarkup(
+            options.actionAffordances,
+          ) ?? {
             inline_keyboard: [],
           },
         });

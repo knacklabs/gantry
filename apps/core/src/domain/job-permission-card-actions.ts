@@ -9,10 +9,10 @@ export type ParsedJobPermissionCardAction = {
   callbackKey: string;
   revision: number;
   rowIndex: number | null;
-  decision: 'allow' | 'deny' | 'reconsider' | 'show';
+  decision: 'allow' | 'deny' | 'reconsider' | 'show' | 'next';
 };
 
-const ACTION_PATTERN = /^jp:([a-f0-9]{24}):([a-z0-9]+):([a-z0-9]+):([adrs])$/;
+const ACTION_PATTERN = /^jp:([a-f0-9]{24}):([a-z0-9]+):([a-z0-9]+):([adrsn])$/;
 
 export function jobPermissionCardActions(
   callbackKey: string,
@@ -23,6 +23,12 @@ export function jobPermissionCardActions(
     actions.push({
       token: actionToken(callbackKey, revision.revision, null, 'allow'),
       label: 'Allow all pending',
+    });
+  }
+  if (revision.hiddenRowCount > 0) {
+    actions.push({
+      token: actionToken(callbackKey, revision.revision, null, 'next'),
+      label: 'Show next pending',
     });
   }
   revision.rows.forEach((row, index) => {
@@ -45,7 +51,7 @@ export function jobPermissionCardActions(
               ? `Reconsider: ${row.displayLabel}`
               : row.action === 'show_scope'
                 ? `Show full scope: ${row.displayLabel}`
-              : `Allow: ${row.displayLabel}`,
+                : `Allow: ${row.displayLabel}`,
       });
     }
     if (row.denyEnabled) {
@@ -83,7 +89,9 @@ export function parseJobPermissionCardAction(
           ? 'deny'
           : match[4] === 'r'
             ? 'reconsider'
-            : 'show',
+            : match[4] === 's'
+              ? 'show'
+              : 'next',
   };
 }
 
@@ -100,6 +108,8 @@ function actionToken(
         ? 'd'
         : decision === 'reconsider'
           ? 'r'
-          : 's';
+          : decision === 'show'
+            ? 's'
+            : 'n';
   return `jp:${callbackKey}:${revision.toString(36)}:${rowIndex === null ? 'x' : rowIndex.toString(36)}:${code}`;
 }

@@ -3,7 +3,11 @@ import { uptime } from 'node:os';
 import {
   canonicalJobPermissionNeedIdentity,
   JobPermissionDurabilityService,
+  type JobPermissionRevalidationResult,
 } from '../../application/interactions/job-permission-durability.js';
+import { resolveAgentToolRuntimePolicyFromSnapshot } from '../../application/agents/agent-tool-runtime-rules.js';
+import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
+import { evaluatePermissionDeterministicRails } from '../../domain/permission-deterministic-rails.js';
 import {
   applyPermissionInteractionDecision,
   resolvePendingInteractionRecordOutcome,
@@ -17,11 +21,24 @@ import type {
 import type { WorkerCoordinationRepository } from '../../domain/ports/worker-coordination.js';
 import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
 import type { PermissionApprovalRequest } from '../../domain/types.js';
+import type {
+  SkillCatalogRepository,
+  ToolCatalogRepository,
+} from '../../domain/ports/repositories.js';
 import {
   acquireRunSlotForPermissionWake,
   releaseRunSlotForPermissionWait,
 } from '../../jobs/concurrency.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { writeResolvedInteractionResponse } from '../../runtime/interaction-resolution-response.js';
+import { canonicalJson } from '../../shared/canonical-json.js';
+import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
+import { evaluateProtectedCapabilityToolUse } from '../../shared/tool-execution-policy-service.js';
+import {
+  evaluateYoloModeDenylist,
+  type YoloModeSettings,
+  yoloModeDenylistDenyReason,
+} from '../../shared/yolo-mode-policy.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
 
 interface JobPermissionCardTarget {
@@ -35,6 +52,23 @@ interface JobPermissionDurabilityWiringDeps {
   repository: WorkerCoordinationRepository & JobPermissionDurabilityRepository;
   opsRepository: RuntimeJobRepository;
   channelWiring: Pick<ChannelWiring, 'isControlApproverAllowed'>;
+  getPermissionRuntimeSettings(): {
+    agents: Record<
+      string,
+      | {
+          accessPreset?: 'full' | 'locked';
+          capabilities?: Array<{ id: string }>;
+        }
+      | null
+      | undefined
+    >;
+    permissions: {
+      trustedRoots?: string[];
+      yoloMode?: YoloModeSettings;
+    };
+  };
+  getToolRepository(): ToolCatalogRepository | undefined;
+  getSkillRepository(): SkillCatalogRepository | undefined;
   resolveCardTarget(
     request: PermissionApprovalRequest,
   ): JobPermissionCardTarget;
@@ -107,23 +141,20 @@ export function createJobPermissionDurabilityWiring(
       },
       revalidate: async (input) => {
         const request = await requestForNeed(deps.repository, input);
-        const grantAtoms = request ? persistentRules(request) : [];
-        if (grantAtoms.length === 0) {
+        if (!request) {
           return {
             kind: 'cancelled',
             reason:
-              'Permission policy changed before the approved grant was applied.',
+              'The current permission request is unavailable for policy revalidation.',
           };
         }
-        return grantAtoms.every((atom) =>
-          input.renderedGrantAtoms.includes(atom),
-        )
-          ? { kind: 'approved', grantAtoms }
-          : {
-              kind: 'reask',
-              grantAtoms,
-              reason: 'Permission scope changed and must be shown again.',
-            };
+        return revalidateJobPermissionCurrentPolicy({
+          request,
+          renderedGrantAtoms: input.renderedGrantAtoms,
+          settings: deps.getPermissionRuntimeSettings(),
+          toolRepository: deps.getToolRepository(),
+          skillRepository: deps.getSkillRepository(),
+        });
       },
       persistGrant: async (input) => {
         const request = await requestForNeed(deps.repository, input);
@@ -239,6 +270,123 @@ export function createJobPermissionDurabilityWiring(
     return true;
   };
   return service;
+}
+
+export async function revalidateJobPermissionCurrentPolicy(input: {
+  request: PermissionApprovalRequest;
+  renderedGrantAtoms: readonly string[];
+  settings: ReturnType<
+    JobPermissionDurabilityWiringDeps['getPermissionRuntimeSettings']
+  >;
+  toolRepository: ToolCatalogRepository | undefined;
+  skillRepository: SkillCatalogRepository | undefined;
+}): Promise<JobPermissionRevalidationResult> {
+  const cancelled = (reason: string): JobPermissionRevalidationResult => ({
+    kind: 'cancelled',
+    reason,
+  });
+  const agentSettings = input.settings.agents[input.request.sourceAgentFolder];
+  if (agentSettings?.accessPreset === 'locked') {
+    return cancelled('The agent is now locked and cannot accept a grant.');
+  }
+  const toolInput =
+    input.request.classifierToolInput ?? input.request.toolInput;
+  const protectedCapability = evaluateProtectedCapabilityToolUse(
+    input.request.toolName,
+    toolInput,
+  );
+  if (protectedCapability) {
+    return cancelled(protectedCapability.reason);
+  }
+  const yoloMatch = evaluateYoloModeDenylist({
+    settings: input.settings.permissions.yoloMode,
+    toolName: input.request.toolName,
+    toolInput,
+  });
+  if (yoloMatch) {
+    return cancelled(yoloModeDenylistDenyReason(yoloMatch));
+  }
+  const appId = input.request.appId ?? 'default';
+  const agentId =
+    input.request.agentId ?? agentIdForFolder(input.request.sourceAgentFolder);
+  const semanticCapabilityIds = input.renderedGrantAtoms
+    .map(parseSemanticCapabilityRule)
+    .filter((id): id is string => Boolean(id));
+  let semanticCapabilityDefinitions =
+    input.request.semanticCapabilityDefinitions;
+  if (semanticCapabilityIds.length > 0) {
+    if (!input.toolRepository) {
+      return cancelled('The current capability policy is unavailable.');
+    }
+    const currentPolicy = await Promise.all([
+      input.toolRepository.listTools({
+        appId: appId as never,
+        statuses: ['active'],
+      }),
+      input.skillRepository?.listEnabledSkillsForAgent({
+        appId: appId as never,
+        agentId: agentId as never,
+      }),
+    ])
+      .then(([tools, activeSkills]) =>
+        resolveAgentToolRuntimePolicyFromSnapshot({
+          appId,
+          errorSubject: 'Current capability',
+          selectedToolDefinitionsByBinding: tools,
+          activeSkillDefinitions: activeSkills,
+        }),
+      )
+      .catch(() => null);
+    if (!currentPolicy) {
+      return cancelled(
+        'The current capability policy could not be revalidated.',
+      );
+    }
+    semanticCapabilityDefinitions = Object.fromEntries(
+      currentPolicy.semanticCapabilities.map((capability) => [
+        capability.capabilityId,
+        capability,
+      ]),
+    );
+    const changedCapability = semanticCapabilityIds.find(
+      (capabilityId) =>
+        canonicalJson(
+          input.request.semanticCapabilityDefinitions?.[capabilityId],
+        ) !== canonicalJson(semanticCapabilityDefinitions?.[capabilityId]),
+    );
+    if (changedCapability) {
+      return cancelled(
+        `Reviewed capability ${changedCapability} changed after the card was rendered.`,
+      );
+    }
+  }
+  const currentRequest: PermissionApprovalRequest = {
+    ...input.request,
+    semanticCapabilityDefinitions,
+  };
+  const railDecision = evaluatePermissionDeterministicRails({
+    request: currentRequest,
+    approvedCapabilityIds:
+      agentSettings?.capabilities?.map(({ id }) => id) ?? [],
+    workspaceRoot: resolveWorkspaceFolderPath(currentRequest.sourceAgentFolder),
+    trustedRoots: input.settings.permissions.trustedRoots ?? [],
+  });
+  if (railDecision?.railOutcome === 'deny') {
+    return cancelled(
+      railDecision.reason ?? 'Current permission policy denied.',
+    );
+  }
+  const grantAtoms = persistentRules(currentRequest);
+  if (grantAtoms.length === 0) {
+    return cancelled('The approved scope is no longer grantable.');
+  }
+  return grantAtoms.every((atom) => input.renderedGrantAtoms.includes(atom))
+    ? { kind: 'approved', grantAtoms }
+    : {
+        kind: 'reask',
+        grantAtoms,
+        reason: 'Permission scope changed and must be shown again.',
+      };
 }
 
 async function activeLeaseMatches(

@@ -57,8 +57,6 @@ export interface JobPermissionNeedRecord {
   denialReason: string | null;
   policyChangedReason: string | null;
   grantAppliedAt: string | null;
-  rerunRunIds: string[];
-  enqueuedRerunRunIds: string[];
   requestSnapshots: Array<{
     requestId: string;
     request: PermissionApprovalRequest;
@@ -91,8 +89,17 @@ export interface JobPermissionCardRevision {
   deliveryItemId: string;
   rows: JobPermissionCardRowSnapshot[];
   batchNeedIds: string[];
+  pageStart: number;
   hiddenRowCount: number;
   createdAt: string;
+}
+
+export interface JobPermissionRerunBarrier {
+  priorRunId: string;
+  requiredNeeds: Array<{ needId: string; askingEpoch: number }>;
+  requestedAt: string;
+  requestedBy: string;
+  enqueuedAt: string | null;
 }
 
 export interface JobPermissionPendingBudget {
@@ -118,10 +125,12 @@ export interface JobPermissionCardRecord {
   currentProviderMessageId: string | null;
   currentProvider: string | null;
   currentProviderRevision: number;
+  pageOffset: number;
   fullScopeNeedId: string | null;
   fullScopeAskingEpoch: number | null;
   revisions: JobPermissionCardRevision[];
   pendingBudgets: JobPermissionPendingBudget[];
+  rerunBarriers: JobPermissionRerunBarrier[];
   createdAt: string;
   updatedAt: string;
 }

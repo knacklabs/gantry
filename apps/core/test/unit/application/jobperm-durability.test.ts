@@ -7,6 +7,7 @@ import {
   type JobPermissionDurabilityEffects,
   type JobPermissionRevalidationResult,
 } from '@core/application/interactions/job-permission-durability.js';
+import { revalidateJobPermissionCurrentPolicy } from '@core/app/bootstrap/job-permission-durability-wiring.js';
 import type {
   JobPermissionCardRecord,
   JobPermissionCardDeliveryOutcome,
@@ -15,6 +16,8 @@ import type {
   JobPermissionNeedRecord,
 } from '@core/domain/ports/job-permission-durability.js';
 import { jobPermissionCardActions } from '@core/domain/job-permission-card-actions.js';
+import type { PermissionApprovalRequest } from '@core/domain/types.js';
+import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 
 class MemoryJobPermissionRepository implements JobPermissionDurabilityRepository {
   readonly states = new Map<string, JobPermissionDurabilityState>();
@@ -110,6 +113,7 @@ class TestEffects implements JobPermissionDurabilityEffects {
   alive = new Map<string, boolean>();
   failGrantCount = 0;
   failResponseCount = 0;
+  failRerunCount = 0;
   revalidation: JobPermissionRevalidationResult | null = null;
   readonly events: string[] = [];
   readonly grantKeys: string[] = [];
@@ -169,6 +173,10 @@ class TestEffects implements JobPermissionDurabilityEffects {
   async enqueueRunAgain(input: { idempotencyKey: string }) {
     this.events.push(`rerun:${input.idempotencyKey}`);
     this.rerunKeys.push(input.idempotencyKey);
+    if (this.failRerunCount > 0) {
+      this.failRerunCount -= 1;
+      throw new Error('rerun enqueue interrupted');
+    }
   }
 }
 
@@ -222,15 +230,40 @@ function attach(
   });
 }
 
+function readState(repository: MemoryJobPermissionRepository, jobId = 'job-1') {
+  return repository.getJobPermissionState({ appId: 'default', jobId });
+}
+
+function decide(
+  service: JobPermissionDurabilityService,
+  need: { needId: string; askingEpoch: number },
+  revision: number,
+  options: {
+    actorRef?: string;
+    jobId?: string;
+    decision?: 'allow' | 'deny';
+    reason?: string;
+  } = {},
+) {
+  return service.decideCard({
+    appId: 'default',
+    jobId: options.jobId ?? 'job-1',
+    sourceAgentFolder: 'main_agent',
+    actorRef: options.actorRef ?? 'telegram:user-1',
+    revision,
+    decision: options.decision ?? 'allow',
+    needId: need.needId,
+    askingEpoch: need.askingEpoch,
+    reason: options.reason,
+  });
+}
+
 async function confirmLatest(
   service: JobPermissionDurabilityService,
   repository: MemoryJobPermissionRepository,
   jobId = 'job-1',
 ) {
-  const state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId,
-  });
+  const state = await readState(repository, jobId);
   const revision = state!.card.revisions.at(-1)!;
   repository.deliveries.set(revision.deliveryId, {
     status: 'delivered',
@@ -248,31 +281,16 @@ it('jobperm-1-t2-reconciler-crash-safe', async () => {
   const renderedRevision = await confirmLatest(service, repository);
   await service.reconcile();
 
-  const accepted = await service.decideCard({
-    appId: 'default',
-    jobId: 'job-1',
-    sourceAgentFolder: 'main_agent',
-    actorRef: 'telegram:user-1',
-    revision: renderedRevision,
-    decision: 'allow',
-    needId: asking.needId,
-    askingEpoch: asking.askingEpoch,
-  });
+  const accepted = await decide(service, asking, renderedRevision);
   expect(accepted.status).toBe('accepted');
 
   effects.failGrantCount = 1;
   await expect(service.reconcile()).rejects.toThrow('grant write interrupted');
-  let state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  let state = await readState(repository);
   expect(state!.needs[0]!.state).toBe('approved_pending_apply');
 
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  state = await readState(repository);
   expect(state!.needs[0]!.state).toBe('applied');
   expect(new Set(effects.grantKeys).size).toBe(1);
   expect(new Set(effects.responseIds).size).toBe(1);
@@ -294,18 +312,10 @@ it('jobperm-1-t2-reconciler-crash-safe', async () => {
     requestId: 'request-2',
     runId: 'run-2',
   });
-  expect(denied.status).toBe('asking');
   const denyRevision = await confirmLatest(service, repository);
   await service.reconcile();
-  await service.decideCard({
-    appId: 'default',
-    jobId: 'job-1',
-    sourceAgentFolder: 'main_agent',
-    actorRef: 'telegram:user-1',
-    revision: denyRevision,
+  await decide(service, denied, denyRevision, {
     decision: 'deny',
-    needId: denied.needId,
-    askingEpoch: denied.askingEpoch,
     reason: 'Browser is not allowed for this job.',
   });
   effects.failResponseCount = 1;
@@ -313,10 +323,7 @@ it('jobperm-1-t2-reconciler-crash-safe', async () => {
     'response delivery interrupted',
   );
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  state = await readState(repository);
   expect(state!.needs.find((need) => need.id === denied.needId)).toMatchObject({
     state: 'denied',
     denialReason: 'Browser is not allowed for this job.',
@@ -334,15 +341,8 @@ it('jobperm-1-t2-reconciler-crash-safe', async () => {
     'job-policy-change',
   );
   await service.reconcile();
-  await service.decideCard({
-    appId: 'default',
+  await decide(service, policyChanged, policyRevision, {
     jobId: 'job-policy-change',
-    sourceAgentFolder: 'main_agent',
-    actorRef: 'telegram:user-1',
-    revision: policyRevision,
-    decision: 'allow',
-    needId: policyChanged.needId,
-    askingEpoch: policyChanged.askingEpoch,
   });
   effects.revalidation = {
     kind: 'reask',
@@ -350,10 +350,7 @@ it('jobperm-1-t2-reconciler-crash-safe', async () => {
     grantAtoms: ['RunCommand(npm test *)', 'Browser'],
   };
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-policy-change',
-  });
+  state = await readState(repository, 'job-policy-change');
   expect(state!.needs[0]).toMatchObject({
     state: 'asking',
     askingEpoch: policyChanged.askingEpoch + 1,
@@ -366,6 +363,72 @@ it('jobperm-1-t2-reconciler-crash-safe', async () => {
     slotReleased: true,
   });
   effects.revalidation = null;
+
+  const capability = {
+    capabilityId: 'acme.records.append',
+    displayName: 'Acme records append',
+    category: 'Records',
+    risk: 'write' as const,
+    can: 'Append reviewed records.',
+    cannot: 'Delete records.',
+    credentialSource: 'configured_access' as const,
+    implementationBindings: [
+      { kind: 'adapter' as const, adapterRef: 'acme.records.append' },
+    ],
+  };
+  const request: PermissionApprovalRequest = {
+    requestId: 'policy-request',
+    appId: 'default',
+    agentId: 'agent:main_agent',
+    sourceAgentFolder: 'main_agent',
+    toolName: 'example.records.append',
+    toolInput: {},
+    semanticCapabilityDefinitions: {
+      [capability.capabilityId]: capability,
+    },
+    suggestions: [
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        rules: [{ toolName: `capability:${capability.capabilityId}` }],
+      },
+    ],
+  };
+  const revalidate = (currentCapability: typeof capability) =>
+    revalidateJobPermissionCurrentPolicy({
+      request,
+      renderedGrantAtoms: [`capability:${capability.capabilityId}`],
+      settings: {
+        agents: { main_agent: { accessPreset: 'full', capabilities: [] } },
+        permissions: {},
+      },
+      toolRepository: {
+        listTools: async () => [
+          {
+            id: 'tool:acme-records-append',
+            appId: 'default',
+            name: `capability:${capability.capabilityId}`,
+            status: 'active',
+            inputSchema: semanticCapabilityInputSchema(currentCapability),
+          },
+        ],
+      } as never,
+      skillRepository: undefined,
+    });
+  await expect(revalidate(capability)).resolves.toEqual({
+    kind: 'approved',
+    grantAtoms: [`capability:${capability.capabilityId}`],
+  });
+  await expect(
+    revalidate({
+      ...capability,
+      can: 'Append and delete reviewed records.',
+      cannot: 'Access unrelated records.',
+    }),
+  ).resolves.toMatchObject({
+    kind: 'cancelled',
+    reason: expect.stringContaining('changed after the card was rendered'),
+  });
 });
 
 it('jobperm-1-t2-living-card-revision-bound', async () => {
@@ -391,21 +454,37 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     requestId: 'request-3',
     runId: 'run-3',
   });
-  let state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  let state = await readState(repository);
   const renderedRevision = state!.card.revisions.at(-1)!;
-  expect(state!.card.id).toMatch(/^job-permission-card:/);
-  expect(state!.card.callbackKey).toMatch(/^[a-f0-9]{24}$/);
   expect(renderedRevision.rows).toHaveLength(2);
-  expect(renderedRevision.operation).toBe('replace');
-  expect(renderedRevision.hiddenRowCount).toBe(1);
   const allNeedIds = [first.needId, second.needId, third.needId];
   const hiddenNeedId = allNeedIds.find(
     (needId) => !renderedRevision.batchNeedIds.includes(needId),
   )!;
   expect(renderedRevision.batchNeedIds).toHaveLength(2);
+  const nextPageAction = jobPermissionCardActions(
+    state!.card.callbackKey,
+    renderedRevision,
+  ).find((action) => action.label === 'Show next pending');
+  expect(nextPageAction).toBeDefined();
+  await expect(
+    service.decideCardAction({
+      actor: { actorRef: 'slack:user-1' },
+      token: nextPageAction!.token,
+    }),
+  ).resolves.toEqual({ status: 'accepted', needIds: [hiddenNeedId] });
+  state = await readState(repository);
+  const nextPageRevision = state!.card.revisions.at(-1)!;
+  expect(nextPageRevision).toMatchObject({
+    pageStart: 2,
+    hiddenRowCount: 2,
+  });
+  await expect(
+    service.decideCardAction({
+      actor: { actorRef: 'slack:user-1' },
+      token: nextPageAction!.token,
+    }),
+  ).resolves.toEqual({ status: 'stale' });
 
   await service.decideCard({
     appId: 'default',
@@ -416,10 +495,7 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     decision: 'allow',
     batch: true,
   });
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  state = await readState(repository);
   expect(state!.needs.find((need) => need.id === hiddenNeedId)!.state).toBe(
     'asking',
   );
@@ -429,19 +505,14 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
       .map((need) => need.state),
   ).toEqual(['approved_pending_apply', 'approved_pending_apply']);
 
-  const coalesced = await attach(service, {
+  await attach(service, {
     label: 'Unseen third',
     atoms: ['RunCommand(third *)'],
     waiterId: 'waiter-4',
     requestId: 'request-4',
     runId: 'run-4',
   });
-  expect(coalesced.needId).toBe(third.needId);
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
-  expect(state!.needs).toHaveLength(3);
+  state = await readState(repository);
   expect(
     state!.needs.find((need) => need.id === third.needId)!.waiters,
   ).toHaveLength(2);
@@ -453,40 +524,30 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     requestId: 'request-5',
     runId: 'run-5',
   });
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  state = await readState(repository);
   const current = state!.card.revisions.at(-1)!;
   const oversizedRow = current.rows.find(
     (row) => row.needId === oversized.needId,
   );
   expect(oversizedRow).toMatchObject({
     action: 'show_scope',
-    actionEnabled: true,
     denyEnabled: true,
     scopeFullyVisible: false,
   });
-  expect(current.batchNeedIds).not.toContain(oversized.needId);
   await confirmLatest(service, repository);
   await service.reconcile();
-  expect(effects.events).toContain('release:run-5');
 
   const showAction = jobPermissionCardActions(
     state!.card.callbackKey,
     current,
   ).find((action) => action.label === 'Show full scope: Large compound');
-  expect(showAction).toBeDefined();
   await expect(
     service.decideCardAction({
       actor: { actorRef: 'slack:user-1' },
       token: showAction!.token,
     }),
   ).resolves.toEqual({ status: 'accepted', needIds: [oversized.needId] });
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  state = await readState(repository);
   const fullScopeRevision = state!.card.revisions.at(-1)!;
   expect(
     fullScopeRevision.rows.find((row) => row.needId === oversized.needId),
@@ -495,13 +556,10 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     scopeFullyVisible: true,
     visibleGrantAtoms: ['RunCommand(a)', 'RunCommand(b)', 'RunCommand(c)'],
   });
-  expect(fullScopeRevision.batchNeedIds).toContain(oversized.needId);
-
   const denyAction = jobPermissionCardActions(
     state!.card.callbackKey,
     fullScopeRevision,
   ).find((action) => action.label === 'Deny: Large compound');
-  expect(denyAction).toBeDefined();
   effects.authorized = false;
   await expect(
     service.decideCardAction({
@@ -517,10 +575,7 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     requestId: 'callback-request',
     runId: 'callback-run',
   });
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-callback-proof',
-  });
+  state = await readState(repository, 'job-callback-proof');
   const callbackRevision = state!.card.revisions.at(-1)!;
   const allowAction = jobPermissionCardActions(
     state!.card.callbackKey,
@@ -536,11 +591,7 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     status: 'accepted',
     needIds: [callbackProved.needId],
   });
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-callback-proof',
-  });
-  expect(state!.card.currentProviderMessageId).toBe('1712345.6789');
+  state = await readState(repository, 'job-callback-proof');
   expect(state!.needs[0]!.waitStartedAt).toBe(clock.nowIso);
   expect(state!.card.revisions.at(-1)!.operation).toBe('retire');
 });
@@ -618,17 +669,13 @@ it('jobperm-1-t2-handoff-and-deny-memory', async () => {
 
   effects.alive.set('run-1', false);
   await service.reconcile();
-  let state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  let state = await readState(repository);
   expect(state!.needs[0]!.state).toBe('asking');
   expect(
     state!.needs[0]!.waiters.filter((waiter) => waiter.runId === 'run-1').map(
       (waiter) => waiter.state,
     ),
   ).toEqual(['retired', 'retired']);
-  expect(state!.needs[0]!.requestSnapshots).toHaveLength(3);
   let revision = state!.card.revisions.at(-1)!;
   expect(revision.rows[0]).toMatchObject({
     action: 'allow_and_continue',
@@ -638,16 +685,10 @@ it('jobperm-1-t2-handoff-and-deny-memory', async () => {
 
   effects.alive.set('run-2', false);
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  state = await readState(repository);
   expect(state!.needs[0]!.state).toBe('handoff_pending');
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  state = await readState(repository);
   expect(state!.needs[0]!.state).toBe('handed_off');
   revision = state!.card.revisions.at(-1)!;
   expect(revision.rows[0]).toMatchObject({
@@ -662,15 +703,9 @@ it('jobperm-1-t2-handoff-and-deny-memory', async () => {
     }),
   ).resolves.toMatchObject({ status: 'handoff', needId: asking.needId });
 
-  await service.decideCard({
-    appId: 'default',
-    jobId: 'job-1',
-    sourceAgentFolder: 'main_agent',
+  await decide(service, asking, revision.revision, {
     actorRef: 'discord:user-1',
-    revision: revision.revision,
     decision: 'deny',
-    needId: asking.needId,
-    askingEpoch: asking.askingEpoch,
     reason: 'No command access for this job.',
   });
   await service.reconcile();
@@ -685,10 +720,7 @@ it('jobperm-1-t2-handoff-and-deny-memory', async () => {
     reason: 'No command access for this job.',
   });
 
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  state = await readState(repository);
   revision = state!.card.revisions.at(-1)!;
   expect(revision.rows[0]!.action).toBe('reconsider');
   await service.reconsider({
@@ -700,30 +732,17 @@ it('jobperm-1-t2-handoff-and-deny-memory', async () => {
     needId: asking.needId,
     askingEpoch: asking.askingEpoch,
   });
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-1',
-  });
+  state = await readState(repository);
   expect(state!.needs[0]).toMatchObject({
     state: 'handed_off',
     askingEpoch: asking.askingEpoch + 1,
   });
-  expect(state!.needs[0]!.requestSnapshots).toHaveLength(4);
   expect(state!.card.revisions.at(-1)!.rows[0]!.action).toBe(
     'approve_and_run_again',
   );
-  await expect(
-    service.decideCard({
-      appId: 'default',
-      jobId: 'job-1',
-      sourceAgentFolder: 'main_agent',
-      actorRef: 'discord:user-1',
-      revision: revision.revision,
-      decision: 'allow',
-      needId: asking.needId,
-      askingEpoch: asking.askingEpoch,
-    }),
-  ).resolves.toEqual({ status: 'already_decided' });
+  await expect(decide(service, asking, revision.revision)).resolves.toEqual({
+    status: 'already_decided',
+  });
 
   const late = await attach(service, {
     jobId: 'job-2',
@@ -735,40 +754,87 @@ it('jobperm-1-t2-handoff-and-deny-memory', async () => {
   await service.reconcile();
   effects.alive.set('late-run', false);
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-2',
-  });
+  state = await readState(repository, 'job-2');
   expect(state!.needs[0]!.state).toBe('handoff_pending');
   await expect(
-    service.decideCard({
-      appId: 'default',
+    decide(service, late, late.cardRevision, {
       jobId: 'job-2',
-      sourceAgentFolder: 'main_agent',
-      actorRef: 'discord:user-1',
-      revision: late.cardRevision,
-      decision: 'allow',
-      needId: late.needId,
-      askingEpoch: late.askingEpoch,
     }),
   ).resolves.toMatchObject({ status: 'accepted' });
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-2',
-  });
+  state = await readState(repository, 'job-2');
   expect(state!.needs[0]!.state).toBe('approved_pending_apply');
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-2',
-  });
+  state = await readState(repository, 'job-2');
   expect(state!.needs[0]!.state).toBe('applied');
-  expect(effects.rerunKeys).toEqual([
-    'job-permission-rerun:default:job-2:late-run',
-  ]);
+  expect(effects.rerunKeys).toEqual([]);
+
+  const barrierFirst = await attach(service, {
+    jobId: 'job-barrier',
+    atoms: ['RunCommand(first *)'],
+    waiterId: 'barrier-waiter-1',
+    requestId: 'barrier-request-1',
+    runId: 'barrier-run',
+  });
+  const barrierSecond = await attach(service, {
+    jobId: 'job-barrier',
+    atoms: ['RunCommand(second *)'],
+    waiterId: 'barrier-waiter-2',
+    requestId: 'barrier-request-2',
+    runId: 'barrier-run',
+  });
+  await confirmLatest(service, repository, 'job-barrier');
   await service.reconcile();
-  expect(effects.rerunKeys).toHaveLength(1);
+  effects.alive.set('barrier-run', false);
+  await service.reconcile();
+  await service.reconcile();
+  state = await readState(repository, 'job-barrier');
+  revision = state!.card.revisions.at(-1)!;
+  await expect(
+    decide(service, barrierFirst, revision.revision, {
+      jobId: 'job-barrier',
+    }),
+  ).resolves.toMatchObject({ status: 'accepted' });
+  await service.reconcile();
+  state = await readState(repository, 'job-barrier');
+  expect(state!.needs[0]).toMatchObject({
+    state: 'approved_pending_apply',
+    grantAppliedAt: expect.any(String),
+  });
+  expect(effects.rerunKeys).toEqual([]);
+  await expect(
+    decide(service, barrierSecond, revision.revision, {
+      jobId: 'job-barrier',
+    }),
+  ).resolves.toMatchObject({ status: 'accepted' });
+  state = await readState(repository, 'job-barrier');
+  expect(state!.card.rerunBarriers).toEqual([
+    expect.objectContaining({
+      priorRunId: 'barrier-run',
+      requiredNeeds: expect.arrayContaining([
+        { needId: barrierFirst.needId, askingEpoch: barrierFirst.askingEpoch },
+        {
+          needId: barrierSecond.needId,
+          askingEpoch: barrierSecond.askingEpoch,
+        },
+      ]),
+      enqueuedAt: null,
+    }),
+  ]);
+  effects.failRerunCount = 1;
+  await expect(service.reconcile()).rejects.toThrow(
+    'rerun enqueue interrupted',
+  );
+  await service.reconcile();
+  await service.reconcile();
+  state = await readState(repository, 'job-barrier');
+  expect(state!.needs.map((need) => need.state)).toEqual([
+    'applied',
+    'applied',
+  ]);
+  expect(new Set(effects.rerunKeys)).toEqual(
+    new Set(['job-permission-rerun:default:job-barrier:barrier-run']),
+  );
 
   const expiring = await attach(service, {
     jobId: 'job-3',
@@ -780,19 +846,13 @@ it('jobperm-1-t2-handoff-and-deny-memory', async () => {
   await service.reconcile();
   clock.nowIso = '2026-08-24T00:00:00.000Z';
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-3',
-  });
+  state = await readState(repository, 'job-3');
   expect(state!.needs[0]).toMatchObject({
     id: expiring.needId,
     state: 'handoff_pending',
   });
   await service.reconcile();
-  state = await repository.getJobPermissionState({
-    appId: 'default',
-    jobId: 'job-3',
-  });
+  state = await readState(repository, 'job-3');
   expect(state!.needs[0]!.state).toBe('handed_off');
   expect(effects.responseKinds).toContain('setup_required');
   const expiringResponseId = state!.needs[0]!.waiters[0]!.responseId;

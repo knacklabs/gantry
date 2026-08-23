@@ -426,6 +426,9 @@ export async function startRuntimeServices(
         repository: workerCoordination,
         opsRepository: resolved.opsRepository,
         channelWiring,
+        getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
+        getToolRepository: () => resolved.getToolRepository?.(),
+        getSkillRepository: () => resolved.getSkillRepository?.(),
         resolveCardTarget: (request) => {
           const targetJid = request.targetJid?.trim();
           if (!targetJid) {

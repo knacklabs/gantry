@@ -319,7 +319,10 @@ async function tryAcquireRunSlotLease(
             ),
           ),
         active.repository
-          .releaseRunSlot({ slotKey: hostBudgetSlotKey, holderId: hostHolderId })
+          .releaseRunSlot({
+            slotKey: hostBudgetSlotKey,
+            holderId: hostHolderId,
+          })
           .catch((err) =>
             active.warn?.(
               { err, workspaceKey },

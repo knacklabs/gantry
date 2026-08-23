@@ -87,7 +87,6 @@ export interface JobPermissionDurabilityEffects {
     appId: string;
     jobId: string;
     priorRunId: string;
-    needId: string;
   }): Promise<void>;
 }
 
@@ -208,8 +207,6 @@ export class JobPermissionDurabilityService {
               denialReason: null,
               policyChangedReason: null,
               grantAppliedAt: null,
-              rerunRunIds: [],
-              enqueuedRerunRunIds: [],
               requestSnapshots: [],
               waiters: [],
               createdAt: now,
@@ -425,17 +422,23 @@ export class JobPermissionDurabilityService {
               need.approvedGrantAtoms = [...row.renderedGrantAtoms];
               need.denialReason = null;
               need.policyChangedReason = null;
-              if (row.action === 'approve_and_run_again' || wasHandoff) {
-                need.rerunRunIds = [
-                  ...new Set([
-                    ...need.rerunRunIds,
-                    ...need.waiters
-                      .filter((waiter) => waiter.state !== 'retired')
-                      .map((waiter) => waiter.runId),
-                  ]),
-                ];
+              if (row.action === 'approve_and_run_again') {
+                for (const runId of new Set(
+                  need.waiters
+                    .filter((waiter) =>
+                      ['handoff', 'retired'].includes(waiter.state),
+                    )
+                    .map((waiter) => waiter.runId),
+                )) {
+                  recordRerunConsent(state, need, runId, input.actorRef, now);
+                }
               }
             } else {
+              removePendingRerunBarriersForNeed(
+                state.card,
+                need.id,
+                need.askingEpoch,
+              );
               need.state =
                 need.state === 'handoff_pending'
                   ? 'handoff_pending'
@@ -474,6 +477,21 @@ export class JobPermissionDurabilityService {
       callbackKey: action.callbackKey,
     });
     if (!state) return { status: 'stale' };
+    if (action.decision === 'next') {
+      return this.showNextPage({
+        appId: state.card.appId,
+        jobId: state.card.jobId,
+        sourceAgentFolder: state.card.sourceAgentFolder,
+        actorRef: input.actor.actorRef,
+        actorContext: {
+          conversationJid: input.actor.conversationJid,
+          providerAccountId: input.actor.providerAccountId,
+          threadId: input.actor.threadId,
+        },
+        revision: action.revision,
+        providerMessageId: input.providerMessageId,
+      });
+    }
     const target = cardActionTarget(state, action);
     if (!target) return { status: 'stale' };
     if (action.decision === 'show') {
@@ -594,6 +612,66 @@ export class JobPermissionDurabilityService {
     );
   }
 
+  async showNextPage(input: {
+    appId: string;
+    jobId: string;
+    sourceAgentFolder: string;
+    actorRef: string;
+    actorContext?: Omit<JobPermissionActorContext, 'actorRef'>;
+    revision: number;
+    providerMessageId?: string;
+  }): Promise<JobPermissionCardDecisionOutcome> {
+    if (
+      !(await this.effects.authorizeActor({
+        appId: input.appId,
+        jobId: input.jobId,
+        actorRef: input.actorRef,
+        ...input.actorContext,
+      }))
+    ) {
+      return { status: 'unauthorized' };
+    }
+    const now = this.clock.now();
+    return this.repository.mutateJobPermissionState<JobPermissionCardDecisionOutcome>(
+      {
+        appId: input.appId,
+        jobId: input.jobId,
+        initialCard: initialCard(input, now),
+        mutate: (state) => {
+          const revision = state.card.revisions.find(
+            (candidate) => candidate.revision === input.revision,
+          );
+          if (
+            !revision ||
+            state.card.revision !== revision.revision ||
+            revision.hiddenRowCount === 0
+          ) {
+            return { state, result: { status: 'stale' } as const };
+          }
+          recordConfirmedCardCallback(
+            state,
+            revision,
+            input.providerMessageId,
+            now,
+          );
+          const rowCount = livingCardNeeds(state).length;
+          const nextOffset = revision.pageStart + revision.rows.length;
+          state.card.pageOffset = nextOffset < rowCount ? nextOffset : 0;
+          reviseLivingCard(state, this.capacity, now);
+          return {
+            state,
+            result: {
+              status: 'accepted',
+              needIds: state.card.revisions
+                .at(-1)!
+                .rows.map((row) => row.needId),
+            } as const,
+          };
+        },
+      },
+    );
+  }
+
   async reconsider(input: {
     appId: string;
     jobId: string;
@@ -650,6 +728,11 @@ export class JobPermissionDurabilityService {
           ) {
             return { state, result: { status: 'stale' } as const };
           }
+          removePendingRerunBarriersForNeed(
+            state.card,
+            need.id,
+            need.askingEpoch,
+          );
           need.askingEpoch += 1;
           need.state = 'asking';
           need.approvedGrantAtoms = null;
@@ -660,8 +743,6 @@ export class JobPermissionDurabilityService {
           need.denialReason = null;
           need.policyChangedReason = null;
           need.grantAppliedAt = null;
-          need.rerunRunIds = [];
-          need.enqueuedRerunRunIds = [];
           need.state = 'handed_off';
           state.card.fullScopeNeedId = null;
           state.card.fullScopeAskingEpoch = null;
@@ -983,6 +1064,11 @@ export class JobPermissionDurabilityService {
         await this.mutateExisting(candidate, (state, need) => {
           if (need.state !== 'approved_pending_apply') return false;
           if (revalidated.kind === 'reask' && grantAtoms.length > 0) {
+            removePendingRerunBarriersForNeed(
+              state.card,
+              need.id,
+              need.askingEpoch,
+            );
             need.askingEpoch += 1;
             need.state = 'asking';
             need.renderedGrantAtoms = grantAtoms;
@@ -1008,6 +1094,11 @@ export class JobPermissionDurabilityService {
               waiter.updatedAt = now;
             }
           } else {
+            removePendingRerunBarriersForNeed(
+              state.card,
+              need.id,
+              need.askingEpoch,
+            );
             need.policyChangedReason =
               revalidated.reason ??
               'Permission policy changed before the grant was applied.';
@@ -1039,37 +1130,25 @@ export class JobPermissionDurabilityService {
 
     const current = await this.currentNeed(candidate);
     if (!current || current.state !== 'approved_pending_apply') return true;
-    for (const runId of current.rerunRunIds.filter(
-      (id) => !current.enqueuedRerunRunIds.includes(id),
-    )) {
-      await this.effects.enqueueRunAgain({
-        idempotencyKey: `job-permission-rerun:${current.appId}:${current.jobId}:${runId}`,
-        appId: current.appId,
-        jobId: current.jobId,
-        priorRunId: runId,
-        needId: current.id,
-      });
-      const now = this.clock.now();
-      await this.mutateExisting(current, (_state, need) => {
-        if (!need.enqueuedRerunRunIds.includes(runId)) {
-          need.enqueuedRerunRunIds.push(runId);
-          need.updatedAt = now;
-        }
-        return true;
-      });
-    }
     await this.deliverNeedResponses(current, {
       kind: 'approved',
       grantAtoms: current.approvedGrantAtoms ?? displayed,
     });
+    await this.reconcileRerunBarriers(current);
     const now = this.clock.now();
     await this.mutateExisting(current, (state, need) => {
       const waitersSettled = need.waiters.every((waiter) =>
         ['delivered', 'retired', 'handoff'].includes(waiter.state),
       );
-      const rerunsSettled = need.rerunRunIds.every((runId) =>
-        need.enqueuedRerunRunIds.includes(runId),
-      );
+      const rerunsSettled = state.card.rerunBarriers
+        .filter((barrier) =>
+          barrier.requiredNeeds.some(
+            (required) =>
+              required.needId === need.id &&
+              required.askingEpoch === need.askingEpoch,
+          ),
+        )
+        .every((barrier) => barrier.enqueuedAt);
       if (!waitersSettled || !rerunsSettled) return false;
       need.state = 'applied';
       need.updatedAt = now;
@@ -1077,6 +1156,54 @@ export class JobPermissionDurabilityService {
       return true;
     });
     return true;
+  }
+
+  private async reconcileRerunBarriers(
+    candidate: JobPermissionNeedRecord,
+  ): Promise<void> {
+    const state = await this.repository.getJobPermissionState({
+      appId: candidate.appId,
+      jobId: candidate.jobId,
+    });
+    if (!state) return;
+    for (const barrier of state.card.rerunBarriers.filter(
+      (entry) => !entry.enqueuedAt,
+    )) {
+      const ready = barrier.requiredNeeds.every((required) => {
+        const need = state.needs.find(
+          (entry) =>
+            entry.id === required.needId &&
+            entry.askingEpoch === required.askingEpoch,
+        );
+        return Boolean(
+          need?.grantAppliedAt &&
+          need.waiters.every((waiter) =>
+            ['delivered', 'retired', 'handoff'].includes(waiter.state),
+          ),
+        );
+      });
+      if (!ready) continue;
+      await this.effects.enqueueRunAgain({
+        idempotencyKey: `job-permission-rerun:${candidate.appId}:${candidate.jobId}:${barrier.priorRunId}`,
+        appId: candidate.appId,
+        jobId: candidate.jobId,
+        priorRunId: barrier.priorRunId,
+      });
+      const now = this.clock.now();
+      await this.repository.mutateJobPermissionState({
+        appId: candidate.appId,
+        jobId: candidate.jobId,
+        initialCard: initialCard(candidate, now),
+        mutate: (current) => {
+          const pending = current.card.rerunBarriers.find(
+            (entry) => entry.priorRunId === barrier.priorRunId,
+          );
+          if (pending) pending.enqueuedAt ??= now;
+          current.card.updatedAt = now;
+          return { state: current, result: undefined };
+        },
+      });
+    }
   }
 
   private async deliverDeniedNeed(candidate: JobPermissionNeedRecord) {
@@ -1315,10 +1442,12 @@ function initialCard(
     currentProviderMessageId: null,
     currentProvider: null,
     currentProviderRevision: 0,
+    pageOffset: 0,
     fullScopeNeedId: null,
     fullScopeAskingEpoch: null,
     revisions: [],
     pendingBudgets: [],
+    rerunBarriers: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -1378,14 +1507,8 @@ function reviseLivingCard(
   capacity: JobPermissionCardCapacity,
   now: string,
 ): void {
-  const rows = state.needs
-    .filter((need) => ['asking', 'handed_off', 'denied'].includes(need.state))
-    .sort((left, right) =>
-      left.createdAt === right.createdAt
-        ? left.id.localeCompare(right.id)
-        : left.createdAt.localeCompare(right.createdAt),
-    )
-    .map((need): JobPermissionCardRowSnapshot => {
+  const rows = livingCardNeeds(state).map(
+    (need): JobPermissionCardRowSnapshot => {
       const scopeFullyVisible =
         need.renderedGrantAtoms.length <= capacity.maxGrantAtomsPerRow ||
         (state.card.fullScopeNeedId === need.id &&
@@ -1409,13 +1532,23 @@ function reviseLivingCard(
         denyEnabled: need.state !== 'denied',
         action: scopeFullyVisible ? ordinaryAction : 'show_scope',
       };
-    });
-  const visible = rows.slice(0, capacity.maxRows);
+    },
+  );
+  if (rows.length === 0) {
+    state.card.pageOffset = 0;
+  } else if (state.card.pageOffset >= rows.length) {
+    state.card.pageOffset =
+      Math.floor((rows.length - 1) / capacity.maxRows) * capacity.maxRows;
+  }
+  const pageStart = state.card.pageOffset;
+  const visible = rows.slice(pageStart, pageStart + capacity.maxRows);
+  const hiddenRowCount = Math.max(0, rows.length - visible.length);
   const last = state.card.revisions.at(-1);
   if (
     last &&
     JSON.stringify(last.rows) === JSON.stringify(visible) &&
-    last.hiddenRowCount === Math.max(0, rows.length - visible.length)
+    last.pageStart === pageStart &&
+    last.hiddenRowCount === hiddenRowCount
   ) {
     return;
   }
@@ -1441,10 +1574,85 @@ function reviseLivingCard(
     batchNeedIds: visible
       .filter((row) => row.action === 'allow_and_continue' && row.actionEnabled)
       .map((row) => row.needId),
-    hiddenRowCount: Math.max(0, rows.length - visible.length),
+    pageStart,
+    hiddenRowCount,
     createdAt: now,
   });
   state.card.updatedAt = now;
+}
+
+function livingCardNeeds(
+  state: JobPermissionDurabilityState,
+): JobPermissionNeedRecord[] {
+  return state.needs
+    .filter((need) => ['asking', 'handed_off', 'denied'].includes(need.state))
+    .sort((left, right) =>
+      left.createdAt === right.createdAt
+        ? left.id.localeCompare(right.id)
+        : left.createdAt.localeCompare(right.createdAt),
+    );
+}
+
+function recordRerunConsent(
+  state: JobPermissionDurabilityState,
+  need: JobPermissionNeedRecord,
+  priorRunId: string,
+  requestedBy: string,
+  now: string,
+): void {
+  let barrier = state.card.rerunBarriers.find(
+    (entry) => entry.priorRunId === priorRunId,
+  );
+  if (!barrier) {
+    barrier = {
+      priorRunId,
+      requiredNeeds: [],
+      requestedAt: now,
+      requestedBy,
+      enqueuedAt: null,
+    };
+    state.card.rerunBarriers.push(barrier);
+  }
+  const requiredNeeds = state.needs
+    .filter(
+      (candidate) =>
+        !['applied', 'cancelled'].includes(candidate.state) &&
+        candidate.waiters.some((waiter) => waiter.runId === priorRunId),
+    )
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (!requiredNeeds.some((candidate) => candidate.id === need.id)) {
+    requiredNeeds.push(need);
+  }
+  for (const requiredNeed of requiredNeeds) {
+    if (
+      barrier.requiredNeeds.some(
+        (required) =>
+          required.needId === requiredNeed.id &&
+          required.askingEpoch === requiredNeed.askingEpoch,
+      )
+    ) {
+      continue;
+    }
+    barrier.requiredNeeds.push({
+      needId: requiredNeed.id,
+      askingEpoch: requiredNeed.askingEpoch,
+    });
+  }
+}
+
+function removePendingRerunBarriersForNeed(
+  card: JobPermissionCardRecord,
+  needId: string,
+  askingEpoch: number,
+): void {
+  card.rerunBarriers = card.rerunBarriers.filter(
+    (barrier) =>
+      barrier.enqueuedAt ||
+      !barrier.requiredNeeds.some(
+        (required) =>
+          required.needId === needId && required.askingEpoch === askingEpoch,
+      ),
+  );
 }
 
 function budgetForRun(

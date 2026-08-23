@@ -767,12 +767,14 @@ function readJobPermissionCard(value: unknown): JobPermissionCardRecord | null {
     (typeof record.threadId === 'string' || record.threadId === null) &&
     (typeof record.agentId === 'string' || record.agentId === null) &&
     typeof record.currentProviderRevision === 'number' &&
+    typeof record.pageOffset === 'number' &&
     (typeof record.fullScopeNeedId === 'string' ||
       record.fullScopeNeedId === null) &&
     (typeof record.fullScopeAskingEpoch === 'number' ||
       record.fullScopeAskingEpoch === null) &&
     Array.isArray(record.revisions) &&
-    Array.isArray(record.pendingBudgets)
+    Array.isArray(record.pendingBudgets) &&
+    Array.isArray(record.rerunBarriers)
     ? (structuredClone(record) as JobPermissionCardRecord)
     : null;
 }
@@ -814,6 +816,29 @@ function assertJobPermissionState(
     JSON.stringify(
       state.card.revisions.slice(0, previousCard.revisions.length),
     ) !== JSON.stringify(previousCard.revisions) ||
+    !Number.isInteger(state.card.pageOffset) ||
+    state.card.pageOffset < 0 ||
+    new Set(state.card.rerunBarriers.map((barrier) => barrier.priorRunId))
+      .size !== state.card.rerunBarriers.length ||
+    state.card.rerunBarriers.some(
+      (barrier) =>
+        !barrier.priorRunId ||
+        barrier.requiredNeeds.length === 0 ||
+        new Set(
+          barrier.requiredNeeds.map(
+            (required) => `${required.needId}:${required.askingEpoch}`,
+          ),
+        ).size !== barrier.requiredNeeds.length ||
+        barrier.requiredNeeds.some(
+          (required) =>
+            !state.needs.some(
+              (need) =>
+                need.id === required.needId &&
+                (barrier.enqueuedAt ||
+                  need.askingEpoch === required.askingEpoch),
+            ),
+        ),
+    ) ||
     new Set(state.needs.map((need) => need.id)).size !== state.needs.length ||
     state.needs.some(
       (need) =>
@@ -866,7 +891,9 @@ function assertJobPermissionState(
               row.scopeFullyVisible &&
               row.actionEnabled,
           ),
-      )
+      ) ||
+      !Number.isInteger(revision.pageStart) ||
+      revision.pageStart < 0
     ) {
       throw new Error('Job permission card revision is not snapshot-bound.');
     }
