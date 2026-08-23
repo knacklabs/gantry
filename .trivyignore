@@ -6,6 +6,25 @@
 CVE-2026-4224
 CVE-2026-6100
 
+# Chromium 151.0.7922.137-1~deb12u1 CVEs fixed by
+# 151.0.7922.169-1~deb12u1 according to Trivy, but Debian's live
+# bookworm-security mirror still serves deb12u1 .137 and the .169 package is
+# not yet available from the official security package pool. The image build
+# refreshes apt metadata on every workflow run, so it will pick up .169 as soon
+# as Debian publishes it. Added 2026-08-23. REMOVE these entries after
+# `dpkg-query -W chromium chromium-common` reports .169 or newer in CI.
+CVE-2026-76033
+CVE-2026-76036
+CVE-2026-76037
+CVE-2026-76038
+CVE-2026-76039
+CVE-2026-76040
+CVE-2026-76041
+CVE-2026-76043
+CVE-2026-76044
+CVE-2026-76045
+CVE-2026-76047
+
 # CVE-2026-16633 (pdfjs-dist < 6.2.108, arbitrary JS on malicious PDF).
 # The ACTUAL installed pdfjs-dist is 6.2.108 everywhere — the direct dependency
 # is bumped and an overrides.pdfjs-dist = ^6.2.108 forces the transitive copy
