@@ -30,6 +30,7 @@ import {
   preCheckDenialResult,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
+import { runnableToolInvocationId } from './tool-invocation-id.js';
 import { evaluateAgentDelegationAsyncBridge } from './agent-delegation-async-bridge.js';
 import { DEEPAGENTS_ASYNC_DELEGATION_UNAVAILABLE_MESSAGE } from './async-subagent-sentinel.js';
 
@@ -91,8 +92,9 @@ function createOneFacadeTool(
   config: GantryFacadeToolsConfig,
 ): StructuredToolInterface {
   return tool(
-    async (input: unknown): Promise<unknown> => {
+    async (input: unknown, runnableConfig?: unknown): Promise<unknown> => {
       config.signal?.throwIfAborted();
+      const invocationId = runnableToolInvocationId(runnableConfig);
       if (isConversationAttachmentFacadeRequest(toolName, input)) {
         return gatedToolErrorResult(
           CONVERSATION_ATTACHMENT_TOOL_GUIDANCE,
@@ -112,7 +114,9 @@ function createOneFacadeTool(
         memoryBlock: config.memoryBlock,
         yoloMode: config.gateContext.yoloMode,
       });
-      if (preChecks) return preCheckDenialResult(config, toolName, preChecks);
+      if (preChecks) {
+        return preCheckDenialResult(config, toolName, preChecks, invocationId);
+      }
 
       const approval = await requestPermissionApprovalViaIpc(
         config.permissionEnv,
@@ -131,7 +135,13 @@ function createOneFacadeTool(
         const reason = approval.reason || 'Denied by operator';
         if (config.onPermissionDenied) {
           return config.onPermissionDenied(
-            deepAgentsDenial(config, toolName, policyRequest, reason),
+            deepAgentsDenial(
+              config,
+              toolName,
+              policyRequest,
+              reason,
+              invocationId,
+            ),
           );
         }
         return gatedToolErrorResult(`Permission denied: ${reason}`);

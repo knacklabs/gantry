@@ -913,6 +913,42 @@ describe('ToolExecutionPolicyService', () => {
 });
 
 describe('autonomousGrantRecovery', () => {
+  it('offers one approval grant for every new control-flow RunCommand leaf', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'RunCommand',
+      toolInput: { command: 'date first && uptime' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-run-command' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        autonomousAllowedToolRules: ['RunCommand(date *)'],
+      }),
+    ).toMatchObject({ status: 'deny' });
+    expect(
+      autonomousToolAuthorityAddition({
+        toolName: 'RunCommand',
+        toolInput: { command: 'date first && uptime' },
+      }),
+    ).toEqual({
+      type: 'addRules',
+      behavior: 'allow',
+      rules: [
+        { toolName: 'RunCommand', ruleContent: 'date first' },
+        { toolName: 'RunCommand', ruleContent: 'uptime' },
+      ],
+    });
+    expect(
+      autonomousToolAuthorityAddition({
+        toolName: 'RunCommand',
+        toolInput: { command: 'date first | uptime' },
+      }),
+    ).toBeNull();
+  });
+
   it('canonical facade tool WebSearch is grantable via request_access kind:tool', () => {
     const request = classifier.classify({
       origin: 'sdk',

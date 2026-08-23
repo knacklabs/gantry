@@ -94,6 +94,7 @@ function createMcpFixture(): {
   const runnerMcpDir = path.join(runnerDir, 'mcp');
   const channelsDir = path.join(root, 'channels');
   const applicationMcpDir = path.join(root, 'application', 'mcp');
+  const domainEventsDir = path.join(root, 'domain', 'events');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
   const guidedActionsDir = path.join(root, 'application', 'guided-actions');
@@ -112,6 +113,7 @@ function createMcpFixture(): {
   fs.mkdirSync(runnerMcpDir, { recursive: true });
   fs.mkdirSync(channelsDir, { recursive: true });
   fs.mkdirSync(applicationMcpDir, { recursive: true });
+  fs.mkdirSync(domainEventsDir, { recursive: true });
   fs.mkdirSync(guidedActionsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
@@ -163,6 +165,14 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/mcp/tool-provider-affinity.ts'),
     path.join(runnerDir, 'mcp', 'tool-provider-affinity.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/domain/events/runtime-event-types.ts'),
+    path.join(domainEventsDir, 'runtime-event-types.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/domain/events/tool-activity.ts'),
+    path.join(domainEventsDir, 'tool-activity.ts'),
   );
   symlinkPackage(root, 'zod', 'node_modules/zod');
   symlinkPackage(root, 'cron-parser', 'node_modules/cron-parser');

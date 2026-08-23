@@ -1,3 +1,13 @@
 import { defineConfig } from 'vitest/config';
 
-export default defineConfig({ test: { include: ['src/**/*.test.ts'] } });
+const forgeReporter = process.env.FORGE_JUNIT
+  ? { reporters: [['junit', { addFileAttribute: true }]] }
+  : {};
+
+export default defineConfig({
+  root: '../..',
+  test: {
+    include: ['apps/web/src/**/*.test.ts'],
+    ...forgeReporter,
+  },
+});

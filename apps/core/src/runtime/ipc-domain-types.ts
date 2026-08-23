@@ -187,7 +187,12 @@ export interface IpcDeps {
     timeoutMs?: number;
   }) => Promise<unknown>;
   publishBrowserJobActivity?: (input: {
-    jobId: string;
+    invocationId: string;
+    appId?: string;
+    agentId?: string;
+    conversationId: string;
+    threadId?: string;
+    jobId?: string;
     runId: string;
     tool: 'Browser';
     publicToolName?: string;

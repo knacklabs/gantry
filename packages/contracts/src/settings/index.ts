@@ -332,6 +332,15 @@ export const RuntimeSettingsPublicSchema = z
         deploymentMode: z.union([z.literal('workstation'), z.literal('fleet')]),
       })
       .strict(),
+    authentication: z
+      .object({
+        mode: z.enum(['local', 'hosted']),
+        canonicalOrigin: z.string().url(),
+        activeProviderLabel: z.string().trim().min(1).optional(),
+        candidateConfigured: z.boolean(),
+      })
+      .strict()
+      .optional(),
     browser: z
       .object({
         usage: z

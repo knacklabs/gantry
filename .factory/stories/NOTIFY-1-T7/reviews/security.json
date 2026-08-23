@@ -1,0 +1,19 @@
+{
+  "generated_by": "autoreview",
+  "status": "passed",
+  "score": 9,
+  "summary": "The one security-relevant risk surfaced in review \u2014 a third-party MCP tool spoofing the correlation invocationId via its own result payload \u2014 is closed: result-metadata extraction is restricted to the private _meta.invocationId path AND gated on trusted registration provenance (host allowed-tools + reserved mcp__gantry__ namespace / registered-tool marker), so a third-party tool can never be classed Gantry-owned by name (decision 0133). Caller-visible browser/capability result shape is unchanged; no _meta clobbering; no secret leakage in recorded detail (bounded, redacted capability audit summary).",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "Gantry correlation depends on MCP result _meta surviving the SDK round-trip (spec-supported, our own tool's metadata); documented in decision 0133."
+  ],
+  "recommendation": "approve",
+  "aspect": "security",
+  "review_run_id": "427591cf9ece56515046483992d248b1db0a48a521c8ea54cff17d302abe40ac",
+  "brief_sha256": "5bc5acab757760b4f6abd6959c815629448add97ddb1e47babbeaa55ba96f5d4",
+  "branch_diff_digest": "190f8b60e9b047b522a045dbf0a32a0e2310d4bcf6d8f89e96b298691ccfce24",
+  "reviewed_scope": [],
+  "recorded_at": "2026-08-22T03:55:44+00:00",
+  "commit": "49018da81bc381cb6ace90182cf36c02391aed9c"
+}

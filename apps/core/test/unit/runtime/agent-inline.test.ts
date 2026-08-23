@@ -471,7 +471,7 @@ describe('runInlineAgent', () => {
             runtimeEventOnly: true,
             runtimeEvents: [
               {
-                eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+                eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
                 payload: { phase: 'started', tool: 'AgentDelegation' },
               },
             ],

@@ -1,0 +1,46 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "decision": "keep",
+  "gaps": [],
+  "contradictions": [],
+  "new_abstractions": [],
+  "inspected_refs": [
+    "apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts"
+  ],
+  "current_flow": "Line 962 already updated to 3; line 1037 (ordinary run) still asserts toHaveLength(1) but now gets 2 because the provenance PreToolUse hook is always added.",
+  "criteria_map": {
+    "The three required tests toolact-projection, toolact-anthropic, toolact-deepagents are top-level it() calls named exactly by their id (not nested in a describe); each passes and its JUnit testcase name equals the id with the file attribute set": "Move each toolact-* it() out of its describe block to top level, unchanged name/body; confirm JUnit name==id and passing."
+  },
+  "rounds": [
+    {
+      "question": "How to make the boundary test pass",
+      "options": [
+        "change query-loop hook ordering",
+        "update the test to the real 3-hook shape"
+      ],
+      "chosen": "update the test to the real 3-hook shape"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "ordinary-run PreToolUse assertion stale",
+      "source": "apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts:1037"
+    }
+  ],
+  "resolutions": [
+    "Universal un-gated TOOL_ACTIVITY with per-invocation correlation id is the backbone closing dedup + host/generic correlation + streaming replay (Codex-validated).",
+    "Complete both-runtime recording: anthropic PostToolUse/PostToolUseFailure full classifier; deepagents on_tool_end/on_tool_error with runtimeEventOnly; inline isError + middleware coverage.",
+    "Neutral projection groups by raw key (colliding labels stay distinct), failed-first + overflow, deterministic.",
+    "Retention bounds live volume; delegation top-level-only contract explicit and tested."
+  ],
+  "task_id": "NOTIFY-1-T7",
+  "input_sha256": "d6b8d892358646a73c985e25628c96882f747017fe18002c020785539c5abd13",
+  "recorded_at": "2026-08-21T21:52:54+00:00",
+  "commit": "b9a357f61296e4dad27ea24b44b9417f12b9a053",
+  "approved_task_plan_sha256": "46dceedfe63efa96117a78c94d75cb5c9e7fa66940ce92cfd235ff7ffce1a3dc",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-21T21:52:55+00:00"
+}

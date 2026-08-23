@@ -1,0 +1,66 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "WEB-AUTH-1-1",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [],
+  "open_items": [],
+  "summary": "Reconstruction replay keeps the approved foundation boundary intact.",
+  "inspected_refs": [
+    "apps/core/src/adapters/storage/postgres/schema/apps.ts",
+    "apps/core/src/config/settings/runtime-settings-types.ts",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+  ],
+  "current_flow": "No browser-auth persistence owner exists at this replay point; the stage introduces only the durable owner and settings shape.",
+  "criteria_map": {
+    "Postgres migrations and repositories cover local authorization codes, OIDC transactions, browser sessions, console access grants, and invitations.": "The persistence/settings owner is bounded to the declared schema, repository, and revisioned settings paths.",
+    "All reusable tokens and references are stored as hashes only, one-use records are consumed atomically, and the final active Administrator invariant is transactionally enforced.": "The persistence/settings owner is bounded to the declared schema, repository, and revisioned settings paths.",
+    "Authentication settings add local or hosted mode, canonical origin, generic OIDC candidate and active configuration, and client-secret references without changing runtime.deployment_mode.": "The persistence/settings owner is bounded to the declared schema, repository, and revisioned settings paths.",
+    "OIDC issuer plus subject aliases and verified email aliases reuse the existing Person and user_aliases model; email never selects or silently links a Person.": "The persistence/settings owner is bounded to the declared schema, repository, and revisioned settings paths."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "One authentication repository and settings value shape are required because browser sessions and grants have no existing durable owner."
+  ],
+  "rounds": [
+    {
+      "question": "Should browser sessions reuse machine Bearer credentials?",
+      "options": [
+        "Keep opaque browser sessions separate",
+        "Convert them to Bearer keys"
+      ],
+      "chosen": "Keep opaque browser sessions separate"
+    },
+    {
+      "question": "Can verified email silently choose an existing Person?",
+      "options": [
+        "Resolve durable identity by issuer plus subject",
+        "Link identity by normalized email"
+      ],
+      "chosen": "Resolve durable identity by issuer plus subject"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "Postgres migrations and repositories cover local authorization codes, OIDC transactions, browser sessions, console access grants, and invitations.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    },
+    {
+      "finding": "All reusable tokens and references are stored as hashes only, one-use records are consumed atomically, and the final active Administrator invariant is transactionally enforced.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    },
+    {
+      "finding": "Authentication settings add local or hosted mode, canonical origin, generic OIDC candidate and active configuration, and client-secret references without changing runtime.deployment_mode.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    },
+    {
+      "finding": "OIDC issuer plus subject aliases and verified email aliases reuse the existing Person and user_aliases model; email never selects or silently links a Person.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    }
+  ],
+  "input_sha256": "17ab8077d783930a851bd7137b95f17f787c8dca25701ca0be548dc537a60e21",
+  "recorded_at": "2026-08-19T09:17:48+00:00",
+  "commit": "b0fc104d120bff4ccb994d9b8a1a29d3d80c5eb3"
+}

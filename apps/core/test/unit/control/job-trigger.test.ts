@@ -1203,7 +1203,7 @@ describe('control job trigger', () => {
         id: 7,
         job_id: 'job-1',
         run_id: 'run-1',
-        event_type: 'job.tool_activity',
+        event_type: 'tool.activity',
         payload: JSON.stringify({
           phase: 'tool_access_preflight',
           tool_access_requirements: ['Browser'],
@@ -1228,7 +1228,7 @@ describe('control job trigger', () => {
         events: [
           {
             id: 7,
-            event_type: 'job.tool_activity',
+            event_type: 'tool.activity',
             run_id: 'run-1',
           },
         ],

@@ -103,6 +103,8 @@ export type McpServerConfig =
 
 export interface AgentCapabilityProfile {
   allowedTools: readonly string[];
+  // Host registration provenance; never infer this set from callback names.
+  gantryOwnedTools: readonly string[];
   availableTools: readonly string[];
   disallowedTools: readonly string[];
   mcpServers: Record<string, McpServerConfig>;
@@ -280,6 +282,17 @@ const gantryMcpProvider: AgentCapabilityProvider = {
   id: 'gantry-mcp',
   provide: (ctx) => {
     const callableAgentManifest = projectedCallableAgentManifest(ctx);
+    const registeredToolNames = [
+      ...selectedGantryMcpToolNames(ctx.configuredAllowedTools ?? [], {
+        excludeAuthorityTools: ctx.hideAuthorityTools === true,
+        asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
+        memoryReviewerIsControlApprover:
+          ctx.memoryReviewerIsControlApprover === true,
+        chatJid: ctx.chatJid,
+        permissionLane: ctx.isScheduledJob ? 'autonomous' : 'interactive',
+      }),
+      ...callableAgentManifest.map(callableAgentToolName),
+    ];
     const env: Record<string, string> = {
       ...(ctx.appId ? { GANTRY_APP_ID: ctx.appId } : {}),
       ...(ctx.agentId ? { GANTRY_AGENT_ID: ctx.agentId } : {}),
@@ -340,17 +353,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify(
         ctx.semanticCapabilities ?? [],
       ),
-      GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify([
-        ...selectedGantryMcpToolNames(ctx.configuredAllowedTools ?? [], {
-          excludeAuthorityTools: ctx.hideAuthorityTools === true,
-          asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
-          memoryReviewerIsControlApprover:
-            ctx.memoryReviewerIsControlApprover === true,
-          chatJid: ctx.chatJid,
-          permissionLane: ctx.isScheduledJob ? 'autonomous' : 'interactive',
-        }),
-        ...callableAgentManifest.map(callableAgentToolName),
-      ]),
+      GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(registeredToolNames),
       GANTRY_CALLABLE_AGENT_MANIFEST_JSON: JSON.stringify(
         callableAgentManifest,
       ),
@@ -385,6 +388,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
     };
     applyAgentEgressNoProxyEnv(env);
     return {
+      gantryOwnedTools: registeredToolNames.map(gantryMcpFullToolName),
       mcpServers: {
         gantry: {
           command: 'node',
@@ -545,6 +549,7 @@ export function composeAgentCapabilities(
   providers: readonly AgentCapabilityProvider[] = BUILTIN_AGENT_CAPABILITY_PROVIDERS,
 ): AgentCapabilityProfile {
   let allowedTools: readonly string[] = [];
+  let gantryOwnedTools: readonly string[] = [];
   let availableTools: readonly string[] = [];
   let disallowedTools: readonly string[] = [];
   let mcpServers: AgentCapabilityProfile['mcpServers'] = {};
@@ -555,6 +560,12 @@ export function composeAgentCapabilities(
     const partial = provider.provide(ctx);
     if (partial.allowedTools) {
       allowedTools = mergeUnique(allowedTools, partial.allowedTools);
+    }
+    if (partial.gantryOwnedTools) {
+      gantryOwnedTools = mergeUnique(
+        gantryOwnedTools,
+        partial.gantryOwnedTools,
+      );
     }
     if (partial.availableTools) {
       availableTools = mergeUnique(availableTools, partial.availableTools);
@@ -578,6 +589,7 @@ export function composeAgentCapabilities(
 
   return {
     allowedTools,
+    gantryOwnedTools,
     availableTools,
     disallowedTools,
     mcpServers,

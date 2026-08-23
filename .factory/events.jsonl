@@ -1062,3 +1062,100 @@
 {"event": "stage-start", "generated_by": "implementer", "at": "2026-08-14T11:00:53+00:00", "story": "JOBFLOW-1", "detail": "JOBFLOW-1-S5-GATE S5: live acceptance gate + fault matrix + prompt sweep (human-gated)"}
 {"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-14T16:09:18+00:00", "story": "JOBFLOW-1"}
 {"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-15T05:47:38+00:00", "story": "JOBFLOW-1"}
+{"event": "spec-draft", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "detail": "authentication-access-web-ui: Authentication and Access Web UI"}
+{"event": "roadmap-epic-add", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "detail": "web-authentication"}
+{"event": "roadmap-add", "generated_by": "orchestrator", "at": "2026-08-18T10:42:43+00:00", "story": "WEB-AUTH-1", "detail": "no spec (adhoc)"}
+{"event": "spec-confirmed", "generated_by": "orchestrator", "at": "2026-08-18T10:44:43+00:00", "detail": "authentication-access-web-ui"}
+{"event": "roadmap-link-spec", "generated_by": "orchestrator", "at": "2026-08-18T10:44:57+00:00", "story": "WEB-AUTH-1", "detail": "docs/specs/authentication-access-web-ui.md"}
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-18T10:45:24+00:00", "story": "WEB-AUTH-1", "detail": "Authentication and Access Web UI"}
+{"event": "plan-human-approved", "generated_by": "human", "at": "2026-08-18T10:48:07+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1 approved by Ravi"}
+{"event": "plan-approved", "generated_by": "planner-high", "at": "2026-08-18T10:48:07+00:00", "story": "WEB-AUTH-1", "detail": "plans/active/WEB-AUTH-1-authentication-and-access-web-ui.md"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:49:45+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:50:33+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:51:39+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:52:04+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-19T08:52:26+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 Auth persistence and settings foundations"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T08:52:41+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-19T09:06:15+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T09:09:05+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-19T09:16:11+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T09:17:48+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-19T09:25:15+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-19T09:25:57+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-19T09:25:57+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-1 Auth persistence and settings foundations"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-19T09:28:17+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T09:39:21+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-20T09:39:22+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-2 Browser server trust boundary and local authorization"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T09:49:09+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-2 (write)"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-20T09:51:38+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-2 Browser server trust boundary and local authorization"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T09:54:07+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-20T09:54:08+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3 Hosted OIDC, grants, invitations, and reauthentication"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T09:58:31+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-20T10:02:16+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3 already changes 13 product files from stage base 933535392, exceeding the approved 12-file review budget before further implementation; split or revise the task budget."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T10:02:48+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T10:03:52+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-20T10:05:02+00:00", "story": "WEB-AUTH-1", "detail": "The WEB-AUTH-1-3 brief now authorizes 13 product files, but S-0001-8589 remains open for the prior 12-file budget and Forge shows no active implementation stage; resolve the signal and restart the sta"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T10:05:17+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T10:06:29+00:00", "story": "WEB-AUTH-1", "detail": "S-0001-8589: Stage 3 budget is revised to the exact 13-file OIDC/browser-facade boundary; the contract was re-grilled and delegated successfully."}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T10:06:29+00:00", "story": "WEB-AUTH-1", "detail": "S-0002-a849: The corrected 13-file contract has a fresh successful write delegation on the active Stage 3; no further product edits preceded this resolution."}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-20T10:24:00+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3 passes its declared typecheck but check_architecture rejects browser-auth.ts for the 700-line cap and control-to-config imports; resolving this requires a split or architecture exception "}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T10:32:50+00:00", "story": "WEB-AUTH-1", "detail": "S-0003-8059: Directly restored the preserved browser-auth-only architecture exception and matching ratchet budgets. The completed backup records this bounded composition seam pending application-service extraction"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T10:38:35+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T11:39:36+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3 (write)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T11:54:01+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-20T11:57:58+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-20T11:57:58+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-3 Hosted OIDC, grants, invitations, and reauthentication"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T11:59:50+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T12:01:50+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4 (read-only)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T12:02:16+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-20T12:02:16+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4 Auth operations, audit events, and documentation"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T12:02:59+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4 (read-only)"}
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-20T12:06:46+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4 requires CLI access approval and its audit event to commit transactionally, but approveAccessReference updates only the grant; the repository/event transaction change and direct proof are"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T12:08:24+00:00", "story": "WEB-AUTH-1", "detail": "S-0004-993f: Keep the required transactionality invariant in the current CLI stage. Extend the exact write scope to the existing authentication repository and its focused unit test: approveAccessReference will ins"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T12:08:53+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-20T12:17:18+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4 now measures 10 files and 480 changed lines after the repository-owned transactional audit correction, exceeding the resolved 450-line review budget; split or revise the stage before furt"}
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-20T12:19:01+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4 currently changes 10 owned files and 493 lines, exceeding the 450-line review budget; split the task before further implementation or verification."}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T12:19:16+00:00", "story": "WEB-AUTH-1", "detail": "S-0005-6cb0: Retain the 10-file scope. The 480 measured lines are the approved CLI/docs restore plus the necessary repository-owned atomic audit proof; revise the conservative review budget to 550 lines rather tha"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T12:19:17+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T12:19:22+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T12:19:26+00:00", "story": "WEB-AUTH-1", "detail": "S-0006-9502: Same resolved budget correction: the re-recorded Stage 4 contract permits 550 changed lines for this exact 10-file atomic CLI recovery slice. Relaunch the delegate against the updated contract before "}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T12:28:10+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-20T12:31:23+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-20T12:31:23+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-4 Auth operations, audit events, and documentation"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T12:33:06+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-20T12:33:28+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 Authentication and Access web UI"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-20T12:35:46+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 requires exact approved auth copy, but the brief and in-repo spec do not provide it; decision 0132 delegates that copy to an external design file the brief forbids the implementer from co"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T12:36:06+00:00", "story": "WEB-AUTH-1", "detail": "S-0007-f790: Use backup/web-auth-current-before-stage-rebuild-20260819 as the approved exact-copy source for this stage. It is the preserved completed implementation the user explicitly authorized for restoration,"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-20T12:37:27+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 requires exact approved public-auth and Authentication and Access copy, but the delegated brief supplies no approved strings; implementation cannot proceed without inventing acceptance cr"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T12:37:47+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T12:37:51+00:00", "story": "WEB-AUTH-1", "detail": "S-0008-d839: The coordinator will directly restore the exact approved eight-file UI slice from backup/web-auth-current-before-stage-rebuild-20260819, which is user-authorized and recorded in the Stage 5 contract. "}
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-20T12:42:53+00:00", "story": "WEB-AUTH-1", "detail": "Both declared WEB-AUTH-1-5 Vitest commands exit zero but execute 0 tests (JUnit skipped=2) on required Node 24 because their full 'suite > test' selectors do not match Vitest 4.1.10; the task contract"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T12:43:06+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T12:43:41+00:00", "story": "WEB-AUTH-1", "detail": "S-0009-25d7: Use Vitest leaf selectors, which execute the intended tests under Node 24. The JUnit testcase retains the full suite name; only the runner -t expression must be the leaf title."}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T12:45:18+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T12:58:09+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T12:59:41+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T13:03:36+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 (write)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T13:08:11+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T13:14:52+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 (write)"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-20T13:15:50+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-20T13:15:50+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-5 Authentication and Access web UI"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T13:21:00+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T13:22:56+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-20T13:22:57+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6 Integrated auth verification and cleanup proof"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T13:25:33+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "decomposed", "generated_by": "docs-decomposer", "at": "2026-08-20T13:26:54+00:00", "story": "WEB-AUTH-1", "detail": "6 task(s)"}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-20T13:33:56+00:00", "story": "WEB-AUTH-1", "detail": "Core lint fails with 83 out-of-scope errors, including apps/core/src/adapters/auth/oidc-adapter.ts; WEB-AUTH-1-6 write scope cannot fix them."}
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-20T13:34:25+00:00", "story": "WEB-AUTH-1", "detail": "Disposable Postgres proof is environment-blocked: Docker socket access is denied, localhost:5432 is closed, and isolated PostgreSQL 18 initdb fails at shmget with Operation not permitted."}
+{"event": "delegated", "generated_by": "orchestrator", "at": "2026-08-20T13:39:04+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6 (write)"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T13:40:20+00:00", "story": "WEB-AUTH-1", "detail": "S-0010-88d4: Core lint is outside this final stage's recorded verify_commands. The final gate will run the declared architecture/typecheck checks and report any broader lint result separately; no out-of-scope lint"}
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-20T13:40:20+00:00", "story": "WEB-AUTH-1", "detail": "S-0011-ee50: Resolved locally: Docker 29.4.3 is available, a disposable pgvector Postgres database was started, vector and pg_trgm extensions were enabled, and all three authentication repository integration tests"}
+{"event": "stage-contract-changed", "generated_by": "implementer", "at": "2026-08-20T13:42:42+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6: task contract re-recorded mid-stage"}
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-20T13:42:42+00:00", "story": "WEB-AUTH-1", "detail": "WEB-AUTH-1-6 Integrated auth verification and cleanup proof"}
+{"event": "verify-passed", "generated_by": "orchestrator", "at": "2026-08-20T13:52:48+00:00", "story": "WEB-AUTH-1"}
+{"event": "tests-automated", "generated_by": "implementer", "at": "2026-08-20T13:55:46+00:00", "story": "WEB-AUTH-1", "detail": "passed"}
+{"event": "tests-functional", "generated_by": "functional-checker", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1", "detail": "partial"}
+{"event": "review-quality", "generated_by": "autoreview", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1"}
+{"event": "review-performance", "generated_by": "autoreview", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1"}
+{"event": "review-security", "generated_by": "autoreview", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1"}
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-20T14:08:42+00:00", "story": "WEB-AUTH-1", "detail": "Gantry now provides a local and hosted browser sign-in path with separate opaque sessions, access administration, invitations, safe OIDC configuration, and recovery commands without changing the exist"}

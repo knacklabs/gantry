@@ -36,6 +36,7 @@ import {
   callableAgentToolName,
   type CallableAgentToolManifestEntry,
 } from '../../../../application/core-tools/callable-agent-tools.js';
+import { runnableToolInvocationId } from './tool-invocation-id.js';
 
 // Connects the DeepAgents runner to Gantry-owned MCP authority and converts it
 // to LangChain tools. DeepAgents has no autonomous MCP — we fully control the
@@ -72,6 +73,7 @@ export interface ExternalServerConfig {
 
 export interface ConnectedMcpTools {
   tools: StructuredToolInterface[];
+  gantryOwnedToolNames: ReadonlySet<string>;
   close: () => Promise<void>;
 }
 
@@ -82,6 +84,7 @@ export interface ConnectGantryMcpInput {
   onToolRuleDenial?: (
     toolName: string,
     denial: DeclarativeToolRuleDenial,
+    invocationId?: string,
   ) => void;
   toolNetworkEnv?: Record<string, string>;
   hideAuthorityTools: boolean;
@@ -205,6 +208,12 @@ export async function connectGantryAndThirdPartyMcpTools(
   }
 
   const shellTools = projectGantryShellTool(input);
+  // Preserve registration ownership separately from the streamed tool name.
+  const gantryOwnedToolNames = new Set([
+    ...gantryTools.map((tool) => tool.name),
+    ...facadeTools.map((tool) => tool.name),
+    ...shellTools.map((tool) => tool.name),
+  ]);
 
   const toolEntries: DeclarativeToolEntry[] = [
     ...gantryTools.map((tool) => ({
@@ -235,6 +244,7 @@ export async function connectGantryAndThirdPartyMcpTools(
       input.toolSuccessLedger,
       input.onToolRuleDenial,
     ),
+    gantryOwnedToolNames,
     close: () => client.close(),
   };
 }
@@ -271,6 +281,7 @@ function wrapWithDeclarativeToolRules(
       tool(
         async (input, config) => {
           const toolName = canonicalName(input);
+          const invocationId = runnableToolInvocationId(config);
           const denial = evaluateDeclarativeToolRules({
             toolName,
             toolInput: input,
@@ -278,7 +289,7 @@ function wrapWithDeclarativeToolRules(
             successLedger,
           });
           if (denial) {
-            onDenial?.(toolName, denial);
+            onDenial?.(toolName, denial, invocationId);
             return {
               content: [{ type: 'text', text: denial.error.message }],
               isError: true,

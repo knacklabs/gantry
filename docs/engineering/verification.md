@@ -1,6 +1,6 @@
 # GH-408 verification record
 
-This record closes GitHub issue 408 on top of current `main` at `b3442965`
+This record closes GitHub issue 408 on top of current `main` at `6c3f8293`
 while preserving the DOCS-001 baseline at `d1e6dd06`. It maps each acceptance
 criterion to repository evidence and keeps environment limits separate from
 passing proof.
@@ -15,7 +15,7 @@ passing proof.
 | 4. Deterministic checks cover governance and repository consistency.          | `scripts/check_documentation.py`, its focused test suite, `npm run docs:check`, and `npm run check:architecture` cover links, identity, policy completeness, lifecycle metadata, taxonomy, generated evidence, and source boundaries.                | `npm run docs:check`, `npm run check:architecture`, and 65 checker unit tests pass.                                                                                       |
 | 5. CI runs documentation checks independently.                                | `.github/workflows/ci.yml` contains a standalone Documentation check step, separate from Architecture check.                                                                                                                                         | Workflow inspection and `npm run docs:check` prove the invoked command exists and passes.                                                                                 |
 | 6. Contributor and repository entry points are authoritative.                 | `CONTRIBUTING.md` contains environment setup, workflow, a risk-based validation matrix, contracts, migrations, generated-file rules, and PR readiness; root and docs indexes link the canonical standards.                                           | Prettier, documentation links, and `git diff --check` pass.                                                                                                               |
-| 7. Every governed record is classified.                                       | `docs/documentation-inventory.json` records category, lifecycle, authority, and intended action for all governed architecture, implementation, feature, decision, and plan paths, including records added by current `main`.                         | Exact-set audit reports 306 actual and 306 listed files, with no missing, extra, duplicate, or incomplete records.                                                        |
+| 7. Every governed record is classified.                                       | `docs/documentation-inventory.json` records category, lifecycle, authority, and intended action for all governed architecture, implementation, feature, decision, and plan paths, including records added by current `main`.                         | Exact-set audit reports 310 actual and 310 listed files, with no missing, extra, duplicate, or incomplete records.                                                        |
 | 8. DOCS-001 remains intact, discoverable, reproducible, and completed.        | Existing explorer/atlas links remain in the root and docs indexes; the completed plan now has `status: completed`.                                                                                                                                   | `git diff --quiet d1e6dd06..HEAD -- index.html docs/index.html docs/architecture/atlas` passes; `docs:check` verifies all five Archify pairs and their delivery evidence. |
 | 9. Runtime and product behavior is unaffected.                                | The branch changes documentation and repository checks/CI metadata only; no runtime, API, schema, migration, CLI, provider, channel, permission, or product implementation file changes.                                                             | Architecture checks, formatting, documentation checks, focused checker tests, and whitespace checks pass.                                                                 |
 
@@ -46,7 +46,7 @@ Passed on 2026-08-21:
 - `npm run typecheck`.
 - `npm run test:unit` — 664 test files and 8,915 tests.
 - `python3 -m unittest scripts.test_check_documentation` — 65 tests.
-- exact documentation-inventory set audit — 306/306 paths after integrating current `main`.
+- exact documentation-inventory set audit — 310/310 paths after integrating current `main`.
 - `git diff --check`.
 - DOCS-001 explorer and atlas unchanged check against `d1e6dd06`.
 

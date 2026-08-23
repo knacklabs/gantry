@@ -15,6 +15,7 @@ import type { MaterializedMcpCapability } from '../../../../application/mcp/mcp-
 import { mcpToolPatternCovers } from '../../../../shared/mcp-tool-scope.js';
 import type { ProviderInlineAgentLoopLane } from '../../inline-lane-dispatcher.js';
 import type { InlineToolActivity } from '../../inline-lane-tool-activity.js';
+import { runnableToolInvocationId } from '../runner/tool-invocation-id.js';
 
 const REMOTE_MCP_STARTUP_CONCURRENCY = 4;
 
@@ -190,52 +191,62 @@ async function connectOneRemoteMcpServer(input: {
     tools.push(
       createLangChainTool(
         async (args, config) => {
+          const invocationId = runnableToolInvocationId(config);
           const authorization = await input.input.authorizeThirdPartyMcpTool(
             toolName,
             args,
             { signal: config?.signal ?? input.input.signal },
           );
           if (!authorization.allowed) {
+            await input.input.toolActivity.terminal(
+              toolName,
+              'failure',
+              invocationId,
+            );
             return `Permission denied: ${authorization.reason ?? 'request denied'}`;
           }
-          return input.input.toolActivity.run(toolName, async () => {
-            const startedAt = Date.now();
-            await input.input.recordThirdPartyMcpToolActivity({
-              serverName: server.name,
-              toolName: remoteTool.name,
-              toolInput: args,
-              outcome: 'attempt',
-              latencyMs: 0,
-            });
-            try {
-              const result = await remoteTool.invoke(
-                args,
-                config?.signal ? { signal: config.signal } : undefined,
-              );
-              const activity = {
-                serverName: server.name,
-                toolName: remoteTool.name,
-                toolInput: args,
-                outcome: 'success',
-                latencyMs: Date.now() - startedAt,
-                result,
-              } as const;
-              await input.input.recordThirdPartyMcpToolActivity(activity);
-              return typeof result === 'string'
-                ? result
-                : JSON.stringify(result);
-            } catch (error) {
+          return input.input.toolActivity.run(
+            toolName,
+            async () => {
+              const startedAt = Date.now();
               await input.input.recordThirdPartyMcpToolActivity({
                 serverName: server.name,
                 toolName: remoteTool.name,
                 toolInput: args,
-                outcome: 'failure',
-                latencyMs: Date.now() - startedAt,
-                error,
+                outcome: 'attempt',
+                latencyMs: 0,
               });
-              throw error;
-            }
-          });
+              try {
+                const result = await remoteTool.invoke(
+                  args,
+                  config?.signal ? { signal: config.signal } : undefined,
+                );
+                const activity = {
+                  serverName: server.name,
+                  toolName: remoteTool.name,
+                  toolInput: args,
+                  outcome: 'success',
+                  latencyMs: Date.now() - startedAt,
+                  result,
+                } as const;
+                await input.input.recordThirdPartyMcpToolActivity(activity);
+                return typeof result === 'string'
+                  ? result
+                  : JSON.stringify(result);
+              } catch (error) {
+                await input.input.recordThirdPartyMcpToolActivity({
+                  serverName: server.name,
+                  toolName: remoteTool.name,
+                  toolInput: args,
+                  outcome: 'failure',
+                  latencyMs: Date.now() - startedAt,
+                  error,
+                });
+                throw error;
+              }
+            },
+            invocationId,
+          );
         },
         {
           name: toolName,

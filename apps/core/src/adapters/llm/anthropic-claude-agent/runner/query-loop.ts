@@ -1,7 +1,6 @@
 import {
   query,
   type EffortLevel,
-  type HookInput,
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
@@ -77,9 +76,16 @@ import {
   evaluateDeclarativeToolRules,
   RunScopedToolSuccessLedger,
 } from '../../../../runner/tool-gate-core.js';
-import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-facades.js';
-import { emitJobToolActivity } from './tool-permission-events.js';
-import { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
+import {
+  canonicalGantryToolRuleName,
+  gantryOwnedToolActivityFamily,
+} from '../../../../shared/gantry-tool-facades.js';
+import type { ToolActivityFamily } from '../../../../domain/events/tool-activity.js';
+import {
+  emitTerminalToolActivity,
+  emitToolActivity,
+} from './tool-permission-events.js';
+import { createPostToolUseHook } from './query-tool-activity-hook.js';
 
 export { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
 
@@ -118,6 +124,26 @@ export async function runQuery(
   const elapsedMs = () => Math.max(0, currentTimeMs() - queryStartMs);
   const stream = new MessageStream();
   const queryRunId = randomUUID();
+  let newSessionId: string | undefined;
+  let toolActivitySequence = 0;
+  const terminalToolInvocationIds = new Set<string>();
+  const registeredGantryToolFamilies = new Map<string, ToolActivityFamily>();
+  const gantryToolFamiliesByInvocation = new Map<string, ToolActivityFamily>();
+  const emitTerminalToolOutcome = (input: {
+    invocationId: string;
+    toolName: string;
+    family?: ToolActivityFamily;
+    outcome: 'success' | 'failure';
+  }): void => {
+    if (terminalToolInvocationIds.has(input.invocationId)) return;
+    terminalToolInvocationIds.add(input.invocationId);
+    emitTerminalToolActivity({
+      agentInput,
+      getNewSessionId: () => newSessionId,
+      ...input,
+      seq: ++toolActivitySequence,
+    });
+  };
   const memoryBlock = readMemoryContextBlock(agentInput);
   const toolSuccessLedger = agentInput.toolRules?.length
     ? new RunScopedToolSuccessLedger()
@@ -128,6 +154,7 @@ export async function runQuery(
         hook_event_name: string;
         tool_name?: string;
         tool_input?: unknown;
+        tool_use_id?: string;
       }) => {
         if (
           hookInput.hook_event_name !== 'PreToolUse' ||
@@ -142,7 +169,8 @@ export async function runQuery(
           successLedger: toolSuccessLedger,
         });
         if (!denial) return { continue: true as const };
-        emitJobToolActivity(
+        const invocationId = hookInput.tool_use_id ?? randomUUID();
+        emitToolActivity(
           agentInput,
           () => newSessionId,
           'deny',
@@ -152,8 +180,14 @@ export async function runQuery(
             reason: denial.error.message,
             decision: denial.decision,
             error: denial.error,
+            invocationId,
           },
         );
+        emitTerminalToolOutcome({
+          invocationId,
+          toolName: hookInput.tool_name,
+          outcome: 'failure',
+        });
         return {
           continue: false as const,
           decision: 'block' as const,
@@ -166,6 +200,23 @@ export async function runQuery(
         };
       }
     : undefined;
+  const bindGantryToolRegistrationProvenance = async (hookInput: {
+    hook_event_name: string;
+    tool_name?: string;
+    tool_use_id?: string;
+  }) => {
+    if (
+      hookInput.hook_event_name === 'PreToolUse' &&
+      hookInput.tool_name &&
+      hookInput.tool_use_id
+    ) {
+      const family = registeredGantryToolFamilies.get(hookInput.tool_name);
+      if (family) {
+        gantryToolFamiliesByInvocation.set(hookInput.tool_use_id, family);
+      }
+    }
+    return { continue: true as const };
+  };
   stream.pushInitialPrompt(prompt, memoryBlock);
   if (!enableIpcFollowups) {
     stream.end();
@@ -224,7 +275,6 @@ export async function runQuery(
       },
     },
   });
-  let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
@@ -315,6 +365,10 @@ export async function runQuery(
     externalMcpAlwaysAllowedTools: readExternalMcpAlwaysAllowedTools(),
     isScheduledJob: agentInput.isScheduledJob,
   });
+  for (const toolName of capabilities.gantryOwnedTools) {
+    const family = gantryOwnedToolActivityFamily(toolName);
+    if (family) registeredGantryToolFamilies.set(toolName, family);
+  }
   const sdkQueryPreparedMs = elapsedMs();
   log(
     `SDK query prepared in ${sdkQueryPreparedMs}ms ` +
@@ -333,20 +387,29 @@ export async function runQuery(
       `(reason=${toolSearchDecision.reason} tools=${toolSearchDecision.availableToolCount} ` +
       `mcpServers=${toolSearchDecision.mcpServerCount} bytes=${toolSearchDecision.serializedToolConfigBytes})`,
   );
-  const postToolUseHook = async (
-    hookInput: HookInput,
-    toolUseID: string | undefined,
-    hookOptions: { signal: AbortSignal },
-  ) => {
-    if (hookInput.hook_event_name === 'PostToolUse' && toolSuccessLedger) {
-      recordSuccessfulToolUse(hookInput, toolSuccessLedger);
-    }
-    return permissionApprovalContext.postToolUse(
-      hookInput,
-      toolUseID,
-      hookOptions,
-    );
-  };
+  const postToolUseHook = createPostToolUseHook({
+    ...(toolSuccessLedger ? { toolSuccessLedger } : {}),
+    emitTerminalToolOutcome,
+    takeGantryOwnedToolActivityFamily: (providerInvocationId) => {
+      const family = gantryToolFamiliesByInvocation.get(providerInvocationId);
+      gantryToolFamiliesByInvocation.delete(providerInvocationId);
+      return family;
+    },
+    postToolUse: permissionApprovalContext.postToolUse,
+  });
+  const permissionCanUseTool = createCanUseToolCallback({
+    agentInput,
+    sdkEnv: isolatedSdkEnv,
+    workspaceFolder,
+    memoryBlock,
+    configuredModel,
+    capabilities,
+    primeToolAttempts,
+    getNewSessionId: () => newSessionId,
+    emitInteractionBoundary,
+    recordToolActivity: (toolName) => heartbeat.recordToolActivity(toolName),
+    recordPermissionApprovalContext: permissionApprovalContext.record,
+  });
   const sdkQuery = query({
     prompt: stream,
     options: {
@@ -392,6 +455,7 @@ export async function runQuery(
                 memoryBlock,
                 agentInput.toolNetworkEnv ?? {},
               ),
+              bindGantryToolRegistrationProvenance,
               ...(declarativePreToolUse ? [declarativePreToolUse] : []),
             ],
             timeout: 5,
@@ -408,20 +472,23 @@ export async function runQuery(
           },
         ],
       },
-      canUseTool: createCanUseToolCallback({
-        agentInput,
-        sdkEnv: isolatedSdkEnv,
-        workspaceFolder,
-        memoryBlock,
-        configuredModel,
-        capabilities,
-        primeToolAttempts,
-        getNewSessionId: () => newSessionId,
-        emitInteractionBoundary,
-        recordToolActivity: (toolName) =>
-          heartbeat.recordToolActivity(toolName),
-        recordPermissionApprovalContext: permissionApprovalContext.record,
-      }),
+      canUseTool: async (toolName, toolInput, permissionOptions) => {
+        const decision = await permissionCanUseTool(
+          toolName,
+          toolInput,
+          permissionOptions,
+        );
+        const invocationId = permissionOptions.toolUseID;
+        if (decision.behavior === 'deny' && invocationId) {
+          emitTerminalToolOutcome({
+            invocationId,
+            toolName,
+            outcome: 'failure',
+          });
+          return decision;
+        }
+        return decision;
+      },
       // Load only the per-run CLAUDE_CONFIG_DIR settings so Claude discovers
       // Gantry-materialized skills without reading workspace configuration.
       settingSources: ['user'],

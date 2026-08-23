@@ -14,9 +14,11 @@ import {
 import {
   boundJobNotificationView,
   formatRunStatusMessage,
+  structuredJobResultFromRecordedActions,
   terminalRunNotificationStats,
 } from './status-formatting.js';
 import type { JobRunDiagnostics } from './execution-diagnostics.js';
+import type { RuntimeEvent } from '../domain/events/events.js';
 import type { JobToolDenial } from '../domain/events/job-tool-denial.js';
 import {
   isMemoryDreamingSystemJob,
@@ -347,6 +349,10 @@ export async function notifySchedulerTerminalRunState(input: {
   setupNotified?: boolean;
   diagnostics?: JobRunDiagnostics;
   toolDenial?: JobToolDenial | null;
+  recordedActions?: readonly Pick<
+    RuntimeEvent,
+    'eventType' | 'correlationId' | 'payload'
+  >[];
   sendMessage: SchedulerSendMessage;
   memoryReviewNotification?: MemoryReviewCreatedNotification;
   updateLifecycleNotification?: (input: {
@@ -445,11 +451,15 @@ export async function notifySchedulerTerminalRunState(input: {
       toolDenial: input.toolDenial,
     });
   const stats = terminalRunNotificationStats(input);
+  const result = structuredJobResultFromRecordedActions(
+    input.recordedActions ?? [],
+  );
   const jobNotificationView = boundJobNotificationView({
     status: input.runStatus,
     jobName: input.job.name,
     ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
     ...(stats ? { stats } : {}),
+    ...(result ? { result } : {}),
     fallbackText: summaryMessage,
     ...(input.nextRun === null ? {} : { nextRunAt: input.nextRun }),
   });

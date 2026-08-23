@@ -4,7 +4,7 @@ confirmed_by: 'Yash'
 date: 2026-07-27
 ---
 
-# DOCS-001 Client Signoff
+# Decision 0135: DOCS-001 Client Signoff
 
 ## Context
 

@@ -112,7 +112,7 @@ export interface InlineCoreToolRegistry {
   execute(
     name: string,
     input: unknown,
-    context?: { signal?: AbortSignal },
+    context?: { signal?: AbortSignal; invocationId?: string },
   ): Promise<{
     content: Array<{ type: 'text'; text: string }>;
     isError?: boolean;

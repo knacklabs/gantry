@@ -87,7 +87,7 @@ for the approved deliverable and avoids introducing infrastructure.
 
 ## Decisions
 
-- [0106-docs-001-client-signoff](../../docs/decisions/0106-docs-001-client-signoff.md) records
+- [0135-docs-001-client-signoff](../../docs/decisions/0135-docs-001-client-signoff.md) records
   Yash's approval of the source-derived deliverables and historical-link repair
   boundary.
 - No additional product or architecture decisions are required.

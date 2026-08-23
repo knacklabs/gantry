@@ -39,9 +39,11 @@ import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
+import { nowMs, toIso } from '../shared/time/datetime.js';
 
 let activeSchedulerEngine: PgBossSchedulerEngine | null = null;
 let schedulerRunning = false;
+const LIVE_TOOL_ACTIVITY_RETENTION_MS = 48 * 60 * 60_000;
 
 /**
  * Factory for the ephemeral send-only pg-boss client used by non-executing
@@ -179,10 +181,15 @@ export async function startSchedulerLoop(
       deps.hasLiveAdmissionBacklog ?? hasQueuedLiveAdmissionWork,
     sweepTerminalLiveAdmissions:
       deps.sweepTerminalLiveAdmissions ??
-      ((cutoffIso: string) =>
-        getRuntimeStorage().repositories.liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(
+      (async (cutoffIso: string) => {
+        const repositories = getRuntimeStorage().repositories;
+        await repositories.runtimeEvents.deleteExpiredToolActivityEvents(
+          toIso(nowMs() - LIVE_TOOL_ACTIVITY_RETENTION_MS),
+        );
+        return repositories.liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(
           cutoffIso,
-        )),
+        );
+      }),
   };
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);

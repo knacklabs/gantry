@@ -43,6 +43,7 @@ import {
   normalizeDeepAgentStream,
   type LangGraphStreamEvent,
 } from '../runner/stream-normalizer.js';
+import { runnableToolInvocationId } from '../runner/tool-invocation-id.js';
 import * as memory from './gantry-memory-middleware.js';
 import { createInlineSkillsMiddleware } from './skills.js';
 import { abortedOutput, structuredOutputError } from './inline-lane-output.js';
@@ -251,6 +252,8 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
             modelId: model.modelId,
             modelProfile: readModelProfile(model.model),
             cacheProvider: cacheProvider(model),
+            shouldEmitToolOutcome: (invocationId) =>
+              !toolActivity.hasTerminal(invocationId),
             runtimeEventContext: {
               appId: laneInput.input.appId,
               agentId: laneInput.input.agentId,
@@ -259,6 +262,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
               conversationId: laneInput.input.chatJid,
               threadId: laneInput.input.threadId,
               actor: 'deepagents',
+              parentTaskId: laneInput.input.parentTaskId,
             },
             emit: (output) => {
               if (laneInput.input.responseSchema && !output.runtimeEventOnly) {
@@ -445,10 +449,15 @@ function buildCoreLangChainTools(
   return input.coreTools.tools.map((definition) =>
     createLangChainTool(
       (args, config) =>
-        toolActivity.run(definition.name, () =>
-          input.coreTools.execute(definition.name, args, {
-            signal: config?.signal ?? input.signal,
-          }),
+        toolActivity.run(
+          definition.name,
+          (invocationId) =>
+            input.coreTools.execute(definition.name, args, {
+              signal: config?.signal ?? input.signal,
+              invocationId,
+            }),
+          runnableToolInvocationId(config),
+          'gantry',
         ),
       {
         name: definition.name,

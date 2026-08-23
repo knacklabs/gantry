@@ -1,5 +1,26 @@
 [
   {
+    "file": "apps/core/src/cli/auth.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Local UI authorization is a CLI composition seam: it resolves the runtime settings and initializes durable storage before issuing the one-time browser code. Capped to the auth command.",
+    "removeByPhase": "auth-cli-application-service-extraction",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/cli/auth-access.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Trusted first-admin recovery is intentionally infrastructure CLI-only and composes runtime settings with the durable access-grant repository. Capped to this command.",
+    "removeByPhase": "auth-cli-application-service-extraction",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/control/server/routes/browser-auth.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "The browser auth adapter needs the active revisioned authentication settings and desired-settings activation write path. Capped pending extraction of the control auth application service.",
+    "removeByPhase": "browser-auth-application-service-extraction",
+    "maxViolations": 2
+  },
+  {
     "file": "apps/core/src/adapters/credentials/agent-credential-broker-factory.ts",
     "rule": "provider_specific_path",
     "reason": "The credential factory composes the Gantry Model Gateway implementation from the approved Anthropic-compatible LLM adapter boundary; capped to this one import path.",

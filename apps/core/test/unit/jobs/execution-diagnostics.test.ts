@@ -4,17 +4,47 @@ import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import {
   createJobRunDiagnostics,
+  filterUnforwardedRunnerRuntimeEvents,
   formatTerminalToolDenial,
   forwardRunnerRuntimeEvents,
   jobToolDenialIdempotencyKey,
+  runnerRuntimeEventKey,
   terminalDiagnosticsPayload,
   toolDenialEventPayload,
   updateDiagnosticsFromRuntimeEvent,
 } from '@core/jobs/execution-diagnostics.js';
 
 describe('job execution diagnostics', () => {
+  it('deduplicates cumulative streamed runtime-event frames by invocation', () => {
+    const event = (invocationId: string) => ({
+      eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+      correlationId: invocationId,
+      payload: {
+        phase: 'success',
+        tool: 'WebSearch',
+        ok: true,
+        invocationId,
+      },
+    });
+    const forwarded = new Set<string>();
+    const take = (events: ReturnType<typeof event>[]) => {
+      const next =
+        filterUnforwardedRunnerRuntimeEvents(events, forwarded) ?? [];
+      for (const item of next) {
+        const key = runnerRuntimeEventKey(item);
+        if (key) forwarded.add(key);
+      }
+      return next;
+    };
+
+    expect(take([event('e1')])).toHaveLength(1);
+    expect(take([event('e1'), event('e2')])).toEqual([event('e2')]);
+    expect(take([event('e1'), event('e2')])).toEqual([]);
+  });
+
   it('fingerprints a denial from the run, tool, kind, and provenance seam', () => {
     const denial = {
+      invocationId: 'denial-1',
       toolName: 'RunCommand',
       reason: 'Denied by operator.',
       denialKind: 'permission_denied' as const,
@@ -31,6 +61,12 @@ describe('job execution diagnostics', () => {
         reason: 'Equivalent denial wording changed.',
       }),
     ).toBe(key);
+    expect(
+      jobToolDenialIdempotencyKey('run-1', {
+        ...denial,
+        invocationId: 'denial-2',
+      }),
+    ).not.toBe(key);
     expect(
       jobToolDenialIdempotencyKey('run-1', {
         ...denial,
@@ -90,7 +126,7 @@ describe('job execution diagnostics', () => {
       const diagnostics = createJobRunDiagnostics();
       updateDiagnosticsFromRuntimeEvent(
         diagnostics,
-        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
         {
           phase: 'permission_allowed',
           tool: 'Bash',
@@ -108,11 +144,12 @@ describe('job execution diagnostics', () => {
 
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       {
         phase: 'permission_denied',
         tool: 'Bash',
         ok: false,
+        invocationId: 'denial-invalid-action',
         terminal: true,
         reason: 'Bash command could not be parsed safely.',
         denial_kind: 'rule_denied',
@@ -129,11 +166,12 @@ describe('job execution diagnostics', () => {
 
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       {
         phase: 'permission_denied',
         tool: 'capability_run',
         ok: false,
+        invocationId: 'denial-camel-case',
         terminal: true,
         reason: 'Template mismatch.',
         denial_kind: 'capability_template_mismatch',
@@ -151,11 +189,12 @@ describe('job execution diagnostics', () => {
 
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       {
         phase: 'permission_denied',
         tool: 'capability_run',
         ok: false,
+        invocationId: 'denial-snake-case',
         terminal: true,
         reason: 'Template mismatch.',
         denial_kind: 'capability_template_mismatch',
@@ -176,11 +215,12 @@ describe('job execution diagnostics', () => {
 
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       {
         phase: 'permission_denied',
         tool: 'Bash',
         ok: false,
+        invocationId: 'denial-promptable',
         reason: 'Denied by operator.',
         terminal: true,
         denial_kind: 'permission_denied',
@@ -231,7 +271,7 @@ describe('job execution diagnostics', () => {
     for (const decision of automaticDecisions) {
       updateDiagnosticsFromRuntimeEvent(
         diagnostics,
-        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
         {
           phase: 'permission_allowed',
           tool: 'Bash',
@@ -252,7 +292,7 @@ describe('job execution diagnostics', () => {
 
       updateDiagnosticsFromRuntimeEvent(
         diagnostics,
-        RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
         {
           phase: 'permission_allowed',
           tool: 'Bash',
@@ -275,7 +315,7 @@ describe('job execution diagnostics', () => {
     const repeatable = createJobRunDiagnostics();
     updateDiagnosticsFromRuntimeEvent(
       repeatable,
-      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
       {
         phase: 'permission_allowed',
         tool: 'Bash',

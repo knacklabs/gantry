@@ -1,0 +1,26 @@
+{
+  "generated_by": "autoreview",
+  "status": "passed",
+  "score": 9,
+  "summary": "Six plan-aware autoreview passes drove the diff to clean. Neutral projection has no per-tool/per-provider code; correlation, provenance, retention and family-aware grouping are consistent across both runtimes and both inline lanes. Final pass raised only backward-compatibility findings for persisted-data/subscriptions across the rename cutover; rejected per decision 0003 (myclaw is pre-production with a deliberate clean cutover, no data to preserve).",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    "Backcompat of pre-patch job.tool_denied rows / old job.tool_activity rows / existing webhook subscriptions across the rename \u2014 out of scope per decision 0003."
+  ],
+  "recommendation": "approve",
+  "contract_verdicts": [
+    {
+      "contract_id": "TOOLACT-1-J1",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/jobs/status-formatting.test.ts:36 it('toolact-projection') is top-level; query-loop.test.ts and adapters/deepagents-stream-normalizer.test.ts likewise expose top-level toolact-anthropic/toolact-deepagents; VITEST_JUNIT reporter (vitest.shared.ts:36) writes testcase name==id with the file attribute so all three attribute cleanly and pass."
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "427591cf9ece56515046483992d248b1db0a48a521c8ea54cff17d302abe40ac",
+  "brief_sha256": "5bc5acab757760b4f6abd6959c815629448add97ddb1e47babbeaa55ba96f5d4",
+  "branch_diff_digest": "190f8b60e9b047b522a045dbf0a32a0e2310d4bcf6d8f89e96b298691ccfce24",
+  "residual_risks": [],
+  "reviewed_scope": [],
+  "recorded_at": "2026-08-22T03:55:38+00:00",
+  "commit": "49018da81bc381cb6ace90182cf36c02391aed9c"
+}

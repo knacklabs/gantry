@@ -6,9 +6,13 @@ import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-typ
 import { permissionRequestToolName } from './permission-suggestions.js';
 import type { YoloModeMatch } from '../../../../shared/yolo-mode-policy.js';
 import type { PermissionDecision } from './types.js';
+import type { AgentRunnerRuntimeEventOutput } from './types.js';
 import { permissionUpdateAllowedToolRules } from '../../../../shared/permission-tool-rules.js';
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
 import { DEFAULT_AGENT_ENGINE } from '../../../../shared/agent-engine.js';
+import { terminalToolActivityPayload } from '../../../../domain/events/tool-activity.js';
+import type { ToolActivityFamily } from '../../../../domain/events/tool-activity.js';
+import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-facades.js';
 
 export function yoloDenylistPromptReason(match: YoloModeMatch): string {
   return `A YOLO-mode denylist rule matched "${match.pattern}", so this tool needs explicit approval.`;
@@ -50,19 +54,24 @@ export function emitYoloDenylistHit(input: {
   });
 }
 
-export function emitJobToolActivity(
+export function emitToolActivity(
   agentInput: AgentRunnerInput,
   getNewSessionId: () => string | undefined,
   phase: string,
   toolName: string,
   payload: Record<string, unknown> = {},
 ): void {
-  if (!agentInput.isScheduledJob || !agentInput.jobId) return;
+  if (agentInput.parentTaskId) return;
   const publicToolName = permissionRequestToolName(toolName);
+  const invocationId =
+    typeof payload.invocationId === 'string' && payload.invocationId.trim()
+      ? payload.invocationId.trim()
+      : undefined;
   writeOutput({
     status: 'success',
     result: null,
     newSessionId: getNewSessionId(),
+    runtimeEventOnly: true,
     runtimeEvents: [
       {
         appId: agentInput.appId,
@@ -71,8 +80,9 @@ export function emitJobToolActivity(
         jobId: agentInput.jobId,
         conversationId: agentInput.chatJid,
         threadId: agentInput.threadId,
-        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
         actor: 'runner',
+        ...(invocationId ? { correlationId: invocationId } : {}),
         responseMode: 'none',
         payload: {
           phase,
@@ -85,6 +95,59 @@ export function emitJobToolActivity(
   });
 }
 
+export function emitTerminalToolActivity(input: {
+  agentInput: AgentRunnerInput;
+  getNewSessionId: () => string | undefined;
+  invocationId: string;
+  toolName: string;
+  family?: ToolActivityFamily;
+  outcome: 'success' | 'failure';
+  seq: number;
+}): void {
+  const event = terminalToolActivityRuntimeEvent(input);
+  if (!event) return;
+  writeOutput({
+    status: 'success',
+    result: null,
+    newSessionId: input.getNewSessionId(),
+    runtimeEventOnly: true,
+    runtimeEvents: [event],
+  });
+}
+
+export function terminalToolActivityRuntimeEvent(input: {
+  agentInput: AgentRunnerInput;
+  invocationId: string;
+  toolName: string;
+  family?: ToolActivityFamily;
+  outcome: 'success' | 'failure';
+  seq: number;
+}): AgentRunnerRuntimeEventOutput | null {
+  if (input.agentInput.parentTaskId) return null;
+  const tool = canonicalGantryToolRuleName(
+    permissionRequestToolName(input.toolName),
+  );
+  return {
+    appId: input.agentInput.appId,
+    agentId: input.agentInput.agentId,
+    runId: input.agentInput.runId,
+    jobId: input.agentInput.jobId,
+    conversationId: input.agentInput.chatJid,
+    threadId: input.agentInput.threadId,
+    eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+    actor: 'runner',
+    correlationId: input.invocationId,
+    responseMode: 'none',
+    payload: terminalToolActivityPayload({
+      invocationId: input.invocationId,
+      tool,
+      family: input.family,
+      outcome: input.outcome,
+      seq: input.seq,
+    }),
+  };
+}
+
 // S2a (decision 0126): one authoring site for the gate lane's terminal-denial
 // activity so the five gate guards stay uniform and the provider-boundary
 // token count stays stable (A-0060: lane = DEFAULT_AGENT_ENGINE).
@@ -92,19 +155,21 @@ export function emitGateDenialActivity(input: {
   agentInput: AgentRunnerInput;
   getNewSessionId: () => string | undefined;
   toolName: string;
+  invocationId?: string;
   reason: string;
   decision?: string;
   denialKind?: 'rule_denied' | 'permission_denied';
   action: JobSetupAction;
 }): void {
   const scheduled = input.agentInput.isScheduledJob;
-  emitJobToolActivity(
+  emitToolActivity(
     input.agentInput,
     input.getNewSessionId,
     scheduled ? 'permission_denied' : 'deny',
     input.toolName,
     {
       ok: false,
+      ...(input.invocationId ? { invocationId: input.invocationId } : {}),
       reason: input.reason,
       ...(input.decision ? { decision: input.decision } : {}),
       ...(scheduled

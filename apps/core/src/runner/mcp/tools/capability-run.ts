@@ -6,6 +6,7 @@ import { formatTaskFailureLines } from '../formatting.js';
 import { chatJid, providerAccountId, TASKS_DIR, threadId } from '../context.js';
 import { makeIpcId } from '../ipc-ids.js';
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
+import { withPrivateToolActivityInvocationId } from '../../../domain/events/tool-activity.js';
 
 const CAPABILITY_RUN_RESPONSE_TIMEOUT_MS = 125_000;
 
@@ -39,36 +40,47 @@ export function registerCapabilityRunTool(server: McpServer): void {
         chatJid,
         providerAccountId,
         authThreadId: threadId,
-        payload: { capabilityId, args, deadlineAt },
+        payload: {
+          capabilityId,
+          args,
+          deadlineAt,
+          invocationId: taskId,
+        },
       });
       const response = await waitForTaskResponse(
         taskId,
         CAPABILITY_RUN_RESPONSE_TIMEOUT_MS,
       );
       if (!response) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text' as const,
-              text: 'Capability execution timed out before the host returned a result.',
-            },
-          ],
-        };
+        return withPrivateToolActivityInvocationId(
+          {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: 'Capability execution timed out before the host returned a result.',
+              },
+            ],
+          },
+          taskId,
+        );
       }
       if (!response.ok) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text' as const,
-              text: formatTaskFailureLines(
-                response,
-                'Capability execution was rejected.',
-              ).join('\n'),
-            },
-          ],
-        };
+        return withPrivateToolActivityInvocationId(
+          {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: formatTaskFailureLines(
+                  response,
+                  'Capability execution was rejected.',
+                ).join('\n'),
+              },
+            ],
+          },
+          taskId,
+        );
       }
       const data = response.data;
       const result =
@@ -77,14 +89,17 @@ export function registerCapabilityRunTool(server: McpServer): void {
           : {};
       const stdout = typeof result.stdout === 'string' ? result.stdout : '';
       const stderr = typeof result.stderr === 'string' ? result.stderr : '';
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({ stdout, stderr }),
-          },
-        ],
-      };
+      return withPrivateToolActivityInvocationId(
+        {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ stdout, stderr }),
+            },
+          ],
+        },
+        taskId,
+      );
     },
   );
 }

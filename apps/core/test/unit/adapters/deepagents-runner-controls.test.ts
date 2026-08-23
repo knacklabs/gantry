@@ -118,23 +118,39 @@ describe('DeepAgents worker model controls', () => {
     const gate = mcp.connect.mock.calls[0]?.[0];
     expect(gate).toMatchObject({ toolRules });
     expect(() =>
-      gate?.onToolRuleDenial?.('send_message', {
-        decision: 'declarative_tool_rule',
-        reason: 'Denied by Gantry tool rule: quiet run',
-        error: {
-          category: 'permission',
-          isRetryable: false,
-          message: 'Denied by Gantry tool rule: quiet run',
+      gate?.onToolRuleDenial?.(
+        'send_message',
+        {
+          decision: 'declarative_tool_rule',
+          reason: 'Denied by Gantry tool rule: quiet run',
+          error: {
+            category: 'permission',
+            isRetryable: false,
+            message: 'Denied by Gantry tool rule: quiet run',
+          },
         },
-      }),
+        'tool-run-rule',
+      ),
     ).toThrow('Permission denied for send_message.');
     expect(emit).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        runtimeEvents: [
+        runtimeEvents: expect.arrayContaining([
           expect.objectContaining({
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
+            correlationId: 'tool-run-rule',
+            payload: expect.objectContaining({
+              phase: 'failure',
+              invocationId: 'tool-run-rule',
+              tool: 'send_message',
+              seq: 1,
+            }),
+          }),
+          expect.objectContaining({
+            eventType: 'tool.activity',
+            correlationId: 'tool-run-rule',
             payload: expect.objectContaining({
               phase: 'permission_denied',
+              invocationId: 'tool-run-rule',
               terminal: true,
               action: expect.objectContaining({ kind: 'instruction' }),
               denial_kind: 'rule_denied',
@@ -143,7 +159,7 @@ describe('DeepAgents worker model controls', () => {
               reason: 'Denied by Gantry tool rule: quiet run',
             }),
           }),
-        ],
+        ]),
       }),
     );
   });
@@ -175,6 +191,7 @@ describe('DeepAgents worker model controls', () => {
     const denial = mcp.connect.mock.calls[0]?.[0].gate.onPermissionDenied;
     expect(() =>
       denial?.({
+        invocationId: 'tool-run-permission',
         toolName: 'RunCommand',
         reason: 'Unattended jobs do not wait for approval.',
         action: {
@@ -191,11 +208,23 @@ describe('DeepAgents worker model controls', () => {
     ).toThrow('Permission denied for RunCommand.');
     expect(emit).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        runtimeEvents: [
+        runtimeEvents: expect.arrayContaining([
           expect.objectContaining({
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
+            correlationId: 'tool-run-permission',
+            payload: expect.objectContaining({
+              phase: 'failure',
+              invocationId: 'tool-run-permission',
+              tool: 'RunCommand',
+              seq: 1,
+            }),
+          }),
+          expect.objectContaining({
+            eventType: 'tool.activity',
+            correlationId: 'tool-run-permission',
             payload: expect.objectContaining({
               phase: 'permission_denied',
+              invocationId: 'tool-run-permission',
               tool: 'RunCommand',
               terminal: true,
               action: expect.objectContaining({ kind: 'approve_grant' }),
@@ -204,7 +233,7 @@ describe('DeepAgents worker model controls', () => {
               provenance_seam: 'gate',
             }),
           }),
-        ],
+        ]),
       }),
     );
   });

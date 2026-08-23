@@ -13,6 +13,7 @@ import {
 import type { IpcDeps } from './ipc-domain-types.js';
 import { canProcessIpcFile } from './ipc-rate-limit.js';
 import type { RunnerControlPort } from './runner-control-port.js';
+import { permissionRunRestriction } from './permission-decision-coordinator.js';
 
 interface IpcBrowserRequestLogger {
   warn: (obj: Record<string, unknown>, message: string) => void;
@@ -111,6 +112,13 @@ function processOneBrowserRequest(input: {
     requestId = request.requestId;
     authThreadId = request.threadId;
     responseKeyId = request.responseKeyId;
+    if (!responseKeyId) {
+      throw new Error('Browser IPC responseKeyId is required');
+    }
+    const restriction = permissionRunRestriction({
+      sourceAgentFolder,
+      responseKeyId,
+    });
     const browserIpcAuthorized = isBrowserIpcAuthorized({
       workspaceKey: sourceAgentFolder,
       chatJid: request.chatJid,
@@ -145,6 +153,7 @@ function processOneBrowserRequest(input: {
       publishBrowserJobActivity: deps.publishBrowserJobActivity,
       closeBrowserToolBackends: deps.closeBrowserToolBackends,
       getBrowserUsageSettings: deps.getBrowserUsageSettings,
+      suppressToolActivity: Boolean(restriction?.parentTaskId),
       timeoutMs: request.timeoutMs,
       deadlineAtMs: request.deadlineAtMs,
     })

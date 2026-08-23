@@ -1,0 +1,41 @@
+{
+  "commit": "49018da81bc381cb6ace90182cf36c02391aed9c",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "Universal tool-activity + neutral structured job result across both worker runtimes (Anthropic SDK PostToolUse hook, DeepAgents lifecycle) and both inline lanes, with per-invocation correlation, provenance-gated Gantry _meta dedup (decision 0133), family-aware projection and retention. Full verify.py green: 8922 unit tests pass, integration boundary suites incl. claude-agent-sdk-boundary 23/23, structural (format + architecture) and dual-runtime gates pass. Required proofs toolact-projection, toolact-anthropic, toolact-deepagents pass as attributed top-level tests.",
+    "blocking_findings": [],
+    "commands_run": [
+      "python3 factory/scripts/verify.py",
+      "npx vitest run -c vitest.unit.config.ts",
+      "npx vitest run -c vitest.integration.config.ts apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs/status-formatting.test.ts -t toolact-projection",
+      "npm run format:check",
+      "npm run check:architecture",
+      "python3 factory/scripts/check_dual_runtime.py"
+    ],
+    "tests_added_or_updated": [
+      "status-formatting.test.ts: toolact-projection (top-level) - neutral projection grouping, counts, failed-first, overflow, family-aware browser keys, singleton-only detail, correlation-id dedup",
+      "query-loop.test.ts: toolact-anthropic (top-level) - real PostToolUse/PostToolUseFailure hook wiring, provider-sourced generic id, Gantry provenance registration",
+      "deepagents-stream-normalizer.test.ts: toolact-deepagents (top-level) - DeepAgents tool lifecycle, provider toolCall.id preference, provenance-gated _meta",
+      "claude-agent-sdk-boundary.integration.test.ts: 3-hook PreToolUse array (safety, provenance-registration, declarative permission)",
+      "ipc-mcp-stdio.test.ts: fixture copies domain/events/tool-activity + runtime-event-types for the runner/mcp esbuild bundle"
+    ],
+    "pass_fail_summary": "unit 8922 pass; claude-agent-sdk-boundary 23/23; verify.py exit 0",
+    "remaining_gaps": [],
+    "reviewed_scope": [
+      "apps/core/src/domain/events/tool-activity.ts",
+      "apps/core/src/jobs/status-formatting.ts",
+      "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+      "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts",
+      "apps/core/src/adapters/llm/inline-lane-tool-activity.ts",
+      "apps/core/src/shared/gantry-tool-facades.ts"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-22T03:46:34+00:00",
+    "commit": "49018da81bc381cb6ace90182cf36c02391aed9c"
+  },
+  "updated_at": "2026-08-22T03:46:34+00:00"
+}

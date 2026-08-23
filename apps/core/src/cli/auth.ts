@@ -1,0 +1,75 @@
+import * as p from '@clack/prompts';
+
+import { acquireRuntimeStorageForRuntimeHome } from '../adapters/storage/postgres/runtime-store.js';
+import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
+import { createLocalAuthorizationUrl } from '../control/server/routes/browser-auth.js';
+
+function usage(): string {
+  return ['Usage:', '  gantry ui', '  gantry ui authorize'].join('\n');
+}
+
+async function isLocalControlServerAvailable(
+  canonicalOrigin: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch(new URL('/ui/auth/local', canonicalOrigin), {
+      signal: AbortSignal.timeout(3_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function runUiCommand(
+  runtimeHome: string,
+  args: string[],
+): Promise<number> {
+  const [command] = args;
+  if (args.length > 1 || (command && command !== 'authorize')) {
+    console.log(usage());
+    return 1;
+  }
+  const settings = ensureRuntimeSettings(runtimeHome);
+  if (settings.authentication.mode !== 'local') {
+    if (!command) {
+      console.log(
+        new URL('/ui', settings.authentication.canonicalOrigin).toString(),
+      );
+      return 0;
+    }
+    p.log.error(
+      'Browser authorization links are available only in local authentication mode.',
+    );
+    return 1;
+  }
+  if (
+    !(await isLocalControlServerAvailable(
+      settings.authentication.canonicalOrigin,
+    ))
+  ) {
+    p.log.error(
+      `Gantry is not running at ${settings.authentication.canonicalOrigin}. Start it with \`gantry service start\`, then run \`gantry ui\` again.`,
+    );
+    return 1;
+  }
+  let release: (() => Promise<void>) | undefined;
+  try {
+    ({ release } = await acquireRuntimeStorageForRuntimeHome(
+      runtimeHome,
+      settings,
+    ));
+    const url = await createLocalAuthorizationUrl({
+      canonicalOrigin: settings.authentication.canonicalOrigin,
+    });
+    console.log(url);
+    return 0;
+  } catch {
+    p.log.error(
+      'The authorization link could not be created. Check Gantry storage and try again.',
+    );
+    return 1;
+  } finally {
+    await release?.().catch(() => undefined);
+  }
+}

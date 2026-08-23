@@ -1313,7 +1313,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
               jobId: job.id,
               conversationId: 'tg:job-lifecycle',
               threadId: 'thread-job-lifecycle',
-              eventType: 'job.tool_activity',
+              eventType: 'tool.activity',
               actor: 'runner',
               responseMode: 'none',
               payload: {
@@ -1341,7 +1341,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
             jobId: job.id,
             conversationId: 'tg:job-lifecycle',
             threadId: 'thread-job-lifecycle',
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             actor: 'runner',
             responseMode: 'none',
             payload: {
@@ -1358,7 +1358,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
             jobId: job.id,
             conversationId: 'tg:job-lifecycle',
             threadId: 'thread-job-lifecycle',
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             actor: 'runner',
             responseMode: 'none',
             payload: {
@@ -1530,7 +1530,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       job_id: job.id,
     });
     const toolDecisions = events
-      .filter((event) => event.event_type === 'job.tool_activity')
+      .filter((event) => event.event_type === 'tool.activity')
       .map((event) => JSON.parse(event.payload ?? '{}'))
       .filter((payload) =>
         ['permission_denied', 'permission_allowed'].includes(payload.phase),

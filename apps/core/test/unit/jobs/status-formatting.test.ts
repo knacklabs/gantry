@@ -5,8 +5,12 @@ import {
   boundJobNotificationView,
   formatRunStatusMessage,
   JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH,
+  structuredJobResultFromRecordedActions,
 } from '@core/jobs/status-formatting.js';
 import type { Job } from '@core/domain/types.js';
+import type { RuntimeEvent } from '@core/domain/events/events.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
+import { listRecordedToolActions } from '@core/jobs/execution-runtime-events.js';
 
 function job(): Job {
   return {
@@ -27,6 +31,265 @@ function job(): Job {
     max_consecutive_failures: 3,
   } as Job;
 }
+
+it('toolact-projection', async () => {
+  const terminal = (
+    invocationId: string,
+    tool: string,
+    outcome: 'success' | 'failure',
+    authoritative = false,
+    detail?: string,
+    seq = 0,
+    family?: 'browser' | 'capability',
+  ) => ({
+    eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+    correlationId: invocationId,
+    payload: {
+      phase: outcome,
+      tool,
+      ok: outcome === 'success',
+      invocationId,
+      authoritative,
+      seq,
+      ...(family ? { family } : {}),
+      ...(detail ? { detail } : {}),
+    },
+  });
+  const pagedActions = Array.from({ length: 501 }, (_, index) => ({
+    ...terminal(`page-${index}`, 'email.send', 'success'),
+    eventId: (index + 1) as never,
+    appId: 'app-one' as never,
+    actor: 'runner',
+    createdAt: '2026-08-21T00:00:00.000Z' as never,
+  })) as RuntimeEvent[];
+  let pageReads = 0;
+  const completeActions = await listRecordedToolActions({
+    filter: {
+      appId: 'app-one' as never,
+      jobId: 'job-one' as never,
+      runId: 'run-one' as never,
+      eventTypes: [RUNTIME_EVENT_TYPES.TOOL_ACTIVITY],
+    },
+    listRuntimeEvents: async (filter) => {
+      pageReads += 1;
+      const after = Number(filter.afterEventId ?? 0);
+      return pagedActions
+        .filter((event) => Number(event.eventId) > after)
+        .slice(0, filter.limit);
+    },
+  });
+  expect(completeActions).toHaveLength(501);
+  expect(pageReads).toBe(2);
+  const actions = [
+    terminal('cap-1', 'capability_run', 'failure', false, undefined, 1),
+    terminal(
+      'cap-1',
+      'google.sheets.values.append',
+      'success',
+      true,
+      'Added 3 rows.',
+      1,
+      'capability',
+    ),
+    terminal('fallback-1', 'email.send', 'success', false, undefined, 2),
+    terminal('denial-1', 'slack.messages.send', 'failure', false, undefined, 3),
+    {
+      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+      correlationId: 'denial-1',
+      payload: {
+        invocationId: 'denial-1',
+        denied_tool: 'slack.messages.send',
+        reason: 'Slack access was not approved.',
+        denial_kind: 'permission_denied',
+        provenance_lane: DEFAULT_AGENT_ENGINE,
+        provenance_seam: 'gate',
+        action: { kind: 'instruction', text: 'Approve Slack access.' },
+        error_summary: null,
+      },
+    },
+    terminal('collide-1', 'foo-bar', 'success', false, undefined, 4),
+    terminal('collide-2', 'foo-bar', 'success', false, undefined, 5),
+    terminal('collide-3', 'foo_bar', 'success', false, undefined, 6),
+    terminal('failed-1', 'alpha.fail', 'failure', false, 'Alpha failed.', 7),
+    terminal('zeta-1', 'zeta', 'success', false, undefined, 8),
+    terminal('beta-1', 'beta', 'success', false, undefined, 9),
+    terminal('delta-1', 'delta', 'success', false, undefined, 10),
+    terminal('epsilon-1', 'epsilon', 'success', false, undefined, 11),
+    terminal('gamma-1', 'gamma', 'success', false, undefined, 12),
+    terminal('eta-1', 'eta', 'success', false, undefined, 13),
+  ];
+  const result = structuredJobResultFromRecordedActions(actions);
+
+  expect(result?.items).toEqual([
+    {
+      outcome: 'failed',
+      label: 'Could not use Slack Messages Send',
+      detail: 'Slack access was not approved.',
+    },
+    {
+      outcome: 'failed',
+      label: 'Alpha Fail',
+      detail: 'Alpha failed.',
+    },
+    {
+      outcome: 'done',
+      label: 'Capability: Google Sheets Values Append',
+      detail: 'Added 3 rows.',
+    },
+    { outcome: 'done', label: 'Email Send' },
+    { outcome: 'done', label: 'Foo Bar ×2' },
+    { outcome: 'done', label: 'Foo Bar' },
+    { outcome: 'done', label: 'Zeta' },
+    { outcome: 'done', label: 'Beta' },
+    { outcome: 'done', label: 'Delta' },
+    {
+      outcome: 'done',
+      label: '+3 more',
+    },
+  ]);
+  expect(
+    structuredJobResultFromRecordedActions([...actions].reverse()),
+  ).toEqual(result);
+  expect(
+    structuredJobResultFromRecordedActions([
+      terminal('mixed-failure', 'mixed.tool', 'failure', false, undefined, 1),
+      terminal('mixed-success', 'mixed.tool', 'success', true, undefined, 2),
+    ])?.items,
+  ).toEqual([
+    { outcome: 'failed', label: 'Mixed Tool' },
+    { outcome: 'done', label: 'Mixed Tool' },
+  ]);
+  expect(
+    structuredJobResultFromRecordedActions([
+      terminal('web-1', 'WebSearch', 'success', false, undefined, 1),
+      terminal(
+        'mcp-1',
+        'mcp__github__createIssue',
+        'success',
+        false,
+        undefined,
+        2,
+      ),
+    ])?.items,
+  ).toEqual([
+    { outcome: 'done', label: 'Web Search' },
+    { outcome: 'done', label: 'Github MCP Create Issue' },
+  ]);
+  expect(
+    structuredJobResultFromRecordedActions([
+      terminal(
+        'generic-capability-name',
+        'billing.sync',
+        'success',
+        true,
+        'Generic detail.',
+        1,
+      ),
+      terminal(
+        'owned-capability',
+        'billing.sync',
+        'success',
+        true,
+        'Capability detail.',
+        2,
+        'capability',
+      ),
+      terminal(
+        'owned-capability-2',
+        'billing.sync',
+        'success',
+        true,
+        'Second capability detail.',
+        3,
+        'capability',
+      ),
+      terminal(
+        'browser-open',
+        'browser_open',
+        'success',
+        true,
+        'docs.example.test',
+        4,
+        'browser',
+      ),
+      terminal(
+        'browser-act',
+        'browser_act',
+        'success',
+        true,
+        'app.example.test',
+        5,
+        'browser',
+      ),
+      terminal(
+        'generic-browser-name',
+        'Browser',
+        'success',
+        false,
+        'Generic browser detail.',
+        6,
+      ),
+    ])?.items,
+  ).toEqual([
+    {
+      outcome: 'done',
+      label: 'Billing Sync',
+      detail: 'Generic detail.',
+    },
+    {
+      outcome: 'done',
+      label: 'Capability: Billing Sync ×2',
+    },
+    {
+      outcome: 'done',
+      label: 'Browser: Open',
+      detail: 'docs.example.test',
+    },
+    {
+      outcome: 'done',
+      label: 'Browser: Act',
+      detail: 'app.example.test',
+    },
+    {
+      outcome: 'done',
+      label: 'Browser',
+      detail: 'Generic browser detail.',
+    },
+  ]);
+  expect(structuredJobResultFromRecordedActions([])).toBeUndefined();
+
+  const view = boundJobNotificationView({
+    status: 'completed',
+    jobName: 'Recorded actions',
+    result,
+    fallbackText: 'The job completed.',
+  });
+  expect(view.result?.items).toEqual(result?.items);
+  expect(view.fallbackText).toBe('The job completed.');
+
+  const repeated = structuredJobResultFromRecordedActions(
+    Array.from({ length: 57 }, (_, index) =>
+      terminal(
+        `repeat-${index}`,
+        'veryLongTechnicalIdentifierThatNeedsTruncation',
+        'success',
+        false,
+        undefined,
+        index + 1,
+      ),
+    ),
+  );
+  const boundedRepeated = boundJobNotificationView({
+    status: 'completed',
+    jobName: 'Repeated tool',
+    result: repeated,
+    fallbackText: 'Completed.',
+  });
+  expect(boundedRepeated.result?.items[0]?.label).toMatch(/\.\.\. ×57$/);
+  expect(boundedRepeated.result?.items[0]?.label.length).toBeLessThanOrEqual(
+    50,
+  );
+});
 
 describe('job status formatting', () => {
   it('bounds structured notification views before provider rendering', () => {
@@ -359,6 +622,7 @@ describe('job status formatting', () => {
       runStatus: 'failed',
       summary: 'Permission denied for RunCommand.',
       toolDenial: {
+        invocationId: 'denial-run-command',
         toolName: 'RunCommand',
         reason: 'Command access is missing.',
         denialKind: 'permission_denied',
@@ -377,7 +641,7 @@ describe('job status formatting', () => {
       retryCount: 1,
     });
 
-    expect(message).toContain('Missing RunCommand access for this job.');
+    expect(message).toContain('Missing Run Command access for this job.');
     expect(message).toContain('Approve the missing access');
     expect(message).toContain('Stopped until the job is fixed or rerun.');
     expect(message).not.toMatch(

@@ -22,10 +22,10 @@
     "plans/completed"
   ],
   "counts": {
-    "architecture-decision": 133,
+    "architecture-decision": 136,
     "current-architecture": 21,
     "decision-index": 1,
-    "execution-plan": 23,
+    "execution-plan": 24,
     "generated-architecture-artifact": 11,
     "historical-architecture-record": 115,
     "legacy-plan": 1,
@@ -1811,13 +1811,6 @@
       "intendedAction": "retain-until-superseded"
     },
     {
-      "path": "docs/decisions/0106-docs-001-client-signoff.md",
-      "category": "architecture-decision",
-      "lifecycle": "accepted",
-      "authority": "accepted-decision",
-      "intendedAction": "retain-until-superseded"
-    },
-    {
       "path": "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
       "category": "architecture-decision",
       "lifecycle": "accepted",
@@ -2000,6 +1993,34 @@
       "intendedAction": "review-or-resolve"
     },
     {
+      "path": "docs/decisions/0132-adaptive-browser-authentication-access.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0133-gantry-tool-correlation-response-meta.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
+      "path": "docs/decisions/0134-autonomous-compound-runcommand-leaf-authorization.md",
+      "category": "architecture-decision",
+      "lifecycle": "proposed",
+      "authority": "proposal-only",
+      "intendedAction": "review-or-resolve"
+    },
+    {
+      "path": "docs/decisions/0135-docs-001-client-signoff.md",
+      "category": "architecture-decision",
+      "lifecycle": "accepted",
+      "authority": "accepted-decision",
+      "intendedAction": "retain-until-superseded"
+    },
+    {
       "path": "docs/decisions/README.md",
       "category": "decision-index",
       "lifecycle": "current",
@@ -2169,6 +2190,13 @@
     },
     {
       "path": "plans/completed/TOOLS-1-provider-aware-tool-surface-affinity-filtered-projection-dynamic-per-provider-instructions.md",
+      "category": "execution-plan",
+      "lifecycle": "completed",
+      "authority": "historical-outcome",
+      "intendedAction": "retain-as-completion-record"
+    },
+    {
+      "path": "plans/completed/WEB-AUTH-1-authentication-and-access-web-ui.md",
       "category": "execution-plan",
       "lifecycle": "completed",
       "authority": "historical-outcome",

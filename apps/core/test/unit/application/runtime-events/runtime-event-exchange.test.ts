@@ -84,6 +84,10 @@ class MemoryRuntimeEventRepository implements RuntimeEventRepository {
       .slice(0, filter.limit ?? 100);
   }
 
+  async deleteExpiredToolActivityEvents(): Promise<void> {
+    return undefined;
+  }
+
   async queryUsage() {
     return [];
   }

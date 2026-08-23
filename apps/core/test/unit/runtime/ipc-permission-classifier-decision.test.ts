@@ -200,6 +200,71 @@ describe('IPC permission classifier decision', () => {
     expect(classifierConsult).not.toHaveBeenCalled();
   });
 
+  it('allows a host-job RunCommand control-flow compound when every leaf is granted', async () => {
+    const responseKeyId = 'autodet-compound-response-key';
+    const requestPermissionApproval = vi.fn();
+    const toolRepository = {
+      listAgentToolBindings: vi.fn(async () => [
+        { status: 'active', toolId: 'tool:date', personId: null },
+      ]),
+      getTool: vi.fn(async () => ({
+        id: 'tool:date',
+        appId: 'default',
+        name: 'RunCommand(date *)',
+      })),
+    };
+    registerWorkerPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: 'host-job-1',
+      runId: 'host-run-1',
+    });
+    try {
+      await expect(
+        resolvePermissionIpcDecision({
+          request: {
+            requestId: 'autodet-host-job-compound',
+            responseKeyId,
+            sourceAgentFolder: 'main_agent',
+            toolName: 'RunCommand',
+            toolInput: {
+              command: 'date +"%u %H %M %Z" && date +"%Y-%m-%d %H:%M %Z"',
+            },
+            unattended: true,
+          },
+          sourceAgentFolder: 'main_agent',
+          deps: {
+            conversationRoutes: () => ({}),
+            requestPermissionApproval,
+            publishRuntimeEvent: vi.fn(async () => undefined),
+            getToolRepository: () => toolRepository as never,
+            getPermissionRuntimeSettings: () => ({
+              agents: { main_agent: { permissionMode: 'auto' as const } },
+              permissions: {
+                autoMode: {},
+                trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
+              },
+              memory: { llm: { models: { extractor: 'sonnet' } } },
+            }),
+          } as never,
+        }),
+      ).resolves.toMatchObject({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'reviewed_rule',
+      });
+    } finally {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId,
+      });
+    }
+
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['destructive', 'rm -rf ./build', 'destructive'],
     ['credential', 'cat ~/.ssh/id_rsa', 'secret'],

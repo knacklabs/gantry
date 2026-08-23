@@ -16,6 +16,7 @@ import {
   preCheckDenialResult,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
+import { runnableToolInvocationId } from './tool-invocation-id.js';
 
 // Gantry-owned shell tool for the DeepAgents lane. The model-visible tool is
 // named `RunCommand` (the canonical public Gantry shell capability name) — NOT
@@ -151,8 +152,12 @@ const shellInputSchema = z.object({
 export function createGantryShellTool(
   config: GantryShellToolConfig,
 ): StructuredToolInterface {
-  const gatedFunc = async (input: { command: string }): Promise<unknown> => {
+  const gatedFunc = async (
+    input: { command: string },
+    runnableConfig?: unknown,
+  ): Promise<unknown> => {
     config.signal?.throwIfAborted();
+    const invocationId = runnableToolInvocationId(runnableConfig);
     const command = typeof input?.command === 'string' ? input.command : '';
     if (!command.trim()) {
       return gatedToolErrorResult(
@@ -170,7 +175,12 @@ export function createGantryShellTool(
       yoloMode: config.gateContext.yoloMode,
     });
     if (preChecks) {
-      return preCheckDenialResult(config, GANTRY_SHELL_TOOL_NAME, preChecks);
+      return preCheckDenialResult(
+        config,
+        GANTRY_SHELL_TOOL_NAME,
+        preChecks,
+        invocationId,
+      );
     }
 
     const approval = await requestPermissionApprovalViaIpc(
@@ -205,6 +215,7 @@ export function createGantryShellTool(
           GANTRY_SHELL_TOOL_NAME,
           { toolName: SHELL_POLICY_TOOL_NAME, toolInput: policyInput },
           reason,
+          invocationId,
         ),
       );
     }

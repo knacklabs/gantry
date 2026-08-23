@@ -100,7 +100,7 @@ decisions_reviewed:
   - 0103-live-admission-terminal-retention
   - 0104-co-1-recovery-intent-reframe
   - 0105-physical-attachment-workspace-handoff
-  - 0106-docs-001-client-signoff
+  - 0135-docs-001-client-signoff
 ---
 
 # GH-408 — Establish repository engineering standards and documentation governance
@@ -143,15 +143,15 @@ No new decisions. This work documents and enforces existing repository, authorit
 
 ## Surface Impact
 
-| Surface | Status | Reason |
-|---|---|---|
-| Runtime behavior | Unchanged by design | Documentation governance does not alter execution. |
-| API | Unchanged by design | No endpoint or contract changes. |
-| Data/schema | Unchanged by design | No migration or persistence changes. |
-| CLI/ops | Unchanged by design | Existing commands remain unchanged; only documented validation entry points are added. |
-| UI | Unchanged by design | The DOCS-001 static explorer and diagrams are preserved. |
-| Docs | Changed | Canonical policies, indexes, contributor guidance, and inventory are added. |
-| Tests | Changed | Focused deterministic documentation-governance checks are added. |
+| Surface          | Status              | Reason                                                                                 |
+| ---------------- | ------------------- | -------------------------------------------------------------------------------------- |
+| Runtime behavior | Unchanged by design | Documentation governance does not alter execution.                                     |
+| API              | Unchanged by design | No endpoint or contract changes.                                                       |
+| Data/schema      | Unchanged by design | No migration or persistence changes.                                                   |
+| CLI/ops          | Unchanged by design | Existing commands remain unchanged; only documented validation entry points are added. |
+| UI               | Unchanged by design | The DOCS-001 static explorer and diagrams are preserved.                               |
+| Docs             | Changed             | Canonical policies, indexes, contributor guidance, and inventory are added.            |
+| Tests            | Changed             | Focused deterministic documentation-governance checks are added.                       |
 
 ## Task Decomposition
 

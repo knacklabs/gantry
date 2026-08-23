@@ -140,6 +140,7 @@ function buildRevisionDocument(
     },
     memory: snakeRecord(settings.memory),
     runtime: snakeRecord(settings.runtime),
+    authentication: snakeRecord(settings.authentication),
     browser: {
       usage: {
         enabled: settings.browser.usage.enabled,

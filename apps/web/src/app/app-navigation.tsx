@@ -131,6 +131,15 @@ export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
           <Settings2 size={17} aria-hidden="true" />
           <span>Profile</span>
         </Link>
+        <Link
+          activeProps={{ className: NAV_ITEM_ACTIVE_CLASS_NAME }}
+          className={NAV_ITEM_CLASS_NAME}
+          to="/settings/authentication-access"
+          onClick={onNavigate}
+        >
+          <ShieldCheck size={17} aria-hidden="true" />
+          <span>Authentication &amp; Access</span>
+        </Link>
       </nav>
     </div>
   );

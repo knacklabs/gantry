@@ -1,0 +1,69 @@
+{
+  "commit": "4d034ab8314cb9dc87a42d78b0a3e19abc189e82",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "The complete Node 24 deterministic gate passed. Focused authentication repository integration, OIDC and CLI unit tests, and the approved web auth source-contract tests also passed.",
+    "blocking_findings": [],
+    "commands_run": [
+      "source /Users/caw/.nvm/nvm.sh && nvm use 24 && source .envrc && python3 factory/scripts/verify.py",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/authentication-repository.postgres.integration.test.ts --reporter=junit --outputFile=/tmp/WEB-AUTH-1-6-junit.xml",
+      "npm run test:unit -- --run apps/core/test/unit/auth/oidc-adapter.test.ts apps/core/test/unit/auth/auth-cli.test.ts",
+      "FORGE_JUNIT=1 npm --workspace @gantry/web run test -- --run ../../apps/web/src/features/auth/auth-pages.test.ts"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/integration/authentication-repository.postgres.integration.test.ts",
+      "apps/web/src/features/auth/auth-pages.test.ts"
+    ],
+    "pass_fail_summary": "verify.py completed successfully: format, architecture, typecheck, unit tests, and credential-free integration tests passed. The disposable-Postgres authentication repository suite passed 3/3. Focused OIDC/CLI units passed 4/4.",
+    "remaining_gaps": [
+      "A live Google identity-provider interaction requires a separately provisioned client and is not part of local deterministic proof."
+    ],
+    "reviewed_scope": [
+      "WEB-AUTH-1 browser authentication, access grants, invitations, OIDC configuration, CLI recovery, and web UI"
+    ],
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-20T13:55:46+00:00",
+    "commit": "4d034ab8314cb9dc87a42d78b0a3e19abc189e82"
+  },
+  "updated_at": "2026-08-20T14:08:42+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "partial",
+    "score": 8,
+    "summary": "Browser-assisted functional validation passed for the WEB-AUTH-1 auth UI on Node 24.15.0. Public auth, local-fragment cleanup, protected redirects, administrator and Viewer access behavior, invitation receipt focus, reauthentication, no-access/disabled states, and supported tablet/desktop layouts were validated with no blocking finding.",
+    "blocking_findings": [],
+    "non_blocking_findings": [
+      "Live Control-runtime proof was unavailable because local launchd service com.gantry is intentionally not loaded.",
+      "Browser API behavior was exercised with Playwright route mocks rather than a live Postgres-backed Control server.",
+      "Live Google/OIDC provider interaction was not attempted because it requires separately provisioned credentials."
+    ],
+    "residual_risks": [
+      "A real gantry ui authorize session against a running Control service remains to be exercised in an environment with the service and Google configuration available.",
+      "Authentication & Access remains intentionally desktop/tablet-only below 768px."
+    ],
+    "recommendation": "approve-with-caveats",
+    "reviewed_scope": [
+      "Public /ui/auth routes",
+      "Protected authentication route loading",
+      "Authentication & Access administrator and Viewer UI",
+      "Invitation, session, OIDC candidate, and reauthentication states"
+    ],
+    "manual_validation_steps": [
+      "Built apps/web with Node 24.15.0 and ran the focused two-test auth page suite successfully.",
+      "Ran temporary Vite at 127.0.0.1:5173 and headless Playwright with mocked auth browser endpoints.",
+      "Verified local fragment removal, expired guidance, protected sign-in redirect, admin actions, invitation receipt focus, Viewer restrictions, reauth, no-access, disabled, and supported-width layouts."
+    ],
+    "remaining_gaps": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "recorded_at": "2026-08-20T14:08:42+00:00",
+    "commit": "4d034ab8314cb9dc87a42d78b0a3e19abc189e82"
+  }
+}

@@ -153,7 +153,6 @@ describe('Claude inline lane', () => {
     const toolActivity = createInlineToolActivity({
       input: {
         chatJid: 'conversation:test',
-        isScheduledJob: true,
       },
       coreTools: {
         tools: [{ name: 'delegate_to_reviewer_hash' }],
@@ -161,14 +160,18 @@ describe('Claude inline lane', () => {
       emitOutput,
     });
 
-    await toolActivity.run('delegate_to_reviewer_hash', async () => 'done');
+    let invocationId: string | undefined;
+    await toolActivity.run('delegate_to_reviewer_hash', async (id) => {
+      invocationId = id;
+      return 'done';
+    });
 
     expect(emitOutput).toHaveBeenCalledWith(
       expect.objectContaining({
         runtimeEventOnly: true,
         runtimeEvents: [
           expect.objectContaining({
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             payload: expect.objectContaining({
               phase: 'started',
               tool: 'AgentDelegation',
@@ -177,6 +180,44 @@ describe('Claude inline lane', () => {
         ],
       }),
     );
+    expect(emitOutput).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        runtimeEvents: [
+          expect.objectContaining({
+            jobId: undefined,
+            correlationId: invocationId,
+            payload: expect.objectContaining({
+              phase: 'success',
+              invocationId,
+            }),
+          }),
+        ],
+      }),
+    );
+    const terminalCallCount = emitOutput.mock.calls.length;
+    await toolActivity.terminal(
+      'delegate_to_reviewer_hash',
+      'failure',
+      invocationId,
+    );
+    expect(emitOutput).toHaveBeenCalledTimes(terminalCallCount);
+
+    const delegatedEmitOutput = vi.fn(async () => undefined);
+    const delegatedToolActivity = createInlineToolActivity({
+      input: {
+        chatJid: 'conversation:test',
+        parentTaskId: 'task-parent',
+      },
+      coreTools: {
+        tools: [{ name: 'delegate_to_reviewer_hash' }],
+      },
+      emitOutput: delegatedEmitOutput,
+    });
+    await delegatedToolActivity.run(
+      'delegate_to_reviewer_hash',
+      async () => 'done',
+    );
+    expect(delegatedEmitOutput).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -536,7 +577,10 @@ describe('Claude inline lane', () => {
     expect(input.coreTools.execute).toHaveBeenCalledWith(
       'send_message',
       { text: 'hello' },
-      { signal: input.signal },
+      {
+        signal: input.signal,
+        invocationId: expect.any(String),
+      },
     );
     expect(input.emitOutput).toHaveBeenCalledWith(
       expect.objectContaining({ result: 'first', newSessionId: 'session-1' }),
@@ -764,7 +808,18 @@ describe('Claude inline lane', () => {
     sdk.query.mockImplementation(({ options }) => ({
       async *[Symbol.asyncIterator]() {
         const coreTool = options.mcpServers.gantry.instance.tools[0];
-        await coreTool.handler({ text: 'scheduled hello' }, {});
+        const coreDecision = await options.canUseTool(
+          'mcp__gantry__send_message',
+          { text: 'scheduled hello' },
+          {
+            signal: options.abortController.signal,
+            toolUseID: 'scheduled-core-1',
+          },
+        );
+        if (coreDecision.behavior !== 'allow') {
+          throw new Error('Core tool was unexpectedly denied.');
+        }
+        await coreTool.handler(coreDecision.updatedInput, {});
         const hookInput = {
           tool_name: 'mcp__crm__read',
           tool_input: { id: 'scheduled-crm' },
@@ -807,13 +862,21 @@ describe('Claude inline lane', () => {
           runtimeEventOnly: true,
           runtimeEvents: [
             expect.objectContaining({
-              eventType: 'job.tool_activity',
+              eventType: 'tool.activity',
               payload: expect.objectContaining({ phase: 'started', tool }),
             }),
           ],
         }),
       );
     }
+    const terminalEvents = input.emitOutput.mock.calls.flatMap(
+      ([output]) => output.runtimeEvents ?? [],
+    );
+    expect(
+      terminalEvents
+        .filter((event) => event.payload.phase === 'success')
+        .map((event) => event.correlationId),
+    ).toEqual(['scheduled-core-1', 'scheduled-tool-1']);
   });
 
   it('uses a unique fallback usage id for each resumed inline run', async () => {

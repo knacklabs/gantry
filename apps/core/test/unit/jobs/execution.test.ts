@@ -123,10 +123,12 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 function terminalDenialRuntimeEvents(tool = 'RunCommand') {
   return [
     {
-      eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+      correlationId: `denial-${tool}`,
       payload: {
         phase: 'permission_denied',
         tool,
+        invocationId: `denial-${tool}`,
         terminal: true,
         action: {
           kind: 'approve_grant',
@@ -657,10 +659,12 @@ describe('jobs/execution', () => {
           error,
           runtimeEvents: [
             {
-              eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+              eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+              correlationId: 'denial-browser-act',
               payload: {
                 phase: 'permission_denied',
                 tool: 'mcp__gantry__browser_act',
+                invocationId: 'denial-browser-act',
                 terminal: true,
                 action: {
                   kind: 'approve_grant',
@@ -893,7 +897,7 @@ describe('jobs/execution', () => {
         result: null,
         runtimeEvents: [
           {
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             payload: {
               phase: 'permission_allowed',
               tool: 'Bash',
@@ -2407,7 +2411,7 @@ describe('jobs/execution', () => {
         result: null,
         runtimeEvents: [
           {
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             payload: {
               // Attended (resumable) denial: no autonomous-allowlist phrase, so
               // the run pauses for an approver rather than failing as a
@@ -2421,10 +2425,12 @@ describe('jobs/execution', () => {
             },
           },
           {
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
+            correlationId: 'denial-attended-bash',
             payload: {
               phase: 'permission_denied',
               tool: 'Bash',
+              invocationId: 'denial-attended-bash',
               ok: false,
               terminal: true,
               action: {
@@ -2493,7 +2499,7 @@ describe('jobs/execution', () => {
         result: null,
         runtimeEvents: [
           {
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             payload: {
               phase: 'permission_wait',
               tool: 'Bash',
@@ -2505,10 +2511,12 @@ describe('jobs/execution', () => {
             },
           },
           {
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
+            correlationId: 'denial-autonomous-bash',
             payload: {
               phase: 'permission_denied',
               tool: 'Bash',
+              invocationId: 'denial-autonomous-bash',
               ok: false,
               terminal: true,
               action: {
@@ -2606,7 +2614,7 @@ describe('jobs/execution', () => {
     const runAgent = vi.fn(async (_group, input) => {
       await runtimeStoreMock.publish({
         appId: 'default',
-        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+        eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
         actor: 'browser',
         jobId: 'job-1',
         runId: input.runId,
@@ -2700,7 +2708,7 @@ describe('jobs/execution', () => {
     expect(opsRepository.listRecentJobEvents).not.toHaveBeenCalled();
     expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
       expect.objectContaining({
-        eventType: 'job.tool_activity',
+        eventType: 'tool.activity',
         payload: expect.objectContaining({
           phase: 'browser_cleanup',
           tool: 'Browser',
@@ -2759,7 +2767,7 @@ describe('jobs/execution', () => {
     );
     expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
       expect.objectContaining({
-        eventType: 'job.tool_activity',
+        eventType: 'tool.activity',
         payload: expect.objectContaining({
           phase: 'browser_prelaunch',
           tool: 'Browser',
@@ -2875,7 +2883,7 @@ describe('jobs/execution', () => {
         result: null,
         runtimeEvents: [
           {
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             payload: {
               phase: 'browser_action',
               tool: 'Browser',
@@ -2885,7 +2893,7 @@ describe('jobs/execution', () => {
             },
           },
           {
-            eventType: 'job.tool_activity',
+            eventType: 'tool.activity',
             payload: {
               phase: 'browser_action',
               tool: 'Browser',

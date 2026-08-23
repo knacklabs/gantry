@@ -33,8 +33,8 @@ import { isGeneratedRuntimeToolResultPath } from './generated-runtime-paths.js';
 import { type SemanticCapabilityDefinition } from './semantic-capabilities.js';
 import { resolveCapabilityRules } from './tool-execution-capability-resolution.js';
 import {
+  autonomousBashAuthorityAddition,
   autonomousBashRecoveryMessage,
-  persistentAutonomousBashRecoveryRule,
 } from './autonomous-bash-recovery-rule.js';
 
 export type ToolExecutionOrigin =
@@ -633,7 +633,6 @@ export function autonomousToolRecoveryAction(input: {
     input.capabilityRequestToolsHidden === true,
   );
 }
-
 export function autonomousToolAuthorityAddition(input: {
   toolName: string;
   toolInput: unknown;
@@ -650,12 +649,9 @@ export function autonomousToolAuthorityAddition(input: {
     return allowRuleAddition('capability:browser.use');
   }
   const toolName = publicGantryToolNameForSdkTool(request.toolName);
-  if (request.toolName === 'Bash') {
+  if (request.toolName === 'Bash' || request.toolName === 'RunCommand') {
     const command = commandText(request.input);
-    const rule = command
-      ? persistentAutonomousBashRecoveryRule(command)
-      : undefined;
-    return rule ? allowRuleAddition('RunCommand', rule) : null;
+    return command ? (autonomousBashAuthorityAddition(command) ?? null) : null;
   }
   if (
     isDurableGantryMcpToolFullName(request.toolName) ||
@@ -669,7 +665,6 @@ export function autonomousToolAuthorityAddition(input: {
   }
   return null;
 }
-
 function allowRuleAddition(toolName: string, ruleContent?: string) {
   // No destination: durable approval decides persistence (review R3).
   return {

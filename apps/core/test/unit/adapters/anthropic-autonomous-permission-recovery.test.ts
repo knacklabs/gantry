@@ -20,6 +20,7 @@ describe('Anthropic autonomous permission recovery', () => {
         'Protected capability cannot be granted. Recovery: manual_configuration_required',
       toolName: 'Bash',
       toolPolicyReason: 'Protected capability cannot be granted.',
+      invocationId: 'toolu-1',
     });
 
     expect(result).toMatchObject({ behavior: 'deny', interrupt: true });

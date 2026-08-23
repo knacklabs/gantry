@@ -1,4 +1,5 @@
 export * from './apps.js';
+export * from './authentication.js';
 export * from './agents.js';
 export * from './async-tasks.js';
 export * from './brain.js';
