@@ -85,6 +85,28 @@ export function autonomousCompoundBashRecovery(
   return { kind: 'grantable', rules: [...new Set(rules)] };
 }
 
+export function autonomousBashAuthorityAddition(command: string) {
+  const rule = persistentAutonomousBashRecoveryRule(command);
+  if (rule) {
+    return {
+      type: 'addRules' as const,
+      behavior: 'allow' as const,
+      rules: [{ toolName: 'RunCommand', ruleContent: rule }],
+    };
+  }
+  const compound = autonomousCompoundBashRecovery(command);
+  return compound?.kind === 'grantable'
+    ? {
+        type: 'addRules' as const,
+        behavior: 'allow' as const,
+        rules: compound.rules.map((ruleContent) => ({
+          toolName: 'RunCommand',
+          ruleContent,
+        })),
+      }
+    : undefined;
+}
+
 // Full autonomous-run recovery guidance for a denied Bash command: a single
 // scoped RunCommand rule when the command is one durable leaf, an actionable
 // per-part grant for a control-flow-only compound, or a fixed "blocked"/dead-end
