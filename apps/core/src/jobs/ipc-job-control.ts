@@ -28,6 +28,7 @@ interface RuntimeControlRepositoryPort {
   ): Promise<RuntimeAppSessionRecord[]>;
   createJobTrigger(input: {
     jobId: string;
+    triggerId?: string;
     requestedBy?: string;
   }): Promise<JobTriggerRecord>;
   markTriggerCompleted(

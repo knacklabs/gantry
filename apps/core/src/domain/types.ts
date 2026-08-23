@@ -557,6 +557,8 @@ export interface MessageSendOptions {
   threadId?: string;
   providerAccountId?: string;
   agentId?: string;
+  /** Provider message to edit in place for a durable living-card revision. */
+  replaceMessageId?: string;
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
   /** When set, channels with native support render this as a compact-structured

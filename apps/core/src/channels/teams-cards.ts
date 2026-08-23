@@ -67,6 +67,13 @@ export interface TeamsAdaptiveCardAction {
       }
     | {
         action: 'message_action';
+        kind: 'job_permission_decision';
+        actionToken: string;
+        targetJid: string;
+        threadId?: string;
+      }
+    | {
+        action: 'message_action';
         kind: 'scheduler_run_now' | 'scheduler_pause_job';
         jobId: string;
         targetJid: string;
@@ -305,6 +312,20 @@ export function buildTeamsMessageCard(options: {
           data: {
             action: 'message_action',
             kind: 'live_turn_stop',
+            actionToken: action.actionToken,
+            targetJid: options.targetJid,
+            ...(options.threadId ? { threadId: options.threadId } : {}),
+          },
+        };
+      }
+      if (action.kind === 'job_permission_decision') {
+        return {
+          type: 'Action.Execute',
+          title: action.label.trim(),
+          verb: 'gantry.job.permission',
+          data: {
+            action: 'message_action',
+            kind: 'job_permission_decision',
             actionToken: action.actionToken,
             targetJid: options.targetJid,
             ...(options.threadId ? { threadId: options.threadId } : {}),

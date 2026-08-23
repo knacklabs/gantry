@@ -49,6 +49,7 @@ import { renderSlackRichInteraction } from './rich-interaction.js';
 import { addSlackReaction, removeSlackReaction } from './reactions.js';
 import { requestSlackUserAnswer } from './user-question-delivery.js';
 import { historyCoverageInboundCallbacks } from '../conversation-history-coverage-lifecycle.js';
+import { slackMessageActionBlocks } from './message-action-affordances.js';
 import {
   uploadSlackTextFallback,
   type SlackSnippetFallbackInput,
@@ -124,12 +125,36 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
+    const formattedText = formatOutboundForChannel(text, 'slack');
+    if (options.replaceMessageId) {
+      const blocks = slackMessageActionBlocks(
+        formattedText,
+        options.actionAffordances,
+        {
+          providerAccountId:
+            options.providerAccountId ?? this.opts.providerAccountId,
+        },
+      );
+      const updated = (await this.app.client.chat.update({
+        channel: parsed.channelId,
+        ts: options.replaceMessageId,
+        text: formattedText,
+        blocks: (blocks ?? []) as any,
+      })) as { ts?: string };
+      const messageId = updated.ts ?? options.replaceMessageId;
+      return {
+        externalMessageId: messageId,
+        externalMessageIds: [messageId],
+        deliveredParts: 1,
+        totalParts: 1,
+      };
+    }
 
     return sendSlackMessage({
       app: this.app,
       jid,
       channelId: parsed.channelId,
-      formattedText: formatOutboundForChannel(text, 'slack'),
+      formattedText,
       options: {
         ...options,
         providerAccountId:

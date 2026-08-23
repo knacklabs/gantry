@@ -18,6 +18,7 @@ import {
 import type { ChannelWiring } from './channel-wiring-types.js';
 import type {
   ConversationRoute,
+  MessageActionCallbackInput,
   MessageSendOptions,
 } from '../../domain/types.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
@@ -46,7 +47,7 @@ export function registerRuntimeLiveStopMessageAction(
     stopGroup: (queueJid: string) => boolean | Promise<boolean>;
   },
   scheduler?: {
-    runNow: (input: {
+    runNow?: (input: {
       jobId: string;
       sourceAgentFolder: string;
       originConversationJid: string;
@@ -54,6 +55,12 @@ export function registerRuntimeLiveStopMessageAction(
       conversationBindings: Record<string, ConversationRoute>;
       sourceConversationJids: string[];
     }) => Promise<string>;
+    decideJobPermission?: (
+      input: Extract<
+        MessageActionCallbackInput,
+        { kind: 'job_permission_decision' }
+      >,
+    ) => Promise<unknown>;
   },
 ): void {
   registerLiveStopMessageAction({
@@ -71,6 +78,7 @@ export function registerRuntimeLiveStopMessageAction(
     runSchedulerNow:
       scheduler?.runNow ??
       ((input) => runSchedulerNowThroughIpc(input, channelWiring)),
+    decideJobPermission: scheduler?.decideJobPermission,
   });
 }
 
@@ -181,8 +189,19 @@ export function registerLiveStopMessageAction(input: {
     conversationBindings: Record<string, ConversationRoute>;
     sourceConversationJids: string[];
   }) => Promise<string>;
+  decideJobPermission?: (
+    action: Extract<
+      MessageActionCallbackInput,
+      { kind: 'job_permission_decision' }
+    >,
+  ) => Promise<unknown>;
 }): void {
   input.channelWiring.setMessageActionHandler(async (action) => {
+    if (action.kind === 'job_permission_decision') {
+      if (!action.userId) return;
+      await input.decideJobPermission?.(action);
+      return;
+    }
     const sourceAgentFolder = input.sourceAgentFolderFor(
       action.conversationJid,
       action.threadId,

@@ -27,6 +27,7 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   scheduler_run_now: 'retry',
   scheduler_pause_job: 'pause',
   live_turn_stop: '',
+  job_permission_decision: '',
   // ponytail: memory_review_decision rendering lands in Task 6 (Telegram codec).
   memory_review_decision: '',
   // ponytail: observer_feedback rendering lands in a later OBS-RESOLVE task.
@@ -63,6 +64,16 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
       if (action.kind === 'memory_review_decision') return null;
       if (action.kind === 'observer_feedback') return null;
       if (action.kind === 'brain_dream_review_decision') return null;
+      if (action.kind === 'job_permission_decision') {
+        return action.label.trim() &&
+          Buffer.byteLength(action.actionToken, 'utf8') <=
+            TELEGRAM_CALLBACK_DATA_MAX_BYTES
+          ? {
+              text: action.label.trim(),
+              callback_data: action.actionToken,
+            }
+          : null;
+      }
       const code = TELEGRAM_ACTION_CALLBACK_BY_KIND[action.kind];
       if (!code || !action.label.trim()) return null;
       const callbackData = telegramSchedulerActionCallback(action);

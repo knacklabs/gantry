@@ -299,6 +299,24 @@ export class DiscordInteractionHandler {
         });
         return;
       }
+      if (customId.startsWith('jp:')) {
+        await this.ackInteraction(interaction, 'Decision received.');
+        const context = await this.input.resolveInteractionConversationContext(
+          interaction.channel_id,
+        );
+        await this.input.opts.onMessageAction?.({
+          kind: 'job_permission_decision',
+          conversationJid: context.conversationJid,
+          providerAccountId: this.input.opts.providerAccountId,
+          ...(context.threadId ? { threadId: context.threadId } : {}),
+          userId: interaction.member?.user?.id || interaction.user?.id,
+          ...(interaction.message?.id
+            ? { messageId: interaction.message.id }
+            : {}),
+          actionToken: customId,
+        });
+        return;
+      }
       if (customId.startsWith(SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX)) {
         await this.ackInteraction(interaction, 'Checking retry request.');
         const context = await this.input.resolveInteractionConversationContext(

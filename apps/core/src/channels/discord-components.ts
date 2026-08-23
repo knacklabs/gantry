@@ -9,6 +9,7 @@ export const LIVE_STOP_CUSTOM_ID_PREFIX = 'gantry:live_stop:';
 export const SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX = 'gantry:scheduler_run_now:';
 export const SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX =
   'gantry:scheduler_pause_job:';
+export const JOB_PERMISSION_CUSTOM_ID_PREFIX = 'jp:';
 export const PERMISSION_CUSTOM_ID_PREFIX = 'gantry:perm:';
 export const QUESTION_CUSTOM_ID_PREFIX = 'gantry:q:';
 const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
@@ -29,6 +30,16 @@ export function discordActionComponents(
     });
   }
   for (const action of options?.actionAffordances ?? []) {
+    if (action.kind === 'job_permission_decision') {
+      if (action.actionToken.length <= DISCORD_CUSTOM_ID_MAX_LENGTH) {
+        buttons.push({
+          style: action.label.startsWith('Deny:') ? 4 : 1,
+          label: action.label,
+          custom_id: action.actionToken,
+        });
+      }
+      continue;
+    }
     if (
       (action.kind !== 'scheduler_run_now' &&
         action.kind !== 'scheduler_pause_job') ||

@@ -202,6 +202,16 @@ export async function processPermissionInteractionIpc(input: {
       payload: requestedContext,
     });
     await assertActiveScheduledPermissionLease(input);
+    if (
+      input.request.jobId &&
+      (await input.deps.jobPermissionDurability?.attachRequest({
+        request: input.request,
+        sourceAgentFolder: input.sourceAgentFolder,
+      }))
+    ) {
+      fs.unlinkSync(input.claimedPath);
+      return;
+    }
     decision =
       (await replayPersistedPermissionDecisionForRequest({
         appId: input.request.appId,

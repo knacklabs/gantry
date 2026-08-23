@@ -46,6 +46,7 @@ import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outc
 import {
   claimSchedulerRunLease,
   createSchedulerRunLeaseAbort,
+  jobPermissionLeaseExtensionMs,
   startSchedulerRunLeaseHeartbeat,
 } from './execution-lease.js';
 import { resolveExecutionContextOrDeadLetter } from './execution-dead-letter.js';
@@ -207,6 +208,13 @@ async function runActiveJob(
     warn,
     onLeaseLost: runLeaseAbort.abort,
     externalAbortSignal: control?.abortSignal,
+    pendingLeaseExtensionMs: () =>
+      jobPermissionLeaseExtensionMs({
+        appId: runtimeAppId,
+        jobId: currentJob.id,
+        sourceAgentFolder: execution.group.folder,
+        runId,
+      }),
   });
   let settled = false,
     deleted = false;

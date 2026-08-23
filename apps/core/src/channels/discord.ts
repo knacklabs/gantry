@@ -192,10 +192,37 @@ export class DiscordChannel implements ChannelAdapter {
   ): Promise<MessageDeliveryResult> {
     const channelId = options.threadId || discordChannelIdFromJid(jid);
     if (!channelId) throw new Error(`Invalid Discord conversation id: ${jid}`);
+    const parts = options.jobNotificationView ? [''] : splitDiscordText(text);
+    const components = discordActionComponents(options);
+    if (options.replaceMessageId) {
+      if (parts.length !== 1 || options.files?.length) {
+        throw new Error(
+          'Discord living-card replacement must fit one message without files.',
+        );
+      }
+      await this.messageMutations.edit(channelId, options.replaceMessageId, {
+        content: parts[0] ?? '',
+        allowed_mentions: { parse: [] },
+        components: components ?? [],
+        ...(options.jobNotificationView
+          ? {
+              embeds: [
+                discordJobNotificationEmbed(options.jobNotificationView),
+              ],
+            }
+          : { embeds: [] }),
+      });
+      return {
+        externalMessageId: options.replaceMessageId,
+        externalMessageIds: [options.replaceMessageId],
+        deliveredParts: 1,
+        totalParts: 1,
+      };
+    }
     return postDiscordMessageParts({
       channelId,
-      parts: options.jobNotificationView ? [''] : splitDiscordText(text),
-      components: discordActionComponents(options),
+      parts,
+      components,
       ...(options.jobNotificationView
         ? { embeds: [discordJobNotificationEmbed(options.jobNotificationView)] }
         : {}),

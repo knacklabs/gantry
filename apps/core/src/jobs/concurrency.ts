@@ -20,7 +20,17 @@ interface RunSlotBackend {
   warn?: (context: Record<string, unknown>, message: string) => void;
 }
 
+type RunSlotRelease = () => void | Promise<void>;
+
+interface PermissionWaitRunSlot {
+  activeRelease: RunSlotRelease | null;
+  closed: boolean;
+  acquiring: Promise<void> | null;
+  acquire(): Promise<void>;
+}
+
 let backend: RunSlotBackend | null = null;
+const permissionWaitRunSlots = new Map<string, PermissionWaitRunSlot>();
 
 export function configureRunSlotBackend(next: RunSlotBackend | null): void {
   backend = next;
@@ -35,7 +45,7 @@ export async function acquireRunSlot(
     runId?: string | null;
     onSlotLost?: () => void;
   } = {},
-): Promise<() => void> {
+): Promise<RunSlotRelease> {
   for (;;) {
     const release = await tryAcquireRunSlot(
       workspaceKey,
@@ -56,7 +66,68 @@ export async function tryAcquireRunSlot(
     runId?: string | null;
     onSlotLost?: () => void;
   } = {},
-): Promise<(() => void) | null> {
+): Promise<RunSlotRelease | null> {
+  const release = await tryAcquireRunSlotLease(
+    workspaceKey,
+    maxParallelRuns,
+    options,
+  );
+  const runId = options.runId?.trim();
+  if (!release || !runId) return release;
+  const control: PermissionWaitRunSlot = {
+    activeRelease: release,
+    closed: false,
+    acquiring: null,
+    async acquire() {
+      if (control.closed) {
+        throw new Error(`Run slot is closed for ${runId}.`);
+      }
+      if (control.activeRelease) return;
+      control.acquiring ??= (async () => {
+        for (;;) {
+          if (control.closed) {
+            throw new Error(`Run slot is closed for ${runId}.`);
+          }
+          const next = await tryAcquireRunSlotLease(
+            workspaceKey,
+            maxParallelRuns,
+            options,
+          );
+          if (next) {
+            control.activeRelease = next;
+            return;
+          }
+          await sleep(RUN_SLOT_RETRY_DELAY_MS);
+        }
+      })().finally(() => {
+        control.acquiring = null;
+      });
+      await control.acquiring;
+    },
+  };
+  permissionWaitRunSlots.set(runId, control);
+  return async () => {
+    if (control.closed) return;
+    control.closed = true;
+    if (permissionWaitRunSlots.get(runId) === control) {
+      permissionWaitRunSlots.delete(runId);
+    }
+    const activeRelease = control.activeRelease;
+    control.activeRelease = null;
+    await activeRelease?.();
+  };
+}
+
+async function tryAcquireRunSlotLease(
+  workspaceKey: string,
+  maxParallelRuns = DEFAULT_MAX_PARALLEL_RUNS_PER_GROUP,
+  options: {
+    hostCapacity?: number;
+    hostBudgetCapacity?: number;
+    runId?: string | null;
+    onSlotLost?: () => void;
+  } = {},
+): Promise<RunSlotRelease | null> {
   const active = backend;
   if (!active) {
     throw new Error(
@@ -226,36 +297,69 @@ export async function tryAcquireRunSlot(
     renewTimer as ReturnType<typeof setInterval> & { unref?: () => void }
   ).unref?.();
   let released = false;
-  return () => {
+  return async () => {
     if (released) return;
     released = true;
     clearInterval(renewTimer);
-    void active.repository
-      .releaseRunSlot({ slotKey: workspaceKey, holderId })
-      .catch((err) =>
-        active.warn?.({ err, workspaceKey }, 'Failed to release run slot'),
-      );
+    const releases = [
+      active.repository
+        .releaseRunSlot({ slotKey: workspaceKey, holderId })
+        .catch((err) =>
+          active.warn?.({ err, workspaceKey }, 'Failed to release run slot'),
+        ),
+    ];
     if (hostCapacity !== undefined) {
-      void active.repository
-        .releaseRunSlot({ slotKey: hostClassSlotKey, holderId: hostHolderId })
-        .catch((err) =>
-          active.warn?.(
-            { err, workspaceKey },
-            'Failed to release host execution slot',
+      releases.push(
+        active.repository
+          .releaseRunSlot({ slotKey: hostClassSlotKey, holderId: hostHolderId })
+          .catch((err) =>
+            active.warn?.(
+              { err, workspaceKey },
+              'Failed to release host execution slot',
+            ),
           ),
-        );
-      void active.repository
-        .releaseRunSlot({ slotKey: hostBudgetSlotKey, holderId: hostHolderId })
-        .catch((err) =>
-          active.warn?.(
-            { err, workspaceKey },
-            'Failed to release host execution budget slot',
+        active.repository
+          .releaseRunSlot({ slotKey: hostBudgetSlotKey, holderId: hostHolderId })
+          .catch((err) =>
+            active.warn?.(
+              { err, workspaceKey },
+              'Failed to release host execution budget slot',
+            ),
           ),
-        );
+      );
     }
+    await Promise.all(releases);
   };
 }
 
+export async function releaseRunSlotForPermissionWait(input: {
+  runId: string;
+}): Promise<boolean> {
+  const control = permissionWaitRunSlots.get(input.runId);
+  if (!control || control.closed) return false;
+  if (!control.activeRelease) return true;
+  const release = control.activeRelease;
+  control.activeRelease = null;
+  await release();
+  return true;
+}
+
+export async function acquireRunSlotForPermissionWake(input: {
+  runId: string;
+}): Promise<boolean> {
+  const control = permissionWaitRunSlots.get(input.runId);
+  if (!control || control.closed) {
+    return false;
+  }
+  await control.acquire();
+  return true;
+}
+
 export function resetSchedulerRunSlots(): void {
+  for (const control of permissionWaitRunSlots.values()) {
+    control.closed = true;
+    void control.activeRelease?.();
+  }
+  permissionWaitRunSlots.clear();
   backend = null;
 }

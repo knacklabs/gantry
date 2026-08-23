@@ -105,6 +105,23 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     try {
       const numericId = jid.replace(/^tg:/, '');
       const sendOptions = telegramThreadOptionsFromString(options.threadId);
+      if (options.replaceMessageId) {
+        const messageId = Number.parseInt(options.replaceMessageId, 10);
+        if (!Number.isSafeInteger(messageId)) {
+          throw new Error('Telegram replacement message id is invalid.');
+        }
+        await this.bot.api.editMessageText(numericId, messageId, text, {
+          reply_markup: telegramActionReplyMarkup(options.actionAffordances) ?? {
+            inline_keyboard: [],
+          },
+        });
+        return {
+          externalMessageId: options.replaceMessageId,
+          externalMessageIds: [options.replaceMessageId],
+          deliveredParts: 1,
+          totalParts: 1,
+        };
+      }
 
       // Split after escaping so each outbound envelope already matches the
       // exact payload Telegram receives.

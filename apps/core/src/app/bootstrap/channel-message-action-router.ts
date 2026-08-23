@@ -26,6 +26,9 @@ function isLiveStopActionTokenValid(
 
 function isMessageActionValid(input: MessageActionCallbackInput): boolean {
   if (input.kind === 'scheduler_run_now') return input.jobId.trim().length > 0;
+  if (input.kind === 'job_permission_decision') {
+    return input.actionToken.trim().length > 0;
+  }
   if (input.kind === 'memory_review_decision') {
     return (
       input.reviewId.trim().length > 0 &&

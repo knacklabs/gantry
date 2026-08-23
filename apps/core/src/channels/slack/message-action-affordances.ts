@@ -42,11 +42,29 @@ function slackActionValue(
       ? value
       : undefined;
   }
+  if (action.kind === 'job_permission_decision') {
+    const value = JSON.stringify({
+      kind: action.kind,
+      actionToken: action.actionToken,
+      ...(providerAccountId ? { providerAccountId } : {}),
+    });
+    return Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
+      ? value
+      : undefined;
+  }
   const value = SCHEDULER_ACTION_KINDS.has(action.kind)
     ? JSON.stringify({
         kind: action.kind,
-        jobId: action.jobId,
-        runId: action.runId ?? null,
+        jobId:
+          action.kind === 'scheduler_run_now' ||
+          action.kind === 'scheduler_pause_job'
+            ? action.jobId
+            : '',
+        runId:
+          action.kind === 'scheduler_run_now' ||
+          action.kind === 'scheduler_pause_job'
+            ? (action.runId ?? null)
+            : null,
         ...(providerAccountId ? { providerAccountId } : {}),
       })
     : undefined;
