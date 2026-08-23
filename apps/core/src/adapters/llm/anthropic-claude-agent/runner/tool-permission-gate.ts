@@ -48,6 +48,7 @@ import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import {
   autonomousDenialSetupAction,
   denyNonPromptableAutonomousRecovery,
+  truthfulAutonomousDenialDetail,
 } from './autonomous-permission-recovery.js';
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
@@ -567,7 +568,10 @@ export function createCanUseToolCallback(
       });
       if (nonPromptableDenial) return nonPromptableDenial;
       const reason = decision.reason || 'Denied by operator';
-      const message = `Permission denied: ${reason}. ${recoveryMessage}`;
+      const message = `Permission denied: ${truthfulAutonomousDenialDetail({
+        denialReason: reason,
+        recoveryMessage,
+      })}`;
       log(`Autonomous run denied tool ${toolName}: ${message}`);
       emitGateDenialActivity({
         agentInput: input.agentInput,

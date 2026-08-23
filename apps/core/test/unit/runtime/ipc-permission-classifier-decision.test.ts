@@ -86,7 +86,7 @@ async function resolveWithClassifierRisk(input: {
 }
 
 describe('IPC permission classifier decision', () => {
-  it('AUTODET-1-1 > jobId requests never reach the classifier; miss is deterministic_rails terminal deny', async () => {
+  it('keeps jobId requests off the classifier and denies terminally without a deliverable route', async () => {
     const responseKeyId = 'autodet-job-response-key';
     const classifierConsult = vi.fn(async () => ({
       risk_level: 'low' as const,
@@ -159,9 +159,9 @@ describe('IPC permission classifier decision', () => {
         }) =>
           !decision.approved &&
           decision.mode === 'cancel' &&
-          decision.decidedBy === 'deterministic_rails' &&
+          decision.decidedBy === 'runtime' &&
           decision.reason ===
-            'Autonomous runs decide deterministically: mcp__crm__update_record has no declared grant.' &&
+            'Autonomous permission approval is unavailable: mcp__crm__update_record has no deliverable approver route.' &&
           // The worker-asserted low/benign claim must never survive: either
           // trusted rail risk replaced it, or the fields were stripped.
           decision.risk_level !== 'low' &&

@@ -4,7 +4,6 @@ import { randomUUID } from 'crypto';
 import { nowIso, nowMs, sleep } from '../../../../shared/time/datetime.js';
 import { isPlainObject } from '../../../../shared/object.js';
 import { persistentPermissionUpdates } from '../../../../shared/permission-tool-rules.js';
-import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../../../../shared/permission-mode.js';
 import { NO_PERMISSION_TIMEOUT_MS } from '../../../../shared/permission-timeout.js';
 import { writePrivateFileSync } from '../../../../shared/private-fs.js';
 import {
@@ -33,7 +32,6 @@ import {
   IPC_RESPONSE_KEY_ID,
   IPC_RESPONSE_VERIFY_KEY,
   PERMISSION_LANE,
-  PERMISSION_MODE,
   PERMISSION_REQUEST_TIMEOUT_MS,
   PROVIDER_ACCOUNT_ID,
   SENDER_ID,
@@ -46,14 +44,8 @@ import { WORKSPACE_FOLDER_OPTION_KEY } from './types.js';
 
 const DEFAULT_RUNNER_APP_ID = 'default';
 const AGENT_FOLDER_OPTION_KEY = WORKSPACE_FOLDER_OPTION_KEY;
-const UNATTENDED_JOB_PERMISSION_REASON =
-  'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.';
-const UNATTENDED_RUN_PERMISSION_REASON =
-  'Permission request was sent to the host. Autonomous runs do not wait for approval during the active tool call; approve the requested capability before retrying the run.';
-const AUTONOMOUS_PERMISSION_TIMEOUT_REASON =
-  'Timed out waiting for approval. Retry the autonomous run when an approver is available.';
-const INTERACTIVE_PERMISSION_TIMEOUT_REASON =
-  'Timed out waiting for interactive approval. Retry the live request when an approver is available.';
+const PERMISSION_TIMEOUT_REASON =
+  'Timed out waiting for approval. Retry the request when an approver is available.';
 const CANCELLED_PERMISSION_REASON = 'Permission request cancelled.';
 
 async function sleepWithAbort(
@@ -159,17 +151,12 @@ async function requestPermissionApprovalInner(options: {
     const responseNonce = randomUUID();
     const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
-    const autoClassifierWait =
-      PERMISSION_LANE === 'autonomous' &&
-      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
-      PERMISSION_MODE === 'auto';
-    const waitMs = autoClassifierWait
-      ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
-      : PERMISSION_REQUEST_TIMEOUT_MS;
+    const waitMs = PERMISSION_REQUEST_TIMEOUT_MS;
     const deadline =
-      waitMs > NO_PERMISSION_TIMEOUT_MS ? nowMs() + waitMs : undefined;
-    const unboundedInteractive =
-      PERMISSION_LANE === 'interactive' && deadline === undefined;
+      JOB_ID || waitMs <= NO_PERMISSION_TIMEOUT_MS
+        ? undefined
+        : nowMs() + waitMs;
+    const unboundedInteraction = deadline === undefined;
     const payload = {
       requestId,
       appId,
@@ -229,9 +216,7 @@ async function requestPermissionApprovalInner(options: {
       ...(TURN_INTENT_SUMMARY
         ? { turnIntentSummary: TURN_INTENT_SUMMARY.slice(0, 1_500) }
         : {}),
-      unattended:
-        PERMISSION_LANE === 'autonomous' &&
-        PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS,
+      unattended: PERMISSION_LANE === 'autonomous',
       context: {
         appId,
         ...(agentId ? { agentId } : {}),
@@ -254,26 +239,13 @@ async function requestPermissionApprovalInner(options: {
     const envelope = createSignedIpcRequestEnvelope(
       IPC_AUTH_TOKEN,
       payload,
-      ipcInteractionAuthEnvelopeOptions(unboundedInteractive),
+      ipcInteractionAuthEnvelopeOptions(unboundedInteraction),
     );
-    const authDeadline = unboundedInteractive
+    const authDeadline = unboundedInteraction
       ? Date.parse(String(envelope.authExpiresAt))
       : undefined;
     writePrivateFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
     fs.renameSync(requestTmpPath, requestPath);
-
-    if (
-      PERMISSION_LANE === 'autonomous' &&
-      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
-      !autoClassifierWait
-    ) {
-      return {
-        approved: false,
-        decidedBy: 'runtime',
-        reason: unattendedPermissionReason(),
-        decisionClassification: 'user_reject',
-      };
-    }
 
     const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
     let requestClaimed = false;
@@ -441,12 +413,7 @@ async function requestPermissionApprovalInner(options: {
     return {
       approved: false,
       decidedBy: 'runtime',
-      reason:
-        PERMISSION_LANE === 'interactive'
-          ? INTERACTIVE_PERMISSION_TIMEOUT_REASON
-          : PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS
-            ? unattendedPermissionReason()
-            : AUTONOMOUS_PERMISSION_TIMEOUT_REASON,
+      reason: PERMISSION_TIMEOUT_REASON,
       decisionClassification: 'user_reject',
     };
   } catch (err) {
@@ -527,12 +494,6 @@ function cancelPermissionRequest(input: {
   });
   writePrivateFileSync(cancellationTmpPath, JSON.stringify(envelope, null, 2));
   fs.renameSync(cancellationTmpPath, cancellationPath);
-}
-
-function unattendedPermissionReason(): string {
-  return JOB_ID
-    ? UNATTENDED_JOB_PERMISSION_REASON
-    : UNATTENDED_RUN_PERMISSION_REASON;
 }
 
 function isPermissionRiskLevel(
