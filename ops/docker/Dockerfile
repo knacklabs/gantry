@@ -69,7 +69,9 @@ ENV NODE_ENV=production \
 # pip usage at runtime (fleet workers never run a package manager — Python
 # package installs belong to a future bake lane, see TODOS.md) and the Go
 # toolchain (Go-built tools ship as binaries: add the binary here per tool).
-RUN apt-get update \
+ARG APT_REFRESH=manual
+RUN test -n "${APT_REFRESH}" \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
       python3 \
       python3-venv \
