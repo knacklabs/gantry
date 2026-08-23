@@ -1219,7 +1219,7 @@ def cmd_delegate(args: argparse.Namespace) -> None:
     state = load_json(run_state_path(base), default={})
     story = str(state.get("story") or state.get("issue_key") or "")
     text = compose_brief(base, task, write=write,
-                         user_facing=bool(decomposition.get("user_facing")),
+                         user_facing=bool(task.get("user_facing")),
                          story=story)
     canonical_path = brief_path(base, args.id)
     path = (diagnostic_briefs_dir(base) / f"{args.id}.md"

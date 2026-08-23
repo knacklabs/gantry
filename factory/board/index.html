@@ -9,12 +9,17 @@
      Warm paper, oxblood accent, three typefaces with one job each.
      Position carries progress; colour never carries state alone — every
      station and card also shows a glyph or a word. */
+  /* Same warm palette; structure is now card-driven and every surface is
+     SOLID — no wash, gradient, or translucency, so nothing reads as shaky. */
   :root {
     --paper:   #faf8f4;
-    --surface: #fffdfa;
+    --surface: #fffdfa;   /* card face — solid */
+    --surface-2: #f2eee6; /* inset / segmented track — solid */
     --ink:     #1a1714;
     --muted:   #6f675e;   /* readable secondary — --stone is for marks */
+    --faint:   #948b80;   /* labels, hairline text */
     --accent:  #8c2f39;   /* oxblood */
+    --accent-ink: #fffdfa;/* text on an accent fill */
     --shipped: #2f6b4f;   /* forest */
     --build:   #3b4c8a;   /* indigo */
     --ready:   #a8741a;   /* ochre  */
@@ -22,7 +27,12 @@
     --rule:    #1a17141f; /* hairline, ink @ 12% */
     --wash:    #1a17140a;
     --tint:    #8c2f390f;
+    --shadow-sm: 0 1px 2px #1a17140f, 0 1px 3px #1a171412;
     --shadow:  0 1px 2px #1a17140f, 0 12px 32px #1a171418;
+    --scroll:  #1a171433;
+    --scroll-hi: #1a17145c;
+    --radius:  8px;   /* one card radius everywhere */
+    --radius-sm: 8px;
 
     --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
     --sans:  system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -35,9 +45,12 @@
     :root {
       --paper:   #16140f;
       --surface: #1e1b15;
+      --surface-2: #26221a;
       --ink:     #f0ece4;
       --muted:   #a49b8d;
+      --faint:   #8a8073;
       --accent:  #d4707a;
+      --accent-ink: #16140f;
       --shipped: #5fa37e;
       --build:   #8296d8;
       --ready:   #d9a441;
@@ -45,24 +58,35 @@
       --rule:    #f0ece424; /* cream @ 14% */
       --wash:    #f0ece40a;
       --tint:    #d4707a14;
+      --shadow-sm: 0 1px 2px #00000059;
       --shadow:  0 1px 2px #00000059, 0 14px 36px #00000066;
+      --scroll:  #f0ece42e;
+      --scroll-hi: #f0ece457;
     }
   }
 
   * { box-sizing: border-box; margin: 0; }
-  /* No scrollbars anywhere — this is a display surface, and a gutter that
-     appears and vanishes with content would shift the column ruler. */
-  * { scrollbar-width: none; }
-  ::-webkit-scrollbar { width: 0; height: 0; }
+  /* Slim, styled scrollbars so you can gauge how much content remains. Space
+     is RESERVED (scrollbar-gutter: stable) so the column ruler never shifts. */
+  * { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scroll); border-radius: 999px;
+    border: 3px solid transparent; background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hi); background-clip: padding-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
   /* author `display` on #banner/.bar/.panel would otherwise outrank the UA
      rule for [hidden]; state the intent once instead of per selector. */
   [hidden] { display: none !important; }
-  html { -webkit-text-size-adjust: 100%; }
+  html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
   body {
     background: var(--paper); color: var(--ink);
     font: 14px/1.5 var(--sans);
     overflow-x: hidden;
   }
+  /* When a side panel is open the page behind it is frozen — one scrollbar. */
+  body.panel-open { overflow: hidden; }
   :focus-visible {
     outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px;
   }
@@ -72,48 +96,76 @@
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
   /* ── header ───────────────────────────────────────────────────────── */
+  /* Solid bar — no blur, no translucency; it sits flat on the paper. */
   #topbar {
     position: sticky; top: 0; z-index: 20;
     background: var(--paper); border-bottom: 1px solid var(--rule);
-    padding-block: .7rem .1rem;
+    padding-block: .85rem .7rem;
   }
-  .masthead { display: flex; align-items: baseline; gap: .5rem 1rem; flex-wrap: wrap; }
+  .masthead { display: flex; align-items: center; gap: .5rem 1rem; flex-wrap: wrap; }
   .wordmark {
+    display: inline-flex; align-items: center; gap: .55rem;
     font: 400 1.18rem/1.1 var(--serif); letter-spacing: .005em; white-space: nowrap;
   }
+  .wordmark::before {
+    content: "◆"; width: 27px; height: 27px; flex: none; border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: .74rem; color: var(--accent-ink); background: var(--accent);
+  }
   .wordmark em { font-style: normal; color: var(--accent); }
-  #runline { color: var(--muted); font-size: .78rem; flex: 1; min-width: 10rem; }
+  #runline { color: var(--muted); font-size: .78rem; flex: 1; min-width: 10rem;
+             display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
   #runline b { color: var(--ink); font-weight: 600; }
-  #runline b.key { font-family: var(--mono); font-size: .74rem; }
-  .masthead-right { display: flex; align-items: center; gap: .9rem; margin-left: auto; }
-  .tick { display: inline-flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .74rem; }
-  .tick i { width: 6px; height: 6px; border-radius: 50%; background: var(--shipped); flex: none; }
+  #runline b.key {
+    font-family: var(--mono); font-size: .72rem; color: var(--ink);
+    background: var(--surface-2); border: 1px solid var(--rule);
+    padding: .1rem .45rem; border-radius: 999px;
+  }
+  .masthead-right { display: flex; align-items: center; gap: .8rem; margin-left: auto; }
+  .tick {
+    display: inline-flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .74rem;
+    padding: .28rem .6rem; border-radius: 999px;
+    background: var(--surface-2); border: 1px solid var(--rule);
+  }
+  .tick i { width: 7px; height: 7px; border-radius: 50%; background: var(--shipped); flex: none; }
   .tick.stale { color: var(--accent); }
   .tick.stale i { background: var(--accent); border-radius: 1px; }
   .ghost {
-    font-size: .72rem; letter-spacing: .09em; text-transform: uppercase;
-    color: var(--muted); cursor: pointer; padding: .3rem .55rem; border-radius: 3px;
-    transition: color 140ms ease-out, background-color 140ms ease-out, transform 110ms ease-out;
+    font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; font-weight: 600;
+    color: var(--muted); cursor: pointer; padding: .38rem .72rem; border-radius: 999px;
+    background: var(--surface-2); border: 1px solid var(--rule);
+    transition: color 140ms ease-out, background-color 140ms ease-out,
+                border-color 140ms ease-out, transform 110ms ease-out;
   }
-  .ghost:hover { color: var(--ink); background: var(--wash); }
+  .ghost:hover { color: var(--ink); border-color: var(--muted); }
   .ghost:active { transform: scale(.98); }
 
+  /* Board views — a solid segmented pill control. */
   .board-views {
-    display: flex; align-items: center; gap: 1rem; margin-top: .65rem;
-    border-top: 1px solid var(--rule);
+    display: inline-flex; align-items: center; gap: .15rem; margin-top: .8rem;
+    padding: .22rem; background: var(--surface-2);
+    border: 1px solid var(--rule); border-radius: 999px; width: max-content;
   }
   .board-view {
-    cursor: pointer; padding: .48rem .05rem .42rem;
-    color: var(--muted); border-bottom: 2px solid transparent;
-    font-size: .68rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+    cursor: pointer; padding: .4rem .95rem; border-radius: 999px;
+    color: var(--muted); font-size: .72rem; font-weight: 600; letter-spacing: .02em;
+    transition: color 140ms ease-out, background-color 140ms ease-out, box-shadow 140ms ease-out;
   }
   .board-view:hover { color: var(--ink); }
   .board-view:active { transform: scale(.98); }
-  .board-view[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+  .board-view[aria-selected="true"] {
+    color: var(--ink); background: var(--surface); box-shadow: var(--shadow-sm);
+  }
 
+  /* Lifecycle status card — holds the progress bar and the "what now" line. */
+  .controls-card {
+    margin-top: .8rem; padding: .85rem 1rem;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+  }
   /* progress */
-  .progress { margin-top: .6rem; }
-  .bar { display: flex; height: 6px; border-radius: 1px; overflow: hidden; background: var(--rule); }
+  .progress { margin-top: 0; }
+  .bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--rule); }
   .bar i { display: block; min-width: 0; }
   .bar.animate i { transition: width 420ms var(--enter); }
   .bar i.shipped  { background: var(--shipped); }
@@ -136,10 +188,10 @@
   #banner { margin-top: .55rem; display: grid; gap: .3rem; }
   .flag {
     display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .7rem;
-    font-size: .8rem; padding: .35rem 0 .35rem .7rem;
-    border-left: 2px solid var(--stone);
+    font-size: .8rem; padding: .5rem .7rem;
+    border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--surface-2);
   }
-  .flag.urgent { border-left-color: var(--accent); background: var(--tint); }
+  .flag.urgent { background: var(--tint); }
   .flag em { font-style: normal; color: var(--accent); }
   .flag b { font-weight: 600; }
   .flag code, .flag .do { font-size: .72rem; color: var(--muted); }
@@ -175,7 +227,7 @@
   /* column header — the ruler the whole board reads against */
   .colhead {
     display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0 .5rem; margin-top: .5rem; border-top: 1px solid var(--rule);
+    gap: 0 .5rem; margin-top: .5rem;
   }
   .colhead > div {
     /* Inset to match a card's text: its 2px rule plus .5rem padding. The
@@ -191,15 +243,15 @@
   /* ── overview ─────────────────────────────────────────────────────── */
   main { padding-block: .4rem 4rem; }
   .overview { display: grid; gap: 0; }
+  /* Single-column grid: the question stacks ABOVE its answer (row 1 / row 2),
+     so the answer uses the full width with no empty side column. */
   .overview-question {
-    display: grid; grid-template-columns: minmax(10rem, .72fr) minmax(0, 2fr);
-    gap: clamp(1rem, 4vw, 4rem); padding: clamp(1.2rem, 3vw, 2.4rem) 0;
-    border-bottom: 1px solid var(--rule);
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    padding: clamp(1.2rem, 2.6vw, 2rem) 0;
   }
-  .overview-question:last-child { border-bottom: 0; }
   .overview-question > h2 {
-    font: 400 clamp(1.05rem, 2vw, 1.4rem)/1.2 var(--serif);
-    letter-spacing: .005em;
+    font: 400 clamp(1.15rem, 2vw, 1.5rem)/1.2 var(--serif);
+    letter-spacing: .005em; color: var(--accent); margin-bottom: 1rem;
   }
   .overview-answer { min-width: 0; }
   .project-name {
@@ -209,41 +261,76 @@
   .record-boundary {
     margin: -.35rem 0 .8rem; color: var(--muted); font: .7rem/1.4 var(--mono);
   }
-  .project-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem 1.5rem; }
+  /* Every section is one full-width solid card — consistent, no ragged
+     side-by-side heights. Long prose flows into two columns so the width is
+     used (34em cap lifted) and lines stay a comfortable length. */
+  .project-sections { display: grid; grid-template-columns: 1fr; gap: .8rem; }
+  .project-section {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); padding: 1.05rem 1.2rem;
+  }
+  /* Prose uses the full card width as one column — no newspaper split. */
+  .project-section .md { max-width: none; }
+  .project-section .md > :first-child { margin-top: 0; }
   .project-section h3 {
     font-size: .62rem; font-weight: 600; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--muted); margin-bottom: .2rem;
+    text-transform: uppercase; color: var(--muted); margin-bottom: .3rem;
   }
   .project-section p { font-family: var(--serif); line-height: 1.55; }
   .frontier-count {
     font: 400 clamp(1.15rem, 2vw, 1.5rem)/1.25 var(--serif); margin-bottom: .8rem;
   }
   .frontier-count strong { color: var(--accent); font-weight: 400; }
-  .overview-list { list-style: none; display: grid; gap: .35rem; }
+  .overview-list { list-style: none; display: grid; gap: .5rem; margin: 0; padding: 0; }
   .overview-list li { min-width: 0; }
   .overview-story {
-    width: 100%; cursor: pointer; text-align: left; padding: .55rem .65rem;
-    border-left: 2px solid var(--stone); background: var(--wash); border-radius: 0 2px 2px 0;
-    transition: background-color 140ms ease-out, transform 110ms ease-out;
+    width: 100%; cursor: pointer; text-align: left; padding: .65rem .8rem;
+    border: 1px solid var(--rule);
+    background: var(--surface); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+    transition: border-color 140ms ease-out, box-shadow 140ms ease-out, transform 110ms ease-out;
   }
-  .overview-story:hover { background: var(--surface); }
-  .overview-story:active { transform: scale(.98); }
+  .overview-story:hover { border-color: var(--muted); box-shadow: var(--shadow); }
+  .overview-story:active { transform: scale(.99); }
   .overview-story .key { font: 600 .7rem/1 var(--mono); color: var(--accent); margin-right: .45rem; }
-  .overview-story .title { font-size: .8rem; }
-  .overview-story .position { display: block; margin-top: .25rem; font-size: .72rem; color: var(--muted); }
+  .overview-story .title { font-size: .82rem; }
+  .overview-story .position { display: block; margin-top: .32rem; font-size: .72rem; color: var(--muted); }
   .type-label {
     display: inline-block; flex: none; font: 600 .55rem/1 var(--mono);
-    letter-spacing: .12em; color: var(--stone);
+    letter-spacing: .12em; color: var(--faint);
   }
   .overview-story .type-label { margin-right: .45rem; }
-  .epic-deliveries { display: grid; gap: 1rem; }
-  .epic-delivery { padding-left: .85rem; border-left: 2px solid var(--accent); }
+  /* Full-width epic cards, one per row — consistent with the brief cards. */
+  .epic-deliveries { display: grid; gap: .8rem; }
+  .epic-delivery {
+    padding: 1rem 1.2rem; border: 1px solid var(--rule);
+    background: var(--surface); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+  }
   .epic-delivery .type-label { margin-bottom: .3rem; }
   .epic-delivery h3 { font: 400 1.02rem/1.3 var(--serif); }
   .epic-delivery p { margin-top: .2rem; color: var(--muted); }
-  .epic-stories { margin-top: .35rem; font: .68rem/1.5 var(--mono); color: var(--ink); }
-  .story-position { display: grid; grid-template-columns: minmax(8rem, .7fr) minmax(0, 1.3fr); gap: .4rem 1rem; }
-  .dependency-facts { font-size: .72rem; color: var(--muted); }
+  .epic-delivery .md { max-width: none; }
+  .epic-stories {
+    margin-top: .55rem; padding-top: .5rem; border-top: 1px solid var(--rule);
+    font: .68rem/1.5 var(--mono); color: var(--ink);
+  }
+  /* Each story is ONE full-width card: the clickable story on top, its
+     Requires/Unblocks beneath — no bare text floating in empty space. */
+  .story-position {
+    display: grid; grid-template-columns: 1fr;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+    transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
+  }
+  .story-position:hover { border-color: var(--muted); box-shadow: var(--shadow); }
+  .story-position .overview-story {
+    border: 0; background: none; box-shadow: none; border-radius: 0; padding: .7rem .9rem .45rem;
+  }
+  .story-position .overview-story:hover { border: 0; background: none; box-shadow: none; }
+  .story-position .overview-story:active { transform: none; }
+  .dependency-facts {
+    font-size: .72rem; color: var(--muted); margin: 0;
+    padding: .5rem .9rem .65rem; border-top: 1px solid var(--rule);
+  }
   .dependency-facts b { color: var(--ink); font-weight: 600; }
   .overview-empty { color: var(--muted); font-family: var(--serif); }
 
@@ -254,36 +341,38 @@
     font: 400 .95rem/1.2 var(--serif); letter-spacing: .01em; flex: none;
     max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .lane-rule { flex: 1; border-top: 1px solid var(--rule); }
+  /* No rule beside the lane name — spacing alone separates lanes now. */
+  .lane-rule { flex: 1; }
   .lane-count { flex: none; font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .lane-grid {
     display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: .3rem .5rem; align-items: start;
-    border-bottom: 1px solid var(--rule); padding-bottom: .7rem; min-height: 1.6rem;
+    gap: .55rem .5rem; align-items: start;
+    padding-bottom: 1rem; min-height: 1.6rem;
   }
-  .cell { display: grid; gap: .3rem; align-content: start; min-width: 0; }
-  .cell.bottleneck { background: var(--tint); border-radius: 2px; }
+  .cell { display: grid; gap: .55rem; align-content: start; min-width: 0; }
+  /* No tinted background behind the bottleneck column — the column header
+     already flags it; a colour bleeding between cards read as inconsistent. */
 
   /* ── card ─────────────────────────────────────────────────────────── */
+  /* Solid surface, uniform hairline border — no coloured edge; state reads
+     from the glyph and the mark line. */
   .card {
-    display: grid; gap: .12rem; width: 100%; min-width: 0; text-align: left;
-    padding: .34rem .45rem .38rem .5rem; cursor: pointer;
-    border-left: 2px solid var(--stone); border-radius: 0 2px 2px 0;
-    background: var(--wash);
-    box-shadow: 0 0 0 2px transparent;
-    transition: background-color 140ms ease-out, transform 110ms ease-out,
-                box-shadow 1100ms ease-out;
+    display: grid; gap: .16rem; width: 100%; min-width: 0; text-align: left;
+    padding: .55rem .65rem; cursor: pointer;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+    transition: border-color 140ms ease-out, transform 110ms ease-out,
+                box-shadow 200ms ease-out;
   }
-  .card:hover { background: var(--surface); }
+  .card:hover { border-color: var(--muted); box-shadow: var(--shadow); }
   .card:active { transform: scale(.98); }
   .card.settling {
-    box-shadow: 0 0 0 2px var(--accent);
-    transition: background-color 140ms ease-out, transform 110ms ease-out,
+    box-shadow: 0 0 0 2px var(--accent), var(--shadow-sm);
+    transition: border-color 140ms ease-out, transform 110ms ease-out,
                 box-shadow 160ms ease-out;
   }
-  .card[data-state="shipped"]  { border-left-color: var(--shipped); }
-  .card[data-state="building"] { border-left-color: var(--build); }
-  .card[data-state="ready"]    { border-left-color: var(--ready); }
   .card[data-state="shipped"]  { opacity: .72; }
   .card[data-state="shipped"]:hover, .card[data-state="shipped"]:focus-visible { opacity: 1; }
   .card-top { display: flex; align-items: baseline; gap: .3rem; min-width: 0; }
@@ -355,12 +444,12 @@
   .panel-body { overflow: auto; padding: 1rem var(--gutter) 3rem; flex: 1; }
   .panel h2 { font: 400 1.32rem/1.25 var(--serif); letter-spacing: .005em; }
   .panel h2 .k { display: block; font: 600 .74rem/1 var(--mono); color: var(--accent); margin-bottom: .35rem; letter-spacing: .02em; }
+  /* Section labels, no rules — the cards below them do the separating. */
   .panel h3 {
     font-size: .64rem; letter-spacing: .16em; text-transform: uppercase;
-    color: var(--muted); margin: 1.5rem 0 .5rem; padding-top: .7rem;
-    border-top: 1px solid var(--rule);
+    color: var(--muted); margin: 1.7rem 0 .6rem;
   }
-  .panel h3:first-of-type { border-top: 0; padding-top: 0; }
+  .panel h3:first-of-type { margin-top: .3rem; }
 
   .breadcrumb {
     display: flex; flex-wrap: wrap; gap: .3rem; align-items: baseline;
@@ -375,24 +464,58 @@
   .statline { margin-top: .5rem; font-size: .8rem; color: var(--muted); }
   .statline b { font-weight: 600; }
 
-  /* gate rail */
-  .rail { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .4rem; }
-  .rail .st { display: grid; gap: .18rem; justify-items: start; min-width: 0; }
-  .rail .st i { font-style: normal; font-size: .8rem; line-height: 1; color: var(--stone); }
-  .rail .st.done i { color: var(--shipped); }
-  .rail .st.partial i { color: var(--build); }
-  .rail .st.gap i { color: var(--accent); }
+  /* gate rail — a connected stepper spanning the full width (no box): a filled
+     badge is a cleared gate, a ring is one still ahead; the joining line fills
+     in behind the work you've done. */
+  .rail {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0;
+    padding: .5rem 0 .2rem;
+  }
+  .rail .st {
+    position: relative; display: grid; justify-items: center; gap: .5rem;
+    text-align: center; min-width: 0; padding-inline: .2rem;
+  }
+  .rail .st::before {
+    content: ""; position: absolute; top: 12px; right: 50%; width: 100%; height: 2px;
+    background: var(--rule); z-index: 0;
+  }
+  .rail .st:first-child::before { display: none; }
+  .rail .st.done::before, .rail .st.done + .st::before { background: var(--shipped); }
+  .rail .st i {
+    position: relative; z-index: 1; width: 26px; height: 26px; border-radius: 50%;
+    display: grid; place-items: center; font-style: normal; font-size: .74rem; line-height: 1;
+    background: var(--surface); border: 2px solid var(--stone); color: var(--stone);
+  }
+  .rail .st.done i    { background: var(--shipped); border-color: var(--shipped); color: var(--accent-ink); }
+  .rail .st.partial i { background: var(--build);   border-color: var(--build);   color: var(--accent-ink); }
+  .rail .st.gap i     { background: var(--accent);   border-color: var(--accent);   color: var(--accent-ink); }
   .rail .st b {
-    font-size: .58rem; letter-spacing: .1em; text-transform: uppercase;
-    font-weight: 500; color: var(--muted);
+    font-size: .58rem; letter-spacing: .08em; text-transform: uppercase;
+    font-weight: 600; color: var(--muted);
   }
   .rail .st.done b, .rail .st.partial b { color: var(--ink); }
-  .rail .st small { font-size: .6rem; color: var(--muted); min-height: .8em; }
+  .rail .st small { font-size: .62rem; color: var(--muted); font-family: var(--mono); font-weight: 600; }
+  .rail .st small:empty { display: none; }
 
-  .check { display: flex; gap: .5rem; align-items: baseline; font-size: .8rem; padding: .18rem 0; }
-  .check em { font-style: normal; flex: none; width: .9rem; color: var(--shipped); }
-  .check.no em { color: var(--accent); }
-  .check .fix { display: block; font-family: var(--mono); font-size: .7rem; color: var(--muted); margin-top: .1rem; }
+  /* Approval checklist — one ruled card: a badge + label per row, a separator
+     line between rows; a blocker turns its badge red and shows the fix beneath. */
+  .checks {
+    background: var(--surface-2); border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); padding: 0 .8rem;
+  }
+  .check {
+    display: flex; gap: .6rem; align-items: flex-start; font-size: .82rem;
+    padding: .6rem 0; border-bottom: 1px solid var(--rule);
+  }
+  .check:last-child { border-bottom: 0; }
+  .check em {
+    font-style: normal; flex: none; width: 18px; height: 18px; border-radius: 50%;
+    display: grid; place-items: center; font-size: .6rem; margin-top: .05rem;
+    background: var(--shipped); color: var(--accent-ink);
+  }
+  .check.no em { background: var(--accent); }
+  .check > span { flex: 1; min-width: 0; }
+  .check .fix { display: block; font-family: var(--mono); font-size: .7rem; color: var(--muted); margin-top: .2rem; }
   .ids { margin: .15rem 0 .1rem; }
   .ids summary {
     cursor: pointer; font-size: .72rem; color: var(--muted);
@@ -408,17 +531,27 @@
   .ids > div { font-family: var(--mono); font-size: .68rem; color: var(--muted); padding: .2rem 0 .1rem .8rem; }
   .check-note { font-size: .76rem; color: var(--muted); margin-top: .5rem; font-style: italic; }
 
-  .tasks { list-style: none; display: grid; gap: .1rem; font-size: .8rem; }
-  .tasks li { display: flex; gap: .5rem; align-items: baseline; color: var(--muted); }
-  .tasks li em { font-style: normal; flex: none; width: .9rem; }
+  /* Each task is a solid card — only top-level rows (`> li`), so nested lists
+     (acceptance criteria) stay plain. padding:0 removes the list indent so
+     cards line up with the gate rail and section labels. */
+  .tasks { list-style: none; display: grid; gap: .45rem; font-size: .8rem; margin: 0; padding: 0; }
+  .tasks > li {
+    display: flex; gap: .5rem; align-items: baseline; color: var(--muted);
+    background: var(--surface-2); border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); padding: .6rem .8rem;
+  }
+  .tasks > li em { font-style: normal; flex: none; width: .9rem; }
   .tasks li.done { color: var(--ink); }
   .tasks li.done em { color: var(--shipped); }
   .tasks li.active em { color: var(--build); }
   .tasks li .id { font-family: var(--mono); font-size: .7rem; flex: none; }
+  /* Fixed to the left (after the glyph), not floated right — consistent rows. */
   .task-state {
-    margin-left: auto; padding: .08rem .35rem; border: 1px solid var(--rule);
-    border-radius: 999px; font: 600 .62rem/1.2 var(--mono); color: var(--muted);
+    flex: none; padding: .08rem .45rem; border: 1px solid var(--rule);
+    border-radius: 999px; font: 600 .58rem/1.3 var(--mono); color: var(--muted);
+    text-transform: uppercase; letter-spacing: .04em;
   }
+  .task-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .tasks li.active .task-state { color: var(--build); border-color: var(--build); }
   .tasks li.done .task-state { color: var(--shipped); border-color: var(--shipped); }
 
@@ -463,7 +596,7 @@
   .task-ac ul { list-style: none; display: grid; gap: .15rem; }
   .task-ac li { padding-left: .9rem; position: relative; line-height: 1.45; }
   .task-ac li::before { content: "◦"; position: absolute; left: 0; color: var(--stone); }
-  .task-plan { border-left: 2px solid var(--rule); padding-left: .7rem; }
+  .task-plan { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: .5rem .7rem; }
   .task-plan p { font-family: var(--serif); line-height: 1.55; margin: .2rem 0; }
   .task-proof div { line-height: 1.6; }
   .task-proof b {
@@ -483,42 +616,81 @@
   .widen:hover { opacity: .75; }
   .widen:active { transform: scale(.98); }
 
-  .tabs { display: flex; gap: .1rem; align-items: baseline; border-bottom: 1px solid var(--rule); margin-bottom: .9rem; }
+  /* Reading tabs — solid pills; the active one fills with the accent, raw json
+     sits apart on the right. */
+  .tabs { display: flex; gap: .35rem; align-items: center; margin-bottom: 1rem; }
   .tabs button {
-    cursor: pointer; padding: .35rem .6rem; font-size: .66rem;
-    letter-spacing: .13em; text-transform: uppercase; color: var(--muted);
-    border-bottom: 2px solid transparent;
-    transition: color 140ms ease-out, border-color 140ms ease-out, transform 110ms ease-out;
+    cursor: pointer; padding: .42rem .85rem; font-size: .68rem; border-radius: 999px;
+    letter-spacing: .06em; text-transform: uppercase; font-weight: 600; color: var(--muted);
+    background: var(--surface-2); border: 1px solid var(--rule);
+    transition: color 140ms ease-out, background-color 140ms ease-out,
+                border-color 140ms ease-out, transform 110ms ease-out;
   }
-  .tabs button:hover { color: var(--ink); }
+  .tabs button:hover { color: var(--ink); border-color: var(--muted); }
   .tabs button:active { transform: scale(.98); }
-  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
-  .tabs .spacer { flex: 1; }
-  .tabs button.raw { text-transform: none; letter-spacing: .02em; font-size: .66rem; }
+  .tabs button[aria-selected="true"] {
+    color: var(--accent-ink); background: var(--accent); border-color: var(--accent);
+  }
+  .tabs .spacer { flex: 1; background: none; border: 0; padding: 0; }
+  .tabs button.raw { text-transform: none; letter-spacing: .02em; }
 
   .filelink {
-    display: inline-block; font-family: var(--mono); font-size: .68rem;
-    color: var(--muted); text-decoration: none;
-    border-bottom: 1px solid var(--rule); margin-bottom: .8rem;
+    display: inline-flex; align-items: center; gap: .4rem;
+    font-family: var(--mono); font-size: .68rem; color: var(--muted); text-decoration: none;
+    background: var(--surface-2); border: 1px solid var(--rule);
+    padding: .32rem .65rem; border-radius: 999px; margin-bottom: 1rem;
     transition: color 140ms ease-out, border-color 140ms ease-out;
   }
-  .filelink:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  .filelink:hover { color: var(--accent); border-color: var(--accent); }
 
   /* markdown, typeset at a comfortable measure */
   .md { max-width: 34em; }
   /* In the drawer's reading panes the measure fills the (now half-width) panel
      instead of stopping at 34em and leaving the right half blank. */
   #drawer .md { max-width: none; }
+  /* The wide reading pane (plan/spec prose) is a solid reading sheet. */
+  .panel-body > .md {
+    background: var(--surface-2); border: 1px solid var(--rule);
+    border-radius: var(--radius); padding: 1.2rem 1.4rem;
+  }
+  .md > :first-child { margin-top: 0; }
   .md h1, .md h2, .md h3 { font-family: var(--serif); font-weight: 600; line-height: 1.25; margin: 1.3rem 0 .4rem; }
-  .md h1 { font-size: 1.16rem; }
+  .md h1 { font-size: 1.18rem; }
   .md h2 { font-size: 1.02rem; color: var(--accent); }
   .md h3 { font-size: .92rem; letter-spacing: 0; text-transform: none; color: var(--ink); border: 0; padding: 0; }
   .md p { font: .92rem/1.66 var(--serif); margin: .55rem 0; }
-  .md ul, .md ol { font: .92rem/1.62 var(--serif); margin: .5rem 0 .5rem 1.2rem; }
-  .md li { margin: .18rem 0; }
+  /* Pointers: the marker sits in a fixed gutter and every wrapped line of the
+     body flows UNDER the text — never back to the far-left margin. */
+  .md ul, .md ol {
+    font: .92rem/1.6 var(--serif); margin: .6rem 0; padding-left: 0;
+    list-style: none; display: grid; gap: .42rem;
+  }
+  .md li { margin: 0; padding-left: 1.5rem; position: relative; }
+  .md ul > li::before {
+    content: ""; position: absolute; left: .3rem; top: .72em;
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  }
+  .md ol { counter-reset: n; }
+  .md ol > li { counter-increment: n; }
+  .md ol > li::before {
+    content: counter(n); position: absolute; left: 0; top: .12em;
+    width: 1.2rem; height: 1.2rem; border-radius: 6px; text-align: center;
+    font: 600 .66rem/1.2rem var(--mono); color: var(--accent); background: var(--tint);
+  }
   .md strong { font-weight: 700; }
-  .md code { font-family: var(--mono); font-size: .76rem; background: var(--wash); padding: .05em .3em; border-radius: 2px; }
-  .md pre { background: var(--wash); border-left: 2px solid var(--rule); padding: .6rem .7rem; overflow-x: auto; margin: .6rem 0; }
+  .md em { font-style: italic; color: var(--muted); }
+  .md blockquote {
+    margin: .85rem 0; padding: .75rem .95rem; border: 1px solid var(--rule);
+    background: var(--surface); border-radius: var(--radius-sm); color: var(--muted);
+  }
+  .md blockquote p:first-child { margin-top: 0; }
+  .md blockquote p:last-child { margin-bottom: 0; }
+  .md blockquote strong { color: var(--ink); }
+  .md code { font-family: var(--mono); font-size: .76rem; background: var(--wash); padding: .05em .3em; border-radius: 4px; }
+  .md pre {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    padding: .7rem .8rem; overflow-x: auto; margin: .7rem 0;
+  }
   .md pre code { background: none; padding: 0; font-size: .72rem; line-height: 1.55; }
 
   /* Plan tables (every Surface Impact is one): ruled like a ledger, not boxed.
@@ -540,27 +712,73 @@
   .md td.rowhead { color: var(--ink); white-space: nowrap; }
   .md td:last-child, .md th:last-child { padding-right: 0; }
   pre.raw {
-    background: var(--wash); border-left: 2px solid var(--rule); padding: .6rem .7rem;
-    overflow-x: auto; font-family: var(--mono); font-size: .7rem; line-height: 1.5;
+    background: var(--surface-2); border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    padding: .7rem .8rem; overflow-x: auto; font-family: var(--mono); font-size: .7rem; line-height: 1.5;
   }
 
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .9rem; font-size: .78rem; }
-  .kv dt { color: var(--muted); font-family: var(--mono); font-size: .7rem; }
-  .kv dd { margin: 0; }
-  .verdict { font-weight: 600; }
+  /* One card, ruled like a table — a separator line under every row. */
+  .kv {
+    display: grid; grid-template-columns: max-content 1fr; gap: 0 1.2rem; font-size: .78rem;
+    background: var(--surface-2); border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); padding: 0 .95rem;
+  }
+  .kv dt, .kv dd { padding: .5rem 0; border-bottom: 1px solid var(--rule); }
+  .kv dt:last-of-type, .kv dd:last-of-type { border-bottom: 0; }
+  .kv dt { color: var(--muted); font-family: var(--mono); font-size: .7rem; align-content: center; }
+  .kv dd { margin: 0; align-content: center; }
+  .verdict {
+    display: inline-block; font: 600 .64rem/1.5 var(--mono);
+    padding: .04rem .5rem; border-radius: 999px; border: 1px solid currentColor;
+  }
   .verdict.ok { color: var(--shipped); }
   .verdict.bad { color: var(--accent); }
-  .verdict.none { color: var(--muted); }
-  .finding { border-left: 2px solid var(--accent); padding: .1rem .55rem; margin: .25rem 0; font-size: .76rem; }
-  .finding.minor { border-left-color: var(--rule); color: var(--muted); }
+  .verdict.none { color: var(--muted); border-color: var(--rule); }
+  .finding {
+    border: 1px solid var(--rule); background: var(--surface-2); border-radius: var(--radius-sm);
+    padding: .4rem .6rem; margin: .35rem 0; font-size: .76rem;
+  }
+  .finding.minor { color: var(--muted); }
 
-  .ledger { display: grid; gap: .3rem; font-size: .8rem; }
-  .ledger > div { display: flex; flex-wrap: wrap; gap: .15rem .6rem; align-items: baseline; padding-bottom: .3rem; border-bottom: 1px solid var(--rule); }
-  .ledger .id { font-family: var(--mono); font-size: .7rem; font-weight: 600; flex: none; }
+  /* One ruled card — a separator line between rows, like the evidence table. */
+  .ledger {
+    display: grid; gap: 0; font-size: .8rem;
+    background: var(--surface-2); border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); padding: 0 .8rem;
+  }
+  /* Aligned like a table: id column, title, status, then the file link pinned
+     right — every row's columns line up. Long ids wrap and long paths
+     ellipsize so a wide entry never overflows or squeezes the title. */
+  .ledger > div {
+    display: grid; grid-template-columns: minmax(6rem, 14rem) minmax(0, 1fr) max-content minmax(0, 13rem);
+    gap: .25rem 1rem; align-items: baseline;
+    padding: .6rem 0; border-bottom: 1px solid var(--rule);
+  }
+  .ledger > div:last-child { border-bottom: 0; }
+  .ledger .id { font-family: var(--mono); font-size: .72rem; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
   .ledger .meta { color: var(--muted); font-size: .72rem; }
-  .ledger .tag { font-size: .6rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .ledger .tag { font-size: .58rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); justify-self: start; }
+  .ledger .filelink {
+    grid-column: 4; justify-self: end; margin: 0; display: inline-block; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .ledger .tag.draft { color: var(--ready); }
   .ledger .tag.confirmed { color: var(--shipped); }
+
+  /* Decomposition task list — TASK · id · title, ruled like a table. The id
+     column is sized to its content so ids never wrap character-by-character. */
+  .dtasks {
+    margin-top: .5rem; background: var(--surface-2); border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); padding: 0 .85rem;
+  }
+  .dtask {
+    display: grid; grid-template-columns: max-content max-content minmax(0, 1fr);
+    gap: .2rem .85rem; align-items: baseline; font-size: .8rem;
+    padding: .6rem 0; border-bottom: 1px solid var(--rule);
+  }
+  .dtask:last-child { border-bottom: 0; }
+  .dtask .id { font-family: var(--mono); font-size: .72rem; font-weight: 600; color: var(--ink); }
+  .dtask .dtask-title { color: var(--muted); min-width: 0; }
+
   .quiet { color: var(--muted); font-size: .8rem; font-style: italic; }
 
   /* ── responsive ───────────────────────────────────────────────────── */
@@ -611,20 +829,22 @@
     </nav>
 
     <div id="lifecycle-controls" hidden>
-      <div class="progress">
-        <div class="bar" id="bar" role="img" aria-label="story progress"></div>
-        <p class="progress-line" id="progress-line"></p>
-      </div>
+      <div class="controls-card">
+        <div class="progress">
+          <div class="bar" id="bar" role="img" aria-label="story progress"></div>
+          <p class="progress-line" id="progress-line"></p>
+        </div>
 
-      <div id="banner" hidden></div>
+        <div id="banner" hidden></div>
 
-      <div class="next" id="next" hidden>
-        <button class="next-head" id="next-toggle" type="button" aria-expanded="false" aria-controls="next-steps">
-          <span class="next-label">Next</span>
-          <span class="next-verb" id="next-verb"></span>
-          <span class="next-count" id="next-count"></span>
-        </button>
-        <div class="collapse" id="next-steps"><div><ol id="next-list"></ol></div></div>
+        <div class="next" id="next" hidden>
+          <button class="next-head" id="next-toggle" type="button" aria-expanded="false" aria-controls="next-steps">
+            <span class="next-label">Next</span>
+            <span class="next-verb" id="next-verb"></span>
+            <span class="next-count" id="next-count"></span>
+          </button>
+          <div class="collapse" id="next-steps"><div><ol id="next-list"></ol></div></div>
+        </div>
       </div>
 
       <div class="colhead" id="colhead"></div>
@@ -683,7 +903,8 @@ function md(src) {
   const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
   const inline = (s) => s
     .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*]+)\*/g, "$1<em>$2</em>");
   const cells = (row) => row.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
   const isDivider = (row) => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(row) && row.includes("-");
   // A run of consecutive non-blank text lines is ONE paragraph. Hard-wrapped
@@ -693,12 +914,18 @@ function md(src) {
   const flushPara = () => {
     if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; }
   };
+  // Blockquote lines (`> …`, escaped to `&gt; …`) reflow into one callout.
+  let quote = [];
+  const flushQuote = () => {
+    if (quote.length) { out.push(`<blockquote><p>${inline(quote.join(" "))}</p></blockquote>`); quote = []; }
+  };
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     // A table is a header row followed by a divider — the shape every plan's
     // Surface Impact uses, and the one thing here that must not read as pipes.
     if (!fence && line.trim().startsWith("|") && isDivider(lines[index + 1] || "")) {
       flushPara();
+      flushQuote();
       closeList();
       const head = cells(line);
       const body = [];
@@ -717,12 +944,17 @@ function md(src) {
     }
     if (/^```/.test(line)) {
       flushPara();
+      flushQuote();
       closeList();
       out.push(fence ? "</code></pre>" : "<pre><code>");
       fence = !fence;
       continue;
     }
     if (fence) { out.push(line); continue; }
+    // Blockquote first: `>` is already escaped to `&gt;` by the time we get here.
+    const bq = line.match(/^\s*&gt;\s?(.*)$/);
+    if (bq) { flushPara(); closeList(); quote.push(bq[1]); continue; }
+    flushQuote();
     const heading = line.match(/^(#{1,3})\s+(.*)$/);
     const bullet = line.match(/^\s*[-*]\s+(.*)$/);
     const numbered = line.match(/^\s*\d+\.\s+(.*)$/);
@@ -742,12 +974,17 @@ function md(src) {
     } else if (!line.trim()) {
       flushPara();
       closeList();
+    } else if (list) {
+      // Lazy continuation: a hard-wrapped bullet/number body (specs wrap at
+      // ~80 cols) belongs to the item above, not a new left-aligned paragraph.
+      out[out.length - 1] = out[out.length - 1].replace(/<\/li>$/, " " + inline(line.trim()) + "</li>");
     } else {
       closeList();
       para.push(line);
     }
   }
   flushPara();
+  flushQuote();
   closeList();
   if (fence) out.push("</code></pre>");
   return `<div class="md">${out.join("\n")}</div>`;
@@ -784,7 +1021,8 @@ const STATIONS = ["Spec", "Plan", "Build", "Checks", "Ship"];
 /* Column headings name what a card IS, not the gate it faces — a card under
    "Plan" reads as planned when it means the opposite. */
 const COLUMNS = ["Needs spec", "Awaiting plan", "Building", "In checks", "Shipped"];
-const FLAG_GLYPH = {done: "✓", partial: "◐", todo: "○", gap: "✗"};
+// todo is an empty ring — the badge outline already reads as "pending".
+const FLAG_GLYPH = {done: "✓", partial: "◐", todo: "", gap: "✗"};
 const STATE_GLYPH = {shipped: "✓", building: "◐", ready: "★", blocked: "⊘", waiting: "·"};
 const STATE_WORD = {shipped: "shipped", building: "building", ready: "ready to plan",
                     blocked: "blocked", waiting: "waiting"};
@@ -1377,6 +1615,8 @@ function showPanel(panel, returnTo) {
   openPanel = panel;
   panel.hidden = false;
   $("scrim").hidden = false;
+  // Freeze the page behind the panel: only the panel scrolls (one scrollbar).
+  document.body.classList.add("panel-open");
   requestAnimationFrame(() => { panel.classList.add("open"); $("scrim").classList.add("open"); });
   const first = panel.querySelector(FOCUSABLE);
   if (first) first.focus();
@@ -1392,6 +1632,7 @@ function hidePanel(immediate) {
     if (openPanel === panel) return;   // reopened mid-transition
     panel.hidden = true;
     $("scrim").hidden = openPanel === null;
+    if (openPanel === null) document.body.classList.remove("panel-open");
   };
   if (immediate || REDUCE.matches) settle(); else setTimeout(settle, 220);
   $("library-open").setAttribute("aria-expanded", "false");
@@ -1443,10 +1684,10 @@ function readinessBlock(detail) {
   return `<h3>${blockers.length
       ? `${plural(blockers.length, "blocker")} before approval`
       : "Clear for approval"}</h3>
-    ${checks.map(c => `<div class="check ${c.ok ? "" : "no"}">
+    <div class="checks">${checks.map(c => `<div class="check ${c.ok ? "" : "no"}">
       <em aria-hidden="true">${c.ok ? "✓" : "✗"}</em>
       <span>${esc(c.label)}${c.ok ? "" : `${detailList(c.detail)}<span class="fix">${esc(c.fix)}</span>`}</span>
-    </div>`).join("")}
+    </div>`).join("")}</div>
     <p class="check-note">Approval happens in chat — the grill is an interrogation bound to
       the exact plan text, not a button.</p>`;
 }
@@ -1462,9 +1703,10 @@ function taskBlock(story) {
   return `<ul class="tasks">${tasks.map(t => {
     const state = t.state || (t.status === "pending" ? "skeleton" : t.status);
     const cls = state === "done" ? "done" : (state === "active" ? "active" : "");
+    // State badge on the LEFT (after the glyph) so it lines up across rows.
     const head = `<em aria-hidden="true">${mark[state] || "○"}</em>
-      ${kindLabel("TASK")}<span class="id">${esc(t.id || "")}</span><span>${esc(t.title || "")}</span>
-      <span class="task-state">${esc(state || "skeleton")}</span>`;
+      <span class="task-state">${esc(state || "skeleton")}</span>
+      ${kindLabel("TASK")}<span class="id">${esc(t.id || "")}</span><span class="task-title">${esc(t.title || "")}</span>`;
     // A task with no recorded detail stays a plain row: a disclosure that opens
     // onto nothing is worse than no disclosure.
     const detail = taskDossier(t);
@@ -1567,9 +1809,9 @@ function proofBlock(detail) {
          <dt>recorded by</dt><dd>${esc(d.generated_by || "")}</dd>
          <dt>tasks</dt><dd>${(d.tasks || []).length}</dd>
        </dl>
-       <ul class="tasks">${(d.tasks || []).map(t =>
-         `<li><em aria-hidden="true">·</em>${kindLabel("TASK")}<span class="id">${esc(t.id || "")}</span>
-          <span>${esc(t.title || t.summary || "")}</span></li>`).join("")}</ul>`
+       <div class="dtasks">${(d.tasks || []).map(t =>
+         `<div class="dtask">${kindLabel("TASK")}<span class="id">${esc(t.id || "")}</span>
+          <span class="dtask-title">${esc(t.title || t.summary || "")}</span></div>`).join("")}</div>`
     : `<h3>Decomposition</h3><p class="quiet">Not recorded yet — it is written when the approved
        plan is broken into bounded tasks.</p>`;
   return `<h3>Gate evidence</h3><dl class="kv">${rows.map(([k, v]) =>
@@ -1688,10 +1930,14 @@ function refocus(selector) {
 
 async function openDrawer(key, fromEl) {
   drawer.key = key;
-  drawer.detail = null;
   drawer.wide = false;
   drawer.tab = "plan";
   drawer.raw = false;
+  // Seed from the already-loaded board state so the drawer paints its gate
+  // rail, status and tasks INSTANTLY on click; the fetch only fills in the
+  // readiness checks and the plan/spec/proof artifacts.
+  const live = liveStory(key);
+  drawer.detail = live ? {story: live, readiness: [], evidence: {}, tasks: live.tasks || []} : null;
   paintDrawer();
   showPanel($("drawer"), fromEl || null);
   try {
@@ -1790,8 +2036,11 @@ async function poll() {
   try {
     const res = await fetch("/api/state", {cache: "no-store"});
     if (!res.ok) throw new Error(String(res.status));
-    render(await res.json());
+    const state = await res.json();
+    render(state);
     lastOk = Date.now();
+    // Cache for a warm start on the next load.
+    try { localStorage.setItem("forge-board:laststate", JSON.stringify(state)); } catch { /* private mode */ }
   } catch { /* staleness shows in the tick */ }
 }
 
@@ -1823,6 +2072,13 @@ function followHash() {
   openDrawer(key, target);
 }
 addEventListener("hashchange", followHash);
+
+// Warm start — paint the last-seen state instantly so a reload isn't blank
+// while the first (server-recomputed) /api/state request is in flight.
+try {
+  const warm = localStorage.getItem("forge-board:laststate");
+  if (warm) render(JSON.parse(warm));
+} catch { /* ignore a bad cache */ }
 
 poll().then(() => { if (deepLink()) followHash(); });
 setInterval(poll, 4000);

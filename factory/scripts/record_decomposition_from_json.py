@@ -4,9 +4,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
+import posixpath
 import shlex
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from factory_lib import (
     decomposition_state_path, dump_json, gate, head_sha,
@@ -215,8 +215,16 @@ for pos, task in enumerate(tasks, 1):
                 f"decomposition task {task['id']}: required_tests entry "
                 f"{proof_pos} needs exactly non-empty id, path and command strings."
             )
-        rel = Path(proof["path"])
-        if rel.is_absolute() or ".." in rel.parts or os.path.normpath(proof["path"]) != proof["path"]:
+        # Repo-relative paths are always posix (forward slashes), independent of
+        # the host OS. Using os.path here validated with ntpath on Windows, which
+        # rewrites "a/b/c" to "a\\b\\c" and rejected every valid path.
+        rel = PurePosixPath(proof["path"])
+        if (
+            "\\" in proof["path"]
+            or rel.is_absolute()
+            or ".." in rel.parts
+            or posixpath.normpath(proof["path"]) != proof["path"]
+        ):
             raise SystemExit(
                 f"decomposition task {task['id']}: required test path "
                 f"{proof['path']!r} must be a normalized repo-relative path."
@@ -297,8 +305,8 @@ for pos, task in enumerate(tasks, 1):
         )
 from forge_cli.delegate import delegation_exclusion  # noqa: E402
 from forge_cli.stages import (  # noqa: E402
-    authoritative_stages_path, load_stages, task_digest, write_skeleton,
-    write_stages,
+    authoritative_stages_path, clear_story_authority, load_stages, task_digest,
+    write_skeleton, write_stages,
 )
 
 
@@ -325,6 +333,21 @@ with delegation_exclusion(
     }
     protected_decomposition = protected_decomposition_state_path(root)
     protected_stages = authoritative_stages_path(root)
+    # Story-scope the protected authority the way load_stages already does:
+    # leftover git-local state from a PREVIOUS story (its ship-time clear never
+    # ran) must not freeze the NEW story's task graph to the old prefix. Only
+    # same-story state participates in the freeze; anything else is the
+    # documented shipped/orphaned-story case and is cleared idempotently.
+    stale_story = load_json(protected_decomposition, default={}).get("story")
+    stale_stages_issue = load_json(protected_stages, default={}).get("issue")
+    if ((protected_decomposition.exists() and stale_story != story)
+            or (protected_stages.exists()
+                and stale_stages_issue not in (None, story))):
+        removed = clear_story_authority(root)
+        print(
+            "Cleared stale protected authority from previous story "
+            f"{stale_story or stale_stages_issue!r}: {', '.join(removed)}"
+        )
     first_recording = (
         not protected_decomposition.exists() and not protected_stages.exists()
     )
@@ -395,6 +418,8 @@ with delegation_exclusion(
                         "when the task reaches the frontier."
                     )
     backfilled_stage_digest = False
+    stages_dirty = False
+    changed_active: list[tuple[str, bool]] = []
     for stage in stages_data.get("stages") or []:
         if stage.get("status") not in {"active", "done"}:
             continue
@@ -406,6 +431,22 @@ with delegation_exclusion(
                 "cannot be removed or renamed; finish it or record it incomplete "
                 "before changing the task list."
             )
+        if stage.get("status") == "active":
+            # Amending an active (in-flight) task's execution contract is
+            # allowed, but its task grill and plan approval are now stale. Make
+            # that explicit AT CHANGE TIME and drop the stale review stamp so the
+            # requirement can't be silently deferred to delegate/close.
+            prior = prior_tasks.get(task_id)
+            changed = (
+                prior is not None
+                and _full_contract_digest(prior) != _full_contract_digest(new)
+            )
+            if changed:
+                was_reviewed = bool(stage.get("local_review_stamp"))
+                if stage.pop("local_review_stamp", None) is not None:
+                    stages_dirty = True
+                changed_active.append((task_id, was_reviewed))
+            continue
         if stage.get("status") == "done":
             prior = prior_tasks.get(task_id)
             if (
@@ -440,8 +481,23 @@ with delegation_exclusion(
                     f"decomposition task {task_id}: a completed stage's contract "
                     "cannot be changed or removed; add a new follow-up task instead."
                 )
-    if backfilled_stage_digest:
+    if backfilled_stage_digest or stages_dirty:
         write_stages(root, stages_data)
+    for task_id, was_reviewed in changed_active:
+        print(
+            f"\nNOTE: {task_id} execution contract changed. Its task grill and plan "
+            "approval are now STALE and do NOT carry to the amended plan.\n"
+            "Re-grill and re-approve BEFORE the next delegate or stage close:\n"
+            f"  python3 factory/scripts/record_grill_from_json.py --gate task --task {task_id}\n"
+            f"  ./forge task approve {task_id} --by \"<name>\"\n"
+        )
+        if was_reviewed:
+            print(
+                f"WARNING: {task_id} was already implemented/reviewed. Approving the amended "
+                "plan now post-dates the work — approval is meant to precede implementation. "
+                "For a substantive scope change prefer a follow-up task rather than re-approving "
+                "completed work.\n"
+            )
     payload["commit"] = head_sha(root)
     dump_json(protected_decomposition_state_path(root), payload)
     dump_json(decomposition_state_path(root, for_write=True), payload)

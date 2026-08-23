@@ -1427,6 +1427,39 @@ def test_symlinked_manifest_is_refused(repo, tmp_path):
     assert 'signoff_record: ""' in real.read_text(), "wrote through the symlink"
 
 
+def test_vendor_manifest_is_line_ending_independent(repo):
+    """A manifest generated on a Windows working tree (CRLF) must still verify
+    on a Linux CI checkout (LF). Hashing raw bytes made the whole gate surface
+    read as vendor-drift right after a Windows re-vendor (project audit /
+    roadmap-gate); compute_hashes now normalises CRLF->LF."""
+    from importlib import import_module
+    import sys
+    sys.path.insert(0, str(repo / "factory" / "scripts"))
+    sys.modules.pop("check_vendor_integrity", None)
+    cvi = import_module("check_vendor_integrity")
+
+    target = next(p for p in (repo / cvi.GATE_TREES[0]).rglob("*.py")
+                  if p.is_file())
+    lf = target.read_bytes().replace(b"\r\n", b"\n")
+    crlf = lf.replace(b"\n", b"\r\n")
+
+    # Manifest generated from LF content (a Linux re-vendor); a CRLF working
+    # tree (Windows checkout) of the same file must NOT read as drift.
+    target.write_bytes(lf)
+    cvi.write_manifest(repo, "test-commit")
+    assert cvi.integrity_problems(repo) == []
+    target.write_bytes(crlf)
+    assert cvi.integrity_problems(repo) == [], \
+        "CRLF working tree must verify against an LF manifest"
+
+    # And the reverse: manifest from CRLF (a Windows re-vendor), verified on a
+    # LF checkout (Linux CI) — the exact roadmap-gate failure this fixes.
+    cvi.write_manifest(repo, "test-commit")
+    target.write_bytes(lf)
+    assert cvi.integrity_problems(repo) == [], \
+        "LF checkout must verify against a CRLF manifest"
+
+
 def test_migration_ignores_a_mentioned_but_unset_key(repo):
     """The key must be detected as a real top-level assignment: a project-owned
     harness.yaml may mention it in a comment, and a substring test would then
@@ -2309,6 +2342,51 @@ def test_update_run_enforces_artifact_phase_order(repo, tmp_path):
 
     code, out = run(repo, "update_run.py", "--phase", "pr-ready")
     assert code != 0 and "pr_ready.py" in out
+
+
+def test_decomposition_not_frozen_by_previous_story_authority(repo, tmp_path):
+    # A shipped story whose ship-time clear never ran leaves .git/forge/
+    # decomposition.json + stages.json behind. The next story's FIRST
+    # recording must not be prefix-frozen to that stale task graph — the
+    # recorder story-scopes the protected authority the way load_stages does,
+    # clearing the shipped/orphaned story's leftovers idempotently.
+    sign_off(repo)
+    intake(repo)
+    code, out = save_plan(repo, tmp_path)
+    assert code == 0, out
+    record_skeleton_then_frontier(repo, DECOMP["tasks"])
+    lib = load_factory_lib(repo)
+    protected = lib.protected_decomposition_state_path(repo)
+    assert protected.exists()
+    assert json.loads(protected.read_text())["story"] == "ENG-1"
+
+    # Ship ENG-1 without clear_story_authority running (the documented
+    # "its clear never ran" case), then start ENG-2.
+    state = run_state(repo)
+    state["phase"] = "shipped"
+    lib.dump_json(lib.run_state_path(repo, state["issue_key"], for_write=True),
+                  state)
+    code, out = intake(repo, "ENG-2", "Receipts")
+    assert code == 0, out
+    code, out = save_plan(repo, tmp_path)
+    assert code == 0, out
+
+    # ENG-2's own task graph (different ids) records as a FIRST recording.
+    tasks2 = [{**DECOMP["tasks"][0], "id": "T2-1",
+               "title": "receipts slice"}]
+    skeletons = [task_skeleton(task) for task in tasks2]
+    code, out = run(repo, "record_decomposition_from_json.py",
+                    stdin=json.dumps({**DECOMP, "tasks": skeletons}))
+    assert code == 0, out
+    assert "Cleared stale protected authority" in out
+    assert json.loads(protected.read_text())["story"] == "ENG-2"
+
+    # Same-story re-record keeps the freeze: a NON-prefix rewrite still fails.
+    rogue = [{**DECOMP["tasks"][0], "id": "T2-ROGUE", "title": "rewrite"}]
+    code, out = run(repo, "record_decomposition_from_json.py",
+                    stdin=json.dumps({**DECOMP, "tasks": [
+                        task_skeleton(task) for task in rogue]}))
+    assert code != 0 and "frozen" in out
 
 
 def test_decomposition_refused_without_run_state(repo):
@@ -5687,17 +5765,20 @@ def test_upgrade_delivers_gstack_setup_to_older_scaffolds(repo):
 
 
 def test_next_routes_design_skills_by_feature_type(repo, tmp_path):
+    # Design-skill routing is PER TASK: the active/frontier task's OWN
+    # user_facing flag decides, not the story's.
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    record_skeleton_then_frontier(repo, DECOMP["tasks"])  # user_facing: true
+    ui_task = {**DECOMP["tasks"][0], "user_facing": True}
+    record_skeleton_then_frontier(repo, [ui_task])
     run(repo, "update_run.py", "--decomposition-status", "recorded")
     code, out = run(repo, "forge.py", "next")
     assert code == 0 and "emil-design-eng" in out
-    # backend task: no design skills suggested
+    # a backend task in the same story: no design skills suggested
     decomp_path = story_state(repo) / "decomposition.json"
     data = json.loads(decomp_path.read_text())
-    data["user_facing"] = False
+    data["tasks"][0]["user_facing"] = False
     decomp_path.write_text(json.dumps(data))
     (delegation_ledger(repo).parent / "decomposition.json").write_text(json.dumps(data))
     code, out = run(repo, "forge.py", "next")
@@ -6053,10 +6134,16 @@ def test_stale_grill_refused_after_handover_docs_change(repo):
 # ------------------------------------------------ mandatory skill attestation
 
 def test_user_facing_artifacts_must_attest_design_skills(repo, tmp_path):
+    # Enforcement keys off the ACTIVE TASK's user_facing flag, so the story
+    # needs an active, user_facing task before the recorders gate on skills.
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    record_skeleton_then_frontier(repo, DECOMP["tasks"])  # user_facing
+    ui_task = {**DECOMP["tasks"][0], "user_facing": True}
+    record_skeleton_then_frontier(repo, [ui_task])
+    control = delegation_ledger(repo).parent
+    (control / "stages.json").write_text(json.dumps(
+        {"issue": "ENG-1", "stages": [{"id": "T1", "status": "active"}]}))
     # testing artifact without the mandatory design skills -> refused
     base = {"generated_by": "implementer", "status": "passed", "summary": "ok",
             "blocking_findings": [], "commands_run": ["pytest"]}
@@ -6082,10 +6169,11 @@ def test_user_facing_artifacts_must_attest_design_skills(repo, tmp_path):
     code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
                     stdin=json.dumps({**review, "skills_used": ["review-animations"]}))
     assert code == 0, out
-    # backend task: no design-skill requirement
-    code, out = run(repo, "record_decomposition_from_json.py",
-                    stdin=json.dumps({**DECOMP, "user_facing": False}))
-    assert code == 0, out
+    # a backend active task in the same story: no design-skill requirement —
+    # the active task's OWN flag governs, so flip it and re-check.
+    data = json.loads((control / "decomposition.json").read_text())
+    data["tasks"][0]["user_facing"] = False
+    (control / "decomposition.json").write_text(json.dumps(data))
     code, out = run(repo, "record_test_from_json.py", "--kind", "automated",
                     stdin=json.dumps(base))
     assert code == 0, out
@@ -8350,8 +8438,12 @@ def test_roadmap_gate_workflow_shape():
     assert "fetch-depth: 0" in pr_job and "fetch-depth: 0" not in coverage_job
     assert "github.event_name == 'push'" in coverage_job
     assert "github.ref_name == github.event.repository.default_branch" in coverage_job
-    for name in ("BASE_SHA", "HEAD_BRANCH", "PR_BODY"):
+    for name in ("HEAD_SHA", "HEAD_BRANCH", "PR_BODY"):
         assert f"{name}:" in pr_job and f"{name}:" not in coverage_job
+    # BASE_SHA is derived from the merge-base of the PR head and its target, not
+    # declared as an env var (fix/pr-ticket-check-merge-base).
+    assert 'BASE_SHA="$(git merge-base' in pr_job
+    assert "BASE_SHA:" not in pr_job
     for job in (pr_job, coverage_job):
         assert job.count("id: arm") == 1
         assert job.count("constitution/VENDORED_FROM") == 1
@@ -15054,6 +15146,9 @@ def test_forge_next_routes_the_jit_frontier_states(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
+    # A user_facing task, so the per-task design-skill guidance surfaces at
+    # every frontier state as the task walks toward delegation.
+    ui_task = {**STAGE_TASK, "user_facing": True}
 
     def next_action() -> str:
         code, out = run(repo, "forge.py", "next")
@@ -15079,16 +15174,16 @@ def test_forge_next_routes_the_jit_frontier_states(repo, tmp_path):
     code, out = run(
         repo,
         "record_decomposition_from_json.py",
-        stdin=json.dumps({**DECOMP, "tasks": [STAGE_TASK]}),
+        stdin=json.dumps({**DECOMP, "tasks": [ui_task]}),
     )
     assert code == 0, out
     action = next_action()
     assert "factory/prompts/griller.md --gate task" in action
     assert "stage start" not in action and "forge delegate" not in action
 
-    code, out = record_task_grill(repo, STAGE_TASK)
+    code, out = record_task_grill(repo, ui_task)
     assert code == 0, out
-    stale = {**STAGE_TASK, "reviewer_focus": "the changed bounded contract",
+    stale = {**ui_task, "reviewer_focus": "the changed bounded contract",
              "write_scope": ["src/changed/"]}
     code, out = run(
         repo,
@@ -17265,3 +17360,220 @@ def test_hook_denies_nested_quoted_companion_write_launch(repo):
                                 "permission_mode": "default",
                                 "tool_input": {"command": cmd}})
         assert "deny" in out and "forge delegate" in out, cmd
+
+
+# --- fix/windows-stage-close-and-plan-change-signoff ---------------------------
+# Three regression tests for: the Windows node.EXE launch-binding check, the
+# vendored-client factory/ scope exemption, and change-time re-validation when
+# an active task's execution contract is amended.
+
+
+def _seed_valid_launch(repo: Path, stage_id: str, task: dict,
+                       started_at: str, argv0: str) -> None:
+    """Write a fully valid succeeded write-launch ledger whose argv[0] is
+    `argv0`, so `_require_successful_launch` exercises the real predicate."""
+    from forge_cli.delegate import argv_digest
+    from factory_lib import sha256_of
+
+    brief = repo / ".factory" / "briefs" / f"{stage_id}.md"
+    brief.parent.mkdir(parents=True, exist_ok=True)
+    brief.write_text("composed task brief\n")
+    companion_path = "/opt/codex/codex-companion.mjs"
+    model, effort = "gpt-test", "medium"
+    argv = [
+        argv0, companion_path, "task", "--json", "--cwd", str(repo),
+        "--model", model, "--effort", effort,
+        "--prompt-file", brief.relative_to(repo).as_posix(), "--write",
+    ]
+    row = {
+        "launch_id": "launch-node-ext",
+        "task": stage_id,
+        "brief_sha256": sha256_of(brief),
+        "task_sha256": task_digest(task),
+        "write": True,
+        "model": model,
+        "effort": effort,
+        "companion_path": companion_path,
+        "argv": argv,
+        "argv_sha256": argv_digest(argv),
+        "stage_started_at": started_at,
+        "process_token": "tok-node-ext",
+    }
+    ledger = delegation_ledger(repo)
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_text("\n".join(json.dumps({
+        **row,
+        "launch_status": status,
+        **({"exit_code": 0} if status == "succeeded" else {}),
+    }) for status in ("starting", "running", "succeeded")) + "\n")
+
+
+def test_require_successful_launch_accepts_windows_node_exe(repo):
+    """On Windows the launcher is `node.EXE`; the argv[0] check must recognise
+    it (stem, case-insensitive) on every platform, while a non-node launcher
+    stays rejected."""
+    from forge_cli.stages import _require_successful_launch
+
+    started_at = "2026-01-01T00:00:00Z"
+    stage = {"id": "T1", "started_at": started_at}
+    for argv0 in (
+        "C:/Program Files/nodejs/node.EXE",
+        "node.exe",
+        "/usr/bin/node",
+    ):
+        _seed_valid_launch(repo, "T1", STAGE_TASK, started_at, argv0)
+        # No SystemExit: the launch is recognised as a valid bound write launch.
+        _require_successful_launch(repo, "T1", stage, STAGE_TASK)
+
+    _seed_valid_launch(repo, "T1", STAGE_TASK, started_at, "/usr/bin/python3")
+    with pytest.raises(SystemExit):
+        _require_successful_launch(repo, "T1", stage, STAGE_TASK)
+
+
+def test_vendored_client_extends_workflow_prefixes(repo, tmp_path):
+    """In a vendored client, factory/ (and the other harness machinery) is
+    infrastructure a `forge upgrade` may rewrite mid-task, so it never counts as
+    a task's product change. The source harness repo keeps the strict set."""
+    from factory_lib import vendored_client
+    from forge_cli.stages import out_of_scope, workflow_prefixes
+
+    # forge init writes constitution/VENDORED_FROM: this repo is a client.
+    assert (repo / "constitution" / "VENDORED_FROM").is_file()
+    assert vendored_client(repo) is True
+    assert "factory/" in workflow_prefixes(repo)
+    assert out_of_scope(repo, ["factory/scripts/x.py"], ["apps/api"]) == []
+
+    # Top-level vendored harness FILES are excluded too (not only directories):
+    # a coordinator's own harness patch can leave WORKFLOW.md dirty at stage
+    # start, and reverting it mid-stage must not read as an out-of-scope change.
+    assert "WORKFLOW.md" in workflow_prefixes(repo)
+    assert out_of_scope(repo, ["WORKFLOW.md"], ["apps/api"]) == []
+
+    # A source-harness checkout has no marker: factory/ IS the product.
+    source = tmp_path / "source"
+    shutil.copytree(repo, source)
+    (source / "constitution" / "VENDORED_FROM").unlink()
+    assert vendored_client(source) is False
+    assert "factory/" not in workflow_prefixes(source)
+    assert out_of_scope(
+        source, ["factory/scripts/x.py"], ["apps/api"]
+    ) == ["factory/scripts/x.py"]
+    assert "WORKFLOW.md" not in workflow_prefixes(source)
+    assert out_of_scope(source, ["WORKFLOW.md"], ["apps/api"]) == ["WORKFLOW.md"]
+
+
+def test_rerecord_active_task_contract_change_warns_and_clears_stamp(
+        repo, tmp_path):
+    """Amending an active task's execution contract is allowed, but its grill
+    and plan approval are now stale — surface that AT CHANGE TIME and drop the
+    now-stale local review stamp instead of silently deferring to close."""
+    start_stage(repo, tmp_path, STAGE_TASK)
+    write_in_scope(repo, "src/core.py")
+    git(repo, "add", "src/core.py")
+    code, out = record_stage_local(repo)
+    assert code == 0, out
+    before = json.loads((repo / ".factory" / "stages.json").read_text())
+    assert before["stages"][0].get("local_review_stamp")
+
+    amended = {**STAGE_TASK, "write_scope": ["src/", "lib/"]}
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [amended]}),
+    )
+    assert code == 0, out
+    assert "NOTE: T1 execution contract changed" in out
+    assert "STALE" in out
+    assert "record_grill_from_json.py --gate task --task T1" in out
+    assert "WARNING: T1 was already implemented/reviewed" in out
+
+    after = json.loads((repo / ".factory" / "stages.json").read_text())
+    assert after["stages"][0]["status"] == "active"
+    assert "local_review_stamp" not in after["stages"][0]
+
+
+# --- fix/per-task-user-facing-skills ------------------------------------------
+# Design-skill enforcement keys off the ACTIVE TASK's user_facing flag, not the
+# story's — a backend task in a user_facing story is not forced to attest UI
+# design skills.
+
+
+def test_active_task_user_facing_is_per_task(repo):
+    from factory_lib import (active_task_user_facing, git_control_dir,
+                             protected_decomposition_state_path)
+
+    control = git_control_dir(repo)
+    control.mkdir(parents=True, exist_ok=True)
+    (control / "stages.json").write_text(
+        json.dumps({"issue": "S", "stages": [{"id": "T1", "status": "active"}]}))
+    decomp = protected_decomposition_state_path(repo)
+    decomp.parent.mkdir(parents=True, exist_ok=True)
+
+    # user_facing STORY, but the active BACKEND task is not user_facing
+    decomp.write_text(json.dumps(
+        {"user_facing": True, "tasks": [{"id": "T1", "user_facing": False}]}))
+    assert active_task_user_facing(repo) is False
+
+    # a UI task explicitly marked user_facing
+    decomp.write_text(json.dumps(
+        {"user_facing": True, "tasks": [{"id": "T1", "user_facing": True}]}))
+    assert active_task_user_facing(repo) is True
+
+    # no active stage -> not user_facing (nothing to gate)
+    (control / "stages.json").write_text(
+        json.dumps({"issue": "S", "stages": [{"id": "T1", "status": "done"}]}))
+    assert active_task_user_facing(repo) is False
+
+
+# --- fix/coordinator-contract-and-windows-lock-read ---------------------------
+# The Windows lock-read race in the authority snapshot, and robust required-test
+# attribution (vitest/jest leaf names + classname / root-relative file paths).
+
+
+def test_protected_authority_snapshot_excludes_locks(repo):
+    """The transient locks/ subtree is not attested authority: the delegation
+    machinery holds those files open (exclusively on Windows) while the snapshot
+    runs, so including them attests nothing durable and hard-fails the read on
+    Windows. Non-lock authority is still captured."""
+    from factory_lib import git_control_dir
+    from forge_cli.stages import protected_authority_snapshot
+
+    control = git_control_dir(repo)
+    control.mkdir(parents=True, exist_ok=True)
+    (control / "run.json").write_text('{"issue_key":"X"}')
+    (control / "locks" / "task").mkdir(parents=True, exist_ok=True)
+    (control / "locks" / "task" / "T1.lock").write_text('{"kind":"stage-close"}')
+    snap = protected_authority_snapshot(repo)
+    assert "run.json" in snap, "snapshot must still capture non-lock authority"
+    assert not any(rel == "locks" or rel.startswith("locks/") for rel in snap)
+
+
+def test_junit_case_matches_id_exact_and_leaf():
+    import xml.etree.ElementTree as ET
+
+    from forge_cli.stages import _junit_case_matches_id
+
+    exact = ET.fromstring('<testcase name="t1-boot-migrate"/>')
+    leaf = ET.fromstring(
+        '<testcase name="application backbone &gt; t1-boot-migrate"/>')
+    other = ET.fromstring('<testcase name="unrelated case"/>')
+    assert _junit_case_matches_id(exact, "t1-boot-migrate")
+    assert _junit_case_matches_id(leaf, "t1-boot-migrate")
+    assert not _junit_case_matches_id(other, "t1-boot-migrate")
+
+
+def test_junit_case_attributed_file_or_classname_suffix():
+    import xml.etree.ElementTree as ET
+
+    from forge_cli.stages import _junit_case_attributed
+
+    rel = "apps/api/test/backbone.e2e-spec.ts"
+    # vitest/jest: the source path is in `classname`, relative to the runner root
+    vitest = ET.fromstring(
+        '<testcase classname="test/backbone.e2e-spec.ts" name="t1-boot-migrate"/>')
+    # some runners emit an explicit `file`, repo-relative with a ./ prefix
+    withfile = ET.fromstring(f'<testcase file="./{rel}" name="t1-boot-migrate"/>')
+    wrong = ET.fromstring(
+        '<testcase classname="test/other.spec.ts" name="t1-boot-migrate"/>')
+    assert _junit_case_attributed(vitest, rel)
+    assert _junit_case_attributed(withfile, rel)
+    assert not _junit_case_attributed(wrong, rel)
