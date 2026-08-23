@@ -330,7 +330,18 @@ def cmd_next(args: argparse.Namespace) -> None:
                         f"[dev] Await {task_id} merge into main; its task marker is "
                         "not on origin/main yet, then rerun ./forge next"
                     )
-                if user_facing:
+                # Design-skill guidance is PER TASK, not per story. Before the
+                # contract is authored the task flag is not set, so prompt
+                # conditionally at author-contract; afterwards gate on the task's
+                # OWN user_facing, so a backend task in a user_facing story is not
+                # told its (nonexistent) UI skills are mandatory.
+                if frontier == "author-contract":
+                    steps[-1] += (
+                        " — if this task builds UI a person sees, set "
+                        "user_facing: true (emil-design-eng + frontend-design then "
+                        "MANDATORY); a backend task sets user_facing: false"
+                    )
+                elif task.get("user_facing"):
                     steps[-1] += (
                         " — User-facing task: emil-design-eng + frontend-design are "
                         "MANDATORY (recorder refuses the artifact without them in "

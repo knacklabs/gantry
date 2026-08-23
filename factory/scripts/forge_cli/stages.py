@@ -44,6 +44,31 @@ from .events import append_event
 # — exempting it here would make the scope check vacuous exactly where it is
 # being dogfooded.
 WORKFLOW_PATHS = (".factory/", "plans/")
+# In a repo that VENDORED the harness, factory/ and the vendored adapters/canon
+# are infrastructure a `forge upgrade` may rewrite mid-task — not the task's
+# product; pr_ready.EVIDENCE_PATHS already treats them so. The SOURCE harness
+# repo builds these AS product (no constitution/VENDORED_FROM marker), so it
+# keeps the strict set and the per-task scope check stays honest when dogfooding.
+HARNESS_MACHINERY_PATHS = (
+    "factory/", ".claude/", ".codex/", ".github/", "constitution/",
+    "harness/", ".gstack/",
+    # Top-level vendored harness FILES (not directories) that `forge upgrade`
+    # rewrites and a client never authors as its own product. Excluding them
+    # keeps the per-task scope/dirt check honest when the coordinator's own
+    # harness patch left one dirty at stage start (startswith matches the
+    # exact filename; no product file shares these prefixes).
+    "WORKFLOW.md",
+)
+
+
+def workflow_prefixes(base: Path) -> tuple[str, ...]:
+    """Path prefixes that never count as a task's product change. Extended with
+    the harness machinery only in a vendored client (see vendored_client)."""
+    from factory_lib import vendored_client
+    return (WORKFLOW_PATHS + HARNESS_MACHINERY_PATHS
+            if vendored_client(base) else WORKFLOW_PATHS)
+
+
 DEFAULT_REVIEW_BUDGET_FILES = 8
 DEFAULT_REVIEW_BUDGET_LINES = 400
 
@@ -386,7 +411,7 @@ def product_tree_snapshot(base: Path) -> dict:
     index_stage = _git(base, "ls-files", "--stage", "-z", *exclude)
     dirty = [
         rel for rel in dirty_paths(base)
-        if not rel.startswith(WORKFLOW_PATHS)
+        if not rel.startswith(workflow_prefixes(base))
     ]
     digests: dict[str, str] = {}
     gitlinks = _gitlink_identities(
@@ -626,6 +651,15 @@ def protected_authority_snapshot(base: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     for path in sorted(control.rglob("*")):
         rel = path.relative_to(control).as_posix()
+        # The locks/ subtree is transient coordination state, not attested
+        # authority. The delegation machinery holds these lock files open — with
+        # an EXCLUSIVE handle on Windows — for the duration of the very operation
+        # that snapshots the tree, so reading them here attests nothing durable
+        # and races that open handle (a hard OSError on Windows: a stage could
+        # never close). Proof commands never touch locks/, so excluding it keeps
+        # the tamper check honest while making stage close work cross-platform.
+        if rel == "locks" or rel.startswith("locks/"):
+            continue
         try:
             info = path.lstat()
             if path.is_symlink():
@@ -651,10 +685,10 @@ def _covered(path: str, scope: list[str]) -> bool:
     return False
 
 
-def out_of_scope(paths: list[str], scope: list[str]) -> list[str]:
+def out_of_scope(base: Path, paths: list[str], scope: list[str]) -> list[str]:
     """Product paths this sequential task touched but never declared."""
     return [p for p in paths
-            if not p.startswith(WORKFLOW_PATHS)
+            if not p.startswith(workflow_prefixes(base))
             and not _covered(p, scope)]
 
 
@@ -746,7 +780,7 @@ def _require_reviewed_commit(base: Path, stage: dict, task: dict) -> None:
     head = head_sha(base) or ""
     committed_product = [
         path for path in committed_paths(base, base_sha, head)
-        if not path.startswith(WORKFLOW_PATHS)
+        if not path.startswith(workflow_prefixes(base))
     ] if base_sha and head and base_sha != head else []
     if not committed_product:
         fail(f"{stage.get('id')} closes on an EMPTY committed delta — stage work "
@@ -867,7 +901,7 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
     baseline = stage.get("dirty_at_start", {})
     split = [
         path for path in split_index_paths(base)
-        if not path.startswith(WORKFLOW_PATHS)
+        if not path.startswith(workflow_prefixes(base))
     ]
     if split:
         fail(f"{stage_id} has staged content that differs from the tested "
@@ -875,7 +909,7 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
              "worktree agree before closing the stage.")
     product = [
         path for path in changed_paths(base, base_sha, baseline)
-        if not path.startswith(WORKFLOW_PATHS)
+        if not path.startswith(workflow_prefixes(base))
     ]
     contributions = contribution_paths(base, product, baseline, base_sha)
     if not contributions:
@@ -889,7 +923,7 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
         if not any(_covered(path, scope) for path in contributions):
             fail(f"{stage_id} closes without changing anything in its own "
                  "write_scope.")
-        strays = out_of_scope(product, scope)
+        strays = out_of_scope(base, product, scope)
         if strays:
             fail(f"{stage_id} changed {len(strays)} path(s) outside its declared "
                  f"write_scope: {', '.join(strays[:10])}"
@@ -934,7 +968,7 @@ def _require_successful_launch(base: Path, stage_id: str, stage: dict,
         isinstance(argv, list)
         and bool(argv)
         and all(isinstance(token, str) for token in argv)
-        and Path(argv[0]).name == "node"
+        and Path(argv[0]).stem.lower() == "node"
         and argv == [
             argv[0],
             entry.get("companion_path"),
@@ -965,6 +999,38 @@ def _require_successful_launch(base: Path, stage_id: str, stage: dict,
         fail(f"{stage_id} has no successful write launch bound to this stage, "
              "task contract and brief. Run `forge delegate "
              f"{stage_id}` successfully; `--print-only` is diagnostic only.")
+
+
+def _junit_case_matches_id(case, test_id: str) -> bool:
+    """A JUnit <testcase> identifies the required test when its name equals the
+    id, OR its leaf name does. Vitest/Jest prefix the testcase name with the
+    describe path (e.g. 'application backbone > t1-boot-migrate'), so matching
+    only the exact full name forces a describe-free test structure for no real
+    gain — the leaf is what the required-test id names."""
+    name = str(case.get("name", ""))
+    if name == test_id:
+        return True
+    for sep in (" > ", " › ", "::"):
+        if sep in name and name.rsplit(sep, 1)[-1].strip() == test_id:
+            return True
+    return False
+
+
+def _junit_case_attributed(case, rel: str) -> bool:
+    """Attribute a <testcase> to its declared source path. Runners record the
+    file in `file` (some) or `classname` (vitest/jest), often RELATIVE TO THE
+    RUNNER ROOT rather than the repo (vitest with a subdir `root:` emits
+    'test/x.spec.ts' for a repo path 'apps/api/test/x.spec.ts'). Match by exact
+    or path-suffix equality so a runner rooted in a subdirectory still attributes
+    correctly, without forcing every project to reconfigure its test runner."""
+    candidate = (str(case.get("file", "")) or str(case.get("classname", ""))
+                 ).removeprefix("./").replace("\\", "/")
+    if not candidate:
+        return False
+    declared = rel.replace("\\", "/")
+    return (candidate == declared
+            or declared.endswith("/" + candidate)
+            or candidate.endswith("/" + declared))
 
 
 def _run_required_tests(base: Path, stage_id: str, task: dict) -> None:
@@ -1009,11 +1075,16 @@ def _run_required_tests(base: Path, stage_id: str, task: dict) -> None:
                 try:
                     with blocked_termination_signals():
                         process_baseline = _process_table()
+                        spawn_options = (
+                            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                            if os.name == "nt"
+                            else {"start_new_session": True,
+                                  "preexec_fn": unblock_termination_signals_in_child}
+                        )
                         proc = subprocess.Popen(
                             tokens, cwd=base, stdout=stdout_log,
                             stderr=stderr_log, text=True, env=env,
-                            start_new_session=True,
-                            preexec_fn=unblock_termination_signals_in_child,
+                            **spawn_options,
                         )
                         process_identity = _capture_spawn_identity(proc)
                     if not _wait_and_reap(
@@ -1059,14 +1130,14 @@ def _run_required_tests(base: Path, stage_id: str, task: dict) -> None:
                      f"JUnit proof: {exc}")
             matches = [
                 case for case in root.iter("testcase")
-                if str(case.get("name", "")) == test_id
+                if _junit_case_matches_id(case, test_id)
             ]
             if not matches:
                 fail(f"{stage_id} required test {test_id!r} was not present in "
                      "the fresh JUnit report")
             attributed = [
                 case for case in matches
-                if str(case.get("file", "")).removeprefix("./") == rel
+                if _junit_case_attributed(case, rel)
             ]
             if not attributed:
                 fail(f"{stage_id} required test {test_id!r} was not attributed "
@@ -1103,11 +1174,16 @@ def _run_verify_commands(base: Path, stage_id: str, task: dict) -> None:
             try:
                 with blocked_termination_signals():
                     process_baseline = _process_table()
+                    spawn_options = (
+                        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                        if os.name == "nt"
+                        else {"start_new_session": True,
+                              "preexec_fn": unblock_termination_signals_in_child}
+                    )
                     proc = subprocess.Popen(
                         str(command), cwd=base, shell=True, stdout=stdout_log,
-                        stderr=stderr_log, text=True, start_new_session=True,
-                        env=env,
-                        preexec_fn=unblock_termination_signals_in_child,
+                        stderr=stderr_log, text=True, env=env,
+                        **spawn_options,
                     )
                     process_identity = _capture_spawn_identity(proc)
                 if not _wait_and_reap(

@@ -387,6 +387,37 @@ holds across phase transitions (verify → review → functional → pr_ready).
 It stops only for an open signal, a gate refusal it cannot resolve within
 the approved plan, a human-only act, or scope the plan does not cover.
 
+### Who authors what — no ambiguity once implementation starts
+
+After task-plan sign-off, the division of labour is FIXED, so a task never
+stalls on "should I do this or hand it to Codex?":
+
+- **Every product change is Codex's, via `forge delegate`.** Not only the
+  initial implementation — EVERY fix that diff inspection, the checks, verify,
+  or autoreview demand. A one-line config tweak, a dependency bump, a test
+  rename, a "trivial" correction: each is a fresh `forge delegate` against the
+  same contract, then re-inspect / re-review. The coordinator NEVER edits a
+  product file (app code, config, tests, schema, fixtures — anything that lands
+  in the committed diff) with its own hands.
+- **The coordinator's hands do only orchestration:** author task contracts,
+  compose briefs, delegate, run the checks / `verify.py` / required tests, run
+  the branch autoreview, record evidence via the `record_*` scripts, commit,
+  and — when the story reaches a PR — review that PR.
+- **Commit is not a human gate.** A clean local autoreview plus green checks IS
+  the permission to commit (conduct §7 autonomy above); the coordinator commits
+  and moves to the next stage without pausing for a human "ok to commit?". This
+  is what lets an unattended overnight run finish instead of stalling.
+- **The one exception — a logged host-exception.** When a required product
+  change is PROVABLY impossible in the companion's environment (a sandbox with
+  no network, database, or Docker that the change or its verification needs),
+  the coordinator may make the MINIMAL change on the host and MUST record why
+  with `forge signal raise ... --kind host-exception` (resolve it once done).
+  This is bounded and always ledgered — never the default, never silent.
+
+The point: from sign-off to green tests the coordinator has full, deterministic
+visibility of what it does versus what it delegates, and only genuine
+human-only acts (decisions, sign-off) or unresolvable gate refusals pause it.
+
 ## Task Planning
 Per-task planning runs in Claude Code plan mode by default (exploration
 delegated to Codex: `/codex:rescue --model gpt-5.6-terra --effort high` —

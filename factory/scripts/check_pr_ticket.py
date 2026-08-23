@@ -132,8 +132,13 @@ def is_harness_revendor(root: Path, base: str) -> bool:
 
 
 def branch_ticket(
-    branch: str, story_keys: set[str], task_records: set[str],
+    branch: str, story_keys: set[str], task_records: set[str] = frozenset(),
 ) -> str | None:
+    # task_records defaults to empty so a two-arg caller keeps working. The
+    # pr-link workflow_run job runs the DEFAULT-BRANCH copy of pr-link.yml (its
+    # inline call) against the PR's checked-out code, so until a signature
+    # change lands on the default branch, that job would otherwise crash on any
+    # open PR. Only iterated, never mutated — an immutable empty default is safe.
     task_matches = [
         record for record in task_records
         if branch == f"feat/{record.replace('/', '-', 1)}"

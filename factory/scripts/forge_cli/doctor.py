@@ -60,18 +60,26 @@ def unrunnable_reason(command: str) -> str | None:
         return "empty"
     # Syntax first: `git status |` resolves `git` and would otherwise pass here
     # only to fail forever at stage close with a shell parse error.
-    # bash may be absent, or be the Windows System32 WSL stub, which exits
-    # nonzero with EMPTY stderr for any input. A real parse error always
-    # writes to stderr, so an empty-stderr failure means the probe itself is
-    # unusable -- fall through to the shlex+argv standard below.
-    try:
-        syntax = subprocess.run(["bash", "-n", "-c", text],
-                                capture_output=True, text=True,
-                                encoding="utf-8", errors="replace")
-    except OSError:
-        syntax = None
-    if syntax is not None and syntax.returncode != 0 and syntax.stderr.strip():
-        return f"is not valid shell ({syntax.stderr.strip().splitlines()[-1:]})"
+    # bash may be absent, or be the Windows System32 WSL relay stub, which
+    # fails for ANY input -- sometimes with an EMPTY stderr, sometimes writing
+    # its own relay error to stderr. Either way the probe itself is unusable,
+    # so first confirm bash can parse a trivially valid script (":"); only a
+    # bash that clears that check is trusted to judge `text`. Otherwise fall
+    # through to the shlex+argv standard below rather than misreport valid
+    # commands as invalid shell.
+    def _bash_dash_n(script: str) -> subprocess.CompletedProcess[str] | None:
+        try:
+            return subprocess.run(["bash", "-n", "-c", script],
+                                  capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+
+    probe = _bash_dash_n(":")
+    if probe is not None and probe.returncode == 0:
+        syntax = _bash_dash_n(text)
+        if syntax is not None and syntax.returncode != 0 and syntax.stderr.strip():
+            return f"is not valid shell ({syntax.stderr.strip().splitlines()[-1:]})"
     try:
         tokens = shlex.split(text)
     except ValueError as exc:                    # unbalanced quotes

@@ -39,6 +39,14 @@ def repo_root() -> Path:
     return Path(out.stdout.strip())
 
 
+def vendored_client(root: Path) -> bool:
+    """True when this repo VENDORED the harness — factory/ and the vendored
+    adapters/canon are infrastructure a `forge upgrade` may rewrite mid-task, not
+    the task's product. The source harness repo has no constitution/VENDORED_FROM
+    marker; every client that ran forge upgrade/adopt/scaffold gets one."""
+    return (root / "constitution" / "VENDORED_FROM").is_file()
+
+
 def factory_dir(root: Path | None = None) -> Path:
     return (root or repo_root()) / ".factory"
 
@@ -644,7 +652,21 @@ def dump_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+# Git's control dir is constant for a worktree over a process's lifetime, but
+# resolving it shells out to git twice. The board resolves it ~100× per poll
+# (once per run_state_path / evidence_path call), which turned a single request
+# into ~16s of subprocess churn on Windows. Memoise per resolved root so a
+# request costs two git calls, not two hundred. Only successful results are
+# cached; a failure re-runs so a transient git error is not pinned for the
+# process's life.
+_GIT_CONTROL_DIR_CACHE: dict[Path, Path] = {}
+
+
 def git_control_dir(root: Path) -> Path:
+    resolved = root.resolve()
+    cached = _GIT_CONTROL_DIR_CACHE.get(resolved)
+    if cached is not None:
+        return cached
     proc = subprocess.run(
         ["git", "rev-parse", "--absolute-git-dir"],
         cwd=root,
@@ -663,12 +685,14 @@ def git_control_dir(root: Path) -> Path:
         proc.returncode != 0
         or top.returncode != 0
         or not proc.stdout.strip()
-        or Path(top.stdout.strip()).resolve() != root.resolve()
+        or Path(top.stdout.strip()).resolve() != resolved
     ):
         raise SystemExit(
             "Cannot resolve Git's protected control directory for factory state."
         )
-    return Path(proc.stdout.strip()) / "forge"
+    result = Path(proc.stdout.strip()) / "forge"
+    _GIT_CONTROL_DIR_CACHE[resolved] = result
+    return result
 
 
 def protected_decomposition_state_path(root: Path) -> Path:
@@ -1173,17 +1197,36 @@ def head_sha(root: Path | None = None) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
+def active_task_user_facing(root: Path) -> bool:
+    """Design-skill enforcement is PER TASK, not per story. A user_facing story
+    (e.g. one whose web app is a later task) still contains backend tasks with
+    no UI; forcing those to attest UI design skills is the bug this resolves.
+    Resolve the active stage's task and read ITS OWN user_facing flag, defaulting
+    to False when the task does not declare one — the planner marks UI tasks
+    user_facing: true, and the task grill enforces that a user_facing story does
+    so for the task(s) that build UI."""
+    stages = load_json(git_control_dir(root) / "stages.json", default={})
+    active = next((s for s in stages.get("stages", [])
+                   if isinstance(s, dict) and s.get("status") == "active"), None)
+    if not active:
+        return False
+    decomposition = load_json(
+        protected_decomposition_state_path(root), default={})
+    task = next((t for t in decomposition.get("tasks", [])
+                 if isinstance(t, dict) and t.get("id") == active.get("id")), {})
+    return bool(task.get("user_facing"))
+
+
 def require_skills(root: Path, name: str, payload: dict) -> None:
     """Feature-type skill enforcement (same trust model as generated_by):
-    when the recorded decomposition says user_facing, the artifact must
-    ATTEST the phase's mandatory skills in skills_used. Advisory skills are
-    listed too when used, but only the required set gates."""
+    when the ACTIVE TASK is user_facing, the artifact must ATTEST the phase's
+    mandatory skills in skills_used. Advisory skills are listed too when used,
+    but only the required set gates."""
     schema = json.loads(schema_path(root, name).read_text(encoding="utf-8"))
     required = schema.get("required_skills", {})
     if not required:
         return
-    decomposition = load_json(decomposition_state_path(root), default={})
-    if not decomposition.get("user_facing"):
+    if not active_task_user_facing(root):
         return
     used = payload.get("skills_used") or []
     missing = [s for s in required.get("user_facing", []) if s not in used]
