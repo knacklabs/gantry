@@ -2,7 +2,7 @@
 status: proposed
 confirmed_by: ''
 date: 2026-08-22
-stories: [NOTIFY-2]
+stories: []
 ---
 
 # Autonomous control-flow compounds require per-leaf RunCommand grants
