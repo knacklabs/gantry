@@ -6419,7 +6419,7 @@ describe('TelegramChannel', () => {
       await channel.disconnect();
     });
 
-    it('auto-denies approval request after timeout', async () => {
+    it('keeps a job permission pending without an explicit expiry', async () => {
       vi.useFakeTimers();
       vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
       try {
@@ -6432,17 +6432,26 @@ describe('TelegramChannel', () => {
             requestId: 'perm-timeout',
             sourceAgentFolder: 'whatsapp_main',
             toolName: 'Edit',
+            jobId: 'job-1',
             permissionLane: 'autonomous',
           })
           .then(requirePermissionDecision);
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
 
+        const prompts = (channel as any).pendingPermissionPrompts as Map<
+          string,
+          any
+        >;
+        const pending = [...prompts.values()][0];
+        expect(pending.timer).toBeUndefined();
         await vi.advanceTimersByTimeAsync(300_000);
-        const decision = await decisionPromise;
-        expect(decision).toMatchObject({
+
+        expect(prompts.size).toBe(1);
+        await channel.disconnect();
+        await expect(decisionPromise).resolves.toMatchObject({
           approved: false,
           decidedBy: 'system',
-          reason: 'timed out',
+          reason: 'Telegram channel disconnected',
         });
       } finally {
         vi.useRealTimers();
@@ -6508,9 +6517,9 @@ describe('TelegramChannel', () => {
       await channel.disconnect();
     });
 
-    it('resolves the Telegram waiter after retryable timeout claims exhaust bounded retries', async () => {
+    it('settles a non-job autonomous permission after retryable timeout claims exhaust bounded retries', async () => {
       vi.useFakeTimers();
-      vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
+      vi.stubEnv('GANTRY_PERMISSION_TIMEOUT_MS', '300000');
       try {
         const channel = new TelegramChannel('test-token', createTestOpts());
         await channel.connect();

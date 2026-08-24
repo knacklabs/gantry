@@ -4171,7 +4171,7 @@ describe('DiscordChannel', () => {
     });
   });
 
-  it('settles an autonomous Discord permission using its lane timeout without a job id', async () => {
+  it('keeps a job Discord permission pending without an explicit expiry', async () => {
     vi.useFakeTimers();
     vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '10000');
     vi.spyOn(globalThis, 'fetch')
@@ -4193,6 +4193,7 @@ describe('DiscordChannel', () => {
         sourceAgentFolder: 'main_agent',
         toolName: 'RunCommand',
         targetJid: 'dc:channel-1',
+        jobId: 'job-1',
         permissionLane: 'autonomous',
       })
       .then(requirePermissionDecision);
@@ -4201,19 +4202,19 @@ describe('DiscordChannel', () => {
     const pending = [
       ...(channel as any).interactions.pendingPermissions.values(),
     ][0];
-    expect(pending.timeout).toBeDefined();
-    await vi.advanceTimersByTimeAsync(9_999);
+    expect(pending.timeout).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(10_000);
     expect((channel as any).interactions.pendingPermissions.size).toBe(1);
-    await vi.advanceTimersByTimeAsync(1);
+
+    await channel.disconnect();
 
     await expect(approval).resolves.toMatchObject({
       approved: false,
       mode: 'cancel',
       decidedBy: 'system',
-      reason: 'timed out',
+      reason: 'channel disconnected',
     });
     expect((channel as any).interactions.pendingPermissions.size).toBe(0);
-    await channel.disconnect();
   });
 
   it('prefers a Discord permission expiry and recomputes its remaining delay after delivery', async () => {
@@ -4359,7 +4360,7 @@ describe('DiscordChannel', () => {
 
   it('preserves earlier Discord answers when a later question times out', async () => {
     vi.useFakeTimers();
-    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '600000');
+    vi.stubEnv('GANTRY_PERMISSION_TIMEOUT_MS', '600000');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
         jsonResponse({ url: 'wss://gateway.discord.test' }),
@@ -4433,7 +4434,7 @@ describe('DiscordChannel', () => {
 
   it('rejects a Discord timeout when completion cannot be persisted', async () => {
     vi.useFakeTimers();
-    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '600000');
+    vi.stubEnv('GANTRY_PERMISSION_TIMEOUT_MS', '600000');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
         jsonResponse({ url: 'wss://gateway.discord.test' }),

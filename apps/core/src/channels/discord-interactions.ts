@@ -216,6 +216,8 @@ export class DiscordInteractionHandler {
     };
     const settlementDelayMs = resolveInteractionSettlementDelayMs({
       expiresAt,
+      isPermissionRequest: true,
+      jobId: request.jobId,
       permissionLane: request.permissionLane,
       fallbackTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
     });
@@ -266,7 +268,6 @@ export class DiscordInteractionHandler {
     if (sent.externalMessageId) onPromptDelivered?.(sent.externalMessageId);
     return { kind: 'decision', decision: await decision };
   }
-
   // prettier-ignore
   preparePermissionCardSend(...args: Parameters<ReturnType<typeof createDiscordPermissionCardPreparer>>) {
     return createDiscordPermissionCardPreparer((channelId, body) => this.input.postMessage(channelId, body))(...args);

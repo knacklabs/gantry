@@ -100,6 +100,8 @@ export async function cancelMatchingPendingQuestions<Pending>(input: {
 
 export function resolveInteractionSettlementDelayMs(input: {
   expiresAt?: unknown;
+  isPermissionRequest?: boolean;
+  jobId?: string;
   permissionLane?: 'interactive' | 'autonomous';
   fallbackTimeoutMs?: number;
 }): number | undefined {
@@ -109,6 +111,9 @@ export function resolveInteractionSettlementDelayMs(input: {
       : Number.NaN;
   if (Number.isFinite(expiresAtMs)) {
     return Math.max(0, expiresAtMs - Date.now());
+  }
+  if (input.isPermissionRequest && input.jobId?.trim()) {
+    return undefined;
   }
   if (input.permissionLane) {
     const timeoutMs = getPermissionTimeoutMs(input.permissionLane);

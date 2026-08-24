@@ -122,7 +122,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
         };
       }
 
-      return sendTelegramDeliveryChunks({
+      return await sendTelegramDeliveryChunks({
         api: this.bot.api,
         chatId: numericId,
         jid,

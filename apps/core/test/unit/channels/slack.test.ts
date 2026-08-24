@@ -6806,7 +6806,7 @@ describe('Slack channel', () => {
     });
   });
 
-  it('preserves the winner when timeout fires after another callback claimed', async () => {
+  it('preserves the winner when an explicit expiry fires after another callback claimed', async () => {
     vi.useFakeTimers();
     vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
@@ -6820,6 +6820,7 @@ describe('Slack channel', () => {
       sourceAgentFolder: 'slack_main',
       toolName: 'Bash',
       permissionLane: 'autonomous' as const,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
     };
     const raceRepository = configureSlackPermissionRequest(request);
     const approvalPromise = channel
@@ -9368,7 +9369,7 @@ describe('Slack channel', () => {
 
   it('resolves an ephemeral Slack permission prompt on timeout without message mutation', async () => {
     vi.useFakeTimers();
-    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
+    vi.stubEnv('GANTRY_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -9465,7 +9466,7 @@ describe('Slack channel', () => {
 
   it('resolves the Slack waiter after retryable timeout claims exhaust bounded retries', async () => {
     vi.useFakeTimers();
-    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
+    vi.stubEnv('GANTRY_PERMISSION_TIMEOUT_MS', '300000');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
