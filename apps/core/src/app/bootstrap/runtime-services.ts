@@ -20,10 +20,7 @@ import {
   toGroupMessageCursor,
 } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import type {
-  MessageActionAffordance,
-  MessageSendOptions,
-} from '../../domain/types.js';
+import type { MessageSendOptions } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
@@ -94,7 +91,6 @@ import {
   sendActiveControlReceipt,
   sendActiveCompactionQueuedReceipt,
 } from './runtime-services-active-compact.js';
-import { registerRuntimeLiveStopMessageAction } from './runtime-live-stop-message-action.js';
 import { registerRuntimeMemoryReviewMessageAction } from './runtime-memory-review-message-action.js';
 import { registerRuntimeObserverFeedbackMessageAction } from './runtime-observer-feedback-wiring.js';
 import { registerRuntimeBrainDreamReviewMessageAction } from './runtime-brain-review-wiring.js';
@@ -120,10 +116,13 @@ import { createAttachmentOpen } from './attachment-resolver-wiring.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
 import { createSchedulerLifecycleNotificationUpdater } from './scheduler-lifecycle-notification.js';
-import { createJobPermissionDurabilityWiring } from './job-permission-durability-wiring.js';
-import { configureJobPermissionLeaseExtensionReader } from '../../jobs/execution-lease.js';
 import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
-import { parseJobPermissionCardAction } from '../../domain/job-permission-card-actions.js';
+import {
+  sendJobPermCard,
+  setupJobPermissionDurability,
+  startJobPermCards,
+  wireJobPermissionActions,
+} from './job-permission-wiring-setup.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
   return createProviderAttachmentMaterializer({
@@ -136,68 +135,6 @@ export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
 }
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 
-function jobPermissionStableUuid(value: string): string {
-  const hex = createHash('sha256').update(value, 'utf8').digest('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
-interface JobPermissionCardPayload {
-  actions: MessageActionAffordance[];
-  operation: 'send' | 'edit' | 'retire' | 'replace';
-  providerMessageId: string | null;
-}
-
-function parseJobPermissionCardPayload(
-  value: unknown,
-): JobPermissionCardPayload | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const raw = value as {
-    actions?: unknown;
-    operation?: unknown;
-    providerMessageId?: unknown;
-  };
-  const actions = raw.actions;
-  if (!Array.isArray(actions)) return null;
-  if (!['send', 'edit', 'retire', 'replace'].includes(String(raw.operation))) {
-    return null;
-  }
-  const providerMessageId =
-    typeof raw.providerMessageId === 'string' && raw.providerMessageId.trim()
-      ? raw.providerMessageId.trim()
-      : null;
-  if (
-    (raw.operation === 'edit' || raw.operation === 'retire') &&
-    !providerMessageId
-  ) {
-    return null;
-  }
-  const affordances: MessageActionAffordance[] = [];
-  for (const action of actions) {
-    if (!action || typeof action !== 'object' || Array.isArray(action)) {
-      return null;
-    }
-    const token = (action as { token?: unknown }).token;
-    const label = (action as { label?: unknown }).label;
-    if (
-      typeof token !== 'string' ||
-      !parseJobPermissionCardAction(token) ||
-      typeof label !== 'string' ||
-      !label.trim()
-    ) {
-      return null;
-    }
-    affordances.push({
-      kind: 'job_permission_decision',
-      label: label.trim(),
-      actionToken: token,
-    });
-  }
-  return {
-    actions: affordances,
-    operation: raw.operation as JobPermissionCardPayload['operation'],
-    providerMessageId,
-  };
-}
 // prettier-ignore
 type LiveTurnCommandWakeupSourceFactory = () => LiveTurnCommandWakeupSource | undefined;
 // prettier-ignore
@@ -421,61 +358,16 @@ export async function startRuntimeServices(
     asyncTaskRecoveryDeps,
   );
   const onSchedulerChanged = (jobId?: string) => requestSchedulerSync(jobId);
-  const jobPermissionDurability = workerCoordination
-    ? createJobPermissionDurabilityWiring({
-        repository: workerCoordination,
-        opsRepository: resolved.opsRepository,
-        channelWiring,
-        getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
-        getToolRepository: () => resolved.getToolRepository?.(),
-        getSkillRepository: () => resolved.getSkillRepository?.(),
-        resolveCardTarget: (request) => {
-          const targetJid = request.targetJid?.trim();
-          if (!targetJid) {
-            throw new Error('Job permission card target is unavailable.');
-          }
-          const target = resolveDurableOutboundTarget({
-            defaultAppId:
-              request.appId ?? String(channelWiring.getRuntimeAppId()),
-            jid: targetJid,
-            providerAccountId: request.providerAccountId,
-          });
-          return {
-            ...target,
-            threadId:
-              canonicalThreadIdFor({
-                jid: targetJid,
-                threadId: request.threadId,
-                providerAccountId: request.providerAccountId,
-              }) ?? null,
-            agentId: request.agentId ?? null,
-          };
-        },
-        enqueueRunAgain: async (input) => {
-          const triggerId = jobPermissionStableUuid(
-            `${input.idempotencyKey}:trigger`,
-          );
-          const runId = jobPermissionStableUuid(`${input.idempotencyKey}:run`);
-          const trigger = await getRuntimeControlRepository().createJobTrigger({
-            jobId: input.jobId,
-            triggerId,
-            requestedBy: JSON.stringify({
-              kind: 'job_permission_handoff',
-              idempotencyKey: input.idempotencyKey,
-              priorRunId: input.priorRunId,
-            }),
-          });
-          if (trigger.status === 'pending') {
-            await enqueueJobTrigger(input.jobId, trigger.triggerId, { runId });
-          }
-        },
-      })
-    : undefined;
-  configureJobPermissionLeaseExtensionReader(
-    jobPermissionDurability
-      ? (input) => jobPermissionDurability.recordPendingHeartbeat(input)
-      : null,
-  );
+  const jobPermissionDurability = setupJobPermissionDurability({
+    workerCoordination,
+    opsRepository: resolved.opsRepository,
+    channelWiring,
+    getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
+    getToolRepository: () => resolved.getToolRepository?.(),
+    getSkillRepository: () => resolved.getSkillRepository?.(),
+    createJobTrigger: (request) =>
+      getRuntimeControlRepository().createJobTrigger(request),
+  });
   const schedulerMessageOptions = (
     jid: string,
     options?: MessageSendOptions,
@@ -743,25 +635,11 @@ export async function startRuntimeServices(
       });
     },
   };
-  registerRuntimeLiveStopMessageAction(
+  wireJobPermissionActions(
     channelWiring,
     app,
     liveMessageQueue,
-    jobPermissionDurability
-      ? {
-          decideJobPermission: (action) =>
-            jobPermissionDurability.decideCardAction({
-              actor: {
-                actorRef: action.userId!,
-                conversationJid: action.conversationJid,
-                providerAccountId: action.providerAccountId,
-                threadId: action.threadId,
-              },
-              providerMessageId: action.messageId,
-              token: action.actionToken,
-            }),
-        }
-      : undefined,
+    jobPermissionDurability,
   );
   registerRuntimeMemoryReviewMessageAction(channelWiring, app);
   registerRuntimeObserverFeedbackMessageAction(channelWiring);
@@ -1061,8 +939,7 @@ export async function startRuntimeServices(
         },
       });
     });
-    // prettier-ignore
-    startRuntimePermissionCardReconciliation(
+    startJobPermCards(
       outboundDeliveryRepository,
       resolved.opsRepository,
       jobPermissionDurability,
@@ -1190,91 +1067,9 @@ export async function startRuntimeServices(
             ? { status: 'failed', error: 'Permission-card dispatch is dormant until its activation stage.' } as const
             : (await dispatchRuntimePermissionCard({ service: outboundDeliveryService, claimed, channelWiring, destinationJid, destinationThreadId, providerAccountId: destinationAccount.providerAccountId, permit: recoveryPermit })) ?? { status: 'failed', error: 'Permission-card dispatch returned no result.' } as const;
         }
-        const rawJobPermissionCard = payload?.jobPermissionCard;
-        const jobPermissionCard =
-          rawJobPermissionCard === undefined
-            ? undefined
-            : parseJobPermissionCardPayload(rawJobPermissionCard);
-        if (jobPermissionCard === null) {
-          return {
-            status: 'failed',
-            error: 'Job-permission card payload is malformed.',
-          } as const;
-        }
         try {
-          const observerDigestView = payload?.observerDigestView as
-            | MessageSendOptions['observerDigestView']
-            | undefined;
-          const brainReviewView = payload?.brainReviewView as
-            | MessageSendOptions['brainReviewView']
-            | undefined;
-          if (
-            jobPermissionCard?.operation === 'replace' &&
-            jobPermissionCard.providerMessageId
-          ) {
-            const replacementNotice =
-              'This permission card was replaced. Use the latest card for this job.';
-            const replacementPermit =
-              channelWiring.createRecoveryDispatchPermit({
-                deliveryId: claimed.delivery.id,
-                itemId: claimed.item.id,
-                destinationJid,
-                canonicalText: replacementNotice,
-                ...(destinationThreadId
-                  ? { threadId: destinationThreadId }
-                  : {}),
-              });
-            await channelWiring.sendProviderMessage(
-              destinationJid,
-              replacementNotice,
-              {
-                permit: replacementPermit,
-                throwOnMissing: true,
-                messageOptions: {
-                  ...destinationAccount,
-                  ...(destinationThreadId
-                    ? { threadId: destinationThreadId }
-                    : {}),
-                  replaceMessageId: jobPermissionCard.providerMessageId,
-                  actionAffordances: [],
-                },
-              },
-            );
-          }
-          const deliveryResult = await channelWiring.sendProviderMessage(
-            destinationJid,
-            claimed.item.canonicalText,
-            {
-              permit: recoveryPermit,
-              throwOnMissing: true,
-              messageOptions: {
-                ...destinationAccount,
-                ...(destinationThreadId
-                  ? { threadId: destinationThreadId }
-                  : {}),
-                ...(observerDigestView ? { observerDigestView } : {}),
-                ...(brainReviewView ? { brainReviewView } : {}),
-                ...(jobPermissionCard
-                  ? {
-                      actionAffordances: jobPermissionCard.actions,
-                      ...((jobPermissionCard.operation === 'edit' ||
-                        jobPermissionCard.operation === 'retire') &&
-                      jobPermissionCard.providerMessageId
-                        ? {
-                            replaceMessageId:
-                              jobPermissionCard.providerMessageId,
-                          }
-                        : {}),
-                    }
-                  : {}),
-              },
-            },
-          );
-          return {
-            status: 'sent',
-            providerMessageId: deliveryResult?.externalMessageId,
-            providerPayload: deliveryResult,
-          } as const;
+          // prettier-ignore
+          return await sendJobPermCard(payload, claimed, channelWiring.createRecoveryDispatchPermit, channelWiring.sendProviderMessage, destinationJid, destinationThreadId, destinationAccount, recoveryPermit);
         } catch (err) {
           if (isPartialMessageDeliveryError(err)) {
             const partialMetadata = getPartialMessageDeliveryMetadata(err);
