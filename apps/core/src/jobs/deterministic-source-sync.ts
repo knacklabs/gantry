@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
+import dns from 'node:dns/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
@@ -20,6 +21,11 @@ import type { SemanticCapabilityDefinition } from '../shared/semantic-capabiliti
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 import { buildToolNetworkEnv } from '../shared/tool-network-env.js';
+import {
+  declaredNetworkAuthority,
+  isPrivateNetworkAddress,
+  parseDeclaredNetworkHost,
+} from '../shared/network-host-declaration.js';
 import {
   ensureEgressGateway,
   closeEgressGateway,
@@ -171,6 +177,8 @@ export async function runDeterministicManagedBrowserActions(input: {
   const allowedNetworkHosts = [
     ...new Set(input.actions.flatMap((action) => action.networkHosts)),
   ].sort();
+  const reviewedPrivateNetworkHostMappings =
+    await resolveReviewedPrivateNetworkHostMappings(allowedNetworkHosts);
   const gateway = await ensureEgressGateway({
     key: `job-managed-skill:${input.appId}:${input.agentId}:${input.runId}`,
     settings: getRuntimeSettingsForConfig().permissions.egress,
@@ -186,6 +194,7 @@ export async function runDeterministicManagedBrowserActions(input: {
         authority: `${MANAGED_BROWSER_CDP_GATEWAY_HOST}:${browser.port}`,
         connectHost: '127.0.0.1',
       },
+      ...reviewedPrivateNetworkHostMappings,
     ],
   });
   try {
@@ -239,6 +248,55 @@ export async function runDeterministicManagedBrowserActions(input: {
   } finally {
     await closeEgressGateway(gateway);
   }
+}
+
+type NetworkHostLookup = (
+  hostname: string,
+) => Promise<Array<{ address: string; family: number }>>;
+
+/**
+ * Pin reviewed skill hosts that resolve exclusively inside the private network.
+ *
+ * The deterministic lane already treats action `networkHosts` as its sandbox
+ * allowlist. Requiring every resolved address to be private keeps arbitrary or
+ * mixed public/private DNS targets on the normal egress validation path, while
+ * permitting exact service-discovery names explicitly reviewed with the skill.
+ */
+export async function resolveReviewedPrivateNetworkHostMappings(
+  networkHosts: readonly string[],
+  lookup: NetworkHostLookup = (hostname) =>
+    dns.lookup(hostname, { all: true, verbatim: true }),
+): Promise<Array<{ authority: string; connectHost: string }>> {
+  const mappings = await Promise.all(
+    [...new Set(networkHosts)].map(async (declaredHost) => {
+      const parsed = parseDeclaredNetworkHost(declaredHost);
+      if (!parsed.ok) return undefined;
+      const authority = declaredNetworkAuthority(parsed.host);
+      if (!authority) return undefined;
+      const target = new URL(`http://${authority}`);
+      let records: Array<{ address: string; family: number }>;
+      try {
+        records = await lookup(target.hostname);
+      } catch {
+        return undefined;
+      }
+      const addresses = records
+        .filter((record) => record.family === 4 || record.family === 6)
+        .map((record) => record.address);
+      if (
+        addresses.length === 0 ||
+        !addresses.every((address) => isPrivateNetworkAddress(address))
+      ) {
+        return undefined;
+      }
+      return { authority, connectHost: addresses[0]! };
+    }),
+  );
+  return mappings
+    .filter((mapping): mapping is { authority: string; connectHost: string } =>
+      Boolean(mapping),
+    )
+    .sort((a, b) => a.authority.localeCompare(b.authority));
 }
 
 export function deterministicBrowserKeepAliveMs(timeoutMs: number): number {
