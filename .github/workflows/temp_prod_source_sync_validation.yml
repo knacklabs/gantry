@@ -1,0 +1,82 @@
+name: Temporary Prod Source Sync Validation
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-south-1
+  ECS_CLUSTER: kl-aws-aps1-prod-ecs-ats-cluster
+  ECS_SERVICE: kl-aws-aps1-prod-ecs-ats-gantry-reagent-service
+  ECS_CONTAINER: kl-aws-aps1-prod-task_definition-ats-gantry-reagent-container
+  JOB_ID: 4d6432d6-c76e-4ce0-8597-f66da8c68453
+
+jobs:
+  validate:
+    name: Trigger one existing ATS source-sync job
+    runs-on: self-hosted
+    environment: ATS Prod
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Session Manager plugin in runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "x86_64"
+          plugin_root="$RUNNER_TEMP/session-manager-plugin"
+          plugin_deb="$RUNNER_TEMP/session-manager-plugin.deb"
+          curl --proto '=https' --tlsv1.2 -fsSL \
+            'https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb' \
+            -o "$plugin_deb"
+          dpkg-deb -x "$plugin_deb" "$plugin_root"
+          plugin_bin="$(find "$plugin_root" -type f -name session-manager-plugin -perm -111 -print -quit)"
+          test -x "$plugin_bin"
+          mkdir -p "$RUNNER_TEMP/session-manager-bin"
+          ln -sf "$plugin_bin" "$RUNNER_TEMP/session-manager-bin/session-manager-plugin"
+          echo "$RUNNER_TEMP/session-manager-bin" >> "$GITHUB_PATH"
+
+      - name: Validate the new healthy production task
+        shell: bash
+        run: |
+          set -euo pipefail
+          service_state="$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0].[desiredCount,runningCount,pendingCount,status]' \
+            --output text)"
+          test "$service_state" = $'1\t1\t0\tACTIVE'
+
+          task_arn="$(aws ecs list-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --service-name "$ECS_SERVICE" \
+            --desired-status RUNNING \
+            --query 'taskArns[0]' \
+            --output text)"
+          test -n "$task_arn"
+          test "$task_arn" != "None"
+          task_state="$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$task_arn" \
+            --query 'tasks[0].[lastStatus,healthStatus,enableExecuteCommand,taskDefinitionArn]' \
+            --output text)"
+          [[ "$task_state" == $'RUNNING\tHEALTHY\tTrue\t'*':29' ]]
+          echo "GANTRY_TASK_ARN=$task_arn" >> "$GITHUB_ENV"
+
+      - name: Trigger one backend validation run
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs execute-command \
+            --cluster "$ECS_CLUSTER" \
+            --task "$GANTRY_TASK_ARN" \
+            --container "$ECS_CONTAINER" \
+            --interactive \
+            --command "node /app/dist/cli/index.js jobs trigger $JOB_ID --runtime-home /srv/reagent/home"
