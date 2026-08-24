@@ -11,6 +11,9 @@ const importMock = vi.hoisted(() => ({
   applySettingsRevisionWithMcpFenceRecovery: vi.fn(),
   importWorkstationSettings: vi.fn(),
 }));
+const runtimeSettingsFile = vi.hoisted(() => ({
+  save: vi.fn(),
+}));
 const lease = vi.hoisted(() => {
   const release = vi.fn(async () => {});
   return {
@@ -100,6 +103,12 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
     settingsFromRevisionDocument: () => ({}) as never,
   };
 });
+vi.mock('@core/config/settings/runtime-settings.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('@core/config/settings/runtime-settings.js')
+  >('@core/config/settings/runtime-settings.js');
+  return { ...actual, saveRuntimeSettings: runtimeSettingsFile.save };
+});
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: log,
@@ -162,6 +171,7 @@ describe('prepareFleetSettings', () => {
       }),
     );
     lease.tryAcquire.mockClear();
+    runtimeSettingsFile.save.mockClear();
     log.warn.mockClear();
     log.info.mockClear();
     log.error.mockClear();
@@ -231,6 +241,32 @@ describe('prepareFleetSettings', () => {
     expect(importMock.importWorkstationSettings).not.toHaveBeenCalled();
     expect(lease.tryAcquire).toHaveBeenCalledWith('settings-projector:default');
     expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
+  });
+
+  it('renders the durable revision when another runtime owns the projector lease', async () => {
+    latest.current = revisionRow(11);
+    lease.tryAcquire.mockResolvedValueOnce(undefined);
+
+    const result = await prepareFleetSettings({
+      appId: 'default' as never,
+      runtimeHome: '/tmp/gantry-fleet',
+      app: fakeApp,
+      leases,
+    });
+
+    expect(result).toEqual({ loaded: true, revision: 11 });
+    expect(
+      importMock.applySettingsRevisionWithMcpFenceRecovery,
+    ).not.toHaveBeenCalled();
+    expect(runtimeSettingsFile.save).toHaveBeenCalledWith(
+      '/tmp/gantry-fleet',
+      {},
+    );
+    expect(loadState.markSettingsLoaded).toHaveBeenCalledOnce();
+    expect(log.warn).toHaveBeenCalledWith(
+      { appId: 'default', revision: 11 },
+      'Settings projector lease is owned by another runtime; rendered the durable revision without re-projecting it',
+    );
   });
 
   it('leaves a failed boot projection for forward correction', async () => {

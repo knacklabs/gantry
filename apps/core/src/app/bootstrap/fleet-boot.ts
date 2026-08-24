@@ -15,6 +15,7 @@ import {
   getRuntimeSettingsForConfig,
   loadRuntimeSettings,
 } from '../../config/index.js';
+import { saveRuntimeSettings } from '../../config/settings/runtime-settings.js';
 import {
   CURRENT_SETTINGS_READER_VERSION,
   applySettingsRevisionWithMcpFenceRecovery,
@@ -52,7 +53,7 @@ import type {
   ControlSettingsImportPort,
   EffectiveControlRuntimeSettings,
 } from '../../application/control-plane/control-plane-storage-model.js';
-import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
+import { tryWithSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
 
 const SEED_COMMAND = 'gantry settings import --file settings.yaml';
 
@@ -159,58 +160,81 @@ export async function prepareFleetSettings(input: {
   leases: RuntimeLeasePort;
 }): Promise<FleetSettingsResult> {
   const storage = getRuntimeStorage();
-  return withSettingsProjectorLease(input.leases, input.appId, async () => {
-    const latest =
-      await storage.repositories.settingsRevisions.getLatestSettingsRevision(
-        input.appId,
-      );
-    if (!latest) {
-      markSettingsNotLoaded();
-      logger.warn(
-        { appId: input.appId, seedCommand: SEED_COMMAND },
-        `Fleet worker has no settings revision yet; /readyz stays red until ` +
-          `desired state is seeded. Run: ${SEED_COMMAND}`,
-      );
-      return { loaded: false, revision: null };
-    }
-    if (latest.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
-      markSettingsNotLoaded();
-      logger.error(
-        {
-          appId: input.appId,
-          revision: latest.revision,
-          minReaderVersion: latest.minReaderVersion,
-          readerVersion: CURRENT_SETTINGS_READER_VERSION,
-        },
-        'Fleet settings revision requires a newer reader version; holding boot ' +
-          'until this worker is upgraded',
-      );
-      return { loaded: false, revision: latest.revision };
-    }
-    // The fence-aware revision apply is the single fleet reconciliation path.
-    // It validates, writes settings.yaml, reconciles, reloads, and forward-corrects
-    // stale MCP binding authority without first repeating the full import.
-    const applied = await applySettingsRevisionWithMcpFenceRecovery({
-      runtimeHome: input.runtimeHome,
-      ops: storage.ops,
-      repositories: storage.repositories,
-      appId: input.appId,
-      revision: latest,
-      reloadRuntimeState: () => input.app.loadState(),
-      revisionMirror: {
-        settingsRevisions: storage.repositories.settingsRevisions,
-        pool: storage.service.pool,
-        createdBy: 'fleet-boot:mcp-fence-recovery',
-        logWarn: (context, message) => logger.warn(context, message),
-      },
-    });
-    markSettingsLoaded();
-    logger.info(
-      { appId: input.appId, revision: applied.revision },
-      'Loaded fleet settings from revision',
+  const latest =
+    await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+      input.appId,
     );
-    return { loaded: true, revision: applied.revision };
-  });
+  if (!latest) {
+    markSettingsNotLoaded();
+    logger.warn(
+      { appId: input.appId, seedCommand: SEED_COMMAND },
+      `Fleet worker has no settings revision yet; /readyz stays red until ` +
+        `desired state is seeded. Run: ${SEED_COMMAND}`,
+    );
+    return { loaded: false, revision: null };
+  }
+  if (latest.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+    markSettingsNotLoaded();
+    logger.error(
+      {
+        appId: input.appId,
+        revision: latest.revision,
+        minReaderVersion: latest.minReaderVersion,
+        readerVersion: CURRENT_SETTINGS_READER_VERSION,
+      },
+      'Fleet settings revision requires a newer reader version; holding boot ' +
+        'until this worker is upgraded',
+    );
+    return { loaded: false, revision: latest.revision };
+  }
+  const projected = await tryWithSettingsProjectorLease(
+    input.leases,
+    input.appId,
+    async () => {
+      const head =
+        await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+          input.appId,
+        );
+      if (!head) {
+        throw new Error('Settings revision disappeared during fleet startup');
+      }
+      // The fence-aware revision apply is the single fleet reconciliation path.
+      // It validates, writes settings.yaml, reconciles, reloads, and forward-corrects
+      // stale MCP binding authority without first repeating the full import.
+      const applied = await applySettingsRevisionWithMcpFenceRecovery({
+        runtimeHome: input.runtimeHome,
+        ops: storage.ops,
+        repositories: storage.repositories,
+        appId: input.appId,
+        revision: head,
+        reloadRuntimeState: () => input.app.loadState(),
+        revisionMirror: {
+          settingsRevisions: storage.repositories.settingsRevisions,
+          pool: storage.service.pool,
+          createdBy: 'fleet-boot:mcp-fence-recovery',
+          logWarn: (context, message) => logger.warn(context, message),
+        },
+      });
+      markSettingsLoaded();
+      logger.info(
+        { appId: input.appId, revision: applied.revision },
+        'Loaded fleet settings from revision',
+      );
+      return { loaded: true, revision: applied.revision };
+    },
+  );
+  if (projected.acquired) return projected.value;
+
+  saveRuntimeSettings(
+    input.runtimeHome,
+    settingsFromRevisionDocument(latest.settingsDocument),
+  );
+  markSettingsLoaded();
+  logger.warn(
+    { appId: input.appId, revision: latest.revision },
+    'Settings projector lease is owned by another runtime; rendered the durable revision without re-projecting it',
+  );
+  return { loaded: true, revision: latest.revision };
 }
 
 export interface FleetSubsystems {
