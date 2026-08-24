@@ -165,11 +165,16 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     options: MessageSendOptions,
     threadOptions: ReturnType<typeof telegramThreadOptionsFromString>,
   ): Promise<MessageDeliveryResult> {
-    const revision = jobPermissionCardRevision(options.actionAffordances);
+    const parsed = jobPermissionCardRevision(options.actionAffordances);
     const replyMarkup = telegramActionReplyMarkup(options.actionAffordances);
-    if (!revision || !replyMarkup) {
+    if (!parsed || !replyMarkup) {
       throw new Error('Telegram job permission card has no valid actions.');
     }
+    // Telegram message ids are chat-scoped, so settlement is too.
+    const revision = {
+      ...parsed,
+      callbackKey: `${chatId}:${parsed.callbackKey}`,
+    };
     const deliveries = this.jobPermissionCardDeliveries;
     const delivered = (externalMessageId: string): MessageDeliveryResult => ({
       externalMessageId,
