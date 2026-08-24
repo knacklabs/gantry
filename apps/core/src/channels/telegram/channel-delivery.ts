@@ -109,7 +109,11 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     try {
       const numericId = jid.replace(/^tg:/, '');
       const sendOptions = telegramThreadOptionsFromString(options.threadId);
-      if (jobPermissionCardRevision(options.actionAffordances)) {
+      if (
+        options.actionAffordances?.some(
+          (action) => action.kind === 'job_permission_decision',
+        )
+      ) {
         return this.sendJobPermissionCard(
           numericId,
           humanizeJobPermissionCardText(text),
@@ -159,65 +163,46 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     options: MessageSendOptions,
     threadOptions: ReturnType<typeof telegramThreadOptionsFromString>,
   ): Promise<MessageDeliveryResult> {
-    const deliveredMessageId =
-      this.jobPermissionCardDeliveries.deliveredMessageId(
-        options.actionAffordances,
-      );
-    if (deliveredMessageId) {
-      return {
-        externalMessageId: deliveredMessageId,
-        externalMessageIds: [deliveredMessageId],
-        deliveredParts: 1,
-        totalParts: 1,
-      };
-    }
+    const revision = jobPermissionCardRevision(options.actionAffordances);
     const replyMarkup = telegramActionReplyMarkup(options.actionAffordances);
-    if (!replyMarkup) {
+    if (!revision || !replyMarkup) {
       throw new Error('Telegram job permission card has no valid actions.');
     }
-    const replaceMessageId =
-      options.replaceMessageId ??
-      this.jobPermissionCardDeliveries.previousMessageId(
-        options.actionAffordances,
-      );
-    if (replaceMessageId) {
-      const messageId = Number.parseInt(replaceMessageId, 10);
-      if (!Number.isSafeInteger(messageId)) {
-        throw new Error('Telegram replacement message id is invalid.');
-      }
-      await this.bot!.api.editMessageText(chatId, messageId, text, {
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup,
-      });
-      this.jobPermissionCardDeliveries.record(
-        options.actionAffordances,
-        replaceMessageId,
-      );
-      return {
-        externalMessageId: replaceMessageId,
-        externalMessageIds: [replaceMessageId],
-        deliveredParts: 1,
-        totalParts: 1,
-      };
-    }
-    const sent = await this.bot!.api.sendMessage(chatId, text, {
-      parse_mode: 'HTML',
-      ...threadOptions,
-      reply_markup: replyMarkup,
-    });
-    const messageId = sent?.message_id;
-    if (messageId === undefined) return {};
-    const externalMessageId = String(messageId);
-    this.jobPermissionCardDeliveries.record(
-      options.actionAffordances,
-      externalMessageId,
-    );
-    return {
+    const deliveries = this.jobPermissionCardDeliveries;
+    const delivered = (externalMessageId: string): MessageDeliveryResult => ({
       externalMessageId,
       externalMessageIds: [externalMessageId],
       deliveredParts: 1,
       totalParts: 1,
-    };
+    });
+    return deliveries.serialize(revision.callbackKey, async () => {
+      const settled = deliveries.settledMessageId(revision);
+      if (settled) return delivered(settled);
+      const replaceMessageId =
+        options.replaceMessageId ?? deliveries.previousMessageId(revision);
+      if (replaceMessageId) {
+        const messageId = Number.parseInt(replaceMessageId, 10);
+        if (!Number.isSafeInteger(messageId)) {
+          throw new Error('Telegram replacement message id is invalid.');
+        }
+        await this.bot!.api.editMessageText(chatId, messageId, text, {
+          parse_mode: 'HTML',
+          reply_markup: replyMarkup,
+        });
+        deliveries.record(revision, replaceMessageId);
+        return delivered(replaceMessageId);
+      }
+      const sent = await this.bot!.api.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        ...threadOptions,
+        reply_markup: replyMarkup,
+      });
+      const messageId = sent?.message_id;
+      if (messageId === undefined) return {};
+      const externalMessageId = String(messageId);
+      deliveries.record(revision, externalMessageId);
+      return delivered(externalMessageId);
+    });
   }
 
   async renderRichInteraction(

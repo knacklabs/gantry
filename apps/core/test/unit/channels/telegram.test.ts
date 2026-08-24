@@ -3114,6 +3114,56 @@ describe('TelegramChannel', () => {
       expect(sentOptions).toMatchObject({ parse_mode: 'HTML' });
     });
 
+    it('serializes job-permission card mutations and ignores stale or malformed revisions', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect({ inbound: false });
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      const actionsFor = (revision: number, token = 'a') => [
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Allow always for this job',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:${token}`,
+        },
+      ];
+      const send = (revision: number) =>
+        channel.sendMessage('tg:100200300', `Revision ${revision}`, {
+          actionAffordances: actionsFor(revision),
+        });
+
+      // Concurrent retries of the first revision collapse into one provider send.
+      const [a, b] = await Promise.all([send(1), send(1)]);
+      expect([a.externalMessageId, b.externalMessageId]).toEqual([
+        '987',
+        '987',
+      ]);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+
+      // A newer revision edits; a delayed older one neither edits nor sends.
+      await send(3);
+      const stale = await send(2);
+      expect(stale.externalMessageId).toBe('987');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.editMessageText.mock.calls[0]![2]).toBe(
+        'Revision 3',
+      );
+
+      // Malformed job-permission actions fail closed instead of falling back to plain text.
+      await expect(
+        channel.sendMessage('tg:100200300', 'Broken', {
+          actionAffordances: [
+            {
+              kind: 'job_permission_decision',
+              label: 'Allow',
+              actionToken: 'not-a-card-token',
+            },
+          ],
+        }),
+      ).rejects.toThrow('no valid actions');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
     it('uploads message files as Telegram documents', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);

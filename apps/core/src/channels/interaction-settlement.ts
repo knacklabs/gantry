@@ -17,42 +17,59 @@ export const RUNNER_CANCELLED_PERMISSION_REASON =
 export const RUNNER_CANCELLED_QUESTION_REASON =
   'Question cancelled by its runner.';
 
-type JobPermissionCardRevision = { callbackKey: string; revision: number };
+export type JobPermissionCardRevision = {
+  callbackKey: string;
+  revision: number;
+};
 
 /**
- * A provider delivery is meaningful only for one rendered card revision. Do
- * not let a successfully delivered revision get re-sent just because the
- * caller retries its completed delivery work.
+ * A provider message carries exactly one card per callback key. Only the
+ * newest delivered revision matters: a retry of an already-delivered or
+ * older revision must not mutate the provider again, and mutations for one
+ * card are serialized so concurrent retries cannot both send.
  */
 export class JobPermissionCardDeliverySettlement {
-  private readonly delivered = new Map<string, string>();
+  private readonly latest = new Map<
+    string,
+    { revision: number; messageId: string }
+  >();
+  private readonly lanes = new Map<string, Promise<unknown>>();
 
-  deliveredMessageId(actions?: MessageActionAffordance[]): string | undefined {
-    const revision = jobPermissionCardRevision(actions);
-    return revision ? this.delivered.get(revisionKey(revision)) : undefined;
-  }
-
-  previousMessageId(actions?: MessageActionAffordance[]): string | undefined {
-    const revision = jobPermissionCardRevision(actions);
-    if (!revision) return undefined;
-    let latest: { revision: number; messageId: string } | undefined;
-    for (const [key, messageId] of this.delivered) {
-      const [callbackKey, rawRevision] = key.split(':');
-      const deliveredRevision = Number(rawRevision);
-      if (
-        callbackKey === revision.callbackKey &&
-        deliveredRevision < revision.revision &&
-        (!latest || deliveredRevision > latest.revision)
-      ) {
-        latest = { revision: deliveredRevision, messageId };
-      }
+  async serialize<T>(callbackKey: string, work: () => Promise<T>): Promise<T> {
+    const prior = this.lanes.get(callbackKey) ?? Promise.resolve();
+    const next = prior.catch(() => undefined).then(work);
+    this.lanes.set(callbackKey, next);
+    try {
+      return await next;
+    } finally {
+      if (this.lanes.get(callbackKey) === next) this.lanes.delete(callbackKey);
     }
-    return latest?.messageId;
   }
 
-  record(actions: MessageActionAffordance[] | undefined, messageId: string) {
-    const revision = jobPermissionCardRevision(actions);
-    if (revision) this.delivered.set(revisionKey(revision), messageId);
+  /** Message already carrying this revision or a newer one. */
+  settledMessageId(revision: JobPermissionCardRevision): string | undefined {
+    const latest = this.latest.get(revision.callbackKey);
+    return latest && latest.revision >= revision.revision
+      ? latest.messageId
+      : undefined;
+  }
+
+  /** Message carrying an older revision that this one should edit in place. */
+  previousMessageId(revision: JobPermissionCardRevision): string | undefined {
+    const latest = this.latest.get(revision.callbackKey);
+    return latest && latest.revision < revision.revision
+      ? latest.messageId
+      : undefined;
+  }
+
+  record(revision: JobPermissionCardRevision, messageId: string) {
+    const latest = this.latest.get(revision.callbackKey);
+    if (!latest || latest.revision <= revision.revision) {
+      this.latest.set(revision.callbackKey, {
+        revision: revision.revision,
+        messageId,
+      });
+    }
   }
 }
 
@@ -89,10 +106,6 @@ export function jobPermissionCardRevision(
     return undefined;
   }
   return { callbackKey: first.callbackKey, revision: first.revision };
-}
-
-function revisionKey(revision: JobPermissionCardRevision): string {
-  return `${revision.callbackKey}:${revision.revision}`;
 }
 
 export type InteractionCancellationResult =
