@@ -11,6 +11,33 @@ saved: 2026-08-24T19:33:34+00:00
 
 Approved in interactive design review on 2026-08-25.
 
+## Why
+
+MCP sources are already manageable through Gantry's CLI and Bearer Control API,
+but web-console operators need the same safe workflow without receiving an API
+key, a secret value, or accidental authority to execute a source's tools.
+
+## Behaviour
+
+The web console provides a dedicated Configure page for sanitized MCP source
+inventory. Viewers can inspect it. Administrators can connect remote or
+approved local-process sources, optionally attach compatible agents with a
+scope that can only narrow, run diagnostics, replace an immutable definition,
+and disable a source. All browser mutations use the existing MCP application
+service and settings projection. Connecting or binding a source never grants
+semantic capability authority.
+
+## Acceptance criteria
+
+- Operators can manage MCP source inventory and agent source bindings from one
+  dedicated web page.
+- Browser access is session-bound, role-aware, CSRF/Origin protected, and
+  never exposes Bearer credentials or raw secrets.
+- Remote and local-process forms expose only backend-supported safe inputs.
+- Source connection, binding, and semantic capability authority remain
+  separate.
+- Replacement and partial attachment failures are explicit and recoverable.
+
 ## Goal
 
 Give Gantry operators one efficient browser page for connecting and managing
