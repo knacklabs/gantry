@@ -229,7 +229,7 @@ export async function normalizeDeepAgentStream(
       ) {
         terminalToolIds.add(invocationId);
         if (tracerRunId) terminalProviderRunIds.add(tracerRunId);
-      const outcome =
+        const outcome =
           event.event === 'on_tool_error' ||
           toolResultIsError(event.data?.output)
             ? 'failure'
@@ -481,8 +481,7 @@ function unprojectedAccessIdentityFromDeepAgentResult(
 
 function isRequestAccessTool(toolName: string): boolean {
   return (
-    toolName === 'request_access' ||
-    toolName === 'mcp__gantry__request_access'
+    toolName === 'request_access' || toolName === 'mcp__gantry__request_access'
   );
 }
 

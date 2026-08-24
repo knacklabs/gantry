@@ -73,9 +73,7 @@ export function createPostToolUseHook(input: {
               : 'success',
           ...(unprojectedIdentity
             ? {
-                detail: unprojectedAccessActivityDetail(
-                  unprojectedIdentity,
-                ),
+                detail: unprojectedAccessActivityDetail(unprojectedIdentity),
               }
             : {}),
         });
@@ -87,7 +85,6 @@ export function createPostToolUseHook(input: {
 
 function isRequestAccessTool(toolName: string): boolean {
   return (
-    toolName === 'request_access' ||
-    toolName === 'mcp__gantry__request_access'
+    toolName === 'request_access' || toolName === 'mcp__gantry__request_access'
   );
 }

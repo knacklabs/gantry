@@ -197,9 +197,7 @@ export function updateDiagnosticsFromRuntimeEvent(
     unprojectedIdentity &&
     !diagnostics.unprojectedPermissionGrants?.includes(unprojectedIdentity)
   ) {
-    (diagnostics.unprojectedPermissionGrants ??= []).push(
-      unprojectedIdentity,
-    );
+    (diagnostics.unprojectedPermissionGrants ??= []).push(unprojectedIdentity);
   }
   const mode = stringValue(payload.mode);
   const phase = stringValue(payload.phase);

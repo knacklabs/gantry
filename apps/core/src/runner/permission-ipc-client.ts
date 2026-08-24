@@ -397,9 +397,7 @@ function readPermissionResponse(input: {
       ) as never,
       decisionClassification,
       ...(jobPermissionOutcome ? { jobPermissionOutcome } : {}),
-      ...(unprojectedAccessIdentity
-        ? { unprojectedAccessIdentity }
-        : {}),
+      ...(unprojectedAccessIdentity ? { unprojectedAccessIdentity } : {}),
     };
   } catch (err) {
     return {

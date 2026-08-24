@@ -445,10 +445,7 @@ export abstract class PostgresInteractionRepositoryMethods {
       .select({ payload: table.payloadJson })
       .from(table)
       .where(
-        and(
-          eq(table.kind, 'job_permission_card'),
-          eq(table.status, 'pending'),
-        ),
+        and(eq(table.kind, 'job_permission_card'), eq(table.status, 'pending')),
       )
       .orderBy(asc(table.createdAt))
       .limit(Math.max(1, Math.min(500, input.limit ?? 100)));
@@ -854,9 +851,8 @@ function assertJobPermissionState(
     !Number.isInteger(state.card.fullScopePageOffset) ||
     state.card.fullScopePageOffset < 0 ||
     state.card.revisionDeliveries.length !== state.card.revisions.length ||
-    new Set(
-      state.card.revisionDeliveries.map((delivery) => delivery.revision),
-    ).size !== state.card.revisionDeliveries.length ||
+    new Set(state.card.revisionDeliveries.map((delivery) => delivery.revision))
+      .size !== state.card.revisionDeliveries.length ||
     state.card.revisionDeliveries.some((delivery) => {
       const revision = state.card.revisions.find(
         (candidate) => candidate.revision === delivery.revision,
@@ -919,8 +915,7 @@ function assertJobPermissionState(
       new Set(rowKeys).size !== rowKeys.length ||
       new Set(
         revision.representedNeeds.map(
-          (represented) =>
-            `${represented.needId}:${represented.askingEpoch}`,
+          (represented) => `${represented.needId}:${represented.askingEpoch}`,
         ),
       ).size !== revision.representedNeeds.length ||
       revision.representedNeeds.some(

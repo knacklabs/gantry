@@ -527,9 +527,11 @@ function degradedReasonForDiagnostics(
   const parts: string[] = [];
   if ((diagnostics.unprojectedPermissionGrants?.length ?? 0) > 0) {
     parts.push(
-      `Missing ${diagnostics.unprojectedPermissionGrants!
-        .map(humanizeTechnicalIdentifier)
-        .join(', ')} access limited this run. The grant is available from the next run.`,
+      `Missing ${diagnostics
+        .unprojectedPermissionGrants!.map(humanizeTechnicalIdentifier)
+        .join(
+          ', ',
+        )} access limited this run. The grant is available from the next run.`,
     );
   }
   if (diagnostics.terminalToolDenial) {

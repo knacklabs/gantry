@@ -65,9 +65,7 @@ export function renderCapabilityGuidancePrompt(input: {
       ...ready,
       '',
       'Requestable next-run actions',
-      ...(renderedRequestable.length > 0
-        ? renderedRequestable
-        : ['- none']),
+      ...(renderedRequestable.length > 0 ? renderedRequestable : ['- none']),
       '',
       'Installed skills',
       ...skills,
@@ -147,9 +145,7 @@ export function renderCapabilityGuidancePrompt(input: {
       rendered: renderedCounts,
       omitted: {
         readyActions: readyActions.length - renderedCounts.readyActions,
-        ...(requestableActions.length > 0
-          ? { requestableActions: 0 }
-          : {}),
+        ...(requestableActions.length > 0 ? { requestableActions: 0 } : {}),
         installedSkills:
           installedSkills.length - renderedCounts.installedSkills,
         connectedMcpSources:
