@@ -10,6 +10,7 @@ it('keeps provider status and actions specific', () => {
     'src/features/operations/routes/provider-dialogs.tsx',
     'utf8',
   );
+  const app = readFileSync('src/app/app.tsx', 'utf8');
 
   expect(route).not.toContain('Add provider');
   expect(route).not.toContain('CornerDownLeft');
@@ -25,4 +26,5 @@ it('keeps provider status and actions specific', () => {
   expect(dialogs).toContain('Disable provider');
   expect(dialogs).toContain('Gantry will not use it');
   expect(dialogs).toContain('aria-live="polite"');
+  expect(app).toContain('<TooltipProvider>');
 });
