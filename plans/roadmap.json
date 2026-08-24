@@ -1334,6 +1334,22 @@
       "completed_at": "2026-08-24T08:02:50+00:00",
       "history": ".factory/stories/WEB-PROVIDERS-1/",
       "outcome": "Operators can now view the runtime-derived model-provider inventory, search and filter it, safely manage credentials from the web console, verify readiness, and reauthorize local browser sessions without returning to the CLI."
+    },
+    {
+      "key": "WEB-MCP-1",
+      "title": "MCP management web UI",
+      "story": "As a Gantry operator, I can safely manage MCP server sources from the web console so that agents use approved sources without exposing secrets or granting accidental tool authority.",
+      "acceptance_criteria": [
+        "The browser page supports sanitized MCP inventory, connect, diagnose, attach, scope, detach, replace, and disable workflows.",
+        "Viewer and Administrator behavior preserves the existing browser security boundary and existing MCP CLI and Control API contracts.",
+        "Remote and local-process setup expose only supported safe fields and preserve source-versus-capability authority."
+      ],
+      "order": 67,
+      "status": "pending",
+      "epic": "web-authentication",
+      "skill": "fullstack",
+      "depends_on": [],
+      "spec": "docs/specs/mcp-management-web-ui.md"
     }
   ],
   "epics": [
@@ -1430,5 +1446,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-24T08:02:50+00:00"
+  "updated_at": "2026-08-24T19:35:11+00:00"
 }
