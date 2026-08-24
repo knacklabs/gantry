@@ -5,6 +5,11 @@ permissions:
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/prod-managed-browser-runtime
+    paths:
+      - .github/workflows/temp_prod_source_sync_validation.yml
 
 env:
   AWS_REGION: ap-south-1
