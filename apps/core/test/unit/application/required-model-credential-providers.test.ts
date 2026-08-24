@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  requiredModelCredentialProviderUsage,
   requiredModelCredentialProviders,
   type RequiredModelCredentialProvidersSettings,
 } from '@core/application/model-resolution/required-model-credential-providers.js';
@@ -17,6 +18,19 @@ function baseSettings(): RequiredModelCredentialProvidersSettings {
 }
 
 describe('requiredModelCredentialProviders', () => {
+  it('explains why a provider is required without changing the provider set', () => {
+    const usage = requiredModelCredentialProviderUsage(baseSettings());
+
+    expect(usage).toEqual([
+      { providerId: 'anthropic', reason: 'Default chat model' },
+      { providerId: 'anthropic', reason: 'One-time jobs' },
+      { providerId: 'anthropic', reason: 'Recurring jobs' },
+    ]);
+    expect([...new Set(usage.map((entry) => entry.providerId))]).toEqual(
+      requiredModelCredentialProviders(baseSettings()),
+    );
+  });
+
   it('returns the provider required by the chat/job default aliases', () => {
     const providers = requiredModelCredentialProviders(baseSettings());
     // `opus` resolves to the anthropic provider for every workload slot.

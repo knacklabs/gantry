@@ -51,6 +51,7 @@ const LOCAL_ABSOLUTE_MS = 90 * 24 * 60 * 60 * 1000;
 const HOSTED_IDLE_MS = 2 * 60 * 60 * 1000;
 const HOSTED_ABSOLUTE_MS = 12 * 60 * 60 * 1000;
 const AUTH_RATE_LIMIT_PER_MINUTE = 20;
+type AuthMode = 'local' | 'hosted';
 
 function repository(): PostgresAuthenticationRepository {
   return new PostgresAuthenticationRepository(getRuntimeStorage().service.db);
@@ -97,11 +98,8 @@ function canonicalHost(canonicalOrigin: string): string {
   return new URL(canonicalOrigin).host.toLowerCase();
 }
 
-function localHostIsValid(
-  req: IncomingMessage,
-  canonicalOrigin: string,
-): boolean {
-  const expected = canonicalHost(canonicalOrigin);
+function localHostIsValid(req: IncomingMessage, origin: string): boolean {
+  const expected = canonicalHost(origin);
   return (
     req.headers.host?.toLowerCase() === expected &&
     isLoopbackHost(expected) &&
@@ -122,7 +120,7 @@ function sessionLifetimes(mode: 'local' | 'hosted', now: Date) {
   };
 }
 
-async function activeSession(req: IncomingMessage, mode: 'local' | 'hosted') {
+export async function activeSession(req: IncomingMessage, mode: AuthMode) {
   const token = browserSessionToken(req, mode);
   if (!token) return null;
   const now = new Date();
@@ -150,7 +148,7 @@ function consumeAuthRateLimit(
   return false;
 }
 
-async function requireBrowserMutationSession(input: {
+export async function requireBrowserMutationSession(input: {
   req: IncomingMessage;
   res: ServerResponse;
   mode: 'local' | 'hosted';
@@ -1278,10 +1276,11 @@ export async function handleBrowserAuthRoutes(
     }
     const session = await activeSession(req, mode);
     if (!session) {
-      sendError(res, 401, 'UNAUTHORIZED', 'Sign in is required.');
+      sendJson(res, 401, { mode });
       return true;
     }
     sendJson(res, 200, {
+      mode,
       principal: {
         role: session.role,
         displayName: session.displayName,

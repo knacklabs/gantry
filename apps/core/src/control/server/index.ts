@@ -62,6 +62,7 @@ import { createRateLimiter } from './rate-limit.js';
 import { handleAgentRoutes } from './routes/agents.js';
 import { handleBrainRoutes } from './routes/brain.js';
 import { handleBrowserAuthRoutes } from './routes/browser-auth.js';
+import { handleBrowserModelProviderRoutes } from './routes/browser-model-providers.js';
 import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
@@ -185,7 +186,8 @@ function createControlRequestHandler(
       }
       if (
         pathname.startsWith('/auth/') ||
-        pathname.startsWith('/ui/api/auth/')
+        pathname.startsWith('/ui/api/auth/') ||
+        pathname.startsWith('/ui/api/model-providers')
       ) {
         setNoStore(res);
         if (browserRequestHasBearer(req)) {
@@ -193,11 +195,21 @@ function createControlRequestHandler(
             res,
             401,
             'UNAUTHORIZED',
-            'Bearer credentials are not accepted for browser authentication.',
+            'Bearer credentials are not accepted for browser routes.',
           );
           return;
         }
       }
+      if (
+        pathname.startsWith('/ui/api/model-providers') &&
+        (await handleBrowserModelProviderRoutes(
+          req,
+          res,
+          pathname,
+          getRuntimeSettingsForConfig(),
+        ))
+      )
+        return;
       if (await handleBrowserAuthRoutes(req, res, ctx, pathname)) return;
       if (pathname.startsWith('/ui/api/auth/')) {
         sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
