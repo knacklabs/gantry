@@ -1,12 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Settings2 } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { providerAssetById } from '../../../assets/providers';
 import {
   browserCsrfHeader,
   browserFetch,
 } from '../../../lib/auth/browser-auth';
-import { StatusBadge } from '../../../ui/compositions/status-badge';
+import { Badge, type BadgeVariant } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import {
   Dialog,
@@ -17,49 +17,56 @@ import {
   DialogTitle,
 } from '../../../ui/primitives/dialog';
 import { Input } from '../../../ui/primitives/input';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '../../../ui/primitives/tooltip';
 import { type ModelProvider, modelProviderQuery } from '../operations-queries';
 
-export function ProviderPicker({
-  onOpenChange,
-  onSelect,
-  open,
-  providers,
-}: {
-  onOpenChange: (open: boolean) => void;
-  onSelect: (provider: ModelProvider) => void;
-  open: boolean;
-  providers: ModelProvider[];
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add model provider</DialogTitle>
-          <DialogDescription>
-            Choose an unconfigured provider to add credentials.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-2">
-          {providers
-            .filter((provider) => !provider.configured)
-            .map((provider) => (
-              <Button
-                key={provider.providerId}
-                onClick={() => onSelect(provider)}
-                variant="secondary"
-              >
-                {provider.label}
-              </Button>
-            ))}
-          {!providers.some((provider) => !provider.configured) ? (
-            <p className="m-0 text-sm text-text-muted">
-              Every supported provider is configured.
-            </p>
-          ) : null}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
+type ProviderStatus = {
+  description: string;
+  label: string;
+  variant: BadgeVariant;
+};
+
+function providerStatus(provider: ModelProvider): ProviderStatus {
+  if (provider.health === 'ready') {
+    return {
+      label: 'Configured',
+      variant: 'success',
+      description:
+        'An active credential is stored. Verify it to check upstream access.',
+    };
+  }
+  if (provider.health === 'disabled') {
+    return {
+      label: 'Disabled',
+      variant: 'neutral',
+      description: provider.required
+        ? 'A credential is disabled, but current configuration requires this provider.'
+        : 'A credential is stored but disabled, so Gantry will not use this provider.',
+    };
+  }
+  if (provider.required) {
+    return {
+      label: 'Required',
+      variant: 'attention',
+      description:
+        'No active credential is stored, but current configuration requires this provider.',
+    };
+  }
+  return {
+    label: 'Not configured',
+    variant: 'neutral',
+    description: 'No credential is stored. Add one before using this provider.',
+  };
+}
+
+function requirementSummary(provider: ModelProvider) {
+  const [firstReason, ...otherReasons] = provider.requiredBy;
+  if (!firstReason) return null;
+  return `Required for ${firstReason}${otherReasons.length ? ` +${otherReasons.length}` : ''}`;
 }
 
 export function ProviderRow({
@@ -72,7 +79,14 @@ export function ProviderRow({
   onManage: () => void;
 }) {
   const asset = providerAssetById[provider.providerId];
-  const status = provider.health === 'missing' ? 'attention' : provider.health;
+  const status = providerStatus(provider);
+  const requirement = requirementSummary(provider);
+  const actionLabel =
+    provider.health === 'ready'
+      ? 'Manage credential'
+      : provider.health === 'disabled'
+        ? 'Re-enable'
+        : 'Add credential';
   return (
     <li className="grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
       <div className="flex min-w-0 items-center gap-3">
@@ -89,35 +103,37 @@ export function ProviderRow({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <strong>{provider.label}</strong>
-            {provider.required ? (
+            {requirement ? (
               <span className="text-xs font-medium text-text-muted">
-                Required by {provider.requiredBy.join(', ')}
+                {requirement}
               </span>
             ) : null}
           </div>
-          <p className="m-0 text-xs text-text-muted">
-            {provider.supportedWorkloads.join(', ') || 'Model provider'}
-            {provider.updatedAt
-              ? ` · Updated ${new Date(provider.updatedAt).toLocaleDateString()}`
-              : ''}
-          </p>
         </div>
       </div>
-      <StatusBadge status={status} />
-      <Button onClick={onManage} size="sm" variant="secondary">
-        <Settings2 aria-hidden="true" size={15} />
-        {canManage ? 'Manage' : 'View'}
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex" tabIndex={0}>
+            <Badge variant={status.variant}>{status.label}</Badge>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" sideOffset={6}>
+          {status.description}
+        </TooltipContent>
+      </Tooltip>
+      {canManage ? (
+        <Button onClick={onManage} size="sm" variant="secondary">
+          {actionLabel}
+        </Button>
+      ) : null}
     </li>
   );
 }
 
 export function ProviderDialog({
-  canManage,
   provider,
   onOpenChange,
 }: {
-  canManage: boolean;
   provider: ModelProvider | null;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -128,6 +144,7 @@ export function ProviderDialog({
   const mode =
     provider?.credentialModes.find((item) => item.id === provider.authMode) ??
     provider?.credentialModes[0];
+  const isDisabled = provider?.health === 'disabled';
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -192,7 +209,13 @@ export function ProviderDialog({
   }
 
   async function disable() {
-    if (!provider || !window.confirm(`Disable ${provider.label}?`)) return;
+    if (
+      !provider ||
+      !window.confirm(
+        `Disable ${provider.label}? Gantry will not use it${provider.requiredBy.length ? `, even though it is required for ${provider.requiredBy.join(', ')}` : ''}.`,
+      )
+    )
+      return;
     setSaving(true);
     setError(null);
     const response = await browserFetch(
@@ -219,16 +242,25 @@ export function ProviderDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {provider?.configured
-              ? `Manage ${provider.label}`
-              : `Add ${provider?.label ?? 'provider'}`}
+            {provider?.health === 'ready'
+              ? `Manage ${provider.label} credential`
+              : isDisabled
+                ? `Re-enable ${provider.label}`
+                : `Add ${provider?.label ?? 'provider'} credential`}
           </DialogTitle>
           <DialogDescription>
-            Credential values are write-only and are never shown again.
+            {isDisabled
+              ? 'Saving a new credential re-enables this provider.'
+              : 'Credential values are write-only and are never shown again.'}
           </DialogDescription>
         </DialogHeader>
-        {provider && mode && canManage ? (
+        {provider && mode ? (
           <form className="grid gap-4" onSubmit={submit}>
+            {provider.requiredBy.length > 0 ? (
+              <p className="m-0 text-sm text-text-muted">
+                Required for {provider.requiredBy.join(', ')}.
+              </p>
+            ) : null}
             {mode.fields.map((field) => (
               <label
                 className="grid gap-1.5 text-sm font-medium"
@@ -242,12 +274,18 @@ export function ProviderDialog({
                 />
               </label>
             ))}
-            {error ? <p className="m-0 text-sm text-danger">{error}</p> : null}
+            {error ? (
+              <p aria-live="polite" className="m-0 text-sm text-danger">
+                {error} Check the values and try again.
+              </p>
+            ) : null}
             {notice ? (
-              <p className="m-0 text-sm text-text-secondary">{notice}</p>
+              <p aria-live="polite" className="m-0 text-sm text-text-secondary">
+                {notice}
+              </p>
             ) : null}
             <DialogFooter>
-              {provider.configured ? (
+              {provider.health === 'ready' ? (
                 <Button
                   disabled={saving}
                   onClick={() => void verify()}
@@ -257,32 +295,26 @@ export function ProviderDialog({
                   Verify credential
                 </Button>
               ) : null}
-              {provider.configured ? (
+              {provider.health === 'ready' ? (
                 <Button
                   disabled={saving}
                   onClick={() => void disable()}
                   type="button"
                   variant="destructive"
                 >
-                  Disable
+                  Disable provider
                 </Button>
               ) : null}
               <Button disabled={saving} type="submit">
                 <KeyRound aria-hidden="true" size={16} />
                 {saving
                   ? 'Saving…'
-                  : provider.configured
-                    ? 'Rotate credential'
+                  : provider.health === 'ready'
+                    ? 'Update credential'
                     : 'Save credential'}
               </Button>
             </DialogFooter>
           </form>
-        ) : provider ? (
-          <p className="m-0 text-sm text-text-muted">
-            {provider.requiredBy.length > 0
-              ? `Required by ${provider.requiredBy.join(', ')}.`
-              : 'This provider is optional for the current runtime configuration.'}
-          </p>
         ) : (
           <p className="m-0 text-sm text-text-muted">
             This provider has no supported credential mode.

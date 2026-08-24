@@ -1,7 +1,6 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { rootRoute } from '../../../app/root-route';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { CornerDownLeft, Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { PageHeader } from '../../../ui/compositions/page-header';
@@ -9,11 +8,7 @@ import { Panel } from '../../../ui/compositions/panel';
 import { SelectField } from '../../../ui/compositions/select-field';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
-import {
-  ProviderDialog,
-  ProviderPicker,
-  ProviderRow,
-} from './provider-dialogs';
+import { ProviderDialog, ProviderRow } from './provider-dialogs';
 import { type ModelProvider, modelProviderQuery } from '../operations-queries';
 
 export function ProvidersRoute() {
@@ -23,7 +18,6 @@ export function ProvidersRoute() {
   const navigate = useNavigate({ from: '/providers' });
   const query = useQuery(modelProviderQuery);
   const [editing, setEditing] = useState<ModelProvider | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const providers = query.data ?? [];
   const visible = useMemo(
     () =>
@@ -47,20 +41,11 @@ export function ProvidersRoute() {
         eyebrow="Configure"
         title="Model providers"
         description="Credentials and readiness for the models Gantry can use."
-        action={
-          canManage ? (
-            <Button onClick={() => setPickerOpen(true)}>
-              <Plus aria-hidden="true" size={16} />
-              Add provider
-            </Button>
-          ) : undefined
-        }
       />
 
       <div className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_190px]">
-        <div className="relative">
+        <div>
           <TextField
-            className="pr-10"
             id="provider-search"
             label="Search providers"
             name="q"
@@ -73,19 +58,14 @@ export function ProvidersRoute() {
             placeholder="Provider or workload"
             value={search.q}
           />
-          <CornerDownLeft
-            aria-hidden="true"
-            className="pointer-events-none absolute top-[30px] right-3 text-text-muted"
-            size={16}
-          />
         </div>
         <SelectField
           label="Status"
           value={search.status}
           options={[
             { label: 'All statuses', value: 'all' },
-            { label: 'Ready', value: 'ready' },
-            { label: 'Needs attention', value: 'attention' },
+            { label: 'Configured', value: 'ready' },
+            { label: 'Not configured', value: 'attention' },
             { label: 'Disabled', value: 'disabled' },
           ]}
           onValueChange={(status) =>
@@ -94,10 +74,7 @@ export function ProvidersRoute() {
         />
       </div>
 
-      <Panel
-        title="Provider inventory"
-        description="Status is derived from configured credentials and runtime model selection."
-      >
+      <Panel>
         {query.isLoading ? (
           <p className="p-4 text-sm text-text-muted">Loading providers…</p>
         ) : null}
@@ -126,18 +103,8 @@ export function ProvidersRoute() {
       </Panel>
 
       <ProviderDialog
-        canManage={canManage}
         provider={editing}
         onOpenChange={(open) => !open && setEditing(null)}
-      />
-      <ProviderPicker
-        onOpenChange={setPickerOpen}
-        onSelect={(provider) => {
-          setPickerOpen(false);
-          setEditing(provider);
-        }}
-        open={pickerOpen}
-        providers={providers}
       />
     </div>
   );
