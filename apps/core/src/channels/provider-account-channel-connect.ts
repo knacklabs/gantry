@@ -24,6 +24,39 @@ interface ProviderAccountRuntimeSettings {
   runtime: { deploymentMode?: string };
 }
 
+const DEFAULT_PROVIDER_ACCOUNT_CONNECT_TIMEOUT_MS = 30_000;
+const DEFAULT_PROVIDER_ACCOUNT_DISCONNECT_TIMEOUT_MS = 5_000;
+
+class ProviderAccountConnectTimeoutError extends Error {
+  constructor(
+    readonly providerId: string,
+    readonly providerAccountId: string,
+    readonly timeoutMs: number,
+  ) {
+    super(
+      `Timed out connecting ${providerId}/${providerAccountId} after ${timeoutMs}ms`,
+    );
+    this.name = 'ProviderAccountConnectTimeoutError';
+  }
+}
+
+async function withTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  timeoutError: () => Error,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(timeoutError()), timeoutMs);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export interface BoundProviderAccountChannel {
   channel: ChannelAdapter;
   providerId: string;
@@ -43,7 +76,13 @@ export async function connectProviderAccountChannels(input: {
   connectedChannelLeases: RuntimeLease[];
   inboundLeasePrefix: string;
   logger: Pick<typeof logger, 'info' | 'warn'>;
+  connectTimeoutMs?: number;
+  disconnectTimeoutMs?: number;
 }): Promise<void> {
+  const connectTimeoutMs =
+    input.connectTimeoutMs ?? DEFAULT_PROVIDER_ACCOUNT_CONNECT_TIMEOUT_MS;
+  const disconnectTimeoutMs =
+    input.disconnectTimeoutMs ?? DEFAULT_PROVIDER_ACCOUNT_DISCONNECT_TIMEOUT_MS;
   const inboundKeyFor = (account: {
     runtimeSecretRefs?: Record<string, string>;
   }) => {
@@ -272,10 +311,19 @@ export async function connectProviderAccountChannels(input: {
         }
         input.channelOpts.distrustHistoryCoverage?.(inboundProviderAccountIds);
       }
-      await channel.connect({
-        inbound: providerInbound,
-        interactionCallbacks: providerInbound,
-      });
+      await withTimeout(
+        channel.connect({
+          inbound: providerInbound,
+          interactionCallbacks: providerInbound,
+        }),
+        connectTimeoutMs,
+        () =>
+          new ProviderAccountConnectTimeoutError(
+            input.provider.id,
+            providerAccountId,
+            connectTimeoutMs,
+          ),
+      );
       channelConnected = true;
       if (hasHistoryCoverage) {
         if (
@@ -331,7 +379,40 @@ export async function connectProviderAccountChannels(input: {
       // app before auth.test), so disconnect explicitly rather than leaking it.
       // Route through the memoized lease-loss teardown so a connect that rejects
       // *because* the lease was lost disconnects once, not twice.
-      await disconnectAfterLeaseLoss();
+      const disconnect = disconnectAfterLeaseLoss();
+      if (err instanceof ProviderAccountConnectTimeoutError) {
+        try {
+          await withTimeout(
+            disconnect,
+            disconnectTimeoutMs,
+            () =>
+              new Error(
+                `Timed out disconnecting ${input.provider.id}/${providerAccountId} after a connect timeout`,
+              ),
+          );
+        } catch (disconnectErr) {
+          input.logger.warn(
+            {
+              err: disconnectErr,
+              channel: input.provider.id,
+              providerAccountId,
+            },
+            'Provider Account cleanup timed out after connect timeout',
+          );
+        }
+        await providerInboundLease?.release();
+        input.logger.warn(
+          {
+            err,
+            channel: input.provider.id,
+            providerAccountId,
+            timeoutMs: connectTimeoutMs,
+          },
+          'Provider Account connect timed out; skipping account so runtime startup can continue',
+        );
+        continue;
+      }
+      await disconnect;
       await providerInboundLease?.release();
       throw err;
     }

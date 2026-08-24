@@ -323,8 +323,9 @@ describe('connectProviderAccountChannels', () => {
     leaseValid = false;
     lostHandler?.(lossError);
     releaseConnect();
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() =>
+      expect(activeChannel.disconnect).toHaveBeenCalledOnce(),
+    );
     const disconnectCallsBeforeRelease = vi.mocked(activeChannel.disconnect)
       .mock.calls.length;
     const settledBeforeDisconnectRelease = settled;
@@ -777,5 +778,62 @@ describe('connectProviderAccountChannels', () => {
       inbound: false,
       interactionCallbacks: false,
     });
+  });
+
+  it('skips a provider account whose connect hangs and continues startup', async () => {
+    const hangingChannel = channel();
+    vi.mocked(hangingChannel.connect).mockImplementation(
+      () => new Promise<void>(() => undefined),
+    );
+    const healthyChannel = channel();
+    const create = vi
+      .fn<Provider['create']>()
+      .mockResolvedValueOnce(hangingChannel)
+      .mockResolvedValueOnce(healthyChannel);
+    const connectedChannels: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannels'] = [];
+    const warn = vi.fn();
+
+    await connectProviderAccountChannels({
+      provider: provider(create),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'one', bot_token: 'one' },
+          },
+          slack_two: {
+            provider: 'slack',
+            agentId: 'agent:two',
+            runtimeSecretRefs: { app_token: 'two', bot_token: 'two' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: channelOpts(),
+      inboundEnabled: true,
+      connectedChannels,
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn },
+      connectTimeoutMs: 5,
+      disconnectTimeoutMs: 5,
+    });
+
+    expect(hangingChannel.disconnect).toHaveBeenCalledTimes(1);
+    expect(healthyChannel.connect).toHaveBeenCalledTimes(1);
+    expect(connectedChannels).toHaveLength(1);
+    expect(connectedChannels[0]?.providerAccountId).toBe('slack_two');
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'slack',
+        providerAccountId: 'slack_one',
+        timeoutMs: 5,
+      }),
+      'Provider Account connect timed out; skipping account so runtime startup can continue',
+    );
   });
 });
