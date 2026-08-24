@@ -30,28 +30,18 @@ import {
   registerTelegramBotCommands,
 } from './bot-setup.js';
 import { registerTelegramMediaHandlers } from './media-ingestion.js';
-import { clearProgressActions } from './progress-message-actions.js';
+import { clearRestoredTelegramProgressActions } from './extracted-helpers.js';
 import { handleTelegramTextMessage } from './text-message-handler.js';
 import { handleTelegramGroupMembershipUpdate } from './group-join-onboarding.js';
 
 export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
   private async clearRestoredProgressActions(): Promise<void> {
     this.loadPersistedProgressMessages();
-    for (const [key, state] of this.activeProgressMessages.entries()) {
-      if (!state.restored || !state.messageId) continue;
-      await clearProgressActions({
-        api: this.bot!.api,
-        chatId: state.chatId,
-        messageId: state.messageId,
-        text: state.lastText,
-        editReplyMarkup: { reply_markup: { inline_keyboard: [] } },
-      }).catch((err) =>
-        logger.debug(
-          { key, err: this.sanitizeErrorMessage(err) },
-          'Failed to clear restored Telegram progress actions',
-        ),
-      );
-    }
+    await clearRestoredTelegramProgressActions({
+      activeProgressMessages: this.activeProgressMessages,
+      api: this.bot!.api,
+      sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+    });
   }
 
   async connect(

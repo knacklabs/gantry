@@ -2,7 +2,6 @@ import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 // prettier-ignore
 import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalDecision, PermissionApprovalRequest, PermissionApprovalResult, ProgressUpdateOptions, RichInteractionRequest, StreamingChunkOptions, UserQuestionRequest, UserQuestionResponse } from '../../domain/types.js';
-import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { TelegramChannelReactions } from './channel-reactions.js';
 import {
@@ -31,10 +30,7 @@ import {
   progressActionOptions,
   sendNewProgressMessage,
 } from './progress-message-actions.js';
-import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
-import { appendTelegramDocumentMessageIds as appendDocIds } from './file-delivery.js';
 import { renderTelegramChannelAgentTodo } from './agent-todo-delivery.js';
-import { unescapeTelegramEscapedMarkdownV2 } from './markdown-v2-unescape.js';
 import { sendTelegramTyping } from './typing-indicator.js';
 import { renderTelegramRichInteraction } from './rich-interaction.js';
 import { disconnectTelegramDelivery } from './disconnect.js';
@@ -45,6 +41,7 @@ import {
 } from '../../application/interactions/pending-interaction-durability.js';
 import { retainTelegramProgressHandleAfterEditFailure } from './progress-edit-failure.js';
 import { createTelegramPermissionCardPreparer } from './prepared-permission-card.js';
+import { sendTelegramDeliveryChunks } from './extracted-helpers.js';
 
 export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   preparePermissionCardSend(
@@ -125,111 +122,14 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
         };
       }
 
-      // Split after escaping so each outbound envelope already matches the
-      // exact payload Telegram receives.
-      const escapedText = escapeTelegramMarkdownV2(text, {
-        preserveStyleMarkers: true,
+      return sendTelegramDeliveryChunks({
+        api: this.bot.api,
+        chatId: numericId,
+        jid,
+        options,
+        sendOptions,
+        text,
       });
-      const escapedChunks = splitTelegramDeliveryText(
-        escapedText,
-        TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
-        TELEGRAM_MESSAGE_MAX_LENGTH,
-      );
-      const chunks = escapedChunks.map((escapedChunk) => ({
-        escapedText: escapedChunk,
-        canonicalText: unescapeTelegramEscapedMarkdownV2(escapedChunk),
-      }));
-      if (chunks.length === 0) return {};
-
-      const warnings: string[] = [];
-      if (chunks.length > 1) {
-        warnings.push(
-          `telegram.message.chunked:${chunks.length}:${TELEGRAM_STREAM_CHUNK_MAX_LENGTH}`,
-        );
-      }
-
-      const externalMessageIds: string[] = [];
-      let deliveredChunks = 0;
-      let usePlainText = false;
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-        const chunk = chunks[chunkIndex];
-        const replyMarkup =
-          chunkIndex === chunks.length - 1
-            ? telegramActionReplyMarkup(options.actionAffordances)
-            : undefined;
-        try {
-          const sent = await sendTelegramPlannedChunk(
-            this.bot.api,
-            numericId,
-            chunk.escapedText,
-            {
-              sendOptions: replyMarkup
-                ? { ...sendOptions, reply_markup: replyMarkup }
-                : sendOptions,
-              plainText: chunk.canonicalText,
-              allowPlainTextFallback: !usePlainText,
-              forcePlainText: usePlainText,
-            },
-          );
-          usePlainText = sent.usedPlainText || usePlainText;
-          const messageId = sent.messageId;
-          if (messageId !== undefined) {
-            externalMessageIds.push(String(messageId));
-          }
-          deliveredChunks += 1;
-        } catch (err) {
-          if (deliveredChunks > 0) {
-            const unsentCanonicalTail = chunks
-              .slice(deliveredChunks)
-              .map((planned) => planned.canonicalText)
-              .join('');
-            const partial = new PartialMessageDeliveryError({
-              cause: err,
-              deliveredChunks,
-              name: 'PartialTelegramDeliveryError',
-              message: `Telegram message partially delivered (${deliveredChunks}/${chunks.length} chunks)`,
-              totalChunks: chunks.length,
-            });
-            Object.assign(partial, {
-              provider: 'telegram',
-              deliveredParts: deliveredChunks,
-              totalParts: chunks.length,
-              externalMessageIds,
-              ...(unsentCanonicalTail.trim()
-                ? {
-                    retryTail: {
-                      canonicalText: unsentCanonicalTail,
-                      providerPayload: {
-                        provider: 'telegram',
-                        chatId: numericId,
-                        ...(options.threadId
-                          ? { threadId: options.threadId }
-                          : {}),
-                      },
-                    },
-                  }
-                : {}),
-              ...(warnings.length > 0 ? { warnings } : {}),
-            });
-            throw partial;
-          }
-          throw err;
-        }
-      }
-      await appendDocIds(externalMessageIds, this.bot.api, numericId, options);
-      logger.info(
-        { jid, length: text.length, threadId: options.threadId },
-        'Telegram message sent',
-      );
-      return {
-        ...(externalMessageIds[0]
-          ? { externalMessageId: externalMessageIds[0] }
-          : {}),
-        ...(externalMessageIds.length > 0 ? { externalMessageIds } : {}),
-        deliveredParts: deliveredChunks,
-        totalParts: chunks.length,
-        ...(warnings.length > 0 ? { warnings } : {}),
-      };
     } catch (err) {
       logger.error(
         { jid, error: this.sanitizeErrorMessage(err) },
