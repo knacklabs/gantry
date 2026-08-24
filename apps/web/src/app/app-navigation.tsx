@@ -27,10 +27,13 @@ const navigation = [
     items: [
       { to: '/overview', label: 'Overview', icon: LayoutDashboard },
       { to: '/interactions', label: 'Waiting on you', icon: CircleHelp },
-      { to: '/providers', label: 'Providers', icon: PlugZap },
       { to: '/conversations', label: 'Conversations', icon: MessagesSquare },
       { to: '/diagnostics', label: 'Diagnostics', icon: Activity },
     ],
+  },
+  {
+    label: 'Configure',
+    items: [{ to: '/providers', label: 'Model providers', icon: PlugZap }],
   },
   {
     label: 'Administration',

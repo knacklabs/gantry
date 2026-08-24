@@ -21,11 +21,11 @@ import {
 import {
   diagnosticPreviewQuery,
   interactionPreviewQuery,
-  providerPreviewQuery,
+  modelProviderQuery,
 } from '../operations-queries';
 
 export function OverviewRoute() {
-  const { data: providers } = useQuery(providerPreviewQuery);
+  const { data: providers = [] } = useQuery(modelProviderQuery);
   const { data: interactions } = useQuery(interactionPreviewQuery);
   const { data: diagnostics } = useQuery(diagnosticPreviewQuery);
   const { requestConnection } = useConnectionGate();
@@ -109,7 +109,7 @@ export function OverviewRoute() {
             />
             <HealthRow
               label="Provider accounts"
-              detail={`${providers.filter((item) => item.status === 'ready').length} ready · ${providers.length} total`}
+              detail={`${providers.filter((item) => item.health === 'ready').length} ready · ${providers.length} total`}
               healthy={false}
             />
             <HealthRow
