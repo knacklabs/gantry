@@ -4,7 +4,6 @@ import { PageHeader } from '../../ui/compositions/page-header';
 import { Button } from '../../ui/primitives/button';
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,

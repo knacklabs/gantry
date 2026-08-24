@@ -7,7 +7,6 @@ import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { SelectField } from '../../../ui/compositions/select-field';
 import { TextField } from '../../../ui/compositions/text-field';
-import { Button } from '../../../ui/primitives/button';
 import { ProviderDialog, ProviderRow } from './provider-dialogs';
 import { type ModelProvider, modelProviderQuery } from '../operations-queries';
 
