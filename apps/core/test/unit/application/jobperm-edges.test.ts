@@ -329,7 +329,7 @@ function createProviderDeliveryHarness(
     };
   }
   const receiver = {
-    botToken: 'discord-token',
+    botToken: 'test-token',
     messageMutations: {
       edit: vi.fn(
         async (
@@ -433,7 +433,7 @@ async function expectProviderAckAfterDurableAcceptance(
   let pending: Promise<void>;
   if (provider === 'telegram') {
     telegramCardBot.handlers.clear();
-    const channel = new TelegramChannel('token', {
+    const channel = new TelegramChannel('test-token', {
       onMessage: vi.fn(),
       onChatMetadata: vi.fn(),
       providerAccountId: 'telegram-account',
@@ -483,7 +483,7 @@ async function expectProviderAckAfterDurableAcceptance(
     });
   } else {
     const handler = new DiscordInteractionHandler({
-      botToken: 'token',
+      botToken: 'test-token',
       applicationId: 'app',
       opts: { onMessage: vi.fn(), onChatMetadata: vi.fn(), onMessageAction },
       postMessage: vi.fn(async () => ({ id: '10' })),
@@ -495,7 +495,7 @@ async function expectProviderAckAfterDurableAcceptance(
     vi.spyOn(handler as any, 'ackInteraction').mockImplementation(acknowledge);
     pending = handler.handleInteraction({
       id: 'interaction-1',
-      token: 'interaction-token',
+      token: 'test-token',
       channel_id: '100',
       type: 3,
       data: { custom_id: actionToken },
@@ -620,9 +620,9 @@ it('jobperm-1-t3-hard-boundary-class', async () => {
       jobId: 'job-1',
       jobName: 'Daily setup',
       jobRunId: 'run-1',
-      jobRunLeaseToken: 'lease-1',
+      jobRunLeaseToken: 'test-token',
       jobRunLeaseFencingVersion: '1',
-      ipcAuthToken: 'token',
+      ipcAuthToken: 'test-token',
       ipcResponseVerifyKey: '',
       ipcResponseKeyId: 'key-1',
       permissionRequestTimeoutMs: 1_000,
@@ -759,7 +759,7 @@ it('jobperm-1-t3-unprojected-limited-completion', async () => {
     chatJid: 'telegram:jobs',
     groupFolder: 'main',
     ipcDir: '/tmp/ipc/main',
-    ipcAuthToken: 'token',
+    ipcAuthToken: 'test-token',
     persona: 'operations',
     isScheduledJob: true,
     semanticCapabilities: [requestableCapability],

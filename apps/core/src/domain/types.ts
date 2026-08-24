@@ -1,5 +1,9 @@
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { PermissionMode } from '../shared/permission-mode.js';
+import type {
+  PermissionApprovalRuleValue,
+  PermissionApprovalUpdate,
+} from '../shared/permission-approval-types.js';
 import type { ReviewMessageView } from './review-message-view.js';
 import type { MessageActionAffordance } from './message-actions.js';
 import type { ObserverDigestMessageView } from './observer-digest-view.js';
@@ -289,30 +293,7 @@ export interface PermissionCallbackClaim extends PermissionCallbackClaimReferenc
   };
 }
 
-export interface PermissionApprovalRuleValue {
-  toolName: string;
-  ruleContent?: string;
-}
-
-export interface PermissionApprovalUpdate {
-  type:
-    | 'addRules'
-    | 'replaceRules'
-    | 'removeRules'
-    | 'setMode'
-    | 'addDirectories'
-    | 'removeDirectories';
-  rules?: PermissionApprovalRuleValue[];
-  behavior?: 'allow' | 'deny' | 'ask';
-  destination?:
-    | 'userSettings'
-    | 'projectSettings'
-    | 'localSettings'
-    | 'session'
-    | 'cliArg';
-  mode?: string;
-  directories?: string[];
-}
+export type { PermissionApprovalRuleValue, PermissionApprovalUpdate };
 
 export interface PermissionApprovalDecision {
   approved: boolean;

@@ -1,4 +1,4 @@
-import type { PermissionApprovalUpdate } from '../domain/types.js';
+import type { PermissionApprovalUpdate } from './permission-approval-types.js';
 import {
   publicGantryToolNameForSdkTool,
   RUN_COMMAND_TOOL_NAME,
