@@ -29,6 +29,7 @@ vi.mock('@core/channels/telegram/bot-setup.js', () => ({
 }));
 
 import { createGantryShellTool } from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
+import { sendJobPermCard } from '@core/app/bootstrap/job-permission-wiring-setup.js';
 import { composeAgentCapabilities } from '@core/adapters/llm/anthropic-claude-agent/agent-capabilities.js';
 import { scheduledPermissionSuggestionPlan } from '@core/adapters/llm/anthropic-claude-agent/runner/permission-suggestions.js';
 import { createCanUseToolCallback } from '@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js';
@@ -51,7 +52,11 @@ import { TelegramChannelDelivery } from '@core/channels/telegram/channel-deliver
 import { telegramActionReplyMarkup } from '@core/channels/telegram/message-action-affordances.js';
 import { evaluatePermissionDeterministicRails } from '@core/domain/permission-deterministic-rails.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
-import { jobPermissionCardActions } from '@core/domain/job-permission-card-actions.js';
+import {
+  jobPermissionCardActions,
+  jobPermissionCardText,
+} from '@core/domain/job-permission-card-actions.js';
+import { sanitizeRetryTailProviderPayload } from '@core/domain/messages/retry-tail-provider-payload.js';
 import type {
   JobPermissionCardDeliveryOutcome,
   JobPermissionCardRecord,
@@ -910,6 +915,134 @@ it('jobperm-1-t3-unprojected-limited-completion', async () => {
   });
 });
 
+it('q-0072-333a edits one Telegram job-permission card across delivered revisions', async () => {
+  const { repository, service } = createJobPermEdgeHarness();
+  const sendMessage = vi.fn(async () => ({ message_id: 41 }));
+  const editMessageText = vi.fn(async () => undefined);
+  const receiver = {
+    bot: { api: { sendMessage, editMessageText } },
+    sanitizeErrorMessage: (error: unknown) => String(error),
+  };
+  const sendProviderMessage = vi.fn(
+    async (
+      jid: string,
+      text: string,
+      input: {
+        messageOptions?: Parameters<TelegramChannelDelivery['sendMessage']>[2];
+      },
+    ) =>
+      TelegramChannelDelivery.prototype.sendMessage.call(
+        receiver as never,
+        jid,
+        text,
+        input.messageOptions,
+      ),
+  );
+
+  const dispatchRevision = async (revision: JobPermissionCardRevision) => {
+    const state = await repository.getJobPermissionState({
+      appId: 'default',
+      jobId: 'job-provider-contract',
+    });
+    const actions = jobPermissionAffordances(state!.card.callbackKey, revision);
+    const canonicalText = jobPermissionCardText(state!.card.jobId, revision);
+    const payload = sanitizeRetryTailProviderPayload({
+      jobPermissionCard: {
+        operation: revision.operation,
+        providerMessageId: state!.card.currentProviderMessageId,
+        actions: actions.map((action) => ({
+          token: action.actionToken,
+          label: action.label,
+        })),
+      },
+    });
+    expect(payload?.jobPermissionCard).toBeDefined();
+    const result = await sendJobPermCard(
+      payload as Record<string, unknown>,
+      {
+        delivery: { id: revision.deliveryId },
+        item: { id: revision.deliveryItemId, canonicalText },
+      },
+      ((input) => input) as never,
+      sendProviderMessage as never,
+      'tg:100',
+      undefined,
+      { providerAccountId: 'telegram-account' },
+      {} as never,
+    );
+    expect(result).toMatchObject({ status: 'sent' });
+    const providerMessageId = result.providerMessageId;
+    expect(providerMessageId).toBe('41');
+    repository.deliveries.set(revision.deliveryId, {
+      status: 'delivered',
+      provider: 'telegram',
+      providerMessageId: providerMessageId!,
+      deliveredAt: '2026-08-24T00:00:00.000Z',
+    });
+    await service.reconcile();
+  };
+
+  await attachJobPermEdgeNeed(service, {
+    suffix: 'knack-maintenance',
+    label: 'KnackLabs Lead Maintenance',
+  });
+  let state = await repository.getJobPermissionState({
+    appId: 'default',
+    jobId: 'job-provider-contract',
+  });
+  await dispatchRevision(state!.card.revisions.at(-1)!);
+
+  for (const suffix of ['records', 'reporting']) {
+    await attachJobPermEdgeNeed(service, { suffix });
+    state = await repository.getJobPermissionState({
+      appId: 'default',
+      jobId: 'job-provider-contract',
+    });
+    await dispatchRevision(state!.card.revisions.at(-1)!);
+  }
+
+  await service.reconcile();
+  state = await repository.getJobPermissionState({
+    appId: 'default',
+    jobId: 'job-provider-contract',
+  });
+  expect(state!.card.revisionDeliveries).toHaveLength(3);
+  expect(state!.card.revisionDeliveries).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ revision: 1, status: 'delivered' }),
+      expect.objectContaining({ revision: 2, status: 'delivered' }),
+      expect.objectContaining({ revision: 3, status: 'delivered' }),
+    ]),
+  );
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+  expect(editMessageText).toHaveBeenCalledTimes(2);
+  expect(editMessageText.mock.calls.map((call) => call[1])).toEqual([41, 41]);
+
+  const firstText = String(sendMessage.mock.calls[0]?.[1]);
+  const firstOptions = sendMessage.mock.calls[0]?.[2] as {
+    reply_markup?: {
+      inline_keyboard?: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  };
+  const buttons = firstOptions.reply_markup?.inline_keyboard?.flat() ?? [];
+  expect(firstText).toContain('KnackLabs Lead Maintenance needs Run Command');
+  expect(firstText).not.toContain('RunCommand(');
+  expect(buttons).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ text: 'Allow always for this job' }),
+      expect.objectContaining({ text: 'Deny' }),
+    ]),
+  );
+  expect(buttons.map((button) => button.callback_data)).toEqual(
+    expect.arrayContaining(
+      jobPermissionCardActions(
+        state!.card.callbackKey,
+        state!.card.revisions[0]!,
+      ).map((action) => action.token),
+    ),
+  );
+});
+
 it('jobperm-1-t3-provider-card-contracts', async () => {
   for (const provider of ['telegram', 'slack', 'discord'] as const) {
     const { repository, service } = createJobPermEdgeHarness();
@@ -1060,7 +1193,7 @@ it('jobperm-1-t3-provider-card-contracts', async () => {
     const thirdAllow = jobPermissionCardActions(
       state!.card.callbackKey,
       revision,
-    ).find((action) => action.label.startsWith('Allow: Task'))!;
+    ).find((action) => action.label === 'Allow always for this job')!;
     await expect(
       service.decideCardAction({
         actor: { actorRef: 'approver' },
@@ -1115,11 +1248,11 @@ it('jobperm-1-t3-provider-card-contracts', async () => {
       epochState!.card.callbackKey,
       epochRevision,
     );
-    const oldAllowToken = epochActions.find((action) =>
-      action.label.startsWith('Allow:'),
+    const oldAllowToken = epochActions.find(
+      (action) => action.label === 'Allow always for this job',
     )!.token;
-    const denyToken = epochActions.find((action) =>
-      action.label.startsWith('Deny:'),
+    const denyToken = epochActions.find(
+      (action) => action.label === 'Deny',
     )!.token;
     await epoch.service.decideCardAction({
       actor: { actorRef: 'approver' },
@@ -1134,7 +1267,7 @@ it('jobperm-1-t3-provider-card-contracts', async () => {
     const reconsiderToken = jobPermissionCardActions(
       epochState!.card.callbackKey,
       reconsiderRevision,
-    ).find((action) => action.label.startsWith('Reconsider:'))!.token;
+    ).find((action) => action.label === 'Reconsider')!.token;
     await expect(
       epoch.service.decideCardAction({
         actor: { actorRef: 'approver' },

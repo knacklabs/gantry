@@ -558,7 +558,7 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
   const showAction = jobPermissionCardActions(
     state!.card.callbackKey,
     current,
-  ).find((action) => action.label === 'Show full scope: Large compound');
+  ).find((action) => action.label === 'Show full scope');
   await expect(
     service.decideCardAction({
       actor: { actorRef: 'slack:user-1' },
@@ -578,7 +578,7 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
   const denyAction = jobPermissionCardActions(
     state!.card.callbackKey,
     fullScopeRevision,
-  ).find((action) => action.label === 'Deny: Large compound');
+  ).find((action) => action.label === 'Deny');
   effects.authorized = false;
   await expect(
     service.decideCardAction({
@@ -599,7 +599,7 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
   const allowAction = jobPermissionCardActions(
     state!.card.callbackKey,
     callbackRevision,
-  ).find((action) => action.label.startsWith('Allow:'));
+  ).find((action) => action.label === 'Allow always for this job');
   await expect(
     service.decideCardAction({
       actor: { actorRef: 'slack:user-1' },

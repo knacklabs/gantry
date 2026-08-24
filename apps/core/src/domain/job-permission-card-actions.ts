@@ -46,18 +46,18 @@ export function jobPermissionCardActions(
         ),
         label:
           row.action === 'approve_and_run_again'
-            ? `Approve and run again: ${row.displayLabel}`
+            ? 'Approve and run again'
             : row.action === 'reconsider'
-              ? `Reconsider: ${row.displayLabel}`
+              ? 'Reconsider'
               : row.action === 'show_scope'
-                ? `Show full scope: ${row.displayLabel}`
-                : `Allow: ${row.displayLabel}`,
+                ? 'Show full scope'
+                : 'Allow always for this job',
       });
     }
     if (row.denyEnabled) {
       actions.push({
         token: actionToken(callbackKey, revision.revision, index, 'deny'),
-        label: `Deny: ${row.displayLabel}`,
+        label: 'Deny',
       });
     }
   });
@@ -95,6 +95,22 @@ export function parseJobPermissionCardAction(
   };
 }
 
+export function jobPermissionCardText(
+  jobId: string,
+  revision: JobPermissionCardRevision,
+): string {
+  if (revision.operation === 'retire') {
+    return `Permission requests for job ${jobId} are settled.`;
+  }
+  const rows = revision.rows.map(
+    (row) => `${row.displayLabel} needs ${jobPermissionToolLabel(row)}`,
+  );
+  const hidden = revision.hiddenRowCount
+    ? `\n${revision.hiddenRowCount} more permission request(s) need review.`
+    : '';
+  return `Permissions needed for this job\n${rows.join('\n')}${hidden}`;
+}
+
 function actionToken(
   callbackKey: string,
   revision: number,
@@ -112,4 +128,18 @@ function actionToken(
             ? 's'
             : 'n';
   return `jp:${callbackKey}:${revision.toString(36)}:${rowIndex === null ? 'x' : rowIndex.toString(36)}:${code}`;
+}
+
+function jobPermissionToolLabel(
+  row: JobPermissionCardRevision['rows'][number],
+): string {
+  const toolNames = [
+    ...new Set(
+      row.visibleGrantAtoms
+        .map((atom) => /^([A-Za-z][A-Za-z0-9_]*)\(/.exec(atom)?.[1])
+        .filter((name): name is string => Boolean(name))
+        .map((name) => name.replace(/([a-z])([A-Z])/g, '$1 $2')),
+    ),
+  ];
+  return toolNames.length > 0 ? toolNames.join(' and ') : 'access';
 }

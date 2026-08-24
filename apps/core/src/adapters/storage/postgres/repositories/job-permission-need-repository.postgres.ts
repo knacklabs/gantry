@@ -7,7 +7,10 @@ import type {
   JobPermissionDurabilityState,
   JobPermissionNeedRecord,
 } from '../../../../domain/ports/job-permission-durability.js';
-import { jobPermissionCardActions } from '../../../../domain/job-permission-card-actions.js';
+import {
+  jobPermissionCardActions,
+  jobPermissionCardText,
+} from '../../../../domain/job-permission-card-actions.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '../../../../shared/ipc-interaction-lifetime.js';
 import { sha256Hex } from '../../../../shared/stable-hash.js';
 import * as pgSchema from '../schema/schema.js';
@@ -386,7 +389,7 @@ async function insertJobPermissionCardDelivery(
   if (!conversation) {
     throw new Error('Job permission card route belongs to another app.');
   }
-  const canonicalText = jobPermissionCardText(card, revision);
+  const canonicalText = jobPermissionCardText(card.jobId, revision);
   const idempotencyKey = `job_permission_card:${card.id}:${revision.revision}`;
   const idempotencyFingerprint = sha256Hex(
     JSON.stringify([
@@ -499,42 +502,6 @@ async function cancelSupersededPendingCardDeliveries(
         eq(pgSchema.outboundDeliveriesPostgres.status, 'pending'),
       ),
     );
-}
-
-function jobPermissionCardText(
-  card: JobPermissionCardRecord,
-  revision: JobPermissionCardRevision,
-): string {
-  if (revision.operation === 'retire') {
-    return `Permission requests for job ${card.jobId} are settled.`;
-  }
-  const rows = revision.rows.map((row, index) => {
-    const action =
-      row.action === 'approve_and_run_again'
-        ? 'Approve and run again'
-        : row.action === 'reconsider'
-          ? 'Reconsider'
-          : row.action === 'show_scope'
-            ? 'Show full scope before approval'
-            : 'Allow always for this job';
-    const scope = row.visibleGrantAtoms
-      .map((atom) => `   - ${atom}`)
-      .join('\n');
-    const scopeEnd = row.scopePageStart + row.visibleGrantAtoms.length;
-    const scopePage =
-      row.scopePageStart > 0
-        ? `\n   Scope ${row.scopePageStart + 1}-${scopeEnd} of ${row.renderedGrantAtoms.length}; earlier items were shown on the prior page.`
-        : '';
-    const remainingScope = row.renderedGrantAtoms.length - scopeEnd;
-    const hiddenScope = remainingScope
-      ? `\n   +${remainingScope} more scope item(s)`
-      : '';
-    return `${index + 1}. ${row.displayLabel} — ${action}${row.denyEnabled ? ' or Deny' : ''}\n${scope}${scopePage}${hiddenScope}`;
-  });
-  const hidden = revision.hiddenRowCount
-    ? `\n+${revision.hiddenRowCount} more — show the next page before deciding.`
-    : '';
-  return `Permissions needed for job ${card.jobId}\n${rows.join('\n')}${hidden}`;
 }
 
 function assertJobPermissionState(

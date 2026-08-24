@@ -57,6 +57,16 @@ export interface RetryTailProviderPayload {
   // free-form provider content — every field is capped and the affordance action
   // is allowlisted; malformed input drops the field/element, never throws.
   observerDigestView?: SanitizedObserverDigestView;
+  // Job-permission cards are durable, revision-bound delivery payloads. Keep
+  // their bounded action contract so recovery dispatch can edit the living
+  // card rather than degrading it to plain text.
+  jobPermissionCard?: SanitizedJobPermissionCard;
+}
+
+export interface SanitizedJobPermissionCard {
+  operation: 'send' | 'edit' | 'retire' | 'replace';
+  providerMessageId?: string;
+  actions: Array<{ token: string; label: string }>;
 }
 
 export interface SanitizedObserverDigestView {
@@ -139,6 +149,8 @@ export function sanitizeRetryTailProviderPayload(
   if (brainReviewView) sanitized.brainReviewView = brainReviewView;
   const observerDigestView = readObserverDigestView(source.observerDigestView);
   if (observerDigestView) sanitized.observerDigestView = observerDigestView;
+  const jobPermissionCard = readJobPermissionCard(source.jobPermissionCard);
+  if (jobPermissionCard) sanitized.jobPermissionCard = jobPermissionCard;
 
   return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }
@@ -146,6 +158,50 @@ export function sanitizeRetryTailProviderPayload(
 const MAX_CARD_TEXT = 1000;
 const MAX_CARD_DETAILS = 10;
 const MAX_CARD_BUTTONS = 4;
+const MAX_JOB_PERMISSION_CARD_ACTIONS = 20;
+const JOB_PERMISSION_ACTION_TOKEN =
+  /^jp:[a-f0-9]{24}:[a-z0-9]+:[a-z0-9]+:[adrsn]$/;
+
+function readJobPermissionCard(
+  value: unknown,
+): SanitizedJobPermissionCard | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const operation = source.operation;
+  if (!['send', 'edit', 'retire', 'replace'].includes(String(operation))) {
+    return undefined;
+  }
+  const providerMessageId = readString(source.providerMessageId, {
+    maxLength: MAX_ID_LENGTH,
+  });
+  if ((operation === 'edit' || operation === 'retire') && !providerMessageId) {
+    return undefined;
+  }
+  if (!Array.isArray(source.actions)) return undefined;
+  const actions: SanitizedJobPermissionCard['actions'] = [];
+  for (const value of source.actions.slice(
+    0,
+    MAX_JOB_PERMISSION_CARD_ACTIONS,
+  )) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return undefined;
+    }
+    const action = value as Record<string, unknown>;
+    const token = readString(action.token, { maxLength: 64 });
+    const label = readString(action.label, { maxLength: 80 });
+    if (!token || !JOB_PERMISSION_ACTION_TOKEN.test(token) || !label) {
+      return undefined;
+    }
+    actions.push({ token, label });
+  }
+  return {
+    operation: operation as SanitizedJobPermissionCard['operation'],
+    ...(providerMessageId ? { providerMessageId } : {}),
+    actions,
+  };
+}
 
 // Bounded reader for the brain-review card view. Structural only — coerces each
 // field to a length-capped string / small array; a malformed shape yields
