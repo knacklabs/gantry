@@ -3164,6 +3164,43 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
     });
 
+    it('queues a buttonless retire edit behind an in-flight card edit', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect({ inbound: false });
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      const actionsFor = (revision: number) => [
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Allow always for this job',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:a`,
+        },
+      ];
+      await channel.sendMessage('tg:100200300', 'Revision 1', {
+        actionAffordances: actionsFor(1),
+      });
+      let releaseFirstEdit!: () => void;
+      currentBot().api.editMessageText.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (releaseFirstEdit = resolve)),
+      );
+
+      const actionEdit = channel.sendMessage('tg:100200300', 'Revision 2', {
+        actionAffordances: actionsFor(2),
+      });
+      const retireEdit = channel.sendMessage('tg:100200300', 'Settled', {
+        actionAffordances: [],
+        replaceMessageId: '987',
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+
+      releaseFirstEdit();
+      await Promise.all([actionEdit, retireEdit]);
+      expect(
+        currentBot().api.editMessageText.mock.calls.map((call) => call[2]),
+      ).toEqual(['Revision 2', 'Settled']);
+    });
+
     it('uploads message files as Telegram documents', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);

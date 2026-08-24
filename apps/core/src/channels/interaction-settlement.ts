@@ -34,6 +34,7 @@ export class JobPermissionCardDeliverySettlement {
     { revision: number; messageId: string }
   >();
   private readonly lanes = new Map<string, Promise<unknown>>();
+  private readonly laneByMessage = new Map<string, string>();
 
   async serialize<T>(callbackKey: string, work: () => Promise<T>): Promise<T> {
     const prior = this.lanes.get(callbackKey) ?? Promise.resolve();
@@ -62,7 +63,17 @@ export class JobPermissionCardDeliverySettlement {
       : undefined;
   }
 
-  record(revision: JobPermissionCardRevision, messageId: string) {
+  /** Lane a later buttonless (retire/replace) edit of this message must join. */
+  laneForMessage(messageKey: string): string {
+    return this.laneByMessage.get(messageKey) ?? `message:${messageKey}`;
+  }
+
+  record(
+    revision: JobPermissionCardRevision,
+    messageId: string,
+    messageKey: string,
+  ) {
+    this.laneByMessage.set(messageKey, revision.callbackKey);
     const latest = this.latest.get(revision.callbackKey);
     if (!latest || latest.revision <= revision.revision) {
       this.latest.set(revision.callbackKey, {

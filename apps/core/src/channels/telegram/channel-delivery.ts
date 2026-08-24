@@ -124,23 +124,32 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
         );
       }
       if (options.replaceMessageId) {
-        const messageId = Number.parseInt(options.replaceMessageId, 10);
+        const replaceMessageId = options.replaceMessageId;
+        const messageId = Number.parseInt(replaceMessageId, 10);
         if (!Number.isSafeInteger(messageId)) {
           throw new Error('Telegram replacement message id is invalid.');
         }
-        await this.bot.api.editMessageText(numericId, messageId, text, {
-          reply_markup: telegramActionReplyMarkup(
-            options.actionAffordances,
-          ) ?? {
-            inline_keyboard: [],
+        // Edits of a job-permission card message queue behind that card's
+        // in-flight mutations so a retire notice cannot be overwritten.
+        const deliveries = this.jobPermissionCardDeliveries;
+        return await deliveries.serialize(
+          deliveries.laneForMessage(`${numericId}:${replaceMessageId}`),
+          async () => {
+            await this.bot!.api.editMessageText(numericId, messageId, text, {
+              reply_markup: telegramActionReplyMarkup(
+                options.actionAffordances,
+              ) ?? {
+                inline_keyboard: [],
+              },
+            });
+            return {
+              externalMessageId: replaceMessageId,
+              externalMessageIds: [replaceMessageId],
+              deliveredParts: 1,
+              totalParts: 1,
+            };
           },
-        });
-        return {
-          externalMessageId: options.replaceMessageId,
-          externalMessageIds: [options.replaceMessageId],
-          deliveredParts: 1,
-          totalParts: 1,
-        };
+        );
       }
 
       return await sendTelegramDeliveryChunks({
@@ -198,7 +207,11 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
           parse_mode: 'HTML',
           reply_markup: replyMarkup,
         });
-        deliveries.record(revision, replaceMessageId);
+        deliveries.record(
+          revision,
+          replaceMessageId,
+          `${chatId}:${replaceMessageId}`,
+        );
         return delivered(replaceMessageId);
       }
       const sent = await this.bot!.api.sendMessage(chatId, text, {
@@ -209,7 +222,11 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       const messageId = sent?.message_id;
       if (messageId === undefined) return {};
       const externalMessageId = String(messageId);
-      deliveries.record(revision, externalMessageId);
+      deliveries.record(
+        revision,
+        externalMessageId,
+        `${chatId}:${externalMessageId}`,
+      );
       return delivered(externalMessageId);
     });
   }
