@@ -42,7 +42,6 @@ import {
 import {
   ackDiscordInteraction,
   DISCORD_API_ROOT,
-  DISCORD_JID_PREFIX,
   discordChannelIdFromJid,
   discordGantrySlashText,
   discordHeaders,
@@ -64,11 +63,11 @@ import {
   type PendingDiscordQuestion,
 } from './discord-user-question-delivery.js';
 import { createDiscordPermissionCardPreparer } from './discord-prepared-permission-card.js';
+import {
+  isDiscordInteractionApproverAllowed,
+  type DiscordConversationContext,
+} from './discord-extracted-helpers.js';
 const DISCORD_RICH_FORM_SUBMIT_PREFIX = 'gantry:rich_form_submit:';
-type DiscordConversationContext = {
-  conversationJid: string;
-  threadId?: string;
-};
 type PendingPermission = ReturnType<typeof permissionPrompt.pending>;
 export class DiscordInteractionHandler {
   private pendingPermissions = new Map<string, PendingPermission>();
@@ -358,7 +357,8 @@ export class DiscordInteractionHandler {
             threadId,
             conversationJid,
           ) =>
-            this.isInteractionApproverAllowed(
+            isDiscordInteractionApproverAllowed(
+              this.input.opts,
               interaction,
               userId,
               sourceAgentFolder,
@@ -551,7 +551,8 @@ export class DiscordInteractionHandler {
       resolveConversationContext: (channelId) =>
         this.input.resolveInteractionConversationContext(channelId),
       isApproverAllowed: (userId, folder, policy, threadId, conversationJid) =>
-        this.isInteractionApproverAllowed(
+        isDiscordInteractionApproverAllowed(
+          this.input.opts,
           interaction,
           userId,
           folder,
@@ -591,7 +592,8 @@ export class DiscordInteractionHandler {
     }
     const user = interaction.member?.user || interaction.user;
     if (!pending) return;
-    const allowed = await this.isInteractionApproverAllowed(
+    const allowed = await isDiscordInteractionApproverAllowed(
+      this.input.opts,
       interaction,
       user?.id,
       pending.request.sourceAgentFolder,
@@ -686,26 +688,6 @@ export class DiscordInteractionHandler {
       customId,
       richForms: this.richForms,
       ackInteraction: (message) => this.ackInteraction(interaction, message),
-    });
-  }
-  private async isInteractionApproverAllowed(
-    interaction: DiscordInteraction,
-    userId: string | undefined,
-    sourceAgentFolder: string,
-    decisionPolicy: PermissionApprovalRequest['decisionPolicy'] = 'same_channel',
-    threadId?: string,
-    conversationJid = `${DISCORD_JID_PREFIX}${interaction.channel_id}`,
-  ): Promise<boolean> {
-    if (!userId || !this.input.opts.isControlApproverAllowed) return false;
-    return this.input.opts.isControlApproverAllowed({
-      providerId: 'discord',
-      providerAccountId: this.input.opts.providerAccountId,
-      agentId: this.input.opts.agentId,
-      conversationJid,
-      threadId,
-      userId,
-      sourceAgentFolder,
-      decisionPolicy,
     });
   }
   private async ackInteraction(
