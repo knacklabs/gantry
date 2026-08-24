@@ -49,6 +49,7 @@ import { SlackChannelDelivery } from '@core/channels/slack/channel-delivery.js';
 import { slackMessageActionBlocks } from '@core/channels/slack/message-action-affordances.js';
 import { TelegramChannel } from '@core/channels/telegram/channel-adapter.js';
 import { TelegramChannelDelivery } from '@core/channels/telegram/channel-delivery.js';
+import { JobPermissionCardDeliverySettlement } from '@core/channels/interaction-settlement.js';
 import { telegramActionReplyMarkup } from '@core/channels/telegram/message-action-affordances.js';
 import { evaluatePermissionDeterministicRails } from '@core/domain/permission-deterministic-rails.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
@@ -247,41 +248,48 @@ type ProviderMutation = {
   body: Record<string, any>;
 };
 
+// sendMessage now routes job-permission cards through a private method backed by
+// per-instance settlement state, so prototype.call needs a prototype-backed receiver.
+function telegramDeliveryReceiver(bot: unknown): TelegramChannelDelivery {
+  return Object.assign(Object.create(TelegramChannelDelivery.prototype), {
+    bot,
+    jobPermissionCardDeliveries: new JobPermissionCardDeliverySettlement(),
+    sanitizeErrorMessage: (error: unknown) => String(error),
+  });
+}
+
 function createProviderDeliveryHarness(
   provider: 'telegram' | 'slack' | 'discord',
 ) {
   const mutations: ProviderMutation[] = [];
   let nextId = 1;
   if (provider === 'telegram') {
-    const receiver = {
-      bot: {
-        api: {
-          sendMessage: vi.fn(
-            async (_chatId: string, text: string, options: object) => {
-              mutations.push({
-                operation: 'send',
-                body: { text, ...options },
-              });
-              return { message_id: nextId++ };
-            },
-          ),
-          editMessageText: vi.fn(
-            async (
-              _chatId: string,
-              messageId: number,
-              text: string,
-              options: object,
-            ) => {
-              mutations.push({
-                operation: 'edit',
-                body: { messageId, text, ...options },
-              });
-            },
-          ),
-        },
+    const receiver = telegramDeliveryReceiver({
+      api: {
+        sendMessage: vi.fn(
+          async (_chatId: string, text: string, options: object) => {
+            mutations.push({
+              operation: 'send',
+              body: { text, ...options },
+            });
+            return { message_id: nextId++ };
+          },
+        ),
+        editMessageText: vi.fn(
+          async (
+            _chatId: string,
+            messageId: number,
+            text: string,
+            options: object,
+          ) => {
+            mutations.push({
+              operation: 'edit',
+              body: { messageId, text, ...options },
+            });
+          },
+        ),
       },
-      sanitizeErrorMessage: (error: unknown) => String(error),
-    };
+    });
     return {
       mutations,
       send: (
@@ -919,10 +927,9 @@ it('q-0072-333a edits one Telegram job-permission card across delivered revision
   const { repository, service } = createJobPermEdgeHarness();
   const sendMessage = vi.fn(async () => ({ message_id: 41 }));
   const editMessageText = vi.fn(async () => undefined);
-  const receiver = {
-    bot: { api: { sendMessage, editMessageText } },
-    sanitizeErrorMessage: (error: unknown) => String(error),
-  };
+  const receiver = telegramDeliveryReceiver({
+    api: { sendMessage, editMessageText },
+  });
   const sendProviderMessage = vi.fn(
     async (
       jid: string,
