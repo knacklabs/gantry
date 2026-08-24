@@ -213,8 +213,32 @@ jobs:
             --output text)"
           test -n "$private_ip"
           test -n "$control_key"
-          export GANTRY_SMOKE_BASE_URL="http://$private_ip:8080"
-          export GANTRY_SMOKE_CONTROL_KEY="$control_key"
-          export GANTRY_SMOKE_JOB_ID="$source_sync_job_id"
+          auth_config="$RUNNER_TEMP/gantry-auth.conf"
+          umask 077
+          printf 'header = "authorization: Bearer %s"\n' "$control_key" > "$auth_config"
+          unset control_key
+          trap 'rm -f "$auth_config"' EXIT
+          base_url="http://$private_ip:8080"
+          health_status="$(curl --silent --show-error \
+            --connect-timeout 5 \
+            --max-time 10 \
+            --output "$RUNNER_TEMP/gantry-health.txt" \
+            --write-out '%{http_code}' \
+            "$base_url/healthz")"
+          echo "gantry_health $health_status"
+          test "$health_status" = "200"
 
-          node -e 'const base=process.env.GANTRY_SMOKE_BASE_URL; const key=process.env.GANTRY_SMOKE_CONTROL_KEY; const job=process.env.GANTRY_SMOKE_JOB_ID; (async()=>{const health=await fetch(base+"/healthz",{signal:AbortSignal.timeout(10000)}); console.log("gantry_health",health.status); if(!health.ok) process.exit(2); const response=await fetch(base+"/v1/jobs/"+encodeURIComponent(job)+"/trigger",{method:"POST",headers:{authorization:"Bearer "+key,"content-type":"application/json"},body:JSON.stringify({source:"caw-ats-backend-smoke"}),signal:AbortSignal.timeout(30000)}); const body=await response.text(); console.log("gantry_trigger",response.status,body.slice(0,1000)); if(response.status!==202&&response.status!==409) process.exit(3)})().catch(error=>{console.error(error.name,error.message);process.exit(1)})'
+          trigger_status="$(curl --silent --show-error \
+            --connect-timeout 5 \
+            --max-time 30 \
+            --request POST \
+            --config "$auth_config" \
+            --header 'content-type: application/json' \
+            --data '{"source":"caw-ats-backend-smoke"}' \
+            --output "$RUNNER_TEMP/gantry-trigger.txt" \
+            --write-out '%{http_code}' \
+            "$base_url/v1/jobs/$source_sync_job_id/trigger")"
+          echo "gantry_trigger $trigger_status"
+          head --bytes 1000 "$RUNNER_TEMP/gantry-trigger.txt"
+          echo
+          test "$trigger_status" = "202" -o "$trigger_status" = "409"
