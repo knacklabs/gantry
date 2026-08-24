@@ -158,6 +158,24 @@ export class PostgresModelCredentialRepository implements ModelCredentialReposit
       .returning();
     return rows[0] ? mapMetadata(rows[0]) : null;
   }
+
+  async deleteModelCredential(input: {
+    appId: ModelCredentialMetadata['appId'];
+    providerId: ModelCredentialProvider;
+    actor?: string;
+  }): Promise<ModelCredentialMetadata | null> {
+    const providerId = normalizeModelCredentialProvider(input.providerId);
+    const rows = await this.db
+      .delete(pgSchema.modelCredentialsPostgres)
+      .where(
+        and(
+          eq(pgSchema.modelCredentialsPostgres.appId, input.appId),
+          eq(pgSchema.modelCredentialsPostgres.providerId, providerId),
+        ),
+      )
+      .returning();
+    return rows[0] ? mapMetadata(rows[0]) : null;
+  }
 }
 
 function mapMetadata(row: {

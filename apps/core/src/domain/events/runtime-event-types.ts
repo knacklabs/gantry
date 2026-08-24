@@ -50,6 +50,7 @@ export const RUNTIME_EVENT_TYPES = {
   CREDENTIAL_CAPABILITY_REMOVED: 'credential.capability.removed',
   CREDENTIAL_MODEL_UPDATED: 'credential.model.updated',
   CREDENTIAL_MODEL_DISABLED: 'credential.model.disabled',
+  CREDENTIAL_MODEL_REMOVED: 'credential.model.removed',
   CREDENTIAL_MODEL_USED: 'credential.model.used',
   PROFILE_FILE_READ: 'profile.file.read',
   PROFILE_FILE_UPDATED: 'profile.file.updated',

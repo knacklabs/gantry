@@ -24,6 +24,9 @@ it('keeps provider status and actions specific', () => {
   expect(dialogs).toContain('Manage credential');
   expect(dialogs).toContain("? 'Re-enable'");
   expect(dialogs).toContain('Disable provider');
+  expect(dialogs).toContain('Remove credential…');
+  expect(dialogs).toContain('Type {provider?.label} to confirm');
+  expect(dialogs).toContain('/credential');
   expect(dialogs).toContain('Gantry will not use it');
   expect(dialogs).toContain('aria-live="polite"');
   expect(app).toContain('<TooltipProvider>');

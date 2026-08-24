@@ -211,6 +211,30 @@ export class ModelCredentialService {
     return metadata;
   }
 
+  async remove(input: { appId: AppId; providerId: string; actor?: string }) {
+    const providerId = normalizeModelCredentialProvider(input.providerId);
+    const metadata = await this.credentials.deleteModelCredential({
+      appId: input.appId,
+      providerId,
+      actor: input.actor,
+    });
+    if (metadata) {
+      await this.publishAudit({
+        appId: input.appId,
+        actor: input.actor ?? 'model-credential-service',
+        eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_REMOVED,
+        payload: {
+          providerId: metadata.providerId,
+          authMode: metadata.authMode,
+          fingerprint: metadata.fingerprint,
+          fieldFingerprints: metadata.fieldFingerprints,
+          schemaVersion: metadata.schemaVersion,
+        },
+      });
+    }
+    return metadata;
+  }
+
   async getActiveCredential(input: {
     appId: AppId;
     providerId: ModelCredentialProvider;

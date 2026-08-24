@@ -104,18 +104,24 @@ export async function handleBrowserModelProviderRoutes(
   }
 
   const match = pathname.match(
-    /^\/ui\/api\/model-providers\/([^/]+)(\/verify)?$/,
+    /^\/ui\/api\/model-providers\/([^/]+)(?:\/(verify|credential))?$/,
   );
   if (!match) {
     sendError(res, 404, 'NOT_FOUND', 'Model provider route not found.');
     return true;
   }
-  const verifying = match[2] === '/verify';
+  const action = match[2];
+  const verifying = action === 'verify';
+  const removing = action === 'credential';
   if (
     (verifying && req.method !== 'POST') ||
-    (!verifying && !['PUT', 'PATCH', 'DELETE'].includes(req.method ?? ''))
+    (removing && req.method !== 'DELETE') ||
+    (!verifying && !removing && !['PUT', 'PATCH', 'DELETE'].includes(req.method ?? ''))
   ) {
-    res.setHeader('Allow', verifying ? 'POST' : 'PUT, PATCH, DELETE');
+    res.setHeader(
+      'Allow',
+      verifying ? 'POST' : removing ? 'DELETE' : 'PUT, PATCH, DELETE',
+    );
     sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
     return true;
   }
@@ -177,7 +183,13 @@ export async function handleBrowserModelProviderRoutes(
       });
       return true;
     }
-    if (req.method === 'DELETE') {
+    if (removing) {
+      await service.remove({
+        appId: session.appId as AppId,
+        providerId,
+        actor,
+      });
+    } else if (req.method === 'DELETE') {
       await service.disable({
         appId: session.appId as AppId,
         providerId,

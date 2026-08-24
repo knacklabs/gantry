@@ -566,6 +566,11 @@ export interface ModelCredentialRepository {
     actor?: string;
     now?: string;
   }): Promise<ModelCredentialMetadata | null>;
+  deleteModelCredential(input: {
+    appId: ModelCredentialMetadata['appId'];
+    providerId: ModelCredentialProvider;
+    actor?: string;
+  }): Promise<ModelCredentialMetadata | null>;
 }
 
 export interface McpServerRepository {

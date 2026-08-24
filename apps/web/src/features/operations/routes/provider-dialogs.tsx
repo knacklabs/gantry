@@ -141,6 +141,8 @@ export function ProviderDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [removalConfirmation, setRemovalConfirmation] = useState('');
+  const [removalOpen, setRemovalOpen] = useState(false);
   const mode =
     provider?.credentialModes.find((item) => item.id === provider.authMode) ??
     provider?.credentialModes[0];
@@ -237,8 +239,34 @@ export function ProviderDialog({
     onOpenChange(false);
   }
 
+  async function remove() {
+    if (!provider || removalConfirmation !== provider.label) return;
+    setSaving(true);
+    setError(null);
+    const response = await browserFetch(
+      `/ui/api/model-providers/${encodeURIComponent(provider.providerId)}/credential`,
+      {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: browserCsrfHeader(),
+      },
+    );
+    setSaving(false);
+    if (!response.ok) {
+      setError('Credential could not be removed.');
+      return;
+    }
+    await queryClient.invalidateQueries({
+      queryKey: modelProviderQuery.queryKey,
+    });
+    setRemovalConfirmation('');
+    setRemovalOpen(false);
+    onOpenChange(false);
+  }
+
   return (
-    <Dialog open={Boolean(provider)} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={Boolean(provider)} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
@@ -274,6 +302,29 @@ export function ProviderDialog({
                 />
               </label>
             ))}
+            {provider.health === 'ready' ? (
+              <div className="grid gap-2 rounded-md border border-danger/40 bg-danger/5 p-3">
+                <div>
+                  <p className="m-0 text-sm font-semibold text-danger">
+                    Danger zone
+                  </p>
+                  <p className="m-0 text-sm text-text-secondary">
+                    Permanently delete this stored credential and its encrypted
+                    secret.
+                  </p>
+                </div>
+                <div>
+                  <Button
+                    disabled={saving}
+                    onClick={() => setRemovalOpen(true)}
+                    type="button"
+                    variant="destructive"
+                  >
+                    Remove credential…
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             {error ? (
               <p aria-live="polite" className="m-0 text-sm text-danger">
                 {error} Check the values and try again.
@@ -321,6 +372,51 @@ export function ProviderDialog({
           </p>
         )}
       </DialogContent>
-    </Dialog>
+      </Dialog>
+      <Dialog
+      open={removalOpen}
+      onOpenChange={(open) => {
+        setRemovalOpen(open);
+        if (!open) setRemovalConfirmation('');
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Remove {provider?.label} credential?</DialogTitle>
+          <DialogDescription>
+            This permanently deletes the stored encrypted credential. Gantry
+            will not use this provider until a new credential is added.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          <label className="grid gap-1.5 text-sm font-medium">
+            Type {provider?.label} to confirm
+            <Input
+              onChange={(event) => setRemovalConfirmation(event.target.value)}
+              value={removalConfirmation}
+            />
+          </label>
+          {error ? (
+            <p aria-live="polite" className="m-0 text-sm text-danger">
+              {error} Try again or cancel this action.
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button onClick={() => setRemovalOpen(false)} type="button" variant="secondary">
+            Cancel
+          </Button>
+          <Button
+            disabled={saving || removalConfirmation !== provider?.label}
+            onClick={() => void remove()}
+            type="button"
+            variant="destructive"
+          >
+            Remove credential
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+      </Dialog>
+    </>
   );
 }
