@@ -30,6 +30,15 @@ What that buys a team in practice:
 - **Institutional memory.** Per-agent and shared memory with review flows, so
   what agents learn stays inspectable and survives model or provider swaps.
 
+## Detail Documentation
+
+- [Product brief](docs/product/BRIEF.md)
+- [Architecture docs](docs/architecture/README.md)
+- [Decision records](docs/decisions/README.md)
+- [SDK docs](docs/sdk/overview.md)
+- [Deployment docs](docs/deployment/aws-terraform.md)
+
+
 ## Status
 
 This repository is being prepared as an open-source project. The intended npm
@@ -234,14 +243,6 @@ automation for planning, decomposition, verification, and review. Public
 contributors are not required to use it. Maintainers who enable the harness
 should first read [AGENTS.md](AGENTS.md), [WORKFLOW.md](WORKFLOW.md),
 [docs/FACTORY.md](docs/FACTORY.md), and [docs/QUALITY.md](docs/QUALITY.md).
-
-## Documentation
-
-- [Product brief](docs/product/BRIEF.md)
-- [Architecture docs](docs/architecture/README.md)
-- [Decision records](docs/decisions/README.md)
-- [SDK docs](docs/sdk/overview.md)
-- [Deployment docs](docs/deployment/aws-terraform.md)
 
 ## Contributing
 
