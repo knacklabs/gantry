@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   deterministicBrowserKeepAliveMs,
+  deterministicSkillServiceHostsFromEnv,
   resolveReviewedPrivateNetworkHostMappings,
 } from '@core/jobs/deterministic-source-sync.js';
 
@@ -24,6 +25,36 @@ describe('deterministic managed browser keepalive', () => {
 });
 
 describe('reviewed deterministic skill private-network hosts', () => {
+  it('projects an exact service URL only from reviewed required environment', () => {
+    expect(
+      deterministicSkillServiceHostsFromEnv(
+        [{ requiredEnvVars: ['INTERNAL_API_URL', 'OPAQUE_API_KEY'] }],
+        {
+          INTERNAL_API_URL: 'http://frontend-mcp-service.ats-prod:3000/api',
+          OPAQUE_API_KEY: 'not-a-url',
+          UNREVIEWED_URL: 'http://admin.internal:8080',
+        },
+      ),
+    ).toEqual(['frontend-mcp-service.ats-prod:3000']);
+  });
+
+  it('rejects credential-bearing and non-http service URLs', () => {
+    expect(
+      deterministicSkillServiceHostsFromEnv(
+        [
+          {
+            requiredEnvVars: ['CREDENTIAL_URL', 'FILE_URL', 'HTTPS_URL'],
+          },
+        ],
+        {
+          CREDENTIAL_URL: 'http://configured-user@private.example:3000',
+          FILE_URL: 'file:///srv/private',
+          HTTPS_URL: 'https://api.example.test/v1',
+        },
+      ),
+    ).toEqual(['api.example.test:443']);
+  });
+
   it('pins an exact reviewed service-discovery host that resolves only privately', async () => {
     await expect(
       resolveReviewedPrivateNetworkHostMappings(

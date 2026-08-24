@@ -42,6 +42,7 @@ type DeterministicManagedBrowserAction = {
   capabilityId: string;
   command: string;
   networkHosts: string[];
+  requiredEnvVars: string[];
   skillId: string;
   skillName: string;
 };
@@ -103,6 +104,7 @@ export function resolveDeterministicManagedBrowserActions(
       capabilityId,
       command,
       networkHosts: capability.networkHosts ?? [],
+      requiredEnvVars: capability.redactionPolicy?.env ?? [],
       skillId: source.skillId,
       skillName: source.skillName,
     });
@@ -174,8 +176,15 @@ export async function runDeterministicManagedBrowserActions(input: {
     agentId: input.agentId,
     accessSnapshot: input.accessSnapshot,
   });
+  const configuredServiceHosts = deterministicSkillServiceHostsFromEnv(
+    input.actions,
+    skillEnv.env,
+  );
   const allowedNetworkHosts = [
-    ...new Set(input.actions.flatMap((action) => action.networkHosts)),
+    ...new Set([
+      ...input.actions.flatMap((action) => action.networkHosts),
+      ...configuredServiceHosts,
+    ]),
   ].sort();
   const reviewedPrivateNetworkHostMappings =
     await resolveReviewedPrivateNetworkHostMappings(allowedNetworkHosts);
@@ -248,6 +257,47 @@ export async function runDeterministicManagedBrowserActions(input: {
   } finally {
     await closeEgressGateway(gateway);
   }
+}
+
+/**
+ * Project exact service authorities from operator-managed secrets only when
+ * the reviewed deterministic action declares the corresponding environment
+ * variable. This keeps private service discovery product-neutral without
+ * granting authority from unrelated process environment or arbitrary input.
+ */
+export function deterministicSkillServiceHostsFromEnv(
+  actions: readonly Pick<
+    DeterministicManagedBrowserAction,
+    'requiredEnvVars'
+  >[],
+  env: Readonly<Record<string, string>>,
+): string[] {
+  const requiredEnvVars = new Set(
+    actions.flatMap((action) => action.requiredEnvVars),
+  );
+  const hosts = new Set<string>();
+  for (const key of requiredEnvVars) {
+    const value = env[key]?.trim();
+    if (!value) continue;
+    const parsed = URL.parse(value);
+    if (
+      !parsed ||
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+      parsed.username ||
+      parsed.password
+    ) {
+      // Required environment variables may be opaque credentials rather than
+      // URLs. They intentionally contribute no network authority.
+      continue;
+    }
+    const authority = declaredNetworkAuthority(
+      `${parsed.hostname}:${parsed.port || (parsed.protocol === 'http:' ? '80' : '443')}`,
+    );
+    if (!authority) continue;
+    const declared = parseDeclaredNetworkHost(authority);
+    if (declared.ok) hosts.add(declared.host);
+  }
+  return [...hosts].sort();
 }
 
 type NetworkHostLookup = (
