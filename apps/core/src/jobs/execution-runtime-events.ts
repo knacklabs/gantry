@@ -78,6 +78,30 @@ export async function listRecordedToolActions(input: {
   }
 }
 
+export async function listRecordedJobRunActions(input: {
+  appId: string;
+  jobId: string;
+  runId: string;
+  listRuntimeEvents(filter: RuntimeEventFilter): Promise<RuntimeEvent[]>;
+}): Promise<RuntimeEvent[]> {
+  try {
+    return await listRecordedToolActions({
+      filter: {
+        appId: input.appId as never,
+        jobId: input.jobId as never,
+        runId: input.runId as never,
+        eventTypes: [
+          RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+          RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+        ],
+      },
+      listRuntimeEvents: input.listRuntimeEvents,
+    });
+  } catch {
+    return [];
+  }
+}
+
 export interface SchedulerRunEventState {
   boundTriggerId?: string;
   eventAppSession?: SchedulerEventAppSession;

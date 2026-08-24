@@ -68,7 +68,7 @@ import {
   publishTerminalToolDenials,
   createRuntimeEventPublisher as createEventPublisher,
   createSchedulerJobEventEmitter,
-  listRecordedToolActions,
+  listRecordedJobRunActions,
   publishSchedulerCompletionEvent,
 } from './execution-runtime-events.js';
 import { resolveAppSessionForJob } from './app-session-resolution.js';
@@ -766,23 +766,12 @@ async function runActiveJob(
       emitJobEvent,
       logger,
     });
-    let recordedActions: Awaited<ReturnType<typeof listRecordedToolActions>>;
-    try {
-      recordedActions = await listRecordedToolActions({
-        filter: {
-          appId: (eventState.eventAppSession?.appId ?? runtimeAppId) as never,
-          jobId: currentJob.id as never,
-          runId: runId as never,
-          eventTypes: [
-            RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-            RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-          ],
-        },
-        listRuntimeEvents: (filter) => runtimeEventExchange.list(filter),
-      });
-    } catch {
-      recordedActions = [];
-    }
+    const recordedActions = await listRecordedJobRunActions({
+      appId: eventState.eventAppSession?.appId ?? runtimeAppId,
+      jobId: currentJob.id,
+      runId,
+      listRuntimeEvents: (filter) => runtimeEventExchange.list(filter),
+    });
     logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
     const notified =
       !(await deletionGuard.shouldSuppressDelivery()) &&
