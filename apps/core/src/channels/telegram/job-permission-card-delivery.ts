@@ -53,6 +53,10 @@ export async function sendTelegramJobPermissionCard({
       if (!Number.isSafeInteger(messageId)) {
         throw new Error('Telegram replacement message id is invalid.');
       }
+      deliveries.bindMessage(
+        `${chatId}:${replaceMessageId}`,
+        revision.callbackKey,
+      );
       await api.editMessageText(chatId, messageId, text, {
         parse_mode: 'HTML',
         reply_markup: replyMarkup,

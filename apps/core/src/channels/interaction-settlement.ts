@@ -68,12 +68,17 @@ export class JobPermissionCardDeliverySettlement {
     return this.laneByMessage.get(messageKey) ?? `message:${messageKey}`;
   }
 
+  /** Bind a message to a card lane before its first mutation is awaited. */
+  bindMessage(messageKey: string, callbackKey: string) {
+    this.laneByMessage.set(messageKey, callbackKey);
+  }
+
   record(
     revision: JobPermissionCardRevision,
     messageId: string,
     messageKey: string,
   ) {
-    this.laneByMessage.set(messageKey, revision.callbackKey);
+    this.bindMessage(messageKey, revision.callbackKey);
     const latest = this.latest.get(revision.callbackKey);
     if (!latest || latest.revision <= revision.revision) {
       this.latest.set(revision.callbackKey, {
