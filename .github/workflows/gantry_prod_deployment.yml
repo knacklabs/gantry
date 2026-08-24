@@ -9,7 +9,7 @@ on:
       postgres_pool_max:
         description: Gantry Postgres pool size for this deployment
         required: false
-        default: '12'
+        default: '8'
         type: string
       pgboss_pool_max:
         description: Gantry pg-boss pool size for this deployment
@@ -28,7 +28,7 @@ env:
   TASK_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent
   CONTAINER_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent-container
   HEALTH_CHECK_START_PERIOD_SECONDS: 240
-  POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '12' }}
+  POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '8' }}
   PGBOSS_POOL_MAX: ${{ inputs.pgboss_pool_max || '1' }}
 
 jobs:
@@ -68,10 +68,10 @@ jobs:
 
       - name: Update validated Gantry database pool settings
         run: |
-          # The migrator holds one pooled connection for its advisory lock and
-          # uses another for Drizzle, so a pool of 1 deadlocks until the
-          # database statement timeout. Keep the production floor at 2.
-          [[ "$POSTGRES_POOL_MAX" =~ ^[2-9]$|^1[0-2]$ ]]
+          # The production runtime holds six long-lived connections for its
+          # listeners and ownership leases. Keep at least two connections free
+          # for control API and job work, while capping the shared pool at 12.
+          [[ "$POSTGRES_POOL_MAX" =~ ^[89]$|^1[0-2]$ ]]
           [[ "$PGBOSS_POOL_MAX" =~ ^[1-2]$ ]]
           aws ssm put-parameter \
             --name GANTRY_POSTGRES_POOL_MAX \
@@ -110,4 +110,4 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
           wait-max-delay-seconds: 15
-          wait-for-minutes: 15
+          wait-for-minutes: 30
