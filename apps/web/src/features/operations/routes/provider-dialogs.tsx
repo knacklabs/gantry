@@ -267,155 +267,162 @@ export function ProviderDialog({
   return (
     <>
       <Dialog open={Boolean(provider)} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {provider?.health === 'ready'
-              ? `Manage ${provider.label} credential`
-              : isDisabled
-                ? `Re-enable ${provider.label}`
-                : `Add ${provider?.label ?? 'provider'} credential`}
-          </DialogTitle>
-          <DialogDescription>
-            {isDisabled
-              ? 'Saving a new credential re-enables this provider.'
-              : 'Credential values are write-only and are never shown again.'}
-          </DialogDescription>
-        </DialogHeader>
-        {provider && mode ? (
-          <form className="grid gap-4" onSubmit={submit}>
-            {provider.requiredBy.length > 0 ? (
-              <p className="m-0 text-sm text-text-muted">
-                Required for {provider.requiredBy.join(', ')}.
-              </p>
-            ) : null}
-            {mode.fields.map((field) => (
-              <label
-                className="grid gap-1.5 text-sm font-medium"
-                key={field.name}
-              >
-                {field.label}
-                <Input
-                  name={field.name}
-                  required={field.required}
-                  type={field.secret ? 'password' : 'text'}
-                />
-              </label>
-            ))}
-            {provider.health === 'ready' ? (
-              <div className="grid gap-2 rounded-md border border-danger/40 bg-danger/5 p-3">
-                <div>
-                  <p className="m-0 text-sm font-semibold text-danger">
-                    Danger zone
-                  </p>
-                  <p className="m-0 text-sm text-text-secondary">
-                    Permanently delete this stored credential and its encrypted
-                    secret.
-                  </p>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {provider?.health === 'ready'
+                ? `Manage ${provider.label} credential`
+                : isDisabled
+                  ? `Re-enable ${provider.label}`
+                  : `Add ${provider?.label ?? 'provider'} credential`}
+            </DialogTitle>
+            <DialogDescription>
+              {isDisabled
+                ? 'Saving a new credential re-enables this provider.'
+                : 'Credential values are write-only and are never shown again.'}
+            </DialogDescription>
+          </DialogHeader>
+          {provider && mode ? (
+            <form className="grid gap-4" onSubmit={submit}>
+              {provider.requiredBy.length > 0 ? (
+                <p className="m-0 text-sm text-text-muted">
+                  Required for {provider.requiredBy.join(', ')}.
+                </p>
+              ) : null}
+              {mode.fields.map((field) => (
+                <label
+                  className="grid gap-1.5 text-sm font-medium"
+                  key={field.name}
+                >
+                  {field.label}
+                  <Input
+                    name={field.name}
+                    required={field.required}
+                    type={field.secret ? 'password' : 'text'}
+                  />
+                </label>
+              ))}
+              {provider.health === 'ready' ? (
+                <div className="grid gap-2 rounded-md border border-danger/40 bg-danger/5 p-3">
+                  <div>
+                    <p className="m-0 text-sm font-semibold text-danger">
+                      Danger zone
+                    </p>
+                    <p className="m-0 text-sm text-text-secondary">
+                      Permanently delete this stored credential and its
+                      encrypted secret.
+                    </p>
+                  </div>
+                  <div>
+                    <Button
+                      disabled={saving}
+                      onClick={() => setRemovalOpen(true)}
+                      type="button"
+                      variant="destructive"
+                    >
+                      Remove credential…
+                    </Button>
+                  </div>
                 </div>
-                <div>
+              ) : null}
+              {error ? (
+                <p aria-live="polite" className="m-0 text-sm text-danger">
+                  {error} Check the values and try again.
+                </p>
+              ) : null}
+              {notice ? (
+                <p
+                  aria-live="polite"
+                  className="m-0 text-sm text-text-secondary"
+                >
+                  {notice}
+                </p>
+              ) : null}
+              <DialogFooter>
+                {provider.health === 'ready' ? (
                   <Button
                     disabled={saving}
-                    onClick={() => setRemovalOpen(true)}
+                    onClick={() => void verify()}
+                    type="button"
+                    variant="secondary"
+                  >
+                    Verify credential
+                  </Button>
+                ) : null}
+                {provider.health === 'ready' ? (
+                  <Button
+                    disabled={saving}
+                    onClick={() => void disable()}
                     type="button"
                     variant="destructive"
                   >
-                    Remove credential…
+                    Disable provider
                   </Button>
-                </div>
-              </div>
-            ) : null}
-            {error ? (
-              <p aria-live="polite" className="m-0 text-sm text-danger">
-                {error} Check the values and try again.
-              </p>
-            ) : null}
-            {notice ? (
-              <p aria-live="polite" className="m-0 text-sm text-text-secondary">
-                {notice}
-              </p>
-            ) : null}
-            <DialogFooter>
-              {provider.health === 'ready' ? (
-                <Button
-                  disabled={saving}
-                  onClick={() => void verify()}
-                  type="button"
-                  variant="secondary"
-                >
-                  Verify credential
+                ) : null}
+                <Button disabled={saving} type="submit">
+                  <KeyRound aria-hidden="true" size={16} />
+                  {saving
+                    ? 'Saving…'
+                    : provider.health === 'ready'
+                      ? 'Update credential'
+                      : 'Save credential'}
                 </Button>
-              ) : null}
-              {provider.health === 'ready' ? (
-                <Button
-                  disabled={saving}
-                  onClick={() => void disable()}
-                  type="button"
-                  variant="destructive"
-                >
-                  Disable provider
-                </Button>
-              ) : null}
-              <Button disabled={saving} type="submit">
-                <KeyRound aria-hidden="true" size={16} />
-                {saving
-                  ? 'Saving…'
-                  : provider.health === 'ready'
-                    ? 'Update credential'
-                    : 'Save credential'}
-              </Button>
-            </DialogFooter>
-          </form>
-        ) : (
-          <p className="m-0 text-sm text-text-muted">
-            This provider has no supported credential mode.
-          </p>
-        )}
-      </DialogContent>
+              </DialogFooter>
+            </form>
+          ) : (
+            <p className="m-0 text-sm text-text-muted">
+              This provider has no supported credential mode.
+            </p>
+          )}
+        </DialogContent>
       </Dialog>
       <Dialog
-      open={removalOpen}
-      onOpenChange={(open) => {
-        setRemovalOpen(open);
-        if (!open) setRemovalConfirmation('');
-      }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Remove {provider?.label} credential?</DialogTitle>
-          <DialogDescription>
-            This permanently deletes the stored encrypted credential. Gantry
-            will not use this provider until a new credential is added.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-2">
-          <label className="grid gap-1.5 text-sm font-medium">
-            Type {provider?.label} to confirm
-            <Input
-              onChange={(event) => setRemovalConfirmation(event.target.value)}
-              value={removalConfirmation}
-            />
-          </label>
-          {error ? (
-            <p aria-live="polite" className="m-0 text-sm text-danger">
-              {error} Try again or cancel this action.
-            </p>
-          ) : null}
-        </div>
-        <DialogFooter>
-          <Button onClick={() => setRemovalOpen(false)} type="button" variant="secondary">
-            Cancel
-          </Button>
-          <Button
-            disabled={saving || removalConfirmation !== provider?.label}
-            onClick={() => void remove()}
-            type="button"
-            variant="destructive"
-          >
-            Remove credential
-          </Button>
-        </DialogFooter>
-      </DialogContent>
+        open={removalOpen}
+        onOpenChange={(open) => {
+          setRemovalOpen(open);
+          if (!open) setRemovalConfirmation('');
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove {provider?.label} credential?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the stored encrypted credential. Gantry
+              will not use this provider until a new credential is added.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <label className="grid gap-1.5 text-sm font-medium">
+              Type {provider?.label} to confirm
+              <Input
+                onChange={(event) => setRemovalConfirmation(event.target.value)}
+                value={removalConfirmation}
+              />
+            </label>
+            {error ? (
+              <p aria-live="polite" className="m-0 text-sm text-danger">
+                {error} Try again or cancel this action.
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setRemovalOpen(false)}
+              type="button"
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={saving || removalConfirmation !== provider?.label}
+              onClick={() => void remove()}
+              type="button"
+              variant="destructive"
+            >
+              Remove credential
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </>
   );
