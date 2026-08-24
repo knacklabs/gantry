@@ -13,7 +13,7 @@ import {
 } from '../../config/index.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
-import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
+import { tryWithSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   initTracing,
@@ -287,73 +287,96 @@ async function loadRevisionAuthoritySettings(input: {
       appId,
     );
   if (latest) {
-    return withSettingsProjectorLease(input.leases, appId, async () => {
-      const head =
-        await input.storage.repositories.settingsRevisions.getLatestSettingsRevision(
-          appId,
-        );
-      if (!head) {
-        throw new Error('Settings revision disappeared during startup');
-      }
-      if (head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
-        throw new Error(
-          `Settings revision ${head.revision} requires settings reader version ` +
-            `${head.minReaderVersion}; this runtime supports ${CURRENT_SETTINGS_READER_VERSION}. ` +
-            'Upgrade Gantry before applying this revision.',
-        );
-      }
-      const settings = settingsFromRevisionDocument(head.settingsDocument);
-      if (input.settingsFileExists(input.runtimeHome)) {
-        let fileSettings: RuntimeSettings | null = null;
-        try {
-          fileSettings = input.loadRuntimeSettings(input.runtimeHome);
-        } catch (err) {
-          input.logger.warn(
-            { err, appId, revision: head.revision },
-            'settings.yaml is invalid; using latest settings revision',
+    const projected = await tryWithSettingsProjectorLease(
+      input.leases,
+      appId,
+      async () => {
+        const head =
+          await input.storage.repositories.settingsRevisions.getLatestSettingsRevision(
+            appId,
+          );
+        if (!head) {
+          throw new Error('Settings revision disappeared during startup');
+        }
+        if (head.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+          throw new Error(
+            `Settings revision ${head.revision} requires settings reader version ` +
+              `${head.minReaderVersion}; this runtime supports ${CURRENT_SETTINGS_READER_VERSION}. ` +
+              'Upgrade Gantry before applying this revision.',
           );
         }
-        if (
-          fileSettings &&
-          stableJson(settingsToRevisionDocument(fileSettings)) !==
-            stableJson(head.settingsDocument)
-        ) {
-          input.logger.warn(
-            { appId, revision: head.revision },
-            'settings.yaml differs from latest settings revision; restoring revision-authority mirror',
-          );
+        const settings = settingsFromRevisionDocument(head.settingsDocument);
+        if (input.settingsFileExists(input.runtimeHome)) {
+          let fileSettings: RuntimeSettings | null = null;
+          try {
+            fileSettings = input.loadRuntimeSettings(input.runtimeHome);
+          } catch (err) {
+            input.logger.warn(
+              { err, appId, revision: head.revision },
+              'settings.yaml is invalid; using latest settings revision',
+            );
+          }
+          if (
+            fileSettings &&
+            stableJson(settingsToRevisionDocument(fileSettings)) !==
+              stableJson(head.settingsDocument)
+          ) {
+            input.logger.warn(
+              { appId, revision: head.revision },
+              'settings.yaml differs from latest settings revision; restoring revision-authority mirror',
+            );
+          }
         }
-      }
-      await input.importWorkstationSettings(
-        {
+        await input.importWorkstationSettings(
+          {
+            runtimeHome: input.runtimeHome,
+            ops: input.storage.ops,
+            repositories: input.storage.repositories,
+            appId,
+            projectionAuthority: 'revision',
+          },
+          settings,
+        );
+        const applied = await applySettingsRevisionWithMcpFenceRecovery({
           runtimeHome: input.runtimeHome,
           ops: input.storage.ops,
           repositories: input.storage.repositories,
           appId,
-          projectionAuthority: 'revision',
-        },
-        settings,
+          revision: head,
+          revisionMirror: {
+            settingsRevisions: input.storage.repositories.settingsRevisions,
+            pool: input.storage.service.pool,
+            createdBy: 'startup:mcp-fence-recovery',
+            logWarn: (context, message) => input.logger.warn(context, message),
+          },
+          applySettings: input.importWorkstationSettings,
+        });
+        input.logger.info(
+          { appId, revision: applied.revision },
+          'Loaded workstation settings from settings revision',
+        );
+        return applied.settings;
+      },
+    );
+    if (projected.acquired) return projected.value;
+
+    // A retiring fleet runtime can hold this lease throughout an ECS rolling
+    // deployment. Waiting here deadlocks the rollout because ECS will not stop
+    // that runtime until this replacement becomes healthy. The durable revision
+    // is already the authority; consume it without duplicating projection while
+    // the current owner remains responsible for applying it.
+    if (latest.minReaderVersion > CURRENT_SETTINGS_READER_VERSION) {
+      throw new Error(
+        `Settings revision ${latest.revision} requires settings reader version ` +
+          `${latest.minReaderVersion}; this runtime supports ${CURRENT_SETTINGS_READER_VERSION}. ` +
+          'Upgrade Gantry before applying this revision.',
       );
-      const applied = await applySettingsRevisionWithMcpFenceRecovery({
-        runtimeHome: input.runtimeHome,
-        ops: input.storage.ops,
-        repositories: input.storage.repositories,
-        appId,
-        revision: head,
-        revisionMirror: {
-          settingsRevisions: input.storage.repositories.settingsRevisions,
-          pool: input.storage.service.pool,
-          createdBy: 'startup:mcp-fence-recovery',
-          logWarn: (context, message) => input.logger.warn(context, message),
-        },
-        applySettings: input.importWorkstationSettings,
-      });
-      input.logger.info(
-        { appId, revision: applied.revision },
-        'Loaded workstation settings from settings revision',
-      );
-      return applied.settings;
-    });
+    }
+    input.logger.warn(
+      { appId, revision: latest.revision },
+      'Settings projector lease is owned by another runtime; starting from the durable revision without re-projecting it',
+    );
+    return settingsFromRevisionDocument(latest.settingsDocument);
   }
 
   const settings = input.loadRuntimeSettings(input.runtimeHome);

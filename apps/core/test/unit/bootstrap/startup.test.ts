@@ -492,6 +492,52 @@ describe('runStartup', () => {
     expect(result.runtimeSettings.agent.name).toBe('Revision Agent');
   });
 
+  it('starts from the durable revision when another runtime owns the projector lease', async () => {
+    const revisionSettings = createDefaultRuntimeSettings();
+    revisionSettings.agent.name = 'Rolling Replacement Agent';
+    const latestRevision = {
+      revision: 7,
+      minReaderVersion: 1,
+      settingsDocument: settingsToRevisionDocument(revisionSettings),
+    };
+    const settingsRevisions = {
+      getLatestSettingsRevision: vi.fn(async () => latestRevision),
+    };
+    const importWorkstationSettings = vi.fn();
+    const warn = vi.fn();
+    const initializeRuntimeStorage = vi.fn(
+      async () =>
+        ({
+          ops: {},
+          repositories: { settingsRevisions },
+          runtimeEventNotifier: { close: vi.fn(async () => undefined) },
+          service: {
+            pool: undefined,
+            close: vi.fn(async () => undefined),
+          },
+        }) as any,
+    );
+
+    const result = await runStartup(makeApp(), {
+      ensureRuntimeLayoutDirectories: vi.fn(),
+      initializeRuntimeStorage,
+      settingsAuthority: 'revision',
+      settingsFileExists: vi.fn(() => true),
+      loadRuntimeSettings: vi.fn(() => revisionSettings),
+      importWorkstationSettings,
+      leases: { tryAcquire: vi.fn(async () => undefined) },
+      logger: { info: vi.fn(), warn },
+    });
+
+    expect(importWorkstationSettings).not.toHaveBeenCalled();
+    expect(result.runtimeSettings.agent.name).toBe('Rolling Replacement Agent');
+    expect(warn).toHaveBeenCalledWith(
+      { appId: 'default', revision: 7 },
+      'Settings projector lease is owned by another runtime; starting from the durable revision without re-projecting it',
+    );
+    expect(initializeRuntimeStorage).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects initial local settings promotion when preflight fails', async () => {
     const fileSettings = createDefaultRuntimeSettings();
     fileSettings.agent.name = 'Unsafe File Agent';
