@@ -9,7 +9,7 @@ on:
       postgres_pool_max:
         description: Gantry Postgres pool size for this deployment
         required: false
-        default: '6'
+        default: '12'
         type: string
       pgboss_pool_max:
         description: Gantry pg-boss pool size for this deployment
@@ -28,7 +28,7 @@ env:
   TASK_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent
   CONTAINER_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent-container
   HEALTH_CHECK_START_PERIOD_SECONDS: 240
-  POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '6' }}
+  POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '12' }}
   PGBOSS_POOL_MAX: ${{ inputs.pgboss_pool_max || '1' }}
 
 jobs:
