@@ -200,7 +200,7 @@ jobs:
           eni_id="$(aws ecs describe-tasks \
             --cluster "$ECS_CLUSTER" \
             --tasks "$gantry_task_arn" \
-            --query 'tasks[0].attachments[].details[?name==`networkInterfaceId`].value | [0][0]' \
+            --query 'tasks[0].attachments[].details[] | [?name==`networkInterfaceId`].value | [0]' \
             --output text)"
           private_ip="$(aws ec2 describe-network-interfaces \
             --network-interface-ids "$eni_id" \
