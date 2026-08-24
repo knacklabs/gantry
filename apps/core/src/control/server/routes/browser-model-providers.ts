@@ -116,7 +116,9 @@ export async function handleBrowserModelProviderRoutes(
   if (
     (verifying && req.method !== 'POST') ||
     (removing && req.method !== 'DELETE') ||
-    (!verifying && !removing && !['PUT', 'PATCH', 'DELETE'].includes(req.method ?? ''))
+    (!verifying &&
+      !removing &&
+      !['PUT', 'PATCH', 'DELETE'].includes(req.method ?? ''))
   ) {
     res.setHeader(
       'Allow',
