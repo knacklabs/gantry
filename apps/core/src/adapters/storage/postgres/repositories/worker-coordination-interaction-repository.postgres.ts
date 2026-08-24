@@ -437,6 +437,31 @@ export abstract class PostgresInteractionRepositoryMethods {
     return rows.map((row) => readJobPermissionNeed(row.payload));
   }
 
+  async listJobPermissionCardsForReconciliation(
+    input: { limit?: number } = {},
+  ): Promise<JobPermissionCardRecord[]> {
+    const table = pgSchema.pendingInteractionsPostgres;
+    const rows = await this.db
+      .select({ payload: table.payloadJson })
+      .from(table)
+      .where(
+        and(
+          eq(table.kind, 'job_permission_card'),
+          eq(table.status, 'pending'),
+        ),
+      )
+      .orderBy(asc(table.createdAt))
+      .limit(Math.max(1, Math.min(500, input.limit ?? 100)));
+    return rows
+      .map((row) => readJobPermissionCard(row.payload))
+      .filter((card): card is JobPermissionCardRecord => Boolean(card))
+      .filter((card) =>
+        card.revisionDeliveries.some((delivery) =>
+          ['pending', 'ambiguous'].includes(delivery.status),
+        ),
+      );
+  }
+
   async getJobPermissionState(input: {
     appId: string;
     jobId: string;
@@ -743,10 +768,16 @@ function jobPermissionCardText(
     const scope = row.visibleGrantAtoms
       .map((atom) => `   - ${atom}`)
       .join('\n');
-    const hiddenScope = row.scopeFullyVisible
-      ? ''
-      : `\n   +${row.renderedGrantAtoms.length - row.visibleGrantAtoms.length} more scope item(s)`;
-    return `${index + 1}. ${row.displayLabel} — ${action}${row.denyEnabled ? ' or Deny' : ''}\n${scope}${hiddenScope}`;
+    const scopeEnd = row.scopePageStart + row.visibleGrantAtoms.length;
+    const scopePage =
+      row.scopePageStart > 0
+        ? `\n   Scope ${row.scopePageStart + 1}-${scopeEnd} of ${row.renderedGrantAtoms.length}; earlier items were shown on the prior page.`
+        : '';
+    const remainingScope = row.renderedGrantAtoms.length - scopeEnd;
+    const hiddenScope = remainingScope
+      ? `\n   +${remainingScope} more scope item(s)`
+      : '';
+    return `${index + 1}. ${row.displayLabel} — ${action}${row.denyEnabled ? ' or Deny' : ''}\n${scope}${scopePage}${hiddenScope}`;
   });
   const hidden = revision.hiddenRowCount
     ? `\n+${revision.hiddenRowCount} more — show the next page before deciding.`
@@ -772,7 +803,9 @@ function readJobPermissionCard(value: unknown): JobPermissionCardRecord | null {
       record.fullScopeNeedId === null) &&
     (typeof record.fullScopeAskingEpoch === 'number' ||
       record.fullScopeAskingEpoch === null) &&
+    typeof record.fullScopePageOffset === 'number' &&
     Array.isArray(record.revisions) &&
+    Array.isArray(record.revisionDeliveries) &&
     Array.isArray(record.pendingBudgets) &&
     Array.isArray(record.rerunBarriers)
     ? (structuredClone(record) as JobPermissionCardRecord)
@@ -818,6 +851,24 @@ function assertJobPermissionState(
     ) !== JSON.stringify(previousCard.revisions) ||
     !Number.isInteger(state.card.pageOffset) ||
     state.card.pageOffset < 0 ||
+    !Number.isInteger(state.card.fullScopePageOffset) ||
+    state.card.fullScopePageOffset < 0 ||
+    state.card.revisionDeliveries.length !== state.card.revisions.length ||
+    new Set(
+      state.card.revisionDeliveries.map((delivery) => delivery.revision),
+    ).size !== state.card.revisionDeliveries.length ||
+    state.card.revisionDeliveries.some((delivery) => {
+      const revision = state.card.revisions.find(
+        (candidate) => candidate.revision === delivery.revision,
+      );
+      return !revision || revision.deliveryId !== delivery.deliveryId;
+    }) ||
+    previousCard.revisionDeliveries.some((previous) => {
+      const current = state.card.revisionDeliveries.find(
+        (delivery) => delivery.revision === previous.revision,
+      );
+      return !current || current.deliveryId !== previous.deliveryId;
+    }) ||
     new Set(state.card.rerunBarriers.map((barrier) => barrier.priorRunId))
       .size !== state.card.rerunBarriers.length ||
     state.card.rerunBarriers.some(
@@ -862,7 +913,24 @@ function assertJobPermissionState(
     );
     if (
       revision.revision !== expectedRevision ||
+      !Number.isInteger(revision.deliveryAttempt) ||
+      revision.deliveryAttempt < 1 ||
+      revision.deliveryAttempt > 4 ||
       new Set(rowKeys).size !== rowKeys.length ||
+      new Set(
+        revision.representedNeeds.map(
+          (represented) =>
+            `${represented.needId}:${represented.askingEpoch}`,
+        ),
+      ).size !== revision.representedNeeds.length ||
+      revision.representedNeeds.some(
+        (represented) =>
+          !state.needs.some(
+            (need) =>
+              need.id === represented.needId &&
+              need.askingEpoch === represented.askingEpoch,
+          ),
+      ) ||
       revision.rows.some((row) => {
         const need = state.needs.find(
           (candidate) =>
@@ -876,9 +944,18 @@ function assertJobPermissionState(
           row.visibleGrantAtoms.some(
             (atom) => !row.renderedGrantAtoms.includes(atom),
           ) ||
+          !Number.isInteger(row.scopePageStart) ||
+          row.scopePageStart < 0 ||
+          JSON.stringify(row.visibleGrantAtoms) !==
+            JSON.stringify(
+              row.renderedGrantAtoms.slice(
+                row.scopePageStart,
+                row.scopePageStart + row.visibleGrantAtoms.length,
+              ),
+            ) ||
           (row.scopeFullyVisible &&
-            JSON.stringify(row.visibleGrantAtoms) !==
-              JSON.stringify(row.renderedGrantAtoms)) ||
+            row.scopePageStart + row.visibleGrantAtoms.length <
+              row.renderedGrantAtoms.length) ||
           (row.action === 'show_scope') !== !row.scopeFullyVisible
         );
       }) ||

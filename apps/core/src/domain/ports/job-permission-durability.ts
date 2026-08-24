@@ -72,6 +72,7 @@ export interface JobPermissionCardRowSnapshot {
   displayLabel: string;
   renderedGrantAtoms: string[];
   visibleGrantAtoms: string[];
+  scopePageStart: number;
   scopeFullyVisible: boolean;
   actionEnabled: boolean;
   denyEnabled: boolean;
@@ -88,10 +89,23 @@ export interface JobPermissionCardRevision {
   deliveryId: string;
   deliveryItemId: string;
   rows: JobPermissionCardRowSnapshot[];
+  representedNeeds: Array<{ needId: string; askingEpoch: number }>;
   batchNeedIds: string[];
   pageStart: number;
   hiddenRowCount: number;
+  deliveryAttempt: number;
   createdAt: string;
+}
+
+export interface JobPermissionCardRevisionDelivery {
+  revision: number;
+  deliveryId: string;
+  status: 'pending' | 'delivered' | 'ambiguous' | 'exhausted' | 'cancelled';
+  provider: string | null;
+  providerMessageId: string | null;
+  confirmedAt: string | null;
+  reason: string | null;
+  updatedAt: string;
 }
 
 export interface JobPermissionRerunBarrier {
@@ -128,7 +142,9 @@ export interface JobPermissionCardRecord {
   pageOffset: number;
   fullScopeNeedId: string | null;
   fullScopeAskingEpoch: number | null;
+  fullScopePageOffset: number;
   revisions: JobPermissionCardRevision[];
+  revisionDeliveries: JobPermissionCardRevisionDelivery[];
   pendingBudgets: JobPermissionPendingBudget[];
   rerunBarriers: JobPermissionRerunBarrier[];
   createdAt: string;
@@ -163,6 +179,9 @@ export interface JobPermissionDurabilityRepository {
   listJobPermissionNeedsForReconciliation(input?: {
     limit?: number;
   }): Promise<JobPermissionNeedRecord[]>;
+  listJobPermissionCardsForReconciliation(input?: {
+    limit?: number;
+  }): Promise<JobPermissionCardRecord[]>;
   getJobPermissionState(input: {
     appId: string;
     jobId: string;

@@ -32,6 +32,7 @@ import {
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { writeResolvedInteractionResponse } from '../../runtime/interaction-resolution-response.js';
 import { canonicalJson } from '../../shared/canonical-json.js';
+import { jobPermissionOutcomeForResponse } from '../../shared/unprojected-access.js';
 import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
 import { evaluateProtectedCapabilityToolUse } from '../../shared/tool-execution-policy-service.js';
 import {
@@ -434,6 +435,20 @@ function durableGrantRequestSnapshot(
     ...(request.runId ? { runId: request.runId } : {}),
     ...(request.targetJid ? { targetJid: request.targetJid } : {}),
     ...(request.threadId ? { threadId: request.threadId } : {}),
+    ...(request.toolInput
+      ? { toolInput: structuredClone(request.toolInput) }
+      : {}),
+    ...(request.classifierToolInput
+      ? { classifierToolInput: structuredClone(request.classifierToolInput) }
+      : request.toolInput
+        ? { classifierToolInput: structuredClone(request.toolInput) }
+        : {}),
+    ...(request.toolInputSanitized
+      ? { toolInputSanitized: request.toolInputSanitized }
+      : {}),
+    ...(request.toolInputSanitizedPaths
+      ? { toolInputSanitizedPaths: [...request.toolInputSanitizedPaths] }
+      : {}),
     ...(request.semanticCapabilityDefinitions
       ? {
           semanticCapabilityDefinitions: structuredClone(
@@ -514,6 +529,10 @@ async function deliverWaiterResponse(
   const approved = input.response.kind === 'approved';
   const responseReason =
     input.response.kind === 'approved' ? null : input.response.reason;
+  const permissionOutcome = jobPermissionOutcomeForResponse({
+    request,
+    responseKind: input.response.kind,
+  });
   const decision = approved
     ? {
         ...persistentDecision(request, 'job_permission_reconciler'),
@@ -538,7 +557,13 @@ async function deliverWaiterResponse(
     ...('decisionClassification' in decision
       ? { decisionClassification: decision.decisionClassification }
       : {}),
-    jobPermissionOutcome: input.response.kind,
+    jobPermissionOutcome: permissionOutcome.outcome,
+    ...(permissionOutcome.unprojectedAccessIdentity
+      ? {
+          unprojectedAccessIdentity:
+            permissionOutcome.unprojectedAccessIdentity,
+        }
+      : {}),
   };
   const wrote = writeResolvedInteractionResponse({
     kind: 'permission',

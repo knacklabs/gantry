@@ -37,6 +37,7 @@ import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import {
   emitGateDenialActivity,
+  emitPermissionReformulationDenial,
   emitToolActivity,
   emitYoloDenylistHit,
   formatPermissionAllowedMessage,
@@ -471,6 +472,15 @@ export function createCanUseToolCallback(
       const suggestions = yoloDenylistReason
         ? undefined
         : permissionPlan.suggestions;
+      if (permissionPlan.reformulation) {
+        return emitPermissionReformulationDenial({
+          agentInput: input.agentInput,
+          getNewSessionId: input.getNewSessionId,
+          toolName,
+          invocationId: permissionOpts.toolUseID,
+          result: permissionPlan.reformulation,
+        });
+      }
       log(
         `Autonomous run requesting permission for tool ${toolName}: ${recoveryMessage}`,
       );

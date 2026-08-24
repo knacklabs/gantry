@@ -300,7 +300,6 @@ export class DiscordInteractionHandler {
         return;
       }
       if (customId.startsWith('jp:')) {
-        await this.ackInteraction(interaction, 'Decision received.');
         const context = await this.input.resolveInteractionConversationContext(
           interaction.channel_id,
         );
@@ -315,6 +314,7 @@ export class DiscordInteractionHandler {
             : {}),
           actionToken: customId,
         });
+        await this.ackInteraction(interaction, 'Decision received.');
         return;
       }
       if (customId.startsWith(SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX)) {

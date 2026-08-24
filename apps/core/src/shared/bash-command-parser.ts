@@ -84,12 +84,33 @@ const SHELL_KEYWORDS = new Set([
 ]);
 
 export function parseBashCommand(command: string): BashCommandParseResult {
+  return parseBashCommandWithOptions(command, {
+    allowUnsafeMetaExecutors: false,
+  });
+}
+
+/**
+ * Parses meta-executor leaves for policy analysis only. Callers must never use
+ * this relaxed view to authorize execution; the public parser stays fail-closed.
+ */
+export function parseBashCommandForHardBoundaryAnalysis(
+  command: string,
+): BashCommandParseResult {
+  return parseBashCommandWithOptions(command, {
+    allowUnsafeMetaExecutors: true,
+  });
+}
+
+function parseBashCommandWithOptions(
+  command: string,
+  options: { allowUnsafeMetaExecutors: boolean },
+): BashCommandParseResult {
   const trimmed = command.trim();
   if (!trimmed) return { ok: false, reason: 'Bash command is empty.' };
   if (trimmed.length > 4096) {
     return { ok: false, reason: 'Bash command is too long to parse safely.' };
   }
-  return parseSegment(trimmed);
+  return parseSegment(trimmed, options);
 }
 
 export function firstDestructiveRedirectTarget(
@@ -244,7 +265,10 @@ export function summarizeBashCommandPrograms(
   return `${shown.join(', ')}${overflow}`;
 }
 
-function parseSegment(command: string): BashCommandParseResult {
+function parseSegment(
+  command: string,
+  options: { allowUnsafeMetaExecutors: boolean },
+): BashCommandParseResult {
   const leaves: BashCommandLeaf[] = [];
   let tokens: string[] = [];
   let redirects: BashCommandRedirect[] = [];
@@ -262,7 +286,7 @@ function parseSegment(command: string): BashCommandParseResult {
   const flushLeaf = (): BashCommandParseResult | null => {
     flushToken();
     if (tokens.length === 0 && redirects.length === 0) return null;
-    const leaf = buildLeaf(tokens, redirects);
+    const leaf = buildLeaf(tokens, redirects, options);
     if (!leaf.ok) return leaf;
     leaves.push(leaf.leaf);
     tokens = [];
@@ -337,7 +361,7 @@ function parseSegment(command: string): BashCommandParseResult {
       if (end < 0) {
         return { ok: false, reason: 'Bash command has unmatched parentheses.' };
       }
-      const nested = parseSegment(command.slice(i + 1, end));
+      const nested = parseSegment(command.slice(i + 1, end), options);
       if (!nested.ok) return nested;
       leaves.push(...nested.leaves);
       if (nested.piped) piped = true;
@@ -482,6 +506,7 @@ function parseRedirect(
 function buildLeaf(
   argv: string[],
   redirects: BashCommandRedirect[],
+  options: { allowUnsafeMetaExecutors: boolean },
 ): { ok: true; leaf: BashCommandLeaf } | { ok: false; reason: string } {
   if (argv.length === 0) {
     return {
@@ -499,7 +524,9 @@ function buildLeaf(
   if (SHELL_KEYWORDS.has(command)) {
     return { ok: false, reason: `Bash keyword ${command} is not supported.` };
   }
-  const metaReason = unsafeMetaExecutorReason(argv);
+  const metaReason = options.allowUnsafeMetaExecutors
+    ? undefined
+    : unsafeMetaExecutorReason(argv);
   if (metaReason) return { ok: false, reason: metaReason };
   return {
     ok: true,

@@ -13,6 +13,18 @@ export const JOB_PERMISSION_CUSTOM_ID_PREFIX = 'jp:';
 export const PERMISSION_CUSTOM_ID_PREFIX = 'gantry:perm:';
 export const QUESTION_CUSTOM_ID_PREFIX = 'gantry:q:';
 const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
+const DISCORD_BUTTON_LABEL_MAX_LENGTH = 80;
+
+function truncateDiscordButtonLabel(label: string): string {
+  let truncated = '';
+  for (const codePoint of label.trim()) {
+    if (truncated.length + codePoint.length > DISCORD_BUTTON_LABEL_MAX_LENGTH) {
+      break;
+    }
+    truncated += codePoint;
+  }
+  return truncated;
+}
 
 export function discordActionComponents(
   options?: MessageSendOptions | ProgressUpdateOptions,
@@ -34,7 +46,7 @@ export function discordActionComponents(
       if (action.actionToken.length <= DISCORD_CUSTOM_ID_MAX_LENGTH) {
         buttons.push({
           style: action.label.startsWith('Deny:') ? 4 : 1,
-          label: action.label,
+          label: truncateDiscordButtonLabel(action.label),
           custom_id: action.actionToken,
         });
       }

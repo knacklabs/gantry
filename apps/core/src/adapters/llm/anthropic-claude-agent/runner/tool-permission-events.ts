@@ -13,6 +13,7 @@ import { DEFAULT_AGENT_ENGINE } from '../../../../shared/agent-engine.js';
 import { terminalToolActivityPayload } from '../../../../domain/events/tool-activity.js';
 import type { ToolActivityFamily } from '../../../../domain/events/tool-activity.js';
 import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-facades.js';
+import type { DurableAccessReformulationResult } from '../../../../shared/durable-access-policy.js';
 
 export function yoloDenylistPromptReason(match: YoloModeMatch): string {
   return `A YOLO-mode denylist rule matched "${match.pattern}", so this tool needs explicit approval.`;
@@ -95,6 +96,37 @@ export function emitToolActivity(
   });
 }
 
+export function emitPermissionReformulationDenial(input: {
+  agentInput: AgentRunnerInput;
+  getNewSessionId: () => string | undefined;
+  toolName: string;
+  invocationId?: string;
+  result: DurableAccessReformulationResult;
+}): {
+  behavior: 'deny';
+  message: string;
+  interrupt: false;
+} {
+  emitToolActivity(
+    input.agentInput,
+    input.getNewSessionId,
+    'deny',
+    input.toolName,
+    {
+      ok: false,
+      reason: input.result.message,
+      decision: input.result.code,
+      result_kind: input.result.kind,
+      ...(input.invocationId ? { invocationId: input.invocationId } : {}),
+    },
+  );
+  return {
+    behavior: 'deny',
+    message: input.result.message,
+    interrupt: false,
+  };
+}
+
 export function emitTerminalToolActivity(input: {
   agentInput: AgentRunnerInput;
   getNewSessionId: () => string | undefined;
@@ -103,6 +135,7 @@ export function emitTerminalToolActivity(input: {
   family?: ToolActivityFamily;
   outcome: 'success' | 'failure';
   seq: number;
+  detail?: string;
 }): void {
   const event = terminalToolActivityRuntimeEvent(input);
   if (!event) return;
@@ -122,6 +155,7 @@ export function terminalToolActivityRuntimeEvent(input: {
   family?: ToolActivityFamily;
   outcome: 'success' | 'failure';
   seq: number;
+  detail?: string;
 }): AgentRunnerRuntimeEventOutput | null {
   if (input.agentInput.parentTaskId) return null;
   const tool = canonicalGantryToolRuleName(
@@ -144,6 +178,7 @@ export function terminalToolActivityRuntimeEvent(input: {
       family: input.family,
       outcome: input.outcome,
       seq: input.seq,
+      detail: input.detail,
     }),
   };
 }

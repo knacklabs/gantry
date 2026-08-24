@@ -66,6 +66,20 @@ class MemoryJobPermissionRepository implements JobPermissionDurabilityRepository
       .map((need) => structuredClone(need));
   }
 
+  async listJobPermissionCardsForReconciliation(
+    input: { limit?: number } = {},
+  ): Promise<JobPermissionCardRecord[]> {
+    return [...this.states.values()]
+      .map((state) => state.card)
+      .filter((card) =>
+        card.revisionDeliveries.some((delivery) =>
+          ['pending', 'ambiguous'].includes(delivery.status),
+        ),
+      )
+      .slice(0, input.limit ?? 100)
+      .map((card) => structuredClone(card));
+  }
+
   async getJobPermissionState(input: {
     appId: string;
     jobId: string;
@@ -440,6 +454,8 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     label: 'First',
     atoms: ['RunCommand(first *)'],
   });
+  await confirmLatest(service, repository);
+  await service.reconcile();
   const second = await attach(service, {
     label: 'Second',
     atoms: ['RunCommand(second *)'],
@@ -454,6 +470,8 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     requestId: 'request-3',
     runId: 'run-3',
   });
+  await confirmLatest(service, repository);
+  await service.reconcile();
   let state = await readState(repository);
   const renderedRevision = state!.card.revisions.at(-1)!;
   expect(renderedRevision.rows).toHaveLength(2);
@@ -553,8 +571,9 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     fullScopeRevision.rows.find((row) => row.needId === oversized.needId),
   ).toMatchObject({
     action: 'allow_and_continue',
+    scopePageStart: 2,
     scopeFullyVisible: true,
-    visibleGrantAtoms: ['RunCommand(a)', 'RunCommand(b)', 'RunCommand(c)'],
+    visibleGrantAtoms: ['RunCommand(c)'],
   });
   const denyAction = jobPermissionCardActions(
     state!.card.callbackKey,

@@ -161,12 +161,15 @@ function recoveryActionAffordances(input: {
 function runAgainActionAffordances(input: {
   job: Job;
   runId: string;
+  limitedCompletion?: boolean;
 }): MessageActionAffordance[] {
-  if (input.job.schedule_type !== 'manual') return [];
+  if (input.job.schedule_type !== 'manual' && !input.limitedCompletion) {
+    return [];
+  }
   return [
     {
       kind: 'scheduler_run_now',
-      label: 'Run again',
+      label: input.limitedCompletion ? 'Run again now' : 'Run again',
       jobId: input.job.id,
       runId: input.runId,
     },
@@ -475,7 +478,13 @@ export async function notifySchedulerTerminalRunState(input: {
   const fallbackJob = jobForLifecycleFallback(input.job, updateOutcomes);
   const actionAffordances =
     input.runStatus === 'completed'
-      ? runAgainActionAffordances({ job: input.job, runId: input.runId })
+      ? runAgainActionAffordances({
+          job: input.job,
+          runId: input.runId,
+          limitedCompletion: Boolean(
+            input.diagnostics?.unprojectedPermissionGrants?.length,
+          ),
+        })
       : recoveryActionAffordances({ job: input.job, runId: input.runId });
   const notificationJob =
     actionAffordances.length > 0 ? input.job : fallbackJob;
@@ -516,6 +525,13 @@ function degradedReasonForDiagnostics(
   // The denial that actually limited THIS run outranks a transient approval
   // note about future runs; show both when both happened.
   const parts: string[] = [];
+  if ((diagnostics.unprojectedPermissionGrants?.length ?? 0) > 0) {
+    parts.push(
+      `Missing ${diagnostics.unprojectedPermissionGrants!
+        .map(humanizeTechnicalIdentifier)
+        .join(', ')} access limited this run. The grant is available from the next run.`,
+    );
+  }
   if (diagnostics.terminalToolDenial) {
     parts.push(
       `Missing ${humanizeTechnicalIdentifier(diagnostics.terminalToolDenial.toolName)} access limited this run.`,

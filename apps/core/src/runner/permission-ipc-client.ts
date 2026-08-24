@@ -14,6 +14,7 @@ import { persistentPermissionUpdates } from '../shared/permission-tool-rules.js'
 import { NO_PERMISSION_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { ipcInteractionAuthEnvelopeOptions } from '../shared/ipc-interaction-lifetime.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
+import type { JobPermissionOutcome } from '../shared/unprojected-access.js';
 import {
   DEFAULT_IPC_RESPONSE_POLL_MS,
   waitForIpcResponseFile,
@@ -80,6 +81,8 @@ export interface PermissionDecisionResult {
     | 'benign';
   updatedPermissions?: unknown[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
+  jobPermissionOutcome?: JobPermissionOutcome;
+  unprojectedAccessIdentity?: string;
 }
 
 export interface PermissionApprovalRequestOptions {
@@ -352,6 +355,19 @@ function readPermissionResponse(input: {
         ? (responsePayload.updatedPermissions as never)
         : undefined,
     };
+    const jobPermissionOutcome = permissionOutcome(
+      responsePayload.jobPermissionOutcome,
+    );
+    const unprojectedAccessIdentity =
+      typeof responsePayload.unprojectedAccessIdentity === 'string'
+        ? responsePayload.unprojectedAccessIdentity.trim().slice(0, 300)
+        : undefined;
+    if (
+      jobPermissionOutcome === 'approved_unprojected' &&
+      !unprojectedAccessIdentity
+    ) {
+      return { approved: false, reason: 'Malformed permission response' };
+    }
     return {
       approved: sanitizedDecision.approved,
       decidedBy:
@@ -380,6 +396,10 @@ function readPermissionResponse(input: {
         sanitizedDecision,
       ) as never,
       decisionClassification,
+      ...(jobPermissionOutcome ? { jobPermissionOutcome } : {}),
+      ...(unprojectedAccessIdentity
+        ? { unprojectedAccessIdentity }
+        : {}),
     };
   } catch (err) {
     return {
@@ -390,6 +410,16 @@ function readPermissionResponse(input: {
           : 'Failed to read permission response',
     };
   }
+}
+
+function permissionOutcome(value: unknown): JobPermissionOutcome | undefined {
+  return value === 'approved' ||
+    value === 'approved_unprojected' ||
+    value === 'denied' ||
+    value === 'policy_changed' ||
+    value === 'setup_required'
+    ? value
+    : undefined;
 }
 
 function isPermissionDecisionSource(

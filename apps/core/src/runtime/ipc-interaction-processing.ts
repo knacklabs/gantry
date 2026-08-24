@@ -202,16 +202,34 @@ export async function processPermissionInteractionIpc(input: {
       payload: requestedContext,
     });
     await assertActiveScheduledPermissionLease(input);
-    if (
-      input.request.jobId &&
-      (await input.deps.jobPermissionDurability?.attachRequest({
-        request: input.request,
-        sourceAgentFolder: input.sourceAgentFolder,
-      }))
-    ) {
-      fs.unlinkSync(input.claimedPath);
-      return;
-    }
+    let attachedToJobPermissionNeed = false;
+    const decisionDeps = input.deps.jobPermissionDurability
+      ? {
+          ...input.deps,
+          requestPermissionApproval: async (
+            request: PermissionApprovalRequest,
+          ) => {
+            if (
+              request.jobId &&
+              (await input.deps.jobPermissionDurability!.attachRequest({
+                request,
+                sourceAgentFolder: input.sourceAgentFolder,
+              }))
+            ) {
+              attachedToJobPermissionNeed = true;
+              return {
+                kind: 'decision' as const,
+                decision: {
+                  approved: false,
+                  mode: 'cancel' as const,
+                  decidedBy: 'job_permission_durability',
+                },
+              };
+            }
+            return input.deps.requestPermissionApproval(request);
+          },
+        }
+      : input.deps;
     decision =
       (await replayPersistedPermissionDecisionForRequest({
         appId: input.request.appId,
@@ -221,8 +239,12 @@ export async function processPermissionInteractionIpc(input: {
       (await resolvePermissionIpcDecision({
         request: input.request,
         sourceAgentFolder: input.sourceAgentFolder,
-        deps: input.deps,
+        deps: decisionDeps,
       }));
+    if (attachedToJobPermissionNeed) {
+      fs.unlinkSync(input.claimedPath);
+      return;
+    }
     const claimedDecision = decision;
     await assertActiveScheduledPermissionLease(input);
     const decisionContext = permissionTelemetryContext(input.request, {

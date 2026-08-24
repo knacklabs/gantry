@@ -328,12 +328,14 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
         lines.indexOf('Ready actions') + 1,
         lines.indexOf('Installed skills'),
       );
-      expect(readyLines.filter(Boolean)).toEqual(
-        catalog.readyActions.map(
+      expect(readyLines.filter(Boolean)).toEqual([
+        ...catalog.readyActions.map(
           (entry) =>
             `- ${entry.category} · ${entry.displayName} — ${entry.description}`,
         ),
-      );
+        'Requestable next-run actions',
+        '- none',
+      ]);
     } finally {
       localeCompare.mockRestore();
     }

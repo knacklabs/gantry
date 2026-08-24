@@ -16,8 +16,10 @@ import {
 import { escapeTelegramHtml } from './html-render.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
+  TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
   telegramThreadOptionsFromString,
   TELEGRAM_MESSAGE_MAX_LENGTH,
+  truncateUtf8ToByteLimit,
 } from './channel-shared.js';
 
 const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
@@ -69,7 +71,10 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
           Buffer.byteLength(action.actionToken, 'utf8') <=
             TELEGRAM_CALLBACK_DATA_MAX_BYTES
           ? {
-              text: action.label.trim(),
+              text: truncateUtf8ToByteLimit(
+                action.label.trim(),
+                TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
+              ),
               callback_data: action.actionToken,
             }
           : null;

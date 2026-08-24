@@ -17,6 +17,7 @@ import {
   DEFAULT_AGENT_ENGINE,
   DEEPAGENTS_ENGINE,
 } from '../shared/agent-engine.js';
+import { unprojectedAccessIdentityFromActivityDetail } from '../shared/unprojected-access.js';
 
 export const FORWARDED_RUNNER_EVENT_TYPES = new Set<RuntimeEventType>([
   RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
@@ -50,6 +51,7 @@ export interface JobRunDiagnostics {
     recoveryAction?: string;
     allowedRule?: string;
   }>;
+  unprojectedPermissionGrants?: string[];
   startupDiagnostics: Record<string, unknown>[];
   latestStreamedOutputChars: number;
   totalStreamedOutputChars: number;
@@ -141,6 +143,7 @@ export function createJobRunDiagnostics(): JobRunDiagnostics {
     totalToolCalls: 0,
     browserActivityCount: 0,
     transientPermissionApprovals: [],
+    unprojectedPermissionGrants: [],
     startupDiagnostics: [],
     latestStreamedOutputChars: 0,
     totalStreamedOutputChars: 0,
@@ -185,6 +188,18 @@ export function updateDiagnosticsFromRuntimeEvent(
   }
   if (isBrowserToolActivity(payload)) {
     diagnostics.browserActivityCount += 1;
+  }
+  const unprojectedIdentity =
+    tool === 'request_access' && payload.family === 'capability'
+      ? unprojectedAccessIdentityFromActivityDetail(payload.detail)
+      : undefined;
+  if (
+    unprojectedIdentity &&
+    !diagnostics.unprojectedPermissionGrants?.includes(unprojectedIdentity)
+  ) {
+    (diagnostics.unprojectedPermissionGrants ??= []).push(
+      unprojectedIdentity,
+    );
   }
   const mode = stringValue(payload.mode);
   const phase = stringValue(payload.phase);
@@ -358,6 +373,8 @@ export function terminalDiagnosticsPayload(
     pending_permission_count: diagnostics.pendingPermissionRequests,
     pending_permission_tools: diagnostics.pendingPermissionToolNames,
     transient_permission_approvals: diagnostics.transientPermissionApprovals,
+    unprojected_permission_grants:
+      diagnostics.unprojectedPermissionGrants ?? [],
     startup_diagnostics: diagnostics.startupDiagnostics,
     total_tool_calls: diagnostics.totalToolCalls,
     browser_activity_count: diagnostics.browserActivityCount,

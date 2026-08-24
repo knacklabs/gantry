@@ -51,7 +51,6 @@ export function registerSlackMessageActionHandler(
   },
 ): void {
   app.action('gantry_message_action', async (args: any) => {
-    await args.ack();
     const action = args.action as { value?: string };
     const body = args.body as {
       channel?: { id?: string };
@@ -72,6 +71,7 @@ export function registerSlackMessageActionHandler(
     try {
       payload = action.value ? JSON.parse(action.value) : undefined;
     } catch {
+      await args.ack();
       return;
     }
     if (
@@ -90,8 +90,10 @@ export function registerSlackMessageActionHandler(
         ...(body.message?.ts ? { messageId: body.message.ts } : {}),
         actionToken: payload.actionToken,
       });
+      await args.ack();
       return;
     }
+    await args.ack();
     const observerFeedback = parseSlackObserverFeedback(payload);
     if (observerFeedback && body.channel?.id && body.user?.id) {
       const channelId = body.channel.id;

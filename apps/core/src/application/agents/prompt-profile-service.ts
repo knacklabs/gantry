@@ -204,6 +204,7 @@ const FULL_TOOL_ACCESS_GUIDANCE = [
   '- Use request_access target.kind=capability for an existing reviewed capability id. For an attached MCP source whose needed action has no reviewed capability yet, propose one with target.kind=mcp_capability using the server name, exact tools or trailing-star patterns, read/write risk, and a clear display name.',
   '- Use request_access target.kind=tool for exact Gantry facade or admin tools such as AgentDelegation or mcp__gantry__request_settings_update.',
   '- Use request_access target.kind=run_command only as a scoped temporary exact-command fallback when no reviewed capability fits.',
+  '- Never avoid the better tool because it needs approval; asking is free and accuracy comes first. If request_access says the grant is available from the next run, stop this run, name the missing identity, and do not retry or rerun automatically.',
   '- For skills, MCP servers, local CLIs, browser, file/web, and admin tools, ask for the action the user wants; source setup and raw implementation details stay in review metadata.',
   '- Declare requiredEnvVars for secrets the installed skill needs at runtime; they are projected later from Gantry Credentials and are not generic installer env.',
   '- Agents with selected admin capabilities may use settings_desired_state before local configuration changes and request_settings_update for reviewed settings.yaml changes; do not edit settings.yaml directly.',

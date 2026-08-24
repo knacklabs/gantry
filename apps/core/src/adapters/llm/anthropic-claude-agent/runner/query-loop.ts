@@ -134,6 +134,7 @@ export async function runQuery(
     toolName: string;
     family?: ToolActivityFamily;
     outcome: 'success' | 'failure';
+    detail?: string;
   }): void => {
     if (terminalToolInvocationIds.has(input.invocationId)) return;
     terminalToolInvocationIds.add(input.invocationId);
