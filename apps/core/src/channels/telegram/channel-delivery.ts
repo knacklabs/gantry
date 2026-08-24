@@ -40,10 +40,8 @@ import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
 } from '../../application/interactions/pending-interaction-durability.js';
-import {
-  JobPermissionCardDeliverySettlement,
-  jobPermissionCardRevision,
-} from '../interaction-settlement.js';
+import { JobPermissionCardDeliverySettlement } from '../interaction-settlement.js';
+import { sendTelegramJobPermissionCard } from './job-permission-card-delivery.js';
 import { retainTelegramProgressHandleAfterEditFailure } from './progress-edit-failure.js';
 import { createTelegramPermissionCardPreparer } from './prepared-permission-card.js';
 import { sendTelegramDeliveryChunks } from './extracted-helpers.js';
@@ -116,12 +114,14 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
           (action) => action.kind === 'job_permission_decision',
         )
       ) {
-        return this.sendJobPermissionCard(
-          numericId,
-          humanizeJobPermissionCardText(text),
+        return sendTelegramJobPermissionCard({
+          api: this.bot.api,
+          chatId: numericId,
+          text: humanizeJobPermissionCardText(text),
           options,
-          sendOptions,
-        );
+          threadOptions: sendOptions,
+          deliveries: this.jobPermissionCardDeliveries,
+        });
       }
       if (options.replaceMessageId) {
         const replaceMessageId = options.replaceMessageId;
@@ -168,69 +168,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       throw err;
     }
   }
-  private async sendJobPermissionCard(
-    chatId: string,
-    text: string,
-    options: MessageSendOptions,
-    threadOptions: ReturnType<typeof telegramThreadOptionsFromString>,
-  ): Promise<MessageDeliveryResult> {
-    const parsed = jobPermissionCardRevision(options.actionAffordances);
-    const replyMarkup = telegramActionReplyMarkup(options.actionAffordances);
-    if (!parsed || !replyMarkup) {
-      throw new Error('Telegram job permission card has no valid actions.');
-    }
-    // Telegram message ids are chat-scoped, so settlement is too.
-    const revision = {
-      ...parsed,
-      callbackKey: `${chatId}:${parsed.callbackKey}`,
-    };
-    const deliveries = this.jobPermissionCardDeliveries;
-    const delivered = (externalMessageId: string): MessageDeliveryResult => ({
-      externalMessageId,
-      externalMessageIds: [externalMessageId],
-      deliveredParts: 1,
-      totalParts: 1,
-    });
-    return deliveries.serialize(revision.callbackKey, async () => {
-      const settled = deliveries.settledMessageId(revision);
-      if (settled) return delivered(settled);
-      // The card this instance already sent is authoritative; the caller's
-      // persisted id only recovers a card sent before a restart.
-      const replaceMessageId =
-        deliveries.previousMessageId(revision) ?? options.replaceMessageId;
-      if (replaceMessageId) {
-        const messageId = Number.parseInt(replaceMessageId, 10);
-        if (!Number.isSafeInteger(messageId)) {
-          throw new Error('Telegram replacement message id is invalid.');
-        }
-        await this.bot!.api.editMessageText(chatId, messageId, text, {
-          parse_mode: 'HTML',
-          reply_markup: replyMarkup,
-        });
-        deliveries.record(
-          revision,
-          replaceMessageId,
-          `${chatId}:${replaceMessageId}`,
-        );
-        return delivered(replaceMessageId);
-      }
-      const sent = await this.bot!.api.sendMessage(chatId, text, {
-        parse_mode: 'HTML',
-        ...threadOptions,
-        reply_markup: replyMarkup,
-      });
-      const messageId = sent?.message_id;
-      if (messageId === undefined) return {};
-      const externalMessageId = String(messageId);
-      deliveries.record(
-        revision,
-        externalMessageId,
-        `${chatId}:${externalMessageId}`,
-      );
-      return delivered(externalMessageId);
-    });
-  }
-
   async renderRichInteraction(
     jid: string,
     render: RichInteractionRequest,
