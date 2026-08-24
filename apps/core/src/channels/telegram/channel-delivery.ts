@@ -24,6 +24,7 @@ import {
   sendTelegramBrainReviewMessage,
 } from './message-action-affordances.js';
 import { sendTelegramObserverDigestMessage } from './observer-digest-message.js';
+import { escapeTelegramHtml } from './html-render.js';
 import {
   clearProgressActions,
   prepareTelegramProgressHandle,
@@ -39,11 +40,17 @@ import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
 } from '../../application/interactions/pending-interaction-durability.js';
+import {
+  JobPermissionCardDeliverySettlement,
+  jobPermissionCardRevision,
+} from '../interaction-settlement.js';
 import { retainTelegramProgressHandleAfterEditFailure } from './progress-edit-failure.js';
 import { createTelegramPermissionCardPreparer } from './prepared-permission-card.js';
 import { sendTelegramDeliveryChunks } from './extracted-helpers.js';
 
 export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
+  private readonly jobPermissionCardDeliveries =
+    new JobPermissionCardDeliverySettlement();
   preparePermissionCardSend(
     ...args: Parameters<ReturnType<typeof createTelegramPermissionCardPreparer>>
   ) {
@@ -102,6 +109,14 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     try {
       const numericId = jid.replace(/^tg:/, '');
       const sendOptions = telegramThreadOptionsFromString(options.threadId);
+      if (jobPermissionCardRevision(options.actionAffordances)) {
+        return this.sendJobPermissionCard(
+          numericId,
+          humanizeJobPermissionCardText(text),
+          options,
+          sendOptions,
+        );
+      }
       if (options.replaceMessageId) {
         const messageId = Number.parseInt(options.replaceMessageId, 10);
         if (!Number.isSafeInteger(messageId)) {
@@ -137,6 +152,72 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       );
       throw err;
     }
+  }
+  private async sendJobPermissionCard(
+    chatId: string,
+    text: string,
+    options: MessageSendOptions,
+    threadOptions: ReturnType<typeof telegramThreadOptionsFromString>,
+  ): Promise<MessageDeliveryResult> {
+    const deliveredMessageId =
+      this.jobPermissionCardDeliveries.deliveredMessageId(
+        options.actionAffordances,
+      );
+    if (deliveredMessageId) {
+      return {
+        externalMessageId: deliveredMessageId,
+        externalMessageIds: [deliveredMessageId],
+        deliveredParts: 1,
+        totalParts: 1,
+      };
+    }
+    const replyMarkup = telegramActionReplyMarkup(options.actionAffordances);
+    if (!replyMarkup) {
+      throw new Error('Telegram job permission card has no valid actions.');
+    }
+    const replaceMessageId =
+      options.replaceMessageId ??
+      this.jobPermissionCardDeliveries.previousMessageId(
+        options.actionAffordances,
+      );
+    if (replaceMessageId) {
+      const messageId = Number.parseInt(replaceMessageId, 10);
+      if (!Number.isSafeInteger(messageId)) {
+        throw new Error('Telegram replacement message id is invalid.');
+      }
+      await this.bot!.api.editMessageText(chatId, messageId, text, {
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup,
+      });
+      this.jobPermissionCardDeliveries.record(
+        options.actionAffordances,
+        replaceMessageId,
+      );
+      return {
+        externalMessageId: replaceMessageId,
+        externalMessageIds: [replaceMessageId],
+        deliveredParts: 1,
+        totalParts: 1,
+      };
+    }
+    const sent = await this.bot!.api.sendMessage(chatId, text, {
+      parse_mode: 'HTML',
+      ...threadOptions,
+      reply_markup: replyMarkup,
+    });
+    const messageId = sent?.message_id;
+    if (messageId === undefined) return {};
+    const externalMessageId = String(messageId);
+    this.jobPermissionCardDeliveries.record(
+      options.actionAffordances,
+      externalMessageId,
+    );
+    return {
+      externalMessageId,
+      externalMessageIds: [externalMessageId],
+      deliveredParts: 1,
+      totalParts: 1,
+    };
   }
 
   async renderRichInteraction(
@@ -704,4 +785,16 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       signal: options.signal,
     });
   };
+}
+
+function humanizeJobPermissionCardText(text: string): string {
+  return escapeTelegramHtml(
+    text
+      .replace(
+        /^Permissions needed for this job\s*$/im,
+        'This job needs your approval.',
+      )
+      .replace(/\bRunCommand\([^\n)]*\)/g, 'run command access')
+      .replace(/\bRunCommand\b/g, 'Run command'),
+  );
 }

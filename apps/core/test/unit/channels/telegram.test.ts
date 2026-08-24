@@ -3037,6 +3037,83 @@ describe('TelegramChannel', () => {
       );
     });
 
+    it('renders each delivered job-permission revision as one humanized inline card', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect({ inbound: false });
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+
+      const actionsFor = (revision: number) => [
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Allow always for this job',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:a`,
+        },
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Deny',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:d`,
+        },
+      ];
+
+      const first = await channel.sendMessage(
+        'tg:100200300',
+        'Permissions needed for this job\nLead maintenance needs RunCommand(task *)',
+        { actionAffordances: actionsFor(1) },
+      );
+      const duplicate = await channel.sendMessage(
+        'tg:100200300',
+        'Permissions needed for this job\nLead maintenance needs RunCommand(task *)',
+        { actionAffordances: actionsFor(1) },
+      );
+      const second = await channel.sendMessage(
+        'tg:100200300',
+        'Permissions needed for this job\nLead maintenance and reporting need RunCommand(task *)',
+        { actionAffordances: actionsFor(2) },
+      );
+      const third = await channel.sendMessage(
+        'tg:100200300',
+        'Permissions needed for this job\nLead maintenance, reporting, and cleanup need RunCommand(task *)',
+        { actionAffordances: actionsFor(3) },
+      );
+
+      expect(first.externalMessageId).toBe('987');
+      expect(duplicate.externalMessageId).toBe('987');
+      expect(second.externalMessageId).toBe('987');
+      expect(third.externalMessageId).toBe('987');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(2);
+      expect(
+        currentBot().api.editMessageText.mock.calls.map((call) => call[1]),
+      ).toEqual([987, 987]);
+
+      const [chatId, sentText, sentOptions] =
+        currentBot().api.sendMessage.mock.calls[0]!;
+      expect(chatId).toBe('100200300');
+      expect(sentText).toContain('This job needs your approval.');
+      expect(sentText).toContain('run command access');
+      expect(sentText).not.toContain('RunCommand(');
+      expect(sentOptions).toEqual(
+        expect.objectContaining({
+          reply_markup: {
+            inline_keyboard: expect.arrayContaining([
+              expect.arrayContaining([
+                expect.objectContaining({
+                  text: 'Allow always for this job',
+                  callback_data: 'jp:abcdef012345abcdef012345:1:0:a',
+                }),
+                expect.objectContaining({
+                  text: 'Deny',
+                  callback_data: 'jp:abcdef012345abcdef012345:1:0:d',
+                }),
+              ]),
+            ]),
+          },
+        }),
+      );
+      expect(sentOptions).toMatchObject({ parse_mode: 'HTML' });
+    });
+
     it('uploads message files as Telegram documents', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);

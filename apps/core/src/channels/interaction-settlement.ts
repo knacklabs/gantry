@@ -3,17 +3,97 @@ import {
   NO_PERMISSION_TIMEOUT_MS,
 } from '../shared/permission-timeout.js';
 import type {
+  MessageActionAffordance,
   PermissionApprovalCancellation,
   PermissionApprovalRequest,
   UserQuestionCancellation,
   UserQuestionRequest,
 } from '../domain/types.js';
+import { parseJobPermissionCardAction } from '../domain/job-permission-card-actions.js';
 import { resolvePendingInteractionRecordOutcome } from '../application/interactions/pending-interaction-durability.js';
 
 export const RUNNER_CANCELLED_PERMISSION_REASON =
   'Permission request cancelled by its runner.';
 export const RUNNER_CANCELLED_QUESTION_REASON =
   'Question cancelled by its runner.';
+
+type JobPermissionCardRevision = { callbackKey: string; revision: number };
+
+/**
+ * A provider delivery is meaningful only for one rendered card revision. Do
+ * not let a successfully delivered revision get re-sent just because the
+ * caller retries its completed delivery work.
+ */
+export class JobPermissionCardDeliverySettlement {
+  private readonly delivered = new Map<string, string>();
+
+  deliveredMessageId(actions?: MessageActionAffordance[]): string | undefined {
+    const revision = jobPermissionCardRevision(actions);
+    return revision ? this.delivered.get(revisionKey(revision)) : undefined;
+  }
+
+  previousMessageId(actions?: MessageActionAffordance[]): string | undefined {
+    const revision = jobPermissionCardRevision(actions);
+    if (!revision) return undefined;
+    let latest: { revision: number; messageId: string } | undefined;
+    for (const [key, messageId] of this.delivered) {
+      const [callbackKey, rawRevision] = key.split(':');
+      const deliveredRevision = Number(rawRevision);
+      if (
+        callbackKey === revision.callbackKey &&
+        deliveredRevision < revision.revision &&
+        (!latest || deliveredRevision > latest.revision)
+      ) {
+        latest = { revision: deliveredRevision, messageId };
+      }
+    }
+    return latest?.messageId;
+  }
+
+  record(actions: MessageActionAffordance[] | undefined, messageId: string) {
+    const revision = jobPermissionCardRevision(actions);
+    if (revision) this.delivered.set(revisionKey(revision), messageId);
+  }
+}
+
+export function jobPermissionCardRevision(
+  actions?: MessageActionAffordance[],
+): JobPermissionCardRevision | undefined {
+  if (
+    !actions?.length ||
+    actions.some((action) => action.kind !== 'job_permission_decision')
+  ) {
+    return undefined;
+  }
+  const cardActions = actions.filter(
+    (
+      action,
+    ): action is Extract<
+      MessageActionAffordance,
+      { kind: 'job_permission_decision' }
+    > => action.kind === 'job_permission_decision',
+  );
+  const parsed = cardActions.map((action) =>
+    parseJobPermissionCardAction(action.actionToken),
+  );
+  const first = parsed[0];
+  if (
+    !first ||
+    parsed.some(
+      (action) =>
+        !action ||
+        action.callbackKey !== first.callbackKey ||
+        action.revision !== first.revision,
+    )
+  ) {
+    return undefined;
+  }
+  return { callbackKey: first.callbackKey, revision: first.revision };
+}
+
+function revisionKey(revision: JobPermissionCardRevision): string {
+  return `${revision.callbackKey}:${revision.revision}`;
+}
 
 export type InteractionCancellationResult =
   | 'settled'
