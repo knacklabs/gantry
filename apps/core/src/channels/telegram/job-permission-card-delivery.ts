@@ -41,6 +41,14 @@ export async function sendTelegramJobPermissionCard({
     deliveredParts: 1,
     totalParts: 1,
   });
+  // Bind a persisted (pre-restart) card message to this lane synchronously,
+  // so a concurrent retire edit of that message queues behind us.
+  if (options.replaceMessageId) {
+    deliveries.bindMessage(
+      `${chatId}:${options.replaceMessageId}`,
+      revision.callbackKey,
+    );
+  }
   return deliveries.serialize(revision.callbackKey, async () => {
     const settled = deliveries.settledMessageId(revision);
     if (settled) return delivered(settled);
@@ -53,10 +61,6 @@ export async function sendTelegramJobPermissionCard({
       if (!Number.isSafeInteger(messageId)) {
         throw new Error('Telegram replacement message id is invalid.');
       }
-      deliveries.bindMessage(
-        `${chatId}:${replaceMessageId}`,
-        revision.callbackKey,
-      );
       await api.editMessageText(chatId, messageId, text, {
         parse_mode: 'HTML',
         reply_markup: replyMarkup,
