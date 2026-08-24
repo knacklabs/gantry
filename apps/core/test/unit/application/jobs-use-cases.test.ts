@@ -2318,7 +2318,7 @@ describe('job application use cases', () => {
     expect(triggerQueue.enqueue).toHaveBeenCalledWith('job-1', 'trigger-1');
   });
 
-  it('uses persisted ready state without repeating trigger-time readiness reads', async () => {
+  it('enqueues active jobs without repeating worker-owned readiness reads', async () => {
     const control = {
       getAppSessionById: vi.fn(async () => ({
         sessionId: 'session-1',
@@ -2348,12 +2348,7 @@ describe('job application use cases', () => {
       ops: makeOps(
         makeJob({
           session_id: 'session-1',
-          setup_state: {
-            state: 'ready',
-            checked_at: '2026-08-19T00:00:00.000Z',
-            fingerprint: 'ready-fingerprint',
-            blockers: [],
-          },
+          setup_state: undefined,
         }),
       ) as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
