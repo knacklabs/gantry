@@ -134,13 +134,19 @@ jobs:
 
       - name: Install Session Manager plugin
         run: |
-          if ! command -v session-manager-plugin >/dev/null 2>&1; then
+          if command -v session-manager-plugin >/dev/null 2>&1; then
+            session-manager-plugin --version
+          else
             curl --fail --silent --show-error --location \
-              --output /tmp/session-manager-plugin.deb \
+              --output "$RUNNER_TEMP/session-manager-plugin.deb" \
               https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
-            sudo dpkg --install /tmp/session-manager-plugin.deb
+            plugin_root="$RUNNER_TEMP/session-manager-plugin"
+            dpkg-deb --extract "$RUNNER_TEMP/session-manager-plugin.deb" "$plugin_root"
+            plugin_dir="$plugin_root/usr/local/sessionmanagerplugin/bin"
+            test -x "$plugin_dir/session-manager-plugin"
+            echo "$plugin_dir" >> "$GITHUB_PATH"
+            "$plugin_dir/session-manager-plugin" --version
           fi
-          session-manager-plugin --version
 
       - name: Check Gantry health and trigger source sync from ATS
         env:
