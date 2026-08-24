@@ -2,6 +2,7 @@ import { createRoute } from '@tanstack/react-router';
 
 import {
   LocalAuthorizationPage,
+  LocalReauthorizationPage,
   HostedSignInPage,
   NoAccessPage,
   CallbackFailurePage,
@@ -17,6 +18,11 @@ export const authRoutes = [
     getParentRoute: () => rootRoute,
     path: 'auth/local',
     component: LocalAuthorizationPage,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: 'auth/local/reauthorize',
+    component: LocalReauthorizationPage,
   }),
   createRoute({
     getParentRoute: () => rootRoute,
