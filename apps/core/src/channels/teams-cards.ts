@@ -16,7 +16,6 @@ import type {
 } from '../domain/observer-digest-view.js';
 import {
   morePendingReviewsLabel,
-  type ReviewMessageSide,
   type ReviewMessageView,
 } from '../domain/review-message-view.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
@@ -37,6 +36,7 @@ import {
   permissionButtonLabel,
   permissionDecisionOptions,
 } from './permission-interaction.js';
+import { escapeTeamsCardText, teamsSideFact } from './teams-cards-helpers.js';
 
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =
   'application/vnd.microsoft.card.adaptive';
@@ -448,34 +448,6 @@ export function buildTeamsUserQuestionReceiptCard(
 // A memory-review outcome (receipt) is just a text-only card with no actions —
 // identical in shape to the user-question receipt, so reuse it.
 export const buildTeamsReviewReceiptCard = buildTeamsUserQuestionReceiptCard;
-
-/**
- * Neutralize dynamic snapshot text before embedding it in an Adaptive Card
- * TextBlock (Teams renders a markdown subset). Backslash-escaping the link
- * syntax `[ ] ( )`, the code backtick, and the angle brackets means captured
- * memory can't inject a live link, code span, or a `<at>` mention. Mirrors the
- * intent of the Slack mrkdwn / Telegram HTML escaping in T5. Emphasis chars
- * (`_`/`*`) are intentionally left alone so common keys like `coffee_order`
- * render cleanly — they carry no injection risk.
- */
-function escapeTeamsCardText(value: string): string {
-  return value.replace(/[\\<>[\]()`]/g, '\\$&');
-}
-
-function teamsSideFact(side: ReviewMessageSide): {
-  title: string;
-  value: string;
-} {
-  const meta = [side.source, side.date]
-    .filter(Boolean)
-    .map((part) => escapeTeamsCardText(part as string))
-    .join(' · ');
-  const value = `"${escapeTeamsCardText(side.value)}"`;
-  return {
-    title: escapeTeamsCardText(side.label),
-    value: meta ? `${value} — ${meta}` : value,
-  };
-}
 
 /**
  * Compact-structured Adaptive Card for a memory-review message. Mirrors the
