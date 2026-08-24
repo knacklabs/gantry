@@ -409,7 +409,9 @@ export async function* query({ prompt, options }) {
   }
 
   if (process.env.TEST_AUTONOMOUS_PERMISSION_REQUEST) {
-    call.permissionDecision = await options.canUseTool(
+    call.permissionDecision = await canUseToolThroughHost(
+      call,
+      options,
       process.env.TEST_PERMISSION_TOOL_NAME || 'Bash',
       { cmd: 'npm test', apiToken: 'secret-token' },
       {
@@ -2787,7 +2789,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs do not treat typed local CLI runtime access as worker-local network authority',
+    'scheduled jobs ask the host for typed local CLI network authority',
     async () => {
       const fixture = createRunnerFixture();
       const credentialDir = path.join(fixture.root, 'credentials', 'acme');
@@ -2822,7 +2824,7 @@ describe('agent-runner IPC lifecycle', () => {
         {
           GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS: '5000',
           TEST_HOST_PERMISSION_DECISION: 'approve',
-          TEST_HOST_PERMISSION_RESPONSE_COUNT: '1',
+          TEST_HOST_PERMISSION_RESPONSE_COUNT: '2',
           TEST_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_SDK_NETWORK_HOST: 'oauth2.googleapis.com',
@@ -2841,26 +2843,24 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.additionalDirectories).toEqual(
         expect.arrayContaining([expectedCredentialDir]),
       );
-      // The pre-COORD worker-local runtime binding no longer grants network
-      // authority. This scheduled network prompt is denied unless the host
-      // coordinator gains a durable semantic-capability decision path.
+      // The pre-COORD worker-local runtime binding does not grant network
+      // authority. The second prompt waits for the host and resumes only after
+      // that explicit approval.
       expect(call?.permissionDecisions?.network).toEqual(
         expect.objectContaining({
-          behavior: 'deny',
-          message: expect.stringContaining(
-            'Tool not on autonomous run allowlist: SandboxNetworkAccess',
-          ),
+          behavior: 'allow',
         }),
       );
       expect(call?.permissionRequests).toEqual([
         expect.objectContaining({ toolName: 'RunCommand' }),
+        expect.objectContaining({ toolName: 'SandboxNetworkAccess' }),
       ]);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
-    'denies parentless scheduled SDK network prompts without host capability authority',
+    'asks the host for parentless scheduled SDK network prompts',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2874,7 +2874,7 @@ describe('agent-runner IPC lifecycle', () => {
         {
           GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS: '5000',
           TEST_HOST_PERMISSION_DECISION: 'approve',
-          TEST_HOST_PERMISSION_RESPONSE_COUNT: '1',
+          TEST_HOST_PERMISSION_RESPONSE_COUNT: '2',
           TEST_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_TOOL_USE_CMD:
@@ -2892,17 +2892,14 @@ describe('agent-runner IPC lifecycle', () => {
       );
       expect(call?.permissionDecisions?.network).toEqual(
         expect.objectContaining({
-          behavior: 'deny',
-          message: expect.stringContaining(
-            'Tool not on autonomous run allowlist: SandboxNetworkAccess',
-          ),
+          behavior: 'allow',
         }),
       );
-      // The pre-COORD worker-local "without host binding" allow was dropped.
-      // The authenticated host approved the command, while the unprovisioned
-      // network request remains denied instead of being allowed in the worker.
+      // The worker cannot auto-allow this network request; the second host
+      // approval is what resumes it.
       expect(call?.permissionRequests).toEqual([
         expect.objectContaining({ toolName: 'RunCommand' }),
+        expect.objectContaining({ toolName: 'SandboxNetworkAccess' }),
       ]);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
@@ -3004,7 +3001,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs consult the host then terminate an ungranted (but grantable) facade tool',
+    'scheduled jobs request approval and resume an ungranted grantable facade tool',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -3017,6 +3014,7 @@ describe('agent-runner IPC lifecycle', () => {
         }),
         {
           TEST_AUTONOMOUS_PERMISSION_REQUEST: '1',
+          TEST_HOST_PERMISSION_DECISION: 'approve',
           TEST_PERMISSION_TOOL_NAME: 'WebSearch',
           TEST_EXIT_AFTER_QUERY: '1',
         },
@@ -3026,21 +3024,15 @@ describe('agent-runner IPC lifecycle', () => {
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.permissionDecision).toEqual(
         expect.objectContaining({
-          behavior: 'deny',
-          interrupt: true,
+          behavior: 'allow',
         }),
       );
-      // PREFLIGHT-1 Part A: WebSearch is a builtin facade tool, so its recovery is
-      // now a grantable request_access (kind:tool) rather than the non-grantable
-      // "exact tool grants are not accepted" fallback. The fixture doesn't grant
-      // it, so the host still denies and the scheduled run still terminates — but
-      // the owner now gets a one-tap grant on the setup card.
-      expect(String(call?.permissionDecision?.message)).toContain('WebSearch');
-      expect(String(call?.permissionDecision?.message)).toContain(
-        'request_access',
-      );
-      // The scheduled worker-local miss consults the host reviewed-rule decision
-      // before the deny becomes terminal, so a permission request is written.
+      // An autonomous grant miss follows the normal approval wait. The fixture
+      // supplies the host approval so the runner proves it resumes instead of
+      // treating the miss as a terminal denial.
+      expect(call?.permissionRequests).toEqual([
+        expect.objectContaining({ toolName: 'WebSearch' }),
+      ]);
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
       ).toBe(true);
@@ -3053,9 +3045,8 @@ describe('agent-runner IPC lifecycle', () => {
           expect.objectContaining({
             eventType: 'tool.activity',
             payload: expect.objectContaining({
-              phase: 'permission_denied',
+              phase: 'permission_allowed',
               tool: 'WebSearch',
-              action: expect.objectContaining({ kind: 'approve_grant' }),
             }),
           }),
         ]),

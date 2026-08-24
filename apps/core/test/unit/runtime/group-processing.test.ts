@@ -149,6 +149,7 @@ const EMPTY_ACCESS_FINGERPRINT = buildProviderSessionAccessFingerprint({
   capabilityCatalogDigest: stableSha256Json({
     schemaVersion: 1,
     readyActions: [],
+    requestableActions: [],
     installedSkills: [],
     connectedMcpSources: [],
   }),
