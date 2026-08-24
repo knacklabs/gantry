@@ -836,4 +836,55 @@ describe('connectProviderAccountChannels', () => {
       'Provider Account connect timed out; skipping account so runtime startup can continue',
     );
   });
+
+  it('skips a provider account whose creation hangs and continues startup', async () => {
+    const healthyChannel = channel();
+    const create = vi
+      .fn<Provider['create']>()
+      .mockImplementationOnce(() => new Promise(() => undefined))
+      .mockResolvedValueOnce(healthyChannel);
+    const connectedChannels: Parameters<
+      typeof connectProviderAccountChannels
+    >[0]['connectedChannels'] = [];
+    const warn = vi.fn();
+
+    await connectProviderAccountChannels({
+      provider: provider(create),
+      appId: 'app-one',
+      runtimeSettings: {
+        providerAccounts: {
+          slack_one: {
+            provider: 'slack',
+            agentId: 'agent:one',
+            runtimeSecretRefs: { app_token: 'one', bot_token: 'one' },
+          },
+          slack_two: {
+            provider: 'slack',
+            agentId: 'agent:two',
+            runtimeSecretRefs: { app_token: 'two', bot_token: 'two' },
+          },
+        },
+        runtime: {},
+      },
+      channelOpts: channelOpts(),
+      inboundEnabled: true,
+      connectedChannels,
+      connectedChannelLeases: [],
+      inboundLeasePrefix: 'runtime:provider-inbound',
+      logger: { info: vi.fn(), warn },
+      connectTimeoutMs: 5,
+    });
+
+    expect(healthyChannel.connect).toHaveBeenCalledTimes(1);
+    expect(connectedChannels).toHaveLength(1);
+    expect(connectedChannels[0]?.providerAccountId).toBe('slack_two');
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'slack',
+        providerAccountId: 'slack_one',
+        timeoutMs: 5,
+      }),
+      'Provider Account creation timed out; skipping account so runtime startup can continue',
+    );
+  });
 });

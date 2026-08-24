@@ -141,80 +141,109 @@ export async function connectProviderAccountChannels(input: {
       inboundKey && inboundAccountIdsByKey.get(inboundKey)?.length
         ? inboundAccountIdsByKey.get(inboundKey)!
         : [providerAccountId];
-    const channel = await input.provider.create({
-      ...input.channelOpts,
-      appId: input.appId,
-      providerAccountId,
-      inboundProviderAccountIds,
-      agentId,
-      onChatMetadata: (
-        conversationJid,
-        timestamp,
-        name,
-        channel,
-        isGroup,
-        options,
-      ) =>
-        options?.providerAccountId &&
-        options.providerAccountId !== providerAccountId
-          ? input.channelOpts.onChatMetadata(
+    let channel: ChannelAdapter | null;
+    try {
+      channel = await withTimeout(
+        Promise.resolve(
+          input.provider.create({
+            ...input.channelOpts,
+            appId: input.appId,
+            providerAccountId,
+            inboundProviderAccountIds,
+            agentId,
+            onChatMetadata: (
               conversationJid,
               timestamp,
               name,
               channel,
               isGroup,
               options,
-            )
-          : Promise.all(
-              inboundProviderAccountIds.map((targetProviderAccountId) =>
-                input.channelOpts.onChatMetadata(
-                  conversationJid,
-                  timestamp,
-                  name,
-                  channel,
-                  isGroup,
-                  {
-                    ...options,
-                    providerAccountId: targetProviderAccountId,
-                  },
-                ),
-              ),
-            ).then(() => undefined),
-      onMessage: (chatJid, msg) =>
-        msg.providerAccountId
-          ? input.channelOpts.onMessage(chatJid, msg)
-          : Promise.allSettled(
-              inboundProviderAccountIds.map((targetProviderAccountId) =>
-                input.channelOpts.onMessage(chatJid, {
-                  ...msg,
-                  providerAccountId: targetProviderAccountId,
-                  agentId: agentIdForFolder(
-                    accounts.find(([id]) => id === targetProviderAccountId)?.[1]
-                      .agentId ?? agentId,
-                  ),
-                }),
-              ),
-            ).then((results) => {
-              const failures = results.flatMap((result) =>
-                result.status === 'rejected' ? [result.reason] : [],
-              );
-              const stored = results.some(
-                (result) =>
-                  result.status === 'fulfilled' && result.value === 'stored',
-              );
-              if (failures.length > 0) {
-                throw new InboundMessageDeliveryError(failures, stored);
-              }
-              return stored ? 'stored' : 'dropped';
-            }),
-      onMessageAttachmentsDeleted: input.channelOpts.onMessageAttachmentsDeleted
-        ? (event) =>
-            input.channelOpts.onMessageAttachmentsDeleted!({
-              ...event,
-              providerAccountIds: inboundProviderAccountIds,
-            })
-        : undefined,
-    });
+            ) =>
+              options?.providerAccountId &&
+              options.providerAccountId !== providerAccountId
+                ? input.channelOpts.onChatMetadata(
+                    conversationJid,
+                    timestamp,
+                    name,
+                    channel,
+                    isGroup,
+                    options,
+                  )
+                : Promise.all(
+                    inboundProviderAccountIds.map((targetProviderAccountId) =>
+                      input.channelOpts.onChatMetadata(
+                        conversationJid,
+                        timestamp,
+                        name,
+                        channel,
+                        isGroup,
+                        {
+                          ...options,
+                          providerAccountId: targetProviderAccountId,
+                        },
+                      ),
+                    ),
+                  ).then(() => undefined),
+            onMessage: (chatJid, msg) =>
+              msg.providerAccountId
+                ? input.channelOpts.onMessage(chatJid, msg)
+                : Promise.allSettled(
+                    inboundProviderAccountIds.map((targetProviderAccountId) =>
+                      input.channelOpts.onMessage(chatJid, {
+                        ...msg,
+                        providerAccountId: targetProviderAccountId,
+                        agentId: agentIdForFolder(
+                          accounts.find(
+                            ([id]) => id === targetProviderAccountId,
+                          )?.[1].agentId ?? agentId,
+                        ),
+                      }),
+                    ),
+                  ).then((results) => {
+                    const failures = results.flatMap((result) =>
+                      result.status === 'rejected' ? [result.reason] : [],
+                    );
+                    const stored = results.some(
+                      (result) =>
+                        result.status === 'fulfilled' &&
+                        result.value === 'stored',
+                    );
+                    if (failures.length > 0) {
+                      throw new InboundMessageDeliveryError(failures, stored);
+                    }
+                    return stored ? 'stored' : 'dropped';
+                  }),
+            onMessageAttachmentsDeleted: input.channelOpts
+              .onMessageAttachmentsDeleted
+              ? (event) =>
+                  input.channelOpts.onMessageAttachmentsDeleted!({
+                    ...event,
+                    providerAccountIds: inboundProviderAccountIds,
+                  })
+              : undefined,
+          }),
+        ),
+        connectTimeoutMs,
+        () =>
+          new ProviderAccountConnectTimeoutError(
+            input.provider.id,
+            providerAccountId,
+            connectTimeoutMs,
+          ),
+      );
+    } catch (err) {
+      if (!(err instanceof ProviderAccountConnectTimeoutError)) throw err;
+      input.logger.warn(
+        {
+          err,
+          channel: input.provider.id,
+          providerAccountId,
+          timeoutMs: connectTimeoutMs,
+        },
+        'Provider Account creation timed out; skipping account so runtime startup can continue',
+      );
+      continue;
+    }
     if (!channel) {
       if (
         input.provider.controlCapabilityFlags?.includes('runtime-placeholder')
