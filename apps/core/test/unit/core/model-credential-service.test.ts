@@ -91,6 +91,18 @@ class InMemoryModelCredentialRepository implements ModelCredentialRepository {
     const { payload: _payload, ...metadata } = row;
     return metadata;
   }
+
+  async deleteModelCredential(input: {
+    appId: ModelCredentialMetadata['appId'];
+    providerId: ModelCredentialProvider;
+  }): Promise<ModelCredentialMetadata | null> {
+    const key = `${input.appId}:${input.providerId}`;
+    const existing = this.rows.get(key);
+    if (!existing) return null;
+    this.rows.delete(key);
+    const { payload: _payload, ...metadata } = existing;
+    return metadata;
+  }
 }
 
 describe('ModelCredentialService', () => {
@@ -202,6 +214,33 @@ describe('ModelCredentialService', () => {
     // Disabled credentials do not count as configured.
     expect(configured.has('cerebras')).toBe(false);
     expect(configured.has('together')).toBe(false);
+  });
+
+  it('permanently removes a stored credential while retaining redacted audit metadata', async () => {
+    const audit = vi.fn(async () => undefined);
+    const service = new ModelCredentialService(
+      new InMemoryModelCredentialRepository(),
+      audit,
+    );
+    await service.set({
+      appId,
+      providerId: 'anthropic',
+      authMode: 'api_key',
+      payload: { apiKey: 'sk-ant-test' },
+    });
+
+    await service.remove({ appId, providerId: 'anthropic', actor: 'owner' });
+
+    expect(
+      await service.getActiveCredential({ appId, providerId: 'anthropic' }),
+    ).toBeNull();
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'credential.model.removed',
+        payload: expect.objectContaining({ providerId: 'anthropic' }),
+      }),
+    );
+    expect(JSON.stringify(audit.mock.calls)).not.toContain('sk-ant-test');
   });
 
   it('rejects unsupported providers and empty values', async () => {

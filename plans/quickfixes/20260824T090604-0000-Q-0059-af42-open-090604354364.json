@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0059-af42",
+  "profile": "quickfix",
+  "reason": "Clarify Model Providers statuses, actions, and accessible status-pills",
+  "started_at": "2026-08-24T09:06:04+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

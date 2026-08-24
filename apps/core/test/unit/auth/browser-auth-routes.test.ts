@@ -25,11 +25,21 @@ it('browser authentication routes > keeps browser protocol routes separate and r
     path.join(repoRoot, 'apps/core/src/control/server/index.ts'),
     'utf8',
   );
+  const modelProviders = fs.readFileSync(
+    path.join(
+      repoRoot,
+      'apps/core/src/control/server/routes/browser-model-providers.ts',
+    ),
+    'utf8',
+  );
 
   expect(source).toContain("pathname === '/auth/local/authorize'");
   expect(source).toContain("pathname === '/auth/oidc/callback'");
   expect(source).toContain("pathname === '/auth/invitations/start'");
   expect(source).toContain("pathname === '/ui/api/auth/events'");
+  expect(source).toContain("pathname === '/ui/api/auth/session'");
+  expect(source).toContain('sendJson(res, 401, { mode });');
+  expect(source).toContain('absoluteExpiresAt: session.absoluteExpiresAt');
   expect(source).toContain('consumeLocalAuthorizationCode');
   expect(source).toContain('consumeOidcTransaction');
   expect(source).toContain('oidcStateMatches(');
@@ -62,6 +72,15 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   expect(server.indexOf("if (routeProfile === 'ops')")).toBeLessThan(
     server.indexOf('browserRequestHasBearer(req)'),
   );
+  expect(server.indexOf('browserRequestHasBearer(req)')).toBeLessThan(
+    server.indexOf('handleBrowserModelProviderRoutes('),
+  );
+  expect(modelProviders).toContain("'credentials:read'");
+  expect(modelProviders).toContain("'credentials:admin'");
+  expect(modelProviders).toContain('requireBrowserMutationSession({');
+  expect(modelProviders).toContain('isRecentlyReauthenticated(');
+  expect(modelProviders).toContain('configuredProviderIds: new Set(');
+  expect(modelProviders).not.toContain('message: result.message');
   expect(source).toContain(
     'This authorization link can only be used on this Gantry host.',
   );

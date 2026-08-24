@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 
 it('keeps the approved public copy and removes fragment credentials', () => {
-  const source = readFileSync('src/features/auth/auth-pages.tsx', 'utf8');
+  const source = [
+    'auth-pages.tsx',
+    'auth-card.tsx',
+    'google-sign-in-button.tsx',
+  ]
+    .map((file) => readFileSync(`src/features/auth/${file}`, 'utf8'))
+    .join('\n');
   const server = readFileSync(
     '../core/src/control/server/routes/browser-auth.ts',
     'utf8',
@@ -47,16 +53,28 @@ it('keeps the approved public copy and removes fragment credentials', () => {
   expect(source).toContain('Preparing your console');
   expect(source).toContain('Checking your session.');
   expect(rootRoute).toContain('beforeLoad: async');
-  expect(rootRoute).toContain("throw redirect({ to: '/auth/sign-in' })");
+  expect(rootRoute).toContain(
+    "bootstrap.mode === 'local' ? '/ui/auth/local' : '/ui/auth/sign-in'",
+  );
+  expect(rootRoute).toContain('throw redirect({ href: target.toString() })');
+  expect(rootRoute).toContain('remainingMs > 0 && remainingMs <= 60 * 1000');
+  expect(rootRoute).toContain("'/ui/auth/local/reauthorize'");
+  expect(source).toContain('Reauthorize this browser');
+  expect(source).toContain('requestLocalAuthorizationUrl');
   expect(rootRoute).toContain('pendingComponent: AuthLoadingPage');
   expect(styles).toContain('minmax(min(100%, 30rem), 1fr)');
 });
 
 it('keeps access changes explicit and restores focus to receipts', () => {
-  const source = readFileSync(
-    'src/features/auth/authentication-access-route.tsx',
-    'utf8',
-  );
+  const source = [
+    'authentication-access-route.tsx',
+    'authentication-access-panels.tsx',
+    'browser-session-list.tsx',
+    'console-access-panel.tsx',
+    'use-authentication-access-actions.ts',
+  ]
+    .map((file) => readFileSync(`src/features/auth/${file}`, 'utf8'))
+    .join('\n');
   const server = readFileSync(
     '../core/src/control/server/routes/browser-auth.ts',
     'utf8',
