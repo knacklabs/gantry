@@ -109,6 +109,8 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     try {
       const numericId = jid.replace(/^tg:/, '');
       const sendOptions = telegramThreadOptionsFromString(options.threadId);
+      // Zero-action affordances are the retire/replace revisions: they edit
+      // the existing card into a buttonless notice via the generic path.
       if (
         options.actionAffordances?.some(
           (action) => action.kind === 'job_permission_decision',
@@ -178,8 +180,10 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     return deliveries.serialize(revision.callbackKey, async () => {
       const settled = deliveries.settledMessageId(revision);
       if (settled) return delivered(settled);
+      // The card this instance already sent is authoritative; the caller's
+      // persisted id only recovers a card sent before a restart.
       const replaceMessageId =
-        options.replaceMessageId ?? deliveries.previousMessageId(revision);
+        deliveries.previousMessageId(revision) ?? options.replaceMessageId;
       if (replaceMessageId) {
         const messageId = Number.parseInt(replaceMessageId, 10);
         if (!Number.isSafeInteger(messageId)) {
