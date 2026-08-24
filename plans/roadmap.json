@@ -1326,11 +1326,14 @@
         "The accessible Configure UI supports add, manage, disable, and explicit verification with source-imported assets."
       ],
       "order": 66,
-      "status": "pending",
+      "status": "done",
       "epic": "web-authentication",
       "skill": "fullstack",
       "depends_on": [],
-      "spec": "docs/specs/model-providers-web-ui.md"
+      "spec": "docs/specs/model-providers-web-ui.md",
+      "completed_at": "2026-08-24T08:02:50+00:00",
+      "history": ".factory/stories/WEB-PROVIDERS-1/",
+      "outcome": "Operators can now view the runtime-derived model-provider inventory, search and filter it, safely manage credentials from the web console, verify readiness, and reauthorize local browser sessions without returning to the CLI."
     }
   ],
   "epics": [
@@ -1427,5 +1430,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-22T09:21:01+00:00"
+  "updated_at": "2026-08-24T08:02:50+00:00"
 }
