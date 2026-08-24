@@ -16,6 +16,11 @@ on:
         required: false
         default: '1'
         type: string
+      backend_smoke_only:
+        description: Test the deployed ATS-to-Gantry source-sync path without deploying
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - develop
@@ -33,6 +38,7 @@ env:
 
 jobs:
   deploy:
+    if: ${{ !inputs.backend_smoke_only }}
     name: Deploy to gantry-reagent Prod
     runs-on: self-hosted
     environment: ATS Prod
@@ -111,3 +117,38 @@ jobs:
           wait-for-service-stability: true
           wait-max-delay-seconds: 15
           wait-for-minutes: 30
+
+  backend-smoke:
+    if: ${{ inputs.backend_smoke_only }}
+    name: Test ATS to Gantry source sync
+    runs-on: self-hosted
+    environment: ATS Prod
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check Gantry health and trigger source sync from ATS
+        env:
+          ATS_SERVICE: kl-aws-aps1-prod-ecs-ats-frontend-mcp-service
+          ATS_CONTAINER: kl-aws-aps1-prod-task_definition-ats-frontend-mcp-container
+        run: |
+          task_arn="$(aws ecs list-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --service-name "$ATS_SERVICE" \
+            --desired-status RUNNING \
+            --query 'taskArns[0]' \
+            --output text)"
+          test -n "$task_arn"
+          test "$task_arn" != "None"
+
+          aws ecs execute-command \
+            --cluster "$ECS_CLUSTER" \
+            --task "$task_arn" \
+            --container "$ATS_CONTAINER" \
+            --interactive \
+            --command "node -e 'const base=process.env.GANTRY_CONTROL_URL?.replace(/\\/+$/,\"\"); const key=process.env.GANTRY_CONTROL_API_KEY; const job=process.env.GANTRY_SOURCE_SYNC_JOB_ID; if(!base||!key||!job) throw new Error(\"ATS Gantry configuration is incomplete\"); (async()=>{const health=await fetch(base+\"/healthz\",{signal:AbortSignal.timeout(10000)}); console.log(\"gantry_health\",health.status); if(!health.ok) process.exit(2); const response=await fetch(base+\"/v1/jobs/\"+encodeURIComponent(job)+\"/trigger\",{method:\"POST\",headers:{authorization:\"Bearer \"+key,\"content-type\":\"application/json\"},body:JSON.stringify({source:\"caw-ats-backend-smoke\"}),signal:AbortSignal.timeout(30000)}); const body=await response.text(); console.log(\"gantry_trigger\",response.status,body.slice(0,1000)); if(response.status!==202&&response.status!==409) process.exit(3)})().catch(error=>{console.error(error.name,error.message);process.exit(1)})'"
