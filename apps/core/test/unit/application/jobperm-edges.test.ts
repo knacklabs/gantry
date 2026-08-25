@@ -1,5 +1,7 @@
 import { expect, it, vi } from 'vitest';
 
+import { jsonbRoundTrip } from './jsonb-round-trip.js';
+
 const requestPermissionApprovalViaIpc = vi.hoisted(() => vi.fn());
 const requestPermissionApproval = vi.hoisted(() => vi.fn());
 const telegramCardBot = vi.hoisted(() => {
@@ -108,7 +110,7 @@ class JobPermEdgeRepository implements JobPermissionDurabilityRepository {
       this.states.get(key) ?? { card: input.initialCard, needs: [] },
     );
     const mutation = input.mutate(current);
-    this.states.set(key, structuredClone(mutation.state));
+    this.states.set(key, jsonbRoundTrip(mutation.state));
     for (const revision of mutation.state.card.revisions) {
       this.deliveries.set(
         revision.deliveryId,

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import type {
   JobPermissionCardRecord,
   JobPermissionCardRevision,
@@ -137,7 +139,8 @@ export function reviseLivingCard(
   if (
     !options.force &&
     last &&
-    JSON.stringify(last.rows) === JSON.stringify(visible) &&
+    // Persisted rows return from JSONB with normalized key order.
+    isDeepStrictEqual(last.rows, visible) &&
     last.pageStart === pageStart &&
     last.hiddenRowCount === hiddenRowCount
   ) {

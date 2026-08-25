@@ -1,5 +1,7 @@
 import { expect, it } from 'vitest';
 
+import { jsonbRoundTrip } from './jsonb-round-trip.js';
+
 import {
   canonicalJobPermissionNeedIdentity,
   JobPermissionDurabilityService,
@@ -37,7 +39,7 @@ class MemoryJobPermissionRepository implements JobPermissionDurabilityRepository
       this.states.get(key) ?? { card: input.initialCard, needs: [] },
     );
     const mutation = input.mutate(current);
-    this.states.set(key, structuredClone(mutation.state));
+    this.states.set(key, jsonbRoundTrip(mutation.state));
     for (const revision of mutation.state.card.revisions) {
       this.deliveries.set(
         revision.deliveryId,
@@ -443,6 +445,22 @@ it('jobperm-1-t2-reconciler-crash-safe', async () => {
     kind: 'cancelled',
     reason: expect.stringContaining('changed after the card was rendered'),
   });
+});
+
+it('q-0074-no-op-revision-after-confirm', async () => {
+  const { repository, service } = createHarness();
+  await attach(service);
+  await confirmLatest(service, repository);
+  await service.reconcile();
+  await service.reconcile();
+
+  const state = await readState(repository);
+  expect(state!.card.revisions).toHaveLength(1);
+  expect(
+    state!.card.revisionDeliveries.filter(
+      (delivery) => delivery.status === 'pending',
+    ),
+  ).toHaveLength(0);
 });
 
 it('jobperm-1-t2-living-card-revision-bound', async () => {
