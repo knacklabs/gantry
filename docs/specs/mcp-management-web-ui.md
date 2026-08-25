@@ -1,7 +1,7 @@
 ---
 slug: mcp-management-web-ui
 title: MCP Management Web UI
-status: draft
+status: confirmed
 saved: 2026-08-24T19:33:34+00:00
 ---
 
@@ -61,6 +61,7 @@ The page manages:
 - agent MCP source bindings and per-agent narrowing;
 - explicit diagnostics;
 - disablement and guided configuration replacement.
+- revalidation and reconnect of a disabled source.
 
 It does not manage semantic capability authoring, raw secrets, agent identities,
 background monitoring, or historical diagnostic results.
@@ -175,6 +176,15 @@ Operators may:
   path without changing the MCP credential mapping;
 - run diagnostics;
 - disable the source.
+
+### Disabled Source Reconnect
+
+`Revalidate & reconnect` is available only for a disabled source. It rechecks
+the stored reviewed definition against current transport, credential-reference,
+tool-scope, public-destination, and egress policy. It does not contact the
+server or discover tools. On success the source becomes active, while every
+previous agent attachment remains disabled and must be attached again
+explicitly. Reconnect never restores semantic capability authority.
 
 An agent binding can narrow but never widen the server definition's reviewed
 tool-name scope. Permission-policy identifiers remain implementation details

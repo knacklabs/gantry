@@ -1345,7 +1345,7 @@
         "Remote and local-process setup expose only supported safe fields and preserve source-versus-capability authority."
       ],
       "order": 67,
-      "status": "pending",
+      "status": "active",
       "epic": "web-authentication",
       "skill": "fullstack",
       "depends_on": [],
@@ -1446,5 +1446,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-24T19:35:11+00:00"
+  "updated_at": "2026-08-25T09:54:35+00:00"
 }
