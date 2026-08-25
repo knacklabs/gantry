@@ -11,6 +11,12 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import type { AgentInput } from './agent-spawn-types.js';
 
+const AMBIENT_NO_REPLY_SYSTEM_DIRECTIVE = [
+  '## Ambient Listening',
+  'This conversation uses ambient listening. Reply when the current message directly addresses you or your intervention is materially useful to the active conversation.',
+  'When the current message does not need your intervention, output exactly <internal>GANTRY_NO_REPLY</internal> and nothing else. Never explain that you are staying silent.',
+].join('\n');
+
 export function resolveSpawnPromptAccessPreset(
   configured: PromptAccessPreset,
   hideAuthorityTools: boolean,
@@ -93,6 +99,14 @@ export async function compileSpawnSystemPrompt(input: {
       { err, agentFolder: input.group.folder },
       'Failed to compile prompt profile; continuing without custom system prompt',
     );
+  }
+  if (
+    input.group.requiresTrigger === false &&
+    !input.agentInput.isScheduledJob
+  ) {
+    return [compiledSystemPrompt, AMBIENT_NO_REPLY_SYSTEM_DIRECTIVE]
+      .filter(Boolean)
+      .join('\n\n');
   }
   return compiledSystemPrompt;
 }

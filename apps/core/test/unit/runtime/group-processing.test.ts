@@ -1526,6 +1526,25 @@ describe('createGroupProcessor', () => {
       );
     });
 
+    it('keeps an ambient intentional no-reply turn completely silent', async () => {
+      const agentOutput: AgentOutput = {
+        status: 'success',
+        result: '<internal>GANTRY_NO_REPLY</internal>',
+      };
+      const { deps, channel } = setupHappyPath({ agentOutput });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(channel.sendMessage).not.toHaveBeenCalled();
+      expect(channel.sendStreamingChunk).not.toHaveBeenCalled();
+      expect(channel.sendProgressUpdate).not.toHaveBeenCalledWith(
+        'group1@g.us',
+        'Done.',
+        expect.anything(),
+      );
+    });
+
     it('calls setTyping true before and false after agent run', async () => {
       const { deps, channel } = setupHappyPath();
 
