@@ -500,10 +500,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         groupName: group.name,
         supportsStreamingChunks,
         allowIntentionalNoReply: group.requiresTrigger === false,
-        // The runner can remain open waiting for more SDK events after it has
-        // already made a final ambient no-reply decision. Close it immediately
-        // so a message queued behind this turn can drain without waiting for
-        // the normal idle timeout.
+        // Release an intentional ambient no-reply without waiting for idle.
         onIntentionalNoReply: () => deps.queue.closeStdin(queueJid),
         buildStreamingOptions,
         buildMessageOptions,
@@ -611,11 +608,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             group.requiresTrigger === false &&
             !outputBuffer.intentionalNoReplyRequested()
           ) {
-            // Ambient turns admit unrelated top-level channel messages while
-            // the SDK runner is still waiting for same-thread steering. Once
-            // a generation has reached its terminal marker, close that idle
-            // runner so queued top-level messages can start their own turns
-            // instead of waiting for the normal idle timeout.
             deps.queue.closeStdin(queueJid);
           }
           if (progressGeneration === markerGeneration)
