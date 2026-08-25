@@ -141,48 +141,50 @@ export function ConnectMcpServerDialog({
             }
             placeholder="github"
           />
-          {kind === 'remote' ? (
-            <>
-              <SelectField
-                label="Protocol"
-                value={transport}
-                onValueChange={setTransport}
-                options={[
-                  { value: 'http', label: 'HTTP' },
-                  { value: 'sse', label: 'SSE' },
-                ]}
-              />
-              <TextField
-                id="mcp-url"
-                label="Server URL"
-                name="url"
-                required
-                defaultValue={replacement?.endpoint}
-                placeholder="https://example.com/mcp"
-              />
-            </>
-          ) : (
-            <>
-              <TextField
-                id="mcp-package"
-                label="npm package (npx)"
-                name="package"
-                required
-                defaultValue={replacement?.args?.[0]}
-                placeholder="@modelcontextprotocol/server-github"
-                hint="Only a safe registry package name is accepted."
-              />
-              <TextField
-                id="mcp-sandbox"
-                label="Sandbox profile"
-                name="sandboxProfileId"
-                required
-                defaultValue={replacement?.sandboxProfileId}
-                placeholder="mcp-stdio"
-                hint="Local-process sources run only with worker agents."
-              />
-            </>
-          )}
+          <div className="contents" key={kind}>
+            {kind === 'remote' ? (
+              <>
+                <SelectField
+                  label="Protocol"
+                  value={transport}
+                  onValueChange={setTransport}
+                  options={[
+                    { value: 'http', label: 'HTTP' },
+                    { value: 'sse', label: 'SSE' },
+                  ]}
+                />
+                <TextField
+                  id="mcp-url"
+                  label="Server URL"
+                  name="url"
+                  required
+                  defaultValue={replacement?.endpoint}
+                  placeholder="https://example.com/mcp"
+                />
+              </>
+            ) : (
+              <>
+                <TextField
+                  id="mcp-package"
+                  label="npm package (npx)"
+                  name="package"
+                  required
+                  defaultValue={replacement?.args?.[0]}
+                  placeholder="@modelcontextprotocol/server-github"
+                  hint="Only a safe registry package name is accepted."
+                />
+                <TextField
+                  id="mcp-sandbox"
+                  label="Sandbox profile"
+                  name="sandboxProfileId"
+                  required
+                  defaultValue={replacement?.sandboxProfileId}
+                  placeholder="mcp-stdio"
+                  hint="Local-process sources run only with worker agents."
+                />
+              </>
+            )}
+          </div>
           <details className="rounded-lg border border-border p-3">
             <summary className="cursor-pointer text-sm font-medium">
               Advanced
