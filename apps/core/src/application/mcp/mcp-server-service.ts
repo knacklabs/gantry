@@ -40,7 +40,6 @@ import {
   type MaterializedMcpCapability,
 } from './mcp-server-materialization.js';
 import { nowIso } from '../../shared/time/datetime.js';
-import { mcpServerDefinitionFingerprint } from './mcp-server-definition-fingerprint.js';
 
 export type { MaterializedMcpCapability } from './mcp-server-materialization.js';
 
@@ -107,10 +106,15 @@ export class McpServerService {
         `MCP server already exists: ${name}`,
       );
     }
+    if (existing) {
+      throw new ApplicationError(
+        'CONFLICT',
+        `MCP server is disabled: ${name}. Revalidate and reconnect it instead.`,
+      );
+    }
 
     const now = nowIso();
-    const serverId =
-      existing?.id ?? (`mcp:${globalThis.crypto.randomUUID()}` as McpServerId);
+    const serverId = `mcp:${globalThis.crypto.randomUUID()}` as McpServerId;
     const definition: McpServerDefinition = {
       id: serverId,
       appId: input.appId,
@@ -129,19 +133,9 @@ export class McpServerService {
       credentialRefs: normalizeCredentialRefs(input.credentialRefs ?? []),
       networkHosts,
       sandboxProfileId: input.sandboxProfileId,
-      createdAt: existing?.createdAt ?? now,
+      createdAt: now,
       updatedAt: now,
     };
-    if (
-      existing &&
-      mcpServerDefinitionFingerprint(existing) !==
-        mcpServerDefinitionFingerprint(definition)
-    ) {
-      throw new ApplicationError(
-        'CONFLICT',
-        `MCP server name ${name} belongs to a different disabled definition. Connect the replacement under a new name.`,
-      );
-    }
     await this.mcpServers.saveServer(definition);
     await this.audit({
       appId: input.appId,
@@ -206,6 +200,91 @@ export class McpServerService {
     return transitioned;
   }
 
+  async reconnectServer(input: {
+    appId: AppId;
+    serverId: McpServerId;
+    reconnectedBy?: string;
+    reason?: string;
+  }): Promise<McpServerDefinition> {
+    const server = await this.requireServer(input.appId, input.serverId);
+    if (isMcpServerActive(server)) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `Only disabled MCP servers can be reconnected: ${server.id}`,
+      );
+    }
+    await this.validateStoredDefinition(server);
+    if (!this.agents) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'MCP server reconnect requires agent inventory.',
+      );
+    }
+
+    // The server remains disabled while every prior attachment is disabled.
+    // A new binding cannot be created until the final guarded transition.
+    const agents = await this.agents.listAgents(input.appId);
+    const bindings = await this.mcpServers.listAgentBindingsForAgents({
+      appId: input.appId,
+      agentIds: agents.map((agent) => agent.id),
+      limitPerAgent: 500,
+    });
+    const now = nowIso();
+    const disabledBindings = [] as AgentMcpServerBinding[];
+    for (const binding of bindings) {
+      if (binding.serverId !== server.id || binding.status !== 'active')
+        continue;
+      const disabled = await this.mcpServers.disableAgentBinding({
+        appId: input.appId,
+        agentId: binding.agentId,
+        serverId: server.id,
+        updatedAt: now,
+      });
+      if (disabled) disabledBindings.push(disabled);
+    }
+    const reconnected: McpServerDefinition = {
+      ...server,
+      status: 'active',
+      disabledBy: undefined,
+      disabledAt: undefined,
+      updatedAt: now,
+    };
+    const transitioned = await this.mcpServers.transitionServerStatus({
+      appId: input.appId,
+      serverId: server.id,
+      expectedStatus: 'disabled',
+      next: reconnected,
+    });
+    if (!transitioned) {
+      throw new ApplicationError(
+        'CONFLICT',
+        `MCP server changed before reconnect completed: ${server.id}`,
+      );
+    }
+    await Promise.all(
+      disabledBindings.map((binding) =>
+        this.audit({
+          appId: input.appId,
+          agentId: binding.agentId,
+          serverId: server.id,
+          bindingId: binding.id,
+          eventType: 'unbind',
+          actorId: input.reconnectedBy,
+          reason: 'MCP source reconnected; explicit reattachment is required.',
+        }),
+      ),
+    );
+    await this.audit({
+      appId: input.appId,
+      serverId: server.id,
+      eventType: 'reconnect',
+      actorId: input.reconnectedBy,
+      reason: input.reason,
+      metadata: { disabledBindingCount: disabledBindings.length },
+    });
+    return transitioned;
+  }
+
   async testServer(input: {
     appId: AppId;
     serverId: McpServerId;
@@ -218,19 +297,7 @@ export class McpServerService {
         `MCP server must be active before testing: ${server.id}`,
       );
     }
-    validateTransportConfig(server.config, {
-      sandboxProfileId: server.sandboxProfileId,
-    });
-    await assertRemoteMcpDestinationPublic(
-      server.config,
-      this.options.lookupHostname,
-      {
-        cache: this.options.dnsValidationCache,
-        lookupTimeoutMs: this.options.dnsLookupTimeoutMs,
-      },
-    );
-    assertNoRawSecretsInMcpConfig(server.config);
-    validateCredentialRefs(server.credentialRefs);
+    await this.validateStoredDefinition(server);
     await this.audit({
       appId: input.appId,
       serverId: server.id,
@@ -241,8 +308,36 @@ export class McpServerService {
     return {
       server,
       ok: true,
-      message: 'MCP server definition is active and safe to materialize.',
+      message:
+        server.transport === 'stdio_template'
+          ? 'Configuration is valid. Local-process execution is not available yet.'
+          : 'Configuration is valid. It did not contact the server or discover tools.',
     };
+  }
+
+  private async validateStoredDefinition(server: McpServerDefinition) {
+    validateTransportConfig(server.config, {
+      sandboxProfileId: server.sandboxProfileId,
+    });
+    normalizeMcpNetworkHosts({
+      serverName: server.name,
+      networkHosts: server.networkHosts,
+      config: server.config,
+    });
+    assertNoRawSecretsInMcpConfig(server.config);
+    validateCredentialRefs(server.credentialRefs);
+    validateToolPatternPolicy({
+      allowedToolPatterns: server.allowedToolPatterns,
+      autoApproveToolPatterns: server.autoApproveToolPatterns,
+    });
+    await assertRemoteMcpDestinationPublic(
+      server.config,
+      this.options.lookupHostname,
+      {
+        cache: this.options.dnsValidationCache,
+        lookupTimeoutMs: this.options.dnsLookupTimeoutMs,
+      },
+    );
   }
 
   async bindToAgent(input: {

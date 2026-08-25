@@ -33,7 +33,10 @@ const navigation = [
   },
   {
     label: 'Configure',
-    items: [{ to: '/providers', label: 'Model providers', icon: PlugZap }],
+    items: [
+      { to: '/providers', label: 'Model providers', icon: PlugZap },
+      { to: '/mcp-servers', label: 'MCP servers', icon: Boxes },
+    ],
   },
   {
     label: 'Administration',

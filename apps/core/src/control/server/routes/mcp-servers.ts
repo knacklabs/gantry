@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   ConnectMcpServerRequestSchema,
   DisableMcpServerRequestSchema,
+  ReconnectMcpServerRequestSchema,
   TestMcpServerRequestSchema,
   UpdateAgentMcpServerBindingRequestSchema,
 } from '@gantry/contracts';
@@ -162,6 +163,48 @@ export async function handleMcpServerRoutes(
       sendJson(res, 200, { server: serverToResponse(server) });
     } catch (error) {
       sendRouteError(res, error, 'MCP server disable failed');
+    }
+    return true;
+  }
+
+  const reconnectMatch = pathname.match(
+    /^\/v1\/mcp-servers\/([^/]+)\/reconnect$/,
+  );
+  if (reconnectMatch && req.method === 'POST') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['mcp:admin']);
+    if (!auth) return true;
+    const parsed = ReconnectMcpServerRequestSchema.safeParse(
+      await readJson(req),
+    );
+    if (!parsed.success) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'Invalid MCP server reconnect request',
+      );
+      return true;
+    }
+    if (parsed.data.appId && parsed.data.appId !== auth.appId) {
+      sendError(
+        res,
+        403,
+        'FORBIDDEN',
+        'API key cannot reconnect MCP servers for this app',
+      );
+      return true;
+    }
+    try {
+      const server = await service().reconnectServer({
+        appId: auth.appId as AppId,
+        serverId: decodeURIComponent(reconnectMatch[1]) as McpServerId,
+        reconnectedBy: parsed.data.reconnectedBy,
+        reason: parsed.data.reason,
+      });
+      await ctx.syncSettingsFromProjection(auth.appId as AppId);
+      sendJson(res, 200, { server: serverToResponse(server) });
+    } catch (error) {
+      sendRouteError(res, error, 'MCP server reconnect failed');
     }
     return true;
   }
