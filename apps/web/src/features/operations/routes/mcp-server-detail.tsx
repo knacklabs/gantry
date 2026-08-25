@@ -183,11 +183,11 @@ export function McpServerDetail({
               <Button onClick={onReplace} size="sm" variant="secondary">
                 Replace configuration
               </Button>
-              <Button
-                onClick={() => void disable()}
-                size="sm"
-                variant="destructive"
-              >
+            <Button
+              onClick={() => void disable()}
+              size="sm"
+              variant="secondary"
+            >
                 Disable server
               </Button>
             </div>
