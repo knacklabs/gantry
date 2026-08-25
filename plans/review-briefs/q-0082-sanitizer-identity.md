@@ -4,6 +4,7 @@ Facts: Q-0081 made the wiring parser require `jobPermissionCard.callbackKey` (24
 
 Contract for this diff:
 - The sanitized card carries `callbackKey` and `revision`, validated to the same shape the wiring accepts; a card missing either is dropped whole (consistent with other malformed cards).
+- `revision` is an unbounded monotonic counter (a live card is at 10,115): validated as a safe integer ≥ 0 with NO upper cap BY DESIGN — do not propose reusing the MAX_PART_COUNT-capped reader.
 - No other sanitizer behavior changes; views not listed are still stripped.
 - The jobperm-edges regression test exercises the payload THROUGH the sanitizer again (it must not bypass it).
 
