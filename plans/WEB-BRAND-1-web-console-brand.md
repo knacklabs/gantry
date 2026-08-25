@@ -26,7 +26,7 @@ configuration, API, schema, persistence, or runtime changes.
 
 ## Technical Approach
 
-Add one transparent public SVG containing exactly three 7 by 7 modules at the
+Add one transparent public SVG containing exactly four 7 by 7 modules at the
 approved coordinates. Add one small internal `GantryMark` component that
 resolves this SVG from `import.meta.env.BASE_URL` and uses it as a
 `currentColor` CSS mask. Replace the two shared badge consumers, preserving the

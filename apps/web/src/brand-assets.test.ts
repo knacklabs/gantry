@@ -12,9 +12,10 @@ it('renders canonical Gantry brand assets', () => {
   const styles = readFileSync('src/styles.css', 'utf8');
 
   expect(mark).toContain('viewBox="0 0 24 24"');
-  expect(mark.match(/<rect /g)).toHaveLength(3);
+  expect(mark.match(/<rect /g)).toHaveLength(4);
   expect(mark).toContain('x="1" y="16" width="7" height="7"');
   expect(mark).toContain('x="8.5" y="8.5" width="7" height="7"');
+  expect(mark).toContain('x="16" y="16" width="7" height="7"');
   expect(mark).toContain('x="16" y="1" width="7" height="7"');
   expect(mark).not.toContain('<text');
   expect(favicon).toContain('#1B1A18');
@@ -28,6 +29,7 @@ it('renders canonical Gantry brand assets', () => {
   expect(component).toContain('maskImage');
   expect(component).toContain('aria-hidden="true"');
   expect(navigation).toContain('<GantryMark className="size-6 text-ink" />');
+  expect(navigation).toContain('font-[Arial,sans-serif]');
   expect(authCard).toContain(
     '<GantryMark className="size-7 text-[#c0985f]" />',
   );

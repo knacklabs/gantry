@@ -18,10 +18,9 @@ clear in browser chrome, auth pages, and the authenticated navigation shell.
 
 ## Behaviour
 
-Use the selected concept 23 as Gantry's canonical browser mark: three ascending
-square modules representing controlled assembly and progression. The mark is a
-transparent 24 by 24 vector with three 7 by 7 modules at `(1,16)`, `(8.5,8.5)`,
-and `(16,1)`.
+Use the selected concept 23 as Gantry's canonical browser mark: four square
+modules in a stepped assembly. The mark is a transparent 24 by 24 vector with
+four 7 by 7 modules at `(1,16)`, `(8.5,8.5)`, `(16,16)`, and `(16,1)`.
 
 The wordmark remains live text. Where the existing `Gantry` or `GANTRY` text is
 present, the mark is decorative and has no separate accessible name.
