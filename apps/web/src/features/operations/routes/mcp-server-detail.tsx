@@ -123,7 +123,7 @@ export function McpServerDetail({
             className={
               server.status === 'active'
                 ? 'text-status-success'
-                : 'text-text-muted'
+                : 'text-text-secondary'
             }
           >
             {server.status === 'active' ? 'Active' : 'Disabled'}
@@ -207,7 +207,7 @@ export function McpServerDetail({
               >
                 <div>
                   <p className="m-0 font-medium">{name}</p>
-                  <p className="m-0 text-xs text-text-muted">
+                  <p className="m-0 text-xs text-text-secondary">
                     {binding.required ? 'Required at startup' : 'Optional'} ·{' '}
                     {binding.allowedToolPatterns.join(', ') ||
                       'Inherits source scope'}
@@ -225,7 +225,7 @@ export function McpServerDetail({
               </li>
             ))}
             {server.bindings.length === 0 ? (
-              <li className="p-4 text-sm text-text-muted">
+              <li className="p-4 text-sm text-text-secondary">
                 No agents are attached.
               </li>
             ) : null}
@@ -280,7 +280,7 @@ export function McpServerDetail({
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-semibold text-text-muted">{label}</dt>
+      <dt className="text-xs font-semibold text-text-secondary">{label}</dt>
       <dd className="m-0 break-words text-text">{value}</dd>
     </div>
   );
@@ -289,7 +289,7 @@ function Definition({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="mb-1 text-xs font-semibold text-text">{label}</p>
-      <p className="m-0 text-xs text-text-muted">{value}</p>
+      <p className="m-0 text-xs text-text-secondary">{value}</p>
     </div>
   );
 }

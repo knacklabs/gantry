@@ -133,7 +133,9 @@ export function McpServersRoute() {
       ) : null}
       {query.isLoading ? (
         <Panel>
-          <p className="p-4 text-sm text-text-muted">Loading MCP servers…</p>
+          <p className="p-4 text-sm text-text-secondary">
+            Loading MCP servers…
+          </p>
         </Panel>
       ) : null}
       {query.isError ? (
@@ -160,13 +162,13 @@ export function McpServersRoute() {
                         className={
                           server.status === 'active'
                             ? 'text-status-success'
-                            : 'text-text-muted'
+                            : 'text-text-secondary'
                         }
                       >
                         {server.status === 'active' ? 'Active' : 'Disabled'}
                       </span>
                     </span>
-                    <span className="text-xs text-text-muted">
+                    <span className="text-xs text-text-secondary">
                       {server.transport === 'stdio_template'
                         ? `Local process${server.templateId ? ` · ${server.templateId}` : ''}`
                         : server.transport.toUpperCase()}{' '}
@@ -177,7 +179,7 @@ export function McpServersRoute() {
                 </li>
               ))}
               {servers.length === 0 ? (
-                <li className="p-4 text-sm text-text-muted">
+                <li className="p-4 text-sm text-text-secondary">
                   No MCP servers match these filters.
                 </li>
               ) : null}
@@ -195,7 +197,7 @@ export function McpServersRoute() {
             />
           ) : (
             <Panel>
-              <p className="p-4 text-sm text-text-muted">
+              <p className="p-4 text-sm text-text-secondary">
                 Select a server to inspect its source definition.
               </p>
             </Panel>
