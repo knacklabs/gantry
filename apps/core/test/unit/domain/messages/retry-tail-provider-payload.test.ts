@@ -334,6 +334,11 @@ describe('sanitizeRetryTailProviderPayload jobPermissionCard passthrough', () =>
     const out = sanitizeRetryTailProviderPayload({ jobPermissionCard });
 
     expect(out?.jobPermissionCard).toEqual(jobPermissionCard);
+    expect(
+      sanitizeRetryTailProviderPayload({
+        jobPermissionCard: { ...jobPermissionCard, revision: 10_115 },
+      })?.jobPermissionCard?.revision,
+    ).toBe(10_115);
   });
 
   it('drops cards without a callbackKey or safe integer revision', () => {
@@ -347,6 +352,11 @@ describe('sanitizeRetryTailProviderPayload jobPermissionCard passthrough', () =>
     expect(
       sanitizeRetryTailProviderPayload({
         jobPermissionCard: { ...jobPermissionCard, revision: 3.5 },
+      })?.jobPermissionCard,
+    ).toBeUndefined();
+    expect(
+      sanitizeRetryTailProviderPayload({
+        jobPermissionCard: { ...jobPermissionCard, revision: -1 },
       })?.jobPermissionCard,
     ).toBeUndefined();
   });

@@ -172,7 +172,7 @@ function readJobPermissionCard(
   }
   const source = value as Record<string, unknown>;
   const callbackKey = readString(source.callbackKey, { maxLength: 24 });
-  const revision = readInt(source.revision);
+  const revision = readRevision(source.revision);
   if (
     !callbackKey ||
     !/^[a-f0-9]{24}$/.test(callbackKey) ||
@@ -425,4 +425,10 @@ function readInt(value: unknown): number | undefined {
   const num = value as number;
   if (num < 0 || num > MAX_PART_COUNT) return undefined;
   return num;
+}
+
+function readRevision(value: unknown): number | undefined {
+  if (!Number.isSafeInteger(value)) return undefined;
+  const revision = value as number;
+  return revision >= 0 ? revision : undefined;
 }
