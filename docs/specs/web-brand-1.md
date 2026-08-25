@@ -25,6 +25,9 @@ four 7 by 7 modules at `(1,16)`, `(8.5,8.5)`, `(16,16)`, and `(16,1)`.
 The wordmark remains live text. Where the existing `Gantry` or `GANTRY` text is
 present, the mark is decorative and has no separate accessible name.
 
+The title-case sidebar wordmark uses Helvetica Neue Regular; the auth lockup
+retains its existing uppercase Spline Sans Mono treatment.
+
 Public brand asset URLs include the concept revision query `?v=23-4` so browser
 caches cannot retain an earlier mark after a visual correction.
 

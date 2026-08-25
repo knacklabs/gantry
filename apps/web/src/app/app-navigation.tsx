@@ -89,7 +89,7 @@ export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <Link
-        className="inline-flex min-h-10 items-center gap-2.5 px-2 font-[Arial,sans-serif] text-[17px] font-normal tracking-[-0.02em] text-text no-underline"
+        className="inline-flex min-h-10 items-center gap-2.5 px-2 font-['Helvetica_Neue',Helvetica,Arial,sans-serif] text-[17px] font-normal tracking-[-0.02em] text-text no-underline"
         to="/overview"
         onClick={onNavigate}
       >
