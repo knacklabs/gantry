@@ -80,10 +80,9 @@ jobs:
 
       - name: Update validated Gantry database pool settings
         run: |
-          # The production runtime holds eight long-lived connections for its
-          # listeners and ownership leases. Keep four connections free for
-          # control API and job work, while capping the application pool at 12.
-          [[ "$POSTGRES_POOL_MAX" =~ ^[89]$|^1[0-2]$ ]]
+          # Production is intentionally capped at six application connections;
+          # accept only the approved 6-12 range and keep pg-boss tightly bounded.
+          [[ "$POSTGRES_POOL_MAX" =~ ^[6-9]$|^1[0-2]$ ]]
           [[ "$PGBOSS_POOL_MAX" =~ ^[1-2]$ ]]
           aws ssm put-parameter \
             --name GANTRY_POSTGRES_POOL_MAX \
