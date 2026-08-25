@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 import { Field, FieldLabel } from '../primitives/field';
 import {
   Select,
@@ -30,18 +32,23 @@ export function SelectField<T extends string>({
   placeholder?: string;
   value: T;
 }) {
+  const id = useId();
   return (
     <Field
       data-disabled={disabled || undefined}
       data-invalid={invalid || undefined}
     >
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Select
         disabled={disabled}
         onValueChange={(next) => onValueChange(next as T)}
         value={value}
       >
-        <SelectTrigger aria-invalid={invalid || undefined} className="w-full">
+        <SelectTrigger
+          aria-invalid={invalid || undefined}
+          className="w-full"
+          id={id}
+        >
           <SelectValue placeholder={placeholder ?? label} />
         </SelectTrigger>
         <SelectContent>
