@@ -278,11 +278,7 @@ export async function sendJobPermCard(
         ...destinationAccount,
         ...(destinationThreadId ? { threadId: destinationThreadId } : {}),
         replaceMessageId: card.providerMessageId,
-        jobPermissionCardRevision: {
-          callbackKey: card.callbackKey,
-          revision: card.revision,
-          operation: card.operation,
-        },
+        // The new card, not this notice, must settle the replacement revision.
         actionAffordances: [],
       },
     });
