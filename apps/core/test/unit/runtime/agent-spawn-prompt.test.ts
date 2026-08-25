@@ -123,6 +123,10 @@ describe('compileSpawnSystemPrompt', () => {
     });
 
     expect(ambient).toContain('<internal>GANTRY_NO_REPLY</internal>');
+    expect(ambient).toContain(
+      'A plain-language greeting or vocative that uses your name or persona',
+    );
+    expect(ambient).toContain('Always reply to such a message.');
     expect(ambient).toContain('Never explain that you are staying silent.');
     expect(triggered).not.toContain('GANTRY_NO_REPLY');
     expect(scheduled).not.toContain('GANTRY_NO_REPLY');
