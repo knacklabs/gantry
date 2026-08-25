@@ -594,6 +594,71 @@ describe('lifecycle retirement', () => {
     ).toHaveLength(1);
   });
 
+  it('retries a failed late-card summary edit against the landed card', async () => {
+    const job = makeJob();
+    let settleRunning!: (landed: boolean) => void;
+    const running = new Promise<boolean>((resolve) => {
+      settleRunning = resolve;
+    });
+    let replaceOnlyAttempts = 0;
+    const sendProgressUpdate = vi.fn(async (_jid, text: string, options) => {
+      if (text.startsWith('Running:')) return running;
+      if (options?.replaceOnly) {
+        replaceOnlyAttempts += 1;
+        if (replaceOnlyAttempts === 1) {
+          throw new Error('late summary edit rejected');
+        }
+        return true;
+      }
+      throw new Error('fresh fallback rejected');
+    });
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+    const capture = lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-failed-late-card-summary-edit',
+    });
+
+    await expect(
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId: 'run-failed-late-card-summary-edit',
+        runStatus: 'completed',
+        summaryMessage: 'Finished.',
+      }),
+    ).resolves.toEqual([expect.objectContaining({ status: 'failed' })]);
+    settleRunning(true);
+    await capture;
+
+    const runningCall = sendProgressUpdate.mock.calls.find(([, text]) =>
+      text.startsWith('Running:'),
+    );
+    await expect(
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId: 'run-failed-late-card-summary-edit',
+        runStatus: 'completed',
+        summaryMessage: 'Finished.',
+      }),
+    ).resolves.toEqual([expect.objectContaining({ status: 'updated' })]);
+
+    expect(
+      sendProgressUpdate.mock.calls.filter(
+        ([, text, options]) => text === 'Finished.' && !options?.replaceOnly,
+      ),
+    ).toHaveLength(1);
+    expect(sendProgressUpdate).toHaveBeenLastCalledWith(
+      'tg:scheduler',
+      'Finished.',
+      expect.objectContaining({
+        done: true,
+        replaceOnly: true,
+        progressCardIdentity: runningCall?.[2]?.progressCardIdentity,
+      }),
+    );
+  });
+
   it('does not fresh-send after the identity path already updated the card', async () => {
     const job = makeJob();
     const sendProgressUpdate = vi.fn(async () => true);

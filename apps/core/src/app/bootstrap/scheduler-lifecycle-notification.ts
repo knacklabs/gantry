@@ -106,6 +106,7 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
                 const status = await lateSummary;
                 if (status === 'failed') {
                   capture.fallbacks.delete(key);
+                  identities.set(key, { progressCardIdentity, generation });
                 }
               }
             }
