@@ -8,6 +8,7 @@ Facts (verified in prod events, run 161e4b5d):
 Contract for this diff:
 - browserUsed counts authoritative browser successes only (never phase 'browser_action', which nothing emits).
 - Rollup: for families browser/capability render authoritative rows only; the count of wrapper failures minus authoritative failures (floored at 0) is rendered as ONE extra failed row per family ("failed before reaching the browser service"). Generic-family tools untouched.
+- Ordering of the synthetic remainder row BY DESIGN: it is a residual, so it sorts by the MAXIMUM seq among the family's wrapper failures (after the concrete failures it was subtracted from). Individual unmatched wrappers cannot be identified without ids — do not propose deriving the position from 'the unmatched ones'.
 - No change to event emission, ids, or the domain parser.
 
 Focus: off-by-one in the remainder, ordering of the synthetic row among failed rows, the ×N label suffix rule (count 1 → no suffix), any path where a non-authoritative row of a gantry-owned family could still leak into the notice, and that the notification view limits/overflow still hold. Ignore style.

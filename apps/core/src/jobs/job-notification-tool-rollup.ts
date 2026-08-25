@@ -138,7 +138,12 @@ export function structuredJobResultFromRecordedActions(
           : 'Capability: failed before dispatch',
       outcome: 'failed',
       count: remainder,
-      firstSeq: wrapperFailures.map(({ seq }) => seq).reduce(minimumSequence),
+      // Residual wrapper failures follow the family's concrete failures.
+      firstSeq: wrapperFailures.reduce<number | undefined>(
+        (maximum, { seq }) =>
+          seq === undefined ? maximum : Math.max(maximum ?? seq, seq),
+        undefined,
+      ),
       details: [],
     });
   }
