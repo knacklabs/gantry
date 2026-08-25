@@ -42,6 +42,7 @@ export async function auditConnect(
         );
   const payload = {
     host: decision.host,
+    ...(decision.port === undefined ? {} : { port: decision.port }),
     principal: state.principal.agentId || state.principal.appId,
     allowed: decision.allowed,
     denied: decision.denied,

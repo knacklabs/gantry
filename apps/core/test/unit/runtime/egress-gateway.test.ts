@@ -424,6 +424,7 @@ describe('egress gateway', () => {
         expect.objectContaining({
           payload: expect.objectContaining({
             host: 'ats.internal',
+            port: target.port,
             allowed: true,
             denied: false,
             reason: 'reviewed_private_host',

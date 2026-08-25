@@ -191,6 +191,15 @@ export async function runDeterministicManagedBrowserActions(input: {
   ].sort();
   const reviewedPrivateNetworkHostMappings =
     await resolveReviewedPrivateNetworkHostMappings(allowedNetworkHosts);
+  logger.info(
+    {
+      runId: input.runId,
+      allowedNetworkHosts,
+      reviewedPrivateNetworkHostMappings:
+        reviewedPrivateNetworkHostMappings.map((mapping) => mapping.authority),
+    },
+    'Prepared deterministic skill network authorities',
+  );
   const gateway = await ensureEgressGateway({
     key: `job-managed-skill:${input.appId}:${input.agentId}:${input.runId}`,
     settings: getRuntimeSettingsForConfig().permissions.egress,
