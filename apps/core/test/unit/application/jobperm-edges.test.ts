@@ -59,6 +59,7 @@ import {
   jobPermissionCardActions,
   jobPermissionCardText,
 } from '@core/domain/job-permission-card-actions.js';
+import { sanitizeRetryTailProviderPayload } from '@core/domain/messages/retry-tail-provider-payload.js';
 import type {
   JobPermissionCardDeliveryOutcome,
   JobPermissionCardRecord,
@@ -954,7 +955,7 @@ it('q-0072-333a edits one Telegram job-permission card across delivered revision
     });
     const actions = jobPermissionAffordances(state!.card.callbackKey, revision);
     const canonicalText = jobPermissionCardText(state!.card.jobId, revision);
-    const payload = {
+    const payload = sanitizeRetryTailProviderPayload({
       jobPermissionCard: {
         callbackKey: state!.card.callbackKey,
         revision: revision.revision,
@@ -965,9 +966,10 @@ it('q-0072-333a edits one Telegram job-permission card across delivered revision
           label: action.label,
         })),
       },
-    };
+    });
+    expect(payload?.jobPermissionCard).toBeDefined();
     const result = await sendJobPermCard(
-      payload as Record<string, unknown>,
+      payload,
       {
         delivery: { id: revision.deliveryId },
         item: { id: revision.deliveryItemId, canonicalText },

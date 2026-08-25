@@ -64,6 +64,8 @@ export interface RetryTailProviderPayload {
 }
 
 export interface SanitizedJobPermissionCard {
+  callbackKey: string;
+  revision: number;
   operation: 'send' | 'edit' | 'retire' | 'replace';
   providerMessageId?: string;
   actions: Array<{ token: string; label: string }>;
@@ -169,6 +171,15 @@ function readJobPermissionCard(
     return undefined;
   }
   const source = value as Record<string, unknown>;
+  const callbackKey = readString(source.callbackKey, { maxLength: 24 });
+  const revision = readInt(source.revision);
+  if (
+    !callbackKey ||
+    !/^[a-f0-9]{24}$/.test(callbackKey) ||
+    revision === undefined
+  ) {
+    return undefined;
+  }
   const operation = source.operation;
   if (!['send', 'edit', 'retire', 'replace'].includes(String(operation))) {
     return undefined;
@@ -197,6 +208,8 @@ function readJobPermissionCard(
     actions.push({ token, label });
   }
   return {
+    callbackKey,
+    revision,
     operation: operation as SanitizedJobPermissionCard['operation'],
     ...(providerMessageId ? { providerMessageId } : {}),
     actions,
