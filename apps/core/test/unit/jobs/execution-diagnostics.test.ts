@@ -42,21 +42,11 @@ describe('job execution diagnostics', () => {
     expect(take([event('e1'), event('e2')])).toEqual([]);
   });
 
-  it('counts only authoritative browser gateway successes', () => {
+  it('counts runner-forwarded browser successes', () => {
     const diagnostics = createJobRunDiagnostics();
 
-    updateDiagnosticsFromRuntimeEvent(
-      diagnostics,
-      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-      {
-        phase: 'success',
-        tool: 'browser_act',
-        family: 'browser',
-        ok: true,
-        authoritative: true,
-        invocationId: 'browser-1',
-      },
-    );
+    // Diagnostics never see the gateway's authoritative rows; the runner
+    // wrapper is the only browser signal that reaches them.
     updateDiagnosticsFromRuntimeEvent(
       diagnostics,
       RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
@@ -68,6 +58,19 @@ describe('job execution diagnostics', () => {
         authoritative: false,
         invocationId: 'toolu_1',
         seq: 3,
+      },
+    );
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+      {
+        phase: 'failure',
+        tool: 'Browser',
+        family: 'browser',
+        ok: false,
+        authoritative: false,
+        invocationId: 'toolu_2',
+        seq: 4,
       },
     );
 

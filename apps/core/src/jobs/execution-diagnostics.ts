@@ -522,12 +522,11 @@ function summarizeStartupDiagnosticValue(
   return undefined;
 }
 
+// Diagnostics only receive runner-forwarded activity; the gateway's
+// authoritative browser events bypass them, so the runner wrapper is the
+// sole browser signal here (no double count is possible).
 function isBrowserToolActivity(payload: Record<string, unknown>): boolean {
-  return (
-    payload.ok === true &&
-    payload.family === 'browser' &&
-    payload.authoritative === true
-  );
+  return payload.ok === true && payload.family === 'browser';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
