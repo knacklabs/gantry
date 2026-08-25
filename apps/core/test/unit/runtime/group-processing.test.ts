@@ -1532,6 +1532,19 @@ describe('createGroupProcessor', () => {
         result: '<internal>GANTRY_NO_REPLY</internal>',
       };
       const { deps, channel } = setupHappyPath({ agentOutput });
+      const runnerClosed = deferred<AgentOutput>();
+      deps.queue.closeStdin = vi.fn(() => runnerClosed.resolve(agentOutput));
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(agentOutput);
+          return runnerClosed.promise;
+        },
+      );
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
@@ -1543,6 +1556,7 @@ describe('createGroupProcessor', () => {
         'Done.',
         expect.anything(),
       );
+      expect(deps.queue.closeStdin).toHaveBeenCalledWith('group1@g.us');
     });
 
     it('calls setTyping true before and false after agent run', async () => {
