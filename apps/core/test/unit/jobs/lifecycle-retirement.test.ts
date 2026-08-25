@@ -307,6 +307,61 @@ describe('lifecycle retirement', () => {
     );
   });
 
+  it('awaits an in-flight terminal fallback before editing a late-landing running card', async () => {
+    const job = makeJob();
+    let settleRunning!: (landed: boolean) => void;
+    const running = new Promise<boolean>((resolve) => {
+      settleRunning = resolve;
+    });
+    let settleFallback!: (landed: boolean) => void;
+    const fallback = new Promise<boolean>((resolve) => {
+      settleFallback = resolve;
+    });
+    const sendProgressUpdate = vi.fn(async (_jid, text: string) => {
+      if (text.startsWith('Running:')) return running;
+      if (text === 'Finished.') return fallback;
+      return true;
+    });
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+    const capture = lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-in-flight-fallback',
+    });
+    const retirement = lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-in-flight-fallback',
+      runStatus: 'completed',
+      summaryMessage: 'Finished.',
+    });
+
+    await vi.waitFor(() =>
+      expect(sendProgressUpdate).toHaveBeenCalledWith(
+        'tg:scheduler',
+        'Finished.',
+        expect.objectContaining({ done: true }),
+      ),
+    );
+    settleRunning(true);
+    await Promise.resolve();
+    settleFallback(true);
+    await Promise.all([capture, retirement]);
+
+    expect(
+      sendProgressUpdate.mock.calls.filter(([, text]) => text === 'Finished.'),
+    ).toHaveLength(1);
+    expect(sendProgressUpdate).toHaveBeenLastCalledWith(
+      'tg:scheduler',
+      'Done.',
+      expect.objectContaining({
+        done: true,
+        replaceOnly: true,
+        progressCardIdentity: expect.stringContaining('scheduler-card:'),
+      }),
+    );
+  });
+
   it('does not resend the terminal fallback on repeated retirement', async () => {
     const job = makeJob();
     const sendProgressUpdate = vi.fn(
@@ -340,6 +395,53 @@ describe('lifecycle retirement', () => {
     ).toHaveLength(1);
     expect(first).toEqual([expect.objectContaining({ status: 'updated' })]);
     expect(second).toEqual([expect.objectContaining({ status: 'updated' })]);
+  });
+
+  it('shares one fallback send across overlapping retirements', async () => {
+    const job = makeJob();
+    let settleFallback!: (landed: boolean) => void;
+    const fallback = new Promise<boolean>((resolve) => {
+      settleFallback = resolve;
+    });
+    const sendProgressUpdate = vi.fn(async (_jid, text: string) =>
+      text.startsWith('Running:') ? false : fallback,
+    );
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+
+    await lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-overlapping-fallback',
+    });
+    const retirements = Promise.all([
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId: 'run-overlapping-fallback',
+        runStatus: 'completed',
+        summaryMessage: 'Finished.',
+      }),
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId: 'run-overlapping-fallback',
+        runStatus: 'completed',
+        summaryMessage: 'Finished.',
+      }),
+    ]);
+
+    await vi.waitFor(() =>
+      expect(
+        sendProgressUpdate.mock.calls.filter(
+          ([, text]) => text === 'Finished.',
+        ),
+      ).toHaveLength(1),
+    );
+    settleFallback(true);
+
+    await expect(retirements).resolves.toEqual([
+      [expect.objectContaining({ status: 'updated' })],
+      [expect.objectContaining({ status: 'updated' })],
+    ]);
   });
 
   it('sends the terminal notice as a fresh message when the start card was refused', async () => {
