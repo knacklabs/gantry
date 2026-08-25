@@ -129,6 +129,16 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ steps.build-image.outputs.image }}
 
+      - name: Require a healthy replacement before stopping production
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --deployment-configuration '{"deploymentCircuitBreaker":{"enable":true,"rollback":true},"maximumPercent":200,"minimumHealthyPercent":100}' \
+            --output json > "$RUNNER_TEMP/gantry-deployment-policy.json"
+          test "$(jq -r '.service.deploymentConfiguration.minimumHealthyPercent' "$RUNNER_TEMP/gantry-deployment-policy.json")" = "100"
+          test "$(jq -r '.service.deploymentConfiguration.maximumPercent' "$RUNNER_TEMP/gantry-deployment-policy.json")" = "200"
+
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
