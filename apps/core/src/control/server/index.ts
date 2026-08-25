@@ -63,6 +63,7 @@ import { handleAgentRoutes } from './routes/agents.js';
 import { handleBrainRoutes } from './routes/brain.js';
 import { handleBrowserAuthRoutes } from './routes/browser-auth.js';
 import { handleBrowserModelProviderRoutes } from './routes/browser-model-providers.js';
+import { handleBrowserMcpServerRoutes } from './routes/browser-mcp-servers.js';
 import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
@@ -187,7 +188,8 @@ function createControlRequestHandler(
       if (
         pathname.startsWith('/auth/') ||
         pathname.startsWith('/ui/api/auth/') ||
-        pathname.startsWith('/ui/api/model-providers')
+        pathname.startsWith('/ui/api/model-providers') ||
+        pathname.startsWith('/ui/api/mcp-servers')
       ) {
         setNoStore(res);
         if (browserRequestHasBearer(req)) {
@@ -200,6 +202,17 @@ function createControlRequestHandler(
           return;
         }
       }
+      if (
+        pathname.startsWith('/ui/api/mcp-servers') &&
+        (await handleBrowserMcpServerRoutes(
+          req,
+          res,
+          ctx,
+          pathname,
+          getRuntimeSettingsForConfig(),
+        ))
+      )
+        return;
       if (
         pathname.startsWith('/ui/api/model-providers') &&
         (await handleBrowserModelProviderRoutes(

@@ -32,6 +32,13 @@ it('browser authentication routes > keeps browser protocol routes separate and r
     ),
     'utf8',
   );
+  const mcpServers = fs.readFileSync(
+    path.join(
+      repoRoot,
+      'apps/core/src/control/server/routes/browser-mcp-servers.ts',
+    ),
+    'utf8',
+  );
 
   expect(source).toContain("pathname === '/auth/local/authorize'");
   expect(source).toContain("pathname === '/auth/oidc/callback'");
@@ -73,8 +80,15 @@ it('browser authentication routes > keeps browser protocol routes separate and r
     server.indexOf('browserRequestHasBearer(req)'),
   );
   expect(server.indexOf('browserRequestHasBearer(req)')).toBeLessThan(
+    server.indexOf('handleBrowserMcpServerRoutes('),
+  );
+  expect(server.indexOf('handleBrowserMcpServerRoutes(')).toBeLessThan(
     server.indexOf('handleBrowserModelProviderRoutes('),
   );
+  expect(mcpServers).toContain("'mcp:read'");
+  expect(mcpServers).toContain("'mcp:admin'");
+  expect(mcpServers).toContain('requireBrowserMutationSession({');
+  expect(mcpServers).toContain('isRecentlyReauthenticated(');
   expect(modelProviders).toContain("'credentials:read'");
   expect(modelProviders).toContain("'credentials:admin'");
   expect(modelProviders).toContain('requireBrowserMutationSession({');
