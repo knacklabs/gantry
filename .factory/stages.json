@@ -1,0 +1,72 @@
+{
+  "issue": "WEB-BRAND-1",
+  "stages": [
+    {
+      "id": "WEB-BRAND-1-1",
+      "title": "Gantry web console brand lockup",
+      "status": "active",
+      "started_at": "2026-08-25T19:16:48+00:00",
+      "base_sha": "a5427fec57f579d8848453c6b57384d63200c671",
+      "dirty_at_start": {
+        ".factory/events/2cefeae5c9564439a3a82695fa6d8375.json": {
+          "digest": "1a3b771d9a098d2f07a272f0b35b9eb340b8efeda3c38e9b788cd59559f3ff75",
+          "git": "? .factory/events/2cefeae5c9564439a3a82695fa6d8375.json\u0000\u0000\u0000"
+        },
+        ".factory/events/8e11d16664584f669c9562433a2a0bb5.json": {
+          "digest": "679e82fa38818885ea7a66a42cdeef28bad94d4fcde44d65972239d53a2e88e3",
+          "git": "? .factory/events/8e11d16664584f669c9562433a2a0bb5.json\u0000\u0000\u0000"
+        },
+        ".factory/events/94922a63df6b4bb6aea259b529f34fe3.json": {
+          "digest": "7fa7f72a9fafb0b06fb8920be1a2574ae999d832a73f3315f164b4642414b918",
+          "git": "? .factory/events/94922a63df6b4bb6aea259b529f34fe3.json\u0000\u0000\u0000"
+        },
+        ".factory/review-briefs/all.md": {
+          "digest": "e2f5965cb458d75df9b36a26874296a96828594958cd2b338312c41e09485742",
+          "git": "1 .M N... 100644 100644 100644 628878a0cc8e4903371ad37ed6bd45fa92b35ce8 628878a0cc8e4903371ad37ed6bd45fa92b35ce8 .factory/review-briefs/all.md\u0000\u0000100644 628878a0cc8e4903371ad37ed6bd45fa92b35ce8 0\t.factory/review-briefs/all.md\u0000\u0000H .factory/review-briefs/all.md\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "015281377d59aa12de4af1eff36dcff584e4e13098af734458ec052f92e62953",
+          "git": "1 .M N... 100644 100644 100644 81ac6860e041afa61d6a730f1db8c23d544ddd0b 81ac6860e041afa61d6a730f1db8c23d544ddd0b .factory/stages.json\u0000\u0000100644 81ac6860e041afa61d6a730f1db8c23d544ddd0b 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        },
+        ".factory/stories/WEB-BRAND-1/decomposition.json": {
+          "digest": "6cb6a182ed7c5bb4a2db234b786aa1c53c501a87912ecc8eee04e84019482eb2",
+          "git": "1 .M N... 100644 100644 100644 8c58049e989df4f81a2457dff4de0c5154586854 8c58049e989df4f81a2457dff4de0c5154586854 .factory/stories/WEB-BRAND-1/decomposition.json\u0000\u0000100644 8c58049e989df4f81a2457dff4de0c5154586854 0\t.factory/stories/WEB-BRAND-1/decomposition.json\u0000\u0000H .factory/stories/WEB-BRAND-1/decomposition.json\u0000"
+        },
+        ".factory/stories/WEB-BRAND-1/grills/plan.json": {
+          "digest": "2b6beb98682d47f8f27b9865d7f2107a9119e4c4952c4bb9edc32ef85aebbb8a",
+          "git": "1 .M N... 100644 100644 100644 32f70cf8fd216564ae7ac57874cb92a8fec5ce8b 32f70cf8fd216564ae7ac57874cb92a8fec5ce8b .factory/stories/WEB-BRAND-1/grills/plan.json\u0000\u0000100644 32f70cf8fd216564ae7ac57874cb92a8fec5ce8b 0\t.factory/stories/WEB-BRAND-1/grills/plan.json\u0000\u0000H .factory/stories/WEB-BRAND-1/grills/plan.json\u0000"
+        },
+        ".factory/stories/WEB-BRAND-1/grills/requirements.json": {
+          "digest": "d474b9d5957f00f4080e9bded0c2ab786c291d600d9aabc7ebea6141e98b7a08",
+          "git": "1 .M N... 100644 100644 100644 97194f70508de92d0049edb2a0bd3d6d2b754156 97194f70508de92d0049edb2a0bd3d6d2b754156 .factory/stories/WEB-BRAND-1/grills/requirements.json\u0000\u0000100644 97194f70508de92d0049edb2a0bd3d6d2b754156 0\t.factory/stories/WEB-BRAND-1/grills/requirements.json\u0000\u0000H .factory/stories/WEB-BRAND-1/grills/requirements.json\u0000"
+        },
+        ".factory/stories/WEB-BRAND-1/grills/tasks/WEB-BRAND-1-1.json": {
+          "digest": "0ecf7992f5d72a7510a43843cb416ba732d0fdf83c999dd04ce84a42ed06e8b7",
+          "git": "1 .M N... 100644 100644 100644 2943240008928265411c3ae43980c5d7deaa7f90 2943240008928265411c3ae43980c5d7deaa7f90 .factory/stories/WEB-BRAND-1/grills/tasks/WEB-BRAND-1-1.json\u0000\u0000100644 2943240008928265411c3ae43980c5d7deaa7f90 0\t.factory/stories/WEB-BRAND-1/grills/tasks/WEB-BRAND-1-1.json\u0000\u0000H .factory/stories/WEB-BRAND-1/grills/tasks/WEB-BRAND-1-1.json\u0000"
+        },
+        ".factory/stories/WEB-BRAND-1/outcome.json": {
+          "digest": "a4b6ccc449aa80048a22950b5e84027d2c3ad418141f10cec774efa38fe043a9",
+          "git": "? .factory/stories/WEB-BRAND-1/outcome.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/WEB-BRAND-1/review-run.json": {
+          "digest": "a1deeaae1f41a318fc39393bc3735ac3d9e83698c85b5d6098ba4cb416f37a63",
+          "git": "? .factory/stories/WEB-BRAND-1/review-run.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/WEB-BRAND-1/task-plans/WEB-BRAND-1-1.md": {
+          "digest": "8c7bfc5f2404dc985ea77eea735a676957201394361fef96d7abcaf0fee5575c",
+          "git": "1 .M N... 100644 100644 100644 de816d15a1b346e1bec68d9a776ac6db65c62ad3 de816d15a1b346e1bec68d9a776ac6db65c62ad3 .factory/stories/WEB-BRAND-1/task-plans/WEB-BRAND-1-1.md\u0000\u0000100644 de816d15a1b346e1bec68d9a776ac6db65c62ad3 0\t.factory/stories/WEB-BRAND-1/task-plans/WEB-BRAND-1-1.md\u0000\u0000H .factory/stories/WEB-BRAND-1/task-plans/WEB-BRAND-1-1.md\u0000"
+        }
+      },
+      "task_sha256": "d6d109a36b7b95d8a315898f5412a4a41fed8dbca1f71d7346bb64e1944df7ef",
+      "local_review_stamp": {
+        "stage_id": "WEB-BRAND-1-1",
+        "task_sha256": "f3af293d2576ecf601e0e55e625754a7c385832ac62a5fab721a22b669cfd2c4",
+        "brief_sha256": "a32ab788c1ffebb5afe252949799e383c9d1de90db411b9bc8575d45864ac28d",
+        "base_sha": "931a8930632c4faa8796b39606a1069bebfb11dd",
+        "product_tree_digest": "1089d4f129e4e7aae7fdce9caabea9f80bae0adc9252b1c675a67cf58054b758",
+        "recorded_at": "2026-08-25T19:45:33+00:00",
+        "generated_by": "autoreview"
+      }
+    }
+  ]
+}

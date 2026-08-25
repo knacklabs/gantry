@@ -4,11 +4,38 @@
   "verdict": "pass",
   "gaps": [],
   "contradictions": [],
-  "resolutions": [],
+  "resolutions": [
+    "The approved contract keeps the mark decorative beside existing live wordmarks and limits the asset pack to the favicon and one touch icon.",
+    "The canonical mark is a transparent vector; the browser icon tiles are the only dark-background variants."
+  ],
+  "inspected_refs": [
+    "docs/specs/web-brand-1.md",
+    "apps/web/src/features/auth/auth-card.tsx",
+    "apps/web/src/app/app-navigation.tsx",
+    "apps/web/index.html"
+  ],
+  "current_flow": "Auth identity is shared by AuthCard, while the authenticated shell owns the sidebar lockup and index.html owns browser identity links.",
+  "criteria_map": {
+    "Auth and sidebar use the canonical accessible visual mark without legacy G badges.": "A shared masked GantryMark replaces both literal badges.",
+    "The built console serves the canonical mark, favicon, and 180px touch icon under /ui/.": "Vite public assets and an asset-focused test prove paths and dimensions."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "One internal GantryMark presentation component"
+  ],
+  "rounds": [],
+  "citations": [
+    {
+      "finding": "Existing live text provides the accessible name, so the mark must remain decorative.",
+      "source": "apps/web/src/features/auth/auth-card.tsx"
+    },
+    {
+      "finding": "The web build is rooted beneath /ui/, so public browser assets must use that deployed base.",
+      "source": "apps/web/vite.config.ts"
+    }
+  ],
   "open_items": [],
-  "summary": "The approved design, current machine-Bearer boundary, identity model, settings revision model, and web shell were reconciled. The specification deliberately keeps browser sessions separate from /v1 Bearer authentication, uses issuer plus subject identity, and limits access roles to Administrator and Viewer. Detailed UI and protocol copy remains in the approved design referenced by the specification.",
-  "questions_asked": 0,
-  "input_sha256": "a381b8fbf38d7fb286e0ee6d92acc3062722c9c17f31dda426f4e48fd991f801",
-  "recorded_at": "2026-08-18T10:44:43+00:00",
-  "commit": "4b4dda2578d47b6d355fe43984776423c45f14ec"
+  "input_sha256": "2dce67a8e3902d1bd58a9a4ddc1a6766d2712a9f593908b2f8656e9ae47c6042",
+  "recorded_at": "2026-08-25T18:09:52+00:00",
+  "commit": "082326001faf7665c6cbf2462082a12b17a9c27d"
 }

@@ -21,6 +21,8 @@ import {
   Workflow,
 } from 'lucide-react';
 
+import { GantryLogo } from '../ui/compositions/gantry-logo';
+
 const navigation = [
   {
     label: 'Operations',
@@ -87,14 +89,12 @@ export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <Link
-        className="inline-flex min-h-10 items-center gap-2.5 px-2 text-[17px] font-semibold text-text no-underline"
+        aria-label="Gantry"
+        className="inline-flex min-h-10 items-center px-2 text-ink no-underline"
         to="/overview"
         onClick={onNavigate}
       >
-        <span className="inline-flex size-6 items-center justify-center rounded-md bg-ink font-mono text-xs font-bold text-ink-on">
-          G
-        </span>
-        <span>Gantry</span>
+        <GantryLogo className="h-6 w-[102px]" />
       </Link>
 
       <div className="mt-6 grid gap-5">
