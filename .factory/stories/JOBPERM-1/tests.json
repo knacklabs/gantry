@@ -1,0 +1,30 @@
+{
+  "commit": "e06dcbe4c7a4904adda16ff4a464b651eef470a8",
+  "automated": {
+    "generated_by": "implementer",
+    "kind": "automated",
+    "status": "passed",
+    "summary": "Full suite 8950/8950 (unit) + integration lane green (DB-gated skips per config); jobperm proof tests 9/9 exact-named JUnit; verify.py full pass (structural + architecture + tests + gates).",
+    "command": "python3 factory/scripts/verify.py",
+    "evidence": [
+      "npm test: 8950 passed (8950)",
+      "check:architecture: passed",
+      "verify.py: Verification passed"
+    ],
+    "blocking_findings": [],
+    "commands_run": [
+      "npm test",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py"
+    ],
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "tests_added_or_updated": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-24T13:07:06+00:00",
+    "commit": "e06dcbe4c7a4904adda16ff4a464b651eef470a8"
+  },
+  "updated_at": "2026-08-24T13:07:06+00:00"
+}

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T15:58:01+00:00", "story": "JOBPERM-1", "detail": "S-0013-1191: Proofs 3/3 orchestrator-run. The four P1 fixes are now CONTRACTUAL (AC5 + plan contract JP1-T2-C5): the task is NOT complete until they are in the code. File:line anchors in the task plan's REVIEW FIX"}

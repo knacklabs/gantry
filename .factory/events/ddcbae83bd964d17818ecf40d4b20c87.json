@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-23T12:04:56+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T1's three literal VITEST_JUNIT=1 npx selector commands are rejected by the managed command policy before execution; equivalent local-binary JUnit selectors pass and the orchestrator must re"}

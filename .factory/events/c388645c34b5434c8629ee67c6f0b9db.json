@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-23T11:28:53+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T1 requires extending apps/core/src/app/bootstrap/setup-pause-permission-wiring.ts past the setupFingerprint short-circuit to persist approved rules to job requirements, but apps/core/src/ap"}

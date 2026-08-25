@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T17:41:11+00:00", "story": "JOBPERM-1", "detail": "S-0017-2512: Task plan now INLINES v9 physics limits + sections B/C/D verbatim. Live scenarios are ORCHESTRATOR-run at closeout \u2014 your deliverable is code + unit/provider tests only."}

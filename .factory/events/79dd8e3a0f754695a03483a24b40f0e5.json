@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-23T11:35:13+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T1 needs at least 10 changed files: eight production seams required by the approved Deletions, the required new jobperm test, and permission-timeout.test.ts to remove its import/assertion of"}

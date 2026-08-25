@@ -1,0 +1,65 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "decision": "keep",
+  "gaps": [],
+  "contradictions": [],
+  "new_abstractions": [
+    "No new abstraction: reuse the existing generic per-leaf Bash matcher (evaluateBashToolUse) and autonomousCompoundBashRecovery; the change is to route RunCommand into them and block pipes."
+  ],
+  "inspected_refs": [
+    "apps/core/src/shared/tool-rule-matcher.ts (evaluateAutonomousToolUse / evaluateBashToolUse per-leaf matching)",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts (reviewed-rule path + hostJobId deterministic cancel)",
+    "apps/core/src/shared/autonomous-bash-recovery-rule.ts (autonomousCompoundBashRecovery grantable per-leaf rules)",
+    "apps/core/src/shared/tool-execution-policy-service.ts (setup-card grant builder, single-leaf only)",
+    "apps/core/src/jobs/execution-readiness.ts (notifyJobSetupRequired dual-notification)"
+  ],
+  "current_flow": "Autonomous RunCommand permission goes through the reviewed-rule path (ToolExecutionPolicyService.evaluate -> evaluateAutonomousToolUse). A single command matches its RunCommand rule; a control-flow compound is treated as one unmatched command and falls to the deterministic hostJobId rails which cancel it ('no declared grant'). The setup card grant builder only handles single-leaf commands, so compounds get buttonless prose, and notifyJobSetupRequired emits both a progress card and a setup story.",
+  "criteria_map": {
+    "compound-allowed-live": "Route RunCommand through evaluateBashToolUse so a control-flow compound whose leaves each match a granted rule resolves allowed at the classifier-decision seam; assert with the live repro in ipc-permission-classifier-decision.test.ts.",
+    "generic-any-cli": "Matching keys off per-leaf rule matching with no command-name coupling; test a non-date cross-cli compound (git && npm) allowed and an ungranted-leaf compound paused.",
+    "pipe-blocked": "Block piped commands before per-leaf matching in evaluateBashToolUse; test a pipe stays denied.",
+    "grantable-card-button": "In the grant builder, fall back to autonomousCompoundBashRecovery to emit every per-leaf RunCommand rule so the setup card Approve button works; test the emitted grant.",
+    "single-notification": "In notifyJobSetupRequired, make a raised/already-pending prompt terminal so the pause emits one notification; test one message."
+  },
+  "rounds": [
+    {
+      "question": "Should a compound of individually-granted commands auto-allow, or only offer a button?",
+      "options": [
+        "auto-allow safe compounds",
+        "button-only"
+      ],
+      "chosen": "auto-allow safe compounds (no new authority; each leaf already granted) plus a button for genuinely-new compounds"
+    },
+    {
+      "question": "Do pipes get the same treatment as && / || / ;?",
+      "options": [
+        "treat pipes the same",
+        "keep pipe a hard boundary"
+      ],
+      "chosen": "keep pipe a hard boundary (piped data can be executed as program text)"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "single date matched RunCommand(date +*) but the && compound was cancelled by deterministic_rails",
+      "source": "runtime log gantry.log 2026-08-22T10:35:24 run 477cdf24"
+    },
+    {
+      "finding": "setup card grant builder uses persistentAutonomousBashRecoveryRule (single-leaf) and returns null for compounds",
+      "source": "apps/core/src/shared/tool-execution-policy-service.ts:653-658"
+    }
+  ],
+  "resolutions": [
+    "Route RunCommand through evaluateBashToolUse so a control-flow compound whose leaves each match a granted rule resolves allowed at the classifier-decision seam; assert with the live repro in ipc-permission-classifier-decision.test.ts.",
+    "Matching keys off per-leaf rule matching with no command-name coupling; test a non-date cross-cli compound (git && npm) allowed and an ungranted-leaf compound paused.",
+    "Block piped commands before per-leaf matching in evaluateBashToolUse; test a pipe stays denied.",
+    "In the grant builder, fall back to autonomousCompoundBashRecovery to emit every per-leaf RunCommand rule so the setup card Approve button works; test the emitted grant.",
+    "In notifyJobSetupRequired, make a raised/already-pending prompt terminal so the pause emits one notification; test one message."
+  ],
+  "issue": "PERMCMD-1",
+  "input_sha256": "8607d52061fbc20a334b6e2ce1a1f77ed0af0cca1e5652cc1b49f94d795043b8",
+  "recorded_at": "2026-08-23T03:22:59+00:00",
+  "commit": "96df233d8f4aa1e25dc740b42c82b83ba956b5d2"
+}
