@@ -607,6 +607,17 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             resetIdleTimer();
             return;
           }
+          if (
+            group.requiresTrigger === false &&
+            !outputBuffer.intentionalNoReplyRequested()
+          ) {
+            // Ambient turns admit unrelated top-level channel messages while
+            // the SDK runner is still waiting for same-thread steering. Once
+            // a generation has reached its terminal marker, close that idle
+            // runner so queued top-level messages can start their own turns
+            // instead of waiting for the normal idle timeout.
+            deps.queue.closeStdin(queueJid);
+          }
           if (progressGeneration === markerGeneration)
             liveness.pauseForTurnComplete();
           const markerProgressState = resolveGroupTurnFinalProgressState({

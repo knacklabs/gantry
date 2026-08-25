@@ -1762,8 +1762,11 @@ describe('createGroupProcessor', () => {
       },
     );
 
-    it('notifies idle without closing stdin on final success marker from onOutput callback', async () => {
-      const { deps } = setupHappyPath();
+    it('notifies idle without closing stdin on final success marker for trigger-required routes', async () => {
+      const { deps } = setupHappyPath({
+        group: makeGroup({ requiresTrigger: true }),
+        messages: [makeMessage({ content: '@Andy hello' })],
+      });
       mockSpawnAgent.mockImplementation(
         async (
           _group: ConversationRoute,
@@ -1784,13 +1787,45 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.closeStdin).not.toHaveBeenCalled();
     });
 
+    it('closes an ambient runner after its final visible success marker', async () => {
+      const { deps, channel } = setupHappyPath();
+      const runnerClosed = deferred<AgentOutput>();
+      const terminalOutput: AgentOutput = { status: 'success', result: null };
+      deps.queue.closeStdin = vi.fn(() => runnerClosed.resolve(terminalOutput));
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _prompt: string,
+          _chatJid: string,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'ambient reply' });
+          await onOutput?.(terminalOutput);
+          return runnerClosed.promise;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        'ambient reply',
+      );
+      expect(deps.queue.closeStdin).toHaveBeenCalledWith('group1@g.us');
+      expect(deps.queue.notifyIdle).toHaveBeenCalledWith('group1@g.us');
+    });
+
     it('sends done progress at a terminal marker without restarting typing during finalization', async () => {
       const liveRun = deferred<AgentOutput>();
       const terminalMarkerHandled = deferred();
       const channel = makeChannel({
         sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
       });
-      const { deps } = setupHappyPath();
+      const { deps } = setupHappyPath({
+        group: makeGroup({ requiresTrigger: true }),
+        messages: [makeMessage({ content: '@Andy hello' })],
+      });
       deps.channelRuntime = channel;
       mockSpawnAgent.mockImplementation(
         async (
