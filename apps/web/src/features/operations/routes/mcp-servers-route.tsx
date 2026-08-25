@@ -9,6 +9,14 @@ import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { SelectField } from '../../../ui/compositions/select-field';
 import { TextField } from '../../../ui/compositions/text-field';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../../ui/primitives/alert-dialog';
 import { Button } from '../../../ui/primitives/button';
 import { mcpServerQuery, type McpServer } from '../operations-queries';
 import { ConnectMcpServerDialog } from './mcp-connect-server-dialog';
@@ -28,6 +36,8 @@ export function McpServersRoute() {
     replacement?: McpServer;
   }>();
   const [receiptError, setReceiptError] = useState<string>();
+  const [disableReplacementOpen, setDisableReplacementOpen] = useState(false);
+  const [disablingReplacement, setDisablingReplacement] = useState(false);
   const inventory = query.data;
   const servers = useMemo(
     () =>
@@ -47,27 +57,40 @@ export function McpServersRoute() {
   async function disableReplacement() {
     if (!receipt?.replacement) return;
     const old = receipt.replacement;
-    if (!window.confirm(`Disable ${old.displayName ?? old.name}?`)) return;
     setReceiptError(undefined);
-    const response = await browserFetch(
-      `/ui/api/mcp-servers/${encodeURIComponent(old.id)}/disable`,
-      {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
-        body: JSON.stringify({}),
-      },
-    );
-    if (!response.ok) {
+    setDisablingReplacement(true);
+    try {
+      const response = await browserFetch(
+        `/ui/api/mcp-servers/${encodeURIComponent(old.id)}/disable`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'content-type': 'application/json',
+            ...browserCsrfHeader(),
+          },
+          body: JSON.stringify({}),
+        },
+      );
+      if (!response.ok) {
+        setReceiptError(
+          'The old source could not be disabled. It remains active.',
+        );
+        return;
+      }
+      await client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
+      setDisableReplacementOpen(false);
+      setReceipt({
+        message: 'Old source disabled. The replacement remains connected.',
+      });
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
       setReceiptError(
         'The old source could not be disabled. It remains active.',
       );
-      return;
+    } finally {
+      setDisablingReplacement(false);
     }
-    await client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
-    setReceipt({
-      message: 'Old source disabled. The replacement remains connected.',
-    });
   }
 
   return (
@@ -116,7 +139,7 @@ export function McpServersRoute() {
             </p>
             {receipt.replacement ? (
               <Button
-                onClick={() => void disableReplacement()}
+                onClick={() => setDisableReplacementOpen(true)}
                 size="sm"
                 variant="secondary"
               >
@@ -131,6 +154,40 @@ export function McpServersRoute() {
           ) : null}
         </Panel>
       ) : null}
+      <AlertDialog
+        onOpenChange={setDisableReplacementOpen}
+        open={disableReplacementOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disable old MCP source?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops future materialization for{' '}
+              {receipt?.replacement?.displayName ?? receipt?.replacement?.name}.
+              The replacement remains connected, and no bindings will be copied.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {receiptError ? (
+            <p className="m-0 text-sm text-danger">{receiptError}</p>
+          ) : null}
+          <AlertDialogFooter>
+            <Button
+              disabled={disablingReplacement}
+              onClick={() => setDisableReplacementOpen(false)}
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={disablingReplacement}
+              onClick={() => void disableReplacement()}
+              variant="destructive"
+            >
+              {disablingReplacement ? 'Disabling…' : 'Disable old source'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {query.isLoading ? (
         <Panel>
           <p className="p-4 text-sm text-text-secondary">
