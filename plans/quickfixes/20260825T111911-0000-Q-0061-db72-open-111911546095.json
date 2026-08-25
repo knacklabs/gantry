@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0061-db72",
+  "profile": "lite",
+  "reason": "Suppress intentional no-reply outcomes for ambient channel conversations",
+  "started_at": "2026-08-25T11:19:11+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Codex",
+  "base_sha": "595bd4ff69dd0e2a6e9c34628652815db8f5d7f9"
+}

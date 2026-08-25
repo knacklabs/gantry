@@ -1,0 +1,79 @@
+{
+  "event": "done",
+  "id": "Q-0061-db72",
+  "profile": "lite",
+  "by": "Codex",
+  "reason": "Suppress intentional no-reply outcomes for ambient channel conversations",
+  "base_sha": "595bd4ff69dd0e2a6e9c34628652815db8f5d7f9",
+  "started_at": "2026-08-25T11:19:11+00:00",
+  "completed_at": "2026-08-25T11:41:14+00:00",
+  "files": [
+    "apps/core/src/runtime/agent-spawn-prompt.ts",
+    "apps/core/src/runtime/group-output-buffer.ts",
+    "apps/core/src/runtime/group-processing.ts",
+    "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
+    "apps/core/test/unit/runtime/group-processing.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "summary": "The route guard is scoped to non-scheduled ambient conversations, the marker must be the complete bounded output, and ordinary internal-only or visible responses retain existing finalization behavior.",
+      "blocking_findings": [],
+      "non_blocking_findings": [],
+      "residual_risks": [
+        "Semantic relevance remains model-decided, so behavior quality depends on the active model following the ambient-listening contract."
+      ],
+      "reviewed_scope": [
+        "ambient prompt projection",
+        "streamed output suppression",
+        "fallback and progress finalization",
+        "route and scheduled-job isolation"
+      ],
+      "skills_used": [
+        "autoreview"
+      ],
+      "commit": "60cab00f62291a82c631dd067d372a1d00bb1a6e"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "summary": "The runtime overhead is a bounded string accumulator capped near the marker length and a constant-time route check; it adds no database, network, or unbounded memory work.",
+      "blocking_findings": [],
+      "non_blocking_findings": [],
+      "residual_risks": [
+        "Ambient relevance still requires one model invocation and therefore cannot have zero model-token cost."
+      ],
+      "reviewed_scope": [
+        "prompt-size impact",
+        "streaming hot path",
+        "memory bounds",
+        "delivery short-circuit"
+      ],
+      "skills_used": [
+        "autoreview"
+      ],
+      "commit": "60cab00f62291a82c631dd067d372a1d00bb1a6e"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "summary": "Suppression is restricted to an exact internal marker on ambient routes, does not broaden permissions or tool access, and never exposes marker content to the channel.",
+      "blocking_findings": [],
+      "non_blocking_findings": [],
+      "residual_risks": [
+        "A model induced to emit the exact internal marker can suppress one ambient response; triggered routes and scheduled jobs are not opted into the contract."
+      ],
+      "reviewed_scope": [
+        "route authorization boundary",
+        "marker matching",
+        "channel output exposure",
+        "tool and credential impact"
+      ],
+      "skills_used": [
+        "autoreview"
+      ],
+      "commit": "60cab00f62291a82c631dd067d372a1d00bb1a6e"
+    }
+  }
+}
