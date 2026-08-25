@@ -266,8 +266,19 @@ jobs:
             --query 'Parameter.Value' \
             --output text)"
           test -n "$source_sync_job_id"
+          gantry_task_definition="$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$gantry_task_arn" \
+            --query 'tasks[0].taskDefinitionArn' \
+            --output text)"
+          ats_internal_parameter="$(aws ecs describe-task-definition \
+            --task-definition "$gantry_task_definition" \
+            --query 'taskDefinition.containerDefinitions[?name==`'"$CONTAINER_NAME"'`].secrets[] | [?name==`ATS_INTERNAL_API_URL`].valueFrom | [0]' \
+            --output text)"
+          test -n "$ats_internal_parameter"
+          test "$ats_internal_parameter" != "None"
           ats_internal_url="$(aws ssm get-parameter \
-            --name ATS_INTERNAL_API_URL \
+            --name "$ats_internal_parameter" \
             --with-decryption \
             --query 'Parameter.Value' \
             --output text)"
