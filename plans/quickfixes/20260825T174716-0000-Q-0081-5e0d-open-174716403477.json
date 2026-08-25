@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0081-5e0d",
+  "profile": "lite",
+  "reason": "D-0058: zero-action retire/replace job-permission card revisions reach Telegram without card identity (the wiring drops callbackKey/revision that the outbox payload already carries), so settlement cannot mark the card retired and a delayed older action revision can re-arm it. Pass the identity through MessageSendOptions and settle zero-action edits against the card. Scope: domain/types.ts, job-permission-wiring-setup.ts, telegram channel-delivery.ts (+card delivery), telegram.test.ts.",
+  "started_at": "2026-08-25T17:47:16+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "6e3ab9b31ffe19ea492db08cac2bd86212e79879"
+}

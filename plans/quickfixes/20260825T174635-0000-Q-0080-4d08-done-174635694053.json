@@ -1,0 +1,165 @@
+{
+  "event": "done",
+  "id": "Q-0080-4d08",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "D-0061: when a channel sink refuses a run's start progress card, no card identity is stored and the terminal notification returns 'unsupported' for that route, so the run's completion never reaches the chat (run 224d1141). Send the terminal summary as a fresh done message when no identity exists. Scope: scheduler-lifecycle-notification.ts + lifecycle-retirement.test.ts.",
+  "base_sha": "0978e25fdcd5420217b6a92637995116a28f31ca",
+  "started_at": "2026-08-25T16:09:32+00:00",
+  "completed_at": "2026-08-25T17:46:35+00:00",
+  "files": [
+    "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+    "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0063: failed 'Done.' clear of a late-landing running card after a landed fallback leaves a stale Running bubble (no retry)",
+        "D-0062: identity-path concurrency (pre-existing, not reachable from the sequential runtime flow)"
+      ],
+      "summary": "Terminal notice is now delivered when the start card is refused, without duplicates in the reviewed races. Lite window Q-0080 (base 0978e25fd -> HEAD), D-0061: a refused start card left the run with no terminal notice. Fix: fresh done message for routes without an identity; per-route outcome memo (promise, set before await) shared by overlapping updates, repeated retirements and a late-landing start card; identity path seeds the memo; late-card clear uses a newer generation; unsupported retained, failed retryable; late summary edit registered; landed identity kept after a failed late edit; captures live until explicit discard. Proof: lifecycle-retirement + execution-notifications 58/58, tsc, architecture, verify.py passed each cycle. Autoreview: 9 cycles, 8 findings accepted+fixed, 1 pre-existing concurrency point deferred (D-0062), 1 triple-failure cosmetic residual deferred (D-0063) per the scope governor.",
+      "non_blocking_findings": [
+        {
+          "category": "delivery-semantics",
+          "area": "app/bootstrap",
+          "summary": "FIXED: refused start card suppressed the terminal notice"
+        },
+        {
+          "category": "delivery-semantics",
+          "area": "app/bootstrap",
+          "summary": "RESIDUAL D-0063: failed late-card clear not retried"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0080 (lifecycle terminal fallback only); verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "39255ba9fcaa8f4cd42fb4598eb0d0517fd589250aa983773d659bc75cfb2c11",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "fe8e0703d51b98f4e38cd39f5a5936f58ee44c17563bb0fdeb0fe986c9e9d353",
+      "recorded_at": "2026-08-25T17:46:35+00:00",
+      "commit": "6e3ab9b31ffe19ea492db08cac2bd86212e79879"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0063: failed 'Done.' clear of a late-landing running card after a landed fallback leaves a stale Running bubble (no retry)",
+        "D-0062: identity-path concurrency (pre-existing, not reachable from the sequential runtime flow)"
+      ],
+      "summary": "One extra map per run, cleared on discard. Lite window Q-0080 (base 0978e25fd -> HEAD), D-0061: a refused start card left the run with no terminal notice. Fix: fresh done message for routes without an identity; per-route outcome memo (promise, set before await) shared by overlapping updates, repeated retirements and a late-landing start card; identity path seeds the memo; late-card clear uses a newer generation; unsupported retained, failed retryable; late summary edit registered; landed identity kept after a failed late edit; captures live until explicit discard. Proof: lifecycle-retirement + execution-notifications 58/58, tsc, architecture, verify.py passed each cycle. Autoreview: 9 cycles, 8 findings accepted+fixed, 1 pre-existing concurrency point deferred (D-0062), 1 triple-failure cosmetic residual deferred (D-0063) per the scope governor.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "39255ba9fcaa8f4cd42fb4598eb0d0517fd589250aa983773d659bc75cfb2c11",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "fe8e0703d51b98f4e38cd39f5a5936f58ee44c17563bb0fdeb0fe986c9e9d353",
+      "recorded_at": "2026-08-25T17:46:35+00:00",
+      "commit": "6e3ab9b31ffe19ea492db08cac2bd86212e79879"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0063: failed 'Done.' clear of a late-landing running card after a landed fallback leaves a stale Running bubble (no retry)",
+        "D-0062: identity-path concurrency (pre-existing, not reachable from the sequential runtime flow)"
+      ],
+      "summary": "No authority change; notification plumbing only. Lite window Q-0080 (base 0978e25fd -> HEAD), D-0061: a refused start card left the run with no terminal notice. Fix: fresh done message for routes without an identity; per-route outcome memo (promise, set before await) shared by overlapping updates, repeated retirements and a late-landing start card; identity path seeds the memo; late-card clear uses a newer generation; unsupported retained, failed retryable; late summary edit registered; landed identity kept after a failed late edit; captures live until explicit discard. Proof: lifecycle-retirement + execution-notifications 58/58, tsc, architecture, verify.py passed each cycle. Autoreview: 9 cycles, 8 findings accepted+fixed, 1 pre-existing concurrency point deferred (D-0062), 1 triple-failure cosmetic residual deferred (D-0063) per the scope governor.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "39255ba9fcaa8f4cd42fb4598eb0d0517fd589250aa983773d659bc75cfb2c11",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "fe8e0703d51b98f4e38cd39f5a5936f58ee44c17563bb0fdeb0fe986c9e9d353",
+      "recorded_at": "2026-08-25T17:46:35+00:00",
+      "commit": "6e3ab9b31ffe19ea492db08cac2bd86212e79879"
+    }
+  }
+}

@@ -1315,6 +1315,26 @@
       "completed_at": "2026-08-22T04:03:17+00:00",
       "history": ".factory/stories/NOTIFY-1-T7/",
       "outcome": "Every scheduled job (and every live turn) now produces a structured, neutral summary of what it actually did for any tool on either runtime and provider - grouped actions with counts, failed-first, family-aware labels (e.g. 'Google Sheets Values Append x3', 'WebSearch x5', 'Browser: Open') - instead of falling back to raw narration. A single tool.activity event is recorded per tool call on both worker runtimes and both inline lanes with per-invocation correlation; Gantry-owned capability/browser events dedup against the generic event via trusted, provenance-gated result metadata (decision 0133), so a third-party tool can never spoof correlation. Someone reading a finished job now sees exactly which actions ran and which failed."
+    },
+    {
+      "key": "JOBPERM-1",
+      "title": "Chat-parity permissions for scheduled jobs",
+      "story": "JOBPERM-1",
+      "acceptance_criteria": [
+        "Unmatched grantable tool call raises the standard card; authorized Allow resumes the SAME run in place; rule persists; next run silent-allows; unit+live",
+        "Browser works for a granted job with no card (host verdict awaited); unit",
+        "Living card coalesces needs; revision/epoch-bound batch; no unseen approvals; provider contract tests x3 channels",
+        "Deny terminal per need with Reconsider epoch; handoff card keeps Deny + human Approve-and-run-again; unit",
+        "Hard-boundary and unprojected cases yield typed truthful results, never permanent grants or auto-reruns; unit",
+        "v9 Deletions land: old autonomous lane paths removed, source-asserted"
+      ],
+      "order": 66,
+      "status": "active",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/jobperm-1-chat-parity-job-permissions.md"
     }
   ],
   "epics": [
@@ -1411,5 +1431,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-22T09:21:01+00:00"
+  "updated_at": "2026-08-23T11:16:03+00:00"
 }

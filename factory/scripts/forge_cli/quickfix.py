@@ -97,11 +97,21 @@ def _open(base: Path, *, profile: str, reason: str, by: str | None = None) -> di
         stage.get("id") for stage in load_stages(base).get("stages", [])
         if isinstance(stage, dict) and stage.get("status") == "active"
     ]
-    if active_stages:
+    if active_stages and profile != "degraded":
         fail(
             f"cannot open a {profile} window while a stage is active: "
             f"{', '.join(active_stages)} — finish it "
             "(`./forge stage done <id>`) so no stage is active, then open the window"
+        )
+    # A DEGRADED window is the documented companion-outage exception; the
+    # outage can strike MID-STAGE, and a stage cannot be deactivated without
+    # completing — refusing here deadlocks the exception exactly when it is
+    # needed. The stage's own diff measurement at stage-done still governs
+    # everything written inside the window. (Owner-authorized 2026-08-24.)
+    if active_stages and profile == "degraded":
+        print(
+            f"NOTE: degraded window opens under active stage(s) "
+            f"{', '.join(active_stages)}; their diff measurement still governs."
         )
     active_window = load_active(base)
     if active_window:

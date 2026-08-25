@@ -1,0 +1,177 @@
+{
+  "event": "done",
+  "id": "Q-0081-5e0d",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "D-0058: zero-action retire/replace job-permission card revisions reach Telegram without card identity (the wiring drops callbackKey/revision that the outbox payload already carries), so settlement cannot mark the card retired and a delayed older action revision can re-arm it. Pass the identity through MessageSendOptions and settle zero-action edits against the card. Scope: domain/types.ts, job-permission-wiring-setup.ts, telegram channel-delivery.ts (+card delivery), telegram.test.ts.",
+  "base_sha": "6e3ab9b31ffe19ea492db08cac2bd86212e79879",
+  "started_at": "2026-08-25T17:47:16+00:00",
+  "completed_at": "2026-08-25T18:11:16+00:00",
+  "files": [
+    "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/test/unit/application/jobperm-edges.test.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 7,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/test/unit/channels/telegram.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "DEPLOY GATE: sanitizer must preserve jobPermissionCard.callbackKey/revision (Q-0082) before any build from this HEAD is deployed",
+        "D-0064 replace handoff fence"
+      ],
+      "summary": "Zero-action card revisions now settle against the card in Telegram. Lite window Q-0081 (base 6e3ab9b31 -> HEAD), D-0058: wiring passes MessageSendOptions.jobPermissionCardRevision (callbackKey/revision/operation already in the outbox payload); Telegram generic replace path settles zero-action retire edits against the card (idempotent, lane-bound, recorded). Replace notice carries no identity (new card settles). Proof: channels 41/987 + jobperm-edges green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 1 fixed (replace notice identity), 1 deferred D-0064 (single fence across replace handoff), 1 ACCEPTED AND OPEN: sanitizeRetryTailProviderPayload strips callbackKey/revision so retry-tail card payloads would be rejected as malformed \u2014 MUST land in Q-0082 before this window's code is deployed; the branch build is NOT deployed from this HEAD.",
+      "non_blocking_findings": [
+        {
+          "category": "delivery-semantics",
+          "area": "channels/telegram",
+          "summary": "FIXED D-0058: retire/replace revisions carry card identity; older action revisions cannot re-arm a retired card"
+        },
+        {
+          "category": "payload-contract",
+          "area": "domain/messages",
+          "summary": "OPEN -> Q-0082: retry-tail sanitizer drops the now-required identity fields"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0081 adds card identity on zero-action revisions (JP1-T2/T3 living-card contract strengthened); verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "1487c5785b10e177c6563206b77c17e4f4c7d85f01a5f25474f3b26e423b535a",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "b462ee730e8961fa05d115b5a6bac1cf23105c2477fb95ee21908a40d6dc04be",
+      "recorded_at": "2026-08-25T18:11:15+00:00",
+      "commit": "64318445e675651bf74fc60d4153c8b76d1fd787"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 7,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/test/unit/channels/telegram.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "DEPLOY GATE: sanitizer must preserve jobPermissionCard.callbackKey/revision (Q-0082) before any build from this HEAD is deployed",
+        "D-0064 replace handoff fence"
+      ],
+      "summary": "One settlement lookup per zero-action edit; negligible. Lite window Q-0081 (base 6e3ab9b31 -> HEAD), D-0058: wiring passes MessageSendOptions.jobPermissionCardRevision (callbackKey/revision/operation already in the outbox payload); Telegram generic replace path settles zero-action retire edits against the card (idempotent, lane-bound, recorded). Replace notice carries no identity (new card settles). Proof: channels 41/987 + jobperm-edges green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 1 fixed (replace notice identity), 1 deferred D-0064 (single fence across replace handoff), 1 ACCEPTED AND OPEN: sanitizeRetryTailProviderPayload strips callbackKey/revision so retry-tail card payloads would be rejected as malformed \u2014 MUST land in Q-0082 before this window's code is deployed; the branch build is NOT deployed from this HEAD.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "1487c5785b10e177c6563206b77c17e4f4c7d85f01a5f25474f3b26e423b535a",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "b462ee730e8961fa05d115b5a6bac1cf23105c2477fb95ee21908a40d6dc04be",
+      "recorded_at": "2026-08-25T18:11:16+00:00",
+      "commit": "64318445e675651bf74fc60d4153c8b76d1fd787"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 7,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/test/unit/channels/telegram.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "DEPLOY GATE: sanitizer must preserve jobPermissionCard.callbackKey/revision (Q-0082) before any build from this HEAD is deployed",
+        "D-0064 replace handoff fence"
+      ],
+      "summary": "Identity fields are validated (24-hex key, safe int revision); no authority change. Lite window Q-0081 (base 6e3ab9b31 -> HEAD), D-0058: wiring passes MessageSendOptions.jobPermissionCardRevision (callbackKey/revision/operation already in the outbox payload); Telegram generic replace path settles zero-action retire edits against the card (idempotent, lane-bound, recorded). Replace notice carries no identity (new card settles). Proof: channels 41/987 + jobperm-edges green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 1 fixed (replace notice identity), 1 deferred D-0064 (single fence across replace handoff), 1 ACCEPTED AND OPEN: sanitizeRetryTailProviderPayload strips callbackKey/revision so retry-tail card payloads would be rejected as malformed \u2014 MUST land in Q-0082 before this window's code is deployed; the branch build is NOT deployed from this HEAD.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "1487c5785b10e177c6563206b77c17e4f4c7d85f01a5f25474f3b26e423b535a",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "b462ee730e8961fa05d115b5a6bac1cf23105c2477fb95ee21908a40d6dc04be",
+      "recorded_at": "2026-08-25T18:11:16+00:00",
+      "commit": "64318445e675651bf74fc60d4153c8b76d1fd787"
+    }
+  }
+}
