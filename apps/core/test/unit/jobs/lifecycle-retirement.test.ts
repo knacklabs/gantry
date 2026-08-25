@@ -255,7 +255,7 @@ describe('lifecycle retirement', () => {
     expect(primary.repository.finalizeJobRunWithLease).toHaveBeenCalled();
   });
 
-  it('clears a late-landing running card after the terminal fallback was sent', async () => {
+  it('clears a late-landing running card with a generation newer than the fallback', async () => {
     const job = makeJob({
       schedule_type: 'cron',
       schedule_value: '* * * * *',
@@ -296,6 +296,15 @@ describe('lifecycle retirement', () => {
         text.includes('Completed'),
       ),
     ).toHaveLength(1);
+    const runningCall = sendProgressUpdate.mock.calls.find(([, text]) =>
+      text.startsWith('Running:'),
+    );
+    const fallbackCall = sendProgressUpdate.mock.calls.find(([, text]) =>
+      text.includes('Completed'),
+    );
+    const doneCall = sendProgressUpdate.mock.calls.find(
+      ([, text]) => text === 'Done.',
+    );
     expect(sendProgressUpdate).toHaveBeenLastCalledWith(
       'tg:scheduler',
       'Done.',
@@ -304,6 +313,12 @@ describe('lifecycle retirement', () => {
         replaceOnly: true,
         progressCardIdentity: expect.stringContaining('scheduler-card:'),
       }),
+    );
+    expect(doneCall?.[2]?.generation).toBeGreaterThan(
+      fallbackCall?.[2]?.generation ?? 0,
+    );
+    expect(doneCall?.[2]?.progressCardIdentity).toBe(
+      runningCall?.[2]?.progressCardIdentity,
     );
   });
 
@@ -362,11 +377,9 @@ describe('lifecycle retirement', () => {
     );
   });
 
-  it('does not resend the terminal fallback on repeated retirement', async () => {
+  it('shares an unsupported fallback outcome without resending', async () => {
     const job = makeJob();
-    const sendProgressUpdate = vi.fn(
-      async (_jid, text: string) => !text.startsWith('Running:'),
-    );
+    const sendProgressUpdate = vi.fn(async () => false);
     const lifecycle = createSchedulerLifecycleNotificationUpdater({
       channelWiring: { sendProgressUpdate },
     });
@@ -393,8 +406,10 @@ describe('lifecycle retirement', () => {
         ([, text, options]) => text === 'Finished.' && options?.done === true,
       ),
     ).toHaveLength(1);
-    expect(first).toEqual([expect.objectContaining({ status: 'updated' })]);
-    expect(second).toEqual([expect.objectContaining({ status: 'updated' })]);
+    expect(first).toEqual([expect.objectContaining({ status: 'unsupported' })]);
+    expect(second).toEqual([
+      expect.objectContaining({ status: 'unsupported' }),
+    ]);
   });
 
   it('shares one fallback send across overlapping retirements', async () => {
@@ -502,9 +517,17 @@ describe('lifecycle retirement', () => {
       [expect.objectContaining({ status: 'failed' })],
       [expect.objectContaining({ status: 'failed' })],
     ]);
+    await expect(
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId: 'run-overlapping-failed-fallback',
+        runStatus: 'completed',
+        summaryMessage: 'Finished.',
+      }),
+    ).resolves.toEqual([expect.objectContaining({ status: 'failed' })]);
     expect(
       sendProgressUpdate.mock.calls.filter(([, text]) => text === 'Finished.'),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 
   it('does not fresh-send after the identity path already updated the card', async () => {

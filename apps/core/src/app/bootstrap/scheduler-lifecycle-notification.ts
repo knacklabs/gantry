@@ -75,7 +75,7 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
                   done: true,
                   replaceOnly: true,
                   progressCardIdentity,
-                  generation,
+                  generation: landed ? nextLifecycleGeneration() : generation,
                 },
               );
             }
@@ -130,7 +130,9 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
             );
           capture.fallbacks.set(key, fallback);
           const status = await fallback;
-          if (status !== 'updated') {
+          // Unsupported outcomes stay cached because the channel cannot render progress.
+          // Failed outcomes are deleted so transient send failures remain retryable.
+          if (status === 'failed') {
             capture.fallbacks.delete(key);
           }
           return { route, status } as const;
