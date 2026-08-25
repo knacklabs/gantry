@@ -21,6 +21,11 @@ on:
         required: false
         default: false
         type: boolean
+      handoff_only:
+        description: Complete an existing Gantry revision using the dev-style single-task handoff
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - develop
@@ -39,7 +44,7 @@ env:
 
 jobs:
   deploy:
-    if: ${{ !inputs.backend_smoke_only }}
+    if: ${{ !inputs.backend_smoke_only && !inputs.handoff_only }}
     name: Deploy to gantry-reagent Prod
     runs-on: self-hosted
     environment: ATS Prod
@@ -125,8 +130,62 @@ jobs:
           wait-max-delay-seconds: 15
           wait-for-minutes: 30
 
+  handoff:
+    if: ${{ inputs.handoff_only }}
+    name: Complete Gantry single-task handoff
+    runs-on: self-hosted
+    environment: ATS Prod
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Apply dev-style single-task deployment
+        run: |
+          set -euo pipefail
+          test "$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0].desiredCount' \
+            --output text)" = "1"
+
+          target_task_definition="$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0].taskDefinition' \
+            --output text)"
+          test -n "$target_task_definition"
+
+          # Match dev: only one Gantry runtime may use the 15-connection
+          # Supabase session pool during deployment.
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "$target_task_definition" \
+            --deployment-configuration minimumHealthyPercent=0,maximumPercent=100 \
+            --force-new-deployment \
+            >/dev/null
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+
+          aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0].{desired:desiredCount,running:runningCount,pending:pendingCount,taskDefinition:taskDefinition,deploymentConfiguration:deploymentConfiguration}' \
+            --output json
+          test "$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0].runningCount' \
+            --output text)" = "1"
+
   backend-smoke:
-    if: ${{ inputs.backend_smoke_only }}
+    if: ${{ inputs.backend_smoke_only && !inputs.handoff_only }}
     name: Test ATS to Gantry source sync
     runs-on: self-hosted
     environment: ATS Prod
