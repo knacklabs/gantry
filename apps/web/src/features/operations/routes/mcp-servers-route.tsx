@@ -137,7 +137,7 @@ export function McpServersRoute() {
             >
               {receipt.message}
             </p>
-            {receipt.replacement ? (
+            {receipt.replacement?.status === 'active' ? (
               <Button
                 onClick={() => setDisableReplacementOpen(true)}
                 size="sm"
@@ -283,7 +283,7 @@ export function McpServersRoute() {
           setSelectedId(server.id);
           setReceipt({
             message: replacement
-              ? `Replacement connected. ${replacement.displayName ?? replacement.name} remains active and no bindings were copied.`
+              ? `Replacement connected. ${replacement.displayName ?? replacement.name} remains ${replacement.status} and no bindings were copied.`
               : 'Server connected. You can attach an agent below or manage it later.',
             replacement,
           });

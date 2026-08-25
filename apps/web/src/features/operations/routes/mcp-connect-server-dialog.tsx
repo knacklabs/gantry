@@ -120,7 +120,7 @@ export function ConnectMcpServerDialog({
           </DialogTitle>
           <DialogDescription>
             {replacement
-              ? 'Connect a new reviewed source. The old source stays active and no bindings are copied.'
+              ? 'Connect a new reviewed source. The old source remains unchanged and no bindings are copied.'
               : 'Connect a reviewed source. This does not grant an agent authority to execute its tools.'}
           </DialogDescription>
         </DialogHeader>
