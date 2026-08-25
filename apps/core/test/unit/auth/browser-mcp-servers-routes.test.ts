@@ -33,9 +33,13 @@ it('browser MCP facade keeps session and mutation boundary', () => {
   );
   expect(source).toContain('new McpServerService(');
   expect(source).toContain('ctx.syncSettingsFromProjection(appId)');
+  expect(source).toContain(
+    '/^\\/ui\\/api\\/mcp-servers\\/([^/]+)\\/agents\\/([^/]+)$/',
+  );
   expect(source).toContain('credentialRefs: server.credentialRefs');
   expect(source).not.toContain('parsed.data.permissionPolicyIds');
   expect(source).toContain('binding: browserBinding(result)');
+  expect(source).toContain("binding.status === 'active'");
   expect(source).not.toContain('...server };');
   expect(source).not.toContain('config: server.config');
   expect(source).not.toContain('value: secret');

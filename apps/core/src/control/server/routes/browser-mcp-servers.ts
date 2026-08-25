@@ -97,7 +97,10 @@ export async function handleBrowserMcpServerRoutes(
           server,
           bindings.flatMap(({ agent, bindings: rows }) =>
             rows
-              .filter((binding) => binding.serverId === server.id)
+              .filter(
+                (binding) =>
+                  binding.serverId === server.id && binding.status === 'active',
+              )
               .map((binding) => ({
                 agentId: agent.id,
                 name: agent.name,
@@ -219,10 +222,12 @@ export async function handleBrowserMcpServerRoutes(
       sendJson(res, 200, { server: browserServer(server, []) });
       return true;
     }
-    const binding = BROWSER_AGENT_MCP_SERVER_PATH.exec(pathname);
+    const binding = pathname.match(
+      /^\/ui\/api\/mcp-servers\/([^/]+)\/agents\/([^/]+)$/,
+    );
     if (binding && ['PUT', 'PATCH', 'DELETE'].includes(req.method ?? '')) {
-      const agentId = decodeURIComponent(binding[1]) as AgentId;
-      const serverId = decodeURIComponent(binding[2]) as McpServerId;
+      const serverId = decodeURIComponent(binding[1]) as McpServerId;
+      const agentId = decodeURIComponent(binding[2]) as AgentId;
       if (req.method === 'DELETE') {
         const result = await service().unbindFromAgent({
           appId,
