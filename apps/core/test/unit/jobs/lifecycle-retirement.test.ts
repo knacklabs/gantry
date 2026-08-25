@@ -530,6 +530,70 @@ describe('lifecycle retirement', () => {
     ).toHaveLength(2);
   });
 
+  it('shares a late-card summary edit with a concurrent retirement retry', async () => {
+    const job = makeJob();
+    let settleRunning!: (landed: boolean) => void;
+    const running = new Promise<boolean>((resolve) => {
+      settleRunning = resolve;
+    });
+    let settleEdit!: (landed: boolean) => void;
+    const edit = new Promise<boolean>((resolve) => {
+      settleEdit = resolve;
+    });
+    const sendProgressUpdate = vi.fn(async (_jid, text: string, options) => {
+      if (text.startsWith('Running:')) return running;
+      if (options?.replaceOnly) return edit;
+      throw new Error('provider update rejected');
+    });
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+    const capture = lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-late-card-retry',
+    });
+    const first = lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-late-card-retry',
+      runStatus: 'completed',
+      summaryMessage: 'Finished.',
+    });
+
+    await expect(first).resolves.toEqual([
+      expect.objectContaining({ status: 'failed' }),
+    ]);
+    settleRunning(true);
+    await vi.waitFor(() =>
+      expect(sendProgressUpdate).toHaveBeenCalledWith(
+        'tg:scheduler',
+        'Finished.',
+        expect.objectContaining({ done: true, replaceOnly: true }),
+      ),
+    );
+    const second = lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-late-card-retry',
+      runStatus: 'completed',
+      summaryMessage: 'Finished.',
+    });
+    settleEdit(true);
+
+    await Promise.all([
+      capture,
+      expect(second).resolves.toEqual([
+        expect.objectContaining({ status: 'updated' }),
+      ]),
+    ]);
+    expect(
+      sendProgressUpdate.mock.calls.filter(([, text]) => text === 'Finished.'),
+    ).toHaveLength(2);
+    expect(
+      sendProgressUpdate.mock.calls.filter(
+        ([, text, options]) => text === 'Finished.' && options?.replaceOnly,
+      ),
+    ).toHaveLength(1);
+  });
+
   it('does not fresh-send after the identity path already updated the card', async () => {
     const job = makeJob();
     const sendProgressUpdate = vi.fn(async () => true);

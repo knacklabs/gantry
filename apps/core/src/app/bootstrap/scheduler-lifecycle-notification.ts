@@ -67,17 +67,47 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
             } else {
               const fallback = capture.fallbacks.get(key);
               const landed = fallback ? (await fallback) === 'updated' : false;
-              await input.channelWiring.sendProgressUpdate(
-                route.conversationJid,
-                landed ? 'Done.' : capture.terminalSummary,
-                {
-                  ...routeOptions(route),
-                  done: true,
-                  replaceOnly: true,
-                  progressCardIdentity,
-                  generation: landed ? nextLifecycleGeneration() : generation,
-                },
-              );
+              if (landed) {
+                await input.channelWiring.sendProgressUpdate(
+                  route.conversationJid,
+                  'Done.',
+                  {
+                    ...routeOptions(route),
+                    done: true,
+                    replaceOnly: true,
+                    progressCardIdentity,
+                    generation: nextLifecycleGeneration(),
+                  },
+                );
+              } else {
+                const lateSummary = Promise.resolve()
+                  .then(() =>
+                    input.channelWiring.sendProgressUpdate(
+                      route.conversationJid,
+                      capture.terminalSummary!,
+                      {
+                        ...routeOptions(route),
+                        done: true,
+                        replaceOnly: true,
+                        progressCardIdentity,
+                        generation,
+                      },
+                    ),
+                  )
+                  .then(
+                    (sent) =>
+                      sent === true
+                        ? ('updated' as const)
+                        : ('unsupported' as const),
+                    () => 'failed' as const,
+                  );
+                capture.fallbacks.set(key, lateSummary);
+                capturesByRun.set(runId, capture);
+                const status = await lateSummary;
+                if (status === 'failed') {
+                  capture.fallbacks.delete(key);
+                }
+              }
             }
           }
         } catch {
