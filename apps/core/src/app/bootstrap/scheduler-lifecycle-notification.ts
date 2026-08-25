@@ -78,7 +78,7 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
             }
           }
         } catch {
-          // A terminal notification will be sent separately when card creation fails.
+          // The terminal update falls back to a fresh done message when no card lands.
         }
       }),
     );
@@ -91,11 +91,28 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
     const capture = capturesByRun.get(runId);
     if (capture) capture.terminalSummary = summaryMessage;
     const outcomes = await Promise.all(
-      routes.map(async (route) => {
+      routes.map(async (route, index) => {
         const key = routeKey(route);
         const identity = capture?.identities.get(key);
         if (!identity) {
-          return { route, status: 'unsupported' } as const;
+          try {
+            const sent = await input.channelWiring.sendProgressUpdate(
+              route.conversationJid,
+              summaryMessage,
+              {
+                ...routeOptions(route),
+                done: true,
+                progressCardIdentity: `scheduler-card:${randomUUID()}:${index}`,
+                generation: nextLifecycleGeneration(),
+              },
+            );
+            return {
+              route,
+              status: sent === true ? 'updated' : 'unsupported',
+            } as const;
+          } catch {
+            return { route, status: 'failed' } as const;
+          }
         }
         try {
           const updated = await input.channelWiring.sendProgressUpdate(

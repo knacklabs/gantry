@@ -290,7 +290,7 @@ describe('lifecycle retirement', () => {
     settleCard(true);
     await capture;
 
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).not.toHaveBeenCalled();
     expect(sendProgressUpdate).toHaveBeenLastCalledWith(
       'tg:scheduler',
       expect.stringContaining('Completed'),
@@ -300,6 +300,35 @@ describe('lifecycle retirement', () => {
         progressCardIdentity: expect.stringContaining('scheduler-card:'),
       }),
     );
+  });
+
+  it('sends the terminal notice as a fresh message when the start card was refused', async () => {
+    const job = makeJob();
+    const primary = terminalDeps(job);
+    const sendProgressUpdate = vi.fn(
+      async (_jid, text: string) => !text.startsWith('Running:'),
+    );
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+    const updateLifecycleNotification = vi.fn(
+      lifecycle.updateLifecycleNotification,
+    );
+    Object.assign(primary.deps, lifecycle, { updateLifecycleNotification });
+
+    await runJob(job, primary.deps, 'tg:scheduler');
+
+    expect(sendProgressUpdate).toHaveBeenLastCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('Completed'),
+      expect.objectContaining({ done: true }),
+    );
+    expect(sendProgressUpdate.mock.calls.at(-1)?.[2]).not.toHaveProperty(
+      'replaceOnly',
+    );
+    await expect(
+      updateLifecycleNotification.mock.results[0]?.value,
+    ).resolves.toEqual([expect.objectContaining({ status: 'updated' })]);
   });
 
   it('continues execution and clears lifecycle ownership when capture rejects', async () => {
@@ -370,7 +399,15 @@ describe('lifecycle retirement', () => {
       runStatus: 'failed',
       summaryMessage: 'Should not find retained ownership.',
     });
-    expect(sendProgressUpdate).toHaveBeenCalledTimes(callsAfterExit);
+    expect(sendProgressUpdate).toHaveBeenCalledTimes(callsAfterExit + 1);
+    expect(sendProgressUpdate).toHaveBeenLastCalledWith(
+      'tg:scheduler',
+      'Should not find retained ownership.',
+      expect.objectContaining({ done: true }),
+    );
+    expect(sendProgressUpdate.mock.calls.at(-1)?.[2]).not.toHaveProperty(
+      'replaceOnly',
+    );
   });
 
   it('retires the lifecycle card when the failed-run failsafe rejects', async () => {
@@ -663,7 +700,11 @@ describe('lifecycle retirement', () => {
       publishRuntimeEvent: vi.fn(async () => undefined),
       logger: { warn: vi.fn() },
     });
-    expect(sendProgressUpdate).not.toHaveBeenCalled();
+    expect(sendProgressUpdate).toHaveBeenCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('Paused after failures'),
+      expect.objectContaining({ done: true }),
+    );
     expect(deadLetter.sendMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -698,7 +739,11 @@ describe('lifecycle retirement', () => {
       controlRepository: { getAppSessionById: vi.fn(async () => undefined) },
       publishRuntimeEvent: vi.fn(async () => undefined),
     });
-    expect(sendProgressUpdate).not.toHaveBeenCalled();
+    expect(sendProgressUpdate).toHaveBeenCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('Timed out'),
+      expect.objectContaining({ done: true }),
+    );
     expect(stale.sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
       expect.stringContaining('Timed out'),
@@ -922,9 +967,9 @@ describe('lifecycle retirement', () => {
       summaryMessage: 'Already terminal.',
     });
     expect(secondOutcomes?.map((outcome) => outcome.status)).toEqual([
-      'unsupported',
+      'updated',
     ]);
-    expect(sendProgressUpdate).toHaveBeenCalledTimes(2);
+    expect(sendProgressUpdate).toHaveBeenCalledTimes(3);
   });
 
   it('does not replace a pre-existing route card when the run creates its own card', async () => {
