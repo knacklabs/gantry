@@ -1,0 +1,79 @@
+{
+  "commit": "08a6d808f587284988bda5ffb00095b94db4e167",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "pass",
+    "summary": "The canonical mark geometry, consumer replacement, favicon links, touch-icon dimensions, web test suite, static checks, and production build all pass.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npm test --workspace @gantry/web -- --run src/brand-assets.test.ts",
+      "npm test --workspace @gantry/web",
+      "npm run typecheck:web",
+      "npm run lint:web",
+      "npm run format:check:web",
+      "npm run build:web",
+      "git diff --check",
+      "direnv exec . python3 factory/scripts/verify.py"
+    ],
+    "tests_added_or_updated": [
+      "apps/web/src/brand-assets.test.ts"
+    ],
+    "pass_fail_summary": "5 Vitest files and 10 tests passed; the focused brand-assets test passed; TypeScript, ESLint, Prettier, Vite production build, diff check, and factory verify passed.",
+    "remaining_gaps": [
+      "Authenticated sidebar browser rendering was not exercised against a real or mocked local session."
+    ],
+    "reviewed_scope": [
+      "apps/web/index.html",
+      "apps/web/public/",
+      "apps/web/src/app/app-navigation.tsx",
+      "apps/web/src/features/auth/auth-card.tsx",
+      "apps/web/src/styles.css",
+      "apps/web/src/ui/compositions/gantry-mark.tsx",
+      "apps/web/src/brand-assets.test.ts"
+    ],
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design",
+      "ponytail:full"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-25T18:28:04+00:00",
+    "commit": "08a6d808f587284988bda5ffb00095b94db4e167"
+  },
+  "updated_at": "2026-08-25T18:28:04+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "partial",
+    "score": 7,
+    "summary": "The production build, focused asset test, and built asset inspection confirm the auth lockup and browser assets. The local browser reached the rendered auth page, but the authenticated sidebar theme check could not be completed without a valid local session fixture.",
+    "blocking_findings": [],
+    "manual_validation_steps": [
+      "Serve apps/web/dist and open /ui/auth/sign-in to confirm uppercase GANTRY, the canonical mark, and unchanged Google sign-in treatment.",
+      "With a valid hosted administrator session, open /ui/profile and inspect the sidebar mark in light and dark themes."
+    ],
+    "non_blocking_findings": [
+      "The local Playwright selector matched multiple GANTRY text nodes and aborted before completing the browser assertion.",
+      "The available Playwright browser cache revision does not match the installed package revision."
+    ],
+    "residual_risks": [
+      "Authenticated sidebar light and dark rendering remains source/build validated rather than browser-validated.",
+      "No live Gantry backend session was used."
+    ],
+    "recommendation": "approve-with-caveats",
+    "reviewed_scope": [
+      "apps/web/index.html",
+      "apps/web/public/",
+      "apps/web/src/ui/compositions/gantry-mark.tsx",
+      "apps/web/src/features/auth/auth-card.tsx",
+      "apps/web/src/app/app-navigation.tsx",
+      "apps/web/dist"
+    ],
+    "remaining_gaps": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "recorded_at": "2026-08-25T18:28:04+00:00",
+    "commit": "08a6d808f587284988bda5ffb00095b94db4e167"
+  }
+}
