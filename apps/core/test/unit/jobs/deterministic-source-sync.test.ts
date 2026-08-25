@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   deterministicBrowserKeepAliveMs,
+  deterministicPrivateServiceHostMappingsFromEnv,
   deterministicPrivateServiceUrlEnvVars,
   deterministicSkillServiceHostsFromEnv,
   resolveReviewedPrivateNetworkHostMappings,
@@ -117,5 +118,39 @@ describe('deterministic private service URL configuration', () => {
         ' ATS_INTERNAL_API_URL,INVALID-KEY,ATS_INTERNAL_API_URL,OTHER_URL ',
       ),
     ).toEqual(['ATS_INTERNAL_API_URL', 'OTHER_URL']);
+  });
+
+  it('pins only an already-allowed exact private service authority', () => {
+    expect(
+      deterministicPrivateServiceHostMappingsFromEnv(
+        JSON.stringify({
+          'frontend-mcp-service.ats-prod:3000': '127.255.0.1',
+        }),
+        ['frontend-mcp-service.ats-prod:3000', 'cutshort.io:443'],
+      ),
+    ).toEqual([
+      {
+        authority: 'frontend-mcp-service.ats-prod:3000',
+        connectHost: '127.255.0.1',
+      },
+    ]);
+  });
+
+  it.each([
+    ['unreviewed authority', { 'admin.internal:8080': '10.0.0.5' }],
+    [
+      'public connect address',
+      { 'frontend-mcp-service.ats-prod:3000': '8.8.8.8' },
+    ],
+    [
+      'hostname connect target',
+      { 'frontend-mcp-service.ats-prod:3000': 'localhost' },
+    ],
+  ])('rejects %s in explicit private mappings', (_label, mapping) => {
+    expect(() =>
+      deterministicPrivateServiceHostMappingsFromEnv(JSON.stringify(mapping), [
+        'frontend-mcp-service.ats-prod:3000',
+      ]),
+    ).toThrow(/unreviewed or non-private mapping/);
   });
 });

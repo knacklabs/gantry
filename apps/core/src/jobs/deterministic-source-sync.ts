@@ -24,6 +24,7 @@ import { resolveConversationBrowserProfile } from '../shared/browser-profile-sco
 import { buildToolNetworkEnv } from '../shared/tool-network-env.js';
 import {
   declaredNetworkAuthority,
+  isIpAddress,
   isPrivateNetworkAddress,
   parseDeclaredNetworkHost,
 } from '../shared/network-host-declaration.js';
@@ -190,8 +191,21 @@ export async function runDeterministicManagedBrowserActions(input: {
       ...configuredServiceHosts,
     ]),
   ].sort();
-  const reviewedPrivateNetworkHostMappings =
+  const discoveredPrivateNetworkHostMappings =
     await resolveReviewedPrivateNetworkHostMappings(allowedNetworkHosts);
+  const configuredPrivateNetworkHostMappings =
+    deterministicPrivateServiceHostMappingsFromEnv(
+      process.env.GANTRY_DETERMINISTIC_PRIVATE_SERVICE_HOST_MAPPINGS_JSON,
+      allowedNetworkHosts,
+    );
+  const reviewedPrivateNetworkHostMappings = [
+    ...new Map(
+      [
+        ...discoveredPrivateNetworkHostMappings,
+        ...configuredPrivateNetworkHostMappings,
+      ].map((mapping) => [mapping.authority, mapping]),
+    ).values(),
+  ].sort((a, b) => a.authority.localeCompare(b.authority));
   logger.info(
     {
       runId: input.runId,
@@ -329,6 +343,53 @@ export function deterministicPrivateServiceUrlEnvVars(
         .filter((key) => /^[A-Z][A-Z0-9_]*$/.test(key)),
     ),
   ].sort();
+}
+
+/**
+ * Parse operator-reviewed, exact private authority mappings for service-mesh
+ * aliases whose synthetic DNS address is not reliably visible during action
+ * preparation. Mappings cannot grant a new authority: every key must already
+ * be present in the deterministic action's network allowlist.
+ */
+export function deterministicPrivateServiceHostMappingsFromEnv(
+  value: string | undefined,
+  allowedNetworkHosts: readonly string[],
+): Array<{ authority: string; connectHost: string }> {
+  if (!value?.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(
+      'GANTRY_DETERMINISTIC_PRIVATE_SERVICE_HOST_MAPPINGS_JSON must be a JSON object.',
+    );
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(
+      'GANTRY_DETERMINISTIC_PRIVATE_SERVICE_HOST_MAPPINGS_JSON must be a JSON object.',
+    );
+  }
+  const allowedAuthorities = new Set(
+    allowedNetworkHosts
+      .map((host) => declaredNetworkAuthority(host))
+      .filter((authority): authority is string => Boolean(authority)),
+  );
+  const mappings = Object.entries(parsed).map(([declaredHost, rawTarget]) => {
+    const authority = declaredNetworkAuthority(declaredHost);
+    const connectHost = typeof rawTarget === 'string' ? rawTarget.trim() : '';
+    if (
+      !authority ||
+      !allowedAuthorities.has(authority) ||
+      !isIpAddress(connectHost) ||
+      !isPrivateNetworkAddress(connectHost)
+    ) {
+      throw new Error(
+        'GANTRY_DETERMINISTIC_PRIVATE_SERVICE_HOST_MAPPINGS_JSON contains an unreviewed or non-private mapping.',
+      );
+    }
+    return { authority, connectHost };
+  });
+  return mappings.sort((a, b) => a.authority.localeCompare(b.authority));
 }
 
 type NetworkHostLookup = (

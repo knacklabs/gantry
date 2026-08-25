@@ -41,6 +41,7 @@ env:
   POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '12' }}
   PGBOSS_POOL_MAX: ${{ inputs.pgboss_pool_max || '1' }}
   PRIVATE_SERVICE_URL_KEYS: ATS_INTERNAL_API_URL
+  PRIVATE_SERVICE_HOST_MAPPINGS_JSON: '{"frontend-mcp-service.ats-prod:3000":"127.255.0.1"}'
 
 jobs:
   deploy:
@@ -102,15 +103,20 @@ jobs:
             --arg container "$CONTAINER_NAME" \
             --argjson startPeriod "$HEALTH_CHECK_START_PERIOD_SECONDS" \
             --arg privateServiceUrlKeys "$PRIVATE_SERVICE_URL_KEYS" \
+            --arg privateServiceHostMappingsJson "$PRIVATE_SERVICE_HOST_MAPPINGS_JSON" \
             '(.containerDefinitions[] | select(.name == $container) | .healthCheck.startPeriod) = $startPeriod |
              (.containerDefinitions[] | select(.name == $container) | .environment) |=
                ((. // []) | map(select(
                  .name != "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS" and
+                 .name != "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_HOST_MAPPINGS_JSON" and
                  .name != "GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED" and
                  .name != "GANTRY_LIVE_WAKEUP_LISTEN_ENABLED"
                )) + [{
                  name: "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS",
                  value: $privateServiceUrlKeys
+               }, {
+                 name: "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_HOST_MAPPINGS_JSON",
+                 value: $privateServiceHostMappingsJson
                }, {
                  name: "GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED",
                  value: "0"
