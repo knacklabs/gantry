@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, it } from 'vitest';
 
+import { isBrowserMcpServerPath } from '@core/control/server/routes/browser-mcp-servers.js';
+
 const repoRoot = path.resolve(
   new URL('../../../../..', import.meta.url).pathname,
 );
@@ -18,6 +20,9 @@ it('browser MCP facade keeps session and mutation boundary', () => {
   expect(source).toContain(
     "pathname === '/ui/api/mcp-servers' && req.method === 'GET'",
   );
+  expect(
+    isBrowserMcpServerPath('/ui/api/agents/agent-1/mcp-servers/server-1'),
+  ).toBe(true);
   expect(source).toContain('activeSession(req, mode)');
   expect(source).toContain("'mcp:read'");
   expect(source).toContain('requireBrowserMutationSession({');

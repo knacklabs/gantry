@@ -33,6 +33,16 @@ type BrowserMcpSettings = {
   authentication: { mode: 'local' | 'hosted'; canonicalOrigin: string };
 };
 
+const BROWSER_AGENT_MCP_SERVER_PATH =
+  /^\/ui\/api\/agents\/([^/]+)\/mcp-servers\/([^/]+)$/;
+
+export function isBrowserMcpServerPath(pathname: string): boolean {
+  return (
+    pathname.startsWith('/ui/api/mcp-servers') ||
+    BROWSER_AGENT_MCP_SERVER_PATH.test(pathname)
+  );
+}
+
 function service() {
   const storage = getRuntimeStorage();
   return new McpServerService(
@@ -49,7 +59,7 @@ export async function handleBrowserMcpServerRoutes(
   pathname: string,
   settings: BrowserMcpSettings,
 ): Promise<boolean> {
-  if (!pathname.startsWith('/ui/api/mcp-servers')) return false;
+  if (!isBrowserMcpServerPath(pathname)) return false;
   const mode = settings.authentication.mode;
   const appIdFor = (session: { appId: string }) => session.appId as AppId;
   if (pathname === '/ui/api/mcp-servers' && req.method === 'GET') {
@@ -208,9 +218,7 @@ export async function handleBrowserMcpServerRoutes(
       sendJson(res, 200, { server: browserServer(server, []) });
       return true;
     }
-    const binding = pathname.match(
-      /^\/ui\/api\/agents\/([^/]+)\/mcp-servers\/([^/]+)$/,
-    );
+    const binding = BROWSER_AGENT_MCP_SERVER_PATH.exec(pathname);
     if (binding && ['PUT', 'PATCH', 'DELETE'].includes(req.method ?? '')) {
       const agentId = decodeURIComponent(binding[1]) as AgentId;
       const serverId = decodeURIComponent(binding[2]) as McpServerId;
