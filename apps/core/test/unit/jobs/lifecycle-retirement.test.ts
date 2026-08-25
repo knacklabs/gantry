@@ -753,6 +753,9 @@ describe('lifecycle retirement', () => {
       text.includes('Completed'),
     );
     expect(runATerminal?.[2]?.generation).not.toBe(runBStart?.[2]?.generation);
+    expect(runBStart?.[2]?.generation).toBeGreaterThan(
+      runATerminal?.[2]?.generation,
+    );
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 

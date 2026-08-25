@@ -5,6 +5,17 @@ import { resolveJobNotificationRoutes } from '../../jobs/job-notification-routes
 import type { ProgressUpdateOptions } from '../../domain/types.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
 
+let lastLifecycleGeneration = 0;
+
+// Sinks seal the last done generation per route key and accept only greater values,
+// so this must be monotonic, not a hash; Date.now() keeps it monotonic across restarts
+// (sealed maps are in-memory) and the max(+1) keeps it strict within one process.
+function nextLifecycleGeneration(): number {
+  const next = Math.max(Date.now(), lastLifecycleGeneration + 1);
+  lastLifecycleGeneration = next;
+  return next;
+}
+
 export function createSchedulerLifecycleNotificationUpdater(input: {
   channelWiring: Pick<ChannelWiring, 'sendProgressUpdate'>;
 }): Pick<
@@ -34,7 +45,7 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
     capturesByRun.set(runId, capture);
     const routes = resolveJobNotificationRoutes(job);
     const cardToken = randomUUID();
-    const generation = lifecycleGeneration(cardToken);
+    const generation = nextLifecycleGeneration();
     await Promise.all(
       routes.map(async (route, index) => {
         const key = routeKey(route);
@@ -126,16 +137,6 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
     },
     updateLifecycleNotification,
   };
-}
-
-function lifecycleGeneration(runId: string): number {
-  let hash = 0xcbf29ce484222325n;
-  const mask = (1n << 53n) - 1n;
-  for (const character of runId) {
-    hash ^= BigInt(character.codePointAt(0) ?? 0);
-    hash = (hash * 0x100000001b3n) & mask;
-  }
-  return Number(hash);
 }
 
 function routeOptions(route: {
