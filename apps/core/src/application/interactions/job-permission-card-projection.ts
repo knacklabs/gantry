@@ -1,5 +1,3 @@
-import { isDeepStrictEqual } from 'node:util';
-
 import type {
   JobPermissionCardRecord,
   JobPermissionCardRevision,
@@ -8,6 +6,7 @@ import type {
   JobPermissionNeedRecord,
 } from '../../domain/ports/job-permission-durability.js';
 import { sha256Hex } from '../../shared/stable-hash.js';
+import { canonicalJson } from '../../shared/canonical-json.js';
 import type { JobPermissionCardCapacity } from './job-permission-durability.js';
 import {
   jobPermissionCardCallbackKey,
@@ -140,7 +139,7 @@ export function reviseLivingCard(
     !options.force &&
     last &&
     // Persisted rows return from JSONB with normalized key order.
-    isDeepStrictEqual(last.rows, visible) &&
+    canonicalJson(last.rows) === canonicalJson(visible) &&
     last.pageStart === pageStart &&
     last.hiddenRowCount === hiddenRowCount
   ) {
