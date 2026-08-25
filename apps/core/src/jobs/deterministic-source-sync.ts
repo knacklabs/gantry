@@ -19,6 +19,7 @@ import {
 import type { Job } from '../domain/types.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
+import { logger } from '../infrastructure/logging/logger.js';
 import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 import { buildToolNetworkEnv } from '../shared/tool-network-env.js';
 import {
