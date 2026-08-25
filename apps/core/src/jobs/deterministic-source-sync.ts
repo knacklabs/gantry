@@ -208,6 +208,7 @@ export async function runDeterministicManagedBrowserActions(input: {
       },
       ...reviewedPrivateNetworkHostMappings,
     ],
+    reviewedPrivateNetworkHosts: allowedNetworkHosts,
   });
   try {
     const env = {

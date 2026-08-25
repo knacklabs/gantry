@@ -395,6 +395,65 @@ describe('egress gateway', () => {
     }
   });
 
+  it('allows an exact reviewed private service authority at request time', async () => {
+    const target = await startTargetServer();
+    const publishRuntimeEvent = vi.fn();
+    const authority = `ats.internal:${target.port}`;
+    vi.mocked(dns.lookup).mockImplementation(async (hostname) =>
+      hostname === 'ats.internal'
+        ? [{ address: '127.0.0.1', family: 4 }]
+        : [{ address: '93.184.216.34', family: 4 }],
+    );
+    const gateway = await ensureEgressGateway({
+      key: 'test:reviewed-private-service',
+      settings: { denylist: [] },
+      principal: { appId: 'default', agentId: 'agent:test' },
+      reviewedPrivateNetworkHosts: [authority],
+      publishRuntimeEvent,
+    });
+
+    try {
+      const response = await httpProxyRequestThroughGateway({
+        gatewayPort: gateway.port,
+        url: `http://${authority}/healthz`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe('ok');
+      expect(publishRuntimeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            host: 'ats.internal',
+            allowed: true,
+            denied: false,
+            reason: 'reviewed_private_host',
+          }),
+        }),
+      );
+    } finally {
+      await target.close();
+    }
+  });
+
+  it('does not allow a reviewed private hostname on an undeclared port', async () => {
+    vi.mocked(dns.lookup).mockResolvedValue([
+      { address: '127.0.0.1', family: 4 },
+    ]);
+    const gateway = await ensureEgressGateway({
+      key: 'test:reviewed-private-wrong-port',
+      settings: { denylist: [] },
+      principal: { appId: 'default', agentId: 'agent:test' },
+      reviewedPrivateNetworkHosts: ['ats.internal:3000'],
+    });
+
+    const response = await connectThroughGateway({
+      gatewayPort: gateway.port,
+      authority: 'ats.internal:3001',
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
   it('pins upstream-proxied HTTP requests to the locally resolved public address', async () => {
     const upstream = await startRecordingProxy();
     const gateway = await ensureEgressGateway({

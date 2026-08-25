@@ -1,4 +1,5 @@
 import http from 'http';
+import dns from 'node:dns/promises';
 import { createHash } from 'crypto';
 import type { Duplex } from 'stream';
 import {
@@ -16,7 +17,10 @@ import {
   tunnelDirect,
   tunnelViaUpstreamProxy,
 } from './egress-gateway-proxying.js';
-import { declaredNetworkAuthority } from '../shared/network-host-declaration.js';
+import {
+  declaredNetworkAuthority,
+  isPrivateNetworkAddress,
+} from '../shared/network-host-declaration.js';
 import { resolvePublicEgressAddress } from '../shared/egress-target-resolution.js';
 import {
   mappedEgressTarget,
@@ -68,6 +72,7 @@ interface EgressGatewayState {
   principal: EgressGatewayPrincipal;
   networkAttribution: Map<string, EgressNetworkAttribution>;
   connectHostMappings?: Map<string, string>;
+  reviewedPrivateNetworkAuthorities?: Set<string>;
   upstreamProxy?: EgressGatewayUpstreamProxy;
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
@@ -100,6 +105,7 @@ export async function ensureEgressGateway(input: {
   principal: EgressGatewayPrincipal;
   networkAttribution?: readonly EgressNetworkAttribution[];
   privateNetworkHostMappings?: readonly EgressGatewayPrivateHostMapping[];
+  reviewedPrivateNetworkHosts?: readonly string[];
   upstreamProxy?: EgressGatewayUpstreamProxy;
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
@@ -114,6 +120,9 @@ export async function ensureEgressGateway(input: {
     );
     existing.connectHostMappings = connectHostMappings(
       input.privateNetworkHostMappings,
+    );
+    existing.reviewedPrivateNetworkAuthorities = networkAuthorities(
+      input.reviewedPrivateNetworkHosts,
     );
     if (input.upstreamProxy) {
       existing.upstreamProxy = input.upstreamProxy;
@@ -153,6 +162,9 @@ export async function ensureEgressGateway(input: {
         connectHostMappings: connectHostMappings(
           input.privateNetworkHostMappings,
         ),
+        reviewedPrivateNetworkAuthorities: networkAuthorities(
+          input.reviewedPrivateNetworkHosts,
+        ),
         ...(input.upstreamProxy ? { upstreamProxy: input.upstreamProxy } : {}),
         ...(input.publishRuntimeEvent
           ? { publishRuntimeEvent: input.publishRuntimeEvent }
@@ -183,6 +195,26 @@ function connectHostMappings(
     if (authority && connectHost) map.set(authority, connectHost);
   }
   return map.size > 0 ? map : undefined;
+}
+function networkAuthorities(
+  hosts: readonly string[] | undefined,
+): Set<string> | undefined {
+  const authorities = new Set<string>();
+  for (const host of hosts ?? []) {
+    const authority = declaredNetworkAuthority(host);
+    if (authority) authorities.add(authority);
+  }
+  return authorities.size > 0 ? authorities : undefined;
+}
+function authorityWithExplicitPort(target: {
+  host: string;
+  port: number;
+}): string {
+  const host =
+    target.host.includes(':') && !target.host.startsWith('[')
+      ? `[${target.host}]`
+      : target.host;
+  return `${host}:${target.port}`;
 }
 function createEgressGatewayServer(key: string): http.Server {
   const server = http.createServer((req, res) => {
@@ -262,6 +294,26 @@ async function handleConnectRequest(
     });
     return;
   }
+  const reviewedPrivateTarget = await resolveReviewedPrivateTarget(
+    state,
+    target,
+  );
+  if (reviewedPrivateTarget) {
+    await auditConnect(state, {
+      host: reviewedPrivateTarget.host,
+      port: target.port,
+      allowed: true,
+      denied: false,
+      reason: 'reviewed_private_host',
+    });
+    await tunnelDirect({
+      target: reviewedPrivateTarget,
+      clientSocket,
+      head,
+      trackSocket: (socket) => trackGatewaySocket(state, socket),
+    });
+    return;
+  }
   const resolution = await resolveEgressTarget(target);
   if ('deny' in resolution) {
     await denyConnectRequest(state, clientSocket, resolution.deny, target.port);
@@ -334,6 +386,35 @@ async function handleHttpProxyRequest(
       reason: 'mapped_connect_host',
     });
     const upstream = requestDirect(req, target, mappedTarget.connectHost);
+    upstream.on('response', (upstreamRes) => {
+      res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
+      upstreamRes.pipe(res);
+    });
+    upstream.on('error', () => {
+      if (!res.headersSent) res.writeHead(502);
+      res.end('Bad Gateway');
+    });
+    req.pipe(upstream);
+    return;
+  }
+  const reviewedPrivateTarget = await resolveReviewedPrivateTarget(state, {
+    host: normalizeEgressHost(target.hostname),
+    port: urlPort(target),
+    authority: target.host,
+  });
+  if (reviewedPrivateTarget) {
+    await auditConnect(state, {
+      host: reviewedPrivateTarget.host,
+      port: urlPort(target),
+      allowed: true,
+      denied: false,
+      reason: 'reviewed_private_host',
+    });
+    const upstream = requestDirect(
+      req,
+      target,
+      reviewedPrivateTarget.connectHost,
+    );
     upstream.on('response', (upstreamRes) => {
       res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
       upstreamRes.pipe(res);
@@ -506,6 +587,35 @@ async function resolveEgressTarget(target: {
   }
   return {
     target: { ...target, host, connectHost: resolution.address },
+  };
+}
+async function resolveReviewedPrivateTarget(
+  state: EgressGatewayState,
+  target: { host: string; port: number; authority: string },
+): Promise<ResolvedEgressTarget | undefined> {
+  const authority = declaredNetworkAuthority(authorityWithExplicitPort(target));
+  if (!authority || !state.reviewedPrivateNetworkAuthorities?.has(authority)) {
+    return undefined;
+  }
+  let records: Array<{ address: string; family: number }>;
+  try {
+    records = await dns.lookup(target.host, { all: true, verbatim: true });
+  } catch {
+    return undefined;
+  }
+  const addresses = records
+    .filter((record) => record.family === 4 || record.family === 6)
+    .map((record) => record.address);
+  if (
+    addresses.length === 0 ||
+    !addresses.every((address) => isPrivateNetworkAddress(address))
+  ) {
+    return undefined;
+  }
+  return {
+    ...target,
+    host: normalizeEgressHost(target.host),
+    connectHost: addresses[0],
   };
 }
 function dnsResolutionDeny(host: string): EgressPolicyMatch {
