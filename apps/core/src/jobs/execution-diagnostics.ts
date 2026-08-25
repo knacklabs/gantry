@@ -523,58 +523,13 @@ function summarizeStartupDiagnosticValue(
 }
 
 function isBrowserToolActivity(payload: Record<string, unknown>): boolean {
-  if (payload.ok !== true) return false;
-  const phase = stringValue(payload.phase);
-  if (phase !== 'browser_action') return false;
-  const publicTool = stringValue(payload.public_tool);
-  const action = stringValue(payload.action);
-  return isBrowserGatewayActivity(publicTool, action);
+  return (
+    payload.ok === true &&
+    payload.family === 'browser' &&
+    payload.authoritative === true
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-const BROWSER_INSPECT_BACKEND_ACTIONS = new Set([
-  'tabs',
-  'snapshot',
-  'screenshot',
-  'console_messages',
-  'network_requests',
-]);
-
-const BROWSER_ACT_BACKEND_ACTIONS = new Set([
-  'navigate',
-  'back',
-  'tabs',
-  'click',
-  'type',
-  'wait_for',
-  'screenshot',
-  'evaluate',
-  'press_key',
-  'hover',
-  'drag',
-  'drop',
-  'select_option',
-  'fill_form',
-  'file_upload',
-  'file_attach',
-  'handle_dialog',
-  'resize',
-]);
-
-function isBrowserGatewayActivity(
-  publicTool: string | undefined,
-  action: string | undefined,
-): boolean {
-  if (publicTool === 'browser_open')
-    return action === 'open' || action === 'navigate';
-  if (publicTool === 'browser_inspect') {
-    return action ? BROWSER_INSPECT_BACKEND_ACTIONS.has(action) : false;
-  }
-  if (publicTool === 'browser_act') {
-    return action ? BROWSER_ACT_BACKEND_ACTIONS.has(action) : false;
-  }
-  return false;
 }

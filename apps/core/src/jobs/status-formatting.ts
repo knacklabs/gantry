@@ -101,6 +101,12 @@ export function structuredJobResultFromRecordedActions(
     }
   >();
   for (const result of byInvocation.values()) {
+    if (
+      result.key.startsWith('browser:') ||
+      result.key.startsWith('capability:')
+    ) {
+      if (result.precedence === 0) continue;
+    }
     const groupKey = `${result.key}\u0000${result.outcome}`;
     const group = grouped.get(groupKey) ?? {
       key: result.key,
@@ -113,6 +119,33 @@ export function structuredJobResultFromRecordedActions(
     group.firstSeq = minimumSequence(group.firstSeq, result.seq);
     if (result.detail) group.details.push(result.detail);
     grouped.set(groupKey, group);
+  }
+  for (const family of ['browser', 'capability'] as const) {
+    const failures = [...byInvocation.values()].filter(
+      (result) =>
+        result.key.startsWith(`${family}:`) && result.outcome === 'failed',
+    );
+    const wrapperFailures = failures.filter(
+      (result) => result.precedence === 0,
+    );
+    const authoritativeFailures = failures.length - wrapperFailures.length;
+    const remainder = Math.max(
+      0,
+      wrapperFailures.length - authoritativeFailures,
+    );
+    if (remainder === 0) continue;
+    const key = `${family}:pre-dispatch`;
+    grouped.set(`${key}\u0000failed`, {
+      key,
+      label:
+        family === 'browser'
+          ? 'Browser: failed before reaching the browser service'
+          : 'Capability: failed before dispatch',
+      outcome: 'failed',
+      count: remainder,
+      firstSeq: wrapperFailures.map(({ seq }) => seq).reduce(minimumSequence),
+      details: [],
+    });
   }
   const groups = [...grouped.values()].sort((left, right) => {
     if (left.outcome !== right.outcome) {

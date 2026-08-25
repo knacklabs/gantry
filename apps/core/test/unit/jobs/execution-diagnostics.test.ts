@@ -42,6 +42,38 @@ describe('job execution diagnostics', () => {
     expect(take([event('e1'), event('e2')])).toEqual([]);
   });
 
+  it('counts only authoritative browser gateway successes', () => {
+    const diagnostics = createJobRunDiagnostics();
+
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+      {
+        phase: 'success',
+        tool: 'browser_act',
+        family: 'browser',
+        ok: true,
+        authoritative: true,
+        invocationId: 'browser-1',
+      },
+    );
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+      {
+        phase: 'success',
+        tool: 'Browser',
+        family: 'browser',
+        ok: true,
+        authoritative: false,
+        invocationId: 'toolu_1',
+        seq: 3,
+      },
+    );
+
+    expect(diagnostics.browserActivityCount).toBe(1);
+  });
+
   it('fingerprints a denial from the run, tool, kind, and provenance seam', () => {
     const denial = {
       invocationId: 'denial-1',

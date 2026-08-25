@@ -291,6 +291,83 @@ it('toolact-projection', async () => {
   );
 });
 
+it('keeps only authoritative gantry-owned tool rows and unmatched wrapper failures', () => {
+  const terminal = (
+    invocationId: string,
+    tool: string,
+    outcome: 'success' | 'failure',
+    authoritative: boolean,
+    seq: number,
+    family: 'browser' | 'capability',
+    detail?: string,
+  ) => ({
+    eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+    correlationId: invocationId,
+    payload: {
+      phase: outcome,
+      tool,
+      family,
+      ok: outcome === 'success',
+      authoritative,
+      invocationId,
+      seq,
+      ...(detail ? { detail } : {}),
+    },
+  });
+  const result = structuredJobResultFromRecordedActions([
+    terminal('browser-1', 'browser_act', 'success', true, 1, 'browser'),
+    terminal('browser-2', 'browser_act', 'success', true, 2, 'browser'),
+    terminal('browser-3', 'browser_inspect', 'success', true, 3, 'browser'),
+    terminal(
+      'browser-4',
+      'browser_act',
+      'failure',
+      true,
+      4,
+      'browser',
+      'condorsoftware.com',
+    ),
+    terminal(
+      'browser-5',
+      'browser_act',
+      'failure',
+      true,
+      5,
+      'browser',
+      'condorsoftware.com',
+    ),
+    terminal('toolu-1', 'Browser', 'success', false, 41, 'browser'),
+    terminal('toolu-2', 'Browser', 'success', false, 42, 'browser'),
+    terminal('toolu-3', 'Browser', 'success', false, 43, 'browser'),
+    terminal('toolu-4', 'Browser', 'failure', false, 44, 'browser'),
+    terminal('toolu-5', 'Browser', 'failure', false, 45, 'browser'),
+    terminal('toolu-6', 'Browser', 'failure', false, 46, 'browser'),
+    terminal(
+      'capability-run-1',
+      'google.sheets.values.append',
+      'success',
+      true,
+      6,
+      'capability',
+    ),
+    terminal('toolu-7', 'capability_run', 'success', false, 47, 'capability'),
+  ]);
+
+  expect(result?.items).toEqual([
+    { outcome: 'failed', label: 'Browser: Act ×2' },
+    {
+      outcome: 'failed',
+      label: 'Browser: failed before reaching the browser service',
+    },
+    { outcome: 'done', label: 'Browser: Act ×2' },
+    { outcome: 'done', label: 'Browser: Inspect' },
+    { outcome: 'done', label: 'Capability: Google Sheets Values Append' },
+  ]);
+  expect(result?.items.some((item) => item.label === 'Browser: Browser')).toBe(
+    false,
+  );
+});
+
 describe('job status formatting', () => {
   it('bounds structured notification views before provider rendering', () => {
     const longText = (prefix: string) =>
