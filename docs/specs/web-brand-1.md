@@ -1,7 +1,7 @@
 ---
 slug: web-brand-1
 title: Gantry Web Console Brand Mark
-status: draft
+status: confirmed
 saved: 2026-08-25T18:08:15+00:00
 ---
 

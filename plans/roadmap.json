@@ -1353,6 +1353,21 @@
       "completed_at": "2026-08-25T11:34:53+00:00",
       "history": ".factory/stories/WEB-MCP-1/",
       "outcome": "Gantry operators can now manage MCP sources from the web console: inspect reviewed source configuration, connect remote or approved local-process servers, run diagnostics, safely disable sources with keyboard-modal app confirmations, and revalidate disabled sources before reconnecting them without silently restoring prior authority."
+    },
+    {
+      "key": "WEB-BRAND-1",
+      "title": "Gantry Web Console Logo Assets",
+      "story": "As a Gantry web-console operator, I can recognize the console across auth, navigation, and browser identity surfaces.",
+      "acceptance_criteria": [
+        "Auth and sidebar use the canonical accessible visual mark without legacy G badges.",
+        "The built console serves the canonical mark, favicon, and 180px touch icon under /ui/."
+      ],
+      "order": 68,
+      "status": "active",
+      "epic": "web-authentication",
+      "skill": "frontend",
+      "depends_on": [],
+      "spec": "docs/specs/web-brand-1.md"
     }
   ],
   "epics": [
@@ -1449,5 +1464,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-25T11:34:53+00:00"
+  "updated_at": "2026-08-25T18:09:52+00:00"
 }

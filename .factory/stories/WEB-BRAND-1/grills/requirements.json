@@ -1,0 +1,38 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "The supplied plan fixes the mark geometry and avoids changing any browser authentication behavior, so no new runtime requirement is implied.",
+    "One shared React component is justified because it prevents two independently drifting asset references while retaining live text for accessibility."
+  ],
+  "inspected_refs": [
+    "docs/specs/web-brand-1.md",
+    "apps/web/src/features/auth/auth-card.tsx",
+    "apps/web/src/app/app-navigation.tsx",
+    "apps/web/vite.config.ts"
+  ],
+  "current_flow": "AuthCard supplies every auth variant, AppNavigation supplies the authenticated lockup, and Vite public assets are copied beneath the /ui/ base.",
+  "criteria_map": {
+    "Auth and sidebar use the canonical accessible visual mark without legacy G badges.": "Update the two shared consumers and assert the old selectors and literals are absent.",
+    "The built console serves the canonical mark, favicon, and 180px touch icon under /ui/.": "Use public assets, index links, and a deterministic asset test."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "GantryMark only"
+  ],
+  "rounds": [],
+  "citations": [
+    {
+      "finding": "The shared AuthCard makes one replacement cover login, loading, invitation, reauthentication, and access-denied variants.",
+      "source": "apps/web/src/features/auth/auth-card.tsx"
+    }
+  ],
+  "open_items": [],
+  "issue": "WEB-BRAND-1",
+  "input_sha256": "76a873732c2312e7d120ed40f285de265d3f4ecda86844d4292b611c7d27031b",
+  "recorded_at": "2026-08-25T18:10:37+00:00",
+  "commit": "082326001faf7665c6cbf2462082a12b17a9c27d"
+}
