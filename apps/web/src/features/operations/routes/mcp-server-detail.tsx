@@ -7,6 +7,14 @@ import {
 } from '../../../lib/auth/browser-auth';
 import { Panel } from '../../../ui/compositions/panel';
 import { SelectField } from '../../../ui/compositions/select-field';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../../ui/primitives/alert-dialog';
 import { Button } from '../../../ui/primitives/button';
 import { Input } from '../../../ui/primitives/input';
 import { Textarea } from '../../../ui/primitives/textarea';
@@ -41,6 +49,8 @@ export function McpServerDetail({
   const [required, setRequired] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [disabling, setDisabling] = useState(false);
   const refresh = () =>
     client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
   async function request(path: string, method: string, body?: unknown) {
@@ -78,18 +88,17 @@ export function McpServerDetail({
     if (result !== false) setNotice(result || 'Diagnostic completed.');
   }
   async function disable() {
-    if (
-      !window.confirm(
-        `Disable ${server.displayName ?? server.name}? Future source materialization will stop.`,
-      )
-    )
-      return;
+    setDisabling(true);
     const result = await request(
       `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/disable`,
       'POST',
       {},
     );
-    if (result !== false) setNotice('Server disabled.');
+    setDisabling(false);
+    if (result !== false) {
+      setDisableOpen(false);
+      setNotice('Server disabled.');
+    }
   }
   async function bind(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -178,22 +187,51 @@ export function McpServerDetail({
                 size="sm"
                 variant="secondary"
               >
-                Run diagnostic
+                Validate configuration
               </Button>
               <Button onClick={onReplace} size="sm" variant="secondary">
                 Replace configuration
               </Button>
-            <Button
-              onClick={() => void disable()}
-              size="sm"
-              variant="secondary"
-            >
+              <Button
+                onClick={() => setDisableOpen(true)}
+                size="sm"
+                variant="secondary"
+              >
                 Disable server
               </Button>
             </div>
           ) : null}
         </div>
       </Panel>
+      <AlertDialog onOpenChange={setDisableOpen} open={disableOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disable MCP server?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops future materialization for{' '}
+              {server.displayName ?? server.name}. Its definition and bindings
+              remain available for review.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {error ? <p className="m-0 text-sm text-danger">{error}</p> : null}
+          <AlertDialogFooter>
+            <Button
+              disabled={disabling}
+              onClick={() => setDisableOpen(false)}
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={disabling}
+              onClick={() => void disable()}
+              variant="destructive"
+            >
+              {disabling ? 'Disabling…' : 'Disable server'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Panel
         title="Attached agents"
         description="Bindings narrow source visibility; they never grant tool execution authority."

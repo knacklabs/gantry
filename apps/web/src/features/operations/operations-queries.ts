@@ -57,6 +57,7 @@ export type McpServer = {
   riskClass: 'low' | 'medium' | 'high';
   transport: 'http' | 'sse' | 'stdio_template';
   endpoint?: string;
+  endpointHasParameters?: boolean;
   templateId?: string;
   args?: string[];
   allowedToolPatterns: string[];

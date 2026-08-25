@@ -39,6 +39,9 @@ it('browser MCP facade keeps session and mutation boundary', () => {
   expect(source).toContain('credentialRefs: server.credentialRefs');
   expect(source).not.toContain('parsed.data.permissionPolicyIds');
   expect(source).toContain('binding: browserBinding(result)');
+  expect(source).toContain('...browserEndpoint(server.config.url)');
+  expect(source).toContain("endpoint.search = ''");
+  expect(source).toContain("endpoint.hash = ''");
   expect(source).toContain("binding.status === 'active'");
   expect(source).not.toContain('...server };');
   expect(source).not.toContain('config: server.config');

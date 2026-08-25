@@ -179,6 +179,26 @@ function serviceWithRepo() {
 }
 
 describe('McpServerService', () => {
+  it('labels validation without claiming a remote connection', async () => {
+    const { service } = serviceWithRepo();
+    const server = await service.connectServer({
+      appId: 'app:one' as never,
+      name: 'github',
+      transportConfig: {
+        transport: 'http',
+        url: 'https://mcp.example.test/github',
+      },
+    });
+
+    await expect(
+      service.testServer({ appId: 'app:one' as never, serverId: server.id }),
+    ).resolves.toMatchObject({
+      ok: true,
+      message:
+        'Configuration is valid. It did not contact the server or discover tools.',
+    });
+  });
+
   it('connects one current active MCP server definition', async () => {
     const { repo, service } = serviceWithRepo();
 

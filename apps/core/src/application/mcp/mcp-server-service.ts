@@ -241,7 +241,10 @@ export class McpServerService {
     return {
       server,
       ok: true,
-      message: 'MCP server definition is active and safe to materialize.',
+      message:
+        server.transport === 'stdio_template'
+          ? 'Configuration is valid. Local-process execution is not available yet.'
+          : 'Configuration is valid. It did not contact the server or discover tools.',
     };
   }
 

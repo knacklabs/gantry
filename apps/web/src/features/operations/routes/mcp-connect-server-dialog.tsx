@@ -56,8 +56,12 @@ export function ConnectMcpServerDialog({
   );
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSaving(true);
     setError(undefined);
+    if (credentialRefs.some((ref) => Boolean(ref.name) !== Boolean(ref.key))) {
+      setError('Complete or remove each credential mapping.');
+      return;
+    }
+    setSaving(true);
     const form = new FormData(event.currentTarget);
     const config =
       kind === 'remote'
@@ -116,7 +120,7 @@ export function ConnectMcpServerDialog({
               type="button"
               variant={kind === 'remote' ? 'default' : 'secondary'}
             >
-              Remote server
+              HTTP/SSE endpoint
             </Button>
             <Button
               onClick={() => {
@@ -158,8 +162,17 @@ export function ConnectMcpServerDialog({
                   label="Server URL"
                   name="url"
                   required
-                  defaultValue={replacement?.endpoint}
+                  defaultValue={
+                    replacement?.endpointHasParameters
+                      ? undefined
+                      : replacement?.endpoint
+                  }
                   placeholder="https://example.com/mcp"
+                  hint={
+                    replacement?.endpointHasParameters
+                      ? 'This endpoint has private URL parameters. Re-enter them to replace it.'
+                      : 'Public endpoints require HTTPS. HTTP is allowed only for a local loopback endpoint.'
+                  }
                 />
               </>
             ) : (

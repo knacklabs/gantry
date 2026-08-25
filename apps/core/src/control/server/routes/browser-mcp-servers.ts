@@ -301,7 +301,7 @@ function browserServer(
     createdSource: server.createdSource,
     riskClass: server.riskClass,
     transport: server.transport,
-    endpoint: server.config.url,
+    ...browserEndpoint(server.config.url),
     templateId: server.config.templateId,
     args: server.config.args,
     allowedToolPatterns: server.allowedToolPatterns,
@@ -312,6 +312,15 @@ function browserServer(
     updatedAt: server.updatedAt,
     bindings,
   };
+}
+
+function browserEndpoint(url: string | undefined) {
+  if (!url) return {};
+  const endpoint = new URL(url);
+  const endpointHasParameters = Boolean(endpoint.search || endpoint.hash);
+  endpoint.search = '';
+  endpoint.hash = '';
+  return { endpoint: endpoint.toString(), endpointHasParameters };
 }
 
 function sendBrowserError(

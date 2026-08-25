@@ -153,7 +153,11 @@ export function McpServersRoute() {
                 <li key={server.id}>
                   <button
                     className={`grid w-full gap-1 p-4 text-left hover:bg-surface-muted ${selected?.id === server.id ? 'bg-surface-muted' : ''}`}
-                    onClick={() => setSelectedId(server.id)}
+                    onClick={() => {
+                      setSelectedId(server.id);
+                      setReceipt(undefined);
+                      setReceiptError(undefined);
+                    }}
                     type="button"
                   >
                     <span className="flex items-center justify-between gap-2 font-medium">
@@ -189,6 +193,7 @@ export function McpServersRoute() {
             <McpServerDetail
               canManage={Boolean(canManage)}
               inventory={inventory!}
+              key={selected.id}
               onReplace={() => {
                 setReplacement(selected);
                 setConnectOpen(true);
