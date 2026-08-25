@@ -500,6 +500,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         groupName: group.name,
         supportsStreamingChunks,
         allowIntentionalNoReply: group.requiresTrigger === false,
+        // The runner can remain open waiting for more SDK events after it has
+        // already made a final ambient no-reply decision. Close it immediately
+        // so a message queued behind this turn can drain without waiting for
+        // the normal idle timeout.
+        onIntentionalNoReply: () => deps.queue.closeStdin(queueJid),
         buildStreamingOptions,
         buildMessageOptions,
         sendMessageToChannel,

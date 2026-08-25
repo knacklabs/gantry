@@ -41,6 +41,7 @@ export function createGroupOutputBuffer(input: {
   groupName: string;
   supportsStreamingChunks: boolean;
   allowIntentionalNoReply?: boolean;
+  onIntentionalNoReply?: () => void;
   buildStreamingOptions: (args: { done?: boolean }) => StreamingChunkOptions;
   buildMessageOptions: () =>
     | MessageSendOptions
@@ -83,6 +84,16 @@ export function createGroupOutputBuffer(input: {
   let pendingOutputHasParts = false;
   let pendingNoReplyCandidate: string | null = '';
   let intentionalNoReply = false;
+
+  const acceptIntentionalNoReply = (reason: string) => {
+    if (intentionalNoReply) return;
+    intentionalNoReply = true;
+    input.log.info(
+      { group: input.groupName, reason },
+      'Agent intentionally declined ambient reply',
+    );
+    input.onIntentionalNoReply?.();
+  };
 
   const runVisibleDelivery = async (
     attempt: () => Promise<DeliverySettlement>,
@@ -130,13 +141,9 @@ export function createGroupOutputBuffer(input: {
     pendingOutputHasParts = false;
     pendingNoReplyCandidate = '';
     if (noReplyRequested) {
-      intentionalNoReply = true;
+      acceptIntentionalNoReply(reason);
       generationParts = [];
       input.resetStreamedTranscriptDeliveryStatus?.();
-      input.log.info(
-        { group: input.groupName, reason },
-        'Agent intentionally declined ambient reply',
-      );
       return false;
     }
     const text = visibleOutput ? formatOutboundForChannel(visibleOutput) : '';
@@ -232,6 +239,12 @@ export function createGroupOutputBuffer(input: {
         pendingNoReplyCandidate,
         raw,
       );
+      if (
+        input.allowIntentionalNoReply &&
+        isIntentionalNoReplyCandidate(pendingNoReplyCandidate)
+      ) {
+        acceptIntentionalNoReply('output-complete');
+      }
       pendingOutputVisible.append(raw);
       if (!input.supportsStreamingChunks) return;
       const safeDelta = streamSanitizer.append(raw);
