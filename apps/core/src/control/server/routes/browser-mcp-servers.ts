@@ -17,6 +17,7 @@ import { defaultHostnameLookup } from '../../../infrastructure/network/hostname-
 import type { AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type {
+  AgentMcpServerBinding,
   McpServerDefinition,
   McpServerId,
 } from '../../../domain/mcp/mcp-servers.js';
@@ -229,7 +230,9 @@ export async function handleBrowserMcpServerRoutes(
           serverId,
         });
         await ctx.syncSettingsFromProjection(appId);
-        sendJson(res, 200, { binding: result });
+        sendJson(res, 200, {
+          binding: result ? browserBinding(result) : null,
+        });
         return true;
       }
       const parsed = UpdateAgentMcpServerBindingRequestSchema.safeParse(
@@ -247,11 +250,10 @@ export async function handleBrowserMcpServerRoutes(
         agentId,
         serverId,
         required: parsed.data.required,
-        permissionPolicyIds: parsed.data.permissionPolicyIds as never,
         allowedToolPatterns: parsed.data.allowedToolPatterns,
       });
       await ctx.syncSettingsFromProjection(appId);
-      sendJson(res, 200, { binding: result });
+      sendJson(res, 200, { binding: browserBinding(result) });
       return true;
     }
   } catch (error) {
@@ -263,6 +265,14 @@ export async function handleBrowserMcpServerRoutes(
     );
   }
   return sendBrowserError(res, 404, 'NOT_FOUND', 'MCP server route not found.');
+}
+
+function browserBinding(binding: AgentMcpServerBinding) {
+  return {
+    status: binding.status,
+    required: binding.required,
+    allowedToolPatterns: binding.allowedToolPatterns,
+  };
 }
 
 function browserServer(
