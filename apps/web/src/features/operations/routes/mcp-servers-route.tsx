@@ -631,7 +631,11 @@ function ConnectDialog({
               <label className="grid gap-1.5 text-xs font-semibold">
                 Expected network destinations (optional)
                 <Textarea
-                  defaultValue={replacement?.networkHosts.join('\n')}
+                  defaultValue={
+                    replacement?.transport === 'stdio_template'
+                      ? replacement.networkHosts.join('\n')
+                      : undefined
+                  }
                   name="networkHosts"
                   placeholder="api.example.com:443"
                 />
