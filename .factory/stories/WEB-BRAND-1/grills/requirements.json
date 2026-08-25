@@ -5,34 +5,40 @@
   "gaps": [],
   "contradictions": [],
   "resolutions": [
-    "The supplied plan fixes the mark geometry and avoids changing any browser authentication behavior, so no new runtime requirement is implied.",
-    "One shared React component is justified because it prevents two independently drifting asset references while retaining live text for accessibility."
+    "The final user-approved requirement is one fixed-ratio title-case Helvetica Neue lockup shared by auth and sidebar.",
+    "The standalone mark remains limited to favicon and touch-icon output, so no browser runtime or authentication requirement changes."
   ],
   "inspected_refs": [
     "docs/specs/web-brand-1.md",
+    "apps/web/public/brand/gantry-logo.svg",
+    "apps/web/public/brand/gantry-mark.svg",
+    "apps/web/src/ui/compositions/gantry-logo.tsx",
     "apps/web/src/features/auth/auth-card.tsx",
-    "apps/web/src/app/app-navigation.tsx",
-    "apps/web/vite.config.ts"
+    "apps/web/src/app/app-navigation.tsx"
   ],
-  "current_flow": "AuthCard supplies every auth variant, AppNavigation supplies the authenticated lockup, and Vite public assets are copied beneath the /ui/ base.",
+  "current_flow": "The shared AuthCard and AppNavigation each render the same GantryLogo composition, while browser icons use the standalone mark asset.",
   "criteria_map": {
-    "Auth and sidebar use the canonical accessible visual mark without legacy G badges.": "Update the two shared consumers and assert the old selectors and literals are absent.",
-    "The built console serves the canonical mark, favicon, and 180px touch icon under /ui/.": "Use public assets, index links, and a deterministic asset test."
+    "Auth and sidebar use the same canonical lockup without legacy G badges.": "The shared GantryLogo component and fixed h-6 w-[102px] consumer dimensions prevent independent typography and mark sizing.",
+    "The built console serves the canonical lockup, favicon, and 180px touch icon under /ui/.": "Public assets, base-aware mask URLs, index links, PNG dimensions, and the production build are covered by the focused asset test."
   },
   "decision": "keep",
   "new_abstractions": [
-    "GantryMark only"
+    "GantryLogo only"
   ],
   "rounds": [],
   "citations": [
     {
-      "finding": "The shared AuthCard makes one replacement cover login, loading, invitation, reauthentication, and access-denied variants.",
+      "finding": "Auth variants share AuthCard, so one lockup covers sign-in, invitation, reauthentication, loading, and access-denied states.",
       "source": "apps/web/src/features/auth/auth-card.tsx"
+    },
+    {
+      "finding": "The authenticated console has one visual identity consumer in AppNavigation.",
+      "source": "apps/web/src/app/app-navigation.tsx"
     }
   ],
   "open_items": [],
   "issue": "WEB-BRAND-1",
-  "input_sha256": "fdfbab96aceaf2c8f2836ceb71c0d43d2e27288ab5fc89e3cc8c856c3287b757",
-  "recorded_at": "2026-08-25T18:13:40+00:00",
-  "commit": "02dfed1307dd606e4f7cad977343dadf4bcba83d"
+  "input_sha256": "199f1fe6184264af56cc077a45610905914306bfb6f08a7058e15b5b2dc86dff",
+  "recorded_at": "2026-08-25T19:40:31+00:00",
+  "commit": "40196317b57e8d1838438fa412258eab533d52f4"
 }

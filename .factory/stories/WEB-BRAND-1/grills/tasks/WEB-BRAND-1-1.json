@@ -5,41 +5,46 @@
   "gaps": [],
   "contradictions": [],
   "resolutions": [
-    "The task stays within the two existing shared identity consumers and static public assets; no route, auth, API, or runtime ownership changes are needed.",
-    "The focused test checks geometry and browser asset metadata without adding an image or UI test framework."
+    "Keep one combined public SVG lockup and one color-inheriting CSS-mask consumer; this removes the independent icon-to-wordmark sizing seam.",
+    "Keep the standalone mark only for the browser icon assets, where no live wordmark is present."
   ],
   "inspected_refs": [
+    "apps/web/public/brand/gantry-logo.svg",
+    "apps/web/src/ui/compositions/gantry-logo.tsx",
     "apps/web/src/features/auth/auth-card.tsx",
     "apps/web/src/app/app-navigation.tsx",
     "apps/web/index.html",
-    "apps/web/vite.config.ts",
-    ".factory/stages.json"
+    "apps/web/src/brand-assets.test.ts"
   ],
-  "current_flow": "The shared auth card and app navigation each render one temporary literal G badge; index.html owns the inline legacy favicon.",
+  "current_flow": "Auth and sidebar share one 102 by 24 SVG lockup; favicon uses the standalone SVG mark.",
   "criteria_map": {
-    "Auth pages use a 28px bronze #C0985F canonical mark beside the existing uppercase GANTRY wordmark, with no bordered G badge.": "AuthCard replacement plus the existing shared layout preserves every auth variant.",
-    "The sidebar uses a 24px --ink canonical mark beside the existing Gantry label and remains legible in both themes.": "AppNavigation replacement uses the inherited ink color.",
-    "Browser icons use a dark #1B1A18 tile with an off-white #F7F6F4 mark: an SVG favicon and one 180 by 180 touch icon served under /ui/.": "Public asset files and index links are built by Vite and checked by test.",
-    "Existing auth copy, routes, navigation labels, page title, layout, and Google sign-in treatment do not change.": "Only the two temporary badges and browser-icon link are replaced; all existing text and layout classes remain.",
-    "No PWA manifest, unused icon sizes, external image request, duplicate wordmark image, new dependency, API, schema, persistence, configuration, or runtime behavior is added.": "The task uses existing public assets, CSS masking, and installed Sharp only."
+    "Auth pages use the 102 by 24 bronze #C0985F canonical lockup\u2014four-square concept 23 mark plus title-case Helvetica Neue Gantry\u2014with no bordered G badge or separate wordmark.": "Verified by the shared lockup consumers, SVG favicon asset, and focused web test.",
+    "The sidebar uses the same 102 by 24 --ink canonical lockup and remains legible in both themes.": "Verified by the shared lockup consumers, SVG favicon asset, and focused web test.",
+    "Browser icon uses a dark #1B1A18 tile with an off-white #F7F6F4 mark: an SVG favicon served under /ui/.": "Verified by the shared lockup consumers, SVG favicon asset, and focused web test.",
+    "Existing auth copy, routes, navigation labels, page title, layout, and Google sign-in treatment do not change.": "Verified by the shared lockup consumers, SVG favicon asset, and focused web test.",
+    "No PWA manifest, unused icon sizes, external image request, duplicate lockup asset, new dependency, API, schema, persistence, configuration, or runtime behavior is added.": "Verified by the shared lockup consumers, SVG favicon asset, and focused web test."
   },
   "decision": "keep",
   "new_abstractions": [
-    "GantryMark only"
+    "GantryLogo shared visual component"
   ],
   "rounds": [],
   "citations": [
     {
-      "finding": "The planned write scope matches all current badge and favicon owners.",
-      "source": "apps/web/src/features/auth/auth-card.tsx; apps/web/src/app/app-navigation.tsx; apps/web/index.html"
+      "finding": "One lockup asset fixes the previous icon-to-wordmark ratio mismatch across both consumers.",
+      "source": "apps/web/public/brand/gantry-logo.svg; apps/web/src/ui/compositions/gantry-logo.tsx; apps/web/src/features/auth/auth-card.tsx; apps/web/src/app/app-navigation.tsx"
     }
   ],
   "open_items": [],
+  "skills_used": [
+    "emil-design-eng",
+    "frontend-design"
+  ],
   "task_id": "WEB-BRAND-1-1",
-  "input_sha256": "26d8af983b58e18ccd117e6ef7146e5a70b16b14579169560a752a178cd8f97a",
-  "recorded_at": "2026-08-25T18:20:15+00:00",
-  "commit": "02dfed1307dd606e4f7cad977343dadf4bcba83d",
-  "approved_task_plan_sha256": "ac6d7fce94ddbfeebef75bce02c55ee060e65f8d5988735c680aab75c931b2c4",
-  "approved_by": "Caw",
-  "approved_at": "2026-08-25T18:20:57+00:00"
+  "input_sha256": "52ebdf618015a0e4d74ff852d40604bc68c9232a53540e59c76be3961c261b33",
+  "recorded_at": "2026-08-25T19:42:40+00:00",
+  "commit": "40196317b57e8d1838438fa412258eab533d52f4",
+  "approved_task_plan_sha256": "832416b656ee5f4cd04b6043835b1d74821c3e4fd310cde9e7a1d71984b1853c",
+  "approved_by": "caw",
+  "approved_at": "2026-08-25T19:42:40+00:00"
 }

@@ -1,6 +1,10 @@
-# WEB-BRAND-1-1 — Gantry web console brand mark
+# WEB-BRAND-1-1 — Gantry web console brand lockup
 
-Add the canonical public SVG and a minimal CSS-mask component, replace the two
-shared temporary badges, add the favicon and touch icon links, and prove the
-static contract with the existing source-focused Vitest pattern. Preserve every
-existing text label, auth flow, route, and layout class.
+Use one public `102 × 24` SVG lockup: the four-square concept-23 mark and
+title-case Helvetica Neue `Gantry`. The shared CSS-mask component renders this
+same SVG in both auth and sidebar; it carries color only. Keep the standalone
+mark for favicon and 180px touch icon assets. Preserve every existing text
+label, auth flow, route, layout class, and Google sign-in treatment.
+
+Verify the lockup geometry, typography, asset links, and both consumers with
+the existing source-focused Vitest test and the web build checks.

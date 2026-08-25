@@ -5,40 +5,40 @@
   "gaps": [],
   "contradictions": [],
   "resolutions": [
-    "The one user-facing task is bounded to static web assets and their two shared consumers.",
-    "The plan uses the existing public asset path, React component model, Vitest setup, and installed Sharp binary support; it introduces no dependency or runtime contract."
+    "The user superseded the earlier split uppercase lockup with one title-case Helvetica Neue SVG lockup at a fixed 102 by 24 ratio.",
+    "The standalone four-square SVG remains only for browser icons; auth and sidebar both consume the combined lockup asset."
   ],
   "inspected_refs": [
-    "plans/WEB-BRAND-1-web-console-brand.md",
-    "docs/specs/web-brand-1.md",
-    "apps/web/src/features/auth/auth-card.tsx",
+    "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md",
+    "apps/web/public/brand/gantry-logo.svg",
+    "apps/web/src/ui/compositions/gantry-logo.tsx",
     "apps/web/src/app/app-navigation.tsx",
-    "apps/web/vite.config.ts",
-    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    "apps/web/src/features/auth/auth-card.tsx"
   ],
-  "current_flow": "Two literal visual badges sit in shared web consumers; public Vite assets are deployed below /ui/ and the existing text lockups already provide accessible names.",
+  "current_flow": "Auth and sidebar both render GantryLogo, which resolves the same base-aware public SVG through a currentColor CSS mask.",
   "criteria_map": {
-    "Auth and sidebar use the canonical accessible visual mark without legacy G badges.": "WEB-BRAND-1-1 replaces both shared consumer badges with the same masked SVG component.",
-    "The built console serves the canonical mark, favicon, and 180px touch icon under /ui/.": "WEB-BRAND-1-1 adds public assets, index links, focused assertions, and build verification."
+    "Single consistent lockup": "Both consumers use the same GantryLogo component and h-6 w-[102px] dimensions.",
+    "Browser icons": "The standalone four-square SVG remains the source for the favicon and 180px touch icon.",
+    "No behavior change": "The change remains static browser identity rendering with no API, schema, configuration, or runtime change."
   },
   "decision": "keep",
   "new_abstractions": [
-    "GantryMark: one internal static presentation component"
+    "GantryLogo is the single existing-use composition that owns the combined visual lockup."
   ],
   "rounds": [],
   "citations": [
     {
-      "finding": "The browser-auth decision requires existing page semantics and copy to remain intact.",
-      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+      "finding": "The previous independent icon and wordmark rendering allowed visual-ratio drift.",
+      "source": "apps/web/src/app/app-navigation.tsx"
     },
     {
-      "finding": "The web app has two shared identity consumers and one public base path rather than separate route-level implementations.",
-      "source": "apps/web/src/features/auth/auth-card.tsx; apps/web/src/app/app-navigation.tsx; apps/web/vite.config.ts"
+      "finding": "The final lockup is a single public SVG asset shared by every visual consumer.",
+      "source": "apps/web/public/brand/gantry-logo.svg"
     }
   ],
   "open_items": [],
-  "input_sha256": "7c0927572243483c56581311aa0836f97de765841ba57a25224bbac7da7c1de3",
+  "input_sha256": "2257cca6afa1a087b4a03cb255377da4e3a5948ff1503ae68436157a8caf6d84",
   "issue": "WEB-BRAND-1",
-  "recorded_at": "2026-08-25T18:14:04+00:00",
-  "commit": "02dfed1307dd606e4f7cad977343dadf4bcba83d"
+  "recorded_at": "2026-08-25T19:41:59+00:00",
+  "commit": "40196317b57e8d1838438fa412258eab533d52f4"
 }

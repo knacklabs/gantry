@@ -12,31 +12,31 @@
   "tasks": [
     {
       "id": "WEB-BRAND-1-1",
-      "title": "Gantry web console brand mark",
-      "objective": "Replace the temporary boxed G badges and browser icon with the approved Gantry mark so auth, navigation, favicon, and touch-icon surfaces share one static browser identity.",
+      "title": "Gantry web console brand lockup",
+      "objective": "Replace temporary badges and independent wordmarks with the approved shared Gantry concept-23 lockup across auth, navigation, and favicon surfaces.",
       "dependencies": [],
       "user_facing": true,
       "acceptance_criteria": [
-        "Auth pages use a 28px bronze #C0985F canonical mark beside the existing uppercase GANTRY wordmark, with no bordered G badge.",
-        "The sidebar uses a 24px --ink canonical mark beside the existing Gantry label and remains legible in both themes.",
-        "Browser icons use a dark #1B1A18 tile with an off-white #F7F6F4 mark: an SVG favicon and one 180 by 180 touch icon served under /ui/.",
+        "Auth pages use the 102 by 24 bronze #C0985F canonical lockup\u2014four-square concept 23 mark plus title-case Helvetica Neue Gantry\u2014with no bordered G badge or separate wordmark.",
+        "The sidebar uses the same 102 by 24 --ink canonical lockup and remains legible in both themes.",
+        "Browser icon uses a dark #1B1A18 tile with an off-white #F7F6F4 mark: an SVG favicon served under /ui/.",
         "Existing auth copy, routes, navigation labels, page title, layout, and Google sign-in treatment do not change.",
-        "No PWA manifest, unused icon sizes, external image request, duplicate wordmark image, new dependency, API, schema, persistence, configuration, or runtime behavior is added."
+        "No PWA manifest, unused icon sizes, external image request, duplicate lockup asset, new dependency, API, schema, persistence, configuration, or runtime behavior is added."
       ],
       "plan_contracts": [
         {
-          "id": "auth-mark",
-          "statement": "Auth pages use a 28px bronze #C0985F canonical mark beside the existing uppercase GANTRY wordmark, with no bordered G badge.",
+          "id": "auth-lockup",
+          "statement": "Auth pages use the 102 by 24 bronze #C0985F canonical lockup\u2014four-square concept 23 mark plus title-case Helvetica Neue Gantry\u2014with no bordered G badge or separate wordmark.",
           "source": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria"
         },
         {
-          "id": "sidebar-mark",
-          "statement": "The sidebar uses a 24px --ink canonical mark beside the existing Gantry label and remains legible in both themes.",
+          "id": "sidebar-lockup",
+          "statement": "The sidebar uses the same 102 by 24 --ink canonical lockup and remains legible in both themes.",
           "source": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria"
         },
         {
-          "id": "browser-assets",
-          "statement": "Browser icons use a dark #1B1A18 tile with an off-white #F7F6F4 mark: an SVG favicon and one 180 by 180 touch icon served under /ui/.",
+          "id": "favicon",
+          "statement": "Browser icon uses a dark #1B1A18 tile with an off-white #F7F6F4 mark: an SVG favicon served under /ui/.",
           "source": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria"
         },
         {
@@ -46,7 +46,7 @@
         },
         {
           "id": "no-extra-surface",
-          "statement": "No PWA manifest, unused icon sizes, external image request, duplicate wordmark image, new dependency, API, schema, persistence, configuration, or runtime behavior is added.",
+          "statement": "No PWA manifest, unused icon sizes, external image request, duplicate lockup asset, new dependency, API, schema, persistence, configuration, or runtime behavior is added.",
           "source": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria"
         }
       ],
@@ -56,7 +56,7 @@
         "apps/web/src/app/app-navigation.tsx",
         "apps/web/src/features/auth/auth-card.tsx",
         "apps/web/src/styles.css",
-        "apps/web/src/ui/compositions/gantry-mark.tsx",
+        "apps/web/src/ui/compositions/gantry-logo.tsx",
         "apps/web/src/brand-assets.test.ts"
       ],
       "required_tests": [
@@ -75,13 +75,13 @@
         "git diff --check",
         "python3 factory/scripts/verify.py"
       ],
-      "reviewer_focus": "Verify the mark geometry and colors match the approved concept, auth/sidebar text and Google sign-in behavior are unchanged, assets resolve below the /ui/ Vite base without external requests, and no runtime/API/schema/config/PWA surface or new dependency is introduced."
+      "reviewer_focus": "Verify the canonical SVG lockup is identical in auth and sidebar, its four-square geometry and Helvetica Neue title-case wordmark match concept 23, browser assets resolve under /ui/ without external requests, and no runtime or contract surface changes."
     }
   ],
   "project": "",
   "story": "WEB-BRAND-1",
   "epic": "web-authentication",
   "plan_file": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md",
-  "plan_sha256": "929f0d14cad4e19fbae84a387c9a9b2b3a556acb028ffd2cf08d8032271720d6",
-  "commit": "02dfed1307dd606e4f7cad977343dadf4bcba83d"
+  "plan_sha256": "10c719b7881000e90e14b2c8839e3d9e41f1fa8d5b890e40959520e059c5fed9",
+  "commit": "40196317b57e8d1838438fa412258eab533d52f4"
 }
