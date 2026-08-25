@@ -51,33 +51,42 @@ export function McpServerDetail({
   const [error, setError] = useState<string>();
   const [disableOpen, setDisableOpen] = useState(false);
   const [disabling, setDisabling] = useState(false);
+  const [reconnectOpen, setReconnectOpen] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const refresh = () =>
     client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
   async function request(path: string, method: string, body?: unknown) {
     setError(undefined);
     setNotice(undefined);
-    const response = await browserFetch(path, {
-      method,
-      credentials: 'same-origin',
-      headers: {
-        ...(body ? { 'content-type': 'application/json' } : {}),
-        ...browserCsrfHeader(),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    const data = (await response
-      .json()
-      .catch(() => null)) as BrowserResponse | null;
-    if (!response.ok) {
+    try {
+      const response = await browserFetch(path, {
+        method,
+        credentials: 'same-origin',
+        headers: {
+          ...(body ? { 'content-type': 'application/json' } : {}),
+          ...browserCsrfHeader(),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      const data = (await response
+        .json()
+        .catch(() => null)) as BrowserResponse | null;
+      if (!response.ok) {
+        setError(
+          data?.message ??
+            data?.error?.message ??
+            'This change could not be saved.',
+        );
+        return false;
+      }
+      await refresh();
+      return data?.message;
+    } catch {
       setError(
-        data?.message ??
-          data?.error?.message ??
-          'This change could not be saved.',
+        'This change could not be saved. Check the Gantry service and try again.',
       );
       return false;
     }
-    await refresh();
-    return data?.message;
   }
   async function diagnose() {
     const result = await request(
@@ -89,15 +98,34 @@ export function McpServerDetail({
   }
   async function disable() {
     setDisabling(true);
-    const result = await request(
-      `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/disable`,
-      'POST',
-      {},
-    );
-    setDisabling(false);
-    if (result !== false) {
-      setDisableOpen(false);
-      setNotice('Server disabled.');
+    try {
+      const result = await request(
+        `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/disable`,
+        'POST',
+        {},
+      );
+      if (result !== false) {
+        setDisableOpen(false);
+        setNotice('Server disabled.');
+      }
+    } finally {
+      setDisabling(false);
+    }
+  }
+  async function reconnect() {
+    setReconnecting(true);
+    try {
+      const result = await request(
+        `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/reconnect`,
+        'POST',
+        {},
+      );
+      if (result !== false) {
+        setReconnectOpen(false);
+        setNotice('Source reconnected. Attach agents explicitly.');
+      }
+    } finally {
+      setReconnecting(false);
     }
   }
   async function bind(event: FormEvent<HTMLFormElement>) {
@@ -201,6 +229,20 @@ export function McpServerDetail({
               </Button>
             </div>
           ) : null}
+          {canManage && server.status === 'disabled' ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => setReconnectOpen(true)}
+                size="sm"
+                variant="secondary"
+              >
+                Revalidate & reconnect
+              </Button>
+              <Button onClick={onReplace} size="sm" variant="secondary">
+                Replace configuration
+              </Button>
+            </div>
+          ) : null}
         </div>
       </Panel>
       <AlertDialog onOpenChange={setDisableOpen} open={disableOpen}>
@@ -228,6 +270,32 @@ export function McpServerDetail({
               variant="destructive"
             >
               {disabling ? 'Disabling…' : 'Disable server'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog onOpenChange={setReconnectOpen} open={reconnectOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revalidate and reconnect?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Gantry will recheck the stored reviewed configuration for{' '}
+              {server.displayName ?? server.name}. It will not contact the
+              server or discover tools. Any previous agent attachments remain
+              disabled and must be attached again explicitly.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {error ? <p className="m-0 text-sm text-danger">{error}</p> : null}
+          <AlertDialogFooter>
+            <Button
+              disabled={reconnecting}
+              onClick={() => setReconnectOpen(false)}
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+            <Button disabled={reconnecting} onClick={() => void reconnect()}>
+              {reconnecting ? 'Reconnecting…' : 'Reconnect source'}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
