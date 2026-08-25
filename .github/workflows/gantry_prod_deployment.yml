@@ -307,12 +307,24 @@ jobs:
             --network-interface-ids "$eni_id" \
             --query 'NetworkInterfaces[0].PrivateIpAddress' \
             --output text)"
+          container_instance_arn="$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$gantry_task_arn" \
+            --query 'tasks[0].containerInstanceArn' \
+            --output text)"
+          tunnel_instance_id="$(aws ecs describe-container-instances \
+            --cluster "$ECS_CLUSTER" \
+            --container-instances "$container_instance_arn" \
+            --query 'containerInstances[0].ec2InstanceId' \
+            --output text)"
           control_key="$(aws ssm get-parameter \
             --name GANTRY_CONTROL_API_KEY \
             --with-decryption \
             --query 'Parameter.Value' \
             --output text)"
           test -n "$private_ip"
+          test -n "$tunnel_instance_id"
+          test "$tunnel_instance_id" != "None"
           test -n "$control_key"
           auth_config="$RUNNER_TEMP/gantry-auth.conf"
           tunnel_log="$RUNNER_TEMP/gantry-ssm-tunnel.log"
@@ -320,7 +332,7 @@ jobs:
           printf 'header = "authorization: Bearer %s"\n' "$control_key" > "$auth_config"
           unset control_key
           aws ssm start-session \
-            --target i-0f3181ac8bee11c86 \
+            --target "$tunnel_instance_id" \
             --document-name AWS-StartPortForwardingSessionToRemoteHost \
             --parameters "{\"host\":[\"$private_ip\"],\"portNumber\":[\"8080\"],\"localPortNumber\":[\"18084\"]}" \
             >"$tunnel_log" 2>&1 &
