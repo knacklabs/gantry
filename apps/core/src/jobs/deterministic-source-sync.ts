@@ -179,6 +179,9 @@ export async function runDeterministicManagedBrowserActions(input: {
   const configuredServiceHosts = deterministicSkillServiceHostsFromEnv(
     input.actions,
     skillEnv.env,
+    deterministicPrivateServiceUrlEnvVars(
+      process.env.GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS,
+    ),
   );
   const allowedNetworkHosts = [
     ...new Set([
@@ -271,9 +274,13 @@ export function deterministicSkillServiceHostsFromEnv(
     'requiredEnvVars'
   >[],
   env: Readonly<Record<string, string>>,
+  configuredUrlEnvVars: readonly string[] = [],
 ): string[] {
   const requiredEnvVars = new Set(
-    actions.flatMap((action) => action.requiredEnvVars),
+    [
+      ...actions.flatMap((action) => action.requiredEnvVars),
+      ...configuredUrlEnvVars,
+    ].filter((key) => /^[A-Z][A-Z0-9_]*$/.test(key)),
   );
   const hosts = new Set<string>();
   for (const key of requiredEnvVars) {
@@ -298,6 +305,19 @@ export function deterministicSkillServiceHostsFromEnv(
     if (declared.ok) hosts.add(declared.host);
   }
   return [...hosts].sort();
+}
+
+export function deterministicPrivateServiceUrlEnvVars(
+  value: string | undefined,
+): string[] {
+  return [
+    ...new Set(
+      (value ?? '')
+        .split(',')
+        .map((key) => key.trim())
+        .filter((key) => /^[A-Z][A-Z0-9_]*$/.test(key)),
+    ),
+  ].sort();
 }
 
 type NetworkHostLookup = (

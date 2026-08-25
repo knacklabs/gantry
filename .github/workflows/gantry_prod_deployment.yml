@@ -35,6 +35,7 @@ env:
   HEALTH_CHECK_START_PERIOD_SECONDS: 240
   POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '8' }}
   PGBOSS_POOL_MAX: ${{ inputs.pgboss_pool_max || '1' }}
+  PRIVATE_SERVICE_URL_KEYS: ATS_INTERNAL_API_URL
 
 jobs:
   deploy:
@@ -90,13 +91,19 @@ jobs:
             --value "$PGBOSS_POOL_MAX" \
             --overwrite
 
-      - name: Allow fleet runtime startup before container health checks
+      - name: Configure production runtime safety settings
         run: |
           test "$(jq --arg container "$CONTAINER_NAME" '[.containerDefinitions[] | select(.name == $container)] | length' task-definition.json)" -eq 1
           jq \
             --arg container "$CONTAINER_NAME" \
             --argjson startPeriod "$HEALTH_CHECK_START_PERIOD_SECONDS" \
-            '(.containerDefinitions[] | select(.name == $container) | .healthCheck.startPeriod) = $startPeriod' \
+            --arg privateServiceUrlKeys "$PRIVATE_SERVICE_URL_KEYS" \
+            '(.containerDefinitions[] | select(.name == $container) | .healthCheck.startPeriod) = $startPeriod |
+             (.containerDefinitions[] | select(.name == $container) | .environment) |=
+               ((. // []) | map(select(.name != "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS")) + [{
+                 name: "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS",
+                 value: $privateServiceUrlKeys
+               }])' \
             task-definition.json > task-definition.patched.json
           mv task-definition.patched.json task-definition.json
 

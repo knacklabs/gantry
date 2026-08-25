@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   deterministicBrowserKeepAliveMs,
+  deterministicPrivateServiceUrlEnvVars,
   deterministicSkillServiceHostsFromEnv,
   resolveReviewedPrivateNetworkHostMappings,
 } from '@core/jobs/deterministic-source-sync.js';
@@ -34,6 +35,19 @@ describe('reviewed deterministic skill private-network hosts', () => {
           OPAQUE_API_KEY: 'not-a-url',
           UNREVIEWED_URL: 'http://admin.internal:8080',
         },
+      ),
+    ).toEqual(['frontend-mcp-service.ats-prod:3000']);
+  });
+
+  it('projects only explicitly configured operator-managed service URL keys', () => {
+    expect(
+      deterministicSkillServiceHostsFromEnv(
+        [{ requiredEnvVars: [] }],
+        {
+          ATS_INTERNAL_API_URL: 'http://frontend-mcp-service.ats-prod:3000/api',
+          UNREVIEWED_URL: 'http://admin.internal:8080',
+        },
+        ['ATS_INTERNAL_API_URL'],
       ),
     ).toEqual(['frontend-mcp-service.ats-prod:3000']);
   });
@@ -93,5 +107,15 @@ describe('reviewed deterministic skill private-network hosts', () => {
         },
       ),
     ).resolves.toEqual([]);
+  });
+});
+
+describe('deterministic private service URL configuration', () => {
+  it('accepts only exact environment variable names', () => {
+    expect(
+      deterministicPrivateServiceUrlEnvVars(
+        ' ATS_INTERNAL_API_URL,INVALID-KEY,ATS_INTERNAL_API_URL,OTHER_URL ',
+      ),
+    ).toEqual(['ATS_INTERNAL_API_URL', 'OTHER_URL']);
   });
 });
