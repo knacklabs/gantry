@@ -170,9 +170,22 @@ jobs:
             --deployment-configuration minimumHealthyPercent=0,maximumPercent=101 \
             --force-new-deployment \
             >/dev/null
-          aws ecs wait services-stable \
-            --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE"
+          for attempt in $(seq 1 80); do
+            service_state="$(aws ecs describe-services \
+              --cluster "$ECS_CLUSTER" \
+              --services "$ECS_SERVICE" \
+              --query 'services[0].[runningCount,pendingCount,length(deployments),deployments[0].rolloutState]' \
+              --output text)"
+            echo "gantry_handoff $service_state"
+            if [ "$service_state" = $'1\t0\t1\tCOMPLETED' ]; then
+              break
+            fi
+            if [ "$attempt" -eq 80 ]; then
+              echo "Gantry did not stabilize within 20 minutes" >&2
+              exit 1
+            fi
+            sleep 15
+          done
 
           aws ecs describe-services \
             --cluster "$ECS_CLUSTER" \
@@ -263,7 +276,7 @@ jobs:
             exit 0
           fi
 
-          echo "Gantry ECS Exec is unavailable; testing its private control endpoint from the protected runner."
+          echo "Gantry ECS Exec is unavailable; testing through the protected SSM bastion."
           eni_id="$(aws ecs describe-tasks \
             --cluster "$ECS_CLUSTER" \
             --tasks "$gantry_task_arn" \
@@ -281,11 +294,30 @@ jobs:
           test -n "$private_ip"
           test -n "$control_key"
           auth_config="$RUNNER_TEMP/gantry-auth.conf"
+          tunnel_log="$RUNNER_TEMP/gantry-ssm-tunnel.log"
           umask 077
           printf 'header = "authorization: Bearer %s"\n' "$control_key" > "$auth_config"
           unset control_key
-          trap 'rm -f "$auth_config"' EXIT
-          base_url="http://$private_ip:8080"
+          aws ssm start-session \
+            --target i-0f3181ac8bee11c86 \
+            --document-name AWS-StartPortForwardingSessionToRemoteHost \
+            --parameters "{\"host\":[\"$private_ip\"],\"portNumber\":[\"8080\"],\"localPortNumber\":[\"18084\"]}" \
+            >"$tunnel_log" 2>&1 &
+          tunnel_pid=$!
+          trap 'kill "$tunnel_pid" 2>/dev/null || true; wait "$tunnel_pid" 2>/dev/null || true; rm -f "$auth_config" "$tunnel_log"' EXIT
+          base_url="http://127.0.0.1:18084"
+          for attempt in $(seq 1 20); do
+            if curl --silent --show-error --connect-timeout 1 --max-time 2 \
+              --output /dev/null "$base_url/healthz"; then
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              echo "SSM tunnel did not become ready" >&2
+              tail --lines 20 "$tunnel_log" >&2
+              exit 1
+            fi
+            sleep 1
+          done
           health_status="$(curl --silent --show-error \
             --connect-timeout 5 \
             --max-time 10 \
