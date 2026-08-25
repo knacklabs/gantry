@@ -1,0 +1,44 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "The one user-facing task is bounded to static web assets and their two shared consumers.",
+    "The plan uses the existing public asset path, React component model, Vitest setup, and installed Sharp binary support; it introduces no dependency or runtime contract."
+  ],
+  "inspected_refs": [
+    "plans/WEB-BRAND-1-web-console-brand.md",
+    "docs/specs/web-brand-1.md",
+    "apps/web/src/features/auth/auth-card.tsx",
+    "apps/web/src/app/app-navigation.tsx",
+    "apps/web/vite.config.ts",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+  ],
+  "current_flow": "Two literal visual badges sit in shared web consumers; public Vite assets are deployed below /ui/ and the existing text lockups already provide accessible names.",
+  "criteria_map": {
+    "Auth and sidebar use the canonical accessible visual mark without legacy G badges.": "WEB-BRAND-1-1 replaces both shared consumer badges with the same masked SVG component.",
+    "The built console serves the canonical mark, favicon, and 180px touch icon under /ui/.": "WEB-BRAND-1-1 adds public assets, index links, focused assertions, and build verification."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "GantryMark: one internal static presentation component"
+  ],
+  "rounds": [],
+  "citations": [
+    {
+      "finding": "The browser-auth decision requires existing page semantics and copy to remain intact.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    },
+    {
+      "finding": "The web app has two shared identity consumers and one public base path rather than separate route-level implementations.",
+      "source": "apps/web/src/features/auth/auth-card.tsx; apps/web/src/app/app-navigation.tsx; apps/web/vite.config.ts"
+    }
+  ],
+  "open_items": [],
+  "input_sha256": "7c0927572243483c56581311aa0836f97de765841ba57a25224bbac7da7c1de3",
+  "issue": "WEB-BRAND-1",
+  "recorded_at": "2026-08-25T18:14:04+00:00",
+  "commit": "02dfed1307dd606e4f7cad977343dadf4bcba83d"
+}

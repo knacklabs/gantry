@@ -255,19 +255,6 @@
   letter-spacing: 0.11em;
 }
 
-.auth-page-mark {
-  display: grid;
-  width: 1.75rem;
-  height: 1.75rem;
-  place-items: center;
-  border: 1px solid #c0985f;
-  border-radius: 0.4375rem;
-  color: #c0985f;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
 .auth-page-signal-copy {
   max-width: 23rem;
 }

@@ -21,6 +21,8 @@ import {
   Workflow,
 } from 'lucide-react';
 
+import { GantryMark } from '../ui/compositions/gantry-mark';
+
 const navigation = [
   {
     label: 'Operations',
@@ -91,9 +93,7 @@ export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
         to="/overview"
         onClick={onNavigate}
       >
-        <span className="inline-flex size-6 items-center justify-center rounded-md bg-ink font-mono text-xs font-bold text-ink-on">
-          G
-        </span>
+        <GantryMark className="size-6 text-ink" />
         <span>Gantry</span>
       </Link>
 

@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from '../../ui/primitives/card';
 import { Separator } from '../../ui/primitives/separator';
+import { GantryMark } from '../../ui/compositions/gantry-mark';
 
 type AuthCardProps = {
   eyebrow: string;
@@ -46,9 +47,7 @@ export function AuthCard({
       </a>
       <aside className="auth-page-signal" aria-label="Gantry console access">
         <div className="auth-page-brand">
-          <span className="auth-page-mark" aria-hidden="true">
-            G
-          </span>
+          <GantryMark className="size-7 text-[#c0985f]" />
           <span>GANTRY</span>
         </div>
         <div className="auth-page-signal-copy">

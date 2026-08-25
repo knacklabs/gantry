@@ -1,0 +1,87 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "doc_roots": [
+    "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md",
+    "docs/specs/web-brand-1.md",
+    "docs/product/BRIEF.md",
+    "docs/architecture/web-ui-foundation.md",
+    "docs/decisions/0004-gantry-naming-and-public-repo.md",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+  ],
+  "tasks": [
+    {
+      "id": "WEB-BRAND-1-1",
+      "title": "Gantry web console brand mark",
+      "objective": "Replace the temporary boxed G badges and browser icon with the approved Gantry mark so auth, navigation, favicon, and touch-icon surfaces share one static browser identity.",
+      "dependencies": [],
+      "user_facing": true,
+      "acceptance_criteria": [
+        "Auth pages use a 28px bronze #C0985F canonical mark beside the existing uppercase GANTRY wordmark, with no bordered G badge.",
+        "The sidebar uses a 24px --ink canonical mark beside the existing Gantry label and remains legible in both themes.",
+        "Browser icons use a dark #1B1A18 tile with an off-white #F7F6F4 mark: an SVG favicon and one 180 by 180 touch icon served under /ui/.",
+        "Existing auth copy, routes, navigation labels, page title, layout, and Google sign-in treatment do not change.",
+        "No PWA manifest, unused icon sizes, external image request, duplicate wordmark image, new dependency, API, schema, persistence, configuration, or runtime behavior is added."
+      ],
+      "plan_contracts": [
+        {
+          "id": "auth-mark",
+          "statement": "Auth pages use a 28px bronze #C0985F canonical mark beside the existing uppercase GANTRY wordmark, with no bordered G badge.",
+          "source": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria"
+        },
+        {
+          "id": "sidebar-mark",
+          "statement": "The sidebar uses a 24px --ink canonical mark beside the existing Gantry label and remains legible in both themes.",
+          "source": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria"
+        },
+        {
+          "id": "browser-assets",
+          "statement": "Browser icons use a dark #1B1A18 tile with an off-white #F7F6F4 mark: an SVG favicon and one 180 by 180 touch icon served under /ui/.",
+          "source": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria"
+        },
+        {
+          "id": "preserve-ui",
+          "statement": "Existing auth copy, routes, navigation labels, page title, layout, and Google sign-in treatment do not change.",
+          "source": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria"
+        },
+        {
+          "id": "no-extra-surface",
+          "statement": "No PWA manifest, unused icon sizes, external image request, duplicate wordmark image, new dependency, API, schema, persistence, configuration, or runtime behavior is added.",
+          "source": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/web/index.html",
+        "apps/web/public/",
+        "apps/web/src/app/app-navigation.tsx",
+        "apps/web/src/features/auth/auth-card.tsx",
+        "apps/web/src/styles.css",
+        "apps/web/src/ui/compositions/gantry-mark.tsx",
+        "apps/web/src/brand-assets.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "renders canonical Gantry brand assets",
+          "path": "apps/web/src/brand-assets.test.ts",
+          "command": "FORGE_JUNIT=1 VITEST_JUNIT_OUTPUT_FILE={report} ./node_modules/.bin/vitest run -c apps/web/vitest.config.ts {path} -t {id}"
+        }
+      ],
+      "verify_commands": [
+        "npm run test --workspace @gantry/web",
+        "npm run typecheck --workspace @gantry/web",
+        "npm run lint --workspace @gantry/web",
+        "npm run format:check --workspace @gantry/web",
+        "npm run build --workspace @gantry/web",
+        "git diff --check",
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Verify the mark geometry and colors match the approved concept, auth/sidebar text and Google sign-in behavior are unchanged, assets resolve below the /ui/ Vite base without external requests, and no runtime/API/schema/config/PWA surface or new dependency is introduced."
+    }
+  ],
+  "project": "",
+  "story": "WEB-BRAND-1",
+  "epic": "web-authentication",
+  "plan_file": "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md",
+  "plan_sha256": "929f0d14cad4e19fbae84a387c9a9b2b3a556acb028ffd2cf08d8032271720d6",
+  "commit": "02dfed1307dd606e4f7cad977343dadf4bcba83d"
+}
