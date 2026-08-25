@@ -160,13 +160,14 @@ jobs:
             --output text)"
           test -n "$target_task_definition"
 
-          # Match dev: only one Gantry runtime may use the 15-connection
-          # Supabase session pool during deployment.
+          # Match dev's single-task handoff while retaining production AZ
+          # rebalancing, which requires maximumPercent to be greater than 100.
+          # At desiredCount=1, ECS rounds 101% down to one running task.
           aws ecs update-service \
             --cluster "$ECS_CLUSTER" \
             --service "$ECS_SERVICE" \
             --task-definition "$target_task_definition" \
-            --deployment-configuration minimumHealthyPercent=0,maximumPercent=100 \
+            --deployment-configuration minimumHealthyPercent=0,maximumPercent=101 \
             --force-new-deployment \
             >/dev/null
           aws ecs wait services-stable \
