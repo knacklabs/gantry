@@ -4,7 +4,6 @@ import { expect, it } from 'vitest';
 it('renders canonical Gantry brand assets', () => {
   const mark = readFileSync('public/brand/gantry-mark.svg', 'utf8');
   const favicon = readFileSync('public/favicon.svg', 'utf8');
-  const touchIcon = readFileSync('public/apple-touch-icon.png');
   const index = readFileSync('index.html', 'utf8');
   const navigation = readFileSync('src/app/app-navigation.tsx', 'utf8');
   const authCard = readFileSync('src/features/auth/auth-card.tsx', 'utf8');
@@ -27,10 +26,8 @@ it('renders canonical Gantry brand assets', () => {
   expect(logo).toContain('>Gantry</text>');
   expect(favicon).toContain('#1B1A18');
   expect(favicon).toContain('#F7F6F4');
-  expect(touchIcon.readUInt32BE(16)).toBe(180);
-  expect(touchIcon.readUInt32BE(20)).toBe(180);
   expect(index).toContain('href="/ui/favicon.svg?v=23-4"');
-  expect(index).toContain('href="/ui/apple-touch-icon.png?v=23-4"');
+  expect(index).not.toContain('apple-touch-icon');
   expect(index).not.toContain('data:image/svg+xml');
   expect(component).toContain('import.meta.env.BASE_URL');
   expect(component).toContain('brand/gantry-logo.svg?v=23-4');
