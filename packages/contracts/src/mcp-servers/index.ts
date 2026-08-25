@@ -101,6 +101,15 @@ export type DisableMcpServerRequest = z.infer<
   typeof DisableMcpServerRequestSchema
 >;
 
+export const ReconnectMcpServerRequestSchema = z.object({
+  appId: z.string().optional(),
+  reconnectedBy: z.string().optional(),
+  reason: z.string().optional(),
+});
+export type ReconnectMcpServerRequest = z.infer<
+  typeof ReconnectMcpServerRequestSchema
+>;
+
 export const TestMcpServerRequestSchema = z.object({
   appId: z.string().optional(),
   testedBy: z.string().optional(),

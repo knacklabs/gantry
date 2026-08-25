@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   ConnectMcpServerRequestSchema,
   DisableMcpServerRequestSchema,
+  ReconnectMcpServerRequestSchema,
   TestMcpServerRequestSchema,
   UpdateAgentMcpServerBindingRequestSchema,
 } from '@gantry/contracts';
@@ -172,7 +173,7 @@ export async function handleBrowserMcpServerRoutes(
       return true;
     }
     const action = pathname.match(
-      /^\/ui\/api\/mcp-servers\/([^/]+)\/(test|disable)$/,
+      /^\/ui\/api\/mcp-servers\/([^/]+)\/(test|disable|reconnect)$/,
     );
     if (action && req.method === 'POST') {
       const serverId = decodeURIComponent(action[1]) as McpServerId;
@@ -200,6 +201,30 @@ export async function handleBrowserMcpServerRoutes(
           message: result.message,
           server: browserServer(result.server, []),
         });
+        return true;
+      }
+      if (action[2] === 'reconnect') {
+        const parsed = ReconnectMcpServerRequestSchema.safeParse(
+          await readJson(req),
+        );
+        if (
+          !parsed.success ||
+          (parsed.data.appId && parsed.data.appId !== appId)
+        )
+          return sendBrowserError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            'Invalid MCP server reconnect.',
+          );
+        const server = await service().reconnectServer({
+          appId,
+          serverId,
+          reconnectedBy: `browser:${session.userId}`,
+          reason: parsed.data.reason,
+        });
+        await ctx.syncSettingsFromProjection(appId);
+        sendJson(res, 200, { server: browserServer(server, []) });
         return true;
       }
       const parsed = DisableMcpServerRequestSchema.safeParse(

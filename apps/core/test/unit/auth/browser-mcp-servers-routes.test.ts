@@ -33,6 +33,8 @@ it('browser MCP facade keeps session and mutation boundary', () => {
   );
   expect(source).toContain('new McpServerService(');
   expect(source).toContain('ctx.syncSettingsFromProjection(appId)');
+  expect(source).toContain('(test|disable|reconnect)');
+  expect(source).toContain('service().reconnectServer({');
   expect(source).toContain(
     '/^\\/ui\\/api\\/mcp-servers\\/([^/]+)\\/agents\\/([^/]+)$/',
   );

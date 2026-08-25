@@ -137,6 +137,7 @@ export type McpServerAuditEventType =
   | 'bind'
   | 'unbind'
   | 'disable'
+  | 'reconnect'
   | 'test'
   | 'materialize'
   | 'startup_failure'

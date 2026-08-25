@@ -36,6 +36,7 @@ function usage(): string {
     '  gantry mcp doctor <serverId> [--agent <agentId>] [--by <admin>]',
     '  gantry mcp remove <serverId> --agent <agentId>',
     '  gantry mcp disable <serverId> [--reason <text>] [--by <admin>]',
+    '  gantry mcp reconnect <serverId> [--reason <text>] [--by <admin>]',
   ].join('\n');
 }
 
@@ -56,6 +57,9 @@ export async function runMcpCommand(
       return await removeServer(runtimeHome, first, rest);
     if (command === 'disable') {
       return await disableServer(runtimeHome, first, rest);
+    }
+    if (command === 'reconnect') {
+      return await reconnectServer(runtimeHome, first, rest);
     }
   } catch (error) {
     p.log.error(error instanceof Error ? error.message : 'MCP command failed');
@@ -310,6 +314,27 @@ async function disableServer(
     },
   });
   printRecord(response, 'MCP Disabled');
+  return 0;
+}
+
+async function reconnectServer(
+  runtimeHome: string,
+  serverId = '',
+  args: string[],
+): Promise<number> {
+  if (!serverId) {
+    p.log.error('Missing server id for mcp reconnect.');
+    return 1;
+  }
+  const response = await controlApiRequest(runtimeHome, {
+    method: 'POST',
+    path: `/v1/mcp-servers/${encodeURIComponent(serverId)}/reconnect`,
+    body: {
+      reconnectedBy: flagValue(args, '--by'),
+      reason: flagValue(args, '--reason'),
+    },
+  });
+  printRecord(response, 'MCP Reconnected');
   return 0;
 }
 

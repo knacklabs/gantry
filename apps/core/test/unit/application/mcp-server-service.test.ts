@@ -8,7 +8,10 @@ import type {
   McpServerDefinition,
   McpServerId,
 } from '@core/domain/mcp/mcp-servers.js';
-import type { McpServerRepository } from '@core/domain/ports/repositories.js';
+import type {
+  AgentRepository,
+  McpServerRepository,
+} from '@core/domain/ports/repositories.js';
 
 class MemoryMcpRepository implements McpServerRepository {
   readonly servers = new Map<string, McpServerDefinition>();
@@ -575,7 +578,7 @@ describe('McpServerService', () => {
     );
   });
 
-  it('rolls back a newly connected server so failed approvals are retryable', async () => {
+  it('revalidates a disabled source and leaves prior bindings disabled', async () => {
     const { repo, service } = serviceWithRepo();
     const server = await service.connectServer({
       appId: 'app:one' as never,
@@ -596,31 +599,43 @@ describe('McpServerService', () => {
       serverId: server.id,
     });
 
-    await service.rollbackConnectedServer({
+    await service.disableServer({
       appId: 'app:one' as never,
-      agentId: 'agent:one' as never,
       serverId: server.id,
     });
 
     expect(repo.servers.get(server.id)).toMatchObject({ status: 'disabled' });
     expect(repo.bindings.get(`agent:one:${server.id}`)).toMatchObject({
-      status: 'disabled',
+      status: 'active',
     });
-    const reconnected = await service.connectServer({
+    const reconnectService = new McpServerService(
+      repo,
+      {
+        listAgents: async () => [
+          { id: 'agent:one' as never, appId: 'app:one' as never },
+        ],
+      } as AgentRepository,
+      { lookupHostname: async () => [{ family: 4, address: '93.184.216.34' }] },
+    );
+    const reconnected = await reconnectService.reconnectServer({
       appId: 'app:one' as never,
-      name: 'github',
-      transportConfig: {
-        transport: 'http',
-        url: 'https://mcp.example.test/github',
-      },
-      allowedToolPatterns: ['read_*', 'search_*', 'search_*'],
-      credentialRefs: [
-        { name: 'TENANT', target: 'header', key: 'x-tenant' },
-        { name: 'GITHUB_TOKEN', target: 'env', key: 'GITHUB_TOKEN' },
-      ],
+      serverId: server.id,
+      reconnectedBy: 'test-admin',
     });
     expect(reconnected.id).toBe(server.id);
     expect(reconnected.status).toBe('active');
+    expect(repo.bindings.get(`agent:one:${server.id}`)).toMatchObject({
+      status: 'disabled',
+    });
+    expect(repo.auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'reconnect',
+          actorId: 'test-admin',
+        }),
+        expect.objectContaining({ eventType: 'unbind' }),
+      ]),
+    );
   });
 
   it('requires a new name when replacing a disabled server definition', async () => {
@@ -649,7 +664,7 @@ describe('McpServerService', () => {
         },
         allowedToolPatterns: ['search_*'],
       }),
-    ).rejects.toThrow('Connect the replacement under a new name');
+    ).rejects.toThrow('Revalidate and reconnect it instead');
   });
 
   it('rejects duplicate current definitions by normalized name', async () => {
