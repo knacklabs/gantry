@@ -57,7 +57,7 @@ export function ConnectMcpServerDialog({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(undefined);
-    if (credentialRefs.some((ref) => Boolean(ref.name) !== Boolean(ref.key))) {
+    if (credentialRefs.some((ref) => !ref.name || !ref.key)) {
       setError('Complete or remove each credential mapping.');
       return;
     }
