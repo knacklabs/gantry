@@ -255,7 +255,7 @@ describe('lifecycle retirement', () => {
     expect(primary.repository.finalizeJobRunWithLease).toHaveBeenCalled();
   });
 
-  it('retires a running card that lands after terminal fallback', async () => {
+  it('clears a late-landing running card after the terminal fallback was sent', async () => {
     const job = makeJob({
       schedule_type: 'cron',
       schedule_value: '* * * * *',
@@ -291,15 +291,55 @@ describe('lifecycle retirement', () => {
     await capture;
 
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(
+      sendProgressUpdate.mock.calls.filter(([, text]) =>
+        text.includes('Completed'),
+      ),
+    ).toHaveLength(1);
     expect(sendProgressUpdate).toHaveBeenLastCalledWith(
       'tg:scheduler',
-      expect.stringContaining('Completed'),
+      'Done.',
       expect.objectContaining({
         done: true,
         replaceOnly: true,
         progressCardIdentity: expect.stringContaining('scheduler-card:'),
       }),
     );
+  });
+
+  it('does not resend the terminal fallback on repeated retirement', async () => {
+    const job = makeJob();
+    const sendProgressUpdate = vi.fn(
+      async (_jid, text: string) => !text.startsWith('Running:'),
+    );
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+
+    await lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-repeated-fallback',
+    });
+    const first = await lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-repeated-fallback',
+      runStatus: 'completed',
+      summaryMessage: 'Finished.',
+    });
+    const second = await lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-repeated-fallback',
+      runStatus: 'completed',
+      summaryMessage: 'Finished.',
+    });
+
+    expect(
+      sendProgressUpdate.mock.calls.filter(
+        ([, text, options]) => text === 'Finished.' && options?.done === true,
+      ),
+    ).toHaveLength(1);
+    expect(first).toEqual([expect.objectContaining({ status: 'updated' })]);
+    expect(second).toEqual([expect.objectContaining({ status: 'updated' })]);
   });
 
   it('sends the terminal notice as a fresh message when the start card was refused', async () => {

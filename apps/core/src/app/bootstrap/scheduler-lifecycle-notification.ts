@@ -29,6 +29,7 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
       string,
       { progressCardIdentity: string; generation: number } | undefined
     >;
+    fallbackSent: Set<string>;
     terminalSummary?: string;
   };
   const capturesByRun = new Map<string, LifecycleCapture>();
@@ -41,7 +42,7 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
       string,
       { progressCardIdentity: string; generation: number } | undefined
     >();
-    const capture: LifecycleCapture = { identities };
+    const capture: LifecycleCapture = { identities, fallbackSent: new Set() };
     capturesByRun.set(runId, capture);
     const routes = resolveJobNotificationRoutes(job);
     const cardToken = randomUUID();
@@ -66,7 +67,9 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
             } else {
               await input.channelWiring.sendProgressUpdate(
                 route.conversationJid,
-                capture.terminalSummary,
+                capture.fallbackSent.has(key)
+                  ? 'Done.'
+                  : capture.terminalSummary,
                 {
                   ...routeOptions(route),
                   done: true,
@@ -88,13 +91,21 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
     SchedulerDependencies['updateLifecycleNotification']
   > = async ({ job, runId, summaryMessage }) => {
     const routes = resolveJobNotificationRoutes(job);
-    const capture = capturesByRun.get(runId);
-    if (capture) capture.terminalSummary = summaryMessage;
+    const capture: LifecycleCapture = capturesByRun.get(runId) ?? {
+      identities: new Map(),
+      fallbackSent: new Set(),
+      terminalSummary: summaryMessage,
+    };
+    capturesByRun.set(runId, capture);
+    capture.terminalSummary = summaryMessage;
     const outcomes = await Promise.all(
       routes.map(async (route, index) => {
         const key = routeKey(route);
-        const identity = capture?.identities.get(key);
+        const identity = capture.identities.get(key);
         if (!identity) {
+          if (capture.fallbackSent.has(key)) {
+            return { route, status: 'updated' } as const;
+          }
           try {
             const sent = await input.channelWiring.sendProgressUpdate(
               route.conversationJid,
@@ -106,6 +117,7 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
                 generation: nextLifecycleGeneration(),
               },
             );
+            if (sent === true) capture.fallbackSent.add(key);
             return {
               route,
               status: sent === true ? 'updated' : 'unsupported',
@@ -136,13 +148,13 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
         }
       }),
     );
-    if (capture) {
-      for (const outcome of outcomes) {
-        if (outcome.status === 'updated') {
-          capture.identities.delete(routeKey(outcome.route));
-        }
+    for (const outcome of outcomes) {
+      if (outcome.status === 'updated') {
+        capture.identities.delete(routeKey(outcome.route));
       }
-      if (capture.identities.size === 0) capturesByRun.delete(runId);
+    }
+    if (capture.identities.size === 0 && capture.fallbackSent.size === 0) {
+      capturesByRun.delete(runId);
     }
     return outcomes;
   };
