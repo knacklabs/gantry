@@ -22,10 +22,11 @@ it('renders canonical Gantry brand assets', () => {
   expect(favicon).toContain('#F7F6F4');
   expect(touchIcon.readUInt32BE(16)).toBe(180);
   expect(touchIcon.readUInt32BE(20)).toBe(180);
-  expect(index).toContain('href="/ui/favicon.svg"');
-  expect(index).toContain('href="/ui/apple-touch-icon.png"');
+  expect(index).toContain('href="/ui/favicon.svg?v=23-4"');
+  expect(index).toContain('href="/ui/apple-touch-icon.png?v=23-4"');
   expect(index).not.toContain('data:image/svg+xml');
   expect(component).toContain('import.meta.env.BASE_URL');
+  expect(component).toContain('brand/gantry-mark.svg?v=23-4');
   expect(component).toContain('maskImage');
   expect(component).toContain('aria-hidden="true"');
   expect(navigation).toContain('<GantryMark className="size-6 text-ink" />');

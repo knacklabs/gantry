@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 
-const markUrl = `${import.meta.env.BASE_URL}brand/gantry-mark.svg`;
+const markUrl = `${import.meta.env.BASE_URL}brand/gantry-mark.svg?v=23-4`;
 
 const maskStyle: CSSProperties = {
   maskImage: `url(${markUrl})`,
