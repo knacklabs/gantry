@@ -483,6 +483,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       chatJid,
       groupName: group.name,
       supportsStreamingChunks,
+      allowIntentionalNoReply: group.requiresTrigger === false,
       buildStreamingOptions,
       buildMessageOptions,
       sendMessageToChannel,
@@ -544,6 +545,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           outputSentToUser,
         });
         if (
+          !outputBuffer.intentionalNoReplyRequested() &&
           shouldSendTurnFinalProgress({
             finalProgressState: markerProgressState,
             awaitingResponseReceipt:
@@ -699,34 +701,36 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         logger,
       });
     } else {
-      const finalization = await finalizeGroupAgentUserVisibleOutput({
-        streamedTranscriptDeliveryStatus,
-        boundedTranscript: outputBuffer.transcriptSnapshot(),
-        chatJid,
-        activeThreadId,
-        outputSentToUser,
-        sawRawOutput,
-        groupName: group.name,
-        warn: (metadata, message) => logger.warn(metadata, message),
-        storeMessage: (message) => ops().storeMessage(message),
-        buildMessageOptions,
-        sendMessageToChannel: async (text, options) =>
-          settleDeliveryAttempt(() => sendMessageToChannel(text, options), {
-            scope: 'runtime-final-output-fallback',
-            target: chatJid,
-          }).catch((err) => {
-            logger.warn(
-              { err, group: group.name },
-              'Failed to settle fallback output delivery',
-            );
-            return 'not_delivered' as const;
-          }),
-      });
-      outputSentToUser = finalization.outputSentToUser;
-      applyDeliverySettlement(finalization.terminalSettlement, {
-        streamed: false,
-        terminal: true,
-      });
+      if (!outputBuffer.intentionalNoReplyRequested()) {
+        const finalization = await finalizeGroupAgentUserVisibleOutput({
+          streamedTranscriptDeliveryStatus,
+          boundedTranscript: outputBuffer.transcriptSnapshot(),
+          chatJid,
+          activeThreadId,
+          outputSentToUser,
+          sawRawOutput,
+          groupName: group.name,
+          warn: (metadata, message) => logger.warn(metadata, message),
+          storeMessage: (message) => ops().storeMessage(message),
+          buildMessageOptions,
+          sendMessageToChannel: async (text, options) =>
+            settleDeliveryAttempt(() => sendMessageToChannel(text, options), {
+              scope: 'runtime-final-output-fallback',
+              target: chatJid,
+            }).catch((err) => {
+              logger.warn(
+                { err, group: group.name },
+                'Failed to settle fallback output delivery',
+              );
+              return 'not_delivered' as const;
+            }),
+        });
+        outputSentToUser = finalization.outputSentToUser;
+        applyDeliverySettlement(finalization.terminalSettlement, {
+          streamed: false,
+          terminal: true,
+        });
+      }
     }
     const finalProgressState = resolveGroupTurnFinalProgressState({
       output,
@@ -736,6 +740,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       outputSentToUser,
     });
     if (
+      !outputBuffer.intentionalNoReplyRequested() &&
       shouldSendTurnFinalProgress({
         finalProgressState,
         awaitingResponseReceipt,

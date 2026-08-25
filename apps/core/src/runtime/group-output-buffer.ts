@@ -14,6 +14,22 @@ import {
 } from './session-resume-runtime.js';
 import type { GroupProcessingDeps } from './group-processing-types.js';
 
+const INTENTIONAL_NO_REPLY_MARKER = '<internal>GANTRY_NO_REPLY</internal>';
+const MAX_NO_REPLY_CANDIDATE_CHARS = INTENTIONAL_NO_REPLY_MARKER.length + 32;
+
+function appendIntentionalNoReplyCandidate(
+  candidate: string | null,
+  raw: string,
+): string | null {
+  if (candidate === null) return null;
+  const next = candidate + raw;
+  return next.length <= MAX_NO_REPLY_CANDIDATE_CHARS ? next : null;
+}
+
+function isIntentionalNoReplyCandidate(candidate: string | null): boolean {
+  return candidate?.trim() === INTENTIONAL_NO_REPLY_MARKER;
+}
+
 type RuntimeLogger = {
   info(input: unknown, message: string): void;
   warn(input: unknown, message: string): void;
@@ -24,6 +40,7 @@ export function createGroupOutputBuffer(input: {
   chatJid: string;
   groupName: string;
   supportsStreamingChunks: boolean;
+  allowIntentionalNoReply?: boolean;
   buildStreamingOptions: (args: { done?: boolean }) => StreamingChunkOptions;
   buildMessageOptions: () =>
     | MessageSendOptions
@@ -44,6 +61,8 @@ export function createGroupOutputBuffer(input: {
   let streamSanitizer = createRuntimeUserVisibleStreamSanitizer();
   let pendingOutputRawChars = 0;
   let pendingOutputHasParts = false;
+  let pendingNoReplyCandidate: string | null = '';
+  let intentionalNoReply = false;
 
   const flushBufferedOutput = async (
     reason: string,
@@ -55,10 +74,22 @@ export function createGroupOutputBuffer(input: {
     const visibleOutput = pendingOutputVisible.snapshot();
     const finalStreamDelta = streamSanitizer.finish();
     const rawChars = pendingOutputRawChars;
+    const noReplyRequested =
+      input.allowIntentionalNoReply &&
+      isIntentionalNoReplyCandidate(pendingNoReplyCandidate);
     pendingOutputVisible = createRuntimeUserVisibleResultAccumulator();
     streamSanitizer = createRuntimeUserVisibleStreamSanitizer();
     pendingOutputRawChars = 0;
     pendingOutputHasParts = false;
+    pendingNoReplyCandidate = '';
+    if (noReplyRequested) {
+      intentionalNoReply = true;
+      input.log.info(
+        { group: input.groupName, reason },
+        'Agent intentionally declined ambient reply',
+      );
+      return false;
+    }
     const text = visibleOutput ? formatOutboundForChannel(visibleOutput) : '';
     input.log.info(
       { group: input.groupName },
@@ -98,6 +129,10 @@ export function createGroupOutputBuffer(input: {
     appendRawOutput: async (raw: string) => {
       pendingOutputHasParts = true;
       pendingOutputRawChars += raw.length;
+      pendingNoReplyCandidate = appendIntentionalNoReplyCandidate(
+        pendingNoReplyCandidate,
+        raw,
+      );
       pendingOutputVisible.append(raw);
       if (!input.supportsStreamingChunks) return;
       const safeDelta = streamSanitizer.append(raw);
@@ -118,5 +153,6 @@ export function createGroupOutputBuffer(input: {
     },
     flushBufferedOutput,
     transcriptSnapshot: () => userVisibleTranscript.snapshot(),
+    intentionalNoReplyRequested: () => intentionalNoReply,
   };
 }
