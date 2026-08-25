@@ -249,9 +249,9 @@
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  font-family: var(--font-mono);
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0.11em;
 }
 

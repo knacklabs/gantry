@@ -36,5 +36,8 @@ it('renders canonical Gantry brand assets', () => {
   expect(authCard).toContain(
     '<GantryMark className="size-7 text-[#c0985f]" />',
   );
+  expect(styles).toContain(
+    "font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;",
+  );
   expect(styles).not.toContain('auth-page-mark');
 });
