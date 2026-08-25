@@ -266,6 +266,14 @@ jobs:
             --query 'Parameter.Value' \
             --output text)"
           test -n "$source_sync_job_id"
+          ats_internal_url="$(aws ssm get-parameter \
+            --name ATS_INTERNAL_API_URL \
+            --with-decryption \
+            --query 'Parameter.Value' \
+            --output text)"
+          node -e 'process.exit(new URL(process.argv[1]).host === "frontend-mcp-service.ats-prod:3000" ? 0 : 1)' "$ats_internal_url"
+          unset ats_internal_url
+          echo "ATS internal authority matches the reviewed production service."
 
           if aws ecs execute-command \
             --cluster "$ECS_CLUSTER" \
