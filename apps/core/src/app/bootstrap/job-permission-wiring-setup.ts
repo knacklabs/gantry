@@ -28,6 +28,8 @@ import type {
 
 interface JobPermissionCardPayload {
   actions: MessageActionAffordance[];
+  callbackKey: string;
+  revision: number;
   operation: 'send' | 'edit' | 'retire' | 'replace';
   providerMessageId: string | null;
 }
@@ -43,10 +45,22 @@ function parseJobPermissionCardPayload(
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as {
     actions?: unknown;
+    callbackKey?: unknown;
+    revision?: unknown;
     operation?: unknown;
     providerMessageId?: unknown;
   };
   if (!Array.isArray(raw.actions)) return null;
+  if (typeof raw.callbackKey !== 'string' || !raw.callbackKey.trim()) {
+    return null;
+  }
+  if (
+    typeof raw.revision !== 'number' ||
+    !Number.isSafeInteger(raw.revision) ||
+    raw.revision < 0
+  ) {
+    return null;
+  }
   if (!['send', 'edit', 'retire', 'replace'].includes(String(raw.operation))) {
     return null;
   }
@@ -83,6 +97,8 @@ function parseJobPermissionCardPayload(
   }
   return {
     actions,
+    callbackKey: raw.callbackKey.trim(),
+    revision: raw.revision,
     operation: raw.operation as JobPermissionCardPayload['operation'],
     providerMessageId,
   };
@@ -262,6 +278,11 @@ export async function sendJobPermCard(
         ...destinationAccount,
         ...(destinationThreadId ? { threadId: destinationThreadId } : {}),
         replaceMessageId: card.providerMessageId,
+        jobPermissionCardRevision: {
+          callbackKey: card.callbackKey,
+          revision: card.revision,
+          operation: card.operation,
+        },
         actionAffordances: [],
       },
     });
@@ -290,6 +311,11 @@ export async function sendJobPermCard(
         ...(card
           ? {
               actionAffordances: card.actions,
+              jobPermissionCardRevision: {
+                callbackKey: card.callbackKey,
+                revision: card.revision,
+                operation: card.operation,
+              },
               ...((card.operation === 'edit' || card.operation === 'retire') &&
               card.providerMessageId
                 ? { replaceMessageId: card.providerMessageId }

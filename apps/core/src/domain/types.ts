@@ -540,6 +540,12 @@ export interface MessageSendOptions {
   agentId?: string;
   /** Provider message to edit in place for a durable living-card revision. */
   replaceMessageId?: string;
+  /** Identity of a job-permission card revision; lets a provider settle zero-action retire/replace edits against the card. */
+  jobPermissionCardRevision?: {
+    callbackKey: string;
+    revision: number;
+    operation: 'send' | 'edit' | 'retire' | 'replace';
+  };
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
   /** When set, channels with native support render this as a compact-structured

@@ -132,6 +132,42 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
         // Edits of a job-permission card message queue behind that card's
         // in-flight mutations so a retire notice cannot be overwritten.
         const deliveries = this.jobPermissionCardDeliveries;
+        const cardRevision = options.jobPermissionCardRevision;
+        const revision = cardRevision && {
+          ...cardRevision,
+          callbackKey: `${numericId}:${cardRevision.callbackKey}`,
+        };
+        const delivered = (externalMessageId: string) => ({
+          externalMessageId,
+          externalMessageIds: [externalMessageId],
+          deliveredParts: 1,
+          totalParts: 1,
+        });
+        if (revision) {
+          const settled = deliveries.settledMessageId(revision);
+          if (settled) return delivered(settled);
+          deliveries.bindMessage(
+            `${numericId}:${replaceMessageId}`,
+            revision.callbackKey,
+          );
+          return await deliveries.serialize(revision.callbackKey, async () => {
+            const settled = deliveries.settledMessageId(revision);
+            if (settled) return delivered(settled);
+            await this.bot!.api.editMessageText(numericId, messageId, text, {
+              reply_markup: telegramActionReplyMarkup(
+                options.actionAffordances,
+              ) ?? {
+                inline_keyboard: [],
+              },
+            });
+            deliveries.record(
+              revision,
+              replaceMessageId,
+              `${numericId}:${replaceMessageId}`,
+            );
+            return delivered(replaceMessageId);
+          });
+        }
         return await deliveries.serialize(
           deliveries.laneForMessage(`${numericId}:${replaceMessageId}`),
           async () => {
@@ -142,12 +178,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
                 inline_keyboard: [],
               },
             });
-            return {
-              externalMessageId: replaceMessageId,
-              externalMessageIds: [replaceMessageId],
-              deliveredParts: 1,
-              totalParts: 1,
-            };
+            return delivered(replaceMessageId);
           },
         );
       }

@@ -3164,6 +3164,42 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
     });
 
+    it('a retired job-permission card rejects a delayed older action revision', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect({ inbound: false });
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      const actionsFor = (revision: number) => [
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Allow always for this job',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:a`,
+        },
+      ];
+
+      await channel.sendMessage('tg:100200300', 'Revision 1', {
+        actionAffordances: actionsFor(1),
+      });
+      await channel.sendMessage('tg:100200300', 'Retired', {
+        actionAffordances: [],
+        replaceMessageId: '987',
+        jobPermissionCardRevision: {
+          callbackKey: 'abcdef012345abcdef012345',
+          revision: 2,
+          operation: 'retire',
+        },
+      });
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+
+      const delayed = await channel.sendMessage('tg:100200300', 'Revision 1', {
+        actionAffordances: actionsFor(1),
+      });
+
+      expect(delayed.externalMessageId).toBe('987');
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
     it('queues a buttonless retire edit behind an in-flight card edit', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect({ inbound: false });
