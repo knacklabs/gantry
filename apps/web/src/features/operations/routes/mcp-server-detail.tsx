@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useRef, useState } from 'react';
 
 import {
   browserCsrfHeader,
@@ -55,6 +55,10 @@ export function McpServerDetail({
   const [disabling, setDisabling] = useState(false);
   const [reconnectOpen, setReconnectOpen] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const disableTriggerRef = useRef<HTMLButtonElement>(null);
+  const disableCancelRef = useRef<HTMLButtonElement>(null);
+  const reconnectTriggerRef = useRef<HTMLButtonElement>(null);
+  const reconnectCancelRef = useRef<HTMLButtonElement>(null);
   const refresh = () =>
     client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
   async function request(
@@ -240,6 +244,7 @@ export function McpServerDetail({
               </Button>
               <Button
                 onClick={() => setDisableOpen(true)}
+                ref={disableTriggerRef}
                 size="sm"
                 variant="secondary"
               >
@@ -251,6 +256,7 @@ export function McpServerDetail({
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() => setReconnectOpen(true)}
+                ref={reconnectTriggerRef}
                 size="sm"
                 variant="secondary"
               >
@@ -264,7 +270,16 @@ export function McpServerDetail({
         </div>
       </Panel>
       <AlertDialog onOpenChange={setDisableOpen} open={disableOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            disableTriggerRef.current?.focus();
+          }}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            disableCancelRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Disable MCP server?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -278,6 +293,7 @@ export function McpServerDetail({
             <Button
               disabled={disabling}
               onClick={() => setDisableOpen(false)}
+              ref={disableCancelRef}
               variant="secondary"
             >
               Cancel
@@ -293,7 +309,16 @@ export function McpServerDetail({
         </AlertDialogContent>
       </AlertDialog>
       <AlertDialog onOpenChange={setReconnectOpen} open={reconnectOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            reconnectTriggerRef.current?.focus();
+          }}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            reconnectCancelRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Revalidate and reconnect?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -308,6 +333,7 @@ export function McpServerDetail({
             <Button
               disabled={reconnecting}
               onClick={() => setReconnectOpen(false)}
+              ref={reconnectCancelRef}
               variant="secondary"
             >
               Cancel

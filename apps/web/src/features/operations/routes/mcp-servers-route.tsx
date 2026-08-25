@@ -26,6 +26,8 @@ export function McpServersRoute() {
   const query = useQuery(mcpServerQuery);
   const client = useQueryClient();
   const receiptRef = useRef<HTMLParagraphElement>(null);
+  const disableReplacementTriggerRef = useRef<HTMLButtonElement>(null);
+  const disableReplacementCancelRef = useRef<HTMLButtonElement>(null);
   const [selectedId, setSelectedId] = useState<string>();
   const [status, setStatus] = useState<'all' | 'active' | 'disabled'>('all');
   const [search, setSearch] = useState('');
@@ -140,6 +142,7 @@ export function McpServersRoute() {
             {receipt.replacement?.status === 'active' ? (
               <Button
                 onClick={() => setDisableReplacementOpen(true)}
+                ref={disableReplacementTriggerRef}
                 size="sm"
                 variant="secondary"
               >
@@ -158,7 +161,16 @@ export function McpServersRoute() {
         onOpenChange={setDisableReplacementOpen}
         open={disableReplacementOpen}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            disableReplacementTriggerRef.current?.focus();
+          }}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            disableReplacementCancelRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Disable old MCP source?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -174,6 +186,7 @@ export function McpServersRoute() {
             <Button
               disabled={disablingReplacement}
               onClick={() => setDisableReplacementOpen(false)}
+              ref={disableReplacementCancelRef}
               variant="secondary"
             >
               Cancel
