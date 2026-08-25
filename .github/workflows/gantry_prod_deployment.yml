@@ -282,7 +282,10 @@ jobs:
             --with-decryption \
             --query 'Parameter.Value' \
             --output text)"
-          node -e 'process.exit(new URL(process.argv[1]).host === "frontend-mcp-service.ats-prod:3000" ? 0 : 1)' "$ats_internal_url"
+          case "$ats_internal_url" in
+            http://frontend-mcp-service.ats-prod:3000 | http://frontend-mcp-service.ats-prod:3000/*) ;;
+            *) exit 1 ;;
+          esac
           unset ats_internal_url
           echo "ATS internal authority matches the reviewed production service."
 
