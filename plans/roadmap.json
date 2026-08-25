@@ -1345,11 +1345,14 @@
         "Remote and local-process setup expose only supported safe fields and preserve source-versus-capability authority."
       ],
       "order": 67,
-      "status": "active",
+      "status": "done",
       "epic": "web-authentication",
       "skill": "fullstack",
       "depends_on": [],
-      "spec": "docs/specs/mcp-management-web-ui.md"
+      "spec": "docs/specs/mcp-management-web-ui.md",
+      "completed_at": "2026-08-25T11:34:53+00:00",
+      "history": ".factory/stories/WEB-MCP-1/",
+      "outcome": "Gantry operators can now manage MCP sources from the web console: inspect reviewed source configuration, connect remote or approved local-process servers, run diagnostics, safely disable sources with keyboard-modal app confirmations, and revalidate disabled sources before reconnecting them without silently restoring prior authority."
     }
   ],
   "epics": [
@@ -1446,5 +1449,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-25T10:13:05+00:00"
+  "updated_at": "2026-08-25T11:34:53+00:00"
 }
