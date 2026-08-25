@@ -24,7 +24,7 @@ export function McpServersRoute() {
   const [connectOpen, setConnectOpen] = useState(false);
   const [replacement, setReplacement] = useState<McpServer>();
   const [receipt, setReceipt] = useState<{
-    server: McpServer;
+    message: string;
     replacement?: McpServer;
   }>();
   const [receiptError, setReceiptError] = useState<string>();
@@ -65,7 +65,9 @@ export function McpServersRoute() {
       return;
     }
     await client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
-    setReceipt({ server: receipt.server });
+    setReceipt({
+      message: 'Old source disabled. The replacement remains connected.',
+    });
   }
 
   return (
@@ -110,9 +112,7 @@ export function McpServersRoute() {
               ref={receiptRef}
               tabIndex={-1}
             >
-              {receipt.replacement
-                ? `Replacement connected. ${receipt.replacement.displayName ?? receipt.replacement.name} remains active and no bindings were copied.`
-                : 'Server connected. You can attach an agent below or manage it later.'}
+              {receipt.message}
             </p>
             {receipt.replacement ? (
               <Button
@@ -198,6 +198,15 @@ export function McpServersRoute() {
                 setReplacement(selected);
                 setConnectOpen(true);
               }}
+              onStatusChanged={(server, message) => {
+                setStatus('all');
+                setSelectedId(server.id);
+                setReceipt({ message });
+                void client.invalidateQueries({
+                  queryKey: mcpServerQuery.queryKey,
+                });
+                window.requestAnimationFrame(() => receiptRef.current?.focus());
+              }}
               server={selected}
             />
           ) : (
@@ -215,7 +224,12 @@ export function McpServersRoute() {
         replacement={replacement}
         onConnected={(server) => {
           setSelectedId(server.id);
-          setReceipt({ server, replacement });
+          setReceipt({
+            message: replacement
+              ? `Replacement connected. ${replacement.displayName ?? replacement.name} remains active and no bindings were copied.`
+              : 'Server connected. You can attach an agent below or manage it later.',
+            replacement,
+          });
           window.requestAnimationFrame(() => receiptRef.current?.focus());
         }}
         onOpenChange={(next) => {

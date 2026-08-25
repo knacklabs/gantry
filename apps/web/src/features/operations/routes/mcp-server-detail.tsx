@@ -36,11 +36,13 @@ export function McpServerDetail({
   canManage,
   inventory,
   onReplace,
+  onStatusChanged,
   server,
 }: {
   canManage: boolean;
   inventory: McpInventory;
   onReplace: () => void;
+  onStatusChanged: (server: McpServer, message: string) => void;
   server: McpServer;
 }) {
   const client = useQueryClient();
@@ -55,7 +57,12 @@ export function McpServerDetail({
   const [reconnecting, setReconnecting] = useState(false);
   const refresh = () =>
     client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
-  async function request(path: string, method: string, body?: unknown) {
+  async function request(
+    path: string,
+    method: string,
+    body?: unknown,
+    refreshAfter = true,
+  ) {
     setError(undefined);
     setNotice(undefined);
     try {
@@ -79,7 +86,7 @@ export function McpServerDetail({
         );
         return false;
       }
-      await refresh();
+      if (refreshAfter) await refresh();
       return data?.message;
     } catch (error) {
       if (!(error instanceof Error)) throw error;
@@ -104,10 +111,11 @@ export function McpServerDetail({
         `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/disable`,
         'POST',
         {},
+        false,
       );
       if (result !== false) {
         setDisableOpen(false);
-        setNotice('Server disabled.');
+        onStatusChanged(server, 'Server disabled.');
       }
     } finally {
       setDisabling(false);
@@ -120,10 +128,14 @@ export function McpServerDetail({
         `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/reconnect`,
         'POST',
         {},
+        false,
       );
       if (result !== false) {
         setReconnectOpen(false);
-        setNotice('Source reconnected. Attach agents explicitly.');
+        onStatusChanged(
+          server,
+          'Source reconnected. Attach agents explicitly.',
+        );
       }
     } finally {
       setReconnecting(false);
