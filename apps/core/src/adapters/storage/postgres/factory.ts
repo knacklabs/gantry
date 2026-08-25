@@ -50,6 +50,9 @@ import { RuntimeEventExchange } from '../../../application/runtime-events/runtim
 import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
 import type { AgentSession } from '../../../domain/sessions/sessions.js';
 import {
+  isLiveWakeupListenEnabled,
+  PollingLiveAdmissionWakeupSource,
+  PollingLiveTurnCommandWakeupSource,
   PostgresLiveAdmissionNotifier,
   PostgresLiveAdmissionWakeupSource,
   PostgresLiveTurnCommandNotifier,
@@ -177,12 +180,13 @@ export function createStorageRuntime(
   );
   const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
   const liveAdmissionNotifier = new PostgresLiveAdmissionNotifier(service.pool);
-  const liveAdmissionWakeupSource = new PostgresLiveAdmissionWakeupSource(
-    service.pool,
-  );
-  const liveTurnCommandWakeupSource = new PostgresLiveTurnCommandWakeupSource(
-    service.pool,
-  );
+  const liveWakeupListenEnabled = isLiveWakeupListenEnabled();
+  const liveAdmissionWakeupSource = liveWakeupListenEnabled
+    ? new PostgresLiveAdmissionWakeupSource(service.pool)
+    : new PollingLiveAdmissionWakeupSource();
+  const liveTurnCommandWakeupSource = liveWakeupListenEnabled
+    ? new PostgresLiveTurnCommandWakeupSource(service.pool)
+    : new PollingLiveTurnCommandWakeupSource();
   const runtimeEvents = new RuntimeEventExchange(
     repositories.runtimeEvents,
     runtimeEventNotifier,

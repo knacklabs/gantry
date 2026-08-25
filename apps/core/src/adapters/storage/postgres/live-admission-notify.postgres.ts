@@ -12,6 +12,39 @@ export const LIVE_TURN_COMMAND_CHANNEL = 'gantry_live_turn_commands';
 
 const LISTEN_RECONNECT_DELAY_MS = 1_000;
 
+export function isLiveWakeupListenEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const raw = env.GANTRY_LIVE_WAKEUP_LISTEN_ENABLED?.trim().toLowerCase();
+  if (!raw) return true;
+  if (raw === '1' || raw === 'true') return true;
+  if (raw === '0' || raw === 'false') return false;
+  throw new Error(
+    'GANTRY_LIVE_WAKEUP_LISTEN_ENABLED must be true, false, 1, or 0.',
+  );
+}
+
+/**
+ * Connection-free wake sources for constrained fleets. Live admission already
+ * polls durable work every two seconds, and active live turns poll their
+ * command inbox every second, so LISTEN is only a latency optimization.
+ */
+export class PollingLiveAdmissionWakeupSource implements LiveAdmissionWakeupSource {
+  subscribe(_listener: () => void): () => void {
+    return () => {};
+  }
+
+  async close(): Promise<void> {}
+}
+
+export class PollingLiveTurnCommandWakeupSource implements LiveTurnCommandWakeupSource {
+  subscribe(_listener: () => void): () => void {
+    return () => {};
+  }
+
+  async close(): Promise<void> {}
+}
+
 export interface LiveAdmissionWakeup {
   appId: string;
   workItemId: string;

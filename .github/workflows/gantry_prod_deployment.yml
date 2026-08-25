@@ -106,12 +106,16 @@ jobs:
              (.containerDefinitions[] | select(.name == $container) | .environment) |=
                ((. // []) | map(select(
                  .name != "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS" and
-                 .name != "GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED"
+                 .name != "GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED" and
+                 .name != "GANTRY_LIVE_WAKEUP_LISTEN_ENABLED"
                )) + [{
                  name: "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS",
                  value: $privateServiceUrlKeys
                }, {
                  name: "GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED",
+                 value: "0"
+               }, {
+                 name: "GANTRY_LIVE_WAKEUP_LISTEN_ENABLED",
                  value: "0"
                }])' \
             task-definition.json > task-definition.patched.json

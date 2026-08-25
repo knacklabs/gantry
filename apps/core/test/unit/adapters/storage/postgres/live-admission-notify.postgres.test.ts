@@ -5,6 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   LIVE_ADMISSION_CHANNEL,
   LIVE_TURN_COMMAND_CHANNEL,
+  isLiveWakeupListenEnabled,
+  PollingLiveAdmissionWakeupSource,
+  PollingLiveTurnCommandWakeupSource,
   PostgresLiveAdmissionNotifier,
   PostgresLiveAdmissionWakeupSource,
   PostgresLiveTurnCommandNotifier,
@@ -12,6 +15,47 @@ import {
 } from '@core/adapters/storage/postgres/live-admission-notify.postgres.js';
 
 describe('live admission Postgres wakeups', () => {
+  it('keeps LISTEN wakeups enabled by default', () => {
+    expect(isLiveWakeupListenEnabled({})).toBe(true);
+  });
+
+  it.each(['0', 'false'])('uses polling-only wakeups for %s', (value) => {
+    expect(
+      isLiveWakeupListenEnabled({
+        GANTRY_LIVE_WAKEUP_LISTEN_ENABLED: value,
+      }),
+    ).toBe(false);
+  });
+
+  it.each(['1', 'true'])('keeps LISTEN wakeups for %s', (value) => {
+    expect(
+      isLiveWakeupListenEnabled({
+        GANTRY_LIVE_WAKEUP_LISTEN_ENABLED: value,
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects ambiguous wakeup listener values', () => {
+    expect(() =>
+      isLiveWakeupListenEnabled({
+        GANTRY_LIVE_WAKEUP_LISTEN_ENABLED: 'yes',
+      }),
+    ).toThrow(/must be true, false, 1, or 0/);
+  });
+
+  it('provides connection-free polling wake sources', async () => {
+    const admissionSource = new PollingLiveAdmissionWakeupSource();
+    const commandSource = new PollingLiveTurnCommandWakeupSource();
+    const listener = vi.fn();
+
+    admissionSource.subscribe(listener)();
+    commandSource.subscribe(listener)();
+    await admissionSource.close();
+    await commandSource.close();
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('publishes a wakeup without work-item payload data', async () => {
     const query = vi.fn(async () => undefined);
     const notifier = new PostgresLiveAdmissionNotifier({ query } as any);
