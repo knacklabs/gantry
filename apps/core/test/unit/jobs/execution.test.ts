@@ -2619,11 +2619,12 @@ describe('jobs/execution', () => {
         jobId: 'job-1',
         runId: input.runId,
         payload: {
-          phase: 'browser_action',
-          tool: 'Browser',
-          public_tool: 'browser_open',
-          action: 'navigate',
+          phase: 'success',
+          tool: 'browser_open',
+          family: 'browser',
           ok: true,
+          invocationId: 'browser-open-1',
+          authoritative: true,
         },
       });
       return {
@@ -2885,21 +2886,23 @@ describe('jobs/execution', () => {
           {
             eventType: 'tool.activity',
             payload: {
-              phase: 'browser_action',
-              tool: 'Browser',
-              public_tool: 'browser_open',
-              action: 'navigate',
+              phase: 'success',
+              tool: 'browser_open',
+              family: 'browser',
               ok: true,
+              invocationId: 'browser-open-1',
+              authoritative: true,
             },
           },
           {
             eventType: 'tool.activity',
             payload: {
-              phase: 'browser_action',
-              tool: 'Browser',
-              public_tool: 'browser_inspect',
-              action: 'snapshot',
+              phase: 'success',
+              tool: 'browser_inspect',
+              family: 'browser',
               ok: true,
+              invocationId: 'browser-inspect-1',
+              authoritative: true,
             },
           },
         ],

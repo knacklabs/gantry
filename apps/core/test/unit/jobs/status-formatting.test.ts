@@ -368,6 +368,41 @@ it('keeps only authoritative gantry-owned tool rows and unmatched wrapper failur
   );
 });
 
+it('keeps wrapper-only failures when a shared invocation is deduplicated', () => {
+  const terminal = (
+    invocationId: string,
+    tool: string,
+    authoritative: boolean,
+    seq: number,
+  ) => ({
+    eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+    correlationId: invocationId,
+    payload: {
+      phase: 'failure',
+      tool,
+      family: 'browser',
+      ok: false,
+      authoritative,
+      invocationId,
+      seq,
+    },
+  });
+
+  expect(
+    structuredJobResultFromRecordedActions([
+      terminal('shared-1', 'browser_act', true, 10),
+      terminal('shared-1', 'Browser', false, 10),
+      terminal('toolu-9', 'Browser', false, 11),
+    ])?.items,
+  ).toEqual([
+    { outcome: 'failed', label: 'Browser: Act' },
+    {
+      outcome: 'failed',
+      label: 'Browser: failed before reaching the browser service',
+    },
+  ]);
+});
+
 describe('job status formatting', () => {
   it('bounds structured notification views before provider rendering', () => {
     const longText = (prefix: string) =>
