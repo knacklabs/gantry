@@ -37,6 +37,15 @@ const providersRoute = createRoute({
   ),
 });
 
+const mcpServersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'mcp-servers',
+  component: lazyRouteComponent(
+    () => import('../../features/operations/routes/mcp-servers-route'),
+    'McpServersRoute',
+  ),
+});
+
 const conversationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'conversations',
@@ -70,6 +79,7 @@ export const operationsRoutes = [
   overviewRoute,
   interactionsRoute,
   providersRoute,
+  mcpServersRoute,
   conversationsRoute,
   conversationDetailRoute,
   diagnosticsRoute,
