@@ -62,43 +62,53 @@ export function ConnectMcpServerDialog({
       return;
     }
     setSaving(true);
-    const form = new FormData(event.currentTarget);
-    const config =
-      kind === 'remote'
-        ? { transport, url: String(form.get('url') ?? '') }
-        : {
-            transport: 'stdio_template' as const,
-            templateId: 'npx-package',
-            args: [String(form.get('package') ?? '')],
-          };
-    const response = await browserFetch('/ui/api/mcp-servers', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
-      body: JSON.stringify({
-        name: String(form.get('name') ?? ''),
-        transport: config.transport,
-        config,
-        allowedToolPatterns: splitLines(String(form.get('tools') ?? '')),
-        credentialRefs: credentialRefs.filter((ref) => ref.name && ref.key),
-        networkHosts: splitLines(String(form.get('networkHosts') ?? '')),
-        riskClass,
-        ...(kind === 'local'
-          ? { sandboxProfileId: String(form.get('sandboxProfileId') ?? '') }
-          : {}),
-      }),
-    });
-    const data = (await response
-      .json()
-      .catch(() => null)) as BrowserResponse | null;
-    setSaving(false);
-    if (!response.ok || !data?.server) {
-      setError(data?.error?.message ?? 'MCP server could not be connected.');
-      return;
+    try {
+      const form = new FormData(event.currentTarget);
+      const config =
+        kind === 'remote'
+          ? { transport, url: String(form.get('url') ?? '') }
+          : {
+              transport: 'stdio_template' as const,
+              templateId: 'npx-package',
+              args: [String(form.get('package') ?? '')],
+            };
+      const response = await browserFetch('/ui/api/mcp-servers', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'content-type': 'application/json',
+          ...browserCsrfHeader(),
+        },
+        body: JSON.stringify({
+          name: String(form.get('name') ?? ''),
+          transport: config.transport,
+          config,
+          allowedToolPatterns: splitLines(String(form.get('tools') ?? '')),
+          credentialRefs,
+          networkHosts: splitLines(String(form.get('networkHosts') ?? '')),
+          riskClass,
+          ...(kind === 'local'
+            ? { sandboxProfileId: String(form.get('sandboxProfileId') ?? '') }
+            : {}),
+        }),
+      });
+      const data = (await response
+        .json()
+        .catch(() => null)) as BrowserResponse | null;
+      if (!response.ok || !data?.server) {
+        setError(data?.error?.message ?? 'MCP server could not be connected.');
+        return;
+      }
+      await client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
+      onConnected(data.server);
+      onOpenChange(false);
+    } catch {
+      setError(
+        'MCP server could not be connected. Check the Gantry service and try again.',
+      );
+    } finally {
+      setSaving(false);
     }
-    await client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
-    onConnected(data.server);
-    onOpenChange(false);
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
