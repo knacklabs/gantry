@@ -22,17 +22,19 @@ Use the selected concept 23 as Gantry's canonical browser mark: four square
 modules in a stepped assembly. The mark is a transparent 24 by 24 vector with
 four 7 by 7 modules at `(1,16)`, `(8.5,8.5)`, `(16,16)`, and `(16,1)`.
 
-The wordmark remains live `Gantry` text. The mark is decorative and has no
-separate accessible name.
+The navigation and auth lockups use one `gantry-logo.svg` asset containing the
+four-square mark and `Gantry` wordmark. The rendered lockup is decorative
+because its enclosing navigation or access landmark supplies the name.
 
-All live Gantry wordmarks use Helvetica Neue Regular and title case.
+The lockup uses Helvetica Neue Regular, title case, and the same 102 by 24
+proportions at every rendered location.
 
 Public brand asset URLs include the concept revision query `?v=23-4` so browser
 caches cannot retain an earlier mark after a visual correction.
 
 ## Acceptance criteria
 
-- Auth pages use a 28px bronze `#C0985F` mark beside the title-case
+- Auth pages use the shared 24px bronze `#C0985F` lockup.
   `GANTRY` wordmark, with no bordered `G` badge.
 - The sidebar uses a 24px `--ink` mark beside the existing `Gantry` label and
   remains legible in both themes.

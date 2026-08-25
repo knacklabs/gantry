@@ -8,7 +8,8 @@ it('renders canonical Gantry brand assets', () => {
   const index = readFileSync('index.html', 'utf8');
   const navigation = readFileSync('src/app/app-navigation.tsx', 'utf8');
   const authCard = readFileSync('src/features/auth/auth-card.tsx', 'utf8');
-  const component = readFileSync('src/ui/compositions/gantry-mark.tsx', 'utf8');
+  const logo = readFileSync('public/brand/gantry-logo.svg', 'utf8');
+  const component = readFileSync('src/ui/compositions/gantry-logo.tsx', 'utf8');
   const styles = readFileSync('src/styles.css', 'utf8');
 
   expect(mark).toContain('viewBox="0 0 24 24"');
@@ -18,6 +19,12 @@ it('renders canonical Gantry brand assets', () => {
   expect(mark).toContain('x="16" y="16" width="7" height="7"');
   expect(mark).toContain('x="16" y="1" width="7" height="7"');
   expect(mark).not.toContain('<text');
+  expect(logo).toContain('viewBox="0 0 102 24"');
+  expect(logo.match(/<rect /g)).toHaveLength(4);
+  expect(logo).toContain(
+    'font-family="Helvetica Neue, Helvetica, Arial, sans-serif"',
+  );
+  expect(logo).toContain('>Gantry</text>');
   expect(favicon).toContain('#1B1A18');
   expect(favicon).toContain('#F7F6F4');
   expect(touchIcon.readUInt32BE(16)).toBe(180);
@@ -26,19 +33,13 @@ it('renders canonical Gantry brand assets', () => {
   expect(index).toContain('href="/ui/apple-touch-icon.png?v=23-4"');
   expect(index).not.toContain('data:image/svg+xml');
   expect(component).toContain('import.meta.env.BASE_URL');
-  expect(component).toContain('brand/gantry-mark.svg?v=23-4');
+  expect(component).toContain('brand/gantry-logo.svg?v=23-4');
   expect(component).toContain('maskImage');
   expect(component).toContain('aria-hidden="true"');
-  expect(navigation).toContain('<GantryMark className="size-6 text-ink" />');
-  expect(navigation).toContain(
-    "font-['Helvetica_Neue',Helvetica,Arial,sans-serif]",
-  );
+  expect(navigation).toContain('<GantryLogo className="h-6 w-[102px]" />');
   expect(authCard).toContain(
-    '<GantryMark className="size-7 text-[#c0985f]" />',
+    '<GantryLogo className="h-6 w-[102px] text-[#c0985f]" />',
   );
-  expect(authCard).toContain('<span>Gantry</span>');
-  expect(styles).toContain(
-    "font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;",
-  );
+  expect(styles).not.toContain('.auth-page-brand span');
   expect(styles).not.toContain('auth-page-mark');
 });
