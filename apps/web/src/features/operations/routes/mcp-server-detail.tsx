@@ -159,7 +159,12 @@ export function McpServerDetail({
       `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/agents/${encodeURIComponent(id)}`,
       'DELETE',
     );
-    if (result !== false) setNotice('Agent detached.');
+    if (result !== false) {
+      setAgentId('');
+      setPatterns('');
+      setRequired(false);
+      setNotice('Agent detached.');
+    }
   }
   const unboundAgents = inventory.agents.filter(
     (agent) => !server.bindings.some((binding) => binding.agentId === agent.id),
