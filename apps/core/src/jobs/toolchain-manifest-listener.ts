@@ -13,6 +13,33 @@ export interface ManifestWakeupSource {
   close(): Promise<void>;
 }
 
+/**
+ * Poll-only wake source for connection-constrained fleet deployments. The
+ * worker capability reconciler already performs a full reconciliation every
+ * 30 seconds, so disabling LISTEN only trades immediate wakeups for that
+ * bounded delay while preserving correctness.
+ */
+export class PollingManifestWakeupSource implements ManifestWakeupSource {
+  subscribe(_listener: () => void): () => void {
+    return () => {};
+  }
+
+  async close(): Promise<void> {}
+}
+
+export function isManifestListenEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const raw =
+    env.GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED?.trim().toLowerCase();
+  if (!raw) return true;
+  if (raw === '1' || raw === 'true') return true;
+  if (raw === '0' || raw === 'false') return false;
+  throw new Error(
+    'GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED must be true, false, 1, or 0.',
+  );
+}
+
 const LISTEN_RECONNECT_DELAY_MS = 1_000;
 
 /**

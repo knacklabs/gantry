@@ -76,6 +76,8 @@ const FakeWakeupSource = vi.hoisted(
     },
 );
 vi.mock('@core/jobs/toolchain-manifest-listener.js', () => ({
+  isManifestListenEnabled: () => true,
+  PollingManifestWakeupSource: FakeWakeupSource,
   PostgresManifestWakeupSource: FakeWakeupSource,
 }));
 vi.mock('@core/config/settings/settings-revision-notify.js', () => ({

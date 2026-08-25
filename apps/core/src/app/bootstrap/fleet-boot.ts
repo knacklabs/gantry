@@ -38,7 +38,11 @@ import {
   stopToolchainBakeSubsystem,
 } from '../../jobs/toolchain-bake-bootstrap.js';
 import type { ToolchainBakeOutcomeNotice } from '../../jobs/toolchain-bake-executor.js';
-import { PostgresManifestWakeupSource } from '../../jobs/toolchain-manifest-listener.js';
+import {
+  isManifestListenEnabled,
+  PollingManifestWakeupSource,
+  PostgresManifestWakeupSource,
+} from '../../jobs/toolchain-manifest-listener.js';
 import { currentWorkerInstanceId } from '../../jobs/worker-identity.js';
 import { registerBrowserProfileSync } from '../../runtime/browser-profile-sync.js';
 import { WorkerCapabilityReconciler } from '../../jobs/worker-capability-reconciler.js';
@@ -309,6 +313,17 @@ export async function startFleetSubsystems(input: {
         })) !== null;
     }
     if (!capabilityReconciliation) return;
+    const manifestListenEnabled = isManifestListenEnabled();
+    const manifestWakeupSource = manifestListenEnabled
+      ? new PostgresManifestWakeupSource(input.pool, (context, message) =>
+          logger.warn(context, message),
+        )
+      : new PollingManifestWakeupSource();
+    if (!manifestListenEnabled) {
+      logger.info(
+        'Toolchain manifest LISTEN disabled; capability reconciliation uses its polling fallback',
+      );
+    }
     reconciler = new WorkerCapabilityReconciler({
       appId: input.appId,
       workerInstanceId,
@@ -317,10 +332,7 @@ export async function startFleetSubsystems(input: {
       toolchainMaterializer: buildToolchainMaterializer(),
       skillMaterializer: buildSkillMaterializer(),
       workerRegistry: storage.repositories.workerCoordination,
-      wakeupSource: new PostgresManifestWakeupSource(
-        input.pool,
-        (context, message) => logger.warn(context, message),
-      ),
+      wakeupSource: manifestWakeupSource,
       localRoot: ARTIFACTS_DIR,
       onIntegrityError: (event) => {
         logger.error(

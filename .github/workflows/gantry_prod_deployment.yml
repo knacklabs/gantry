@@ -104,9 +104,15 @@ jobs:
             --arg privateServiceUrlKeys "$PRIVATE_SERVICE_URL_KEYS" \
             '(.containerDefinitions[] | select(.name == $container) | .healthCheck.startPeriod) = $startPeriod |
              (.containerDefinitions[] | select(.name == $container) | .environment) |=
-               ((. // []) | map(select(.name != "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS")) + [{
+               ((. // []) | map(select(
+                 .name != "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS" and
+                 .name != "GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED"
+               )) + [{
                  name: "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS",
                  value: $privateServiceUrlKeys
+               }, {
+                 name: "GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED",
+                 value: "0"
                }])' \
             task-definition.json > task-definition.patched.json
           mv task-definition.patched.json task-definition.json
