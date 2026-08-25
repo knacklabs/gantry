@@ -9,7 +9,7 @@ on:
       postgres_pool_max:
         description: Gantry Postgres pool size for this deployment
         required: false
-        default: '8'
+        default: '12'
         type: string
       pgboss_pool_max:
         description: Gantry pg-boss pool size for this deployment
@@ -33,7 +33,7 @@ env:
   TASK_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent
   CONTAINER_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent-container
   HEALTH_CHECK_START_PERIOD_SECONDS: 240
-  POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '8' }}
+  POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '12' }}
   PGBOSS_POOL_MAX: ${{ inputs.pgboss_pool_max || '1' }}
   PRIVATE_SERVICE_URL_KEYS: ATS_INTERNAL_API_URL
 
@@ -75,9 +75,9 @@ jobs:
 
       - name: Update validated Gantry database pool settings
         run: |
-          # The production runtime holds six long-lived connections for its
-          # listeners and ownership leases. Keep at least two connections free
-          # for control API and job work, while capping the shared pool at 12.
+          # The production runtime holds eight long-lived connections for its
+          # listeners and ownership leases. Keep four connections free for
+          # control API and job work, while capping the application pool at 12.
           [[ "$POSTGRES_POOL_MAX" =~ ^[89]$|^1[0-2]$ ]]
           [[ "$PGBOSS_POOL_MAX" =~ ^[1-2]$ ]]
           aws ssm put-parameter \
