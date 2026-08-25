@@ -444,6 +444,98 @@ describe('lifecycle retirement', () => {
     ]);
   });
 
+  it('reports a synchronously throwing fresh send as failed', async () => {
+    const job = makeJob();
+    const sendProgressUpdate = vi.fn((_jid, text: string) => {
+      if (text.startsWith('Running:')) return false;
+      throw new Error('provider update rejected');
+    });
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+
+    await lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-sync-throwing-fallback',
+    });
+
+    await expect(
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId: 'run-sync-throwing-fallback',
+        runStatus: 'completed',
+        summaryMessage: 'Finished.',
+      }),
+    ).resolves.toEqual([expect.objectContaining({ status: 'failed' })]);
+  });
+
+  it('overlapping waiters see a failed fallback as failed', async () => {
+    const job = makeJob();
+    const sendProgressUpdate = vi.fn(async (_jid, text: string) => {
+      if (text.startsWith('Running:')) return false;
+      throw new Error('provider update rejected');
+    });
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+
+    await lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-overlapping-failed-fallback',
+    });
+    const retirements = Promise.all([
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId: 'run-overlapping-failed-fallback',
+        runStatus: 'completed',
+        summaryMessage: 'Finished.',
+      }),
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId: 'run-overlapping-failed-fallback',
+        runStatus: 'completed',
+        summaryMessage: 'Finished.',
+      }),
+    ]);
+
+    await expect(retirements).resolves.toEqual([
+      [expect.objectContaining({ status: 'failed' })],
+      [expect.objectContaining({ status: 'failed' })],
+    ]);
+    expect(
+      sendProgressUpdate.mock.calls.filter(([, text]) => text === 'Finished.'),
+    ).toHaveLength(1);
+  });
+
+  it('does not fresh-send after the identity path already updated the card', async () => {
+    const job = makeJob();
+    const sendProgressUpdate = vi.fn(async () => true);
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+
+    await lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-updated-identity',
+    });
+    await lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-updated-identity',
+      runStatus: 'completed',
+      summaryMessage: 'Finished.',
+    });
+    const sendsAfterFirstRetirement = sendProgressUpdate.mock.calls.length;
+    const second = await lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-updated-identity',
+      runStatus: 'failed',
+      summaryMessage: 'Deleted.',
+    });
+
+    expect(second).toEqual([expect.objectContaining({ status: 'updated' })]);
+    expect(sendProgressUpdate).toHaveBeenCalledTimes(sendsAfterFirstRetirement);
+  });
+
   it('sends the terminal notice as a fresh message when the start card was refused', async () => {
     const job = makeJob();
     const primary = terminalDeps(job);
@@ -1111,7 +1203,7 @@ describe('lifecycle retirement', () => {
     expect(secondOutcomes?.map((outcome) => outcome.status)).toEqual([
       'updated',
     ]);
-    expect(sendProgressUpdate).toHaveBeenCalledTimes(3);
+    expect(sendProgressUpdate).toHaveBeenCalledTimes(2);
   });
 
   it('does not replace a pre-existing route card when the run creates its own card', async () => {
