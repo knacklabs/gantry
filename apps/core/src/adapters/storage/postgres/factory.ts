@@ -47,7 +47,12 @@ import { PostgresFileArtifactStore } from './repositories/file-artifact-reposito
 import { PostgresBrowserProfileSnapshotRepository } from './repositories/browser-profile-snapshot-repository.postgres.js';
 import type { PostgresStorageService } from './storage-service.js';
 import { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
-import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
+import {
+  type CloseableRuntimeEventNotifier,
+  isRuntimeEventListenEnabled,
+  PollingRuntimeEventNotifier,
+  PostgresRuntimeEventNotifier,
+} from './runtime-event-notifier.postgres.js';
 import type { AgentSession } from '../../../domain/sessions/sessions.js';
 import {
   isLiveWakeupListenEnabled,
@@ -78,7 +83,7 @@ export interface StorageRuntime {
   control: PostgresControlPlaneRepository;
   repositories: PostgresDomainRepositoryBundle;
   runtimeEvents: RuntimeEventExchange;
-  runtimeEventNotifier: PostgresRuntimeEventNotifier;
+  runtimeEventNotifier: CloseableRuntimeEventNotifier;
   liveAdmissionWakeupSource: LiveAdmissionWakeupSource;
   liveTurnCommandWakeupSource: LiveTurnCommandWakeupSource;
   fileArtifacts: FileArtifactStore;
@@ -178,7 +183,9 @@ export function createStorageRuntime(
       cleanupProviderAttachment: options.reclaimProviderAttachment,
     },
   );
-  const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
+  const runtimeEventNotifier = isRuntimeEventListenEnabled()
+    ? new PostgresRuntimeEventNotifier(service.pool)
+    : new PollingRuntimeEventNotifier();
   const liveAdmissionNotifier = new PostgresLiveAdmissionNotifier(service.pool);
   const liveWakeupListenEnabled = isLiveWakeupListenEnabled();
   const liveAdmissionWakeupSource = liveWakeupListenEnabled

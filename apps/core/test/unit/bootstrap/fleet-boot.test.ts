@@ -81,6 +81,8 @@ vi.mock('@core/jobs/toolchain-manifest-listener.js', () => ({
   PostgresManifestWakeupSource: FakeWakeupSource,
 }));
 vi.mock('@core/config/settings/settings-revision-notify.js', () => ({
+  isSettingsRevisionListenEnabled: () => true,
+  PollingSettingsRevisionWakeupSource: FakeWakeupSource,
   PostgresSettingsRevisionWakeupSource: FakeWakeupSource,
 }));
 vi.mock('@core/jobs/worker-identity.js', () => ({

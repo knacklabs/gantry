@@ -12,6 +12,37 @@ const RUNTIME_EVENTS_CHANNEL = 'gantry_runtime_events';
 const LISTEN_RECONNECT_DELAY_MS = 1_000;
 const PG_NOTIFY_PAYLOAD_SAFE_BYTES = 7_500;
 
+export interface CloseableRuntimeEventNotifier extends RuntimeEventNotifier {
+  close(): Promise<void>;
+}
+
+export function isRuntimeEventListenEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const raw = env.GANTRY_RUNTIME_EVENT_LISTEN_ENABLED?.trim().toLowerCase();
+  if (!raw) return true;
+  if (raw === '1' || raw === 'true') return true;
+  if (raw === '0' || raw === 'false') return false;
+  throw new Error(
+    'GANTRY_RUNTIME_EVENT_LISTEN_ENABLED must be true, false, 1, or 0.',
+  );
+}
+
+/**
+ * Connection-free notifier for constrained fleets. Runtime events remain
+ * durable in Postgres and subscriptions cursor-poll at least every 15 seconds,
+ * so NOTIFY is only a latency optimization.
+ */
+export class PollingRuntimeEventNotifier implements CloseableRuntimeEventNotifier {
+  async notify(_event: RuntimeEvent): Promise<void> {}
+
+  subscribe(_listener: () => void, _filter?: RuntimeEventFilter): () => void {
+    return () => {};
+  }
+
+  async close(): Promise<void> {}
+}
+
 export interface RuntimeEventWakeup {
   eventId: RuntimeEvent['eventId'];
   appId: RuntimeEvent['appId'];
@@ -85,7 +116,7 @@ function wakeupShouldNotifyFilter(
   return runtimeEventMatchesFilter(wakeup, filter);
 }
 
-export class PostgresRuntimeEventNotifier implements RuntimeEventNotifier {
+export class PostgresRuntimeEventNotifier implements CloseableRuntimeEventNotifier {
   private readonly listeners = new Map<
     () => void,
     RuntimeEventFilter | undefined

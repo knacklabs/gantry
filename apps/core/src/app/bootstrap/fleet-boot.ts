@@ -26,7 +26,11 @@ import {
   settingsFromRevisionDocument,
   settingsToRevisionDocument,
 } from '../../config/settings/settings-import-service.js';
-import { PostgresSettingsRevisionWakeupSource } from '../../config/settings/settings-revision-notify.js';
+import {
+  isSettingsRevisionListenEnabled,
+  PollingSettingsRevisionWakeupSource,
+  PostgresSettingsRevisionWakeupSource,
+} from '../../config/settings/settings-revision-notify.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
 import { isDraining } from './draining-state.js';
@@ -364,10 +368,12 @@ export async function startFleetSubsystems(input: {
     leases: input.leases,
     ops: storage.ops,
     repositories: storage.repositories,
-    wakeupSource: new PostgresSettingsRevisionWakeupSource(
-      input.pool,
-      (context, message) => logger.warn(context, message),
-    ),
+    wakeupSource: isSettingsRevisionListenEnabled()
+      ? new PostgresSettingsRevisionWakeupSource(
+          input.pool,
+          (context, message) => logger.warn(context, message),
+        )
+      : new PollingSettingsRevisionWakeupSource(),
     reloadRuntimeState: () => input.app.loadState(),
     onFirstRevisionApplied: async (settings) => {
       // No-op when everything already started at boot (settingsLoaded).

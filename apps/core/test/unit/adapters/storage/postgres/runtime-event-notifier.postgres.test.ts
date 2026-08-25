@@ -3,7 +3,9 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  isRuntimeEventListenEnabled,
   parseRuntimeEventWakeup,
+  PollingRuntimeEventNotifier,
   PostgresRuntimeEventNotifier,
 } from '@core/adapters/storage/postgres/runtime-event-notifier.postgres.js';
 import type { RuntimeEvent } from '@core/domain/events/events.js';
@@ -15,6 +17,27 @@ class FakeListenClient extends EventEmitter {
 }
 
 describe('PostgresRuntimeEventNotifier', () => {
+  it('supports an explicit polling-only mode while keeping LISTEN default', async () => {
+    expect(isRuntimeEventListenEnabled({})).toBe(true);
+    expect(
+      isRuntimeEventListenEnabled({
+        GANTRY_RUNTIME_EVENT_LISTEN_ENABLED: '0',
+      }),
+    ).toBe(false);
+    expect(() =>
+      isRuntimeEventListenEnabled({
+        GANTRY_RUNTIME_EVENT_LISTEN_ENABLED: 'sometimes',
+      }),
+    ).toThrow(/must be true, false, 1, or 0/);
+
+    const notifier = new PollingRuntimeEventNotifier();
+    const listener = vi.fn();
+    notifier.subscribe(listener)();
+    await notifier.notify({} as RuntimeEvent);
+    await notifier.close();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('treats failed NOTIFY as a wakeup loss rather than event durability loss', async () => {
     const pool = {
       connect: vi.fn(),

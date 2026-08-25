@@ -110,7 +110,9 @@ jobs:
                  .name != "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS" and
                  .name != "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_HOST_MAPPINGS_JSON" and
                  .name != "GANTRY_TOOLCHAIN_MANIFEST_LISTEN_ENABLED" and
-                 .name != "GANTRY_LIVE_WAKEUP_LISTEN_ENABLED"
+                 .name != "GANTRY_LIVE_WAKEUP_LISTEN_ENABLED" and
+                 .name != "GANTRY_RUNTIME_EVENT_LISTEN_ENABLED" and
+                 .name != "GANTRY_SETTINGS_REVISION_LISTEN_ENABLED"
                )) + [{
                  name: "GANTRY_DETERMINISTIC_PRIVATE_SERVICE_URL_KEYS",
                  value: $privateServiceUrlKeys
@@ -122,6 +124,12 @@ jobs:
                  value: "0"
                }, {
                  name: "GANTRY_LIVE_WAKEUP_LISTEN_ENABLED",
+                 value: "0"
+               }, {
+                 name: "GANTRY_RUNTIME_EVENT_LISTEN_ENABLED",
+                 value: "0"
+               }, {
+                 name: "GANTRY_SETTINGS_REVISION_LISTEN_ENABLED",
                  value: "0"
                }])' \
             task-definition.json > task-definition.patched.json

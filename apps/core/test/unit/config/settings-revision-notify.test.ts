@@ -1,12 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  isSettingsRevisionListenEnabled,
   parseSettingsRevisionWakeup,
+  PollingSettingsRevisionWakeupSource,
   PostgresSettingsRevisionNotifier,
   SETTINGS_REVISION_CHANNEL,
 } from '@core/config/settings/settings-revision-notify.js';
 
 describe('parseSettingsRevisionWakeup', () => {
+  it('supports an explicit polling-only mode while keeping LISTEN default', async () => {
+    expect(isSettingsRevisionListenEnabled({})).toBe(true);
+    expect(
+      isSettingsRevisionListenEnabled({
+        GANTRY_SETTINGS_REVISION_LISTEN_ENABLED: 'false',
+      }),
+    ).toBe(false);
+    expect(() =>
+      isSettingsRevisionListenEnabled({
+        GANTRY_SETTINGS_REVISION_LISTEN_ENABLED: 'sometimes',
+      }),
+    ).toThrow(/must be true, false, 1, or 0/);
+
+    const source = new PollingSettingsRevisionWakeupSource();
+    const listener = vi.fn();
+    source.subscribe(listener)();
+    await source.close();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('parses a well-formed payload', () => {
     expect(
       parseSettingsRevisionWakeup(

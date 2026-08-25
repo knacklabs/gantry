@@ -9,6 +9,18 @@ export const SETTINGS_REVISION_CHANNEL = 'gantry_settings_revisions';
 
 const LISTEN_RECONNECT_DELAY_MS = 1_000;
 
+export function isSettingsRevisionListenEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const raw = env.GANTRY_SETTINGS_REVISION_LISTEN_ENABLED?.trim().toLowerCase();
+  if (!raw) return true;
+  if (raw === '1' || raw === 'true') return true;
+  if (raw === '0' || raw === 'false') return false;
+  throw new Error(
+    'GANTRY_SETTINGS_REVISION_LISTEN_ENABLED must be true, false, 1, or 0.',
+  );
+}
+
 export interface SettingsRevisionWakeup {
   appId: string;
   revision: number;
@@ -41,6 +53,15 @@ export function parseSettingsRevisionWakeup(
 export interface SettingsRevisionWakeupSource {
   subscribe(listener: () => void): () => void;
   close(): Promise<void>;
+}
+
+/** Connection-free wake source; SettingsRevisionListener still polls. */
+export class PollingSettingsRevisionWakeupSource implements SettingsRevisionWakeupSource {
+  subscribe(_listener: () => void): () => void {
+    return () => {};
+  }
+
+  async close(): Promise<void> {}
 }
 
 /**
