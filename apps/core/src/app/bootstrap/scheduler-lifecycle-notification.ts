@@ -197,14 +197,12 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
         capture.identities.delete(key);
       }
     }
-    if (capture.identities.size === 0 && capture.fallbacks.size === 0) {
-      capturesByRun.delete(runId);
-    }
     return outcomes;
   };
 
   return {
     captureLifecycleNotification,
+    // Captures live until explicit discard so retries and a late-landing start card share one capture.
     discardLifecycleNotification: (runId) => {
       capturesByRun.delete(runId);
     },

@@ -530,6 +530,81 @@ describe('lifecycle retirement', () => {
     ).toHaveLength(2);
   });
 
+  it('a retry after a failed fallback shares the capture with a late-landing start card', async () => {
+    const job = makeJob();
+    let settleRunning!: (landed: boolean) => void;
+    const running = new Promise<boolean>((resolve) => {
+      settleRunning = resolve;
+    });
+    let settleRetryFallback!: (landed: boolean) => void;
+    const retryFallback = new Promise<boolean>((resolve) => {
+      settleRetryFallback = resolve;
+    });
+    let freshFallbackAttempts = 0;
+    const deliveredTerminalSummaries: string[] = [];
+    const sendProgressUpdate = vi.fn(async (_jid, text: string, options) => {
+      if (text.startsWith('Running:')) return running;
+      if (text === 'Finished.' && !options?.replaceOnly) {
+        freshFallbackAttempts += 1;
+        if (freshFallbackAttempts === 1) {
+          throw new Error('fresh fallback rejected');
+        }
+        return retryFallback.then((landed) => {
+          if (landed) deliveredTerminalSummaries.push(text);
+          return landed;
+        });
+      }
+      if (text === 'Done.' && options?.replaceOnly) return true;
+      throw new Error('unexpected lifecycle notification');
+    });
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+    const capture = lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-failed-fallback-late-card-retry',
+    });
+
+    await expect(
+      lifecycle.updateLifecycleNotification?.({
+        job,
+        runId: 'run-failed-fallback-late-card-retry',
+        runStatus: 'completed',
+        summaryMessage: 'Finished.',
+      }),
+    ).resolves.toEqual([expect.objectContaining({ status: 'failed' })]);
+    const retry = lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-failed-fallback-late-card-retry',
+      runStatus: 'completed',
+      summaryMessage: 'Finished.',
+    });
+    await vi.waitFor(() => expect(freshFallbackAttempts).toBe(2));
+
+    settleRunning(true);
+    settleRetryFallback(true);
+    await Promise.all([capture, retry]);
+
+    const runningCall = sendProgressUpdate.mock.calls.find(([, text]) =>
+      text.startsWith('Running:'),
+    );
+    expect(deliveredTerminalSummaries).toEqual(['Finished.']);
+    expect(
+      sendProgressUpdate.mock.calls.filter(
+        ([, text, options]) => text === 'Finished.' && options?.replaceOnly,
+      ),
+    ).toHaveLength(0);
+    expect(sendProgressUpdate).toHaveBeenLastCalledWith(
+      'tg:scheduler',
+      'Done.',
+      expect.objectContaining({
+        done: true,
+        replaceOnly: true,
+        progressCardIdentity: runningCall?.[2]?.progressCardIdentity,
+      }),
+    );
+  });
+
   it('shares a late-card summary edit with a concurrent retirement retry', async () => {
     const job = makeJob();
     let settleRunning!: (landed: boolean) => void;
