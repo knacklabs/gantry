@@ -81,7 +81,8 @@ export function McpServerDetail({
       }
       await refresh();
       return data?.message;
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
       setError(
         'This change could not be saved. Check the Gantry service and try again.',
       );

@@ -102,7 +102,8 @@ export function ConnectMcpServerDialog({
       await client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
       onConnected(data.server);
       onOpenChange(false);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
       setError(
         'MCP server could not be connected. Check the Gantry service and try again.',
       );
