@@ -5,7 +5,7 @@ Incident: after deploying the JOBPERM-1 branch, the KnackLabs job-permission car
 Root cause: `reviseLivingCard` guards no-op revisions with `JSON.stringify(last.rows) === JSON.stringify(visible)`. `last.rows` is read back from Postgres JSONB, which normalizes key order; `visible` is a fresh literal. Never equal → new revision every tick. In-memory test fakes used `structuredClone` (order-preserving), so unit tests could not see it.
 
 Contract for this diff:
-- Comparison is key-order-insensitive (`util.isDeepStrictEqual`).
+- The no-op guard compares rows in their PERSISTED shape: key order ignored AND `undefined` properties ignored (Postgres JSONB drops them). `shared/canonical-json.ts` (`canonicalJson`) is the chosen comparator BY DESIGN. Do not propose `util.isDeepStrictEqual`: (a) the architecture gate forbids `node:util` in the application layer, and (b) it treats `{a: undefined}` ≠ `{}`, which would mint a revision that persists identically — i.e. re-create this exact loop. An `undefined`-only difference is not a real card change.
 - Test fakes persist state through a JSONB-faithful round trip (`jsonbRoundTrip`: sorted keys, undefined dropped) so the entire jobperm suite exercises persisted shapes.
 - A delivered revision whose rows are unchanged mints no new revision on any number of reconcile ticks.
 
