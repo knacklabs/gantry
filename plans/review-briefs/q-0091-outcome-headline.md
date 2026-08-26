@@ -4,7 +4,7 @@ Owner direction: a user should get the OUTCOME first. Today the notice leads wit
 
 Contract for this diff:
 - Prompt guidance for scheduled runs (the existing 'one final outcome report' bullet) now states the generic contract: final message begins with `Outcome: <one sentence>`.
-- `jobOutcomeHeadline(summary)` extracts exactly that line (case-insensitive prefix, first line of the selected summary section); no other heuristics — no contract, no headline, today's behavior.
+- `jobOutcomeHeadline(summary)` extracts exactly that line (case-insensitive prefix) from the section selectJobNotificationSummary already selects; it skips a leading report heading ONLY for the same marker set that picker uses (`Final Job Report`, `Final Report`, `Scoring Summary`, `Score Summary`, with or without `#` prefixes — see status-formatting.ts markers list) — this is not a new heuristic, do not report it as one. No contract line, no headline, today's behavior.
 - The headline is set on the structured result (headline-only result allowed) so every native renderer prints it first; the text variant shows it right after the header and drops the duplicate compacted summary.
 - Nothing job-specific, nothing provider-specific; no change to delivery paths.
 
