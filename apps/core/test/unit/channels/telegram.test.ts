@@ -4287,6 +4287,129 @@ describe('TelegramChannel', () => {
   });
 
   describe('sendProgressUpdate', () => {
+    const terminalView = {
+      status: 'completed' as const,
+      jobName: 'Lead enrichment',
+      stats: { toolCount: 2, browserUsed: true, lastAction: 'browser_act' },
+      result: {
+        headline: "Enriched this morning's leads",
+        items: [
+          {
+            outcome: 'done' as const,
+            label: 'Added Acme',
+            detail: 'owner found',
+          },
+          { outcome: 'skipped' as const, label: 'Skipped Globex' },
+        ],
+        nextAction: 'Review the new leads',
+      },
+      fallbackText: '**Completed** plain fallback',
+      nextRunAt: '2026-08-27T09:00:00.000Z',
+    };
+
+    it('edits a terminal structured notification as HTML with its actions', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      const call = currentBot().api.editMessageText.mock.calls.at(-1);
+      expect(call?.[0]).toBe('100200300');
+      expect(call?.[1]).toBe(987);
+      expect(call?.[2]).toContain('<b>✅ Completed</b>');
+      expect(call?.[2]).toContain('✅ Added Acme — owner found');
+      expect(call?.[2]).toContain('⏭️ Skipped Globex');
+      expect(call?.[2]).toContain('<blockquote expandable>');
+      expect(call?.[3]).toMatchObject({
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: 'Run again', callback_data: 'r:job-1' }]],
+        },
+      });
+      expect(call?.[2]).not.toContain(terminalView.fallbackText);
+    });
+
+    it('sends a terminal structured notification as HTML without a running card', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+        },
+      );
+
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '100200300',
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({ parse_mode: 'HTML' }),
+      );
+    });
+
+    it('keeps an unstructured terminal progress update on the existing text path', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+
+      await channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+        done: true,
+      });
+
+      expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(
+        '100200300',
+        987,
+        'Finished.',
+        { parse_mode: 'MarkdownV2', reply_markup: { inline_keyboard: [] } },
+      );
+    });
+
+    it('falls back to the terminal text when an HTML progress edit cannot parse', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValueOnce(
+        new Error("Bad Request: can't parse entities"),
+      );
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+        },
+      );
+
+      expect(currentBot().api.editMessageText).toHaveBeenNthCalledWith(
+        1,
+        '100200300',
+        987,
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({ parse_mode: 'HTML' }),
+      );
+      expect(currentBot().api.editMessageText).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        987,
+        terminalView.fallbackText,
+        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
+      );
+    });
+
     it('sends first progress message then edits it on updates', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);

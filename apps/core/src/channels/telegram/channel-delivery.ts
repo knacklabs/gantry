@@ -26,6 +26,11 @@ import {
 import { sendTelegramObserverDigestMessage } from './observer-digest-message.js';
 import { escapeTelegramHtml } from './html-render.js';
 import {
+  editTelegramProgressMessage,
+  sendTerminalTelegramProgressMessage,
+  terminalTelegramProgressMessage,
+} from './progress-terminal-render.js';
+import {
   clearProgressActions,
   prepareTelegramProgressHandle,
   progressActionOptions,
@@ -352,7 +357,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       ? Boolean(telegramActionReplyMarkup(options.actionAffordances))
       : false;
     const actionOnly = Boolean(options.actionOnly && hasActionMarkup);
-    const nextText = actionOnly ? String.fromCharCode(8288) : text.trim();
+    const fallbackText = actionOnly ? String.fromCharCode(8288) : text.trim();
+    const terminalMessage = terminalTelegramProgressMessage(options);
+    const nextText = terminalMessage?.text ?? fallbackText;
     if (options.done) {
       this.markProgressGenerationDone(key, options.generation);
     } else if (
@@ -412,18 +419,29 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       return false;
     }
     if (!existing) {
-      await sendNewProgressMessage({
-        api: this.bot.api,
-        activeProgressMessages: this.activeProgressMessages,
-        persistProgressMessages: () => this.persistProgressMessages(),
-        chatId: numericId,
-        key,
-        jid,
-        text: nextText,
-        options,
-        sendOptions,
-        threadId: Number.isFinite(parsedThreadId) ? parsedThreadId : undefined,
-      });
+      if (terminalMessage) {
+        await sendTerminalTelegramProgressMessage({
+          api: this.bot.api,
+          chatId: numericId,
+          text: nextText,
+          sendOptions,
+        });
+      } else {
+        await sendNewProgressMessage({
+          api: this.bot.api,
+          activeProgressMessages: this.activeProgressMessages,
+          persistProgressMessages: () => this.persistProgressMessages(),
+          chatId: numericId,
+          key,
+          jid,
+          text: nextText,
+          options,
+          sendOptions,
+          threadId: Number.isFinite(parsedThreadId)
+            ? parsedThreadId
+            : undefined,
+        });
+      }
       return true;
     }
     if (existing.lastText === nextText) {
@@ -477,39 +495,40 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
 
     if (existing.messageId) {
       try {
-        await editTelegramMessage(
-          this.bot.api,
-          numericId,
-          existing.messageId,
-          nextText,
-          {},
-          actionOptions.editReplyMarkup,
-        );
+        await editTelegramProgressMessage({
+          api: this.bot.api,
+          chatId: numericId,
+          messageId: existing.messageId,
+          text: nextText,
+          ...(terminalMessage ? { terminalFallbackText: fallbackText } : {}),
+          editReplyMarkup: actionOptions.editReplyMarkup,
+        });
       } catch (err) {
         if (options.replaceOnly) {
           retainTelegramProgressHandleAfterEditFailure({ jid, err });
           return false;
+        } else {
+          logger.debug(
+            { jid, err },
+            'Failed to edit progress message, creating a fresh one',
+          );
+          existing.messageId = await sendTelegramMessageWithResult(
+            this.bot.api,
+            numericId,
+            nextText,
+            sendOptions,
+          );
+          logger.info(
+            {
+              jid,
+              key,
+              progressText: nextText,
+              generation: options.generation,
+              messageId: existing.messageId,
+            },
+            'Progress lifecycle telegram fallback sent new message',
+          );
         }
-        logger.debug(
-          { jid, err },
-          'Failed to edit progress message, creating a fresh one',
-        );
-        existing.messageId = await sendTelegramMessageWithResult(
-          this.bot.api,
-          numericId,
-          nextText,
-          sendOptions,
-        );
-        logger.info(
-          {
-            jid,
-            key,
-            progressText: nextText,
-            generation: options.generation,
-            messageId: existing.messageId,
-          },
-          'Progress lifecycle telegram fallback sent new message',
-        );
       }
     } else {
       existing.messageId = await sendTelegramMessageWithResult(
