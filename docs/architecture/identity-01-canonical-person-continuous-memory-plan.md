@@ -375,6 +375,10 @@ invented; existing pieces are given the identity shape People already have.
 Directory federation (SCIM / Entra Agent ID / Okta), agent-to-agent
 conversation, and per-agent OIDC are deferred and receive no V1 scaffolding.
 
+Grill outcomes (2026-08-26) folded in below: one app per org for chat
+channels; approvers are principals; person offboarding is in V1.0; offboarding
+is administrator-only; in-runtime delegation is not agent-to-agent.
+
 ## Exact Contract
 
 ### Principal
@@ -404,6 +408,18 @@ Rules:
    an **agent sender**: metadata-only, never creates a Person, never hydrates
    personal memory, and in V1 never triggers a run (see Locked Decisions).
 4. Public contracts expose `PrincipalRef`, never raw provider ids, as actor.
+5. **App = org.** In a central install every chat-channel Person and Agent
+   lives in one org `appId`, so one human has one identity across Teams,
+   Slack, and WhatsApp. SDK-embedded customer products are separate apps
+   with their own People. Departments are never separate apps.
+6. **Approvers are principals.** `conversations.<id>.control_approvers`
+   migrate from raw provider sender ids to `PrincipalRef`; migration fails on
+   an unresolvable id. The per-conversation model is unchanged: channel
+   approvers approve in channels; in a DM the Person self-approves.
+7. **Delegation is not agent-to-agent.** An agent spawning worker runs inside
+   the host runtime is one principal's run tree and is audited under that
+   agent's `PrincipalRef`. Only one principal addressing another over a
+   channel counts as agent-to-agent, which stays off in V1.
 
 ### Audit actor
 
@@ -439,7 +455,21 @@ One transaction, in order:
 `gantry agent remove` is unchanged: it deletes config and is only permitted
 on an already-offboarded agent. The `main_agent` cannot be offboarded
 (existing constraint). Re-onboarding is a new agent id; retired aliases are
-never revived.
+never revived. Offboarding requires the administrator role; an agent's owner
+(RBAC-1) may pause and resume but not offboard.
+
+### Person offboard (V1.0)
+
+```
+gantry person offboard <personId>
+```
+
+Mirrors agent offboarding so the symmetry claim holds both ways. One
+transaction: retire every alias (fail closed), redact personal memory and DM
+content irreversibly, keep alias keys and audit rows in redacted form, write
+one identity audit row, runtime event, and outbox entry. Manual trigger from
+CLI or the directory; IdP/SCIM-driven deprovisioning is deferred. This
+replaces the IDENTITY-01 "Person deletion" roadmap item for V1.0.
 
 ### Authority lanes (additions)
 
@@ -526,6 +556,10 @@ aliases and vice versa.
    secret provider.
 7. Retired agent aliases are never revived; re-onboarding is a new agent.
 8. `main_agent` cannot be offboarded.
+9. One app per org for chat channels; SDK products are separate apps.
+10. Approvers are `PrincipalRef`s; the per-conversation approval model stays.
+11. Person offboarding ships in V1.0 with irreversible redaction.
+12. Offboarding (agent or person) is administrator-only.
 
 ## Deferred
 

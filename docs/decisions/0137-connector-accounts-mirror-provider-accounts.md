@@ -52,6 +52,12 @@ Connector (gmail) → Connector Account (sales@ grant) → owned by Agent (sales
 7. **Separate table, shared contract.** `connector_accounts` sits beside
    `provider_accounts`; they share the alias projection and offboard hook.
    Merging the tables is not designed up front.
+8. **The account provisions its MCP binding.** *(Amended 2026-08-26 after
+   grill.)* `connector_accounts` is the source of truth for kind, owning
+   agent, external identity, and secret references. Creating one materialises
+   the existing `mcp_servers` record and agent binding with the account's
+   secret injected; retiring the account (including at offboard) removes the
+   binding. Operators never wire the MCP side by hand for a connector.
 
 ## Consequences
 

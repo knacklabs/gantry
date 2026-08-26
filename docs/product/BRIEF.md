@@ -13,6 +13,19 @@ product and operations workflows.
 - Keep customization explicit through prompts, model aliases, capabilities, and conversation installs.
 - Make risky actions visible and reviewable through permission, sandbox, and audit flows.
 
+## Positioning Rules (grill, 2026-08-26)
+
+- Governance is the headline; learning is a reviewable record (memory review
+  flows), never autonomous drift.
+- One central, IT-owned install per organisation. Departments get agents
+  inside it; workspace scoping inside the install is the stated path.
+- "Agent" in code, CLI, and API; "AI employee" on the landing page and as the
+  directory heading only.
+- First deployments are KnackLabs engagements (next: a Teams-first
+  BFSI/enterprise client); self-serve install serves the organisations after.
+- Proof artifact for V1.0: a three-minute real-product video, onboard ->
+  scope -> approve via Adaptive Card -> offboard.
+
 ## Current Scope
 
 - CLI and package-based runtime setup.

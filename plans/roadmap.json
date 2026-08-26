@@ -1371,7 +1371,7 @@
     },
     {
       "key": "IDENT-2",
-      "title": "Agent identity: agents as principals",
+      "title": "Agent identity: agents as principals (V1.0)",
       "story": "As an IT admin, I can see and manage every AI agent in the same directory shape as people, so that access, audit, and offboarding read identically for both.",
       "acceptance_criteria": [
         "Provider Accounts project to aliases with cross-kind uniqueness; a subject is never both Person and Agent",
@@ -1389,11 +1389,12 @@
     },
     {
       "key": "PKG-1",
-      "title": "npm packaging and self-serve install",
+      "title": "npm packaging and self-serve install (V1.0)",
       "story": "As a platform engineer at an outside org, I can install Gantry from npm and reach a running Teams or Slack agent in one afternoon, so that no sales motion is needed to get to production.",
       "acceptance_criteria": [
         "One documented npm install path produces a running runtime with Postgres and one agent",
-        "Time-to-first-agent measured on a fresh machine and recorded"
+        "Time-to-first-agent measured on a fresh machine and recorded",
+        "CI publishes @gantry/runtime on release tag from main with provenance; first publish is part of this story"
       ],
       "order": 70,
       "status": "pending",
@@ -1405,11 +1406,13 @@
     },
     {
       "key": "RBAC-1",
-      "title": "Roles for people and agents",
-      "story": "As an IT admin, I can assign roles to people and agents from one model, so that there is one RBAC, not two.",
+      "title": "Roles for people and agents (V1.0)",
+      "story": "As an IT admin at a Microsoft 365 org, I sign in to the console with Entra ID, delegate approvals without granting administration, and give each agent an owner, so that roles fit how the org already works.",
       "acceptance_criteria": [
-        "Role assignment targets a PrincipalRef of either kind",
-        "Identity adds no tool authority; tool permissions stay on agentId"
+        "Entra ID OIDC login for the console beside existing Google OIDC",
+        "Third role 'approver': can approve, cannot administer",
+        "Each agent has an owning principal; owner can pause/resume and assign approvers; offboard stays administrator-only",
+        "Roles apply to PrincipalRef of either kind"
       ],
       "order": 71,
       "status": "pending",
@@ -1423,23 +1426,27 @@
     },
     {
       "key": "HITL-1",
-      "title": "In-chat approvals: Teams Adaptive Cards and web",
-      "story": "As an approver, I can approve or reject an agent's risky action from Teams or the web console, so that human-in-the-loop lives where the team already works.",
+      "title": "In-chat approvals: Teams Adaptive Cards and web (V1.0)",
+      "story": "As a channel admin, I approve an agent's risky actions in my conversation, and as a person I approve my own in DMs, so that human-in-the-loop lives where the team already works and the record says who by person.",
       "acceptance_criteria": [
-        "An approval raised by an agent renders as a Teams Adaptive Card and a web console item; both resolve the same durable approval",
+        "Approvers are PrincipalRefs; control_approvers migrate from raw provider ids on IDENT-2 and fail migration if unresolvable",
+        "Per-conversation model unchanged: channel approvers approve in channels; the Person self-approves in DMs",
+        "Existing Slack, Teams, Discord, and web approval surfaces reused; no new cards",
         "Approval outcomes are audited with the approver's PrincipalRef"
       ],
       "order": 72,
       "status": "pending",
       "epic": "ai-employee-v1",
       "skill": "fullstack",
-      "depends_on": [],
+      "depends_on": [
+        "IDENT-2"
+      ],
       "origin": "adhoc",
       "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
     },
     {
       "key": "DIR-UI-1",
-      "title": "Directory UI: agents, access, audit, offboard",
+      "title": "Directory UI: agents, access, audit, offboard (V1.0)",
       "story": "As an IT admin, I can open a directory of AI employees, see each one's seats and access, read its audit trail, and offboard it with one action, so that agents are managed like people.",
       "acceptance_criteria": [
         "Directory lists agents with aliases, installs, and status",
@@ -1457,7 +1464,7 @@
     },
     {
       "key": "CONN-GSUITE-1",
-      "title": "Google Workspace connector",
+      "title": "Google Workspace connector (V1.0.x)",
       "story": "As an IT admin, I can grant an AI employee scoped Google Workspace access (Gmail, Drive, Calendar) through OAuth, so that 'only the access they need' is demonstrable on the tool every org has.",
       "acceptance_criteria": [
         "Per-agent OAuth grant with explicit scopes; tokens via secret refs, never in settings or logs",
@@ -1532,7 +1539,7 @@
     },
     {
       "key": "DOCS-1",
-      "title": "Onboard/access/audit/offboard documentation spine",
+      "title": "Onboard/access/audit/offboard documentation spine (V1.0)",
       "story": "As an IT lead evaluating Gantry, I can read how to onboard, scope, audit, and offboard an AI employee end to end, so that I can get security sign-off without a call.",
       "acceptance_criteria": [
         "Docs are organised as onboard -> access -> audit -> offboard with Teams and Slack quickstarts",
@@ -1548,7 +1555,7 @@
     },
     {
       "key": "CONN-1",
-      "title": "Connector Account platform",
+      "title": "Connector Account platform (V1.0.x)",
       "story": "As an IT admin, I can add several accounts of one connector kind (e.g. three Gmail mailboxes) and assign each to a different agent, so that outbound access is per-account and per-agent, never shared by accident.",
       "acceptance_criteria": [
         "connector_accounts record mirrors Provider Account shape: kind, agent, label, external_identity_ref, runtime_secret_refs; exactly one owning agent",
@@ -1564,6 +1571,79 @@
       "depends_on": [],
       "origin": "adhoc",
       "spec_debt_reason": "ADR 0137 proposed; needs a confirmed spec"
+    },
+    {
+      "key": "IDENT-4",
+      "title": "Person offboarding (V1.0)",
+      "story": "As an IT admin, I can offboard a person who has left, so that their aliases are retired, their personal memory and DM content are redacted irreversibly, and a minimal audit trail remains.",
+      "acceptance_criteria": [
+        "gantry person offboard <personId> and a directory action retire all aliases (fail closed), redact personal memory and DM content, and keep alias keys and audit rows in redacted form",
+        "One atomic transaction with identity audit, runtime event, and outbox",
+        "Manual trigger only; IdP/SCIM-driven deprovisioning is deferred"
+      ],
+      "order": 80,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Grill 2026-08-26 Q4/Q14: symmetry claim requires human offboarding in V1.0"
+    },
+    {
+      "key": "TEAMS-E2E-1",
+      "title": "Teams real-tenant agent-e2e (V1.0)",
+      "story": "As a Teams-first buyer, I can trust that onboard, Adaptive Card approval, and offboard work in a real Teams tenant, so that 'Teams-first' is proven, not claimed.",
+      "acceptance_criteria": [
+        "agent-e2e covers install into a Teams channel, one permission approval via Adaptive Card, and gantry agent offboard, against a real tenant",
+        "Runs in the agent-e2e merge gate; failures block"
+      ],
+      "order": 81,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Grill 2026-08-26 Q10: Teams adapter has unit tests only"
+    },
+    {
+      "key": "COST-1",
+      "title": "Per-agent monthly token cap and usage view (V1.0.x)",
+      "story": "As an IT admin, I can set a monthly token cap per agent and see each agent's usage in the directory, so that no agent runs up an unbudgeted bill.",
+      "acceptance_criteria": [
+        "Cap is tokens per calendar month per agent; at cap the agent replies that it is paused for budget, stops new runs, and administrators are notified",
+        "Cap is raisable from the directory; usage view uses /v1/usage grouped by agent",
+        "No USD price table"
+      ],
+      "order": 82,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "DIR-UI-1"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Grill 2026-08-26 Q6/Q24"
+    },
+    {
+      "key": "SOV-1",
+      "title": "Sovereign mode: generic OpenAI-compatible provider and no-egress check (V1.0.x)",
+      "story": "As a regulated org, I can run Gantry against an on-prem model (vLLM, Ollama) with zero external egress, so that 'self-hosted, any model' is true on our servers.",
+      "acceptance_criteria": [
+        "One provider id accepts any OpenAI-compatible base URL with credential via secret ref",
+        "A boot-time egress check fails startup if any host outside the configured allowlist is reachable",
+        "Quickstart documented with vLLM"
+      ],
+      "order": 83,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "Grill 2026-08-26 Q7/Q13: no on-prem provider exists today"
     }
   ],
   "epics": [
@@ -1661,7 +1741,7 @@
     {
       "id": "ai-employee-v1",
       "title": "AI employee V1: onboard, scope, audit, offboard",
-      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon",
+      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost cap, sovereign mode; V1.1 = phone identity, WhatsApp, voice",
       "source_refs": [
         "docs/product/BRIEF.md",
         "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
@@ -1671,5 +1751,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-26T10:12:53+00:00"
+  "updated_at": "2026-08-26T10:45:17+00:00"
 }

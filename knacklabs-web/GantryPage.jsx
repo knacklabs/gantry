@@ -384,13 +384,13 @@ export function GantryPage({ assetBase = './' }) {
   const h2Big = { ...h2, fontSize: 'clamp(28px, 5vw, 36px)', fontWeight: 700, letterSpacing: '-0.02em' };
 
   const arc = [
-    { k: 'DAY 1', t: 'It shows up', d: 'Arrives in Slack or Teams with a personality, and asks the right question instead of guessing.' },
-    { k: 'WEEK 1', t: 'It remembers', d: 'Picks up how you like things done and remembers the calls you make. You stop saying the same things twice.' },
-    { k: 'MONTH 1', t: 'It settles in', d: 'The work you do over and over becomes something it just handles, once you approve.' },
+    { k: 'DAY 1', t: 'It gets a seat', d: 'IT adds it to the Teams or Slack channels it belongs in, with only the access that role needs. Nothing installed on anyone\u2019s laptop.' },
+    { k: 'WEEK 1', t: 'It keeps a record', d: 'What it learns about how you work is written down where you can read it, edit it, or reject it. No silent drift.' },
+    { k: 'MONTH 1', t: 'It earns more', d: 'Repeat work becomes a routine you signed off on. Every action it takes is still in the audit log, and it can be offboarded in one command.' },
   ];
   const engine = [
-    { k: 'Memory', t: 'It remembers what matters', d: 'Your preferences, your decisions, the corrections you make along the way. It holds onto them and applies them next time.' },
-    { k: 'Skills', t: 'It learns your routines', d: 'The things you ask for again and again become saved routines. You sign off on each one, and the list keeps growing with your team.' },
+    { k: 'Memory', t: 'Memory you can review', d: 'Preferences, decisions, corrections. Each one is a record an admin can read, edit, or revoke, and nothing is applied until it is approved.' },
+    { k: 'Skills', t: 'Routines you signed off', d: 'The things you ask for again and again become saved routines. Each one is approved before it runs, and each one can be switched off.' },
   ];
   const capabilities = [
     { n: '01', label: 'Works where your team works', items: [
@@ -459,8 +459,8 @@ export function GantryPage({ assetBase = './' }) {
       <section style={{ background: '#fff', borderTop: '1px solid var(--kl-line)', borderBottom: '1px solid var(--kl-line)', padding: '56px 0' }}>
         <div style={wrap}>
           <Reveal>
-            <Eyebrow style={{ marginBottom: 12 }}>How it grows</Eyebrow>
-            <h2 style={h2}>An intern on Monday. A veteran by month&rsquo;s end.</h2>
+            <Eyebrow style={{ marginBottom: 12 }}>How it is onboarded</Eyebrow>
+            <h2 style={h2}>A seat on Monday. Trusted, on the record, by month&rsquo;s end.</h2>
           </Reveal>
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : 'repeat(3, 1fr)', gap: narrow ? 26 : 40, marginTop: 30 }}>
             {arc.map((s, i) => (
@@ -479,9 +479,9 @@ export function GantryPage({ assetBase = './' }) {
         <div style={wrap}>
           <Reveal>
             <Eyebrow style={{ marginBottom: 12 }}>Personas</Eyebrow>
-            <h2 style={{ ...h2Big, maxWidth: '20ch' }}>It shows up with personality and opinions.</h2>
+            <h2 style={{ ...h2Big, maxWidth: '20ch' }}>It comes with a role, not a master key.</h2>
             <p style={{ fontSize: 17, lineHeight: 1.55, color: 'var(--kl-ink-2)', maxWidth: '58ch', margin: '14px 0 0' }}>
-              Choose the personality that fits the role. Each one has its own voice and its own judgment. Gantry holds real opinions and says them plainly. Shape it to match how your team actually works.
+              Pick the role. Each one has its own voice, its own tools, and its own limits. The persona shapes how it talks; the access preset decides what it can touch. Both are yours to set.
             </p>
           </Reveal>
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : 'repeat(3, 1fr)', gap: 16, marginTop: 28 }}>
@@ -496,8 +496,8 @@ export function GantryPage({ assetBase = './' }) {
       <section style={{ background: '#fff', borderTop: '1px solid var(--kl-line)', padding: '56px 0 64px' }}>
         <div style={wrap}>
           <Reveal>
-            <Eyebrow style={{ marginBottom: 12 }}>What makes it better</Eyebrow>
-            <h2 style={h2}>It gets better every week.</h2>
+            <Eyebrow style={{ marginBottom: 12 }}>What it learns stays visible</Eyebrow>
+            <h2 style={h2}>It improves, and you can see exactly how.</h2>
           </Reveal>
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : '1fr 1fr', gap: narrow ? 30 : 64, marginTop: 30 }}>
             {engine.map((s, i) => (
