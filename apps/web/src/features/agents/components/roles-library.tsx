@@ -35,12 +35,14 @@ export function RolesLibrary({
   builtIns,
   error,
   loading,
+  onPageChange,
   onRetry,
 }: {
   data: BrowserPage<BrowserRole> | undefined;
   builtIns?: BrowserPage<BrowserRole>;
   error: boolean;
   loading: boolean;
+  onPageChange: (page: number) => void;
   onRetry: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -245,6 +247,22 @@ export function RolesLibrary({
             ) : null}
           </tbody>
         </table>
+      </div>
+      <div className="flex min-h-14 items-center justify-end gap-2 border-t border-border px-4">
+        <Button
+          disabled={(data?.page ?? 1) <= 1}
+          variant="secondary"
+          onClick={() => onPageChange((data?.page ?? 1) - 1)}
+        >
+          Previous
+        </Button>
+        <Button
+          disabled={!data?.hasNext}
+          variant="secondary"
+          onClick={() => onPageChange((data?.page ?? 1) + 1)}
+        >
+          Next
+        </Button>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>

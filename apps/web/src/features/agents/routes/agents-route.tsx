@@ -120,6 +120,9 @@ export function AgentsRoute() {
           data={customRoles.data}
           error={builtInRoles.isError || customRoles.isError}
           loading={builtInRoles.isLoading || customRoles.isLoading}
+          onPageChange={(page) =>
+            void navigate({ search: { ...search, page } })
+          }
           onRetry={() => {
             void builtInRoles.refetch();
             void customRoles.refetch();
