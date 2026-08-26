@@ -1329,12 +1329,15 @@
         "v9 Deletions land: old autonomous lane paths removed, source-asserted"
       ],
       "order": 66,
-      "status": "active",
+      "status": "done",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
       "depends_on": [],
-      "spec": "docs/specs/jobperm-1-chat-parity-job-permissions.md"
+      "spec": "docs/specs/jobperm-1-chat-parity-job-permissions.md",
+      "completed_at": "2026-08-26T12:24:41+00:00",
+      "history": ".factory/stories/JOBPERM-1/",
+      "outcome": "Scheduled jobs now ask for permission the same way a chat does: when a job needs a tool it is not yet allowed to use, one living card appears in the job's chat with Allow/Deny buttons and no timer, the run waits in place, and an Allow-always answer is remembered for future runs. The job notification was rebuilt alongside it: exactly one message per run, edited from Running into the result, rendered natively on Telegram, Slack and Discord, leading with a one-line outcome, then the per-tool results, then the next run time. Operators also got a heredoc-aware command gate, honest 'this request stays open' wording on job prompts, and the KnackLabs incident class (one card edited ten thousand times) is closed by JSONB-faithful settlement."
     }
   ],
   "epics": [
@@ -1431,5 +1434,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-23T11:16:03+00:00"
+  "updated_at": "2026-08-26T12:24:41+00:00"
 }

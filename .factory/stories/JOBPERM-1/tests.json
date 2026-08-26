@@ -1,30 +1,73 @@
 {
-  "commit": "e06dcbe4c7a4904adda16ff4a464b651eef470a8",
+  "commit": "f0b764e32691474dfdaab4889a6265002b2a68bb",
   "automated": {
     "generated_by": "implementer",
-    "kind": "automated",
     "status": "passed",
-    "summary": "Full suite 8950/8950 (unit) + integration lane green (DB-gated skips per config); jobperm proof tests 9/9 exact-named JUnit; verify.py full pass (structural + architecture + tests + gates).",
-    "command": "python3 factory/scripts/verify.py",
-    "evidence": [
-      "npm test: 8950 passed (8950)",
-      "check:architecture: passed",
-      "verify.py: Verification passed"
-    ],
+    "summary": "At HEAD f0b764e32: unit lane 675 files / 9,025 tests passed; integration lane 13 files / 87 tests passed (DB-gated suites skipped per config); architecture, format, vendor integrity and dual-runtime checks green; verify.py Verification passed. New proof suites since the story stages: JSONB-faithful jobperm fakes + q-0074 no-op-revision test, Telegram/Slack/Discord native terminal render suites, heredoc parser cases, lifecycle fallback/idempotency cases, notice rollup/headline cases.",
     "blocking_findings": [],
     "commands_run": [
-      "npm test",
+      "npx vitest run -c vitest.unit.config.ts",
+      "npx vitest run -c vitest.integration.config.ts",
       "npm run check:architecture",
+      "python3 factory/scripts/check_vendor_integrity.py",
       "python3 factory/scripts/verify.py"
     ],
-    "non_blocking_findings": [],
+    "pass_fail_summary": "unit 9025/9025; integration 87/87 (458 skipped by config); verify.py passed",
+    "tests_added_or_updated": [
+      "apps/core/test/unit/application/jsonb-round-trip.ts",
+      "apps/core/test/unit/application/jobperm-durability.test.ts",
+      "apps/core/test/unit/application/jobperm-edges.test.ts",
+      "apps/core/test/unit/channels/telegram.test.ts",
+      "apps/core/test/unit/channels/slack.test.ts",
+      "apps/core/test/unit/channels/discord.test.ts",
+      "apps/core/test/unit/jobs/lifecycle-retirement.test.ts",
+      "apps/core/test/unit/jobs/status-formatting.test.ts",
+      "apps/core/test/unit/jobs/execution-diagnostics.test.ts",
+      "apps/core/test/unit/shared/bash-command-parser.test.ts",
+      "apps/core/test/unit/domain/messages/retry-tail-provider-payload.test.ts",
+      "apps/core/test/unit/runtime/prompt-profile.test.ts"
+    ],
     "remaining_gaps": [],
+    "reviewed_scope": [
+      "apps/core"
+    ],
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "non_blocking_findings": [],
     "residual_risks": [],
-    "tests_added_or_updated": [],
     "manual_validation_steps": [],
-    "reviewed_scope": [],
-    "recorded_at": "2026-08-24T13:07:06+00:00",
-    "commit": "e06dcbe4c7a4904adda16ff4a464b651eef470a8"
+    "recorded_at": "2026-08-26T12:23:52+00:00",
+    "commit": "f0b764e32691474dfdaab4889a6265002b2a68bb"
   },
-  "updated_at": "2026-08-24T13:07:06+00:00"
+  "updated_at": "2026-08-26T12:24:17+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "passed",
+    "score": 8,
+    "summary": "Functional check on the live runtime (production KnackLabs job, Telegram group tg:-1003986348737), branch builds 2026-08-25/26. Scenario 1 (in-session continuation): 8 runs completed; permissions decided in place and next runs silent-allowed by rule (decidedBy reviewed_rule). One-message notification: every run produced exactly one Telegram send + one edit (native 0) after Q-0079; header, per-tool outcome lines, summary and next-run rendered in the edited card; browser + LinkedIn used after login. Card churn 0 across all runs after the revision-loop fix (previously 10,115 edits). Prompt without living card traced to a heredoc command (parser fixed, Q-0085) and copy corrected (Q-0086). Native HTML/blocks/embed rendering deployed 2026-08-26 12:11Z; the run triggered at that time is the first to render with the outcome headline contract.",
+    "blocking_findings": [],
+    "non_blocking_findings": [
+      "{'category': 'functional', 'area': 'scenario-3', 'summary': 'Deny/Reconsider (live scenario 3) was not exercised on the customer job; covered by durability unit tests'}"
+    ],
+    "residual_risks": [
+      "Outcome headline depends on the run following the Outcome: guidance (first live run pending)"
+    ],
+    "manual_validation_steps": [
+      "gantry jobs trigger via control API; wait for terminal event; count 'telegram sent new message'/'edited existing'/'Telegram message sent' log lines per run",
+      "query outbound_delivery_items for jobPermissionCard rows per run (expect 0 churn)",
+      "inspect the edited Telegram message in the group"
+    ],
+    "recommendation": "approve-with-caveats",
+    "reviewed_scope": [
+      "scheduled job permission flow",
+      "job notifications on Telegram"
+    ],
+    "remaining_gaps": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "recorded_at": "2026-08-26T12:24:17+00:00",
+    "commit": "f0b764e32691474dfdaab4889a6265002b2a68bb"
+  }
 }

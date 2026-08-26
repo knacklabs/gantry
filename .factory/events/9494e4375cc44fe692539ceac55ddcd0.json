@@ -1,0 +1,1 @@
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-26T12:24:41+00:00", "story": "JOBPERM-1", "detail": "Scheduled jobs now ask for permission the same way a chat does: when a job needs a tool it is not yet allowed to use, one living card appears in the job's chat with Allow/Deny buttons and no timer, th"}
