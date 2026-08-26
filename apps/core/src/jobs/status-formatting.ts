@@ -275,17 +275,9 @@ export function selectJobNotificationSummary(summary: string): string {
 }
 
 export function jobOutcomeHeadline(summary: string): string | undefined {
-  const [firstLine, ...followingLines] = selectJobNotificationSummary(summary)
-    .split('\n')
-    .map((line) => line.trim());
-  const outcomeLine =
-    /^(?:#+\s*)?(?:Final Job Report|Final Report|Scoring Summary|Score Summary)\s*$/i.test(
-      firstLine,
-    )
-      ? followingLines.find((line) => line)
-      : firstLine;
-  const match = outcomeLine?.match(/^Outcome:\s*(.*)$/i);
-  return match?.[1]?.trim() || undefined;
+  const pieces = summary.split(/\bOutcome:/i);
+  if (pieces.length < 2) return undefined;
+  return pieces[pieces.length - 1].split(/[\r\n]/)[0].trim() || undefined;
 }
 
 function statusLabel(

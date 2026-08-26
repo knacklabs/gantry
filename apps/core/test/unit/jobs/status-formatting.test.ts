@@ -416,7 +416,7 @@ describe('job status formatting', () => {
     expect(formatJobNextRunAt('not-a-date')).toBeUndefined();
   });
 
-  it('extracts only an outcome line from the selected terminal report', () => {
+  it('extracts the last outcome line from a job summary', () => {
     expect(
       jobOutcomeHeadline(
         'Checking existing leads.\n## Final Job Report\nOutcome: Added 2 leads (rows 2030-2031)\nDetails follow.',
@@ -429,11 +429,27 @@ describe('job status formatting', () => {
       jobOutcomeHeadline('## Final Job Report\n\nOutcome: Added 2 leads.'),
     ).toBe('Added 2 leads.');
     expect(
-      jobOutcomeHeadline('## Final Job Report\n\nSummary text\nOutcome: x'),
-    ).toBeUndefined();
+      jobOutcomeHeadline(
+        'Now writing lead 2 — Runlayer — to row 2037.Outcome: Added 2 leads.',
+      ),
+    ).toBe('Added 2 leads.');
+    expect(
+      jobOutcomeHeadline(
+        'Outcome: First result.\nNarration\nOutcome: Final result.',
+      ),
+    ).toBe('Final result.');
+    expect(jobOutcomeHeadline('Outcome: First.Outcome: Final.')).toBe('Final.');
     expect(
       jobOutcomeHeadline('  outcome:   No changes found.  \nDetails follow.'),
     ).toBe('No changes found.');
+    expect(jobOutcomeHeadline('Narration without a result.')).toBeUndefined();
+    expect(jobOutcomeHeadline('Outcome:   \nNarration')).toBeUndefined();
+  });
+
+  it('stops an outcome headline at a CR line ending', () => {
+    expect(jobOutcomeHeadline('Outcome: Added 2 leads.\rDetails follow.')).toBe(
+      'Added 2 leads.',
+    );
   });
 
   it('bounds structured notification views before provider rendering', () => {
