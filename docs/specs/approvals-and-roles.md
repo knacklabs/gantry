@@ -2,8 +2,9 @@
 slug: approvals-and-roles
 title: Approvals by principals and console roles
 status: confirmed
-saved: 2026-08-26T11:07:54+00:00
+saved: 2026-08-26T11:22:26+00:00
 ---
+
 
 # Approvals by principals and console roles
 
@@ -68,6 +69,9 @@ Regulated buyers need approvals attributed to a person and console roles that ma
   - Agent owner is a PrincipalRef relation; pause/resume is an explicit agent state with owner authorization; offboard requires agents:admin
   - Role bindings stored on PrincipalRef; browser-scope policy, auth routes, and web role unions updated for the third role
   - Entra sign-in is generic OIDC config; Viewer auto-grant generalised beyond Google hd claim or replaced by invitation/CLI approval
+  - Authentication & Access page: issuer collection with Entra beside Google, per-issuer tenant/domain auto-grant policy (Google hd, Entra tid), test/activate lifecycle per issuer, sign-in page issuer picker
+  - Grant editor and CLI gantry auth access approve accept role approver; BrowserSession/isBrowserRole/web role unions widened
+  - Decision 0132 amended for the third role (decision 0142) before implementation
 
 ## Source
 

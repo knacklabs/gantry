@@ -1422,12 +1422,15 @@
         "Roles apply to PrincipalRef of either kind",
         "Agent owner is a PrincipalRef relation; pause/resume is an explicit agent state with owner authorization; offboard requires agents:admin",
         "Role bindings stored on PrincipalRef; browser-scope policy, auth routes, and web role unions updated for the third role",
-        "Entra sign-in is generic OIDC config; Viewer auto-grant generalised beyond Google hd claim or replaced by invitation/CLI approval"
+        "Entra sign-in is generic OIDC config; Viewer auto-grant generalised beyond Google hd claim or replaced by invitation/CLI approval",
+        "Authentication & Access page: issuer collection with Entra beside Google, per-issuer tenant/domain auto-grant policy (Google hd, Entra tid), test/activate lifecycle per issuer, sign-in page issuer picker",
+        "Grant editor and CLI gantry auth access approve accept role approver; BrowserSession/isBrowserRole/web role unions widened",
+        "Decision 0132 amended for the third role (decision 0142) before implementation"
       ],
       "order": 71,
       "status": "pending",
       "epic": "ai-employee-v1",
-      "skill": "backend",
+      "skill": "fullstack",
       "depends_on": [
         "IDENT-2"
       ],
@@ -1462,9 +1465,10 @@
       "title": "Directory UI: agents, access, audit, offboard (V1.0)",
       "story": "As an IT admin, I can open a directory of AI employees, see each one's seats and access, read its audit trail, and offboard it with one action, so that agents are managed like people.",
       "acceptance_criteria": [
-        "Directory lists agents with aliases, installs, and status",
-        "Offboard action calls the atomic offboard use case and shows the audit row",
-        "Offboard button calls the IDENT-2 atomic offboard use case through /ui/api/agents with reauth; audit row shown from the live activity facade"
+        "/agents replaced from preview to the live directory: filters, URL state, paged table, empty state (people-route pattern); heading 'AI employees'",
+        "Agent detail tabs read-only in V1.0: Overview, Access (preset, tool rules, grants, sources, connector accounts), Audit (live activity filtered to the agent), Approvals (pending interactions and recent decisions, read-only)",
+        "Detail is the control surface: owner assignment, approver assignment, pause/resume (owner or administrator), offboard (administrator, hosted reauth, exact-name confirmation, shows the audit row); directory row exposes pause/resume as a quick action only",
+        "Uses existing primitives (PageHeader, Panel, DataTable, Dialog/AlertDialog, PageState); no toast system \u2014 inline receipts"
       ],
       "order": 73,
       "status": "pending",
@@ -1639,7 +1643,8 @@
       "acceptance_criteria": [
         "Usage view per agent in the directory using /v1/usage grouped by agent and calendar month",
         "View is labelled with which model-call paths are not yet counted until COST-2 completes accounting",
-        "No USD price table"
+        "No USD price table",
+        "Usage panel on agent detail (month picker, requests, input/output tokens, uncounted-path disclosure) and a compact current-month value in the directory row via /ui/api/usage"
       ],
       "order": 82,
       "status": "pending",
@@ -1658,7 +1663,8 @@
       "acceptance_criteria": [
         "ADR 0135 amended: constrained openai_compatible provider id with URL validation, credential mode via secret ref, catalog/route behaviour, gateway tests",
         "No-egress boot check is EGRESS-1 enforcement, not a doctor probe",
-        "Quickstart documented with vLLM"
+        "Quickstart documented with vLLM",
+        "openai_compatible appears in the existing Model Providers page and dialog with Base URL + secret reference + verify; no bespoke UI"
       ],
       "order": 83,
       "status": "pending",
@@ -1712,9 +1718,11 @@
       "title": "Browser facades: live agents and audit read models (V1.0)",
       "story": "As a console user, the agents page and activity page show live data through same-origin facades, so that the directory and audit trail are real, not fixtures.",
       "acceptance_criteria": [
-        "/ui/api/agents with Viewer read and Administrator mutation, CSRF, Origin, reauth, audit per ADR 0132/0135",
-        "/ui/api/activity live, agent-filterable audit read model replacing runtime-preview fixtures",
-        "Directory read model: agent, aliases, installs, status, access summary"
+        "/ui/api/agents: paged directory read model (agent, service Person, aliases by kind, installs, status, access preset, tool-rules summary, owner, approvers, current-month tokens, last run) \u2014 one query, not N+1; viewer read",
+        "/ui/api/agents/:id and /:id/{installs,access,audit,approvals} read; /:id/status PATCH (pause|resume), /:id/owner PATCH, /:id/approvers PATCH, /:id/offboard POST \u2014 administrator or owner where the spec allows, Origin+CSRF, hosted reauth, audit",
+        "/ui/api/activity: live unified audit rows (time, actor PrincipalRef, action, target, conversation, outcome, source) across runtime_events, permission_audit_events, permission_decisions, mcp_server_audit_events, with agentId filter added to each source",
+        "/ui/api/people list/get; /ui/api/usage wrapping /v1/usage",
+        "Scopes classified in browser-scope-policy per decision 0132; boundary tests under apps/core/test/unit/auth/"
       ],
       "order": 86,
       "status": "pending",
@@ -1752,12 +1760,13 @@
       "acceptance_criteria": [
         "Allowlist policy owned by host bootstrap; default-deny when configured",
         "Enforcement covers model gateway, embeddings, browser backend, remote MCP proxy, telemetry, and both sandbox and direct runner modes",
-        "Boot fails with a named violation when any component cannot be constrained"
+        "Boot fails with a named violation when any component cannot be constrained",
+        "Read-only effective egress policy surface: /ui/api/runtime/egress-policy (viewer) showing default-deny state, allowlist, protected components, named violations; replaces the preview Diagnostics/Guardrails cards for egress"
       ],
       "order": 88,
       "status": "pending",
       "epic": "ai-employee-v1",
-      "skill": "backend",
+      "skill": "fullstack",
       "depends_on": [],
       "origin": "adhoc",
       "spec": "docs/specs/sovereign-mode.md"
@@ -1769,7 +1778,8 @@
       "acceptance_criteria": [
         "Durable app/agent/month reservation ledger with UTC calendar-month semantics; atomic check-and-reserve at live admission and scheduler claim",
         "Every agent-attributable model call emits model.usage (memory extraction, dreaming, permission classifier included)",
-        "paused_for_budget state; agent replies it is paused; administrator recipients notified once per threshold via durable delivery"
+        "paused_for_budget state; agent replies it is paused; administrator recipients notified once per threshold via durable delivery",
+        "Cap field in the agent detail Usage & budget panel via PATCH /ui/api/agents/:id/usage-cap; paused_for_budget shown as status"
       ],
       "order": 89,
       "status": "pending",
@@ -1780,6 +1790,88 @@
       ],
       "origin": "adhoc",
       "spec": "docs/specs/phone-channels-and-cost-cap.md"
+    },
+    {
+      "key": "ONBOARD-UI-1",
+      "title": "Onboarding wizard: create agent, seat, scope, approvers (V1.0)",
+      "story": "As an IT admin, I onboard an AI employee from the console \u2014 name and access preset, a channel seat with its secret reference, one conversation, its approvers \u2014 and activate it, so that onboarding is a browser flow, not a CLI session.",
+      "acceptance_criteria": [
+        "Screens: Employee (name, model alias, access preset full|locked default full, harness auto), Channel seat (provider, label, secret references via SecretRefField, provider validation), Scope (discover or enter conversation id, memory scope default conversation, trigger), Approvals (one or more resolvable approvers), Review and activate",
+        "Facades: POST /ui/api/agents (creates agent + service Person + desired-state entry atomically), /ui/api/provider-accounts, /ui/api/provider-accounts/:id/discover-conversations, /ui/api/agents/:id/conversation-installs, /ui/api/conversations/:id/approvers \u2014 administrator, Origin+CSRF, hosted reauth, audit",
+        "Write-only secret ingest endpoint stores a Gantry-held secret and returns only its reference; the browser never receives a secret value (decision 0143)",
+        "Persona/profile editing, non-default harness, provider secret rotation, and Slack/Teams discovery beyond manual id may stay CLI in V1.0 and are labelled so"
+      ],
+      "order": 90,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "UIFACADE-1",
+        "IDENT-2",
+        "TEAMS-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "PEOPLE-UI-1",
+      "title": "People: live list, detail, offboard (V1.0)",
+      "story": "As an IT admin, I see the people the AI employees work with, their aliases and status, and offboard a person who has left, so that human offboarding is one action in the same directory.",
+      "acceptance_criteria": [
+        "/people and /people/:id replaced from preview to live via /ui/api/people list/get (viewer read)",
+        "Offboard action (administrator, hosted reauth, exact-name confirmation dialog) calls the IDENT-4 use case and shows the audit row",
+        "Service-kind Persons link to their agent detail; humans show verified/unverified/retired aliases"
+      ],
+      "order": 91,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "UIFACADE-1",
+        "IDENT-4"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "UI-CONN-ACCOUNTS-1",
+      "title": "Connector Accounts page: add, connect OAuth, health, revoke (V1.0.x)",
+      "story": "As an IT admin, I add a connector account (e.g. a mailbox), assign its one owning agent, click Connect to authorise it, and see its status and health, so that per-account access is managed in the browser and never in a config file.",
+      "acceptance_criteria": [
+        "Configure > Connector Accounts: list and detail with kind, label, owning agent, external identity, scopes, OAuth status, generated MCP binding, alias, supervisor health and capacity",
+        "Connect starts the OAUTH-1 authorization-code flow and lands on a verified/failed status; reauthorize, revoke, retire; tokens and transport controls never shown",
+        "Facades /ui/api/connector-accounts (GET/POST), /:id (GET/PATCH/DELETE), /:id/oauth/authorize, /:id/revoke; separate from the MCP Servers page",
+        "Shared SecretRefField component validating env:, gantry-secret:, aws-sm: references"
+      ],
+      "order": 92,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "CONN-1",
+        "OAUTH-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "ACCESS-UI-1",
+      "title": "Access editor: preset, tool rules, capability grants (V1.0.x)",
+      "story": "As an IT admin, I change what an AI employee may touch from its Access tab \u2014 preset, tool rules, capability grants, bindings \u2014 so that 'only the access they need' is adjustable without editing settings.yaml.",
+      "acceptance_criteria": [
+        "Access tab becomes editable: replace access document, modify tool rules and capability grants, manage MCP bindings; administrator with hosted reauth, Origin+CSRF, audit",
+        "Facade wraps GET|PUT /v1/agents/:id/access as /ui/api/agents/:id/access with a safe DTO",
+        "Every change is a desired-state revision with a visible audit row"
+      ],
+      "order": 93,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "DIR-UI-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
     }
   ],
   "epics": [
@@ -1887,5 +1979,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-26T11:10:07+00:00"
+  "updated_at": "2026-08-26T11:23:31+00:00"
 }

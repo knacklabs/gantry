@@ -2,8 +2,9 @@
 slug: ai-employee-directory
 title: AI employee directory
 status: confirmed
-saved: 2026-08-26T11:07:54+00:00
+saved: 2026-08-26T11:22:26+00:00
 ---
+
 
 # AI employee directory
 
@@ -43,17 +44,21 @@ IT manages people through a directory; AI employees need the same page. Today th
 ## Acceptance criteria
 
 - **UIFACADE-1** — Browser facades: live agents and audit read models
-  - /ui/api/agents with Viewer read and Administrator mutation, CSRF, Origin, reauth, audit per ADR 0132/0135
-  - /ui/api/activity live, agent-filterable audit read model replacing runtime-preview fixtures
-  - Directory read model: agent, aliases, installs, status, access summary
+  - /ui/api/agents: paged directory read model (agent, service Person, aliases by kind, installs, status, access preset, tool-rules summary, owner, approvers, current-month tokens, last run) — one query, not N+1; viewer read
+  - /ui/api/agents/:id and /:id/{installs,access,audit,approvals} read; /:id/status PATCH (pause|resume), /:id/owner PATCH, /:id/approvers PATCH, /:id/offboard POST — administrator or owner where the spec allows, Origin+CSRF, hosted reauth, audit
+  - /ui/api/activity: live unified audit rows (time, actor PrincipalRef, action, target, conversation, outcome, source) across runtime_events, permission_audit_events, permission_decisions, mcp_server_audit_events, with agentId filter added to each source
+  - /ui/api/people list/get; /ui/api/usage wrapping /v1/usage
+  - Scopes classified in browser-scope-policy per decision 0132; boundary tests under apps/core/test/unit/auth/
 - **DIR-UI-1** — Directory UI: agents, access, audit, offboard
-  - Directory lists agents with aliases, installs, and status
-  - Offboard action calls the atomic offboard use case and shows the audit row
-  - Offboard button calls the IDENT-2 atomic offboard use case through /ui/api/agents with reauth; audit row shown from the live activity facade
+  - /agents replaced from preview to the live directory: filters, URL state, paged table, empty state (people-route pattern); heading 'AI employees'
+  - Agent detail tabs read-only in V1.0: Overview, Access (preset, tool rules, grants, sources, connector accounts), Audit (live activity filtered to the agent), Approvals (pending interactions and recent decisions, read-only)
+  - Detail is the control surface: owner assignment, approver assignment, pause/resume (owner or administrator), offboard (administrator, hosted reauth, exact-name confirmation, shows the audit row); directory row exposes pause/resume as a quick action only
+  - Uses existing primitives (PageHeader, Panel, DataTable, Dialog/AlertDialog, PageState); no toast system — inline receipts
 - **COST-1** — Per-agent usage view
   - Usage view per agent in the directory using /v1/usage grouped by agent and calendar month
   - View is labelled with which model-call paths are not yet counted until COST-2 completes accounting
   - No USD price table
+  - Usage panel on agent detail (month picker, requests, input/output tokens, uncounted-path disclosure) and a compact current-month value in the directory row via /ui/api/usage
 
 ## Source
 

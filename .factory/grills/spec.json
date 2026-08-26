@@ -2,40 +2,56 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "gaps": [],
+  "summary": "phone-channels-and-cost-cap: re-grilled 2026-08-26 after the console UI sweep (round 7).",
+  "questions_asked": 37,
+  "gaps": [
+    "No cap UI"
+  ],
   "contradictions": [],
   "resolutions": [
-    "The approved contract keeps the mark decorative beside existing live wordmarks and limits the asset pack to the favicon and one touch icon.",
-    "The canonical mark is a transparent vector; the browser icon tiles are the only dark-background variants."
-  ],
-  "inspected_refs": [
-    "docs/specs/web-brand-1.md",
-    "apps/web/src/features/auth/auth-card.tsx",
-    "apps/web/src/app/app-navigation.tsx",
-    "apps/web/index.html"
-  ],
-  "current_flow": "Auth identity is shared by AuthCard, while the authenticated shell owns the sidebar lockup and index.html owns browser identity links.",
-  "criteria_map": {
-    "Auth and sidebar use the canonical accessible visual mark without legacy G badges.": "A shared masked GantryMark replaces both literal badges.",
-    "The built console serves the canonical mark, favicon, and 180px touch icon under /ui/.": "Vite public assets and an asset-focused test prove paths and dimensions."
-  },
-  "decision": "keep",
-  "new_abstractions": [
-    "One internal GantryMark presentation component"
-  ],
-  "rounds": [],
-  "citations": [
-    {
-      "finding": "Existing live text provides the accessible name, so the mark must remain decorative.",
-      "source": "apps/web/src/features/auth/auth-card.tsx"
-    },
-    {
-      "finding": "The web build is rooted beneath /ui/, so public browser assets must use that deployed base.",
-      "source": "apps/web/vite.config.ts"
-    }
+    "Cap field in Usage & budget panel via /ui/api/agents/:id/usage-cap"
   ],
   "open_items": [],
-  "input_sha256": "2dce67a8e3902d1bd58a9a4ddc1a6766d2712a9f593908b2f8656e9ae47c6042",
-  "recorded_at": "2026-08-25T18:09:52+00:00",
-  "commit": "082326001faf7665c6cbf2462082a12b17a9c27d"
+  "rounds": [
+    {
+      "round": 1,
+      "questions": "Q1-Q9"
+    },
+    {
+      "round": 2,
+      "questions": "Q10-Q13"
+    },
+    {
+      "round": 3,
+      "questions": "Q14-Q21"
+    },
+    {
+      "round": 4,
+      "questions": "Q22-Q27"
+    },
+    {
+      "round": 5,
+      "questions": "Codex gap sweep"
+    },
+    {
+      "round": 6,
+      "questions": "Spec round"
+    },
+    {
+      "round": 7,
+      "questions": "Console UI sweep: four Codex runs mapped V1 to browser surfaces; user asked for full UI coverage"
+    }
+  ],
+  "inspected_refs": [
+    "docs/architecture/ai-employee-v1-gap-analysis.md",
+    "docs/architecture/ai-employee-v1-handover.md",
+    "docs/decisions/0142-third-console-role-approver.md",
+    "docs/decisions/0143-browser-write-only-secret-ingest.md"
+  ],
+  "citations": [
+    "docs/specs/phone-channels-and-cost-cap.md"
+  ],
+  "input_sha256": "e674ef72c3f31442ca09473b6716a97e1ec267f4316265fae99ee17d561e796b",
+  "recorded_at": "2026-08-26T11:23:30+00:00",
+  "commit": "f3c0591d50c7517b9f04d8a0c8b4eac83a1cd5a9"
 }

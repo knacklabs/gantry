@@ -2,8 +2,9 @@
 slug: phone-channels-and-cost-cap
 title: Phone-number identity, WhatsApp, voice, and hard cost caps (V1.1)
 status: confirmed
-saved: 2026-08-26T11:07:54+00:00
+saved: 2026-08-26T11:22:27+00:00
 ---
+
 
 # Phone-number identity, WhatsApp, voice, and hard cost caps (V1.1)
 
@@ -61,6 +62,7 @@ delivery; cap raisable from the directory. Tokens, not USD.
   - Durable app/agent/month reservation ledger with UTC calendar-month semantics; atomic check-and-reserve at live admission and scheduler claim
   - Every agent-attributable model call emits model.usage (memory extraction, dreaming, permission classifier included)
   - paused_for_budget state; agent replies it is paused; administrator recipients notified once per threshold via durable delivery
+  - Cap field in the agent detail Usage & budget panel via PATCH /ui/api/agents/:id/usage-cap; paused_for_budget shown as status
 
 ## Source
 

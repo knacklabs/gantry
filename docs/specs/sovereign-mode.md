@@ -2,8 +2,9 @@
 slug: sovereign-mode
 title: Sovereign mode
 status: confirmed
-saved: 2026-08-26T11:07:54+00:00
+saved: 2026-08-26T11:22:27+00:00
 ---
+
 
 # Sovereign mode
 
@@ -44,10 +45,12 @@ any model" is enforced, not advised.
   - Allowlist policy owned by host bootstrap; default-deny when configured
   - Enforcement covers model gateway, embeddings, browser backend, remote MCP proxy, telemetry, and both sandbox and direct runner modes
   - Boot fails with a named violation when any component cannot be constrained
+  - Read-only effective egress policy surface: /ui/api/runtime/egress-policy (viewer) showing default-deny state, allowlist, protected components, named violations; replaces the preview Diagnostics/Guardrails cards for egress
 - **SOV-1** — Sovereign mode: generic OpenAI-compatible provider and no-egress check
   - ADR 0135 amended: constrained openai_compatible provider id with URL validation, credential mode via secret ref, catalog/route behaviour, gateway tests
   - No-egress boot check is EGRESS-1 enforcement, not a doctor probe
   - Quickstart documented with vLLM
+  - openai_compatible appears in the existing Model Providers page and dialog with Base URL + secret reference + verify; no bespoke UI
 
 ## Source
 
