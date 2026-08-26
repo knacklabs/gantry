@@ -1,0 +1,159 @@
+{
+  "event": "done",
+  "id": "Q-0088-43a5",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Telegram: render the terminal progress edit with the native job-notification HTML renderer when the structured view is present (bold header, expandable details, next run) instead of markdown text that falls to plain with literal asterisks. Scope: telegram/channel-delivery.ts (+sibling if budget), message-action-affordances.ts, telegram.test.ts.",
+  "base_sha": "a6eadc57fe5d5a089810a8fcd81699a3894f207a",
+  "started_at": "2026-08-26T07:41:58+00:00",
+  "completed_at": "2026-08-26T08:59:58+00:00",
+  "files": [
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/src/channels/telegram/progress-message-actions.ts",
+    "apps/core/src/channels/telegram/progress-terminal-render.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/src/channels/telegram/progress-terminal-render.ts",
+        "apps/core/src/channels/telegram/progress-message-actions.ts",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [],
+      "summary": "Terminal notice on Telegram is now the native HTML card in the same single message. Lite window Q-0088 (base a6eadc57f -> HEAD): Telegram renders the terminal progress edit natively (HTML header, stats, expandable blockquote with headline/items/next action, next-run) when the structured view is present; parse-error and over-length fallbacks to the text path; thread id + reply markup preserved on no-handle and replacement sends; no-handle send shares the progress bookkeeping; dedupe keys on the rendered HTML. Proof: telegram suite 211 green, channels 40 files green, tsc clean, architecture green (channel-delivery.ts 787 lines, extracted progress-terminal-render.ts, zero prettier-ignore), verify.py passed. Autoreview 6 rounds: 5 findings accepted+fixed; final finding ('Cannot find name PermissionApprovalDecision') REJECTED \u2014 tsc --noEmit is clean at HEAD; the type is resolved through the namespace import.",
+      "non_blocking_findings": [
+        {
+          "category": "notification-content",
+          "area": "channels/telegram",
+          "summary": "FIXED: markdown terminal edit fell to plain text with literal asterisks"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0088 is Telegram terminal rendering only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "2eb1a902bcf993aff151a55f8033282ec3ed4a1b0530bb4d15a5b41bcd2292bf",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "588f5d55ba90f66a55e579ad17bc2c6dd8866434ca75f71fb2fa5441968171ee",
+      "recorded_at": "2026-08-26T08:59:58+00:00",
+      "commit": "a9d092fd09e3756d01fe76003934213f2ba58218"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/src/channels/telegram/progress-terminal-render.ts",
+        "apps/core/src/channels/telegram/progress-message-actions.ts",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [],
+      "summary": "One render per terminal edit; no extra provider calls. Lite window Q-0088 (base a6eadc57f -> HEAD): Telegram renders the terminal progress edit natively (HTML header, stats, expandable blockquote with headline/items/next action, next-run) when the structured view is present; parse-error and over-length fallbacks to the text path; thread id + reply markup preserved on no-handle and replacement sends; no-handle send shares the progress bookkeeping; dedupe keys on the rendered HTML. Proof: telegram suite 211 green, channels 40 files green, tsc clean, architecture green (channel-delivery.ts 787 lines, extracted progress-terminal-render.ts, zero prettier-ignore), verify.py passed. Autoreview 6 rounds: 5 findings accepted+fixed; final finding ('Cannot find name PermissionApprovalDecision') REJECTED \u2014 tsc --noEmit is clean at HEAD; the type is resolved through the namespace import.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "2eb1a902bcf993aff151a55f8033282ec3ed4a1b0530bb4d15a5b41bcd2292bf",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "588f5d55ba90f66a55e579ad17bc2c6dd8866434ca75f71fb2fa5441968171ee",
+      "recorded_at": "2026-08-26T08:59:58+00:00",
+      "commit": "a9d092fd09e3756d01fe76003934213f2ba58218"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/src/channels/telegram/progress-terminal-render.ts",
+        "apps/core/src/channels/telegram/progress-message-actions.ts",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [],
+      "summary": "Rendered via the existing HTML-escaping renderer; fallbacks never drop the notice. Lite window Q-0088 (base a6eadc57f -> HEAD): Telegram renders the terminal progress edit natively (HTML header, stats, expandable blockquote with headline/items/next action, next-run) when the structured view is present; parse-error and over-length fallbacks to the text path; thread id + reply markup preserved on no-handle and replacement sends; no-handle send shares the progress bookkeeping; dedupe keys on the rendered HTML. Proof: telegram suite 211 green, channels 40 files green, tsc clean, architecture green (channel-delivery.ts 787 lines, extracted progress-terminal-render.ts, zero prettier-ignore), verify.py passed. Autoreview 6 rounds: 5 findings accepted+fixed; final finding ('Cannot find name PermissionApprovalDecision') REJECTED \u2014 tsc --noEmit is clean at HEAD; the type is resolved through the namespace import.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "2eb1a902bcf993aff151a55f8033282ec3ed4a1b0530bb4d15a5b41bcd2292bf",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "588f5d55ba90f66a55e579ad17bc2c6dd8866434ca75f71fb2fa5441968171ee",
+      "recorded_at": "2026-08-26T08:59:58+00:00",
+      "commit": "a9d092fd09e3756d01fe76003934213f2ba58218"
+    }
+  }
+}

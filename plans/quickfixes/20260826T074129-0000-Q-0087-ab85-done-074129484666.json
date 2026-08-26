@@ -1,0 +1,163 @@
+{
+  "event": "done",
+  "id": "Q-0087-ab85",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Provider-neutral terminal notice: carry the structured JobNotificationView on the lifecycle terminal edit (ProgressUpdateOptions.jobNotificationView) for every route, so each provider can render the outcome natively instead of plain progress text. Plumbing only in this window (types, lifecycle notification, execution-notifications, tests); per-provider renderers follow. Scope: domain/types.ts, jobs/types.ts, scheduler-lifecycle-notification.ts, execution-notifications.ts, lifecycle-retirement.test.ts.",
+  "base_sha": "08830abe88cb6fbce8551f2e95708334c9538b97",
+  "started_at": "2026-08-26T07:29:42+00:00",
+  "completed_at": "2026-08-26T07:41:29+00:00",
+  "files": [
+    "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/jobs/types.ts",
+    "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/jobs/types.ts",
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "No provider renders the view on the edit until the follow-up windows land; behavior unchanged meanwhile"
+      ],
+      "summary": "Structured view now available to every provider's progress sink. Lite window Q-0087 (base 08830abe8 -> HEAD): provider-neutral plumbing \u2014 ProgressUpdateOptions.jobNotificationView flows from execution-notifications through updateLifecycleNotification onto every terminal send (identity edit, fresh fallback, late-landing edit), never on the 'Done.' clear. Proof: jobs 65/713 green, tsc, architecture, verify.py passed; autoreview clean first pass. Renderers per provider follow (Q-0088 Telegram, Q-0089 Slack, Q-0090 Discord), outcome headline contract Q-0091.",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0087 is notification plumbing only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "1c0547d6a6cb5d5496fa9115d10b8cafc3c2370943978f288d4dcba3927740ff",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "d6458645e6345e695a9b9b4908dff7b05f23e30a979a2533b7ad4e39c37ef5b7",
+      "recorded_at": "2026-08-26T07:41:28+00:00",
+      "commit": "a6eadc57fe5d5a089810a8fcd81699a3894f207a"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/jobs/types.ts",
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "No provider renders the view on the edit until the follow-up windows land; behavior unchanged meanwhile"
+      ],
+      "summary": "Passes an existing object reference; no cost. Lite window Q-0087 (base 08830abe8 -> HEAD): provider-neutral plumbing \u2014 ProgressUpdateOptions.jobNotificationView flows from execution-notifications through updateLifecycleNotification onto every terminal send (identity edit, fresh fallback, late-landing edit), never on the 'Done.' clear. Proof: jobs 65/713 green, tsc, architecture, verify.py passed; autoreview clean first pass. Renderers per provider follow (Q-0088 Telegram, Q-0089 Slack, Q-0090 Discord), outcome headline contract Q-0091.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "1c0547d6a6cb5d5496fa9115d10b8cafc3c2370943978f288d4dcba3927740ff",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "d6458645e6345e695a9b9b4908dff7b05f23e30a979a2533b7ad4e39c37ef5b7",
+      "recorded_at": "2026-08-26T07:41:29+00:00",
+      "commit": "a6eadc57fe5d5a089810a8fcd81699a3894f207a"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/jobs/types.ts",
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "No provider renders the view on the edit until the follow-up windows land; behavior unchanged meanwhile"
+      ],
+      "summary": "Bounded view already sanitized by boundJobNotificationView. Lite window Q-0087 (base 08830abe8 -> HEAD): provider-neutral plumbing \u2014 ProgressUpdateOptions.jobNotificationView flows from execution-notifications through updateLifecycleNotification onto every terminal send (identity edit, fresh fallback, late-landing edit), never on the 'Done.' clear. Proof: jobs 65/713 green, tsc, architecture, verify.py passed; autoreview clean first pass. Renderers per provider follow (Q-0088 Telegram, Q-0089 Slack, Q-0090 Discord), outcome headline contract Q-0091.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "1c0547d6a6cb5d5496fa9115d10b8cafc3c2370943978f288d4dcba3927740ff",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "d6458645e6345e695a9b9b4908dff7b05f23e30a979a2533b7ad4e39c37ef5b7",
+      "recorded_at": "2026-08-26T07:41:29+00:00",
+      "commit": "a6eadc57fe5d5a089810a8fcd81699a3894f207a"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0090-feec",
+  "profile": "lite",
+  "reason": "Discord leg of the provider-neutral terminal notice: when the lifecycle terminal edit carries the structured view, render it with discordJobNotificationEmbed on the edit/post of the running card instead of markdown text; rejection falls back to text. Scope: discord progress helper, discord.ts, discord-delivery.ts, message-mutations helper if edit must accept embeds, discord test.",
+  "started_at": "2026-08-26T10:34:25+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "40d26aee3ff7a2af3381fd09ca963cb24b091335"
+}
