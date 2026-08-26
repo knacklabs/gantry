@@ -21,6 +21,28 @@ export const AgentPersonaSchema = z.enum([
 ]);
 export type AgentPersona = z.infer<typeof AgentPersonaSchema>;
 
+export const AgentRoleSnapshotSchema = z
+  .object({
+    displayName: z.string().trim().min(1),
+    prompt: z.string().trim().min(1),
+    sourceRoleId: z.string().optional(),
+  })
+  .strict();
+export type AgentRoleSnapshot = z.infer<typeof AgentRoleSnapshotSchema>;
+
+export const CustomRoleSchema = z
+  .object({
+    id: z.string(),
+    appId: z.string(),
+    name: z.string().trim().min(1),
+    prompt: z.string().trim().min(1),
+    sourceRoleId: z.string().optional(),
+    createdAt: IsoDateTimeSchema,
+    updatedAt: IsoDateTimeSchema,
+  })
+  .strict();
+export type CustomRole = z.infer<typeof CustomRoleSchema>;
+
 export const AgentRelationshipModeSchema = z.enum(['personal', 'organization']);
 export type AgentRelationshipMode = z.infer<typeof AgentRelationshipModeSchema>;
 
@@ -151,6 +173,7 @@ export const AgentConfigVersionResponseSchema = z.object({
   agentId: z.string(),
   version: z.number().int().positive(),
   promptProfileRef: z.string(),
+  roleSnapshot: AgentRoleSnapshotSchema.optional(),
   llmProfile: LlmProfileRefSchema.optional(),
   llmProfileId: z.string().optional(),
   toolIds: z.array(z.string()),

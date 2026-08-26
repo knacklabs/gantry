@@ -12,6 +12,7 @@ import type { DurationMs, IsoTimestamp } from '../../shared/time/primitives.js';
 export type AgentId = BrandedId<'AgentId'>;
 export type AgentConfigVersionId = BrandedId<'AgentConfigVersionId'>;
 export type LlmProfileId = BrandedId<'LlmProfileId'>;
+export type CustomRoleId = BrandedId<'CustomRoleId'>;
 
 export type ThinkingMode = 'adaptive' | 'enabled' | 'disabled';
 export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
@@ -46,12 +47,29 @@ export interface Agent {
   updatedAt: IsoTimestamp;
 }
 
+export interface AgentRoleSnapshot {
+  displayName: string;
+  prompt: string;
+  sourceRoleId?: string;
+}
+
+export interface CustomRole {
+  id: CustomRoleId;
+  appId: AppId;
+  name: string;
+  prompt: string;
+  sourceRoleId?: string;
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+}
+
 export interface AgentConfigVersion {
   id: AgentConfigVersionId;
   appId: AppId;
   agentId: AgentId;
   version: number;
   promptProfileRef: string;
+  roleSnapshot?: AgentRoleSnapshot;
   llmProfileId: LlmProfileId;
   toolIds: ToolId[];
   skillIds: SkillId[];

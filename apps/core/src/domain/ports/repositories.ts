@@ -3,6 +3,8 @@ import type {
   AgentConfigVersion,
   AgentConfigVersionId,
   AgentId,
+  CustomRole,
+  CustomRoleId,
 } from '../agent/agent.js';
 import type { App, AppId } from '../app/app.js';
 import type {
@@ -160,6 +162,13 @@ export interface AgentConfigRepository {
     id: AgentConfigVersionId,
   ): Promise<AgentConfigVersion | null>;
   saveConfigVersion(version: AgentConfigVersion): Promise<void>;
+}
+
+export interface CustomRoleRepository {
+  getCustomRole(id: CustomRoleId): Promise<CustomRole | null>;
+  listCustomRoles(appId: AppId): Promise<CustomRole[]>;
+  saveCustomRole(role: CustomRole): Promise<void>;
+  deleteCustomRole(input: { appId: AppId; id: CustomRoleId }): Promise<void>;
 }
 
 export interface ProviderAccountRepository {

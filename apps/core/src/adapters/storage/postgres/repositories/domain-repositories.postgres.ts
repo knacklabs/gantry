@@ -14,6 +14,8 @@ import type { Pool } from 'pg';
 import type {
   Agent,
   AgentConfigVersion,
+  CustomRole,
+  CustomRoleId,
   LlmProfileId,
 } from '../../../../domain/agent/agent.js';
 import type { App } from '../../../../domain/app/app.js';
@@ -42,6 +44,7 @@ import type {
 import type {
   AgentConfigRepository,
   AgentRepository,
+  CustomRoleRepository,
   AgentRunRepository,
   AgentSessionDigestRepository,
   AgentSessionRepository,
@@ -148,6 +151,7 @@ export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
   agentConfigs: AgentConfigRepository;
+  customRoles: CustomRoleRepository;
   providerAccounts: ProviderAccountRepository;
   conversations: ConversationRepository;
   messages: MessageRepository;
@@ -414,6 +418,13 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
       agentId: row.agentId,
       version: row.version,
       promptProfileRef: row.promptProfileRef,
+      roleSnapshot: row.rolePrompt
+        ? {
+            displayName: row.roleDisplayName ?? '',
+            prompt: row.rolePrompt,
+            sourceRoleId: row.sourceRoleId ?? undefined,
+          }
+        : undefined,
       llmProfileId: row.llmProfileId as LlmProfileId,
       toolIds: parseJsonArray(row.toolIdsJson),
       skillIds: parseJsonArray(row.skillIdsJson),
@@ -436,6 +447,9 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
         agentId: version.agentId,
         version: version.version,
         promptProfileRef: version.promptProfileRef,
+        roleDisplayName: version.roleSnapshot?.displayName ?? null,
+        rolePrompt: version.roleSnapshot?.prompt ?? null,
+        sourceRoleId: version.roleSnapshot?.sourceRoleId ?? null,
         llmProfileId: version.llmProfileId,
         toolIdsJson: encodeJson(version.toolIds),
         skillIdsJson: encodeJson(version.skillIds),
@@ -446,6 +460,70 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
         createdAt: version.createdAt,
       })
       .onConflictDoNothing();
+  }
+}
+export class PostgresCustomRoleRepository implements CustomRoleRepository {
+  constructor(private readonly db: CanonicalDb) {}
+
+  async getCustomRole(id: CustomRoleId): Promise<CustomRole | null> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.customRolesPostgres)
+      .where(eq(pgSchema.customRolesPostgres.id, id))
+      .limit(1);
+    return rows[0] ? this.fromRow(rows[0]) : null;
+  }
+
+  async listCustomRoles(appId: CustomRole['appId']): Promise<CustomRole[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.customRolesPostgres)
+      .where(eq(pgSchema.customRolesPostgres.appId, appId))
+      .orderBy(asc(pgSchema.customRolesPostgres.name));
+    return rows.map((row) => this.fromRow(row));
+  }
+
+  async saveCustomRole(role: CustomRole): Promise<void> {
+    await this.db
+      .insert(pgSchema.customRolesPostgres)
+      .values({ ...role, sourceRoleId: role.sourceRoleId ?? null })
+      .onConflictDoUpdate({
+        target: pgSchema.customRolesPostgres.id,
+        set: {
+          name: role.name,
+          prompt: role.prompt,
+          sourceRoleId: role.sourceRoleId ?? null,
+          updatedAt: role.updatedAt,
+        },
+      });
+  }
+
+  async deleteCustomRole(input: {
+    appId: CustomRole['appId'];
+    id: CustomRoleId;
+  }): Promise<void> {
+    await this.db
+      .delete(pgSchema.customRolesPostgres)
+      .where(
+        and(
+          eq(pgSchema.customRolesPostgres.appId, input.appId),
+          eq(pgSchema.customRolesPostgres.id, input.id),
+        ),
+      );
+  }
+
+  private fromRow(
+    row: typeof pgSchema.customRolesPostgres.$inferSelect,
+  ): CustomRole {
+    return {
+      id: row.id as CustomRoleId,
+      appId: row.appId as CustomRole['appId'],
+      name: row.name,
+      prompt: row.prompt,
+      sourceRoleId: row.sourceRoleId ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
   }
 }
 export class PostgresProviderAccountRepository implements ProviderAccountRepository {
@@ -1945,6 +2023,7 @@ export function createPostgresDomainRepositories(
     apps: new PostgresAppRepository(db),
     agents: new PostgresAgentRepository(db),
     agentConfigs: new PostgresAgentConfigRepository(db),
+    customRoles: new PostgresCustomRoleRepository(db),
     providerAccounts: new PostgresProviderAccountRepository(db),
     conversations: new PostgresConversationRepository(db),
     messages: new PostgresMessageRepository(

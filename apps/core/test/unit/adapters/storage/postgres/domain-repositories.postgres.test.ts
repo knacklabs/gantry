@@ -30,6 +30,11 @@ describe('createPostgresDomainRepositories', () => {
       PostgresProviderAccountRepository,
     );
   });
+
+  it('wires custom roles into the domain bundle', () => {
+    const repositories = createPostgresDomainRepositories({} as never);
+    expect(repositories.customRoles).toBeDefined();
+  });
 });
 
 describe('provider account schema', () => {
