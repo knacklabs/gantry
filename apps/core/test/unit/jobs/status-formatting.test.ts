@@ -360,7 +360,7 @@ it('keeps only authoritative gantry-owned tool rows and unmatched wrapper failur
     { outcome: 'failed', label: 'Browser: Act ×2' },
     {
       outcome: 'failed',
-      label: 'Browser: failed before reaching the browser service',
+      label: 'Browser: no reply in time',
     },
     { outcome: 'done', label: 'Browser: Act ×2' },
     { outcome: 'done', label: 'Browser: Inspect' },
@@ -401,7 +401,7 @@ it('keeps wrapper-only failures when a shared invocation is deduplicated', () =>
     { outcome: 'failed', label: 'Browser: Act' },
     {
       outcome: 'failed',
-      label: 'Browser: failed before reaching the browser service',
+      label: 'Browser: no reply in time',
     },
   ]);
 });

@@ -134,7 +134,7 @@ export function structuredJobResultFromRecordedActions(
       key,
       label:
         family === 'browser'
-          ? 'Browser: failed before reaching the browser service'
+          ? 'Browser: no reply in time'
           : 'Capability: failed before dispatch',
       outcome: 'failed',
       count: remainder,
