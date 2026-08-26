@@ -1377,7 +1377,11 @@
         "Provider Accounts project to aliases with cross-kind uniqueness; a subject is never both Person and Agent",
         "Every audit row carries a PrincipalRef actor; no bare 'agent' string remains",
         "gantry agent offboard retires aliases, removes installs, disables accounts, cancels jobs atomically; agent remove is gated on offboarded",
-        "Agent senders never create a Person, load personal memory, or trigger a run"
+        "Agent senders never create a Person, load personal memory, or trigger a run",
+        "Migration from shipped IDENTITY-01 shape (users + user_aliases(provider, providerAccountId, externalUserId)) to (appId, kind, authorityId, subject) with collision-fail",
+        "Atomic boundary defined as desired-state revision + identity/runtime/outbox orchestration with recovery (ADR 0025); settings.yaml is a mirror",
+        "Agent-sender classification runs before participant/message persistence in Slack, Teams, Discord",
+        "Offboard emits a named identity event through the existing runtime-event/outbox path (ADR 0016) and retires connector accounts (ADR 0137)"
       ],
       "order": 69,
       "status": "pending",
@@ -1394,7 +1398,10 @@
       "acceptance_criteria": [
         "One documented npm install path produces a running runtime with Postgres and one agent",
         "Time-to-first-agent measured on a fresh machine and recorded",
-        "CI publishes @gantry/runtime on release tag from main with provenance; first publish is part of this story"
+        "CI publishes @gantry/runtime on release tag from main with provenance; first publish is part of this story",
+        "prepack builds the packaged artifact; npm pack -> fresh install -> gantry runs without workspace builds",
+        "Postgres: setup owns a local Compose lifecycle OR docs state user-started Postgres; one is chosen",
+        "Linux prerequisites (bubblewrap, socat) documented and present in the fresh-machine test image"
       ],
       "order": 70,
       "status": "pending",
@@ -1412,7 +1419,10 @@
         "Entra ID OIDC login for the console beside existing Google OIDC",
         "Third role 'approver': can approve, cannot administer",
         "Each agent has an owning principal; owner can pause/resume and assign approvers; offboard stays administrator-only",
-        "Roles apply to PrincipalRef of either kind"
+        "Roles apply to PrincipalRef of either kind",
+        "Agent owner is a PrincipalRef relation; pause/resume is an explicit agent state with owner authorization; offboard requires agents:admin",
+        "Role bindings stored on PrincipalRef; browser-scope policy, auth routes, and web role unions updated for the third role",
+        "Entra sign-in is generic OIDC config; Viewer auto-grant generalised beyond Google hd claim or replaced by invitation/CLI approval"
       ],
       "order": 71,
       "status": "pending",
@@ -1426,20 +1436,23 @@
     },
     {
       "key": "HITL-1",
-      "title": "In-chat approvals: Teams Adaptive Cards and web (V1.0)",
+      "title": "In-chat approvals as principals (V1.0)",
       "story": "As a channel admin, I approve an agent's risky actions in my conversation, and as a person I approve my own in DMs, so that human-in-the-loop lives where the team already works and the record says who by person.",
       "acceptance_criteria": [
-        "Approvers are PrincipalRefs; control_approvers migrate from raw provider ids on IDENT-2 and fail migration if unresolvable",
-        "Per-conversation model unchanged: channel approvers approve in channels; the Person self-approves in DMs",
-        "Existing Slack, Teams, Discord, and web approval surfaces reused; no new cards",
-        "Approval outcomes are audited with the approver's PrincipalRef"
+        "Approvers are PrincipalRefs; conversation_approvers.external_user_id migrates to alias-resolved principals on IDENT-2 and fails migration if unresolvable",
+        "Per-conversation model unchanged: channel approvers approve in channels; DM self-approval (already present) covered by regression tests",
+        "Existing Slack/Teams/Discord cards and the durable claim/resolve path reused; no new cards, no parallel decision store",
+        "Browser-console approvals are out of scope for V1.0 (API route stays key-scoped); shared authority/callback files serialized with PERM-2",
+        "Approval outcomes audited with the approver's PrincipalRef (via AUDIT-1)"
       ],
       "order": 72,
       "status": "pending",
       "epic": "ai-employee-v1",
       "skill": "fullstack",
       "depends_on": [
-        "IDENT-2"
+        "IDENT-2",
+        "AUDIT-1",
+        "TEAMS-1"
       ],
       "origin": "adhoc",
       "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
@@ -1450,14 +1463,16 @@
       "story": "As an IT admin, I can open a directory of AI employees, see each one's seats and access, read its audit trail, and offboard it with one action, so that agents are managed like people.",
       "acceptance_criteria": [
         "Directory lists agents with aliases, installs, and status",
-        "Offboard action calls the atomic offboard use case and shows the audit row"
+        "Offboard action calls the atomic offboard use case and shows the audit row",
+        "Offboard button calls the IDENT-2 atomic offboard use case through /ui/api/agents with reauth; audit row shown from the live activity facade"
       ],
       "order": 73,
       "status": "pending",
       "epic": "ai-employee-v1",
       "skill": "frontend",
       "depends_on": [
-        "IDENT-2"
+        "IDENT-2",
+        "UIFACADE-1"
       ],
       "origin": "adhoc",
       "spec_debt_reason": "V1 cut agreed 2026-08-26; depends on IDENT-2"
@@ -1476,7 +1491,8 @@
       "epic": "ai-employee-v1",
       "skill": "backend",
       "depends_on": [
-        "CONN-1"
+        "CONN-1",
+        "OAUTH-1"
       ],
       "origin": "adhoc",
       "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
@@ -1562,7 +1578,10 @@
         "A connector is launched as an MCP server with the account's secret ref injected; native adapters only where MCP cannot carry the protocol",
         "Each account projects to an IDENT-2 connector_account alias and is retired by gantry agent offboard",
         "Account scopes and agent tool_rules are both enforced; audit rows record the account used",
-        "No marketplace or remote connector install; kinds are in-repo"
+        "No marketplace or remote connector install; kinds are in-repo",
+        "One account creates one dedicated MCP server definition + binding with a scoped connector-secret projection; servers are never shared across accounts",
+        "Execution topology chosen: remote HTTP/SSE MCP via host proxy (default) or bounded sandboxed stdio supervision with process limits and health; stdio third-party MCP stays disabled unless this lands",
+        "connectorAccountId is an authorization input evaluated before tool_rules and a first-class field in MCP audit"
       ],
       "order": 79,
       "status": "pending",
@@ -1579,7 +1598,9 @@
       "acceptance_criteria": [
         "gantry person offboard <personId> and a directory action retire all aliases (fail closed), redact personal memory and DM content, and keep alias keys and audit rows in redacted form",
         "One atomic transaction with identity audit, runtime event, and outbox",
-        "Manual trigger only; IdP/SCIM-driven deprovisioning is deferred"
+        "Manual trigger only; IdP/SCIM-driven deprovisioning is deferred",
+        "Erase graph enumerated: message_parts.payload_json for DMs, memory evidence, candidates, reviews, session summaries; join strategy defined where no Person FK exists",
+        "Person-scoped grants (ADR 0118) revoked in the same transaction"
       ],
       "order": 80,
       "status": "pending",
@@ -1596,14 +1617,16 @@
       "title": "Teams real-tenant agent-e2e (V1.0)",
       "story": "As a Teams-first buyer, I can trust that onboard, Adaptive Card approval, and offboard work in a real Teams tenant, so that 'Teams-first' is proven, not claimed.",
       "acceptance_criteria": [
-        "agent-e2e covers install into a Teams channel, one permission approval via Adaptive Card, and gantry agent offboard, against a real tenant",
-        "Runs in the agent-e2e merge gate; failures block"
+        "Fixture/adapter-contract Teams E2E (install, Adaptive Card approval, offboard) runs in the required PR gate",
+        "Real-tenant run of the same three steps nightly or trusted-label-gated against a deployed endpoint; failure pages the owner",
+        "ADR 0044 expectation of PR-blocking E2E reconciled with this two-tier strategy in a decision record"
       ],
       "order": 81,
       "status": "pending",
       "epic": "ai-employee-v1",
       "skill": "backend",
       "depends_on": [
+        "TEAMS-1",
         "IDENT-2"
       ],
       "origin": "adhoc",
@@ -1611,11 +1634,11 @@
     },
     {
       "key": "COST-1",
-      "title": "Per-agent monthly token cap and usage view (V1.0.x)",
-      "story": "As an IT admin, I can set a monthly token cap per agent and see each agent's usage in the directory, so that no agent runs up an unbudgeted bill.",
+      "title": "Per-agent usage view (V1.0.x)",
+      "story": "As an IT admin, I can see each agent's monthly token usage in the directory, so that spend is visible per agent.",
       "acceptance_criteria": [
-        "Cap is tokens per calendar month per agent; at cap the agent replies that it is paused for budget, stops new runs, and administrators are notified",
-        "Cap is raisable from the directory; usage view uses /v1/usage grouped by agent",
+        "Usage view per agent in the directory using /v1/usage grouped by agent and calendar month",
+        "View is labelled with which model-call paths are not yet counted until COST-2 completes accounting",
         "No USD price table"
       ],
       "order": 82,
@@ -1623,7 +1646,7 @@
       "epic": "ai-employee-v1",
       "skill": "fullstack",
       "depends_on": [
-        "DIR-UI-1"
+        "UIFACADE-1"
       ],
       "origin": "adhoc",
       "spec_debt_reason": "Grill 2026-08-26 Q6/Q24"
@@ -1633,17 +1656,130 @@
       "title": "Sovereign mode: generic OpenAI-compatible provider and no-egress check (V1.0.x)",
       "story": "As a regulated org, I can run Gantry against an on-prem model (vLLM, Ollama) with zero external egress, so that 'self-hosted, any model' is true on our servers.",
       "acceptance_criteria": [
-        "One provider id accepts any OpenAI-compatible base URL with credential via secret ref",
-        "A boot-time egress check fails startup if any host outside the configured allowlist is reachable",
+        "ADR 0135 amended: constrained openai_compatible provider id with URL validation, credential mode via secret ref, catalog/route behaviour, gateway tests",
+        "No-egress boot check is EGRESS-1 enforcement, not a doctor probe",
         "Quickstart documented with vLLM"
       ],
       "order": 83,
       "status": "pending",
       "epic": "ai-employee-v1",
       "skill": "backend",
-      "depends_on": [],
+      "depends_on": [
+        "EGRESS-1"
+      ],
       "origin": "adhoc",
       "spec_debt_reason": "Grill 2026-08-26 Q7/Q13: no on-prem provider exists today"
+    },
+    {
+      "key": "TEAMS-1",
+      "title": "Teams transport: Bot Framework, manifest, endpoint (V1.0)",
+      "story": "As an IT admin at a Microsoft 365 org, I can install a Gantry agent into a Teams channel and talk to it, so that 'a seat in Teams' is real.",
+      "acceptance_criteria": [
+        "createMicrosoftTeamsSdkClient returns a working Bot Framework transport (receive + send + Adaptive Card submit); teams-factory no longer disables the channel",
+        "App manifest and Azure Bot registration documented and scriptable; stable public HTTPS messaging endpoint documented",
+        "Bot/self-sender gate for Teams matching Slack and Discord",
+        "Teams operator quickstart under docs/operations"
+      ],
+      "order": 84,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "Codex gap sweep 2026-08-26: teams-sdk-client.ts returns null; factory disables channel"
+    },
+    {
+      "key": "AUDIT-1",
+      "title": "Audit actor migration matrix to PrincipalRef (V1.0)",
+      "story": "As an auditor, every persisted actor reads as one PrincipalRef shape, so that people and agents are indistinguishable in form and distinguishable in kind.",
+      "acceptance_criteria": [
+        "Migration matrix covers runtime_events.actor, permission_audit_events.actor_id, mcp_server_audit_events.actor_id, person_merge_audit.actor, decision approver_ref/actor_context_json, and provenance fields; each row: migrate, backfill, or explicitly exempt",
+        "All 103 writers route through one actor-stamping helper; bare strings ('agent','runtime','permission','sdk', CLI names) fail typecheck",
+        "denied_by_profile (locked posture) and api-key:<kid> shapes mapped"
+      ],
+      "order": 85,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Codex gap sweep 2026-08-26: 6 persisted actor shapes across 103 writers"
+    },
+    {
+      "key": "UIFACADE-1",
+      "title": "Browser facades: live agents and audit read models (V1.0)",
+      "story": "As a console user, the agents page and activity page show live data through same-origin facades, so that the directory and audit trail are real, not fixtures.",
+      "acceptance_criteria": [
+        "/ui/api/agents with Viewer read and Administrator mutation, CSRF, Origin, reauth, audit per ADR 0132/0135",
+        "/ui/api/activity live, agent-filterable audit read model replacing runtime-preview fixtures",
+        "Directory read model: agent, aliases, installs, status, access summary"
+      ],
+      "order": 86,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Codex gap sweep 2026-08-26: /agents and Activity are fixture-backed; /v1/* is Bearer-only"
+    },
+    {
+      "key": "OAUTH-1",
+      "title": "Connector OAuth platform (V1.0.x)",
+      "story": "As an IT admin, I can authorise a connector account against an external OAuth provider and have tokens refreshed and revoked by Gantry, so that per-account grants are safe to hold.",
+      "acceptance_criteria": [
+        "Authorization-code + PKCE flow with state, scope validation, callback route classified per ADR 0132",
+        "Encrypted refresh-token store via secret refs; refresh, rotation, revoke; tokens never in settings, logs, or audit",
+        "Redacted audit contract for grant, refresh, revoke"
+      ],
+      "order": 87,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "CONN-1"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Codex gap sweep 2026-08-26: no connector OAuth exists; Google OIDC is login-only"
+    },
+    {
+      "key": "EGRESS-1",
+      "title": "Host-owned egress allowlist (V1.0.x)",
+      "story": "As a regulated org, I can declare the only hosts Gantry may reach and have every component honour it, so that zero-egress is enforced, not advised.",
+      "acceptance_criteria": [
+        "Allowlist policy owned by host bootstrap; default-deny when configured",
+        "Enforcement covers model gateway, embeddings, browser backend, remote MCP proxy, telemetry, and both sandbox and direct runner modes",
+        "Boot fails with a named violation when any component cannot be constrained"
+      ],
+      "order": 88,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "Codex gap sweep 2026-08-26: egress is denylist/default-allow; direct mode advisory; remote MCP bypasses runner proxy"
+    },
+    {
+      "key": "COST-2",
+      "title": "Per-agent hard monthly token cap (V1.1)",
+      "story": "As an IT admin, an agent that reaches its monthly token cap pauses and I am notified, so that no agent runs up an unbudgeted bill.",
+      "acceptance_criteria": [
+        "Durable app/agent/month reservation ledger with UTC calendar-month semantics; atomic check-and-reserve at live admission and scheduler claim",
+        "Every agent-attributable model call emits model.usage (memory extraction, dreaming, permission classifier included)",
+        "paused_for_budget state; agent replies it is paused; administrator recipients notified once per threshold via durable delivery"
+      ],
+      "order": 89,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "COST-1"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Split from COST-1 per gap sweep: hard cap needs ledger and complete accounting"
     }
   ],
   "epics": [
@@ -1751,5 +1887,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-26T10:45:17+00:00"
+  "updated_at": "2026-08-26T10:59:04+00:00"
 }

@@ -346,7 +346,11 @@ and rerun until clean.
 > **Positioning it serves:** "Onboard AI employees like real ones" — one directory
 > shape for people and agents, so onboarding, access, audit, and offboarding
 > read the same for both.
-> **Prerequisite:** IDENTITY-01 merged.
+> **Prerequisite:** IDENTITY-01 merged (PR #373). **Note (2026-08-26 gap
+> sweep):** what shipped is `users` + `user_aliases(provider,
+> providerAccountId, externalUserId)`, not the `(appId, kind, authorityId,
+> subject)` alias documented above; IDENT-2 therefore starts with a schema
+> migration. See `docs/architecture/ai-employee-v1-gap-analysis.md`.
 
 ## Summary
 
