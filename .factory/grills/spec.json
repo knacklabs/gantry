@@ -2,40 +2,29 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "gaps": [],
+  "summary": "phone-channels-and-cost-cap: grilled 2026-08-26 round 10 (LiteLLM comparison, enterprise data needs).",
+  "questions_asked": 44,
+  "gaps": [
+    "Runaway agent bounded only by monthly cap"
+  ],
   "contradictions": [],
   "resolutions": [
-    "The approved contract keeps the mark decorative beside existing live wordmarks and limits the asset pack to the favicon and one touch icon.",
-    "The canonical mark is a transparent vector; the browser icon tiles are the only dark-background variants."
-  ],
-  "inspected_refs": [
-    "docs/specs/web-brand-1.md",
-    "apps/web/src/features/auth/auth-card.tsx",
-    "apps/web/src/app/app-navigation.tsx",
-    "apps/web/index.html"
-  ],
-  "current_flow": "Auth identity is shared by AuthCard, while the authenticated shell owns the sidebar lockup and index.html owns browser identity links.",
-  "criteria_map": {
-    "Auth and sidebar use the canonical accessible visual mark without legacy G badges.": "A shared masked GantryMark replaces both literal badges.",
-    "The built console serves the canonical mark, favicon, and 180px touch icon under /ui/.": "Vite public assets and an asset-focused test prove paths and dimensions."
-  },
-  "decision": "keep",
-  "new_abstractions": [
-    "One internal GantryMark presentation component"
-  ],
-  "rounds": [],
-  "citations": [
-    {
-      "finding": "Existing live text provides the accessible name, so the mark must remain decorative.",
-      "source": "apps/web/src/features/auth/auth-card.tsx"
-    },
-    {
-      "finding": "The web build is rooted beneath /ui/, so public browser assets must use that deployed base.",
-      "source": "apps/web/vite.config.ts"
-    }
+    "COST-2 adds per-agent requests/min and tokens/min limits"
   ],
   "open_items": [],
-  "input_sha256": "2dce67a8e3902d1bd58a9a4ddc1a6766d2712a9f593908b2f8656e9ae47c6042",
-  "recorded_at": "2026-08-25T18:09:52+00:00",
-  "commit": "082326001faf7665c6cbf2462082a12b17a9c27d"
+  "rounds": [
+    {
+      "round": 10,
+      "questions": "LiteLLM comparison: model allowlist, guardrails, rate limits, SIEM, USD; enterprise data beyond cost"
+    }
+  ],
+  "inspected_refs": [
+    "docs/architecture/ai-employee-v1-handover.md"
+  ],
+  "citations": [
+    "docs/specs/phone-channels-and-cost-cap.md"
+  ],
+  "input_sha256": "98a95eca2711166b58114f89d5e1f021c0f26d2ef728846f9a646dc40e14c9d2",
+  "recorded_at": "2026-08-26T12:05:34+00:00",
+  "commit": "9e373f344fc1d0c5cb3cd9d0a3e238bff738ef35"
 }

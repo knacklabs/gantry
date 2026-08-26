@@ -1368,6 +1368,616 @@
       "skill": "frontend",
       "depends_on": [],
       "spec": "docs/specs/web-brand-1.md"
+    },
+    {
+      "key": "IDENT-2",
+      "title": "Agent identity: agents as principals (V1.0)",
+      "story": "As an IT admin, I can see and manage every AI agent in the same directory shape as people, so that access, audit, and offboarding read identically for both.",
+      "acceptance_criteria": [
+        "Provider Accounts project to aliases with cross-kind uniqueness; a subject is never both Person and Agent",
+        "Every audit row carries a PrincipalRef actor; no bare 'agent' string remains",
+        "gantry agent offboard retires aliases, removes installs, disables accounts, cancels jobs atomically; agent remove is gated on offboarded",
+        "Agent senders never create a Person, load personal memory, or trigger a run",
+        "Migration from shipped IDENTITY-01 shape (users + user_aliases(provider, providerAccountId, externalUserId)) to (appId, kind, authorityId, subject) with collision-fail",
+        "Atomic boundary defined as desired-state revision + identity/runtime/outbox orchestration with recovery (ADR 0025); settings.yaml is a mirror",
+        "Agent-sender classification runs before participant/message persistence in Slack, Teams, Discord",
+        "Offboard emits a named identity event through the existing runtime-event/outbox path (ADR 0016) and retires connector accounts (ADR 0137)"
+      ],
+      "order": 69,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/agent-identity-and-offboarding.md"
+    },
+    {
+      "key": "PKG-1",
+      "title": "npm packaging and self-serve install (V1.0)",
+      "story": "As a platform engineer at an outside org, I can install Gantry from npm and reach a running Teams or Slack agent in one afternoon, so that no sales motion is needed to get to production.",
+      "acceptance_criteria": [
+        "One documented npm install path produces a running runtime with Postgres and one agent",
+        "Time-to-first-agent measured on a fresh machine and recorded",
+        "CI publishes @gantry/runtime on release tag from main with provenance; first publish is part of this story",
+        "prepack builds the packaged artifact; npm pack -> fresh install -> gantry runs without workspace builds",
+        "Postgres: setup owns a local Compose lifecycle OR docs state user-started Postgres; one is chosen",
+        "Linux prerequisites (bubblewrap, socat) documented and present in the fresh-machine test image"
+      ],
+      "order": 70,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/self-serve-install-and-docs.md"
+    },
+    {
+      "key": "RBAC-1",
+      "title": "Roles for people and agents (V1.0)",
+      "story": "As an IT admin at a Microsoft 365 org, I sign in to the console with Entra ID, delegate approvals without granting administration, and give each agent an owner, so that roles fit how the org already works.",
+      "acceptance_criteria": [
+        "Entra ID OIDC login for the console beside existing Google OIDC",
+        "Third role 'approver': can approve, cannot administer",
+        "Each agent has an owning principal; owner can pause/resume and assign approvers; offboard stays administrator-only",
+        "Roles apply to PrincipalRef of either kind",
+        "Agent owner is a PrincipalRef relation; pause/resume is an explicit agent state with owner authorization; offboard requires agents:admin",
+        "Role bindings stored on PrincipalRef; browser-scope policy, auth routes, and web role unions updated for the third role",
+        "Entra sign-in is generic OIDC config; Viewer auto-grant generalised beyond Google hd claim or replaced by invitation/CLI approval",
+        "Authentication & Access page: issuer collection with Entra beside Google, per-issuer tenant/domain auto-grant policy (Google hd, Entra tid), test/activate lifecycle per issuer, sign-in page issuer picker",
+        "Grant editor and CLI gantry auth access approve accept role approver; BrowserSession/isBrowserRole/web role unions widened",
+        "Decision 0132 amended for the third role (decision 0142) before implementation"
+      ],
+      "order": 71,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/approvals-and-roles.md"
+    },
+    {
+      "key": "HITL-1",
+      "title": "In-chat approvals as principals (V1.0)",
+      "story": "As a channel admin, I approve an agent's risky actions in my conversation, and as a person I approve my own in DMs, so that human-in-the-loop lives where the team already works and the record says who by person.",
+      "acceptance_criteria": [
+        "Approvers are PrincipalRefs; conversation_approvers.external_user_id migrates to alias-resolved principals on IDENT-2 and fails migration if unresolvable",
+        "Per-conversation model unchanged: channel approvers approve in channels; DM self-approval (already present) covered by regression tests",
+        "Existing Slack/Teams/Discord cards and the durable claim/resolve path reused; no new cards, no parallel decision store",
+        "Browser-console approvals are out of scope for V1.0 (API route stays key-scoped); shared authority/callback files serialized with PERM-2",
+        "Approval outcomes audited with the approver's PrincipalRef (via AUDIT-1)"
+      ],
+      "order": 72,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "IDENT-2",
+        "AUDIT-1",
+        "TEAMS-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/approvals-and-roles.md"
+    },
+    {
+      "key": "DIR-UI-1",
+      "title": "Directory UI: one list for people and AI employees, detail, offboard (V1.0)",
+      "story": "As an IT admin, I open one Directory of people and AI employees, filter by kind, open either kind's detail, and pause, assign, or offboard from there, so that agents are managed like people in the same place.",
+      "acceptance_criteria": [
+        "One Directory route replaces the /agents and /people previews: kind filter chips People | AI employees, search, URL state, paged table, empty state; heading 'Directory'",
+        "Agent detail tabs read-only in V1.0: Overview, Access (preset, tool rules, grants, sources, connector accounts), Audit (live activity filtered to the agent), Approvals (pending interactions and recent decisions, read-only)",
+        "Detail is the control surface: owner assignment, approver assignment, pause/resume (owner or administrator), offboard (administrator, hosted reauth, exact-name confirmation, shows the audit row); directory row exposes pause/resume as a quick action only",
+        "Uses existing primitives (PageHeader, Panel, DataTable, Dialog/AlertDialog, PageState); no toast system \u2014 inline receipts",
+        "Audit and Approvals tabs render only for administrator and approver roles; viewers see Overview and Access",
+        "Built from the DESIGN-1 approved mockups"
+      ],
+      "order": 73,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "frontend",
+      "depends_on": [
+        "IDENT-2",
+        "UIFACADE-1",
+        "DESIGN-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/ai-employee-directory.md"
+    },
+    {
+      "key": "CONN-GSUITE-1",
+      "title": "Google Workspace connector (V1.0.x)",
+      "story": "As an IT admin, I can grant an AI employee scoped Google Workspace access (Gmail, Drive, Calendar) through OAuth, so that 'only the access they need' is demonstrable on the tool every org has.",
+      "acceptance_criteria": [
+        "Per-agent OAuth grant with explicit scopes; tokens via secret refs, never in settings or logs",
+        "Every Workspace tool call passes the permission gate and is audited",
+        "Introduces no agent identity record of its own; any per-agent Google principal is a CONN-1 Connector Account"
+      ],
+      "order": 74,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "CONN-1",
+        "OAUTH-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/connector-accounts.md"
+    },
+    {
+      "key": "IDENT-3",
+      "title": "Phone-number alias kind (V1.0.x)",
+      "story": "As an operator, I can resolve a WhatsApp or voice caller to a Person through a verified phone alias, so that phone channels get the same identity model as chat.",
+      "acceptance_criteria": [
+        "Verified phone alias kind with possession proof; no admin bypass",
+        "Unverified callers stay anonymous and conversation-scoped"
+      ],
+      "order": 75,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
+    },
+    {
+      "key": "WA-1",
+      "title": "WhatsApp provider (V1.0.x)",
+      "story": "As a customer-facing team, I can give an AI employee a WhatsApp Business seat, so that the same governed agent serves customers on WhatsApp.",
+      "acceptance_criteria": [
+        "WhatsApp Business Platform Provider Account per agent; callers resolve via IDENT-3 or stay anonymous",
+        "Same permission gate, audit actor, and offboarding as other providers",
+        "WhatsApp Business Platform prerequisites (Meta business verification, phone number, message templates) documented as a deployment prerequisite; templates managed as desired state"
+      ],
+      "order": 76,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-3"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
+    },
+    {
+      "key": "VOICE-1",
+      "title": "Voice provider adapter (V1.1)",
+      "story": "As a customer-facing team, I can give an AI employee a phone line, so that the same governed agent answers calls under the same identity, permissions, and audit.",
+      "acceptance_criteria": [
+        "Existing voice engine consumed as a dependency behind a provider: voice adapter; no voice contract in core",
+        "Mid-call approvals route to Teams/Slack/web; permission timeout never proceeds",
+        "gantry agent offboard disables the voice Provider Account"
+      ],
+      "order": 77,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2",
+        "IDENT-3"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
+    },
+    {
+      "key": "DOCS-1",
+      "title": "Onboard/access/audit/offboard documentation spine (V1.0)",
+      "story": "As an IT lead evaluating Gantry, I can read how to onboard, scope, audit, and offboard an AI employee end to end, so that I can get security sign-off without a call.",
+      "acceptance_criteria": [
+        "Docs are organised as onboard -> access -> audit -> offboard with Teams and Slack quickstarts",
+        "A SECURITY page states threat model, locked posture, audit schema, and egress list"
+      ],
+      "order": 78,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/self-serve-install-and-docs.md"
+    },
+    {
+      "key": "CONN-1",
+      "title": "Connector Account platform (V1.0.x)",
+      "story": "As an IT admin, I can add several accounts of one connector kind (e.g. three Gmail mailboxes) and assign each to a different agent, so that outbound access is per-account and per-agent, never shared by accident.",
+      "acceptance_criteria": [
+        "connector_accounts record mirrors Provider Account shape: kind, agent, label, external_identity_ref, runtime_secret_refs; exactly one owning agent",
+        "A connector is launched as an MCP server with the account's secret ref injected; native adapters only where MCP cannot carry the protocol",
+        "Each account projects to an IDENT-2 connector_account alias and is retired by gantry agent offboard",
+        "Account scopes and agent tool_rules are both enforced; audit rows record the account used",
+        "No marketplace or remote connector install; kinds are in-repo",
+        "One account creates one dedicated MCP server definition + binding with a scoped connector-secret projection; servers are never shared across accounts",
+        "Execution topology chosen: remote HTTP/SSE MCP via host proxy (default) or bounded sandboxed stdio supervision with process limits and health; stdio third-party MCP stays disabled unless this lands",
+        "connectorAccountId is an authorization input evaluated before tool_rules and a first-class field in MCP audit"
+      ],
+      "order": 79,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/connector-accounts.md"
+    },
+    {
+      "key": "IDENT-4",
+      "title": "Person offboarding (V1.0)",
+      "story": "As an IT admin, I can offboard a person who has left, so that their aliases are retired, their personal memory and DM content are redacted irreversibly, and a minimal audit trail remains.",
+      "acceptance_criteria": [
+        "gantry person offboard <personId> and a directory action retire all aliases (fail closed), redact personal memory and DM content, and keep alias keys and audit rows in redacted form",
+        "One atomic transaction with identity audit, runtime event, and outbox",
+        "Manual trigger only; IdP/SCIM-driven deprovisioning is deferred",
+        "Erase graph enumerated: message_parts.payload_json for DMs, memory evidence, candidates, reviews, session summaries; join strategy defined where no Person FK exists",
+        "Person-scoped grants (ADR 0118) revoked in the same transaction"
+      ],
+      "order": 80,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/agent-identity-and-offboarding.md"
+    },
+    {
+      "key": "TEAMS-E2E-1",
+      "title": "Teams real-tenant agent-e2e (V1.0)",
+      "story": "As a Teams-first buyer, I can trust that onboard, Adaptive Card approval, and offboard work in a real Teams tenant, so that 'Teams-first' is proven, not claimed.",
+      "acceptance_criteria": [
+        "Fixture/adapter-contract Teams E2E (install, Adaptive Card approval, offboard) runs in the required PR gate",
+        "Real-tenant run of the same three steps nightly or trusted-label-gated against a deployed endpoint; failure pages the owner",
+        "ADR 0044 expectation of PR-blocking E2E reconciled with this two-tier strategy in a decision record"
+      ],
+      "order": 81,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "TEAMS-1",
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/teams-channel.md"
+    },
+    {
+      "key": "COST-1",
+      "title": "Per-agent usage view (V1.0.x)",
+      "story": "As an IT admin, I can see each agent's monthly token usage in the directory, so that spend is visible per agent.",
+      "acceptance_criteria": [
+        "Usage view per agent in the directory using /v1/usage grouped by agent and calendar month",
+        "View is labelled with which model-call paths are not yet counted until COST-2 completes accounting",
+        "Usage panel on agent detail (month picker, requests, input/output tokens, uncounted-path disclosure) and a compact current-month value in the directory row via /ui/api/usage",
+        "Optional imported price table (LiteLLM's open model-price JSON as the documented default) enables a currency figure beside tokens; without it the view stays token-only"
+      ],
+      "order": 82,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "UIFACADE-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/ai-employee-directory.md"
+    },
+    {
+      "key": "SOV-1",
+      "title": "Sovereign mode: generic OpenAI-compatible provider and no-egress check (V1.0.x)",
+      "story": "As a regulated org, I can run Gantry against an on-prem model (vLLM, Ollama) with zero external egress, so that 'self-hosted, any model' is true on our servers.",
+      "acceptance_criteria": [
+        "ADR 0135 amended: constrained openai_compatible provider id with URL validation, credential mode via secret ref, catalog/route behaviour, gateway tests",
+        "No-egress boot check is EGRESS-1 enforcement, not a doctor probe",
+        "Quickstart documented with vLLM",
+        "openai_compatible appears in the existing Model Providers page and dialog with Base URL + secret reference + verify; no bespoke UI"
+      ],
+      "order": 83,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "EGRESS-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/sovereign-mode.md"
+    },
+    {
+      "key": "TEAMS-1",
+      "title": "Teams transport: Bot Framework, manifest, endpoint (V1.0)",
+      "story": "As an IT admin at a Microsoft 365 org, I can install a Gantry agent into a Teams channel and talk to it, so that 'a seat in Teams' is real.",
+      "acceptance_criteria": [
+        "createMicrosoftTeamsSdkClient returns a working Bot Framework transport (receive + send + Adaptive Card submit); teams-factory no longer disables the channel",
+        "App manifest and Azure Bot registration documented and scriptable; stable public HTTPS messaging endpoint documented",
+        "Bot/self-sender gate for Teams matching Slack and Discord",
+        "Teams operator quickstart under docs/operations"
+      ],
+      "order": 84,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/teams-channel.md"
+    },
+    {
+      "key": "AUDIT-1",
+      "title": "Audit actor migration matrix to PrincipalRef (V1.0)",
+      "story": "As an auditor, every persisted actor reads as one PrincipalRef shape, so that people and agents are indistinguishable in form and distinguishable in kind.",
+      "acceptance_criteria": [
+        "Migration matrix covers runtime_events.actor, permission_audit_events.actor_id, mcp_server_audit_events.actor_id, person_merge_audit.actor, decision approver_ref/actor_context_json, and provenance fields; each row: migrate, backfill, or explicitly exempt",
+        "All 103 writers route through one actor-stamping helper; bare strings ('agent','runtime','permission','sdk', CLI names) fail typecheck",
+        "denied_by_profile (locked posture) and api-key:<kid> shapes mapped"
+      ],
+      "order": 85,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/agent-identity-and-offboarding.md"
+    },
+    {
+      "key": "UIFACADE-1",
+      "title": "Browser facades: live agents and audit read models (V1.0)",
+      "story": "As a console user, the agents page and activity page show live data through same-origin facades, so that the directory and audit trail are real, not fixtures.",
+      "acceptance_criteria": [
+        "/ui/api/agents: paged directory read model (agent, service Person, aliases by kind, installs, status, access preset, tool-rules summary, owner, approvers, current-month tokens, last run) \u2014 one query, not N+1; viewer read",
+        "/ui/api/agents/:id and /:id/{installs,access,audit,approvals} read; /:id/status PATCH (pause|resume), /:id/owner PATCH, /:id/approvers PATCH, /:id/offboard POST \u2014 administrator or owner where the spec allows, Origin+CSRF, hosted reauth, audit",
+        "/ui/api/activity: live unified audit rows (time, actor PrincipalRef, action, target, conversation, outcome, source) across runtime_events, permission_audit_events, permission_decisions, mcp_server_audit_events, with agentId filter added to each source",
+        "/ui/api/people list/get; /ui/api/usage wrapping /v1/usage",
+        "Scopes classified in browser-scope-policy per decision 0132; boundary tests under apps/core/test/unit/auth/",
+        "/ui/api/agents/:id/audit and /:id/approvals require administrator or approver; /ui/api/activity likewise; scope policy classifies them so"
+      ],
+      "order": 86,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/ai-employee-directory.md"
+    },
+    {
+      "key": "OAUTH-1",
+      "title": "Connector OAuth platform (V1.0.x)",
+      "story": "As an IT admin, I can authorise a connector account against an external OAuth provider and have tokens refreshed and revoked by Gantry, so that per-account grants are safe to hold.",
+      "acceptance_criteria": [
+        "Authorization-code + PKCE flow with state, scope validation, callback route classified per ADR 0132",
+        "Encrypted refresh-token store via secret refs; refresh, rotation, revoke; tokens never in settings, logs, or audit",
+        "Redacted audit contract for grant, refresh, revoke"
+      ],
+      "order": 87,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "CONN-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/connector-accounts.md"
+    },
+    {
+      "key": "EGRESS-1",
+      "title": "Host-owned egress allowlist (V1.0.x)",
+      "story": "As a regulated org, I can declare the only hosts Gantry may reach and have every component honour it, so that zero-egress is enforced, not advised.",
+      "acceptance_criteria": [
+        "Allowlist policy owned by host bootstrap; default-deny when configured",
+        "Enforcement covers model gateway, embeddings, browser backend, remote MCP proxy, telemetry, and both sandbox and direct runner modes",
+        "Boot fails with a named violation when any component cannot be constrained",
+        "Read-only effective egress policy surface: /ui/api/runtime/egress-policy (viewer) showing default-deny state, allowlist, protected components, named violations; replaces the preview Diagnostics/Guardrails cards for egress"
+      ],
+      "order": 88,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/sovereign-mode.md"
+    },
+    {
+      "key": "COST-2",
+      "title": "Per-agent hard monthly token cap (V1.1)",
+      "story": "As an IT admin, an agent that reaches its monthly token cap pauses and I am notified, so that no agent runs up an unbudgeted bill.",
+      "acceptance_criteria": [
+        "Durable app/agent/month reservation ledger with UTC calendar-month semantics; atomic check-and-reserve at live admission and scheduler claim",
+        "Every agent-attributable model call emits model.usage (memory extraction, dreaming, permission classifier included)",
+        "paused_for_budget state; agent replies it is paused; administrator recipients notified once per threshold via durable delivery",
+        "Cap field in the agent detail Usage & budget panel via PATCH /ui/api/agents/:id/usage-cap; paused_for_budget shown as status",
+        "Per-agent rate limits (requests/min, tokens/min) enforced at admission with an audited, named refusal"
+      ],
+      "order": 89,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "COST-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
+    },
+    {
+      "key": "ONBOARD-UI-1",
+      "title": "Onboarding wizard: create agent, seat, scope, approvers (V1.0)",
+      "story": "As an IT admin, I onboard an AI employee from the console \u2014 name and access preset, a channel seat with its secret reference, one conversation, its approvers \u2014 and activate it, so that onboarding is a browser flow, not a CLI session.",
+      "acceptance_criteria": [
+        "Screens: Employee (name, model alias, access preset full|locked default full, harness auto), Channel seat (provider, label, secret references via SecretRefField, provider validation), Scope (discover or enter conversation id, memory scope default conversation, trigger), Approvals (one or more resolvable approvers), Review and activate",
+        "Facades: POST /ui/api/agents (creates agent + service Person + desired-state entry atomically), /ui/api/provider-accounts, /ui/api/provider-accounts/:id/discover-conversations, /ui/api/agents/:id/conversation-installs, /ui/api/conversations/:id/approvers \u2014 administrator, Origin+CSRF, hosted reauth, audit",
+        "Write-only secret ingest endpoint stores a Gantry-held secret and returns only its reference; the browser never receives a secret value (decision 0143)",
+        "Persona/profile editing, non-default harness, provider secret rotation, and Slack/Teams discovery beyond manual id may stay CLI in V1.0 and are labelled so"
+      ],
+      "order": 90,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "UIFACADE-1",
+        "IDENT-2",
+        "TEAMS-1",
+        "DESIGN-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "PEOPLE-UI-1",
+      "title": "People in the Directory: detail, aliases, offboard (V1.0)",
+      "story": "As an IT admin, I see the people the AI employees work with, their aliases and status, and offboard a person who has left, so that human offboarding is one action in the same directory.",
+      "acceptance_criteria": [
+        "People appear in the unified Directory (kind = People) via /ui/api/people; person detail replaces the /people/:id preview",
+        "Offboard action (administrator, hosted reauth, exact-name confirmation dialog) calls the IDENT-4 use case and shows the audit row",
+        "Service-kind Persons link to their agent detail; humans show verified/unverified/retired aliases"
+      ],
+      "order": 91,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "UIFACADE-1",
+        "IDENT-4"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "UI-CONN-ACCOUNTS-1",
+      "title": "Connector Accounts page: add, connect OAuth, health, revoke (V1.0.x)",
+      "story": "As an IT admin, I add a connector account (e.g. a mailbox), assign its one owning agent, click Connect to authorise it, and see its status and health, so that per-account access is managed in the browser and never in a config file.",
+      "acceptance_criteria": [
+        "Configure > Connector Accounts: list and detail with kind, label, owning agent, external identity, scopes, OAuth status, generated MCP binding, alias, supervisor health and capacity",
+        "Connect starts the OAUTH-1 authorization-code flow and lands on a verified/failed status; reauthorize, revoke, retire; tokens and transport controls never shown",
+        "Facades /ui/api/connector-accounts (GET/POST), /:id (GET/PATCH/DELETE), /:id/oauth/authorize, /:id/revoke; separate from the MCP Servers page",
+        "Shared SecretRefField component validating env:, gantry-secret:, aws-sm: references"
+      ],
+      "order": 92,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "CONN-1",
+        "OAUTH-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "ACCESS-UI-1",
+      "title": "Access editor: preset, tool rules, capability grants (V1.0.x)",
+      "story": "As an IT admin, I change what an AI employee may touch from its Access tab \u2014 preset, tool rules, capability grants, bindings \u2014 so that 'only the access they need' is adjustable without editing settings.yaml.",
+      "acceptance_criteria": [
+        "Access tab becomes editable: replace access document, modify tool rules and capability grants, manage MCP bindings; administrator with hosted reauth, Origin+CSRF, audit",
+        "Facade wraps GET|PUT /v1/agents/:id/access as /ui/api/agents/:id/access with a safe DTO",
+        "Every change is a desired-state revision with a visible audit row"
+      ],
+      "order": 93,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "DIR-UI-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "HANDOFF-1",
+      "title": "Customer handoff to a human agent (V1.0.x)",
+      "story": "As a customer on WhatsApp, when the assistant cannot resolve my request a human support agent takes over in the same thread, and as a support lead I see and claim those handoffs from Teams or Slack, so that WhatsApp plus a human in the loop is a ready-made customer support assistant.",
+      "acceptance_criteria": [
+        "Handoff triggers: customer asks for a person, the agent declares it cannot resolve, or a conversation policy rule fires; the agent pauses in that conversation only",
+        "Handoff card (reusing the approval card path) posted to the configured support conversation in Teams or Slack with a bounded context packet; a human claims it and replies through the agent's WhatsApp seat as themselves",
+        "Resume returns the conversation to the agent with the human's turns in context; the customer is told who they are talking to at each switch",
+        "Every handoff, claim, human turn, and resume is audited with the human's PrincipalRef; outbound after Meta's 24-hour window uses approved templates",
+        "Read-only Handoffs view in the console (open, claimed, resumed; who and when) via /ui/api/handoffs for administrator and approver; claiming stays in Teams/Slack"
+      ],
+      "order": 94,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "WA-1",
+        "HITL-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
+    },
+    {
+      "key": "DESIGN-1",
+      "title": "Console design pass: directory, detail, wizard, people, handoffs (V1.0)",
+      "story": "As the team building four console stories, I work from one approved set of mockups in the console's existing design system, so that the directory, detail, onboarding wizard, and handoffs view look and behave like one product.",
+      "acceptance_criteria": [
+        "One design canvas with: unified Directory list (kind filter People | AI employees), agent detail with tabs (Overview, Access, Audit, Approvals, Usage), person detail, onboarding wizard screens, Handoffs view, offboard confirmation; light and dark",
+        "Uses existing console primitives and tokens; no new component library",
+        "Approved by the product owner before DIR-UI-1 and ONBOARD-UI-1 are planned; mockups linked from their plans",
+        "APPROVED 2026-08-26 by vrknetha \u2014 canvas https://claude.ai/code/artifact/cbcf11f1-8bc2-4912-bb37-b2ea7c300010 (21 artboards, light/dark). DIR-UI-1 and ONBOARD-UI-1 plan from these mockups."
+      ],
+      "order": 95,
+      "status": "done",
+      "epic": "ai-employee-v1",
+      "skill": "frontend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "MODEL-1",
+      "title": "Per-agent model allowlist enforced at the gateway (V1.0.x)",
+      "story": "As an IT admin, I restrict which model aliases an AI employee may use and the gateway enforces it, so that 'this agent only ever calls the on-prem model' is a rule, not a default.",
+      "acceptance_criteria": [
+        "Agent config carries an allowlist of model aliases; the model gateway refuses any call outside it with a named, audited denial; empty allowlist means the deployment default set",
+        "Enforced for every model-call path (runs, direct LLM API on behalf of the agent, memory extraction, dreaming) \u2014 same coverage list as COST-2",
+        "Allowlist appears read-only in the Access tab (DIR-UI-1) and editable in ACCESS-UI-1; sovereign quickstart shows an on-prem-only agent"
+      ],
+      "order": 96,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "SOV-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/model-governance.md"
+    },
+    {
+      "key": "GUARD-1",
+      "title": "Pre-model guardrail hook with built-in PII and secret redaction (V1.0.x)",
+      "story": "As a compliance owner, I know that personal data and secrets are redacted before anything leaves for a model, and I can plug in a stronger guardrail later, so that DLP is answered on day one without Gantry pretending to be a security vendor.",
+      "acceptance_criteria": [
+        "One pre-model hook point on every model-call path with a stable interface; hooks can redact, block, or annotate; every trigger audited with agent, conversation, rule, and outcome (never the redacted content)",
+        "One in-repo guardrail ships: PII patterns (email, phone, national ids configurable per deployment) and secret patterns (keys, tokens) redacted before the request; reversible mapping kept in-process for the turn only",
+        "External guardrails (LiteLLM, Lakera, Presidio) attach through the same hook; prompt-injection classification is explicitly not built in-repo"
+      ],
+      "order": 97,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "AUDIT-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/model-governance.md"
+    },
+    {
+      "key": "REPORT-1",
+      "title": "Per-agent reports and exports (V1.1)",
+      "story": "As a CISO, ops lead, or auditor, I get the evidence I need per agent and for the whole tenant \u2014 reliability, access changes, blocked actions, memory changes, audit export, access review \u2014 so that sign-off does not depend on someone reading a dashboard in Gantry.",
+      "acceptance_criteria": [
+        "Agent detail panels: reliability (runs started/completed/failed/timed out, p95 turn latency), access-changes timeline, blocked actions (denied tool calls, locked-posture denials, guardrail triggers), memory changes (learned, pending review, rejected)",
+        "Date-range audit export per agent and tenant-wide as CSV/JSON with a hash stamp; SIEM shipping of audit events (syslog/HTTP) as a configured sink",
+        "Access-review export: every principal (human and agent) with roles, seats, accounts, model allowlist, last activity",
+        "Prometheus metrics endpoint covers runs, latency, denials, handoffs, model calls by provider"
+      ],
+      "order": 98,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "UIFACADE-1",
+        "AUDIT-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/ai-employee-directory.md"
     }
   ],
   "epics": [
@@ -1461,8 +2071,19 @@
       "source_refs": [
         "docs/specs/authentication-access-web-ui.md"
       ]
+    },
+    {
+      "id": "ai-employee-v1",
+      "title": "AI employee V1: onboard, scope, audit, offboard",
+      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap. Console: one Directory for people and AI employees; audit visible to administrators and approvers; handoffs viewable in console, claimed in chat; design pass before UI stories. Model governance: per-agent model allowlist and a pre-model guardrail hook (V1.0.x); reports, exports, SIEM, rate limits (V1.1). Gantry is the runtime, not a gateway: orgs with LiteLLM point the openai_compatible provider at it",
+      "source_refs": [
+        "docs/product/BRIEF.md",
+        "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
+        "docs/decisions/0136-voice-as-provider-adapter.md",
+        "docs/decisions/0137-connector-accounts-mirror-provider-accounts.md"
+      ]
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-25T18:09:52+00:00"
+  "updated_at": "2026-08-26T12:05:35+00:00"
 }
