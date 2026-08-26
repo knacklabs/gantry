@@ -2,30 +2,29 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "summary": "phone-channels-and-cost-cap: re-grilled 2026-08-26 after the UI grill (round 9: directory IA, audit access, handoff queue, design pass).",
-  "questions_asked": 42,
+  "summary": "phone-channels-and-cost-cap: grilled 2026-08-26 round 10 (LiteLLM comparison, enterprise data needs).",
+  "questions_asked": 44,
   "gaps": [
-    "Support leads had no overview of handoffs"
+    "Runaway agent bounded only by monthly cap"
   ],
   "contradictions": [],
   "resolutions": [
-    "Read-only Handoffs view in console via /ui/api/handoffs"
+    "COST-2 adds per-agent requests/min and tokens/min limits"
   ],
   "open_items": [],
   "rounds": [
     {
-      "round": 9,
-      "questions": "UI grill: Directory IA, audit access by role, handoffs in console, design pass"
+      "round": 10,
+      "questions": "LiteLLM comparison: model allowlist, guardrails, rate limits, SIEM, USD; enterprise data beyond cost"
     }
   ],
   "inspected_refs": [
-    "docs/architecture/ai-employee-v1-handover.md",
-    "docs/product/BRIEF.md"
+    "docs/architecture/ai-employee-v1-handover.md"
   ],
   "citations": [
     "docs/specs/phone-channels-and-cost-cap.md"
   ],
-  "input_sha256": "ee974009abe82ee070d9a7dd8d0ad08edd5c6c208bd63899e8e4e51ac69eb8c0",
-  "recorded_at": "2026-08-26T11:44:49+00:00",
-  "commit": "fef8b09668af0e74887edb97e6fe4720257eef09"
+  "input_sha256": "98a95eca2711166b58114f89d5e1f021c0f26d2ef728846f9a646dc40e14c9d2",
+  "recorded_at": "2026-08-26T12:05:34+00:00",
+  "commit": "9e373f344fc1d0c5cb3cd9d0a3e238bff738ef35"
 }

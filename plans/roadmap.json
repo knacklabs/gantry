@@ -1647,8 +1647,8 @@
       "acceptance_criteria": [
         "Usage view per agent in the directory using /v1/usage grouped by agent and calendar month",
         "View is labelled with which model-call paths are not yet counted until COST-2 completes accounting",
-        "No USD price table",
-        "Usage panel on agent detail (month picker, requests, input/output tokens, uncounted-path disclosure) and a compact current-month value in the directory row via /ui/api/usage"
+        "Usage panel on agent detail (month picker, requests, input/output tokens, uncounted-path disclosure) and a compact current-month value in the directory row via /ui/api/usage",
+        "Optional imported price table (LiteLLM's open model-price JSON as the documented default) enables a currency figure beside tokens; without it the view stays token-only"
       ],
       "order": 82,
       "status": "pending",
@@ -1784,7 +1784,8 @@
         "Durable app/agent/month reservation ledger with UTC calendar-month semantics; atomic check-and-reserve at live admission and scheduler claim",
         "Every agent-attributable model call emits model.usage (memory extraction, dreaming, permission classifier included)",
         "paused_for_budget state; agent replies it is paused; administrator recipients notified once per threshold via durable delivery",
-        "Cap field in the agent detail Usage & budget panel via PATCH /ui/api/agents/:id/usage-cap; paused_for_budget shown as status"
+        "Cap field in the agent detail Usage & budget panel via PATCH /ui/api/agents/:id/usage-cap; paused_for_budget shown as status",
+        "Per-agent rate limits (requests/min, tokens/min) enforced at admission with an audited, named refusal"
       ],
       "order": 89,
       "status": "pending",
@@ -1917,6 +1918,65 @@
       "depends_on": [],
       "origin": "adhoc",
       "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "MODEL-1",
+      "title": "Per-agent model allowlist enforced at the gateway (V1.0.x)",
+      "story": "As an IT admin, I restrict which model aliases an AI employee may use and the gateway enforces it, so that 'this agent only ever calls the on-prem model' is a rule, not a default.",
+      "acceptance_criteria": [
+        "Agent config carries an allowlist of model aliases; the model gateway refuses any call outside it with a named, audited denial; empty allowlist means the deployment default set",
+        "Enforced for every model-call path (runs, direct LLM API on behalf of the agent, memory extraction, dreaming) \u2014 same coverage list as COST-2",
+        "Allowlist appears read-only in the Access tab (DIR-UI-1) and editable in ACCESS-UI-1; sovereign quickstart shows an on-prem-only agent"
+      ],
+      "order": 96,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "SOV-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/model-governance.md"
+    },
+    {
+      "key": "GUARD-1",
+      "title": "Pre-model guardrail hook with built-in PII and secret redaction (V1.0.x)",
+      "story": "As a compliance owner, I know that personal data and secrets are redacted before anything leaves for a model, and I can plug in a stronger guardrail later, so that DLP is answered on day one without Gantry pretending to be a security vendor.",
+      "acceptance_criteria": [
+        "One pre-model hook point on every model-call path with a stable interface; hooks can redact, block, or annotate; every trigger audited with agent, conversation, rule, and outcome (never the redacted content)",
+        "One in-repo guardrail ships: PII patterns (email, phone, national ids configurable per deployment) and secret patterns (keys, tokens) redacted before the request; reversible mapping kept in-process for the turn only",
+        "External guardrails (LiteLLM, Lakera, Presidio) attach through the same hook; prompt-injection classification is explicitly not built in-repo"
+      ],
+      "order": 97,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "AUDIT-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/model-governance.md"
+    },
+    {
+      "key": "REPORT-1",
+      "title": "Per-agent reports and exports (V1.1)",
+      "story": "As a CISO, ops lead, or auditor, I get the evidence I need per agent and for the whole tenant \u2014 reliability, access changes, blocked actions, memory changes, audit export, access review \u2014 so that sign-off does not depend on someone reading a dashboard in Gantry.",
+      "acceptance_criteria": [
+        "Agent detail panels: reliability (runs started/completed/failed/timed out, p95 turn latency), access-changes timeline, blocked actions (denied tool calls, locked-posture denials, guardrail triggers), memory changes (learned, pending review, rejected)",
+        "Date-range audit export per agent and tenant-wide as CSV/JSON with a hash stamp; SIEM shipping of audit events (syslog/HTTP) as a configured sink",
+        "Access-review export: every principal (human and agent) with roles, seats, accounts, model allowlist, last activity",
+        "Prometheus metrics endpoint covers runs, latency, denials, handoffs, model calls by provider"
+      ],
+      "order": 98,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "UIFACADE-1",
+        "AUDIT-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/ai-employee-directory.md"
     }
   ],
   "epics": [
@@ -2014,7 +2074,7 @@
     {
       "id": "ai-employee-v1",
       "title": "AI employee V1: onboard, scope, audit, offboard",
-      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap. Console: one Directory for people and AI employees; audit visible to administrators and approvers; handoffs viewable in console, claimed in chat; design pass before UI stories",
+      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap. Console: one Directory for people and AI employees; audit visible to administrators and approvers; handoffs viewable in console, claimed in chat; design pass before UI stories. Model governance: per-agent model allowlist and a pre-model guardrail hook (V1.0.x); reports, exports, SIEM, rate limits (V1.1). Gantry is the runtime, not a gateway: orgs with LiteLLM point the openai_compatible provider at it",
       "source_refs": [
         "docs/product/BRIEF.md",
         "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
@@ -2024,5 +2084,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-26T11:44:50+00:00"
+  "updated_at": "2026-08-26T12:05:35+00:00"
 }

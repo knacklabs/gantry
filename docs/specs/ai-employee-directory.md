@@ -2,8 +2,9 @@
 slug: ai-employee-directory
 title: AI employee directory
 status: confirmed
-saved: 2026-08-26T11:43:45+00:00
+saved: 2026-08-26T12:04:34+00:00
 ---
+
 
 
 
@@ -33,7 +34,13 @@ IT manages people through a directory; AI employees need the same page. Today th
 - Audit: live, agent-filterable activity read model replacing fixture data; each row
   shows the `PrincipalRef` actor.
 - Usage: `/v1/usage` grouped by agent and calendar month. The view labels which model
-  call paths are not yet counted until complete accounting lands (V1.1 hard cap).
+  call paths are not yet counted until complete accounting lands (V1.1 hard cap). An
+  optional imported price table (LiteLLM's open model-price JSON is the documented
+  default) adds a currency figure beside tokens.
+- Reports (V1.1): reliability, access-changes timeline, blocked actions, memory
+  changes per agent; date-range audit export (CSV/JSON, hash-stamped) per agent and
+  tenant-wide; SIEM sink for audit events; access-review export of every principal
+  with roles, seats, accounts, model allowlist, last activity; Prometheus metrics.
 
 ### Browser surface
 
@@ -63,10 +70,14 @@ IT manages people through a directory; AI employees need the same page. Today th
 - **COST-1** — Per-agent usage view
   - Usage view per agent in the directory using /v1/usage grouped by agent and calendar month
   - View is labelled with which model-call paths are not yet counted until COST-2 completes accounting
-  - No USD price table
   - Usage panel on agent detail (month picker, requests, input/output tokens, uncounted-path disclosure) and a compact current-month value in the directory row via /ui/api/usage
+  - Optional imported price table (LiteLLM's open model-price JSON as the documented default) enables a currency figure beside tokens; without it the view stays token-only
+- **REPORT-1** — Per-agent reports and exports
+  - Agent detail panels: reliability (runs started/completed/failed/timed out, p95 turn latency), access-changes timeline, blocked actions (denied tool calls, locked-posture denials, guardrail triggers), memory changes (learned, pending review, rejected)
+  - Date-range audit export per agent and tenant-wide as CSV/JSON with a hash stamp; SIEM shipping of audit events (syslog/HTTP) as a configured sink
+  - Access-review export: every principal (human and agent) with roles, seats, accounts, model allowlist, last activity
+  - Prometheus metrics endpoint covers runs, latency, denials, handoffs, model calls by provider
 
 ## Source
 
-Grill 2026-08-26 (Q6, Q8, Q24, Q27; COST split after gap sweep). Stories:
-UIFACADE-1, DIR-UI-1, COST-1.
+Grill 2026-08-26 (Q6, Q8, Q24, Q27; COST split after gap sweep). Stories: UIFACADE-1, DIR-UI-1, COST-1, REPORT-1 (V1.1).

@@ -2,8 +2,9 @@
 slug: phone-channels-and-cost-cap
 title: Customer support assistant: phone identity, WhatsApp, human handoff; voice and hard cost caps
 status: confirmed
-saved: 2026-08-26T11:43:45+00:00
+saved: 2026-08-26T12:04:34+00:00
 ---
+
 
 
 
@@ -66,7 +67,8 @@ Durable app/agent/calendar-month (UTC) reservation ledger with atomic check-and-
 at live admission and scheduler claim; every agent-attributable model call (including
 memory extraction, dreaming, permission classification) emits usage; `paused_for_budget`
 state with one notification per threshold to administrator recipients via durable
-delivery; cap raisable from the directory. Tokens, not USD.
+delivery; cap raisable from the directory. Tokens by default; currency when a price table is imported (COST-1). Per-agent rate
+limits (requests/min, tokens/min) are enforced at admission with an audited refusal.
 
 ## Acceptance criteria
 
@@ -92,6 +94,7 @@ delivery; cap raisable from the directory. Tokens, not USD.
   - Every agent-attributable model call emits model.usage (memory extraction, dreaming, permission classifier included)
   - paused_for_budget state; agent replies it is paused; administrator recipients notified once per threshold via durable delivery
   - Cap field in the agent detail Usage & budget panel via PATCH /ui/api/agents/:id/usage-cap; paused_for_budget shown as status
+  - Per-agent rate limits (requests/min, tokens/min) enforced at admission with an audited, named refusal
 
 ## Source
 
