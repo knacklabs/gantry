@@ -30,6 +30,8 @@ code that the story must respect).
 | V1.0 | `ONBOARD-UI-1` | Onboarding wizard: create agent, seat, scope, approvers | fullstack | UIFACADE-1, IDENT-2, TEAMS-1 | `docs/specs/console-ai-employee-management.md` |
 | V1.0 | `PEOPLE-UI-1` | People: live list, detail, offboard | fullstack | UIFACADE-1, IDENT-4 | `docs/specs/console-ai-employee-management.md` |
 | V1.0.x | `CONN-GSUITE-1` | Google Workspace connector | backend | CONN-1, OAUTH-1 | `docs/specs/connector-accounts.md` |
+| V1.0.x | `IDENT-3` | Phone-number alias kind | backend | IDENT-2 | `docs/specs/phone-channels-and-cost-cap.md` |
+| V1.0.x | `WA-1` | WhatsApp provider | backend | IDENT-3 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.0.x | `CONN-1` | Connector Account platform | backend | — | `docs/specs/connector-accounts.md` |
 | V1.0.x | `COST-1` | Per-agent usage view | fullstack | UIFACADE-1 | `docs/specs/ai-employee-directory.md` |
 | V1.0.x | `SOV-1` | Sovereign mode: generic OpenAI-compatible provider and no-egress check | backend | EGRESS-1 | `docs/specs/sovereign-mode.md` |
@@ -37,8 +39,7 @@ code that the story must respect).
 | V1.0.x | `EGRESS-1` | Host-owned egress allowlist | fullstack | — | `docs/specs/sovereign-mode.md` |
 | V1.0.x | `UI-CONN-ACCOUNTS-1` | Connector Accounts page: add, connect OAuth, health, revoke | fullstack | CONN-1, OAUTH-1 | `docs/specs/console-ai-employee-management.md` |
 | V1.0.x | `ACCESS-UI-1` | Access editor: preset, tool rules, capability grants | fullstack | DIR-UI-1 | `docs/specs/console-ai-employee-management.md` |
-| V1.1 | `IDENT-3` | Phone-number alias kind | backend | IDENT-2 | `docs/specs/phone-channels-and-cost-cap.md` |
-| V1.1 | `WA-1` | WhatsApp provider | backend | IDENT-3 | `docs/specs/phone-channels-and-cost-cap.md` |
+| V1.0.x | `HANDOFF-1` | Customer handoff to a human agent | fullstack | WA-1, HITL-1 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.1 | `VOICE-1` | Voice provider adapter | backend | IDENT-2, IDENT-3 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.1 | `COST-2` | Per-agent hard monthly token cap | backend | COST-1 | `docs/specs/phone-channels-and-cost-cap.md` |
 
@@ -94,6 +95,15 @@ Console approvals of risky actions stay out of V1 by decision. The console is
 Vitest-only today; user-facing stories need the functional checker (score ≥ 8).
 Spec: `docs/specs/console-ai-employee-management.md`; sweep reports in the gap
 analysis, Part 2.
+
+## Customer support assistant (added 2026-08-26)
+
+WhatsApp plus human handoff is the second proof, in V1.0.x: `IDENT-3` phone
+identity → `WA-1` WhatsApp seat → `HANDOFF-1` handoff to a human in Teams/Slack.
+Handoff is *not* approval: the human takes over the thread, the agent pauses in
+that conversation only, every switch is audited. Meta business verification and
+message templates are deployment prerequisites, not code. Voice and the hard cost
+cap stay in V1.1.
 
 ## Working rules
 

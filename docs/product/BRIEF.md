@@ -25,6 +25,9 @@ product and operations workflows.
   BFSI/enterprise client); self-serve install serves the organisations after.
 - Proof artifact for V1.0: a three-minute real-product video, onboard ->
   scope -> approve via Adaptive Card -> offboard.
+- Second proof (V1.0.x): the customer support assistant — a WhatsApp seat plus
+  human handoff into Teams/Slack. Same governed agent, same audit; the human
+  takes over the thread, the agent pauses, every switch is on the record.
 
 ## Current Scope
 
