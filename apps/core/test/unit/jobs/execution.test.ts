@@ -1015,6 +1015,60 @@ describe('jobs/execution', () => {
     }
   });
 
+  it('stops heartbeating after terminal settlement while notification is pending', async () => {
+    vi.useFakeTimers();
+    try {
+      runtimeStoreMock.heartbeatRunLease.mockResolvedValue(false);
+      const job = makeJob();
+      const opsRepository = makeOpsRepository(job);
+      let terminalSettled: (() => void) | undefined;
+      const settled = new Promise<void>((resolve) => {
+        terminalSettled = resolve;
+      });
+      opsRepository.finalizeJobRunWithLease.mockImplementation(async () => {
+        terminalSettled?.();
+        return true;
+      });
+      let finishNotification: (() => void) | undefined;
+      const sendMessage = vi.fn(
+        async () =>
+          new Promise<void>((resolve) => {
+            finishNotification = resolve;
+          }),
+      );
+
+      const run = runJob(
+        job,
+        {
+          conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+          queue: {} as never,
+          onProcess: () => {},
+          sendMessage: sendMessage as never,
+          opsRepository: opsRepository as never,
+          runAgent: vi.fn(async () => ({
+            status: 'success',
+            result: 'runtime flow completed',
+          })) as never,
+          executionAdapter: {
+            id: 'anthropic:claude-agent-sdk',
+            prepare: vi.fn(),
+          } as never,
+        },
+        'tg:scheduler',
+        { jobId: job.id, runId: 'run-1' },
+      );
+
+      await settled;
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(runtimeStoreMock.heartbeatRunLease).not.toHaveBeenCalled();
+      finishNotification?.();
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps safe failure evidence in events and all raw details out of chat', async () => {
     const job = makeJob({
       schedule_type: 'interval',

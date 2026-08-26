@@ -758,6 +758,12 @@ async function runActiveJob(
       );
       terminalRunRecorded = true;
     }
+    // Terminal settlement releases the durable lease. Stop the heartbeat at
+    // that boundary so post-settlement browser cleanup and notifications do
+    // not mistake the expected release for lease loss and abort themselves.
+    if (terminalRunRecorded || deletionGuard.deletedDuringRun) {
+      leaseHeartbeat.stop();
+    }
     if (runLeaseAbort.isAborted())
       await failSessionRun(deps.opsRepository, agentRunId, error);
     if (!deletionGuard.deletedDuringRun) {
