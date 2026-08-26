@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { CustomRoleService } from '../../../application/agents/custom-role-service.js';
+import { builtInRolePrompt } from '../../../application/agents/prompt-profile-service.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
 import { isRecentlyReauthenticated } from '../../../application/auth/auth-foundations.js';
 import type {
@@ -12,6 +13,7 @@ import type {
 } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
 import { nowIso } from '../../../shared/time/datetime.js';
+import { AGENT_PERSONAS } from '../../../shared/agent-persona.js';
 import { isCanonicalBrowserOrigin } from '../browser-auth-boundary.js';
 import { browserRoleAllowsScope } from '../browser-scope-policy.js';
 import type { ControlRouteContext } from '../handler-context.js';
@@ -47,41 +49,72 @@ function pageParams(url: URL) {
 
 function page<T>(items: T[], pageNumber: number, pageSize: number) {
   const total = items.length;
+  const end = pageNumber * pageSize;
   return {
-    items: items.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
+    data: items.slice((pageNumber - 1) * pageSize, end),
     page: pageNumber,
     pageSize,
     total,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    hasNext: end < total,
   };
 }
 
-function agentView(agent: Agent) {
+async function agentView(
+  storage: ReturnType<typeof getRuntimeStorage>,
+  agent: Agent,
+) {
+  const config = agent.currentConfigVersionId
+    ? await storage.repositories.agentConfigs.getConfigVersion(
+        agent.currentConfigVersionId,
+      )
+    : null;
+  const installs =
+    await storage.repositories.providerAccounts.listConversationInstalls(
+      agent.appId,
+      agent.id,
+    );
   return {
     id: agent.id,
     name: agent.name,
     status: agent.status,
+    roleName: config?.roleSnapshot?.displayName ?? null,
+    modelAlias: null,
+    conversationCount: installs.filter((install) => install.status === 'active')
+      .length,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,
   };
 }
 
-function roleView(role: {
+type BrowserRole = {
   id: string;
   name: string;
   prompt: string;
+  kind: 'built-in' | 'custom';
   sourceRoleId?: string;
-  createdAt: string;
-  updatedAt: string;
-}) {
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+function roleView(role: Omit<BrowserRole, 'kind'>): BrowserRole {
   return {
     id: role.id,
     name: role.name,
     prompt: role.prompt,
+    kind: 'custom',
     sourceRoleId: role.sourceRoleId,
     createdAt: role.createdAt,
     updatedAt: role.updatedAt,
   };
+}
+
+function builtInRoles(): BrowserRole[] {
+  return AGENT_PERSONAS.map((persona) => ({
+    id: `built-in:${persona}`,
+    name: `${persona[0].toUpperCase()}${persona.slice(1)}`,
+    prompt: builtInRolePrompt(persona, 'full'),
+    kind: 'built-in',
+  }));
 }
 
 function validName(value: unknown): value is string {
@@ -121,19 +154,47 @@ export async function handleBrowserAgentRoutes(
     if (pathname === '/ui/api/agents') {
       const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
       const status = url.searchParams.get('status');
-      const agents = (await storage.repositories.agents.listAgents(appId))
+      const role = url.searchParams.get('role')?.trim().toLowerCase() ?? '';
+      const sort = url.searchParams.get('sort') ?? 'name';
+      const direction = url.searchParams.get('direction') === 'desc' ? -1 : 1;
+      const agents = await Promise.all(
+        (await storage.repositories.agents.listAgents(appId)).map((agent) =>
+          agentView(storage, agent),
+        ),
+      );
+      const filtered = agents
         .filter((agent) => !search || agent.name.toLowerCase().includes(search))
         .filter((agent) => !status || agent.status === status)
-        .sort((a, b) => a.name.localeCompare(b.name));
-      sendJson(res, 200, page(agents.map(agentView), pageNumber, pageSize));
+        .filter((agent) => !role || agent.roleName?.toLowerCase() === role)
+        .sort((a, b) => {
+          const left =
+            sort === 'status'
+              ? a.status
+              : sort === 'updatedAt'
+                ? a.updatedAt
+                : a.name;
+          const right =
+            sort === 'status'
+              ? b.status
+              : sort === 'updatedAt'
+                ? b.updatedAt
+                : b.name;
+          return left.localeCompare(right) * direction;
+        });
+      sendJson(res, 200, page(filtered, pageNumber, pageSize));
       return true;
     }
     if (pathname === '/ui/api/roles') {
       const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
-      const roles = (
-        await storage.repositories.customRoles.listCustomRoles(appId)
-      ).filter((role) => !search || role.name.toLowerCase().includes(search));
-      sendJson(res, 200, page(roles.map(roleView), pageNumber, pageSize));
+      const roles = [
+        ...builtInRoles(),
+        ...(await storage.repositories.customRoles.listCustomRoles(appId)).map(
+          roleView,
+        ),
+      ]
+        .filter((role) => !search || role.name.toLowerCase().includes(search))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      sendJson(res, 200, page(roles, pageNumber, pageSize));
       return true;
     }
     const agentMatch = pathname.match(AGENT_PATH);
@@ -143,11 +204,15 @@ export async function handleBrowserAgentRoutes(
       );
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
-      sendJson(res, 200, { agent: agentView(agent) });
+      sendJson(res, 200, { agent: await agentView(storage, agent) });
       return true;
     }
     const roleMatch = pathname.match(ROLE_PATH);
     if (roleMatch) {
+      const builtIn = builtInRoles().find(
+        (role) => role.id === decodeURIComponent(roleMatch[1]),
+      );
+      if (builtIn) return (sendJson(res, 200, { role: builtIn }), true);
       const role = await storage.repositories.customRoles.getCustomRole(
         decodeURIComponent(roleMatch[1]) as CustomRoleId,
       );
@@ -212,7 +277,7 @@ export async function handleBrowserAgentRoutes(
       };
       await storage.repositories.agents.saveAgent(agent);
       await ctx.syncSettingsFromProjection(appId);
-      sendJson(res, 201, { agent: agentView(agent) });
+      sendJson(res, 201, { agent: await agentView(storage, agent) });
       return true;
     }
     const statusMatch = pathname.match(AGENT_STATUS_PATH);
@@ -233,7 +298,7 @@ export async function handleBrowserAgentRoutes(
       if (statusMatch[2] === 'enable')
         await storage.repositories.agents.saveAgent(updated!);
       await ctx.syncSettingsFromProjection(appId);
-      sendJson(res, 200, { agent: agentView(updated!) });
+      sendJson(res, 200, { agent: await agentView(storage, updated!) });
       return true;
     }
     if (pathname === '/ui/api/roles' && req.method === 'POST') {

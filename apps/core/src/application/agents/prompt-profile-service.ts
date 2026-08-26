@@ -85,7 +85,7 @@ const LOCKED_RUNTIME_RULES_BLOCK = [
   '- Work only with the tools available in this session; never install dependencies or edit configuration directly.',
 ].join('\n');
 
-function personaPrompt(
+export function builtInRolePrompt(
   persona: AgentPersona,
   accessPreset: PromptAccessPreset,
 ): string {
@@ -509,7 +509,7 @@ export class PromptProfileService {
       'PERSONA',
       PERSONA_SOURCE,
       options.roleSnapshot?.prompt ??
-        personaPrompt(resolveAgentPersona(options.persona), accessPreset),
+        builtInRolePrompt(resolveAgentPersona(options.persona), accessPreset),
       this.sectionBudgets.PERSONA,
     );
     if (personaSection) sections.push(personaSection);

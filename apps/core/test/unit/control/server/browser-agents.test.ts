@@ -19,6 +19,10 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain('Math.min(\n    100,');
   expect(source).toContain('listAgents(appId)');
   expect(source).toContain('listCustomRoles(appId)');
+  expect(source).toContain('data: items.slice');
+  expect(source).toContain('hasNext: end < total');
+  expect(source).toContain("builtInRolePrompt(persona, 'full')");
+  expect(source).toContain('listConversationInstalls(');
   expect(source).toContain('agent.appId !== appId');
   expect(source).toContain('role.appId !== appId');
 });
