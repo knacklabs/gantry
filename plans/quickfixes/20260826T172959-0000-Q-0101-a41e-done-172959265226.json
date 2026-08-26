@@ -1,0 +1,151 @@
+{
+  "event": "done",
+  "id": "Q-0101-a41e",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Q-0101: cron jobs promise a post-failure retry time that the scheduler never dispatches; owner chose no retry for cron jobs, next run = next cron slot",
+  "base_sha": "b0f5ce49eea66d5f23e611ef173a78d43751079c",
+  "started_at": "2026-08-26T17:20:30+00:00",
+  "completed_at": "2026-08-26T17:29:59+00:00",
+  "files": [
+    "apps/core/src/jobs/execution-finalization.ts",
+    "apps/core/test/unit/jobs/execution-finalization.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution-finalization.ts",
+        "apps/core/test/unit/jobs/execution-finalization.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "The undispatched one-shot path in scheduler-engine.ts still exists for cron jobs (dead for them now)"
+      ],
+      "summary": "One conditional at the seam; owner decision recorded. Lite window Q-0101 (base b0f5ce49 -> HEAD f40c9d31e): failed cron jobs keep next_run = next cron slot (computeNextJobRun) instead of a backoff retry the cron scheduler never dispatches; once jobs unchanged; dead-letter accounting unchanged. Proof: jobs lane 66/722, tsc, architecture; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "f9426898c9cdaf4cf564fe2530888e0cf3386cfe4d70e7d2f56e6bf8a30542dd",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "76cf9dbd77ab398e7dd56e08b317d470c0ba11a6f76a75cc97ed1a1d99f52372",
+      "recorded_at": "2026-08-26T17:25:01+00:00",
+      "commit": "f40c9d31e4d85565c5b8824540057a2d414caee4"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution-finalization.ts",
+        "apps/core/test/unit/jobs/execution-finalization.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "The undispatched one-shot path in scheduler-engine.ts still exists for cron jobs (dead for them now)"
+      ],
+      "summary": "No runtime cost. Lite window Q-0101 (base b0f5ce49 -> HEAD f40c9d31e): failed cron jobs keep next_run = next cron slot (computeNextJobRun) instead of a backoff retry the cron scheduler never dispatches; once jobs unchanged; dead-letter accounting unchanged. Proof: jobs lane 66/722, tsc, architecture; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "f9426898c9cdaf4cf564fe2530888e0cf3386cfe4d70e7d2f56e6bf8a30542dd",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "76cf9dbd77ab398e7dd56e08b317d470c0ba11a6f76a75cc97ed1a1d99f52372",
+      "recorded_at": "2026-08-26T17:25:02+00:00",
+      "commit": "f40c9d31e4d85565c5b8824540057a2d414caee4"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution-finalization.ts",
+        "apps/core/test/unit/jobs/execution-finalization.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "The undispatched one-shot path in scheduler-engine.ts still exists for cron jobs (dead for them now)"
+      ],
+      "summary": "No trust change. Lite window Q-0101 (base b0f5ce49 -> HEAD f40c9d31e): failed cron jobs keep next_run = next cron slot (computeNextJobRun) instead of a backoff retry the cron scheduler never dispatches; once jobs unchanged; dead-letter accounting unchanged. Proof: jobs lane 66/722, tsc, architecture; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "f9426898c9cdaf4cf564fe2530888e0cf3386cfe4d70e7d2f56e6bf8a30542dd",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "76cf9dbd77ab398e7dd56e08b317d470c0ba11a6f76a75cc97ed1a1d99f52372",
+      "recorded_at": "2026-08-26T17:25:02+00:00",
+      "commit": "f40c9d31e4d85565c5b8824540057a2d414caee4"
+    }
+  }
+}
