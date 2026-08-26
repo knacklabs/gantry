@@ -225,11 +225,14 @@ export async function handleBrowserAgentRoutes(
     }
     if (pathname === '/ui/api/roles') {
       const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
+      const kind = url.searchParams.get('kind');
       const roles = [
-        ...builtInRoles(),
-        ...(await storage.repositories.customRoles.listCustomRoles(appId)).map(
-          roleView,
-        ),
+        ...(kind !== 'custom' ? builtInRoles() : []),
+        ...(kind !== 'built-in'
+          ? (await storage.repositories.customRoles.listCustomRoles(appId)).map(
+              roleView,
+            )
+          : []),
       ]
         .filter((role) => !search || role.name.toLowerCase().includes(search))
         .sort((a, b) => a.name.localeCompare(b.name));

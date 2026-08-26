@@ -176,7 +176,11 @@ export function agentDirectoryQuery(input: {
   });
 }
 
-export function roleDirectoryQuery(input: { page: number; search: string }) {
+export function roleDirectoryQuery(input: {
+  page: number;
+  search: string;
+  kind?: 'all' | 'built-in' | 'custom';
+}) {
   return queryOptions({
     queryKey: [...agentQueryKeys.all, 'roles', input] as const,
     queryFn: async (): Promise<BrowserPage<BrowserRole>> => {
@@ -185,6 +189,7 @@ export function roleDirectoryQuery(input: { page: number; search: string }) {
         pageSize: '25',
       });
       if (input.search) params.set('search', input.search);
+      if (input.kind && input.kind !== 'all') params.set('kind', input.kind);
       const response = await browserFetch(`/ui/api/roles?${params}`, {
         credentials: 'same-origin',
       });
