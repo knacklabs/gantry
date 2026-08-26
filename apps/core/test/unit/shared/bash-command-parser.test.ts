@@ -74,6 +74,13 @@ describe('bash command parser', () => {
     });
   });
 
+  it('rejects a carriage return in a heredoc header', () => {
+    expect(parseBashCommand('cat <<EOF\r\nbody\nEOF')).toEqual({
+      ok: false,
+      reason: 'Bash heredoc uses unsupported line endings.',
+    });
+  });
+
   it.each([
     ['two', 'line\\\\', true],
     ['one', 'line\\', false],

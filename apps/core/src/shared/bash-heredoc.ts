@@ -32,6 +32,17 @@ export function parseHeredocOperator(
   cursor: number,
   operatorPrefix: string,
 ): HeredocOperatorParseResult {
+  const headerEnd = command.indexOf('\n', cursor);
+  if (
+    command
+      .slice(cursor, headerEnd === -1 ? command.length : headerEnd)
+      .includes('\r')
+  ) {
+    return {
+      ok: false,
+      reason: 'Bash heredoc uses unsupported line endings.',
+    };
+  }
   let operator = `${operatorPrefix}<`;
   let delimiterStart = cursor + 1;
   const stripTabs = command[delimiterStart] === '-';
