@@ -6,6 +6,7 @@ import {
   useSearch,
 } from '@tanstack/react-router';
 import { ArrowLeft, Power, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 
 import {
   browserCsrfHeader,
@@ -18,16 +19,6 @@ import { RouteTabs } from '../../../ui/compositions/route-tabs';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { Button } from '../../../ui/primitives/button';
 import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '../../../ui/primitives/alert-dialog';
-import {
   agentDetailQuery,
   agentQueryKeys,
   type AgentDirectoryItem,
@@ -35,6 +26,7 @@ import {
 import { AgentSetupManager } from '../components/agent-setup-manager';
 import { AgentSettings } from '../components/agent-settings';
 import { AgentVersionHistory } from '../components/agent-version-history';
+import { AgentDrawer } from '../components/agent-drawer';
 
 export function AgentDetailRoute() {
   const { agentId } = useParams({ from: '/agents/$agentId' });
@@ -42,6 +34,7 @@ export function AgentDetailRoute() {
   const navigate = useNavigate({ from: '/agents/$agentId' });
   const queryClient = useQueryClient();
   const detail = useQuery(agentDetailQuery(agentId));
+  const [statusOpen, setStatusOpen] = useState(false);
   const status = useMutation({
     mutationFn: async (action: 'enable' | 'disable') => {
       const response = await browserFetch(
@@ -110,46 +103,57 @@ export function AgentDetailRoute() {
           <div className="flex gap-2">
             <StatusBadge status={agent.status} />
             <AgentVersionHistory agentId={agent.id} />
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="secondary" disabled={status.isPending}>
-                  <Power size={15} aria-hidden="true" />
-                  {action === 'disable' ? 'Disable' : 'Enable'}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    {action === 'disable'
-                      ? `Disable ${agent.name}?`
-                      : `Enable ${agent.name}?`}
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {action === 'disable'
-                      ? 'Gantry will reject new sessions and delegation. Existing configuration, history, memory, and audit data are kept; work already running is not cancelled.'
-                      : 'It will become available for new work again.'}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel asChild>
-                    <Button variant="secondary">Cancel</Button>
-                  </AlertDialogCancel>
-                  <Button
-                    disabled={status.isPending}
-                    onClick={() => status.mutate(action)}
-                  >
-                    {status.isPending
-                      ? 'Saving…'
-                      : action === 'disable'
-                        ? 'Disable agent'
-                        : 'Enable agent'}
-                  </Button>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <Button
+              disabled={status.isPending}
+              variant="secondary"
+              onClick={() => setStatusOpen(true)}
+            >
+              <Power size={15} aria-hidden="true" />
+              {action === 'disable' ? 'Disable' : 'Enable'}
+            </Button>
           </div>
         }
       />
+      <AgentDrawer
+        description={
+          action === 'disable'
+            ? 'Gantry will reject new sessions and delegation. Existing configuration, history, memory, and audit data are kept; work already running is not cancelled.'
+            : 'It will become available for new work again.'
+        }
+        footer={
+          <>
+            <Button
+              disabled={status.isPending}
+              variant="secondary"
+              onClick={() => setStatusOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={status.isPending}
+              variant={action === 'disable' ? 'destructive' : 'default'}
+              onClick={() =>
+                status.mutate(action, { onSuccess: () => setStatusOpen(false) })
+              }
+            >
+              {status.isPending
+                ? 'Saving…'
+                : action === 'disable'
+                  ? 'Disable agent'
+                  : 'Enable agent'}
+            </Button>
+          </>
+        }
+        open={statusOpen}
+        title={`${action === 'disable' ? 'Disable' : 'Enable'} ${agent.name}?`}
+        onOpenChange={setStatusOpen}
+      >
+        <p className="m-0 text-sm text-text-secondary">
+          {action === 'disable'
+            ? 'This does not delete the agent. You can enable it again from Settings.'
+            : 'Existing configuration and access remain unchanged.'}
+        </p>
+      </AgentDrawer>
       <Panel
         title="Agent configuration"
         description="Only saved configuration is shown."

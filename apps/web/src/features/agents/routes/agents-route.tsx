@@ -9,7 +9,7 @@ import {
   RefreshCw,
   UsersRound,
 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
@@ -23,10 +23,12 @@ import { agentDirectoryQuery, roleDirectoryQuery } from '../agents-queries';
 import { AgentsDirectoryToolbar } from '../components/agents-directory-toolbar';
 import { RolesLibrary } from '../components/roles-library';
 import { RolesLibraryToolbar } from '../components/roles-library-toolbar';
+import { AgentCreateDialog } from './agent-create-route';
 
 export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
+  const [createOpen, setCreateOpen] = useState(false);
   const roles = useQuery(roleDirectoryQuery({ page: 1, search: '' }));
   const builtInRoles = useQuery(
     roleDirectoryQuery({ page: 1, search: '', kind: 'built-in' }),
@@ -101,7 +103,7 @@ export function AgentsRoute() {
         title="Agents"
         description="Reusable configurations that Gantry starts when work reaches them."
         action={
-          <Button onClick={() => void navigate({ to: '/agents/new' })}>
+          <Button onClick={() => setCreateOpen(true)}>
             <Plus size={16} aria-hidden="true" />
             New agent
           </Button>
@@ -279,6 +281,9 @@ export function AgentsRoute() {
           )}
         </>
       )}
+      {createOpen ? (
+        <AgentCreateDialog onClose={() => setCreateOpen(false)} />
+      ) : null}
     </div>
   );
 }

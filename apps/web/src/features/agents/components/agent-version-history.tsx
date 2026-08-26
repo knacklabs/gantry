@@ -1,16 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { History, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 
 import { Button } from '../../../ui/primitives/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '../../../ui/primitives/dialog';
 import { agentVersionsQuery } from '../agents-queries';
+import { AgentDrawer } from './agent-drawer';
 
 export function AgentVersionHistory({ agentId }: { agentId: string }) {
   const versions = useQuery(agentVersionsQuery(agentId));
@@ -18,21 +12,19 @@ export function AgentVersionHistory({ agentId }: { agentId: string }) {
   const selected =
     versions.data?.versions.find((version) => version.id === selectedId) ??
     versions.data?.versions[0];
+  const [open, setOpen] = useState(false);
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="secondary">
-          <History size={15} aria-hidden="true" />
-          Version history
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Version history</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-text-secondary">
-          Read-only history of saved configuration snapshots.
-        </p>
+    <>
+      <Button variant="secondary" onClick={() => setOpen(true)}>
+        Version history
+      </Button>
+      <AgentDrawer
+        description="Read-only history of saved configuration snapshots."
+        footer={<Button onClick={() => setOpen(false)}>Done</Button>}
+        open={open}
+        title="Version history"
+        onOpenChange={setOpen}
+      >
         {versions.isLoading ? (
           <p className="text-sm text-text-secondary">Loading history…</p>
         ) : null}
@@ -47,7 +39,7 @@ export function AgentVersionHistory({ agentId }: { agentId: string }) {
             No saved configuration versions.
           </p>
         ) : null}
-        <div className="grid gap-4 sm:grid-cols-[10rem_1fr]">
+        <div className="grid gap-4">
           <div className="grid max-h-80 gap-2 overflow-y-auto">
             {versions.data?.versions.map((version) => (
               <button
@@ -82,7 +74,7 @@ export function AgentVersionHistory({ agentId }: { agentId: string }) {
             </article>
           ) : null}
         </div>
-      </DialogContent>
-    </Dialog>
+      </AgentDrawer>
+    </>
   );
 }

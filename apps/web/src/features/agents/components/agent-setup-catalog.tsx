@@ -1,13 +1,9 @@
+import { useState } from 'react';
+
+import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
 import { Checkbox } from '../../../ui/primitives/checkbox';
-import { TextField } from '../../../ui/compositions/text-field';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '../../../ui/primitives/dialog';
+import { AgentDrawer } from './agent-drawer';
 
 export type SetupCatalogItem = {
   id: string;
@@ -49,6 +45,7 @@ export function AgentSetupCatalog({
   onSourceTabChange: (tab: 'skills' | 'mcp') => void;
   onToggle: (id: string) => void;
 }) {
+  const [accessOpen, setAccessOpen] = useState(false);
   const noun =
     kind === 'sources'
       ? sourceTab === 'skills'
@@ -80,25 +77,41 @@ export function AgentSetupCatalog({
           </Button>
         </div>
       ) : (
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button className="w-fit" size="sm" variant="secondary">
-              How access works
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>How access works</DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-text-secondary">
-              Connected sources → Allowed capabilities → Runtime checks
+        <>
+          <Button
+            className="w-fit"
+            size="sm"
+            variant="secondary"
+            onClick={() => setAccessOpen(true)}
+          >
+            How access works
+          </Button>
+          <AgentDrawer
+            description="Connected sources → Allowed capabilities → Runtime checks"
+            eyebrow="Step 3 help"
+            footer={<Button onClick={() => setAccessOpen(false)}>Done</Button>}
+            open={accessOpen}
+            title="How agent access works"
+            onOpenChange={setAccessOpen}
+          >
+            <div className="grid gap-2 rounded-md bg-surface-muted p-3 text-sm text-text-secondary">
+              <strong className="text-text">1 · Sources</strong>
+              <span>Expose reviewed tools and information to the agent.</span>
+              <strong className="text-text">2 · Capabilities</strong>
+              <span>Authorize the durable actions this agent may request.</span>
+              <strong className="text-text">3 · Runtime checks</strong>
+              <span>Apply session approval, credentials, and host safety.</span>
+            </div>
+            <p className="m-0 text-sm text-text-secondary">
+              Connecting a source does not grant authority. An allowed write
+              action can still require approval.
             </p>
-            <p className="text-sm text-text-secondary">
-              Connected sources provide tools. Allowed capabilities authorize
-              actions. Some risky actions may still require approval.
+            <p className="m-0 rounded-md bg-surface-muted p-3 text-xs text-text-secondary">
+              No changes happen here. Close this drawer to continue choosing
+              capabilities.
             </p>
-          </DialogContent>
-        </Dialog>
+          </AgentDrawer>
+        </>
       )}
       <TextField
         id={`${kind}-catalog-search`}
