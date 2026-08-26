@@ -12,22 +12,21 @@ import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { SelectField } from '../../../ui/compositions/select-field';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
-import type { AgentPreview } from '../agents-preview';
-import { agentPreviewQuery } from '../agents-queries';
+import type { AgentDirectoryItem } from '../agents-queries';
+import { agentDirectoryQuery } from '../agents-queries';
 
 export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
-  const { data } = useQuery(agentPreviewQuery);
-  const { requestConnection } = useConnectionGate();
-  const query = search.q.toLowerCase();
-  const visible = data.filter(
-    (agent) =>
-      (search.status === 'all' || agent.status === search.status) &&
-      (search.model === 'all' || agent.modelAlias === search.model) &&
-      (!query ||
-        `${agent.name} ${agent.description}`.toLowerCase().includes(query)),
+  const { data, isLoading, isError } = useQuery(
+    agentDirectoryQuery({
+      page: search.page,
+      search: search.q,
+      status: search.status,
+    }),
   );
+  const { requestConnection } = useConnectionGate();
+  const visible = data?.items ?? [];
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,7 +36,7 @@ export function AgentsRoute() {
     });
   }
 
-  const columns = useMemo<ColumnDef<AgentPreview>[]>(
+  const columns = useMemo<ColumnDef<AgentDirectoryItem>[]>(
     () => [
       {
         accessorKey: 'name',
@@ -46,13 +45,10 @@ export function AgentsRoute() {
           <Link
             className="grid min-h-9 content-center text-text no-underline hover:underline"
             params={{ agentId: row.original.id }}
-            search={{ tab: 'identity' }}
+            search={{ tab: 'overview' }}
             to="/agents/$agentId"
           >
             <span className="font-semibold">{row.original.name}</span>
-            <span className="max-w-[280px] truncate text-xs font-normal text-text-muted">
-              {row.original.description}
-            </span>
           </Link>
         ),
       },
@@ -62,26 +58,7 @@ export function AgentsRoute() {
         cell: ({ getValue }) => <StatusBadge status={String(getValue())} />,
       },
       {
-        accessorKey: 'modelAlias',
-        header: 'Model',
-        cell: ({ row }) => (
-          <span>
-            <span className="block font-medium text-text">
-              {row.original.modelAlias}
-            </span>
-            <span className="font-mono text-[10px] text-text-muted">
-              {row.original.agentHarness}
-            </span>
-          </span>
-        ),
-      },
-      {
-        accessorKey: 'conversations',
-        header: 'Assignments',
-        enableSorting: false,
-        cell: ({ row }) => `${row.original.conversations.length} conversations`,
-      },
-      { accessorKey: 'lastRun', header: 'Last run' },
+      { accessorKey: 'updatedAt', header: 'Updated' },
     ],
     [],
   );
@@ -114,17 +91,9 @@ export function AgentsRoute() {
         <FilterSelect
           label="Status"
           value={search.status}
-          options={['all', 'deployed', 'draft', 'paused', 'blocked']}
+          options={['all', 'active', 'disabled']}
           onChange={(status) =>
             void navigate({ search: { ...search, status, page: 1 } })
-          }
-        />
-        <FilterSelect
-          label="Model"
-          value={search.model}
-          options={['all', 'sonnet', 'opus', 'gpt-5']}
-          onChange={(model) =>
-            void navigate({ search: { ...search, model, page: 1 } })
           }
         />
         <Button variant="secondary" type="submit">
@@ -134,13 +103,13 @@ export function AgentsRoute() {
 
       <Panel
         title="Agent directory"
-        description={`${visible.length} of ${data.length} agents shown`}
+        description={isLoading ? 'Loading agents…' : `${data?.total ?? 0} agents`}
         action={<Bot size={16} aria-hidden="true" />}
       >
         <DataTable
           columns={columns}
           data={visible}
-          emptyMessage="No agents match these filters."
+          emptyMessage={isError ? 'Agents could not be loaded. Reload this page to retry.' : 'No agents match these filters.'}
           page={search.page}
           sort={search.sort}
           descending={search.desc}
