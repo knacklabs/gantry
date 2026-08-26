@@ -12,6 +12,12 @@ export { structuredJobResultFromRecordedActions } from './job-notification-tool-
 
 export const JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH = 2_300;
 
+const JOB_RESULT_OUTCOME_MARKER = {
+  done: '✅',
+  skipped: '⏭️',
+  failed: '❌',
+} as const;
+
 // An empty structured result (no headline and no items) carries no meaning, so
 // it is dropped and renderers fall back to fallbackText instead of a blank card.
 function hasStructuredResultContent(
@@ -153,6 +159,11 @@ export function formatRunStatusMessage(args: {
   diagnostics?: JobRunDiagnostics;
   degradedReason?: string;
   toolDenial?: JobToolDenial | null;
+  resultItems?: Array<{
+    outcome: 'done' | 'skipped' | 'failed';
+    label: string;
+    detail?: string;
+  }>;
 }): string {
   const denial = args.toolDenial ?? null;
   const displaySummary = selectJobNotificationSummary(args.summary);
@@ -172,6 +183,10 @@ export function formatRunStatusMessage(args: {
   const lines = [
     `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
     ...(stats ? [stats] : []),
+    ...(args.resultItems?.map(
+      ({ outcome, label, detail }) =>
+        `${JOB_RESULT_OUTCOME_MARKER[outcome]} ${label}${detail ? ` — ${detail}` : ''}`,
+    ) ?? []),
     summary,
   ];
   if (args.degradedReason) lines.push(`⚠️ Degraded: ${args.degradedReason}`);

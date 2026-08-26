@@ -658,6 +658,79 @@ describe('job status formatting', () => {
     expect(message).not.toContain('narratio...');
   });
 
+  it('includes structured result items between terminal stats and the summary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: 'Imported 3 records.',
+      nextRun: '2026-05-20T21:45:00.000Z',
+      retryCount: 0,
+      durationMs: 34_000,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 2,
+        browserActivityCount: 1,
+        transientPermissionApprovals: [],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+        lastTool: 'browser_act',
+      },
+      resultItems: [
+        { outcome: 'done', label: 'Web Search ×41' },
+        {
+          outcome: 'failed',
+          label: 'Browser: Act',
+          detail: 'startup.jobs',
+        },
+      ],
+    });
+
+    expect(message.split('\n')).toEqual([
+      `**✅ Completed** · ${job().name} · 34s`,
+      '34s, 2 tools, browser used, last browser_act',
+      '✅ Web Search ×41',
+      '❌ Browser: Act — startup.jobs',
+      'Imported 3 records.',
+      expect.stringMatching(/^Runs again at /),
+    ]);
+  });
+
+  it('keeps terminal summaries byte-identical without structured result items', () => {
+    const args = {
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed' as const,
+      summary: 'Imported 3 records.',
+      nextRun: null,
+      retryCount: 0,
+      durationMs: 34_000,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 2,
+        browserActivityCount: 1,
+        transientPermissionApprovals: [],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+        lastTool: 'browser_act',
+      },
+    };
+    const expected = [
+      `**✅ Completed** · ${job().name} · 34s`,
+      '34s, 2 tools, browser used, last browser_act',
+      'Imported 3 records.',
+    ].join('\n');
+
+    expect(formatRunStatusMessage(args)).toBe(expected);
+    expect(formatRunStatusMessage({ ...args, resultItems: [] })).toBe(expected);
+  });
+
   it('hard-cuts a boundary-less summary at the limit, not after one character', () => {
     const message = formatRunStatusMessage({
       job: job(),

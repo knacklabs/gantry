@@ -433,6 +433,9 @@ export async function notifySchedulerTerminalRunState(input: {
       sendMessage: input.sendMessage,
     });
   }
+  const result = structuredJobResultFromRecordedActions(
+    input.recordedActions ?? [],
+  );
   const summaryMessage =
     compactMemoryDreamingTerminalMessage(input) ??
     formatRunStatusMessage({
@@ -452,11 +455,9 @@ export async function notifySchedulerTerminalRunState(input: {
         input.pauseReason,
       ),
       toolDenial: input.toolDenial,
+      resultItems: result?.items,
     });
   const stats = terminalRunNotificationStats(input);
-  const result = structuredJobResultFromRecordedActions(
-    input.recordedActions ?? [],
-  );
   const jobNotificationView = boundJobNotificationView({
     status: input.runStatus,
     jobName: input.job.name,
