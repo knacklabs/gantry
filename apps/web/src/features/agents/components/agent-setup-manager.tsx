@@ -29,8 +29,14 @@ export function AgentSetupManager({
   disabled?: boolean;
 }) {
   const queryClient = useQueryClient();
-  const sources = useQuery(agentSourcesQuery(agentId));
-  const capabilities = useQuery(agentCapabilitiesQuery(agentId));
+  const sources = useQuery({
+    ...agentSourcesQuery(agentId),
+    enabled: kind === 'sources',
+  });
+  const capabilities = useQuery({
+    ...agentCapabilitiesQuery(agentId),
+    enabled: kind === 'capabilities',
+  });
   const data = kind === 'sources' ? sources.data : capabilities.data;
   const [selected, setSelected] = useState<string[]>([]);
   const sourceCurrent = sources.data?.sources.sources;
@@ -99,7 +105,10 @@ export function AgentSetupManager({
           group: 'Capabilities',
         }));
 
-  if (sources.isLoading || capabilities.isLoading)
+  if (
+    (kind === 'sources' && sources.isLoading) ||
+    (kind === 'capabilities' && capabilities.isLoading)
+  )
     return (
       <p className="p-5 text-sm text-text-secondary">Loading saved setup…</p>
     );
