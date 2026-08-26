@@ -1,6 +1,0 @@
-/* KnackLabs Design System — global CSS entry point.
-   Link this one file; it reaches every token and font definition. */
-@import url('tokens/fonts.css');
-@import url('tokens/colors.css');
-@import url('tokens/typography.css');
-@import url('tokens/spacing.css');
