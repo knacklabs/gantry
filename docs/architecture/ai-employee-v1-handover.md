@@ -43,8 +43,11 @@ code that the story must respect).
 | V1.0.x | `UI-CONN-ACCOUNTS-1` | Connector Accounts page: add, connect OAuth, health, revoke | fullstack | CONN-1, OAUTH-1 | `docs/specs/console-ai-employee-management.md` |
 | V1.0.x | `ACCESS-UI-1` | Access editor: preset, tool rules, capability grants | fullstack | DIR-UI-1 | `docs/specs/console-ai-employee-management.md` |
 | V1.0.x | `HANDOFF-1` | Customer handoff to a human agent | fullstack | WA-1, HITL-1 | `docs/specs/phone-channels-and-cost-cap.md` |
+| V1.0.x | `MODEL-1` | Per-agent model allowlist enforced at the gateway | backend | SOV-1 | `docs/specs/model-governance.md` |
+| V1.0.x | `GUARD-1` | Pre-model guardrail hook with built-in PII and secret redaction | backend | AUDIT-1 | `docs/specs/model-governance.md` |
 | V1.1 | `VOICE-1` | Voice provider adapter | backend | IDENT-2, IDENT-3 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.1 | `COST-2` | Per-agent hard monthly token cap | backend | COST-1 | `docs/specs/phone-channels-and-cost-cap.md` |
+| V1.1 | `REPORT-1` | Per-agent reports and exports | fullstack | UIFACADE-1, AUDIT-1 | `docs/specs/ai-employee-directory.md` |
 
 Entry points with no dependencies today: **IDENT-2** (unblocks 12), **TEAMS-1**,
 **CONN-1**, **EGRESS-1**, PKG-1, DOCS-1. Run `./forge roadmap parallel` for the
@@ -117,6 +120,17 @@ cap stay in V1.1.
 - **Handoffs** have a read-only console view; claiming stays in Teams/Slack.
 - **DESIGN-1** runs first: one approved mockup canvas in the console's design
   system before DIR-UI-1 and ONBOARD-UI-1 are planned.
+
+## Model governance and enterprise data (added 2026-08-26)
+
+Compared against LiteLLM: Gantry is the runtime, not a gateway. Two additions
+earn their place in V1.0.x — `MODEL-1` per-agent model allowlist enforced at the
+gateway, and `GUARD-1` a pre-model guardrail hook with built-in PII/secret
+redaction (no in-repo prompt-injection classifier). `COST-1` may show currency
+via an imported open price table. `REPORT-1` (V1.1) covers reliability, access
+changes, blocked actions, memory changes, audit export, SIEM sink, access-review
+export, Prometheus. Rate limits ride with `COST-2`. Orgs with LiteLLM point the
+`openai_compatible` provider at it. Spec: `docs/specs/model-governance.md`.
 
 ## Working rules
 
