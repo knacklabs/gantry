@@ -9,9 +9,26 @@ import {
 } from '../../../lib/auth/browser-auth';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { TextField } from '../../../ui/compositions/text-field';
-import { SelectField } from '../../../ui/compositions/select-field';
 import { Button } from '../../../ui/primitives/button';
-import { roleDirectoryQuery } from '../agents-queries';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '../../../ui/primitives/select';
+import {
+  agentCapabilitiesQuery,
+  agentDetailQuery,
+  agentSourcesQuery,
+  roleDirectoryQuery,
+  type AgentCapabilities,
+  type AgentDirectoryItem,
+  type AgentSource,
+  type CapabilityCatalog,
+} from '../agents-queries';
 import { AgentSetupManager } from '../components/agent-setup-manager';
 
 export function AgentCreateRoute() {
@@ -23,6 +40,19 @@ export function AgentCreateRoute() {
     'base' | 'sources' | 'capabilities' | 'review'
   >('base');
   const roles = useQuery(roleDirectoryQuery({ page: 1, search: '' }));
+  const selectedRole = roles.data?.data.find((role) => role.id === roleId);
+  const savedAgent = useQuery({
+    ...agentDetailQuery(agentId ?? ''),
+    enabled: step === 'review' && !!agentId,
+  });
+  const savedSources = useQuery({
+    ...agentSourcesQuery(agentId ?? ''),
+    enabled: step === 'review' && !!agentId,
+  });
+  const savedCapabilities = useQuery({
+    ...agentCapabilitiesQuery(agentId ?? ''),
+    enabled: step === 'review' && !!agentId,
+  });
   const create = useMutation({
     mutationFn: async () => {
       const response = await browserFetch('/ui/api/agents', {
@@ -139,12 +169,21 @@ export function AgentCreateRoute() {
       {step === 'review' && agentId ? (
         <section className="grid gap-4 rounded-lg border border-border bg-surface p-6">
           <div>
-            <h2 className="font-semibold">Ready to configure</h2>
+            <h2 className="font-semibold">Review setup</h2>
             <p className="mt-1 text-sm text-text-secondary">
-              The base agent is saved. Sources and capabilities can be changed
-              later from Access.
+              These are the saved settings that will apply on the agent’s next
+              run.
             </p>
           </div>
+          {savedAgent.data && savedSources.data && savedCapabilities.data ? (
+            <ReviewSummary
+              agent={savedAgent.data.agent}
+              capabilities={savedCapabilities.data}
+              sources={savedSources.data}
+            />
+          ) : (
+            <p className="text-sm text-text-secondary">Loading saved setup…</p>
+          )}
           <div className="flex justify-between">
             <Button variant="secondary" onClick={() => setStep('capabilities')}>
               Back
@@ -158,7 +197,7 @@ export function AgentCreateRoute() {
                 })
               }
             >
-              Open agent <ArrowRight size={16} aria-hidden="true" />
+              Finish setup <ArrowRight size={16} aria-hidden="true" />
             </Button>
           </div>
         </section>
@@ -185,15 +224,51 @@ export function AgentCreateRoute() {
             placeholder="Customer research"
             autoFocus
           />
-          <SelectField
-            label="Role"
-            value={roleId}
-            options={(roles.data?.data ?? []).map((role) => ({
-              value: role.id,
-              label: `${role.name}${role.kind === 'custom' ? ' (custom)' : ''}`,
-            }))}
-            onValueChange={setRoleId}
-          />
+          <label className="grid gap-1.5 text-xs font-semibold text-text">
+            Role
+            <Select value={roleId} onValueChange={setRoleId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Choose a role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Built-in roles</SelectLabel>
+                  {(roles.data?.data ?? [])
+                    .filter((role) => role.kind === 'built-in')
+                    .map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel>Custom roles</SelectLabel>
+                  {(roles.data?.data ?? [])
+                    .filter((role) => role.kind === 'custom')
+                    .map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </label>
+          {selectedRole ? (
+            <section className="grid gap-2 rounded-md bg-surface-muted p-4">
+              <span className="text-xs font-semibold text-text">
+                {selectedRole.name} prompt
+              </span>
+              <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap text-xs leading-5 text-text-secondary">
+                {selectedRole.prompt}
+              </pre>
+            </section>
+          ) : null}
+          <p className="m-0 text-xs text-text-secondary">
+            This agent uses the deployment default model. Agent-specific
+            instructions are not available until Gantry can save them as a
+            versioned runtime configuration.
+          </p>
           <div className="flex justify-end">
             <Button disabled={!name.trim() || create.isPending} type="submit">
               {create.isPending ? 'Creating…' : 'Create base agent'}{' '}
@@ -203,5 +278,85 @@ export function AgentCreateRoute() {
         </form>
       ) : null}
     </div>
+  );
+}
+
+function ReviewSummary({
+  agent,
+  capabilities,
+  sources,
+}: {
+  agent: AgentDirectoryItem;
+  capabilities: { capabilities: AgentCapabilities; catalog: CapabilityCatalog };
+  sources: { sources: { sources: AgentSource }; catalog: CapabilityCatalog };
+}) {
+  const selectedSources = [
+    ...sources.sources.sources.skills.map((source) => source.id),
+    ...sources.sources.sources.mcpServers.map((source) => source.id),
+  ];
+  const selectedCapabilities = capabilities.capabilities.capabilities;
+  const sourceLabels = new Map<string, string>([
+    ...(sources.catalog.skills ?? []).map(
+      (source) => [source.id, source.name] as const,
+    ),
+    ...(sources.catalog.mcpServers ?? []).map(
+      (source) => [source.id, source.displayName ?? source.name] as const,
+    ),
+  ]);
+  const capabilityLabels = new Map<string, string>(
+    (capabilities.catalog.capabilities ?? []).map(
+      (capability) =>
+        [`${capability.id}:${capability.version}`, capability.label] as const,
+    ),
+  );
+  return (
+    <dl className="grid gap-3 rounded-md bg-surface-muted p-4 text-sm">
+      <div>
+        <dt className="text-xs font-semibold text-text-secondary">Agent</dt>
+        <dd className="m-0 text-text">{agent.name}</dd>
+      </div>
+      <div>
+        <dt className="text-xs font-semibold text-text-secondary">Role</dt>
+        <dd className="m-0 text-text">
+          {agent.roleName ?? 'No role selected'}
+        </dd>
+        {agent.rolePrompt ? (
+          <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap text-xs leading-5 text-text-secondary">
+            {agent.rolePrompt}
+          </pre>
+        ) : null}
+      </div>
+      <div>
+        <dt className="text-xs font-semibold text-text-secondary">Model</dt>
+        <dd className="m-0 text-text">Deployment default</dd>
+      </div>
+      <div>
+        <dt className="text-xs font-semibold text-text-secondary">Sources</dt>
+        <dd className="m-0 text-text">
+          {selectedSources.length
+            ? selectedSources
+                .map((source) => sourceLabels.get(source) ?? source)
+                .join(', ')
+            : 'Skipped'}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs font-semibold text-text-secondary">
+          Allowed capabilities
+        </dt>
+        <dd className="m-0 text-text">
+          {selectedCapabilities.length
+            ? selectedCapabilities
+                .map(
+                  (capability) =>
+                    capabilityLabels.get(
+                      `${capability.id}:${capability.version}`,
+                    ) ?? capability.id,
+                )
+                .join(', ')
+            : 'Skipped'}
+        </dd>
+      </div>
+    </dl>
   );
 }
