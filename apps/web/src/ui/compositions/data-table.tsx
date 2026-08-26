@@ -31,6 +31,7 @@ type DataTableProps<TData> = {
   descending?: boolean;
   onPageChange: (page: number) => void;
   onSortChange: (column: string, descending: boolean) => void;
+  onRowClick?: (row: TData) => void;
 };
 
 export function DataTable<TData>({
@@ -47,6 +48,7 @@ export function DataTable<TData>({
   descending = false,
   onPageChange,
   onSortChange,
+  onRowClick,
 }: DataTableProps<TData>) {
   const sorting: SortingState = sort ? [{ id: sort, desc: descending }] : [];
   const pageCount =
@@ -115,8 +117,17 @@ export function DataTable<TData>({
             {table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
                 <tr
-                  className="border-b border-border last:border-0 hover:bg-surface-muted"
+                  className={`border-b border-border last:border-0 hover:bg-surface-muted ${onRowClick ? 'cursor-pointer' : ''}`}
                   key={row.id}
+                  onClick={(event) => {
+                    if (
+                      (event.target as HTMLElement).closest(
+                        'a,button,input,select,textarea,[role="checkbox"]',
+                      )
+                    )
+                      return;
+                    onRowClick?.(row.original);
+                  }}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td

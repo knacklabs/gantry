@@ -196,6 +196,13 @@ export function AgentsRoute() {
                     },
                   })
                 }
+                onRowClick={(agent) =>
+                  void navigate({
+                    to: '/agents/$agentId',
+                    params: { agentId: agent.id },
+                    search: { tab: 'overview' },
+                  })
+                }
               />
             </Panel>
           )}
