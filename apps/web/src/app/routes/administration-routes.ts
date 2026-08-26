@@ -3,7 +3,6 @@ import { createRoute, lazyRouteComponent } from '@tanstack/react-router';
 import {
   agentDetailSearchSchema,
   agentListSearchSchema,
-  sourceSearchSchema,
 } from '../../features/agents/agents-search';
 import {
   peopleSearchSchema,
@@ -40,25 +39,6 @@ const agentCreateRoute = createRoute({
   ),
 });
 
-const sourcesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'sources',
-  validateSearch: sourceSearchSchema,
-  component: lazyRouteComponent(
-    () => import('../../features/agents/routes/sources-route'),
-    'SourcesRoute',
-  ),
-});
-
-const pauseRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: 'pause',
-  component: lazyRouteComponent(
-    () => import('../../features/agents/routes/pause-route'),
-    'PauseRoute',
-  ),
-});
-
 const peopleRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'people',
@@ -83,8 +63,6 @@ export const administrationRoutes = [
   agentsRoute,
   agentCreateRoute,
   agentDetailRoute,
-  sourcesRoute,
-  pauseRoute,
   peopleRoute,
   personDetailRoute,
 ];

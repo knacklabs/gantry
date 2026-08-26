@@ -8,10 +8,8 @@ import {
   CalendarClock,
   CircleHelp,
   LayoutDashboard,
-  Library,
   MessagesSquare,
   MessageCircle,
-  PauseCircle,
   PlugZap,
   Gauge,
   ExternalLink,
@@ -45,8 +43,6 @@ const navigation = [
     items: [
       { to: '/agents', label: 'Agents', icon: Bot },
       { to: '/people', label: 'People', icon: Users },
-      { to: '/sources', label: 'Sources & access', icon: Library },
-      { to: '/pause', label: 'Pause everywhere', icon: PauseCircle },
     ],
   },
   {

@@ -1,19 +1,12 @@
 import { queryOptions } from '@tanstack/react-query';
 
 import { browserFetch } from '../../lib/auth/browser-auth';
-import { agents, sources } from './agents-preview';
 
 export const agentQueryKeys = {
   all: ['agents'] as const,
   list: () => [...agentQueryKeys.all, 'list'] as const,
   sources: () => [...agentQueryKeys.all, 'sources'] as const,
 };
-
-export const agentPreviewQuery = queryOptions({
-  queryKey: agentQueryKeys.list(),
-  queryFn: () => agents,
-  initialData: agents,
-});
 
 export type AgentDirectoryItem = {
   id: string;
@@ -179,9 +172,3 @@ export function roleDirectoryQuery(input: { page: number; search: string }) {
     },
   });
 }
-
-export const sourcePreviewQuery = queryOptions({
-  queryKey: agentQueryKeys.sources(),
-  queryFn: () => sources,
-  initialData: sources,
-});

@@ -20,11 +20,3 @@ export const agentDetailSearchSchema = z.object({
     .enum(['overview', 'instructions', 'access', 'settings'])
     .catch('overview'),
 });
-
-export const sourceSearchSchema = z.object({
-  q: z.string().catch(''),
-  kind: z
-    .enum(['all', 'Built-in tools', 'Skill catalog', 'MCP server', 'Local CLI'])
-    .catch('all'),
-  selected: z.string().optional().catch(undefined),
-});
