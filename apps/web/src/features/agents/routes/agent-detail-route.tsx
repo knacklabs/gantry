@@ -1,58 +1,80 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Link,
   useNavigate,
   useParams,
   useSearch,
 } from '@tanstack/react-router';
-import { ArrowLeft, Pause, Play, SearchX } from 'lucide-react';
+import { ArrowLeft, Power, RefreshCw } from 'lucide-react';
 
-import { useConnectionGate } from '../../../ui/compositions/connection-gate';
+import {
+  browserCsrfHeader,
+  browserFetch,
+} from '../../../lib/auth/browser-auth';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
-import { RouteTabs, type RouteTab } from '../../../ui/compositions/route-tabs';
+import { RouteTabs } from '../../../ui/compositions/route-tabs';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { Button } from '../../../ui/primitives/button';
 import {
-  AgentDetailSection,
-  type AgentDetailTab,
-} from '../components/agent-detail-section';
-import { agentDetailSearchSchema } from '../agents-search';
-import { agentPreviewQuery, sourcePreviewQuery } from '../agents-queries';
+  agentDetailQuery,
+  agentQueryKeys,
+  type AgentDirectoryItem,
+} from '../agents-queries';
 
 export function AgentDetailRoute() {
   const { agentId } = useParams({ from: '/agents/$agentId' });
   const search = useSearch({ from: '/agents/$agentId' });
   const navigate = useNavigate({ from: '/agents/$agentId' });
-  const { data: agents } = useQuery(agentPreviewQuery);
-  const { data: sources } = useQuery(sourcePreviewQuery);
-  const { requestConnection } = useConnectionGate();
-  const agent = agents.find((item) => item.id === agentId);
-
-  if (!agent) {
+  const queryClient = useQueryClient();
+  const detail = useQuery(agentDetailQuery(agentId));
+  const status = useMutation({
+    mutationFn: async (action: 'enable' | 'disable') => {
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}/${action}`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: browserCsrfHeader(),
+        },
+      );
+      if (!response.ok) throw new Error(`Agent could not be ${action}d.`);
+    },
+    onSuccess: () =>
+      void queryClient.invalidateQueries({ queryKey: agentQueryKeys.all }),
+  });
+  if (detail.isError)
     return (
       <PageState
-        kind="empty"
-        icon={<SearchX size={18} aria-hidden="true" />}
-        title="Agent not found"
-        description="This preview snapshot does not contain that agent."
+        action={
+          <Button onClick={() => void detail.refetch()}>
+            <RefreshCw size={15} aria-hidden="true" />
+            Retry
+          </Button>
+        }
+        description="Try loading this agent again."
+        icon={<Power size={18} aria-hidden="true" />}
+        kind="error"
+        title="Agent could not be loaded"
       />
     );
-  }
-
-  const tabs: RouteTab<typeof search.tab>[] = [
-    { value: 'overview', label: 'Overview' },
-    { value: 'instructions', label: 'Instructions' },
-    { value: 'access', label: 'Access' },
-    { value: 'settings', label: 'Settings' },
-  ];
-  const pauseLabel = agent.status === 'paused' ? 'Resume agent' : 'Pause agent';
-
+  if (!detail.data)
+    return (
+      <PageState
+        description="Loading the selected agent."
+        icon={<Power size={18} aria-hidden="true" />}
+        kind="loading"
+        title="Loading agent"
+      />
+    );
+  const agent = detail.data.agent;
+  const action = agent.status === 'active' ? 'disable' : 'enable';
   return (
     <div className="mx-auto grid w-full max-w-[1120px] gap-6">
       <Link
         className="inline-flex min-h-8 w-fit items-center gap-2 text-xs font-semibold text-text-secondary no-underline hover:text-text"
+        to="/agents"
         search={{
           tab: 'agents',
           q: '',
@@ -63,58 +85,84 @@ export function AgentDetailRoute() {
           sort: 'name',
           desc: false,
         }}
-        to="/agents"
       >
         <ArrowLeft size={15} aria-hidden="true" />
         Agents
       </Link>
       <PageHeader
-        eyebrow="Agent administration"
+        eyebrow="Agent"
         title={agent.name}
-        description={`${agent.description} · ${agent.runsToday} runs today · Last run ${agent.lastRun}`}
+        description={`Reusable configuration · ${agent.conversationCount} connected conversations`}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex gap-2">
             <StatusBadge status={agent.status} />
             <Button
               variant="secondary"
-              onClick={() => requestConnection(`${pauseLabel}: ${agent.name}`)}
+              disabled={status.isPending}
+              onClick={() => status.mutate(action)}
             >
-              {agent.status === 'paused' ? (
-                <Play size={15} aria-hidden="true" />
-              ) : (
-                <Pause size={15} aria-hidden="true" />
-              )}
-              {pauseLabel}
+              <Power size={15} aria-hidden="true" />
+              {action === 'disable' ? 'Disable' : 'Enable'}
             </Button>
           </div>
         }
       />
-
       <Panel
-        title="Agent settings"
-        description="Preview desired state. Changes stay local until connected."
+        title="Agent configuration"
+        description="Only saved configuration is shown."
       >
         <RouteTabs
-          label="Agent settings"
-          tabs={tabs}
+          label="Agent detail"
+          tabs={[
+            { value: 'overview', label: 'Overview' },
+            { value: 'instructions', label: 'Instructions' },
+            { value: 'access', label: 'Access' },
+            { value: 'settings', label: 'Settings' },
+          ]}
           value={search.tab}
           onValueChange={(tab) => void navigate({ search: { tab } })}
         />
-        <AgentDetailSection
-          agent={agent}
-          sources={sources}
-          tab={detailTabFor(search.tab)}
-        />
+        <Content agent={agent} tab={search.tab} />
       </Panel>
     </div>
   );
 }
 
-function detailTabFor(
-  tab: typeof agentDetailSearchSchema._output.tab,
-): AgentDetailTab {
-  if (tab === 'overview') return 'identity';
-  if (tab === 'instructions') return 'profile';
-  if (tab === 'settings') return 'conversations';
-  return tab;
+function Content({
+  agent,
+  tab,
+}: {
+  agent: AgentDirectoryItem;
+  tab: 'overview' | 'instructions' | 'access' | 'settings';
+}) {
+  if (tab === 'instructions')
+    return (
+      <pre className="m-0 max-h-96 overflow-auto whitespace-pre-wrap p-5 text-xs leading-5 text-text-secondary">
+        {agent.rolePrompt ?? 'No role prompt was saved for this agent.'}
+      </pre>
+    );
+  if (tab === 'access')
+    return (
+      <div className="p-5 text-sm text-text-secondary">
+        Sources are inventory; selected capabilities are configured separately.
+        This agent has {agent.conversationCount} connected conversations.
+      </div>
+    );
+  if (tab === 'settings')
+    return (
+      <div className="grid gap-2 p-5 text-sm text-text-secondary">
+        <span>Status: {agent.status}</span>
+        <span>
+          Configuration version: {agent.configVersion ?? 'No saved version'}
+        </span>
+        <span>Model: {agent.modelAlias ?? 'Deployment default'}</span>
+      </div>
+    );
+  return (
+    <div className="grid gap-2 p-5 text-sm text-text-secondary">
+      <span>Role: {agent.roleName ?? 'No role selected'}</span>
+      <span>Model: {agent.modelAlias ?? 'Deployment default'}</span>
+      <span>{agent.conversationCount} connected conversations</span>
+    </div>
+  );
 }

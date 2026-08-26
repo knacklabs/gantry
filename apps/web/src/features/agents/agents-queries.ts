@@ -20,6 +20,8 @@ export type AgentDirectoryItem = {
   name: string;
   status: 'active' | 'disabled';
   roleName: string | null;
+  rolePrompt: string | null;
+  configVersion: number | null;
   modelAlias: string | null;
   conversationCount: number;
   createdAt: string;
@@ -35,6 +37,20 @@ export type BrowserPage<T> = {
 };
 
 export type AgentDirectoryPage = BrowserPage<AgentDirectoryItem>;
+
+export function agentDetailQuery(agentId: string) {
+  return queryOptions({
+    queryKey: [...agentQueryKeys.all, 'detail', agentId] as const,
+    queryFn: async (): Promise<{ agent: AgentDirectoryItem }> => {
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok) throw new Error('Agent could not be loaded.');
+      return response.json() as Promise<{ agent: AgentDirectoryItem }>;
+    },
+  });
+}
 
 export type BrowserRole = {
   id: string;

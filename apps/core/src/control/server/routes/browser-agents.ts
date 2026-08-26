@@ -80,6 +80,8 @@ async function agentView(
     name: agent.name,
     status: agent.status,
     roleName: config?.roleSnapshot?.displayName ?? null,
+    rolePrompt: config?.roleSnapshot?.prompt ?? null,
+    configVersion: config?.version ?? null,
     modelAlias: null,
     conversationCount: installs.filter((install) => install.status === 'active')
       .length,
