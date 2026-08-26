@@ -84,6 +84,12 @@ export function parseHeredocBodies(
       if (newlineIndex === -1) {
         return { ok: false, reason: 'Bash heredoc delimiter not terminated.' };
       }
+      if (!heredoc.quoted && command[newlineIndex - 1] === '\\') {
+        return {
+          ok: false,
+          reason: 'Bash heredoc body uses unsupported line continuation.',
+        };
+      }
       body.push(
         heredoc.stripTabs
           ? command.slice(cursor, newlineIndex + 1).replace(/^\t+/, '')
@@ -127,7 +133,7 @@ export function parseHeredocDelimiter(
     if (!target) {
       return { ok: false, reason: 'Bash redirection target missing.' };
     }
-    if (/[\\'"]/.test(target)) {
+    if (target.includes('\\') || target.includes(first)) {
       return {
         ok: false,
         reason: 'Bash heredoc delimiter uses unsupported quoting.',

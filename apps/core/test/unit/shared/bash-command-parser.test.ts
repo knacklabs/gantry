@@ -67,6 +67,39 @@ describe('bash command parser', () => {
     });
   });
 
+  it('rejects bare heredoc body line continuations', () => {
+    expect(parseBashCommand('cat <<EOF\nline\\\nEOF\necho body\nEOF')).toEqual({
+      ok: false,
+      reason: 'Bash heredoc body uses unsupported line continuation.',
+    });
+  });
+
+  it('keeps quoted heredoc body lines physical', () => {
+    const parsed = parseBashCommand("cat <<'EOF'\nline\\\nEOF\necho body\nEOF");
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      leaves: [
+        { redirects: [{ target: 'EOF', heredoc: 'line\\\n' }] },
+        { argv: ['echo', 'body'] },
+        { argv: ['EOF'] },
+      ],
+    });
+  });
+
+  it.each([
+    ['cat <<\'E"OF\'\nx\nE"OF', 'E"OF'],
+    ['cat <<"E\'OF"\nx\nE\'OF', "E'OF"],
+  ])(
+    'allows the other quote in a quoted heredoc delimiter: %s',
+    (command, target) => {
+      expect(parseBashCommand(command)).toMatchObject({
+        ok: true,
+        leaves: [{ redirects: [{ target }] }],
+      });
+    },
+  );
+
   it('rejects an unterminated heredoc', () => {
     expect(parseBashCommand('cat <<EOF\nbody')).toEqual({
       ok: false,
@@ -81,15 +114,18 @@ describe('bash command parser', () => {
     });
   });
 
-  it.each(['cat <<\\EOF', "cat <<E'OF'", "cat <<'E'OF", 'cat <<"EOF"x'])(
-    'rejects unsupported heredoc delimiter quoting: %s',
-    (command) => {
-      expect(parseBashCommand(command)).toEqual({
-        ok: false,
-        reason: 'Bash heredoc delimiter uses unsupported quoting.',
-      });
-    },
-  );
+  it.each([
+    'cat <<\\EOF',
+    "cat <<E'OF'",
+    "cat <<'E'OF",
+    'cat <<"EOF"x',
+    "cat <<'E\\OF'",
+  ])('rejects unsupported heredoc delimiter quoting: %s', (command) => {
+    expect(parseBashCommand(command)).toEqual({
+      ok: false,
+      reason: 'Bash heredoc delimiter uses unsupported quoting.',
+    });
+  });
 
   it('keeps existing redirect operators intact', () => {
     const parsed = parseBashCommand('cat < input > output >> log 2>&1');
