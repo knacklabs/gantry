@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Plus, RefreshCw } from 'lucide-react';
+import { BookOpen, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import {
@@ -10,6 +10,15 @@ import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../../../ui/primitives/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -52,6 +61,21 @@ export function RolesLibrary({
       setPrompt('');
       return queryClient.invalidateQueries({ queryKey: ['agents', 'roles'] });
     },
+  });
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await browserFetch(
+        `/ui/api/roles/${encodeURIComponent(id)}`,
+        {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: browserCsrfHeader(),
+        },
+      );
+      if (!response.ok) throw new Error('Role could not be deleted.');
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['agents', 'roles'] }),
   });
   if (error) {
     return (
@@ -103,6 +127,34 @@ export function RolesLibrary({
             <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-surface-muted p-3 text-xs leading-5 text-text-secondary">
               {role.prompt}
             </pre>
+            {role.kind === 'custom' ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive">
+                    <Trash2 size={15} aria-hidden="true" />
+                    Delete role
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete {role.name}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Existing agents keep their saved role snapshot. This only
+                      removes the role from future selection.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <Button
+                      disabled={remove.isPending}
+                      variant="destructive"
+                      onClick={() => remove.mutate(role.id)}
+                    >
+                      Delete role
+                    </Button>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
           </article>
         ))}
       </div>
