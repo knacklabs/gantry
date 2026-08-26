@@ -4,11 +4,7 @@ permissions:
   contents: read
 
 on:
-  push:
-    branches:
-      - fix/prod-managed-browser-runtime
-    paths:
-      - .github/workflows/temp_prod_ats_resume_e2e_diagnostics.yml
+  workflow_dispatch:
 
 env:
   AWS_REGION: ap-south-1
