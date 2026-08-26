@@ -18,6 +18,7 @@ import {
   AgentDetailSection,
   type AgentDetailTab,
 } from '../components/agent-detail-section';
+import { agentDetailSearchSchema } from '../agents-search';
 import { agentPreviewQuery, sourcePreviewQuery } from '../agents-queries';
 
 export function AgentDetailRoute() {
@@ -40,23 +41,11 @@ export function AgentDetailRoute() {
     );
   }
 
-  const tabs: RouteTab<AgentDetailTab>[] = [
-    { value: 'identity', label: 'Identity' },
-    { value: 'profile', label: 'Profile' },
-    { value: 'sources', label: 'Sources', count: agent.sources.length },
-    {
-      value: 'capabilities',
-      label: 'Capabilities',
-      count: agent.capabilities.length,
-    },
-    { value: 'skills', label: 'Skills', count: agent.skills.length },
-    { value: 'mcp', label: 'MCP', count: agent.mcpServers.length },
+  const tabs: RouteTab<typeof search.tab>[] = [
+    { value: 'overview', label: 'Overview' },
+    { value: 'instructions', label: 'Instructions' },
     { value: 'access', label: 'Access' },
-    {
-      value: 'conversations',
-      label: 'Conversations',
-      count: agent.conversations.length,
-    },
+    { value: 'settings', label: 'Settings' },
   ];
   const pauseLabel = agent.status === 'paused' ? 'Resume agent' : 'Pause agent';
 
@@ -65,10 +54,12 @@ export function AgentDetailRoute() {
       <Link
         className="inline-flex min-h-8 w-fit items-center gap-2 text-xs font-semibold text-text-secondary no-underline hover:text-text"
         search={{
+          tab: 'agents',
           q: '',
           status: 'all',
-          model: 'all',
           page: 1,
+          pageSize: 25,
+          role: 'all',
           sort: 'name',
           desc: false,
         }}
@@ -109,8 +100,21 @@ export function AgentDetailRoute() {
           value={search.tab}
           onValueChange={(tab) => void navigate({ search: { tab } })}
         />
-        <AgentDetailSection agent={agent} sources={sources} tab={search.tab} />
+        <AgentDetailSection
+          agent={agent}
+          sources={sources}
+          tab={detailTabFor(search.tab)}
+        />
       </Panel>
     </div>
   );
+}
+
+function detailTabFor(
+  tab: typeof agentDetailSearchSchema._output.tab,
+): AgentDetailTab {
+  if (tab === 'overview') return 'identity';
+  if (tab === 'instructions') return 'profile';
+  if (tab === 'settings') return 'conversations';
+  return tab;
 }

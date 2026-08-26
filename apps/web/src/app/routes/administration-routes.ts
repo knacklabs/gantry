@@ -31,6 +31,15 @@ const agentDetailRoute = createRoute({
   ),
 });
 
+const agentCreateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'agents/new',
+  component: lazyRouteComponent(
+    () => import('../../features/agents/routes/agent-create-route'),
+    'AgentCreateRoute',
+  ),
+});
+
 const sourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'sources',
@@ -72,6 +81,7 @@ const personDetailRoute = createRoute({
 
 export const administrationRoutes = [
   agentsRoute,
+  agentCreateRoute,
   agentDetailRoute,
   sourcesRoute,
   pauseRoute,

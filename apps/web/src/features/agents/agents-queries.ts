@@ -19,37 +19,77 @@ export type AgentDirectoryItem = {
   id: string;
   name: string;
   status: 'active' | 'disabled';
+  roleName: string | null;
+  modelAlias: string | null;
+  conversationCount: number;
   createdAt: string;
   updatedAt: string;
 };
 
-export type AgentDirectoryPage = {
-  items: AgentDirectoryItem[];
+export type BrowserPage<T> = {
+  data: T[];
   page: number;
   pageSize: number;
   total: number;
-  totalPages: number;
+  hasNext: boolean;
+};
+
+export type AgentDirectoryPage = BrowserPage<AgentDirectoryItem>;
+
+export type BrowserRole = {
+  id: string;
+  name: string;
+  prompt: string;
+  kind: 'built-in' | 'custom';
+  sourceRoleId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export function agentDirectoryQuery(input: {
   page: number;
+  pageSize: number;
   search: string;
   status: string;
+  role: string;
+  sort: string;
+  direction: 'asc' | 'desc';
 }) {
   return queryOptions({
     queryKey: [...agentQueryKeys.list(), input] as const,
     queryFn: async (): Promise<AgentDirectoryPage> => {
       const params = new URLSearchParams({
         page: String(input.page),
-        pageSize: '25',
+        pageSize: String(input.pageSize),
+        sort: input.sort,
+        direction: input.direction,
       });
       if (input.search) params.set('search', input.search);
       if (input.status !== 'all') params.set('status', input.status);
+      if (input.role !== 'all') params.set('role', input.role);
       const response = await browserFetch(`/ui/api/agents?${params}`, {
         credentials: 'same-origin',
       });
       if (!response.ok) throw new Error('Agents could not be loaded.');
       return response.json() as Promise<AgentDirectoryPage>;
+    },
+  });
+}
+
+export function roleDirectoryQuery(input: { page: number; search: string }) {
+  return queryOptions({
+    queryKey: [...agentQueryKeys.all, 'roles', input] as const,
+    queryFn: async (): Promise<BrowserPage<BrowserRole>> => {
+      const params = new URLSearchParams({
+        page: String(input.page),
+        pageSize: '25',
+      });
+      if (input.search) params.set('search', input.search);
+      const response = await browserFetch(`/ui/api/roles?${params}`, {
+        credentials: 'same-origin',
+      });
+      if (!response.ok) throw new Error('Roles could not be loaded.');
+      return response.json() as Promise<BrowserPage<BrowserRole>>;
     },
   });
 }

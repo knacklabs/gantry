@@ -1,41 +1,36 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Bot, Plus } from 'lucide-react';
-import { type FormEvent, useMemo } from 'react';
+import { Bot, Plus, RefreshCw, UsersRound } from 'lucide-react';
+import { useMemo } from 'react';
 
-import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
+import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
+import { RouteTabs } from '../../../ui/compositions/route-tabs';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
-import { SelectField } from '../../../ui/compositions/select-field';
-import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
 import type { AgentDirectoryItem } from '../agents-queries';
-import { agentDirectoryQuery } from '../agents-queries';
+import { agentDirectoryQuery, roleDirectoryQuery } from '../agents-queries';
+import { AgentsDirectoryToolbar } from '../components/agents-directory-toolbar';
+import { RolesLibrary } from '../components/roles-library';
 
 export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
-  const { data, isLoading, isError } = useQuery(
+  const roles = useQuery(roleDirectoryQuery({ page: 1, search: '' }));
+  const directory = useQuery(
     agentDirectoryQuery({
       page: search.page,
+      pageSize: search.pageSize,
       search: search.q,
       status: search.status,
+      role: search.role,
+      sort: search.sort,
+      direction: search.desc ? 'desc' : 'asc',
     }),
   );
-  const { requestConnection } = useConnectionGate();
-  const visible = data?.items ?? [];
-
-  function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    void navigate({
-      search: { ...search, q: String(form.get('q') ?? ''), page: 1 },
-    });
-  }
-
   const columns = useMemo<ColumnDef<AgentDirectoryItem>[]>(
     () => [
       {
@@ -43,12 +38,12 @@ export function AgentsRoute() {
         header: 'Agent',
         cell: ({ row }) => (
           <Link
-            className="grid min-h-9 content-center text-text no-underline hover:underline"
+            className="grid min-h-9 content-center font-semibold text-text no-underline hover:underline"
             params={{ agentId: row.original.id }}
             search={{ tab: 'overview' }}
             to="/agents/$agentId"
           >
-            <span className="font-semibold">{row.original.name}</span>
+            {row.original.name}
           </Link>
         ),
       },
@@ -58,9 +53,27 @@ export function AgentsRoute() {
         cell: ({ getValue }) => <StatusBadge status={String(getValue())} />,
       },
       {
+        accessorKey: 'roleName',
+        header: 'Role',
+        cell: ({ getValue }) => getValue<string | null>() ?? 'No role selected',
+      },
+      {
+        accessorKey: 'modelAlias',
+        header: 'Model',
+        cell: ({ getValue }) =>
+          getValue<string | null>() ?? 'Deployment default',
+      },
+      {
+        accessorKey: 'conversationCount',
+        header: 'Conversations',
+        cell: ({ getValue }) => `${getValue<number>()} connected`,
+      },
       { accessorKey: 'updatedAt', header: 'Updated' },
     ],
     [],
+  );
+  const hasFilters = Boolean(
+    search.q || search.status !== 'all' || search.role !== 'all',
   );
 
   return (
@@ -68,93 +81,126 @@ export function AgentsRoute() {
       <PageHeader
         eyebrow="Administration"
         title="Agents"
-        description="Identity, model defaults, attached sources, and conversation installations."
+        description="Reusable configurations that Gantry starts when work reaches them."
         action={
-          <Button onClick={() => requestConnection('Create agent')}>
+          <Button onClick={() => void navigate({ to: '/agents/new' })}>
             <Plus size={16} aria-hidden="true" />
-            Create agent
+            New agent
           </Button>
         }
       />
+      <RouteTabs
+        label="Agents administration"
+        tabs={[
+          { value: 'agents', label: 'Agents' },
+          { value: 'roles', label: 'Roles' },
+        ]}
+        value={search.tab}
+        onValueChange={(tab) =>
+          void navigate({ search: { ...search, tab, page: 1 } })
+        }
+      />
 
-      <form
-        className="grid items-end gap-3 md:grid-cols-[minmax(0,1fr)_170px_150px_auto]"
-        onSubmit={submitSearch}
-      >
-        <TextField
-          defaultValue={search.q}
-          id="agent-search"
-          label="Search agents"
-          name="q"
-          placeholder="Name or purpose"
+      {search.tab === 'roles' ? (
+        <RolesLibrary
+          data={roles.data}
+          error={roles.isError}
+          loading={roles.isLoading}
+          onRetry={() => void roles.refetch()}
         />
-        <FilterSelect
-          label="Status"
-          value={search.status}
-          options={['all', 'active', 'disabled']}
-          onChange={(status) =>
-            void navigate({ search: { ...search, status, page: 1 } })
-          }
-        />
-        <Button variant="secondary" type="submit">
-          Search
-        </Button>
-      </form>
-
-      <Panel
-        title="Agent directory"
-        description={isLoading ? 'Loading agents…' : `${data?.total ?? 0} agents`}
-        action={<Bot size={16} aria-hidden="true" />}
-      >
-        <DataTable
-          columns={columns}
-          data={visible}
-          emptyMessage={isError ? 'Agents could not be loaded. Reload this page to retry.' : 'No agents match these filters.'}
-          page={search.page}
-          sort={search.sort}
-          descending={search.desc}
-          onPageChange={(page) =>
-            void navigate({ search: { ...search, page } })
-          }
-          onSortChange={(sort, desc) =>
-            void navigate({
-              search: {
-                ...search,
-                sort: sort as typeof search.sort,
-                desc,
-                page: 1,
-              },
-            })
-          }
-        />
-      </Panel>
+      ) : (
+        <>
+          <AgentsDirectoryToolbar
+            roleOptions={roles.data?.data ?? []}
+            search={search}
+            onChange={(next) =>
+              void navigate({ search: { ...search, ...next } })
+            }
+          />
+          {hasFilters ? (
+            <div>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  void navigate({
+                    search: {
+                      ...search,
+                      q: '',
+                      status: 'all',
+                      role: 'all',
+                      page: 1,
+                    },
+                  })
+                }
+              >
+                Clear filters
+              </Button>
+            </div>
+          ) : null}
+          {directory.isError ? (
+            <PageState
+              action={
+                <Button onClick={() => void directory.refetch()}>
+                  <RefreshCw size={15} aria-hidden="true" />
+                  Retry
+                </Button>
+              }
+              description="Your filters were kept. Try loading this directory again."
+              icon={<Bot size={18} aria-hidden="true" />}
+              kind="error"
+              title="Agents could not be loaded"
+            />
+          ) : (
+            <Panel
+              title="Agent directory"
+              description={
+                directory.isLoading
+                  ? 'Loading agents…'
+                  : `${directory.data?.total ?? 0} agents`
+              }
+              action={<UsersRound size={16} aria-hidden="true" />}
+            >
+              <DataTable
+                columns={columns}
+                data={directory.data?.data ?? []}
+                emptyMessage={
+                  hasFilters
+                    ? 'No agents match these filters.'
+                    : 'Create an agent to give Gantry a reusable configuration for work.'
+                }
+                isBusy={directory.isFetching}
+                page={search.page}
+                pageCount={
+                  directory.data
+                    ? Math.max(
+                        1,
+                        Math.ceil(
+                          directory.data.total / directory.data.pageSize,
+                        ),
+                      )
+                    : 1
+                }
+                pageSize={search.pageSize}
+                scrollClassName="max-h-[calc(100vh-25rem)] min-h-56"
+                total={directory.data?.total}
+                onPageChange={(page) =>
+                  void navigate({ search: { ...search, page } })
+                }
+                onSortChange={(sort, desc) =>
+                  void navigate({
+                    search: {
+                      ...search,
+                      sort: sort as typeof search.sort,
+                      desc,
+                      page: 1,
+                    },
+                  })
+                }
+              />
+            </Panel>
+          )}
+        </>
+      )}
     </div>
-  );
-}
-
-function FilterSelect<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: readonly T[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <SelectField
-      label={label}
-      onValueChange={onChange}
-      options={options.map((value) => ({
-        label:
-          value === 'all'
-            ? `All ${label.toLowerCase()}s`
-            : value.replaceAll('-', ' '),
-        value,
-      }))}
-      value={value}
-    />
   );
 }

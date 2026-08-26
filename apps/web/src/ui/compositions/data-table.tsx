@@ -23,6 +23,10 @@ type DataTableProps<TData> = {
   emptyMessage: string;
   page: number;
   pageSize?: number;
+  pageCount?: number;
+  total?: number;
+  isBusy?: boolean;
+  scrollClassName?: string;
   sort?: string;
   descending?: boolean;
   onPageChange: (page: number) => void;
@@ -35,13 +39,18 @@ export function DataTable<TData>({
   emptyMessage,
   page,
   pageSize = 6,
+  pageCount: serverPageCount,
+  total,
+  isBusy = false,
+  scrollClassName,
   sort,
   descending = false,
   onPageChange,
   onSortChange,
 }: DataTableProps<TData>) {
   const sorting: SortingState = sort ? [{ id: sort, desc: descending }] : [];
-  const pageCount = Math.max(1, Math.ceil(data.length / pageSize));
+  const pageCount =
+    serverPageCount ?? Math.max(1, Math.ceil(data.length / pageSize));
   const pageIndex = Math.min(Math.max(0, page - 1), pageCount - 1);
   const table = useReactTable({
     columns,
@@ -63,9 +72,12 @@ export function DataTable<TData>({
 
   return (
     <div className="min-w-0">
-      <div className="overflow-x-auto">
+      <div
+        aria-busy={isBusy || undefined}
+        className={`overflow-auto ${scrollClassName ?? ''}`}
+      >
         <table className="w-full min-w-[680px] border-collapse text-left text-[13px]">
-          <thead>
+          <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr
                 className="border-b border-border bg-surface-muted"
@@ -134,7 +146,7 @@ export function DataTable<TData>({
       </div>
       <div className="flex min-h-14 items-center justify-between border-t border-border px-4 text-xs text-text-secondary">
         <span>
-          Page {visiblePage} of {pageCount} · {data.length} records
+          Page {visiblePage} of {pageCount} · {total ?? data.length} records
         </span>
         <div className="flex gap-1">
           <Button
