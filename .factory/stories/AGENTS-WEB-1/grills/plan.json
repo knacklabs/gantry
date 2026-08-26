@@ -1,0 +1,63 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "The plan replaces the fixture Agents surface in one bounded story decomposition and removes its obsolete preview seams rather than retaining compatibility paths.",
+    "Custom role templates are the only new durable domain; agent source/capability, browser-auth, profile, model, and conversation boundaries reuse existing services.",
+    "The UI is split by directory/library, creation flow, and detail responsibility; no single feature file contains multiple pages.",
+    "Every backend task is marked user_facing false and every visible-screen task is marked true, so required design and functional gates apply at the right boundary.",
+    "The existing delivery-semantics recurring finding is unrelated to this story; the plan records a tripwire for any recurring finding in the Agents area."
+  ],
+  "inspected_refs": [
+    "plans/AGENTS-WEB-1-agents-web-ui.md",
+    "plans/roadmap.json:AGENTS-WEB-1",
+    "docs/specs/agents-web-ui.md",
+    "docs/decisions/0003-early-stage-no-backcompat.md",
+    "docs/decisions/0020-mcp-source-vs-action-capability.md",
+    "docs/decisions/0050-agent-removal-projection-cleanup.md",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md",
+    "docs/architecture/capability-management.md",
+    "docs/architecture/current-verification-commands.md"
+  ],
+  "current_flow": "Existing Web routes use preview data and connection-gate controls. Existing core services separately own agent profile versions, access replacements, source bindings, semantic capability selections, and browser authentication policy.",
+  "criteria_map": {
+    "Directory and URL states": "Tasks 2 and 3 add paginated projection and directory/library UI; task 6 verifies server/UI states.",
+    "Role lifecycle": "Tasks 1 and 2 add persistence, snapshot composition, browser operations, and task 3 presents them.",
+    "Creation lifecycle": "Tasks 1 and 2 keep separate server operations; task 4 presents the staged flow and task 6 proves partial saves.",
+    "Authority boundary": "Tasks 1 and 2 reuse the existing source/capability model; task 4 teaches it without adding raw MCP grants.",
+    "Truthful detail and control behavior": "Tasks 2 and 5 project real values and remove preview/no-op controls; task 6 audits the shipped surface.",
+    "Browser security": "Task 2 reuses browser boundary checks and has focused facade tests."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "Custom-role template domain and its browser DTOs only.",
+    "No new UI framework, browser-auth layer, access model, or atomic setup endpoint."
+  ],
+  "rounds": [],
+  "citations": [
+    {
+      "finding": "No compatibility surface should remain for a fixture-only early-stage UI.",
+      "source": "docs/decisions/0003-early-stage-no-backcompat.md"
+    },
+    {
+      "finding": "Source attachment and semantic capability authorization must stay separate throughout the wizard and details.",
+      "source": "docs/decisions/0020-mcp-source-vs-action-capability.md"
+    },
+    {
+      "finding": "Agent deletion remains out of scope; disablement preserves projection history.",
+      "source": "docs/decisions/0050-agent-removal-projection-cleanup.md"
+    },
+    {
+      "finding": "Same-origin browser operations must not share the Bearer Control API trust path.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    }
+  ],
+  "open_items": [],
+  "input_sha256": "690b3f00570ccfe42aad40d48a61287ff824291ce4f4eb49a580339a382126e9",
+  "issue": "AGENTS-WEB-1",
+  "recorded_at": "2026-08-26T15:46:45+00:00",
+  "commit": "9342c85d3f2e74df5f80bfbde7f5711a38a1fa0d"
+}
