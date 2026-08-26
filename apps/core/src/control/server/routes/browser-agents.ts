@@ -163,34 +163,6 @@ function capabilityService(storage: ReturnType<typeof getRuntimeStorage>) {
   });
 }
 
-function browserCapabilityCatalog(
-  catalog: Awaited<
-    ReturnType<AgentCapabilityAdministrationService['listCatalog']>
-  >,
-) {
-  return {
-    skills: catalog.skills,
-    mcpServers: catalog.mcpServers,
-    capabilities: catalog.tools.flatMap((tool) => {
-      const capability = semanticCapabilityFromToolCatalogItem({
-        name: tool.name,
-        inputSchema: tool.inputSchema,
-      });
-      return capability
-        ? [
-            {
-              id: capability.capabilityId,
-              version: capability.version,
-              label: tool.displayName,
-              description: tool.description,
-              risk: tool.risk,
-            },
-          ]
-        : [];
-    }),
-  };
-}
-
 export async function handleBrowserAgentRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -304,7 +276,25 @@ export async function handleBrowserAgentRoutes(
       ]);
       sendJson(res, 200, {
         capabilities,
-        catalog: browserCapabilityCatalog(catalog),
+        catalog: {
+          capabilities: catalog.tools.flatMap((tool) => {
+            const capability = semanticCapabilityFromToolCatalogItem({
+              name: tool.name,
+              inputSchema: tool.inputSchema,
+            });
+            return capability
+              ? [
+                  {
+                    id: capability.capabilityId,
+                    version: capability.version,
+                    label: tool.displayName,
+                    description: tool.description,
+                    risk: tool.risk,
+                  },
+                ]
+              : [];
+          }),
+        },
       });
       return true;
     }

@@ -84,7 +84,7 @@ export function RolesLibrary({
   function start(role?: BrowserRole) {
     setEditing(role?.kind === 'custom' ? role : undefined);
     setName(
-      role ? `${role.kind === 'custom' ? role.name : `${role.name} copy`}` : '',
+      role ? (role.kind === 'custom' ? role.name : `${role.name} copy`) : '',
     );
     setPrompt(role?.prompt ?? '');
     setOpen(true);

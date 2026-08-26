@@ -5,7 +5,6 @@ import { browserFetch } from '../../lib/auth/browser-auth';
 export const agentQueryKeys = {
   all: ['agents'] as const,
   list: () => [...agentQueryKeys.all, 'list'] as const,
-  sources: () => [...agentQueryKeys.all, 'sources'] as const,
 };
 
 export type AgentDirectoryItem = {
