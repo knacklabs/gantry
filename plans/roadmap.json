@@ -1389,7 +1389,7 @@
       "skill": "backend",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "IDENTITY-02 section is Proposed in the identity plan doc; needs a confirmed spec"
+      "spec": "docs/specs/agent-identity-and-offboarding.md"
     },
     {
       "key": "PKG-1",
@@ -1409,7 +1409,7 @@
       "skill": "backend",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
+      "spec": "docs/specs/self-serve-install-and-docs.md"
     },
     {
       "key": "RBAC-1",
@@ -1432,7 +1432,7 @@
         "IDENT-2"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "V1 cut agreed 2026-08-26; depends on IDENT-2 spec"
+      "spec": "docs/specs/approvals-and-roles.md"
     },
     {
       "key": "HITL-1",
@@ -1455,7 +1455,7 @@
         "TEAMS-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
+      "spec": "docs/specs/approvals-and-roles.md"
     },
     {
       "key": "DIR-UI-1",
@@ -1475,7 +1475,7 @@
         "UIFACADE-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "V1 cut agreed 2026-08-26; depends on IDENT-2"
+      "spec": "docs/specs/ai-employee-directory.md"
     },
     {
       "key": "CONN-GSUITE-1",
@@ -1495,7 +1495,7 @@
         "OAUTH-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
+      "spec": "docs/specs/connector-accounts.md"
     },
     {
       "key": "IDENT-3",
@@ -1513,7 +1513,7 @@
         "IDENT-2"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Deferred slice from IDENTITY-01; required by WA-1 and VOICE-1 (V1.1)"
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
     },
     {
       "key": "WA-1",
@@ -1531,7 +1531,7 @@
         "IDENT-3"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "V1.1 per 2026-08-26 cut; no spec yet"
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
     },
     {
       "key": "VOICE-1",
@@ -1551,7 +1551,7 @@
         "IDENT-3"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "ADR 0136 accepted; adapter must target IDENT-2 contract"
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
     },
     {
       "key": "DOCS-1",
@@ -1567,7 +1567,7 @@
       "skill": "fullstack",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
+      "spec": "docs/specs/self-serve-install-and-docs.md"
     },
     {
       "key": "CONN-1",
@@ -1589,7 +1589,7 @@
       "skill": "backend",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "ADR 0137 proposed; needs a confirmed spec"
+      "spec": "docs/specs/connector-accounts.md"
     },
     {
       "key": "IDENT-4",
@@ -1610,7 +1610,7 @@
         "IDENT-2"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Grill 2026-08-26 Q4/Q14: symmetry claim requires human offboarding in V1.0"
+      "spec": "docs/specs/agent-identity-and-offboarding.md"
     },
     {
       "key": "TEAMS-E2E-1",
@@ -1630,7 +1630,7 @@
         "IDENT-2"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Grill 2026-08-26 Q10: Teams adapter has unit tests only"
+      "spec": "docs/specs/teams-channel.md"
     },
     {
       "key": "COST-1",
@@ -1649,7 +1649,7 @@
         "UIFACADE-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Grill 2026-08-26 Q6/Q24"
+      "spec": "docs/specs/ai-employee-directory.md"
     },
     {
       "key": "SOV-1",
@@ -1668,7 +1668,7 @@
         "EGRESS-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Grill 2026-08-26 Q7/Q13: no on-prem provider exists today"
+      "spec": "docs/specs/sovereign-mode.md"
     },
     {
       "key": "TEAMS-1",
@@ -1686,7 +1686,7 @@
       "skill": "backend",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "Codex gap sweep 2026-08-26: teams-sdk-client.ts returns null; factory disables channel"
+      "spec": "docs/specs/teams-channel.md"
     },
     {
       "key": "AUDIT-1",
@@ -1705,7 +1705,7 @@
         "IDENT-2"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Codex gap sweep 2026-08-26: 6 persisted actor shapes across 103 writers"
+      "spec": "docs/specs/agent-identity-and-offboarding.md"
     },
     {
       "key": "UIFACADE-1",
@@ -1724,7 +1724,7 @@
         "IDENT-2"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Codex gap sweep 2026-08-26: /agents and Activity are fixture-backed; /v1/* is Bearer-only"
+      "spec": "docs/specs/ai-employee-directory.md"
     },
     {
       "key": "OAUTH-1",
@@ -1743,7 +1743,7 @@
         "CONN-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Codex gap sweep 2026-08-26: no connector OAuth exists; Google OIDC is login-only"
+      "spec": "docs/specs/connector-accounts.md"
     },
     {
       "key": "EGRESS-1",
@@ -1760,7 +1760,7 @@
       "skill": "backend",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "Codex gap sweep 2026-08-26: egress is denylist/default-allow; direct mode advisory; remote MCP bypasses runner proxy"
+      "spec": "docs/specs/sovereign-mode.md"
     },
     {
       "key": "COST-2",
@@ -1779,7 +1779,7 @@
         "COST-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Split from COST-1 per gap sweep: hard cap needs ledger and complete accounting"
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
     }
   ],
   "epics": [
@@ -1887,5 +1887,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-26T10:59:04+00:00"
+  "updated_at": "2026-08-26T11:10:07+00:00"
 }
