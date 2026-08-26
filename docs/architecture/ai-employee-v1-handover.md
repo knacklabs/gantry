@@ -18,7 +18,7 @@ code that the story must respect).
 |---|---|---|---|---|---|
 | V1.0 | `IDENT-2` | Agent identity: agents as principals | backend | — | `docs/specs/agent-identity-and-offboarding.md` |
 | V1.0 | `PKG-1` | npm packaging and self-serve install | backend | — | `docs/specs/self-serve-install-and-docs.md` |
-| V1.0 | `RBAC-1` | Roles for people and agents | backend | IDENT-2 | `docs/specs/approvals-and-roles.md` |
+| V1.0 | `RBAC-1` | Roles for people and agents | fullstack | IDENT-2 | `docs/specs/approvals-and-roles.md` |
 | V1.0 | `HITL-1` | In-chat approvals as principals | fullstack | IDENT-2, AUDIT-1, TEAMS-1 | `docs/specs/approvals-and-roles.md` |
 | V1.0 | `DIR-UI-1` | Directory UI: agents, access, audit, offboard | frontend | IDENT-2, UIFACADE-1 | `docs/specs/ai-employee-directory.md` |
 | V1.0 | `DOCS-1` | Onboard/access/audit/offboard documentation spine | fullstack | — | `docs/specs/self-serve-install-and-docs.md` |
@@ -27,12 +27,16 @@ code that the story must respect).
 | V1.0 | `TEAMS-1` | Teams transport: Bot Framework, manifest, endpoint | backend | — | `docs/specs/teams-channel.md` |
 | V1.0 | `AUDIT-1` | Audit actor migration matrix to PrincipalRef | backend | IDENT-2 | `docs/specs/agent-identity-and-offboarding.md` |
 | V1.0 | `UIFACADE-1` | Browser facades: live agents and audit read models | fullstack | IDENT-2 | `docs/specs/ai-employee-directory.md` |
+| V1.0 | `ONBOARD-UI-1` | Onboarding wizard: create agent, seat, scope, approvers | fullstack | UIFACADE-1, IDENT-2, TEAMS-1 | `docs/specs/console-ai-employee-management.md` |
+| V1.0 | `PEOPLE-UI-1` | People: live list, detail, offboard | fullstack | UIFACADE-1, IDENT-4 | `docs/specs/console-ai-employee-management.md` |
 | V1.0.x | `CONN-GSUITE-1` | Google Workspace connector | backend | CONN-1, OAUTH-1 | `docs/specs/connector-accounts.md` |
 | V1.0.x | `CONN-1` | Connector Account platform | backend | — | `docs/specs/connector-accounts.md` |
 | V1.0.x | `COST-1` | Per-agent usage view | fullstack | UIFACADE-1 | `docs/specs/ai-employee-directory.md` |
 | V1.0.x | `SOV-1` | Sovereign mode: generic OpenAI-compatible provider and no-egress check | backend | EGRESS-1 | `docs/specs/sovereign-mode.md` |
 | V1.0.x | `OAUTH-1` | Connector OAuth platform | backend | CONN-1 | `docs/specs/connector-accounts.md` |
-| V1.0.x | `EGRESS-1` | Host-owned egress allowlist | backend | — | `docs/specs/sovereign-mode.md` |
+| V1.0.x | `EGRESS-1` | Host-owned egress allowlist | fullstack | — | `docs/specs/sovereign-mode.md` |
+| V1.0.x | `UI-CONN-ACCOUNTS-1` | Connector Accounts page: add, connect OAuth, health, revoke | fullstack | CONN-1, OAUTH-1 | `docs/specs/console-ai-employee-management.md` |
+| V1.0.x | `ACCESS-UI-1` | Access editor: preset, tool rules, capability grants | fullstack | DIR-UI-1 | `docs/specs/console-ai-employee-management.md` |
 | V1.1 | `IDENT-3` | Phone-number alias kind | backend | IDENT-2 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.1 | `WA-1` | WhatsApp provider | backend | IDENT-3 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.1 | `VOICE-1` | Voice provider adapter | backend | IDENT-2, IDENT-3 | `docs/specs/phone-channels-and-cost-cap.md` |
@@ -52,6 +56,8 @@ current fan-out; one worktree per story.
 | 0139 openai-compatible-model-provider | the single generic provider SOV-1 may add |
 | 0140 two-tier-agent-e2e-gate | fixture tier blocks PRs; real tenant is the release bar |
 | 0141 sandboxed-stdio-mcp-for-connectors | connector processes: sandboxed stdio under a supervisor |
+| 0142 third-console-role-approver | administrator / approver / viewer; amends 0132 |
+| 0143 browser-write-only-secret-ingest | browser submits secrets once, gets a reference back; never reads one |
 | 0025, 0016, 0118, 0132, 0135, 0101, 0024, 0033, 0044 | pre-existing; cited inside the specs |
 
 ## Facts from the code you must not re-discover
@@ -73,6 +79,21 @@ current fan-out; one worktree per story.
   runner proxy. EGRESS-1 is host-owned enforcement.
 - `@gantry/runtime` is not on npm; no `dist/`, no `prepack`, no release workflow.
 - PERM-2 (permission decision coordinator) is active and shares files with HITL-1.
+- `/people`, `/agents`, `/activity` are previews; `/providers` and `/mcp-servers` are the live facade pattern to copy. Decision 0132 hard-codes two roles.
+- A browser cannot create a Gantry-held secret today; 0143 adds the write-only ingest.
+
+## Console coverage (added after the UI sweep)
+
+Every lifecycle step has a browser surface: onboard (ONBOARD-UI-1), directory and
+detail with pause/owner/approvers/offboard (DIR-UI-1 on UIFACADE-1), people and
+human offboard (PEOPLE-UI-1), sign-in with Entra and roles (RBAC-1), audit
+(activity facade), usage (COST-1), connector accounts with one-click OAuth
+(UI-CONN-ACCOUNTS-1), access editing (ACCESS-UI-1), sovereign provider in the
+existing providers page (SOV-1), effective egress policy read-only (EGRESS-1).
+Console approvals of risky actions stay out of V1 by decision. The console is
+Vitest-only today; user-facing stories need the functional checker (score ≥ 8).
+Spec: `docs/specs/console-ai-employee-management.md`; sweep reports in the gap
+analysis, Part 2.
 
 ## Working rules
 
