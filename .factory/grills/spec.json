@@ -2,56 +2,39 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "summary": "phone-channels-and-cost-cap: re-grilled 2026-08-26 after the console UI sweep (round 7).",
-  "questions_asked": 37,
+  "summary": "Re-grilled 2026-08-26 after adding WhatsApp + human handoff (customer support assistant) to V1.0.x.",
+  "questions_asked": 38,
   "gaps": [
-    "No cap UI"
+    "HITL-1 approval semantics do not cover a human taking over a customer thread",
+    "WhatsApp Business Platform has operational prerequisites (Meta verification, templates, 24h window)",
+    "Phone identity was deferred in IDENTITY-01"
   ],
-  "contradictions": [],
+  "contradictions": [
+    "Earlier grill placed WhatsApp/phone in V1.1; product decision moves them to V1.0.x"
+  ],
   "resolutions": [
-    "Cap field in Usage & budget panel via /ui/api/agents/:id/usage-cap"
+    "HANDOFF-1 defines handoff as pause-and-takeover with claim card, human turns through the agent seat, resume, audit",
+    "WA-1 documents Meta prerequisites as deployment prerequisites; templates as desired state",
+    "IDENT-3 phone alias built once in V1.0.x",
+    "Milestone move recorded in roadmap, BRIEF (second proof), handover; V1.0 video path unchanged"
   ],
-  "open_items": [],
+  "open_items": [
+    "Handoff policy rules (confidence threshold) \u2014 set in HANDOFF-1 plan, non-blocking"
+  ],
   "rounds": [
     {
-      "round": 1,
-      "questions": "Q1-Q9"
-    },
-    {
-      "round": 2,
-      "questions": "Q10-Q13"
-    },
-    {
-      "round": 3,
-      "questions": "Q14-Q21"
-    },
-    {
-      "round": 4,
-      "questions": "Q22-Q27"
-    },
-    {
-      "round": 5,
-      "questions": "Codex gap sweep"
-    },
-    {
-      "round": 6,
-      "questions": "Spec round"
-    },
-    {
-      "round": 7,
-      "questions": "Console UI sweep: four Codex runs mapped V1 to browser surfaces; user asked for full UI coverage"
+      "round": 8,
+      "questions": "Product decision: WhatsApp + HITL as customer support assistant"
     }
   ],
   "inspected_refs": [
-    "docs/architecture/ai-employee-v1-gap-analysis.md",
-    "docs/architecture/ai-employee-v1-handover.md",
-    "docs/decisions/0142-third-console-role-approver.md",
-    "docs/decisions/0143-browser-write-only-secret-ingest.md"
+    "docs/product/BRIEF.md",
+    "docs/architecture/ai-employee-v1-handover.md"
   ],
   "citations": [
     "docs/specs/phone-channels-and-cost-cap.md"
   ],
-  "input_sha256": "e674ef72c3f31442ca09473b6716a97e1ec267f4316265fae99ee17d561e796b",
-  "recorded_at": "2026-08-26T11:23:30+00:00",
-  "commit": "f3c0591d50c7517b9f04d8a0c8b4eac83a1cd5a9"
+  "input_sha256": "8a7c5bbff2417b4d278b2b604644a897836603c62c8df7d4cf08fdc5ee6df808",
+  "recorded_at": "2026-08-26T11:35:55+00:00",
+  "commit": "93eea3a69ff547bd56e531428392ea02aceda11e"
 }

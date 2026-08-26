@@ -1,22 +1,29 @@
 ---
 slug: phone-channels-and-cost-cap
-title: Phone-number identity, WhatsApp, voice, and hard cost caps (V1.1)
+title: Customer support assistant: phone identity, WhatsApp, human handoff; voice and hard cost caps
 status: confirmed
-saved: 2026-08-26T11:22:27+00:00
+saved: 2026-08-26T11:34:48+00:00
 ---
 
 
-# Phone-number identity, WhatsApp, voice, and hard cost caps (V1.1)
+
+# Customer support assistant: phone identity, WhatsApp, human handoff; voice and hard cost caps
 
 ## Capability
 
-The same governed agent serves customers on WhatsApp and on the phone under the same
-identity, permissions, and audit as chat; and an agent that reaches its monthly token
-budget pauses and tells an administrator.
+The same governed agent serves customers on WhatsApp, and when it cannot resolve a
+request a human support agent takes over the same thread from Teams or Slack —
+WhatsApp plus a human in the loop is a ready-made customer support assistant
+(V1.0.x). Voice follows as a provider adapter, and an agent that reaches its
+monthly token budget pauses and tells an administrator (V1.1).
 
 ## Why
 
-WhatsApp and voice both need phone identity and both must inherit the governed model; a hard budget cap needs accounting that is currently incomplete. These ship after the V1.0 video path.
+Customer-facing teams at the first client cohort run support on WhatsApp; the
+positioning's second proof is that the same AI employee, with the same audit and
+offboarding, can take a support seat and hand a customer to a person without
+leaving the thread. Phone identity is required by WhatsApp and voice alike and is
+built once. Voice and the hard cap ship after.
 
 ## Behaviour
 
@@ -31,14 +38,27 @@ both WhatsApp and voice; built once.
 WhatsApp Business Platform Provider Account per agent; callers resolve through the
 phone alias or stay anonymous; same permission gate, audit actor, and offboarding.
 
-### Voice
+### Human handoff (V1.0.x)
+
+Handoff is not approval: the human takes over the conversation. Triggers are the
+customer asking for a person, the agent declaring it cannot resolve, or a
+conversation policy rule. On handoff the agent pauses in that conversation only; a
+handoff card — the approval card path reused — lands in the configured support
+conversation in Teams or Slack with a bounded context packet; a human claims it
+and replies through the agent's WhatsApp seat as themselves; resume returns the
+thread to the agent with the human turns in context. The customer is told who
+they are talking to at each switch. Every handoff, claim, human turn, and resume
+is audited with the human's `PrincipalRef`. Outbound messages after Meta's
+24-hour window use approved templates managed as desired state.
+
+### Voice (V1.1)
 
 Per decision 0136, voice is a `provider: 'voice'` adapter over the existing engine,
 never a runtime: callers as phone aliases or anonymous; every tool call through the
 gate with `PrincipalRef` audit; mid-call approvals routed to Teams/Slack/web; a
 permission timeout never proceeds; the engine tolerates an offboarded agent.
 
-### Hard cost cap
+### Hard cost cap (V1.1)
 
 Durable app/agent/calendar-month (UTC) reservation ledger with atomic check-and-reserve
 at live admission and scheduler claim; every agent-attributable model call (including
@@ -54,6 +74,12 @@ delivery; cap raisable from the directory. Tokens, not USD.
 - **WA-1** — WhatsApp provider
   - WhatsApp Business Platform Provider Account per agent; callers resolve via IDENT-3 or stay anonymous
   - Same permission gate, audit actor, and offboarding as other providers
+  - WhatsApp Business Platform prerequisites (Meta business verification, phone number, message templates) documented as a deployment prerequisite; templates managed as desired state
+- **HANDOFF-1** — Customer handoff to a human agent
+  - Handoff triggers: customer asks for a person, the agent declares it cannot resolve, or a conversation policy rule fires; the agent pauses in that conversation only
+  - Handoff card (reusing the approval card path) posted to the configured support conversation in Teams or Slack with a bounded context packet; a human claims it and replies through the agent's WhatsApp seat as themselves
+  - Resume returns the conversation to the agent with the human's turns in context; the customer is told who they are talking to at each switch
+  - Every handoff, claim, human turn, and resume is audited with the human's PrincipalRef; outbound after Meta's 24-hour window uses approved templates
 - **VOICE-1** — Voice provider adapter
   - Existing voice engine consumed as a dependency behind a provider: voice adapter; no voice contract in core
   - Mid-call approvals route to Teams/Slack/web; permission timeout never proceeds
@@ -66,5 +92,4 @@ delivery; cap raisable from the directory. Tokens, not USD.
 
 ## Source
 
-Grill 2026-08-26 (Q22, Q24) and decision 0136; COST split after gap sweep. Stories:
-IDENT-3, WA-1, VOICE-1, COST-2.
+Grill 2026-08-26 (Q22, Q24) and decision 0136; COST split after gap sweep. Stories: IDENT-3, WA-1, HANDOFF-1 (V1.0.x); VOICE-1, COST-2 (V1.1).

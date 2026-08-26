@@ -1503,7 +1503,7 @@
     },
     {
       "key": "IDENT-3",
-      "title": "Phone-number alias kind",
+      "title": "Phone-number alias kind (V1.0.x)",
       "story": "As an operator, I can resolve a WhatsApp or voice caller to a Person through a verified phone alias, so that phone channels get the same identity model as chat.",
       "acceptance_criteria": [
         "Verified phone alias kind with possession proof; no admin bypass",
@@ -1521,11 +1521,12 @@
     },
     {
       "key": "WA-1",
-      "title": "WhatsApp provider (V1.1)",
+      "title": "WhatsApp provider (V1.0.x)",
       "story": "As a customer-facing team, I can give an AI employee a WhatsApp Business seat, so that the same governed agent serves customers on WhatsApp.",
       "acceptance_criteria": [
         "WhatsApp Business Platform Provider Account per agent; callers resolve via IDENT-3 or stay anonymous",
-        "Same permission gate, audit actor, and offboarding as other providers"
+        "Same permission gate, audit actor, and offboarding as other providers",
+        "WhatsApp Business Platform prerequisites (Meta business verification, phone number, message templates) documented as a deployment prerequisite; templates managed as desired state"
       ],
       "order": 76,
       "status": "pending",
@@ -1872,6 +1873,27 @@
       ],
       "origin": "adhoc",
       "spec": "docs/specs/console-ai-employee-management.md"
+    },
+    {
+      "key": "HANDOFF-1",
+      "title": "Customer handoff to a human agent (V1.0.x)",
+      "story": "As a customer on WhatsApp, when the assistant cannot resolve my request a human support agent takes over in the same thread, and as a support lead I see and claim those handoffs from Teams or Slack, so that WhatsApp plus a human in the loop is a ready-made customer support assistant.",
+      "acceptance_criteria": [
+        "Handoff triggers: customer asks for a person, the agent declares it cannot resolve, or a conversation policy rule fires; the agent pauses in that conversation only",
+        "Handoff card (reusing the approval card path) posted to the configured support conversation in Teams or Slack with a bounded context packet; a human claims it and replies through the agent's WhatsApp seat as themselves",
+        "Resume returns the conversation to the agent with the human's turns in context; the customer is told who they are talking to at each switch",
+        "Every handoff, claim, human turn, and resume is audited with the human's PrincipalRef; outbound after Meta's 24-hour window uses approved templates"
+      ],
+      "order": 94,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [
+        "WA-1",
+        "HITL-1"
+      ],
+      "origin": "adhoc",
+      "spec": "docs/specs/phone-channels-and-cost-cap.md"
     }
   ],
   "epics": [
@@ -1969,7 +1991,7 @@
     {
       "id": "ai-employee-v1",
       "title": "AI employee V1: onboard, scope, audit, offboard",
-      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost cap, sovereign mode; V1.1 = phone identity, WhatsApp, voice",
+      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap",
       "source_refs": [
         "docs/product/BRIEF.md",
         "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
@@ -1979,5 +2001,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-26T11:23:31+00:00"
+  "updated_at": "2026-08-26T11:35:56+00:00"
 }
