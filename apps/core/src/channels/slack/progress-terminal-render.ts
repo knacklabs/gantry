@@ -37,7 +37,7 @@ export function slackProgressPresentation(
       : undefined;
   return {
     ...(blocks ? { blocks } : {}),
-    contentKey: blocks ? canonicalJson(blocks) : text,
+    contentKey: structuredTerminal ? canonicalJson(blocks) : text,
     ...(fallbackBlocks ? { fallbackBlocks } : {}),
     structuredTerminal,
   };

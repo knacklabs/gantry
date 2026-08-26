@@ -204,6 +204,7 @@ import {
   slackJobNotificationBlocks,
   slackMessageActionBlocks,
 } from '@core/channels/slack/message-action-affordances.js';
+import { slackProgressPresentation } from '@core/channels/slack/progress-terminal-render.js';
 import { handleTelegramGroupMembershipUpdate } from '@core/channels/telegram/group-join-onboarding.js';
 import '@core/channels/register-builtins.js';
 import { listChannelProviders } from '@core/channels/provider-registry.js';
@@ -5609,6 +5610,66 @@ describe('Slack channel', () => {
 
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1);
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+  });
+
+  it('edits non-terminal Slack progress when its text changes beneath unchanged blocks', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    const view = {
+      status: 'completed' as const,
+      jobName: 'Lead enrichment',
+      fallbackText: 'Completed plain fallback',
+      result: {
+        items: [{ outcome: 'done' as const, label: 'Added Acme' }],
+      },
+    };
+    const actions = [
+      {
+        kind: 'scheduler_run_now' as const,
+        label: 'Run again',
+        jobId: 'job-1',
+      },
+    ];
+    await channel.connect();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...', {
+      jobNotificationView: view,
+      actionAffordances: actions,
+    });
+    await channel.sendProgressUpdate('sl:C1234567890', 'Still working...', {
+      jobNotificationView: view,
+      actionAffordances: actions,
+    });
+
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.100200',
+      text: 'Still working...',
+      blocks: slackJobNotificationBlocks(view, actions, {
+        providerAccountId: 'slack_default',
+      }),
+    });
+  });
+
+  it('deduplicates structured terminal Slack presentations by their blocks', () => {
+    const view = {
+      status: 'completed' as const,
+      jobName: 'Lead enrichment',
+      fallbackText: 'Completed plain fallback',
+      result: {
+        items: [{ outcome: 'done' as const, label: 'Added Acme' }],
+      },
+    };
+    const options = { done: true, jobNotificationView: view };
+
+    expect(
+      slackProgressPresentation('First terminal text', options).contentKey,
+    ).toBe(
+      slackProgressPresentation('Replayed terminal text', options).contentKey,
+    );
   });
 
   it('edits a terminal structured Slack notice with native blocks and actions', async () => {
