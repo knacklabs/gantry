@@ -96,8 +96,7 @@ function isDiscordEmbedRejection(err: unknown): boolean {
   return (
     err instanceof DiscordRestError &&
     err.status === 400 &&
-    (Object.hasOwn(err.errors ?? {}, 'embeds') ||
-      err.discordMessage?.toLowerCase().includes('embeds') === true)
+    Object.hasOwn(err.errors ?? {}, 'embeds')
   );
 }
 

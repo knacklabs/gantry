@@ -990,7 +990,7 @@ describe('DiscordChannel', () => {
         new Response(
           JSON.stringify({
             code: 50_035,
-            message: 'Invalid Form Body',
+            message: 'Invalid Form Body: embeds',
             errors: { components: { _errors: [] } },
           }),
           {
