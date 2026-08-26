@@ -19,6 +19,14 @@ function AlertDialogTrigger({
   );
 }
 
+function AlertDialogCancel({
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
+  return (
+    <AlertDialogPrimitive.Cancel data-slot="alert-dialog-cancel" {...props} />
+  );
+}
+
 function AlertDialogPortal({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Portal>) {
@@ -148,6 +156,7 @@ function AlertDialogDescription({
 
 export {
   AlertDialog,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,

@@ -19,6 +19,7 @@ import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { Button } from '../../../ui/primitives/button';
 import {
   AlertDialog,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -124,11 +125,14 @@ export function AgentDetailRoute() {
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     {action === 'disable'
-                      ? 'It will not be available for new work. Existing configuration is kept.'
+                      ? 'Gantry will reject new sessions and delegation. Existing configuration, history, memory, and audit data are kept; work already running is not cancelled.'
                       : 'It will become available for new work again.'}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
+                  <AlertDialogCancel asChild>
+                    <Button variant="secondary">Cancel</Button>
+                  </AlertDialogCancel>
                   <Button
                     disabled={status.isPending}
                     onClick={() => status.mutate(action)}

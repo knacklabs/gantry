@@ -12,6 +12,7 @@ import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import {
   AlertDialog,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -183,6 +184,9 @@ export function RolesLibrary({
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
+                      <AlertDialogCancel asChild>
+                        <Button variant="secondary">Cancel</Button>
+                      </AlertDialogCancel>
                       <Button
                         disabled={remove.isPending}
                         variant="destructive"
