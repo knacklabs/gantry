@@ -7,6 +7,7 @@ import {
   notifySchedulerSetupRequired,
   notifySchedulerTerminalRunState,
 } from '@core/jobs/execution-notifications.js';
+import { formatJobNextRunAt } from '@core/jobs/status-formatting.js';
 import type { MemoryReviewCreatedNotification } from '@core/jobs/memory-dreaming-job-outcome.js';
 import type { ReviewMessageView } from '@core/memory/review-message-view.js';
 
@@ -801,7 +802,7 @@ describe('jobs/execution-notifications', () => {
           browserUsed: true,
           lastAction: 'browser_act',
         },
-        nextRunAt: '2026-05-18T02:35:00.000Z',
+        nextRunAt: formatJobNextRunAt('2026-05-18T02:35:00.000Z'),
       },
     });
     expect(options?.jobNotificationView?.fallbackText).toBe(

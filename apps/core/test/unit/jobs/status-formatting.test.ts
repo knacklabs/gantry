@@ -3,6 +3,7 @@ import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import {
   boundJobNotificationView,
+  formatJobNextRunAt,
   formatRunStatusMessage,
   JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH,
   jobOutcomeHeadline,
@@ -406,6 +407,15 @@ it('keeps wrapper-only failures when a shared invocation is deduplicated', () =>
 });
 
 describe('job status formatting', () => {
+  it('formats a valid next run for native notification views', () => {
+    const formatted = formatJobNextRunAt('2026-08-26T12:35:00.000Z');
+
+    expect(formatted).toContain('2026');
+    expect(formatted).not.toContain('T12:35:00.000Z');
+    expect(formatted).not.toBe('2026-08-26T12:35:00.000Z');
+    expect(formatJobNextRunAt('not-a-date')).toBeUndefined();
+  });
+
   it('extracts only an outcome line from the selected terminal report', () => {
     expect(
       jobOutcomeHeadline(

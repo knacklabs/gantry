@@ -545,16 +545,21 @@ function nextRunLabel(
 }
 
 function formatNextRun(nextRun: string): string | null {
+  const formattedNextRun = formatJobNextRunAt(nextRun);
+  return formattedNextRun ? `at ${formattedNextRun}` : null;
+}
+
+export function formatJobNextRunAt(nextRun: string): string | undefined {
   const date = new Date(nextRun);
-  if (Number.isNaN(date.getTime())) return null;
-  return `at ${new Intl.DateTimeFormat(undefined, {
+  if (Number.isNaN(date.getTime())) return undefined;
+  return new Intl.DateTimeFormat(undefined, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
     timeZoneName: 'short',
-  }).format(date)}`;
+  }).format(date);
 }
 
 function stripTrailingEmptyReceiptLines(summary: string): string {

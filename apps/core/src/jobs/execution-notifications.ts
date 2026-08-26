@@ -14,6 +14,7 @@ import {
 } from '../memory/review-message-view.js';
 import {
   boundJobNotificationView,
+  formatJobNextRunAt,
   formatRunStatusMessage,
   jobOutcomeHeadline,
   selectJobNotificationSummary,
@@ -472,6 +473,8 @@ export async function notifySchedulerTerminalRunState(input: {
       resultItems: result?.items,
     });
   const stats = terminalRunNotificationStats(input);
+  const nextRunAt =
+    input.nextRun === null ? undefined : formatJobNextRunAt(input.nextRun);
   const jobNotificationView = boundJobNotificationView({
     status: input.runStatus,
     jobName: input.job.name,
@@ -479,7 +482,7 @@ export async function notifySchedulerTerminalRunState(input: {
     ...(stats ? { stats } : {}),
     ...(notificationResult ? { result: notificationResult } : {}),
     fallbackText: summaryMessage,
-    ...(input.nextRun === null ? {} : { nextRunAt: input.nextRun }),
+    ...(nextRunAt ? { nextRunAt } : {}),
   });
   const actionAffordances =
     input.runStatus === 'completed'
