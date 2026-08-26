@@ -125,6 +125,52 @@ export function agentCapabilitiesQuery(agentId: string) {
   });
 }
 
+export function agentCatalogQuery(
+  agentId: string,
+  endpoint: 'sources' | 'capabilities',
+  catalog: 'skills' | 'mcp' | 'capabilities',
+  search: string,
+  page: number,
+) {
+  return queryOptions({
+    queryKey: [
+      ...agentQueryKeys.all,
+      'catalog',
+      agentId,
+      endpoint,
+      catalog,
+      search,
+      page,
+    ] as const,
+    queryFn: async (): Promise<{
+      catalog: BrowserPage<
+        | NonNullable<CapabilityCatalog['skills']>[number]
+        | NonNullable<CapabilityCatalog['mcpServers']>[number]
+        | NonNullable<CapabilityCatalog['capabilities']>[number]
+      >;
+    }> => {
+      const params = new URLSearchParams({
+        catalog,
+        page: String(page),
+        pageSize: '25',
+      });
+      if (search) params.set('search', search);
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}/${endpoint}?${params}`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok) throw new Error('Catalog could not be loaded.');
+      return response.json() as Promise<{
+        catalog: BrowserPage<
+          | NonNullable<CapabilityCatalog['skills']>[number]
+          | NonNullable<CapabilityCatalog['mcpServers']>[number]
+          | NonNullable<CapabilityCatalog['capabilities']>[number]
+        >;
+      }>;
+    },
+  });
+}
+
 export type AgentVersion = {
   id: string;
   version: number;

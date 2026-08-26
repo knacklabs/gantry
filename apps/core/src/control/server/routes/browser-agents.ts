@@ -300,11 +300,32 @@ export async function handleBrowserAgentRoutes(
         capabilityService(storage).getSources({ appId, agentId }),
         capabilityService(storage).listCatalog(appId),
       ]);
+      const catalogKind = url.searchParams.get('catalog');
+      const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
+      if (catalogKind === 'skills' || catalogKind === 'mcp') {
+        const items = (
+          catalogKind === 'skills' ? catalog.skills : catalog.mcpServers
+        )
+          .filter(
+            (item) =>
+              !search ||
+              `${item.name} ${item.description ?? ''}`
+                .toLowerCase()
+                .includes(search),
+          )
+          .sort((left, right) => left.name.localeCompare(right.name));
+        sendJson(res, 200, { catalog: page(items, pageNumber, pageSize) });
+        return true;
+      }
       sendJson(res, 200, {
         sources,
         catalog: {
-          skills: catalog.skills,
-          mcpServers: catalog.mcpServers,
+          skills: catalog.skills.filter((item) =>
+            sources.sources.skills.some((source) => source.id === item.id),
+          ),
+          mcpServers: catalog.mcpServers.filter((item) =>
+            sources.sources.mcpServers.some((source) => source.id === item.id),
+          ),
         },
       });
       return true;
@@ -319,26 +340,47 @@ export async function handleBrowserAgentRoutes(
         capabilityService(storage).getCapabilities({ appId, agentId }),
         capabilityService(storage).listCatalog(appId),
       ]);
+      const catalogKind = url.searchParams.get('catalog');
+      const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
+      const catalogItems = catalog.tools.flatMap((tool) => {
+        const capability = semanticCapabilityFromToolCatalogItem({
+          name: tool.name,
+          inputSchema: tool.inputSchema,
+        });
+        return capability
+          ? [
+              {
+                id: capability.capabilityId,
+                version: capability.version,
+                label: tool.displayName,
+                description: tool.description,
+                risk: tool.risk,
+              },
+            ]
+          : [];
+      });
+      if (catalogKind === 'capabilities') {
+        const items = catalogItems
+          .filter(
+            (item) =>
+              !search ||
+              `${item.label} ${item.description ?? ''}`
+                .toLowerCase()
+                .includes(search),
+          )
+          .sort((left, right) => left.label.localeCompare(right.label));
+        sendJson(res, 200, { catalog: page(items, pageNumber, pageSize) });
+        return true;
+      }
       sendJson(res, 200, {
         capabilities,
         catalog: {
-          capabilities: catalog.tools.flatMap((tool) => {
-            const capability = semanticCapabilityFromToolCatalogItem({
-              name: tool.name,
-              inputSchema: tool.inputSchema,
-            });
-            return capability
-              ? [
-                  {
-                    id: capability.capabilityId,
-                    version: capability.version,
-                    label: tool.displayName,
-                    description: tool.description,
-                    risk: tool.risk,
-                  },
-                ]
-              : [];
-          }),
+          capabilities: catalogItems.filter((item) =>
+            capabilities.capabilities.some(
+              (selected) =>
+                selected.id === item.id && selected.version === item.version,
+            ),
+          ),
         },
       });
       return true;

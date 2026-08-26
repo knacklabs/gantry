@@ -37,6 +37,8 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain('replaceCapabilities(');
   expect(source).toContain('getSources({ appId, agentId })');
   expect(source).toContain('getCapabilities({ appId, agentId })');
+  expect(source).toContain("catalogKind === 'skills' || catalogKind === 'mcp'");
+  expect(source).toContain("catalogKind === 'capabilities'");
   expect(source).toContain('listConfigVersions({');
   expect(source).toContain('sendJson(res, 200, { retainedAgentCount:');
 });
