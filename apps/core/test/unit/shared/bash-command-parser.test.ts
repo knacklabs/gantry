@@ -74,6 +74,23 @@ describe('bash command parser', () => {
     });
   });
 
+  it('rejects a heredoc header without a body newline', () => {
+    expect(parseBashCommand('cat <<EOF')).toEqual({
+      ok: false,
+      reason: 'Bash heredoc delimiter not terminated.',
+    });
+  });
+
+  it.each(['cat <<\\EOF', "cat <<E'OF'", "cat <<'E'OF", 'cat <<"EOF"x'])(
+    'rejects unsupported heredoc delimiter quoting: %s',
+    (command) => {
+      expect(parseBashCommand(command)).toEqual({
+        ok: false,
+        reason: 'Bash heredoc delimiter uses unsupported quoting.',
+      });
+    },
+  );
+
   it('keeps existing redirect operators intact', () => {
     const parsed = parseBashCommand('cat < input > output >> log 2>&1');
 

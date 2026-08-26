@@ -5,7 +5,7 @@ Facts (live, run fba3fbe7 2026-08-26 05:05Z): a scheduled run issued `grep … /
 Scope note: THIS window's diff is the parser half only (bash-command-parser.ts + new bash-heredoc.ts + test). The prompt-copy half (permission-interaction.ts, telegram/html-render.ts) lands in the next window — do not report its absence here.
 
 Contract for this diff:
-- Parser: `<<`/`<<-` heredocs parse; the body is literal data attached to the redirect, never argv; bare delimiters with `$`/backtick in the body are rejected (expansion), quoted delimiters accept anything; unterminated heredocs are rejected; all pre-existing parse results/errors unchanged.
+- Parser: `<<`/`<<-` heredocs parse; the body is literal data attached to the redirect, never argv; bare delimiters with `$`/backtick in the body are rejected (expansion), quoted delimiters accept anything; unterminated heredocs are rejected (including a header that reaches end-of-input); delimiter quoting is FAIL-CLOSED BY DESIGN — only a bare word or a single fully-quoted word is accepted; escaped or partially quoted delimiters (`<<\EOF`, `<<E'OF'`) are rejected as unsupported quoting rather than parsed with general quote removal, because this parser feeds a permission gate and a mis-read delimiter could turn body lines into command leaves — do not propose implementing full quote removal; all pre-existing parse results/errors unchanged.
 - Prompt copy: requests with `jobId` render "This job waits for your decision." and never a minutes deadline; non-job requests unchanged.
 - No change to the rule matcher, the durability wiring, or the classic prompt's keyboard (it already carries Allow once / Cancel).
 

@@ -429,6 +429,9 @@ function parseSegment(
   if (escaped)
     return { ok: false, reason: 'Bash command has dangling escape.' };
   if (quote) return { ok: false, reason: 'Bash command has unmatched quotes.' };
+  if (pendingHeredocs.length > 0) {
+    return { ok: false, reason: 'Bash heredoc delimiter not terminated.' };
+  }
   const flushed = flushLeaf();
   if (flushed) return flushed;
   if (leaves.length === 0) {

@@ -111,27 +111,43 @@ export function parseHeredocDelimiter(
   if (!first || /\s/.test(first)) {
     return { ok: false, reason: 'Bash redirection target missing.' };
   }
+  const isDelimiterBoundary = (character: string | undefined) =>
+    !character ||
+    /\s/.test(character) ||
+    ['&', '|', ';', '(', ')', '<', '>'].includes(character);
   if (first === "'" || first === '"') {
     const end = command.indexOf(first, startIndex + 1);
-    if (end === -1) {
-      return { ok: false, reason: 'Bash command has unmatched quotes.' };
+    if (end === -1 || !isDelimiterBoundary(command[end + 1])) {
+      return {
+        ok: false,
+        reason: 'Bash heredoc delimiter uses unsupported quoting.',
+      };
     }
     const target = command.slice(startIndex + 1, end);
-    return target
-      ? { ok: true, target, quoted: true, nextIndex: end + 1 }
-      : { ok: false, reason: 'Bash redirection target missing.' };
+    if (!target) {
+      return { ok: false, reason: 'Bash redirection target missing.' };
+    }
+    if (/[\\'"]/.test(target)) {
+      return {
+        ok: false,
+        reason: 'Bash heredoc delimiter uses unsupported quoting.',
+      };
+    }
+    return { ok: true, target, quoted: true, nextIndex: end + 1 };
   }
   let cursor = startIndex;
-  while (
-    cursor < command.length &&
-    !/\s/.test(command[cursor]) &&
-    !['&', '|', ';', '(', ')', '<', '>'].includes(command[cursor])
-  ) {
+  while (cursor < command.length && !isDelimiterBoundary(command[cursor])) {
     cursor += 1;
   }
   const target = command.slice(startIndex, cursor);
   if (!target) {
     return { ok: false, reason: 'Bash redirection target missing.' };
+  }
+  if (/[\\'"]/.test(target)) {
+    return {
+      ok: false,
+      reason: 'Bash heredoc delimiter uses unsupported quoting.',
+    };
   }
   if (target.includes('$') || target.includes('`')) {
     return {
