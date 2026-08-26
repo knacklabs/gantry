@@ -1,13 +1,18 @@
 # Gantry
 
-Gantry is a self-hosted, provider-neutral agent runtime for teams that run AI
-agents in production — in the channels where the team already works and inside
-their own products via SDK and API. It gives agents a controlled host process,
+**Onboard AI employees like real ones.** Give them a seat in Teams or Slack,
+only the access they need, a full audit trail, and offboarding in one command.
+Self-hosted, any model.
+
+Gantry is the open-source runtime that lets IT onboard AI agents the way it
+onboards people — provision a seat in the channels where the team already works
+(or inside your own product via SDK and API), grant scoped access, log every
+action, revoke in one command. It gives agents a controlled host process,
 durable state, approved tools, channel adapters, memory, and audit records
 without tying application code to one model provider or chat surface.
 
-Gantry is not a chatbot wrapper and not a personal assistant. It is the
-runtime boundary between:
+Gantry is not a chatbot wrapper and not a personal assistant that staff install
+on their own laptops. It is the runtime boundary between:
 
 - human channels such as Slack, Microsoft Teams, Telegram, Discord, and
   web/SDK clients;

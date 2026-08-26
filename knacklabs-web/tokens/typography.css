@@ -1,0 +1,41 @@
+/* KnackLabs typography tokens.
+   Inter for everything; JetBrains Mono restricted to terminal mockups,
+   isometric diagram labels, and mono eyebrows/labels in brand artifacts.
+   Scale from Brand Book 07 + production deck values. */
+
+:root {
+  --font-sans: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* Sizes */
+  --text-display: 56px;   /* hero lines, 48–60px range */
+  --text-h1: 36px;        /* page titles, 32–40px range */
+  --text-h2: 26px;        /* section headings, 24–28px range */
+  --text-h3: 20px;
+  --text-lead: 19px;      /* hero subcopy */
+  --text-body: 17px;      /* running copy, 16–18px range */
+  --text-body-sm: 14px;
+  --text-caption: 13px;
+  --text-eyebrow: 13px;   /* mono uppercase section labels */
+  --text-mono-label: 11px;/* footers, tiny mono labels */
+
+  /* Line heights */
+  --lh-display: 1.08;
+  --lh-heading: 1.15;
+  --lh-body: 1.55;
+
+  /* Tracking */
+  --tracking-display: -0.03em;
+  --tracking-heading: -0.02em;
+  --tracking-eyebrow: 0.22em;  /* big slide/section eyebrows (deck uses .26em) */
+  --tracking-caps: 0.12em;     /* small caps labels, badges, footers */
+
+  /* Weights */
+  --weight-display: 800;
+  --weight-h1: 700;
+  --weight-h2: 600;
+  --weight-body: 400;
+
+  /* Measure */
+  --measure-max: 75ch; /* never exceed ~75 characters per line */
+}

@@ -1,7 +1,10 @@
 # Gantry Product Brief
 
-Gantry is a provider-neutral and channel-neutral agent runtime for teams that
-need AI agents to run safely inside product and operations workflows.
+Gantry lets organisations onboard AI employees like real ones: a seat in Teams
+or Slack, only the access they need, a full audit trail, and offboarding in one
+command. Self-hosted, any model. Under the hood it is a provider-neutral and
+channel-neutral agent runtime for teams that need AI agents to run safely inside
+product and operations workflows.
 
 ## Product Intent
 

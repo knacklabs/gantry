@@ -1,0 +1,21 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gantry diagram preview</title>
+<link rel="stylesheet" href="./styles.css">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="./preview-loader.js"></script>
+</head>
+<body style="margin:0;background:#fff">
+<div id="root"></div>
+<script>
+(async () => {
+  const NS = await KLPreview('./', KL_ALL_COMPONENTS);
+  const wrap = { maxWidth: 1180, margin: '0 auto', padding: '0 32px', width: '100%', boxSizing: 'border-box' };
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    React.createElement(NS.GantryPlatformBand, { narrow: false, wrap: wrap, assetBase: './' })
+  );
+})();
+</script>
+</body></html>
