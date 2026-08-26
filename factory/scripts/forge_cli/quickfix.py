@@ -97,7 +97,15 @@ def _open(base: Path, *, profile: str, reason: str, by: str | None = None) -> di
         stage.get("id") for stage in load_stages(base).get("stages", [])
         if isinstance(stage, dict) and stage.get("status") == "active"
     ]
-    if active_stages:
+    # A quickfix/lite window is out-of-band work and must not overlap a stage.
+    # A DEGRADED window is the host-exception valve (WORKFLOW.md "the single
+    # write exception"): when a required product fix is provably impossible to
+    # make or verify inside the companion sandbox, the orchestrator opens a
+    # bounded (<=5 file), ledgered degraded window to make the minimal host fix
+    # WITHOUT tearing down the active stage — otherwise stage-done (which runs
+    # the required test) can never be reached and the fix loops forever. The
+    # file cap + ledger keep it bounded even mid-stage.
+    if active_stages and profile != DEGRADED:
         fail(
             f"cannot open a {profile} window while a stage is active: "
             f"{', '.join(active_stages)} — finish it "

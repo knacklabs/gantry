@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0065-0f83",
+  "profile": "quickfix",
+  "reason": "Revert landing copy edits and untrack knacklabs-web; another dev owns it",
+  "started_at": "2026-08-26T13:36:34+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

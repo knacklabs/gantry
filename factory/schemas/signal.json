@@ -12,5 +12,5 @@
     "refs": "list",
     "task": "str"
   },
-  "kind_note": "kind: contradiction | confusion | blocked | scope-change. A signal is an EVENT — the worker pauses that thread after raising; the orchestrator resolves and resumes. Open signals block pr_ready."
+  "kind_note": "kind: contradiction | confusion | blocked | scope-change | host-exception. The first four are worker EVENTS — the worker pauses that thread after raising; the orchestrator resolves and resumes. host-exception is orchestrator-raised: it logs a minimal host-side product change that is provably impossible to make or verify in the companion sandbox (paired with a bounded degraded window for the write). Open signals block pr_ready; resolve the host-exception once the fix is committed."
 }

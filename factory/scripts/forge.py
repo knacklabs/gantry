@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 
 HOOK_SCRIPTS = {
+    "post_tool_use": "post_tool_use.py",
     "pre_compact": "pre_compact.py",
     "pre_tool_use": "pre_tool_use.py",
     "session_start": "session_start.py",
@@ -62,8 +63,8 @@ from forge_cli import gstack as gstack_mod
 from forge_cli import history as history_mod
 from forge_cli import signal as signal_mod
 from forge_cli import (
-    decisions, doctor, phase, plans, roadmap, scaffold, specs, tasks as tasks_mod,
-    team, upgrade,
+    decisions, doctor, phase, plans, roadmap, scaffold, specs,
+    story as story_mod, tasks as tasks_mod, team, upgrade,
 )
 
 
@@ -193,6 +194,13 @@ def main() -> None:
     p_task_pr_ready.add_argument("id", help="task id")
     p_task_pr_ready.add_argument("--repo")
     p_task_pr_ready.set_defaults(func=tasks_mod.cmd_task_pr_ready)
+    p_task_reopen = task_sub.add_parser(
+        "reopen",
+        help="reopen a done-but-unshipped task (move the frontier back to it)",
+    )
+    p_task_reopen.add_argument("id", help="task id")
+    p_task_reopen.add_argument("--repo")
+    p_task_reopen.set_defaults(func=tasks_mod.cmd_task_reopen)
     p_task_plan = task_sub.add_parser("plan", help="manage a task plan")
     task_plan_sub = p_task_plan.add_subparsers(
         dest="task_plan_command", required=True,
@@ -211,6 +219,19 @@ def main() -> None:
     p_task_approve.add_argument("--by", required=True, help="approving human")
     p_task_approve.add_argument("--repo")
     p_task_approve.set_defaults(func=tasks_mod.cmd_approve)
+
+    p_story = sub.add_parser(
+        "story", help="story-level run state (resume an in-flight story pointer)",
+    )
+    story_sub = p_story.add_subparsers(dest="story_command", required=True)
+    p_story_resume = story_sub.add_parser(
+        "resume",
+        help="rebuild the git-local run pointer for an in-flight story from "
+             "committed state (non-destructive; the inverse of a resetting intake)",
+    )
+    p_story_resume.add_argument("id", help="story key, e.g. R1-FOUND-1")
+    p_story_resume.add_argument("--repo")
+    p_story_resume.set_defaults(func=story_mod.cmd_resume)
 
     p_qf = sub.add_parser("quickfix", help="bounded, ledgered planning-lock escape hatch")
     qf_sub = p_qf.add_subparsers(dest="quickfix_command", required=True)

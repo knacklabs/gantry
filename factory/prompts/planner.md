@@ -101,6 +101,22 @@ Rules:
   an accident.
 - Produce a decision-complete plan before implementation starts.
 - Keep implementation tasks bounded so Codex workers can own disjoint write scopes.
+- **Code quality is authored into the contract, not left to review.** A task's
+  `reviewer_focus` MUST state the expected code SHAPE, not only the behaviour —
+  so the implementer builds it right the first time instead of the P2 review
+  rebuilding a monolith after the fact. For any non-trivial module name the
+  expected separation of responsibilities (e.g. types, constants/enums, domain
+  errors, data-access, mapping, validation, and a THIN coordinator in their own
+  files — never one file mixing all of them), require validation of ALL required
+  inputs with a domain error type (not a bare `Error`), typed enums/constants
+  instead of uncontrolled string literals, and — for a foundational/shared seam
+  many future tasks route through — organisation for known growth (that is
+  correct design, NOT over-engineering; do not demand speculative abstraction).
+  Name in the contract which hardening is deliberately DEFERRED to a later task
+  (with a `TODO(Tx)` marker and reserved-nullable columns), so review does not
+  re-flag it. This is the proactive half of the P2 review lens in
+  `factory/prompts/reviewer.md`: the contract demands the shape, the review
+  enforces it.
 - If requirements are vague, make them concrete before proposing code changes.
 - Do not start implementation; planning stops at approval.
 - **The plan MUST be grilled before approval — `plan save` refuses without
@@ -117,3 +133,20 @@ Rules:
   approval in chat, run `./forge plan approve --by "<their name>"`, then rerun
   `plan save` with the unchanged plan. `update_run.py` refuses implementation
   until this digest-bound approval makes `plan_status` approved.
+- **Approval LOCKS the contract until the PR opens.** At the moment of approval,
+  hold this rule for the whole story: from sign-off until the PR is opened, any
+  deviation from the approved contract — amending acceptance criteria, changing
+  write_scope, inserting/reordering/removing a task, re-scoping — is NEVER a
+  silent edit. The flow STOPS and goes back to the human:
+  - **Task not started / active (in-flight), not yet shipped:** amend its
+    contract, then re-present to the human, `plan approve --by`, and re-grill
+    before the next delegate/stage close (the recorder marks the grill +
+    approval stale to force this).
+  - **Task done but NOT shipped:** `./forge task reopen <id>` moves it back to
+    active — then re-grill and re-implement.
+  - **Task done AND shipped (merged):** it is immutable; add a NEW follow-up
+    task, never rewrite it.
+  - **Adding a task to the story:** a graph amendment — human approval is
+    mandatory before it runs.
+  You (the coordinator) own this clarity: recognise the deviation, stop, and ask
+  the human. Never reshuffle the graph or re-scope a task on your own authority.
