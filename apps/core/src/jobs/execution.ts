@@ -52,6 +52,7 @@ import {
 import { resolveExecutionContextOrDeadLetter } from './execution-dead-letter.js';
 import { runSystemJobTurn } from './execution-system-job.js';
 import { createJobExecutionDeletionGuard } from './execution-deletion-guard.js';
+import { scheduledJobRunPrompt } from './job-run-prompt.js';
 import { runtimeEventTypeForRunStatus } from './run-status-event.js';
 import {
   jobCompletedModelPayload,
@@ -488,7 +489,7 @@ async function runActiveJob(
               log: (message) =>
                 logger.warn({ jobId: currentJob.id, runId }, message),
               baseInput: {
-                prompt: currentJob.prompt,
+                prompt: scheduledJobRunPrompt(currentJob),
                 workspaceFolder: execution.group.folder,
                 chatJid: execution.executionJid,
                 threadId: execution.threadId || undefined,

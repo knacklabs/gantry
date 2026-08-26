@@ -5,6 +5,7 @@ import type { ConversationRoute, Job } from '@core/domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { currentLogContext } from '@core/infrastructure/logging/logger.js';
 import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
+import { scheduledJobRunPrompt } from '@core/jobs/job-run-prompt.js';
 
 const runtimeStoreMock = vi.hoisted(() => ({
   publish: vi.fn(async () => undefined),
@@ -1317,7 +1318,7 @@ describe('jobs/execution', () => {
     expect(runAgent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        prompt: noisyPrompt,
+        prompt: scheduledJobRunPrompt(job),
         memoryContextBlock:
           '<gantry_memory_context trust="untrusted_data_only">job memory</gantry_memory_context>',
       }),
