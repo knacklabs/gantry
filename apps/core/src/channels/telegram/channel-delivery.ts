@@ -1,7 +1,6 @@
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-// prettier-ignore
-import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalDecision, PermissionApprovalRequest, PermissionApprovalResult, ProgressUpdateOptions, RichInteractionRequest, StreamingChunkOptions, UserQuestionRequest, UserQuestionResponse } from '../../domain/types.js';
+import type * as DomainTypes from '../../domain/types.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { TelegramChannelReactions } from './channel-reactions.js';
 import {
@@ -27,6 +26,7 @@ import { sendTelegramObserverDigestMessage } from './observer-digest-message.js'
 import { escapeTelegramHtml } from './html-render.js';
 import {
   editTelegramProgressMessage,
+  sendTelegramProgressReplacementMessage,
   sendTerminalTelegramProgressMessage,
   terminalTelegramProgressMessage,
 } from './progress-terminal-render.js';
@@ -66,8 +66,8 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   async sendMessage(
     jid: string,
     text: string,
-    options: MessageSendOptions = {},
-  ): Promise<MessageDeliveryResult> {
+    options: DomainTypes.MessageSendOptions = {},
+  ): Promise<DomainTypes.MessageDeliveryResult> {
     if (!this.bot) {
       logger.warn('Telegram bot not initialized');
       throw new Error('Telegram bot not initialized');
@@ -206,7 +206,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   }
   async renderRichInteraction(
     jid: string,
-    render: RichInteractionRequest,
+    render: DomainTypes.RichInteractionRequest,
   ): Promise<boolean> {
     if (!this.bot) return false;
     return renderTelegramRichInteraction({
@@ -220,7 +220,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   async sendStreamingChunk(
     jid: string,
     text: string,
-    options: StreamingChunkOptions = {},
+    options: DomainTypes.StreamingChunkOptions = {},
   ): Promise<boolean> {
     if (!this.bot) return false;
     if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
@@ -338,7 +338,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   async sendProgressUpdate(
     jid: string,
     text: string,
-    options: ProgressUpdateOptions = {},
+    options: DomainTypes.ProgressUpdateOptions = {},
   ): Promise<boolean> {
     if (!this.bot) {
       logger.info(
@@ -512,12 +512,13 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
             { jid, err },
             'Failed to edit progress message, creating a fresh one',
           );
-          existing.messageId = await sendTelegramMessageWithResult(
-            this.bot.api,
-            numericId,
-            nextText,
+          existing.messageId = await sendTelegramProgressReplacementMessage({
+            api: this.bot.api,
+            chatId: numericId,
+            text: nextText,
             sendOptions,
-          );
+            terminal: Boolean(terminalMessage),
+          });
           logger.info(
             {
               jid,
@@ -573,9 +574,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
 
   async requestPermissionApproval(
     jid: string,
-    request: PermissionApprovalRequest,
+    request: DomainTypes.PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalResult> {
+  ): Promise<DomainTypes.PermissionApprovalResult> {
     return requestTelegramPermissionApproval({
       interactionCallbacksEnabled: this.interactionCallbacksEnabled,
       botConnected: this.bot !== null,
@@ -598,9 +599,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
 
   async requestUserAnswer(
     jid: string,
-    request: UserQuestionRequest,
+    request: DomainTypes.UserQuestionRequest,
     onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
-  ): Promise<UserQuestionResponse> {
+  ): Promise<DomainTypes.UserQuestionResponse> {
     if (!this.interactionCallbacksEnabled) {
       return {
         requestId: request.requestId,

@@ -5,12 +5,16 @@ import {
   type TelegramSendMessageOptions,
 } from './channel-shared.js';
 import { telegramJobNotificationMessage } from './message-action-affordances.js';
+import { TELEGRAM_MESSAGE_MAX_LENGTH } from './text-limits.js';
 
 export function terminalTelegramProgressMessage(
   options: Pick<ProgressUpdateOptions, 'done' | 'jobNotificationView'>,
 ): { text: string } | undefined {
   if (!options.done || !options.jobNotificationView) return undefined;
-  return telegramJobNotificationMessage(options.jobNotificationView);
+  const message = telegramJobNotificationMessage(options.jobNotificationView);
+  return message.text.length <= TELEGRAM_MESSAGE_MAX_LENGTH
+    ? message
+    : undefined;
 }
 
 export function isTelegramHtmlParseError(err: unknown): boolean {
@@ -36,11 +40,29 @@ export async function sendTerminalTelegramProgressMessage(input: {
   chatId: string;
   text: string;
   sendOptions: TelegramSendMessageOptions;
-}): Promise<void> {
-  await input.api.sendMessage(input.chatId, input.text, {
+}): Promise<number | undefined> {
+  const sent = await input.api.sendMessage(input.chatId, input.text, {
     parse_mode: 'HTML',
     ...input.sendOptions,
   });
+  return (sent as { message_id?: number }).message_id;
+}
+
+export function sendTelegramProgressReplacementMessage(input: {
+  api: Parameters<typeof sendTelegramMessageWithResult>[0];
+  chatId: string;
+  text: string;
+  sendOptions: TelegramSendMessageOptions;
+  terminal: boolean;
+}): Promise<number | undefined> {
+  return input.terminal
+    ? sendTerminalTelegramProgressMessage(input)
+    : sendTelegramMessageWithResult(
+        input.api,
+        input.chatId,
+        input.text,
+        input.sendOptions,
+      );
 }
 
 export async function editTelegramProgressMessage(input: {

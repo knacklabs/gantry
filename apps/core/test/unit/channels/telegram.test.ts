@@ -4340,7 +4340,7 @@ describe('TelegramChannel', () => {
       expect(call?.[2]).not.toContain(terminalView.fallbackText);
     });
 
-    it('sends a terminal structured notification as HTML without a running card', async () => {
+    it('sends a terminal structured notification as HTML in its forum topic without a running card', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
 
@@ -4350,12 +4350,86 @@ describe('TelegramChannel', () => {
         {
           done: true,
           jobNotificationView: terminalView,
+          threadId: '42',
         },
       );
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
         expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'HTML',
+        }),
+      );
+    });
+
+    it('re-sends a terminal structured notification as HTML after a non-parse edit failure', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...', {
+        threadId: '42',
+      });
+      currentBot().api.editMessageText.mockRejectedValueOnce(
+        new Error('Bad Request: message to edit not found'),
+      );
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          threadId: '42',
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        987,
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({ parse_mode: 'HTML' }),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenLastCalledWith(
+        '100200300',
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+    });
+
+    it('falls back to terminal text when the rendered HTML is too long', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      const fallbackText = 'Completed plain fallback';
+
+      await channel.sendProgressUpdate('tg:100200300', fallbackText, {
+        done: true,
+        jobNotificationView: {
+          ...terminalView,
+          result: { ...terminalView.result, headline: 'x'.repeat(5000) },
+          fallbackText,
+        },
+      });
+
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '100200300',
+        fallbackText,
+        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
+      );
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalledWith(
+        '100200300',
+        expect.any(String),
         expect.objectContaining({ parse_mode: 'HTML' }),
       );
     });
