@@ -75,7 +75,6 @@ import {
 import { resolveAppSessionForJob } from './app-session-resolution.js';
 import { finalizeSchedulerJobRun } from './execution-finalization.js';
 import { closeBrowserAfterJobRun } from './execution-browser-cleanup.js';
-import { prelaunchBrowserForJobRun } from './execution-browser-prelaunch.js';
 import { isTrustedSystemJob } from '../shared/system-job-identity.js';
 import { completeFailedRunFailsafe } from './run-failsafe.js';
 import { createRunProviderMetadataUpdater } from './run-provider-metadata.js';
@@ -404,25 +403,9 @@ async function runActiveJob(
             accessSnapshot,
             publishRuntimeEvent,
           }));
-          const browserPrelaunchSetup = finalReadinessPassed
-            ? await prelaunchBrowserForJobRun({
-                currentJob,
-                executionGroupFolder: execution.group.folder,
-                executionJid: execution.executionJid,
-                executionProviderAccountId: execution.group.providerAccountId,
-                diagnostics,
-                deps,
-                emitJobEvent,
-                logger,
-              })
-            : undefined;
           if (!finalReadinessPassed) {
             pausedForSetupDuringRun = true;
             error = SETUP_REQUIRED_PAUSE_REASON;
-          } else if (browserPrelaunchSetup) {
-            error = browserPrelaunchSetup.error;
-            setupStateForSetupPause = browserPrelaunchSetup.setupState;
-            pausedForSetupDuringRun = true;
           }
           if (!error) {
             const runOptions = buildRuntimeRunOptions({
