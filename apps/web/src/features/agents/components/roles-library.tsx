@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { BookOpen, Copy, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import {
@@ -45,23 +45,50 @@ export function RolesLibrary({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
-  const create = useMutation({
+  const [editing, setEditing] = useState<BrowserRole>();
+  const save = useMutation({
     mutationFn: async () => {
-      const response = await browserFetch('/ui/api/roles', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
-        body: JSON.stringify({ name, prompt }),
-      });
-      if (!response.ok) throw new Error('Role could not be created.');
+      const response = await browserFetch(
+        editing
+          ? `/ui/api/roles/${encodeURIComponent(editing.id)}`
+          : '/ui/api/roles',
+        {
+          method: editing ? 'PATCH' : 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'content-type': 'application/json',
+            ...browserCsrfHeader(),
+          },
+          body: JSON.stringify({
+            name,
+            prompt,
+            ...(editing?.sourceRoleId
+              ? { sourceRoleId: editing.sourceRoleId }
+              : {}),
+          }),
+        },
+      );
+      if (!response.ok)
+        throw new Error(
+          `Role could not be ${editing ? 'updated' : 'created'}.`,
+        );
     },
     onSuccess: () => {
       setOpen(false);
+      setEditing(undefined);
       setName('');
       setPrompt('');
       return queryClient.invalidateQueries({ queryKey: ['agents', 'roles'] });
     },
   });
+  function start(role?: BrowserRole) {
+    setEditing(role?.kind === 'custom' ? role : undefined);
+    setName(
+      role ? `${role.kind === 'custom' ? role.name : `${role.name} copy`}` : '',
+    );
+    setPrompt(role?.prompt ?? '');
+    setOpen(true);
+  }
   const remove = useMutation({
     mutationFn: async (id: string) => {
       const response = await browserFetch(
@@ -102,7 +129,7 @@ export function RolesLibrary({
           : 'Role prompts are visible. Custom role changes affect future selections only.'
       }
       action={
-        <Button onClick={() => setOpen(true)}>
+        <Button onClick={() => start()}>
           <Plus size={15} aria-hidden="true" />
           New custom role
         </Button>
@@ -128,40 +155,60 @@ export function RolesLibrary({
               {role.prompt}
             </pre>
             {role.kind === 'custom' ? (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive">
-                    <Trash2 size={15} aria-hidden="true" />
-                    Delete role
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete {role.name}?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Existing agents keep their saved role snapshot. This only
-                      removes the role from future selection.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <Button
-                      disabled={remove.isPending}
-                      variant="destructive"
-                      onClick={() => remove.mutate(role.id)}
-                    >
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => start(role)}>
+                  <Pencil size={15} aria-hidden="true" />
+                  Edit
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => start({ ...role, kind: 'built-in' })}
+                >
+                  <Copy size={15} aria-hidden="true" />
+                  Duplicate
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive">
+                      <Trash2 size={15} aria-hidden="true" />
                       Delete role
                     </Button>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            ) : null}
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete {role.name}?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Existing agents keep their saved role snapshot. This
+                        only removes the role from future selection.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <Button
+                        disabled={remove.isPending}
+                        variant="destructive"
+                        onClick={() => remove.mutate(role.id)}
+                      >
+                        Delete role
+                      </Button>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            ) : (
+              <Button variant="secondary" onClick={() => start(role)}>
+                <Copy size={15} aria-hidden="true" />
+                Make custom copy
+              </Button>
+            )}
           </article>
         ))}
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New custom role</DialogTitle>
+            <DialogTitle>
+              {editing ? `Edit ${editing.name}` : 'New custom role'}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4">
             <TextField
@@ -182,16 +229,20 @@ export function RolesLibrary({
                 rows={8}
               />
             </label>
-            {create.isError ? (
-              <p className="m-0 text-xs text-danger">{create.error.message}</p>
+            {save.isError ? (
+              <p className="m-0 text-xs text-danger">{save.error.message}</p>
             ) : null}
           </div>
           <DialogFooter showCloseButton>
             <Button
-              disabled={!name.trim() || !prompt.trim() || create.isPending}
-              onClick={() => create.mutate()}
+              disabled={!name.trim() || !prompt.trim() || save.isPending}
+              onClick={() => save.mutate()}
             >
-              {create.isPending ? 'Creating…' : 'Create role'}
+              {save.isPending
+                ? 'Saving…'
+                : editing
+                  ? 'Save role'
+                  : 'Create role'}
             </Button>
           </DialogFooter>
         </DialogContent>
