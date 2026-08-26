@@ -20,6 +20,7 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain('listAgents(appId)');
   expect(source).toContain('listCustomRoles(appId)');
   expect(source).toContain('retainedAgentCounts(');
+  expect(source).toContain("kind === 'built-in'");
   expect(source).toContain('retainedAgentCount: counts.get(role.id) ?? 0');
   expect(source).toContain('data: items.slice');
   expect(source).toContain('hasNext: end < total');

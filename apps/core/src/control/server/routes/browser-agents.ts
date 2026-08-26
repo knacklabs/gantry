@@ -262,7 +262,10 @@ export async function handleBrowserAgentRoutes(
     if (pathname === '/ui/api/roles') {
       const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
       const kind = url.searchParams.get('kind');
-      const counts = await retainedAgentCounts(storage, appId);
+      const counts =
+        kind === 'built-in'
+          ? new Map<string, number>()
+          : await retainedAgentCounts(storage, appId);
       const roles = [
         ...(kind !== 'custom' ? builtInRoles() : []),
         ...(kind !== 'built-in'
