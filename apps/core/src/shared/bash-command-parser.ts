@@ -1,7 +1,14 @@
+import {
+  parseHeredocBodies,
+  parseHeredocOperator,
+  type HeredocRedirect,
+} from './bash-heredoc.js';
+
 export interface BashCommandRedirect {
   operator: string;
   target: string;
   destructive: boolean;
+  heredoc?: string;
 }
 
 export interface BashCommandLeaf {
@@ -276,6 +283,7 @@ function parseSegment(
   let quote: "'" | '"' | null = null;
   let escaped = false;
   let piped = false;
+  let pendingHeredocs: HeredocRedirect[] = [];
 
   const flushToken = () => {
     if (!token) return;
@@ -389,6 +397,12 @@ function parseSegment(
     if (ch === '|' || ch === ';' || ch === '\n') {
       const flushed = flushLeaf();
       if (flushed) return flushed;
+      if (ch === '\n' && pendingHeredocs.length > 0) {
+        const heredocs = parseHeredocBodies(command, i + 1, pendingHeredocs);
+        if (!heredocs.ok) return heredocs;
+        pendingHeredocs = [];
+        i = heredocs.nextIndex - 1;
+      }
       if (ch === '|' && next === '|') i += 1;
       else if (ch === '|') piped = true;
       continue;
@@ -399,6 +413,7 @@ function parseSegment(
       if (!parsedRedirect.ok) return parsedRedirect;
       token = '';
       redirects.push(parsedRedirect.redirect);
+      if (parsedRedirect.heredoc) pendingHeredocs.push(parsedRedirect.heredoc);
       i = parsedRedirect.nextIndex;
       continue;
     }
@@ -421,7 +436,6 @@ function parseSegment(
   }
   return { ok: true, leaves, piped };
 }
-
 function parseRedirect(
   command: string,
   index: number,
@@ -431,6 +445,7 @@ function parseRedirect(
       ok: true;
       redirect: BashCommandRedirect;
       nextIndex: number;
+      heredoc?: HeredocRedirect;
     }
   | { ok: false; reason: string } {
   const operatorChar = command[index];
@@ -442,9 +457,11 @@ function parseRedirect(
       reason: 'Bash redirection must be separated from command arguments.',
     };
   }
-
   let operator = `${fd ?? ''}${operatorChar}`;
   let cursor = index + 1;
+  if (operatorChar === '<' && command[cursor] === '<') {
+    return parseHeredocOperator(command, cursor, operator);
+  }
   if (operatorChar === '>' && command[cursor] === '>') {
     operator += '>';
     cursor += 1;
@@ -502,7 +519,6 @@ function parseRedirect(
     nextIndex: cursor - 1,
   };
 }
-
 function buildLeaf(
   argv: string[],
   redirects: BashCommandRedirect[],

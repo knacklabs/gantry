@@ -1,11 +1,95 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatBashArgv } from '@core/shared/bash-command-parser.js';
+import {
+  formatBashArgv,
+  parseBashCommand,
+} from '@core/shared/bash-command-parser.js';
 
 describe('bash command parser', () => {
   it('quotes wildcard argv when formatting shell-safe commands', () => {
     expect(formatBashArgv(['acme', 'records', 'get', '*'])).toBe(
       "acme records get '*'",
     );
+  });
+
+  it('keeps a heredoc body out of argv and resumes parsing after its terminator', () => {
+    const urls = [
+      'https://example.com/monaco/1',
+      'https://example.com/taktile/2',
+      'https://example.com/monaco/3',
+      'https://example.com/taktile/4',
+      'https://example.com/monaco/5',
+      'https://example.com/taktile/6',
+    ];
+    const parsed = parseBashCommand(
+      `grep -i "monaco\\|taktile" /dev/stdin << 'EOF'\n${urls.join('\n')}\nEOF\necho "check done"`,
+    );
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      leaves: [
+        {
+          argv: ['grep', '-i', 'monaco|taktile', '/dev/stdin'],
+          redirects: [
+            {
+              operator: '<<',
+              target: 'EOF',
+              heredoc: `${urls.join('\n')}\n`,
+            },
+          ],
+        },
+        { argv: ['echo', 'check done'] },
+      ],
+    });
+    if (!parsed.ok) throw new Error(parsed.reason);
+    expect(parsed.leaves[0]?.argv.join(' ')).not.toContain(urls[0]!);
+  });
+
+  it('strips leading tabs from <<- heredoc bodies', () => {
+    const parsed = parseBashCommand('cat <<-EOF\n\tfirst\n\tsecond\n\tEOF');
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      leaves: [
+        {
+          redirects: [
+            { operator: '<<-', target: 'EOF', heredoc: 'first\nsecond\n' },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('rejects bare-delimiter heredoc expansions', () => {
+    expect(parseBashCommand('cat <<EOF\n$HOME\nEOF')).toEqual({
+      ok: false,
+      reason: 'Bash heredoc body uses unsupported expansion.',
+    });
+  });
+
+  it('rejects an unterminated heredoc', () => {
+    expect(parseBashCommand('cat <<EOF\nbody')).toEqual({
+      ok: false,
+      reason: 'Bash heredoc delimiter not terminated.',
+    });
+  });
+
+  it('keeps existing redirect operators intact', () => {
+    const parsed = parseBashCommand('cat < input > output >> log 2>&1');
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      leaves: [
+        {
+          argv: ['cat'],
+          redirects: [
+            { operator: '<', target: 'input', destructive: false },
+            { operator: '>', target: 'output', destructive: true },
+            { operator: '>>', target: 'log', destructive: true },
+            { operator: '2>', target: '&1', destructive: false },
+          ],
+        },
+      ],
+    });
   });
 });
