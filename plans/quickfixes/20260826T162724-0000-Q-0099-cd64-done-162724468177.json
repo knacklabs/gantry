@@ -1,0 +1,151 @@
+{
+  "event": "done",
+  "id": "Q-0099-cd64",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Q-0099: a new permission question must land as a fresh card message when the existing card message is stale (buttons were edited onto a two-day-old message at 14:47Z)",
+  "base_sha": "bc3522d27e8ce6998d38225e5da26fbec5587ab4",
+  "started_at": "2026-08-26T15:50:37+00:00",
+  "completed_at": "2026-08-26T16:27:24+00:00",
+  "files": [
+    "apps/core/src/application/interactions/job-permission-card-projection.ts",
+    "apps/core/test/unit/application/jobperm-durability.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/application/interactions/job-permission-card-projection.ts",
+        "apps/core/test/unit/application/jobperm-durability.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "10-minute staleness is a constant"
+      ],
+      "summary": "One predicate at the shared seam; providers untouched. Lite window Q-0099 (base bc3522d2 -> HEAD b1a19a42a): provider-neutral projection promotes edit->replace for a new question on a card message first delivered >10 min ago (send/replace delivery), guarded against undelivered replacements. Proof: application lane 73 files / 955 tests, tsc, architecture; autoreview 5 rounds (4 accepted, R5 rejected: representedNeeds covers all rows).",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "aa64f3ea93c219144a8c8974343fc94b0fe5a0b933b3249b70ba796d882631d4",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "03c57d18f950c97cb10316cc00ac679a6117628092ea45c1965c755152b25d40",
+      "recorded_at": "2026-08-26T16:22:28+00:00",
+      "commit": "b1a19a42ac82e76328ec40e6c99790a31f6b4058"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/application/interactions/job-permission-card-projection.ts",
+        "apps/core/test/unit/application/jobperm-durability.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "Two small scans over bounded card history per revision. Lite window Q-0099 (base bc3522d2 -> HEAD b1a19a42a): provider-neutral projection promotes edit->replace for a new question on a card message first delivered >10 min ago (send/replace delivery), guarded against undelivered replacements. Proof: application lane 73 files / 955 tests, tsc, architecture; autoreview 5 rounds (4 accepted, R5 rejected: representedNeeds covers all rows).",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "aa64f3ea93c219144a8c8974343fc94b0fe5a0b933b3249b70ba796d882631d4",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "03c57d18f950c97cb10316cc00ac679a6117628092ea45c1965c755152b25d40",
+      "recorded_at": "2026-08-26T16:22:28+00:00",
+      "commit": "b1a19a42ac82e76328ec40e6c99790a31f6b4058"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/application/interactions/job-permission-card-projection.ts",
+        "apps/core/test/unit/application/jobperm-durability.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "No trust-boundary change; replace path pre-existing. Lite window Q-0099 (base bc3522d2 -> HEAD b1a19a42a): provider-neutral projection promotes edit->replace for a new question on a card message first delivered >10 min ago (send/replace delivery), guarded against undelivered replacements. Proof: application lane 73 files / 955 tests, tsc, architecture; autoreview 5 rounds (4 accepted, R5 rejected: representedNeeds covers all rows).",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "aa64f3ea93c219144a8c8974343fc94b0fe5a0b933b3249b70ba796d882631d4",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "03c57d18f950c97cb10316cc00ac679a6117628092ea45c1965c755152b25d40",
+      "recorded_at": "2026-08-26T16:22:29+00:00",
+      "commit": "b1a19a42ac82e76328ec40e6c99790a31f6b4058"
+    }
+  }
+}
