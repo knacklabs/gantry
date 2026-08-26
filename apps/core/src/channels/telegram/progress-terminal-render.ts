@@ -41,21 +41,27 @@ export async function sendTerminalTelegramProgressMessage(input: {
   text: string;
   fallbackText: string;
   sendOptions: TelegramSendMessageOptions;
-}): Promise<number | undefined> {
+}): Promise<{ messageId: number | undefined; text: string }> {
   try {
     const sent = await input.api.sendMessage(input.chatId, input.text, {
       parse_mode: 'HTML',
       ...input.sendOptions,
     });
-    return (sent as { message_id?: number }).message_id;
+    return {
+      messageId: (sent as { message_id?: number }).message_id,
+      text: input.text,
+    };
   } catch (err) {
     if (!isTelegramHtmlParseError(err)) throw err;
-    return sendTelegramMessageWithResult(
-      input.api,
-      input.chatId,
-      input.fallbackText,
-      input.sendOptions,
-    );
+    return {
+      messageId: await sendTelegramMessageWithResult(
+        input.api,
+        input.chatId,
+        input.fallbackText,
+        input.sendOptions,
+      ),
+      text: input.fallbackText,
+    };
   }
 }
 
@@ -68,7 +74,9 @@ export function sendTelegramProgressReplacementMessage(input: {
   terminal: boolean;
 }): Promise<number | undefined> {
   return input.terminal
-    ? sendTerminalTelegramProgressMessage(input)
+    ? sendTerminalTelegramProgressMessage(input).then(
+        ({ messageId }) => messageId,
+      )
     : sendTelegramMessageWithResult(
         input.api,
         input.chatId,

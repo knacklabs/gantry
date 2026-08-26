@@ -7,6 +7,7 @@ import {
   type TelegramSendMessageOptions,
 } from './channel-shared.js';
 import { telegramActionReplyMarkup } from './message-action-affordances.js';
+import { sendTerminalTelegramProgressMessage } from './progress-terminal-render.js';
 
 export function progressActionOptions(options: ProgressUpdateOptions): {
   sendOptions: TelegramSendMessageOptions;
@@ -142,19 +143,31 @@ export async function sendNewProgressMessage(input: {
   options: ProgressUpdateOptions;
   sendOptions: TelegramSendMessageOptions;
   threadId?: number;
+  html?: { text: string; fallbackText: string };
 }): Promise<void> {
-  const messageId = await sendTelegramMessageWithResult(
-    input.api,
-    input.chatId,
-    input.text,
-    input.sendOptions,
-  );
-  if (!input.options.done) {
+  const sent = input.html
+    ? await sendTerminalTelegramProgressMessage({
+        api: input.api,
+        chatId: String(input.chatId),
+        text: input.html.text,
+        fallbackText: input.html.fallbackText,
+        sendOptions: input.sendOptions,
+      })
+    : {
+        messageId: await sendTelegramMessageWithResult(
+          input.api,
+          input.chatId,
+          input.text,
+          input.sendOptions,
+        ),
+        text: input.text,
+      };
+  if (!input.options.done || input.html) {
     input.activeProgressMessages.set(input.key, {
       chatId: String(input.chatId),
       threadId: input.threadId,
-      messageId,
-      lastText: input.text,
+      messageId: sent.messageId,
+      lastText: sent.text,
       ...(input.options.generation !== undefined
         ? { generation: input.options.generation }
         : {}),
@@ -165,11 +178,11 @@ export async function sendNewProgressMessage(input: {
     {
       jid: input.jid,
       key: input.key,
-      progressText: input.text,
+      progressText: sent.text,
       done: input.options.done ?? false,
       generation: input.options.generation,
-      messageId,
-      storedHandle: !input.options.done,
+      messageId: sent.messageId,
+      storedHandle: !input.options.done || Boolean(input.html),
     },
     'Progress lifecycle telegram sent new message',
   );

@@ -27,7 +27,6 @@ import { escapeTelegramHtml } from './html-render.js';
 import {
   editTelegramProgressMessage,
   sendTelegramProgressReplacementMessage,
-  sendTerminalTelegramProgressMessage,
   terminalTelegramProgressMessage,
 } from './progress-terminal-render.js';
 import {
@@ -419,30 +418,19 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       return false;
     }
     if (!existing) {
-      if (terminalMessage) {
-        await sendTerminalTelegramProgressMessage({
-          api: this.bot.api,
-          chatId: numericId,
-          text: nextText,
-          fallbackText,
-          sendOptions,
-        });
-      } else {
-        await sendNewProgressMessage({
-          api: this.bot.api,
-          activeProgressMessages: this.activeProgressMessages,
-          persistProgressMessages: () => this.persistProgressMessages(),
-          chatId: numericId,
-          key,
-          jid,
-          text: nextText,
-          options,
-          sendOptions,
-          threadId: Number.isFinite(parsedThreadId)
-            ? parsedThreadId
-            : undefined,
-        });
-      }
+      await sendNewProgressMessage({
+        api: this.bot.api,
+        activeProgressMessages: this.activeProgressMessages,
+        persistProgressMessages: () => this.persistProgressMessages(),
+        chatId: numericId,
+        key,
+        jid,
+        text: nextText,
+        options,
+        sendOptions,
+        threadId: Number.isFinite(parsedThreadId) ? parsedThreadId : undefined,
+        ...(terminalMessage ? { html: { text: nextText, fallbackText } } : {}),
+      });
       return true;
     }
     if (existing.lastText === nextText) {

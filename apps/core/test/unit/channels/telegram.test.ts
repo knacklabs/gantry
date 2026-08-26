@@ -4340,28 +4340,85 @@ describe('TelegramChannel', () => {
       expect(call?.[2]).not.toContain(terminalView.fallbackText);
     });
 
-    it('sends a terminal structured notification as HTML in its forum topic without a running card', async () => {
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
+    it('records a no-handle terminal HTML notice and reuses it for an action-only update', async () => {
+      const runtimeHome = fs.mkdtempSync('/tmp/gantry-tg-progress-');
+      const savedHome = process.env.GANTRY_HOME;
+      process.env.GANTRY_HOME = runtimeHome;
+      try {
+        const channel = new TelegramChannel('test-token', createTestOpts());
+        await channel.connect();
 
-      await channel.sendProgressUpdate(
-        'tg:100200300',
-        terminalView.fallbackText,
-        {
-          done: true,
-          jobNotificationView: terminalView,
+        await channel.sendProgressUpdate(
+          'tg:100200300',
+          terminalView.fallbackText,
+          {
+            done: true,
+            jobNotificationView: terminalView,
+            threadId: '42',
+          },
+        );
+
+        const sentHtml = currentBot().api.sendMessage.mock.calls.at(-1)?.[1];
+        expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+          '100200300',
+          expect.stringContaining('<b>✅ Completed</b>'),
+          expect.objectContaining({
+            message_thread_id: 42,
+            parse_mode: 'HTML',
+          }),
+        );
+        expect(
+          (channel as any).activeProgressMessages.get(
+            'progress:tg:100200300:42',
+          ),
+        ).toMatchObject({
+          chatId: '100200300',
+          threadId: 42,
+          messageId: 987,
+          lastText: sentHtml,
+        });
+        const stateFile = fs
+          .readdirSync(`${runtimeHome}/run`)
+          .find((name) => name.startsWith('telegram-progress-state-'));
+        expect(stateFile).toBeTruthy();
+        expect(
+          JSON.parse(
+            fs.readFileSync(`${runtimeHome}/run/${stateFile}`, 'utf8'),
+          ),
+        ).toContainEqual([
+          'progress:tg:100200300:42',
+          expect.objectContaining({ messageId: 987, lastText: sentHtml }),
+        ]);
+
+        currentBot().api.sendMessage.mockClear();
+        currentBot().api.editMessageText.mockClear();
+        await channel.sendProgressUpdate('tg:100200300', '', {
+          actionOnly: true,
           threadId: '42',
-        },
-      );
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        });
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
-        '100200300',
-        expect.stringContaining('<b>✅ Completed</b>'),
-        expect.objectContaining({
-          message_thread_id: 42,
-          parse_mode: 'HTML',
-        }),
-      );
+        expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+        expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+          '100200300',
+          987,
+          String.fromCharCode(8288),
+          expect.objectContaining({
+            parse_mode: 'MarkdownV2',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: 'Run again', callback_data: 'r:job-1' }],
+              ],
+            },
+          }),
+        );
+      } finally {
+        if (savedHome === undefined) delete process.env.GANTRY_HOME;
+        else process.env.GANTRY_HOME = savedHome;
+        fs.rmSync(runtimeHome, { recursive: true, force: true });
+      }
     });
 
     it('falls back to terminal text when a no-handle terminal HTML send cannot parse', async () => {
