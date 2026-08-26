@@ -39,6 +39,7 @@ export function AgentSetupManager({
   });
   const data = kind === 'sources' ? sources.data : capabilities.data;
   const [selected, setSelected] = useState<string[]>([]);
+  const [sourceTab, setSourceTab] = useState<'skills' | 'mcp'>('skills');
   const sourceCurrent = sources.data?.sources.sources;
   const capabilityCurrent = capabilities.data?.capabilities.capabilities;
 
@@ -82,7 +83,7 @@ export function AgentSetupManager({
       onSaved?.();
     },
   });
-  const items =
+  const allItems =
     kind === 'sources'
       ? [
           ...(data?.catalog.skills ?? []).map((item) => ({
@@ -104,6 +105,14 @@ export function AgentSetupManager({
           description: item.description,
           group: 'Capabilities',
         }));
+  const items =
+    kind === 'sources'
+      ? allItems.filter((item) =>
+          sourceTab === 'skills'
+            ? item.id.startsWith('skill:')
+            : item.id.startsWith('mcp:'),
+        )
+      : allItems;
 
   if (
     (kind === 'sources' && sources.isLoading) ||
@@ -123,6 +132,29 @@ export function AgentSetupManager({
           ? 'Attach installed skills or active MCP servers. This does not grant tool authority.'
           : 'Choose the tool capabilities this agent may use. Source attachment alone does not grant these.'}
       </p>
+      {kind === 'sources' ? (
+        <div className="flex gap-2" role="tablist" aria-label="Source type">
+          <Button
+            aria-selected={sourceTab === 'skills'}
+            role="tab"
+            size="sm"
+            variant={sourceTab === 'skills' ? 'secondary' : 'ghost'}
+            onClick={() => setSourceTab('skills')}
+          >
+            Skills ({selected.filter((id) => id.startsWith('skill:')).length})
+          </Button>
+          <Button
+            aria-selected={sourceTab === 'mcp'}
+            role="tab"
+            size="sm"
+            variant={sourceTab === 'mcp' ? 'secondary' : 'ghost'}
+            onClick={() => setSourceTab('mcp')}
+          >
+            MCP servers ({selected.filter((id) => id.startsWith('mcp:')).length}
+            )
+          </Button>
+        </div>
+      ) : null}
       {items.length ? (
         <div className="grid max-h-80 gap-2 overflow-y-auto rounded-md border border-border p-3">
           {items.map((item) => (
