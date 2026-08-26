@@ -1,0 +1,112 @@
+name: Temporary Prod ATS Resume E2E Diagnostics
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - fix/prod-managed-browser-runtime
+    paths:
+      - .github/workflows/temp_prod_ats_resume_e2e_diagnostics.yml
+
+env:
+  AWS_REGION: ap-south-1
+
+jobs:
+  diagnose:
+    name: Read ATS source queue and resume persistence
+    runs-on: self-hosted
+    environment: ATS Prod
+    timeout-minutes: 10
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Inspect source runs, uploads, candidates, and storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase_url="$(aws ssm get-parameter --name NEXT_PUBLIC_SUPABASE_URL --with-decryption --query 'Parameter.Value' --output text)"
+          service_key="$(aws ssm get-parameter --name SERVICE_ROLE_KEY --with-decryption --query 'Parameter.Value' --output text)"
+          echo "::add-mask::$supabase_url"
+          echo "::add-mask::$service_key"
+          export ATS_SUPABASE_URL="$supabase_url"
+          export ATS_SERVICE_ROLE_KEY="$service_key"
+          unset supabase_url service_key
+
+          node <<'NODE'
+          const base = process.env.ATS_SUPABASE_URL.replace(/\/+$/, '')
+          const key = process.env.ATS_SERVICE_ROLE_KEY
+          const headers = { apikey: key, authorization: `Bearer ${key}` }
+
+          async function rest(path) {
+            const response = await fetch(`${base}/rest/v1/${path}`, { headers, signal: AbortSignal.timeout(20_000) })
+            const text = await response.text()
+            if (!response.ok) throw new Error(`REST ${response.status}: ${text.slice(0, 500)}`)
+            return text ? JSON.parse(text) : null
+          }
+
+          const runs = await rest('source_sync_runs?select=id,platform,position_id,source_link_id,status,downloaded_count,staged_count,imported_count,duplicate_count,error_message,worker_id,heartbeat_at,lease_expires_at,created_at,started_at,completed_at&order=created_at.desc&limit=20')
+          const runIds = runs.map(run => run.id)
+          const rows = runIds.length
+            ? await rest(`source_import_rows?select=id,run_id,status,candidate_id,application_id,error_message&run_id=in.(${runIds.join(',')})&limit=20000`)
+            : []
+          const candidateIds = [...new Set(rows.map(row => row.candidate_id).filter(Boolean))]
+          const candidates = candidateIds.length
+            ? await rest(`candidates?select=id,application_resume_file_name,application_resume_text_extracted_at,application_resume_text_error&id=in.(${candidateIds.join(',')})&limit=20000`)
+            : []
+          const uploads = runIds.length
+            ? await rest(`source_worker_resume_uploads?select=run_id,row_id,storage_path,used_at,created_at&run_id=in.(${runIds.join(',')})&limit=20000`)
+            : []
+
+          const candidateById = new Map(candidates.map(candidate => [candidate.id, candidate]))
+          const uploadsByRun = new Map()
+          for (const upload of uploads) {
+            const list = uploadsByRun.get(upload.run_id) || []
+            list.push(upload)
+            uploadsByRun.set(upload.run_id, list)
+          }
+
+          async function storageExists(path) {
+            const response = await fetch(`${base}/storage/v1/object/public-resumes/${path.split('/').map(encodeURIComponent).join('/')}`, {
+              method: 'HEAD',
+              headers,
+              signal: AbortSignal.timeout(20_000),
+            })
+            return response.ok
+          }
+
+          const report = []
+          for (const run of runs) {
+            const runRows = rows.filter(row => row.run_id === run.id)
+            const statusCounts = Object.fromEntries(
+              [...new Set(runRows.map(row => row.status))].map(status => [status, runRows.filter(row => row.status === status).length])
+            )
+            const resumeCandidates = runRows.map(row => candidateById.get(row.candidate_id)).filter(Boolean)
+            const paths = [...new Set(resumeCandidates.map(candidate => candidate.application_resume_file_name).filter(Boolean))]
+            const objectChecks = []
+            for (const path of paths.slice(0, 20)) objectChecks.push({ path, exists: await storageExists(path) })
+            report.push({
+              ...run,
+              error_message: run.error_message ? String(run.error_message).slice(0, 500) : null,
+              row_count: runRows.length,
+              row_status_counts: statusCounts,
+              resume_upload_tickets: (uploadsByRun.get(run.id) || []).map(upload => ({
+                row_id: upload.row_id,
+                storage_path: upload.storage_path,
+                used_at: upload.used_at,
+                created_at: upload.created_at,
+              })),
+              candidates_with_resume_path: paths.length,
+              candidates_with_extracted_resume_text: resumeCandidates.filter(candidate => candidate.application_resume_text_extracted_at && !candidate.application_resume_text_error).length,
+              storage_objects: objectChecks,
+            })
+          }
+
+          console.log(JSON.stringify({ checked_at: new Date().toISOString(), runs: report }, null, 2))
+          NODE
