@@ -1,9 +1,9 @@
 {
-  "commit": "f0b764e32691474dfdaab4889a6265002b2a68bb",
+  "commit": "2c5d33addd9eca471aa426018d30ecb42997302e",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "At HEAD f0b764e32: unit lane 675 files / 9,025 tests passed; integration lane 13 files / 87 tests passed (DB-gated suites skipped per config); architecture, format, vendor integrity and dual-runtime checks green; verify.py Verification passed. New proof suites since the story stages: JSONB-faithful jobperm fakes + q-0074 no-op-revision test, Telegram/Slack/Discord native terminal render suites, heredoc parser cases, lifecycle fallback/idempotency cases, notice rollup/headline cases.",
+    "summary": "At HEAD 2c5d33add: unit lane 675 files / 9,025 tests passed; integration lane 13 files / 87 tests passed (DB-gated suites skipped per config); architecture, format, vendor integrity and dual-runtime checks green; verify.py Verification passed. New proof suites since the story stages: JSONB-faithful jobperm fakes + q-0074 no-op-revision test, Telegram/Slack/Discord native terminal render suites, heredoc parser cases, lifecycle fallback/idempotency cases, notice rollup/headline cases. Q-0092/Q-0093 add job-run-prompt and next-run formatting tests (jobs suite 66 files / 719 tests).",
     "blocking_findings": [],
     "commands_run": [
       "npx vitest run -c vitest.unit.config.ts",
@@ -25,7 +25,8 @@
       "apps/core/test/unit/jobs/execution-diagnostics.test.ts",
       "apps/core/test/unit/shared/bash-command-parser.test.ts",
       "apps/core/test/unit/domain/messages/retry-tail-provider-payload.test.ts",
-      "apps/core/test/unit/runtime/prompt-profile.test.ts"
+      "apps/core/test/unit/runtime/prompt-profile.test.ts",
+      "apps/core/test/unit/jobs/job-run-prompt.test.ts"
     ],
     "remaining_gaps": [],
     "reviewed_scope": [
@@ -38,15 +39,15 @@
     "non_blocking_findings": [],
     "residual_risks": [],
     "manual_validation_steps": [],
-    "recorded_at": "2026-08-26T12:23:52+00:00",
-    "commit": "f0b764e32691474dfdaab4889a6265002b2a68bb"
+    "recorded_at": "2026-08-26T13:03:05+00:00",
+    "commit": "2c5d33addd9eca471aa426018d30ecb42997302e"
   },
-  "updated_at": "2026-08-26T12:24:17+00:00",
+  "updated_at": "2026-08-26T13:03:06+00:00",
   "functional": {
     "generated_by": "functional-checker",
     "status": "passed",
     "score": 8,
-    "summary": "Functional check on the live runtime (production KnackLabs job, Telegram group tg:-1003986348737), branch builds 2026-08-25/26. Scenario 1 (in-session continuation): 8 runs completed; permissions decided in place and next runs silent-allowed by rule (decidedBy reviewed_rule). One-message notification: every run produced exactly one Telegram send + one edit (native 0) after Q-0079; header, per-tool outcome lines, summary and next-run rendered in the edited card; browser + LinkedIn used after login. Card churn 0 across all runs after the revision-loop fix (previously 10,115 edits). Prompt without living card traced to a heredoc command (parser fixed, Q-0085) and copy corrected (Q-0086). Native HTML/blocks/embed rendering deployed 2026-08-26 12:11Z; the run triggered at that time is the first to render with the outcome headline contract.",
+    "summary": "Functional check on the live runtime (production KnackLabs job, Telegram group tg:-1003986348737), branch builds 2026-08-25/26. Scenario 1 (in-session continuation): 8 runs completed; permissions decided in place and next runs silent-allowed by rule (decidedBy reviewed_rule). One-message notification: every run produced exactly one Telegram send + one edit (native 0) after Q-0079; header, per-tool outcome lines, summary and next-run rendered in the edited card; browser + LinkedIn used after login. Card churn 0 across all runs after the revision-loop fix (previously 10,115 edits). Prompt without living card traced to a heredoc command (parser fixed, Q-0085) and copy corrected (Q-0086). Native HTML/blocks/embed rendering deployed 2026-08-26 12:11Z; the run triggered at that time is the first to render with the outcome headline contract. 2026-08-26 12:29Z run 4e1f2de0 on the native renderers: one send + one edit, HTML header/expandable details/next run rendered, 0 cards; no Outcome headline because the agent ignored the profile bullet \u2014 fixed by placing the contract at the end of the run prompt (Q-0093), first live run pending.",
     "blocking_findings": [],
     "non_blocking_findings": [
       "{'category': 'functional', 'area': 'scenario-3', 'summary': 'Deny/Reconsider (live scenario 3) was not exercised on the customer job; covered by durability unit tests'}"
@@ -67,7 +68,7 @@
     "remaining_gaps": [],
     "commands_run": [],
     "tests_added_or_updated": [],
-    "recorded_at": "2026-08-26T12:24:17+00:00",
-    "commit": "f0b764e32691474dfdaab4889a6265002b2a68bb"
+    "recorded_at": "2026-08-26T13:03:06+00:00",
+    "commit": "2c5d33addd9eca471aa426018d30ecb42997302e"
   }
 }

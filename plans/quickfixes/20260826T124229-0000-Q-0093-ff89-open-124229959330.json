@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0093-ff89",
+  "profile": "lite",
+  "reason": "Make the Outcome contract stick: append one trailing paragraph to every scheduled run's prompt (system jobs excluded, idempotent) so the final message begins with 'Outcome: <one sentence>' and the notice headline renders; the profile-guidance bullet alone was ignored on the first live run. Scope: new jobs/job-run-prompt.ts, execution.ts call site, tests.",
+  "started_at": "2026-08-26T12:42:29+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "72765aea79352a9003ea35ed2bf804c167ce33f1"
+}
