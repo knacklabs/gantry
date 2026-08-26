@@ -1,0 +1,64 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "The final specification explicitly replaces the fixture-backed Agents page rather than layering a second UI beside it.",
+    "The planned custom-role domain is app-scoped and snapshots role content into an agent version; mutable role templates are never runtime authority.",
+    "Sources and semantic capability selections continue through existing separate desired-state/access services, so the wizard is not an atomic replacement endpoint.",
+    "Browser routes are narrow same-origin facades and keep administrator mutations separate from the Bearer-only Control API.",
+    "Version history is read-only and is rendered only from real stored profile/version data."
+  ],
+  "inspected_refs": [
+    "docs/specs/agents-web-ui.md",
+    "apps/web/src/features/agents/routes/agents-route.tsx",
+    "apps/web/src/features/agents/routes/agent-detail-route.tsx",
+    "apps/web/src/features/agents/agents-preview.ts",
+    "apps/core/src/control/server/routes/agents.ts",
+    "apps/core/src/application/agents/agent-access-summary.ts",
+    "apps/core/src/application/agents/agent-profile-service.ts",
+    "packages/contracts/src/agents/index.ts",
+    "docs/decisions/0020-mcp-source-vs-action-capability.md",
+    "docs/decisions/0050-agent-removal-projection-cleanup.md",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+  ],
+  "current_flow": "The Web Agents surface is fixture-backed and its create/pause/edit controls stop at the connection gate. The core Control API has unpaginated agent listing and separately exposes agent profile and access operations. Browser fa\u00e7ade patterns already exist for other administrator surfaces.",
+  "criteria_map": {
+    "Directory and details": "Replace fixture queries with browser facade queries and server-owned pagination while preserving URL state.",
+    "Roles": "Introduce only the app-scoped template storage and browser projection required for the approved role library and selector.",
+    "Creation and setup": "Keep Step 1 creation, source replacement, and capability replacement as separate persisted operations.",
+    "Detail truthfulness": "Expose only projected access, profile, version, and warning values rather than fixture or inferred values.",
+    "Security and accessibility": "Follow existing browser-auth boundary and implement functional, keyboard-operable components without no-op controls."
+  },
+  "decision": "replace-fixture-surface",
+  "new_abstractions": [
+    "CustomRole application and browser-facade contracts, because the repository currently has no reusable role-template domain.",
+    "No new generic data-fetching, permissions, or UI framework abstraction."
+  ],
+  "rounds": [],
+  "citations": [
+    {
+      "finding": "Current Agents Web UI is preview-only and connection-gated.",
+      "source": "apps/web/src/features/agents/routes/agents-route.tsx"
+    },
+    {
+      "finding": "Current agent detail is preview-only and has broader fixture tabs than the approved final information architecture.",
+      "source": "apps/web/src/features/agents/routes/agent-detail-route.tsx"
+    },
+    {
+      "finding": "Source connection and capability authority must remain distinct.",
+      "source": "docs/decisions/0020-mcp-source-vs-action-capability.md"
+    },
+    {
+      "finding": "Browser and Bearer authorization paths cannot be merged.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    }
+  ],
+  "open_items": [],
+  "issue": "AGENTS-WEB-1",
+  "input_sha256": "0e34b7b9402f18a9f08c3b0a730a387c325001f07cbb4015fb5ac494d5873b31",
+  "recorded_at": "2026-08-26T15:44:16+00:00",
+  "commit": "c93bdbcc890454ae99a4360e67c97cbddc2eed3d"
+}
