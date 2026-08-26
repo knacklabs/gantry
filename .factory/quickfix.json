@@ -1,0 +1,16 @@
+{
+  "id": "Q-0098-bcb8",
+  "profile": "lite",
+  "reason": "Q-0098: runner heartbeat counts pending permission files, host deletes the file on card attach, idle watchdog kills a run that is waiting on the job card (run abe4dbc4)",
+  "started_at": "2026-08-26T15:04:00+00:00",
+  "max_files": 5,
+  "files": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/job-heartbeat.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
+    "apps/core/test/unit/runner/job-heartbeat.test.ts",
+    "apps/core/test/unit/runner/permission-callback.test.ts"
+  ],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "8a7f6ffc8c3c8011bcfec52ab9bf584913998d56"
+}
