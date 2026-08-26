@@ -13,6 +13,8 @@ import {
   jobPermissionCardId,
 } from './job-permission-durability-state.js';
 
+const CARD_REFRESH_AFTER_MS = 10 * 60 * 1000;
+
 export function initialCard(
   input: {
     appId: string;
@@ -146,7 +148,7 @@ export function reviseLivingCard(
     return;
   }
   const revision = state.card.revision + 1;
-  const operation: JobPermissionCardRevision['operation'] =
+  let operation: JobPermissionCardRevision['operation'] =
     visible.length === 0
       ? 'retire'
       : state.card.currentProviderMessageId
@@ -154,6 +156,36 @@ export function reviseLivingCard(
         : state.card.revisions.length > 0
           ? 'replace'
           : 'send';
+  const isNewQuestion = visible.some(
+    ({ needId, askingEpoch }) =>
+      !last?.representedNeeds.some(
+        (need) => need.needId === needId && need.askingEpoch === askingEpoch,
+      ),
+  );
+  const messageFirstConfirmedAt = state.card.revisionDeliveries.find(
+    (entry) =>
+      entry.providerMessageId === state.card.currentProviderMessageId &&
+      state.card.revisions.some(
+        (revision) =>
+          revision.revision === entry.revision &&
+          (revision.operation === 'send' || revision.operation === 'replace'),
+      ),
+  )?.confirmedAt;
+  const replacePending = state.card.revisions.some(
+    ({ operation, revision: replaceRevision }) =>
+      operation === 'replace' &&
+      state.card.revisionDeliveries.find(
+        (entry) => entry.revision === replaceRevision,
+      )?.status !== 'delivered',
+  );
+  const shouldReplaceStaleCard =
+    operation === 'edit' &&
+    isNewQuestion &&
+    (!messageFirstConfirmedAt ||
+      Date.parse(now) - Date.parse(messageFirstConfirmedAt) >
+        CARD_REFRESH_AFTER_MS) &&
+    !replacePending;
+  if (shouldReplaceStaleCard) operation = 'replace';
   const deliveryId = `job-permission-card-delivery:${sha256Hex(
     JSON.stringify([state.card.id, revision]),
   )}`;

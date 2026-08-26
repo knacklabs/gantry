@@ -463,6 +463,205 @@ it('q-0074-no-op-revision-after-confirm', async () => {
   ).toHaveLength(0);
 });
 
+it('replaces a stale message for a new permission need while a paging edit is pending', async () => {
+  const { repository, clock, service } = createHarness({
+    maxRows: 8,
+    maxGrantAtomsPerRow: 2,
+  });
+  await attach(service, {
+    atoms: ['RunCommand(a)', 'RunCommand(b)', 'RunCommand(c)'],
+  });
+  await confirmLatest(service, repository);
+  await service.reconcile();
+  clock.nowIso = '2026-08-23T00:11:00.000Z';
+
+  const cardState = await readState(repository);
+  const action = jobPermissionCardActions(
+    cardState!.card.callbackKey,
+    cardState!.card.revisions.at(-1)!,
+  ).find((entry) => entry.label === 'Show full scope');
+  expect(action).toBeDefined();
+  await service.decideCardAction({
+    actor: { actorRef: 'slack:user-1' },
+    token: action!.token,
+  });
+  await attach(service, {
+    label: 'Browser',
+    atoms: ['Browser'],
+    waiterId: 'waiter-2',
+    requestId: 'request-2',
+    runId: 'run-2',
+  });
+
+  const state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).toBe('replace');
+});
+
+it('replaces when only an edit confirmation remains for the current message', async () => {
+  const { repository, clock, service } = createHarness({
+    maxRows: 8,
+    maxGrantAtomsPerRow: 2,
+  });
+  await attach(service, {
+    atoms: ['RunCommand(a)', 'RunCommand(b)', 'RunCommand(c)'],
+  });
+  await confirmLatest(service, repository);
+  await service.reconcile();
+  clock.nowIso = '2026-08-23T00:11:00.000Z';
+
+  const cardState = await readState(repository);
+  const action = jobPermissionCardActions(
+    cardState!.card.callbackKey,
+    cardState!.card.revisions.at(-1)!,
+  ).find((entry) => entry.label === 'Show full scope');
+  expect(action).toBeDefined();
+  await service.decideCardAction({
+    actor: { actorRef: 'slack:user-1' },
+    token: action!.token,
+  });
+
+  const edit = (await readState(repository))!.card.revisions.at(-1)!;
+  repository.deliveries.set(edit.deliveryId, {
+    status: 'delivered',
+    provider: 'telegram',
+    providerMessageId: 'message:1',
+    deliveredAt: clock.nowIso,
+  });
+  await service.reconcile();
+
+  const boundedState = (await readState(repository))!;
+  boundedState.card.revisionDeliveries =
+    boundedState.card.revisionDeliveries.filter(
+      (delivery) => delivery.revision === edit.revision,
+    );
+  repository.states.set('default:job-1', jsonbRoundTrip(boundedState));
+
+  await attach(service, {
+    label: 'Browser',
+    atoms: ['Browser'],
+    waiterId: 'waiter-2',
+    requestId: 'request-2',
+    runId: 'run-2',
+  });
+
+  const state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).toBe('replace');
+});
+
+it('edits a fresh card for a newly asking permission need', async () => {
+  const { repository, clock, service } = createHarness();
+  await attach(service);
+  await confirmLatest(service, repository);
+  await service.reconcile();
+  clock.nowIso = '2026-08-23T00:01:00.000Z';
+
+  await attach(service, {
+    label: 'Browser',
+    atoms: ['Browser'],
+    waiterId: 'waiter-2',
+    requestId: 'request-2',
+    runId: 'run-2',
+  });
+
+  const state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).toBe('edit');
+});
+
+it('edits a stale card for a scope paging change', async () => {
+  const { repository, clock, service } = createHarness({
+    maxRows: 8,
+    maxGrantAtomsPerRow: 2,
+  });
+  await attach(service, {
+    atoms: ['RunCommand(a)', 'RunCommand(b)', 'RunCommand(c)'],
+  });
+  await confirmLatest(service, repository);
+  await service.reconcile();
+  clock.nowIso = '2026-08-23T00:11:00.000Z';
+
+  const state = await readState(repository);
+  const action = jobPermissionCardActions(
+    state!.card.callbackKey,
+    state!.card.revisions.at(-1)!,
+  ).find((entry) => entry.label === 'Show full scope');
+  expect(action).toBeDefined();
+  await service.decideCardAction({
+    actor: { actorRef: 'slack:user-1' },
+    token: action!.token,
+  });
+
+  const updated = await readState(repository);
+  expect(updated!.card.revisions.at(-1)!.operation).toBe('edit');
+});
+
+it('edits while a stale-card replacement is unconfirmed', async () => {
+  const { repository, clock, service } = createHarness();
+  await attach(service);
+  await confirmLatest(service, repository);
+  await service.reconcile();
+  clock.nowIso = '2026-08-23T00:11:00.000Z';
+
+  await attach(service, {
+    label: 'Browser',
+    atoms: ['Browser'],
+    waiterId: 'waiter-2',
+    requestId: 'request-2',
+    runId: 'run-2',
+  });
+  let state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).toBe('replace');
+
+  await attach(service, {
+    label: 'FileRead',
+    atoms: ['FileRead'],
+    waiterId: 'waiter-3',
+    requestId: 'request-3',
+    runId: 'run-3',
+  });
+
+  state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).toBe('edit');
+});
+
+it('edits after an unconfirmed stale-card replacement and intervening edit', async () => {
+  const { repository, clock, service } = createHarness();
+  await attach(service);
+  await confirmLatest(service, repository);
+  await service.reconcile();
+  clock.nowIso = '2026-08-23T00:11:00.000Z';
+
+  await attach(service, {
+    label: 'Browser',
+    atoms: ['Browser'],
+    waiterId: 'waiter-2',
+    requestId: 'request-2',
+    runId: 'run-2',
+  });
+  let state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).toBe('replace');
+
+  await attach(service, {
+    label: 'FileRead',
+    atoms: ['FileRead'],
+    waiterId: 'waiter-3',
+    requestId: 'request-3',
+    runId: 'run-3',
+  });
+  state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).toBe('edit');
+
+  await attach(service, {
+    label: 'RunCommand',
+    atoms: ['RunCommand(*)'],
+    waiterId: 'waiter-4',
+    requestId: 'request-4',
+    runId: 'run-4',
+  });
+
+  state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).toBe('edit');
+});
+
 it('jobperm-1-t2-living-card-revision-bound', async () => {
   const { repository, effects, clock, service } = createHarness({
     maxRows: 2,
