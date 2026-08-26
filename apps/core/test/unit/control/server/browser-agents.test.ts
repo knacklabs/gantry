@@ -26,6 +26,7 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain("builtInRolePrompt(persona, 'full')");
   expect(source).toContain('listConversationInstalls(');
   expect(source).toContain('roleSnapshotFor(');
+  expect(source).toContain('assertAvailableAgentName(');
   expect(source).toContain("roleId =\n        typeof body.roleId === 'string'");
   expect(source).toContain('agent.appId !== appId');
   expect(source).toContain('role.appId !== appId');

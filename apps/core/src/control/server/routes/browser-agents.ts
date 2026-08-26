@@ -172,6 +172,20 @@ function validName(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+async function assertAvailableAgentName(
+  storage: ReturnType<typeof getRuntimeStorage>,
+  appId: AppId,
+  name: string,
+  exceptId?: AgentId,
+) {
+  const normalized = name.trim().toLowerCase();
+  const duplicate = (await storage.repositories.agents.listAgents(appId)).some(
+    (agent) =>
+      agent.id !== exceptId && agent.name.trim().toLowerCase() === normalized,
+  );
+  if (duplicate) throw new Error('An agent with this name already exists.');
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -411,6 +425,7 @@ export async function handleBrowserAgentRoutes(
           true
         );
       const now = nowIso();
+      await assertAvailableAgentName(storage, appId, body.name);
       const roleId =
         typeof body.roleId === 'string' ? body.roleId : 'built-in:developer';
       const configId = `agent-config:${randomUUID()}` as AgentConfigVersionId;
@@ -442,6 +457,26 @@ export async function handleBrowserAgentRoutes(
       await storage.repositories.agentConfigs.saveConfigVersion(config);
       await ctx.syncSettingsFromProjection(appId);
       sendJson(res, 201, { agent: await agentView(storage, agent) });
+      return true;
+    }
+    const agentMatch = pathname.match(AGENT_PATH);
+    if (agentMatch && req.method === 'PATCH') {
+      const body = await readJson(req);
+      if (!object(body) || !validName(body.name))
+        return (
+          sendError(res, 400, 'INVALID_REQUEST', 'Agent name is required.'),
+          true
+        );
+      const agent = await storage.repositories.agents.getAgent(
+        decodeURIComponent(agentMatch[1]) as AgentId,
+      );
+      if (!agent || agent.appId !== appId)
+        return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      await assertAvailableAgentName(storage, appId, body.name, agent.id);
+      const updated = { ...agent, name: body.name.trim(), updatedAt: nowIso() };
+      await storage.repositories.agents.saveAgent(updated);
+      await ctx.syncSettingsFromProjection(appId);
+      sendJson(res, 200, { agent: await agentView(storage, updated) });
       return true;
     }
     const statusMatch = pathname.match(AGENT_STATUS_PATH);

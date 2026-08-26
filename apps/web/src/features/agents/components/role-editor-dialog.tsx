@@ -25,9 +25,11 @@ export type RoleEditorTarget =
 export function RoleEditorDialog({
   target,
   onOpenChange,
+  onSaved,
 }: {
   target?: RoleEditorTarget;
   onOpenChange: (open: boolean) => void;
+  onSaved?: (role: BrowserRole) => void;
 }) {
   const queryClient = useQueryClient();
   const role = target
@@ -65,9 +67,11 @@ export function RoleEditorDialog({
         },
       );
       if (!response.ok) throw new Error('Role could not be saved.');
+      return response.json() as Promise<{ role: BrowserRole }>;
     },
-    onSuccess: async () => {
+    onSuccess: async ({ role: savedRole }) => {
       await queryClient.invalidateQueries({ queryKey: ['agents', 'roles'] });
+      onSaved?.(savedRole);
       onOpenChange(false);
     },
   });

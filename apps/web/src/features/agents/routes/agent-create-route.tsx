@@ -11,36 +11,31 @@ import { PageHeader } from '../../../ui/compositions/page-header';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '../../../ui/primitives/select';
-import {
   agentCapabilitiesQuery,
   agentDetailQuery,
   agentSourcesQuery,
-  roleDirectoryQuery,
   type AgentCapabilities,
   type AgentDirectoryItem,
   type AgentSource,
+  type BrowserRole,
   type CapabilityCatalog,
 } from '../agents-queries';
+import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentSetupManager } from '../components/agent-setup-manager';
+import {
+  RoleEditorDialog,
+  type RoleEditorTarget,
+} from '../components/role-editor-dialog';
 
 export function AgentCreateRoute() {
   const navigate = useNavigate({ from: '/agents/new' });
   const [name, setName] = useState('');
-  const [roleId, setRoleId] = useState('built-in:developer');
+  const [selectedRole, setSelectedRole] = useState<BrowserRole>();
+  const [roleEditor, setRoleEditor] = useState<RoleEditorTarget>();
   const [agentId, setAgentId] = useState<string>();
   const [step, setStep] = useState<
     'base' | 'sources' | 'capabilities' | 'review'
   >('base');
-  const roles = useQuery(roleDirectoryQuery({ page: 1, search: '' }));
-  const selectedRole = roles.data?.data.find((role) => role.id === roleId);
   const savedAgent = useQuery({
     ...agentDetailQuery(agentId ?? ''),
     enabled: step === 'review' && !!agentId,
@@ -59,7 +54,7 @@ export function AgentCreateRoute() {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
-        body: JSON.stringify({ name, roleId }),
+        body: JSON.stringify({ name, roleId: selectedRole?.id }),
       });
       if (!response.ok) throw new Error('The base agent could not be created.');
       return response.json() as Promise<{ agent: { id: string } }>;
@@ -72,7 +67,7 @@ export function AgentCreateRoute() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (name.trim()) create.mutate();
+    if (name.trim() && selectedRole) create.mutate();
   }
 
   return (
@@ -224,36 +219,11 @@ export function AgentCreateRoute() {
             placeholder="Customer research"
             autoFocus
           />
-          <label className="grid gap-1.5 text-xs font-semibold text-text">
-            Role
-            <Select value={roleId} onValueChange={setRoleId}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Choose a role" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectLabel>Built-in roles</SelectLabel>
-                  {(roles.data?.data ?? [])
-                    .filter((role) => role.kind === 'built-in')
-                    .map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name}
-                      </SelectItem>
-                    ))}
-                </SelectGroup>
-                <SelectGroup>
-                  <SelectLabel>Custom roles</SelectLabel>
-                  {(roles.data?.data ?? [])
-                    .filter((role) => role.kind === 'custom')
-                    .map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name}
-                      </SelectItem>
-                    ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </label>
+          <AgentRoleSelector
+            value={selectedRole}
+            onChange={setSelectedRole}
+            onCreateCustom={() => setRoleEditor({ mode: 'create' })}
+          />
           {selectedRole ? (
             <section className="grid gap-2 rounded-md bg-surface-muted p-4">
               <span className="text-xs font-semibold text-text">
@@ -270,13 +240,21 @@ export function AgentCreateRoute() {
             versioned runtime configuration.
           </p>
           <div className="flex justify-end">
-            <Button disabled={!name.trim() || create.isPending} type="submit">
-              {create.isPending ? 'Creating…' : 'Create base agent'}{' '}
+            <Button
+              disabled={!name.trim() || !selectedRole || create.isPending}
+              type="submit"
+            >
+              {create.isPending ? 'Creating…' : 'Create and continue'}{' '}
               <ArrowRight size={16} aria-hidden="true" />
             </Button>
           </div>
         </form>
       ) : null}
+      <RoleEditorDialog
+        target={roleEditor}
+        onOpenChange={(open) => !open && setRoleEditor(undefined)}
+        onSaved={setSelectedRole}
+      />
     </div>
   );
 }

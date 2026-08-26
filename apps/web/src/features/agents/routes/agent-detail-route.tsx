@@ -33,6 +33,7 @@ import {
   type AgentDirectoryItem,
 } from '../agents-queries';
 import { AgentSetupManager } from '../components/agent-setup-manager';
+import { AgentSettings } from '../components/agent-settings';
 import { AgentVersionHistory } from '../components/agent-version-history';
 
 export function AgentDetailRoute() {
@@ -208,16 +209,7 @@ function Content({
         </section>
       </div>
     );
-  if (tab === 'settings')
-    return (
-      <div className="grid gap-2 p-5 text-sm text-text-secondary">
-        <span>Status: {agent.status}</span>
-        <span>
-          Configuration version: {agent.configVersion ?? 'No saved version'}
-        </span>
-        <span>Model: {agent.modelAlias ?? 'Deployment default'}</span>
-      </div>
-    );
+  if (tab === 'settings') return <AgentSettings agent={agent} />;
   return (
     <div className="grid gap-2 p-5 text-sm text-text-secondary">
       <span>Role: {agent.roleName ?? 'No role selected'}</span>
