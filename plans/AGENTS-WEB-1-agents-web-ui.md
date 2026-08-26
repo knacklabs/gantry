@@ -4,7 +4,7 @@ decisions_reviewed: [0000-credential-broker-boundary, 0001-agent-runtime-platfor
 
 # AGENTS-WEB-1 Plan: Truthful Agents Management UI
 
-## 1. Problem
+## Problem
 
 The current Web Agents routes are fixture-backed previews whose create, edit,
 pause, and source actions stop at a connection gate. Gantry needs a real,
@@ -14,7 +14,7 @@ is inventory, a selected semantic capability is agent-owned authority, a
 conversation is a separate installation, and a disabled agent preserves history
 and rejects only new work.
 
-## 2. Scope / Non-goals
+## Scope / Non-goals
 
 In scope:
 
@@ -41,7 +41,7 @@ Non-goals:
 - No compatibility shim for the preview contract; the fixture-only route and
   tests are removed in the replacement task under decision 0003.
 
-## 3. Acceptance Criteria
+## Acceptance Criteria
 
 1. A browser-authenticated administrator can use a bounded server-paginated
    Agents directory with URL-backed search, status/role filters, sorting,
@@ -68,7 +68,7 @@ Non-goals:
    side-panel patterns, no-op controls, design variant controls, and fabricated
    detail/version content.
 
-## 4. Technical Approach
+## Technical Approach
 
 Create the smallest missing backend seam first: a role-template domain and
 repository with app-scoped names and audit-safe records, plus role snapshots in
@@ -90,7 +90,7 @@ Tailwind, and the shared DataTable/PageState/RouteTabs components are the best
 fit because they are the project-standard, already-installed UI stack. No new
 dependency is added.
 
-## 5. Decisions
+## Decisions
 
 - No new decision record. The approved spec and accepted decisions 0003, 0020,
   0050, and 0132 already determine replacement, authority, removal, and browser
@@ -111,7 +111,7 @@ dependency is added.
   its own area, stop and create the required consolidation decision/refactor
   story rather than iterating a fourth local patch.
 
-## 6. Surface Impact
+## Surface Impact
 
 | Surface | Impact | Reason |
 | --- | --- | --- |
@@ -123,7 +123,7 @@ dependency is added.
 | Docs | Changed | Update architecture/API/product docs and remove preview-only guidance. |
 | Tests | Changed | Contract, repository, application, browser-facade, UI, accessibility, responsive, and real local functional coverage are required. |
 
-## 7. Task Decomposition
+## Task Decomposition
 
 1. `AGENTS-WEB-1-1` — Add custom-role persistence, contracts, role-snapshot
    profile composition, and focused migration/application tests.
@@ -147,7 +147,7 @@ dependency is added.
    documentation updates.
    `user_facing: true`. Serves criteria 1 through 8.
 
-## 8. Risks
+## Risks
 
 - Existing agent profile versions may not contain every historical field. The
   browser projection omits unavailable values rather than inferring them.
@@ -159,7 +159,7 @@ dependency is added.
 - Migrations alter canonical persistence. Each migration includes schema, SQL,
   journal, snapshot, repository wiring, and migration checks.
 
-## 9. Verify Plan
+## Verify Plan
 
 - Focused contract/repository/application tests for custom-role snapshots,
   pagination, source/capability separation, profile/version projection, and
