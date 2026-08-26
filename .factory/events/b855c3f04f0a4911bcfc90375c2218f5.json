@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-26T18:06:13+00:00", "story": "AGENTS-WEB-1", "detail": "AGENTS-WEB-1-1 requires a Drizzle migration snapshot (18,926 generated lines), but forge stage done enforces a fixed 8-file/400-line budget despite the approved 18-file scope; the task cannot satisfy "}

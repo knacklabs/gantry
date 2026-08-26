@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-26T18:00:02+00:00", "story": "AGENTS-WEB-1", "detail": "AGENTS-WEB-1-1 cannot fit the 8-file review budget: the smallest complete implementation needs at least 10 product/test files, plus Drizzle journal and snapshot metadata, to satisfy the required domai"}

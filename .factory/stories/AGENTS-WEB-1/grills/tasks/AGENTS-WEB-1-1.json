@@ -1,0 +1,60 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "The first slice remains limited to role persistence and immutable agent snapshots; it does not expose browser routes or UI.",
+    "The role snapshot remains a persona-only input, preserving generated runtime and safety guidance.",
+    "The supported raised review budget is necessary because Drizzle requires a generated snapshot with 18,926 metadata lines; migration consistency checks make that mechanical artifact reviewable."
+  ],
+  "inspected_refs": [
+    ".factory/stories/AGENTS-WEB-1/decomposition.json:AGENTS-WEB-1-1",
+    "apps/core/src/domain/agent/agent.ts:AgentConfigVersion",
+    "apps/core/src/application/agents/prompt-profile-service.ts",
+    "factory/scripts/forge_cli/stages.py:review_budget",
+    "docs/decisions/0003-early-stage-no-backcompat.md",
+    "docs/decisions/0020-mcp-source-vs-action-capability.md"
+  ],
+  "current_flow": "Agent configuration versions persist a prompt-profile reference; this completed slice adds custom role templates, immutable copied snapshots, and the required schema migration metadata.",
+  "criteria_map": {
+    "Custom role templates are app-scoped, validated, and auditable.": "CustomRole service, repository, schema, and focused test provide the durable app-scoped template boundary.",
+    "An agent stores an immutable selected role snapshot that survives later role edit or deletion.": "The config version persists copied role content independently of its source template.",
+    "Protected Gantry runtime and safety prompt layers remain outside editable role content.": "PromptProfileService inserts custom content only in the persona layer and tests the protected layers."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "CustomRoleService and a narrow repository port are required because reusable role templates did not exist.",
+    "No browser-facing or authority abstraction is introduced."
+  ],
+  "rounds": [
+    {
+      "question": "Does the generated Drizzle snapshot require a supported raised review budget rather than a misleading split?",
+      "options": [
+        "Use the explicit per-task budget with a reason and retain migration validation.",
+        "Split generated metadata into a separate task.",
+        "Omit required Drizzle metadata."
+      ],
+      "chosen": "Use the explicit per-task budget with a reason and retain migration validation."
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The stage system supports explicit raised per-task review budgets with a non-empty reason.",
+      "source": "factory/scripts/forge_cli/stages.py:review_budget"
+    },
+    {
+      "finding": "Agent configuration versions are the durable immutable configuration boundary.",
+      "source": "apps/core/src/domain/agent/agent.ts:AgentConfigVersion"
+    }
+  ],
+  "open_items": [],
+  "task_id": "AGENTS-WEB-1-1",
+  "input_sha256": "c37c6e91ca50811f81633715a6e375c22cab5e82f0efbf44244df318e2f45bc5",
+  "recorded_at": "2026-08-26T18:07:49+00:00",
+  "commit": "975af351bfd8b7b5fb9396f47f3f147ece2d820d",
+  "approved_task_plan_sha256": "3fe40a023bb1f67363679af2c43a6668cd8b5fea741e2369b2f28efc44662cfd",
+  "approved_by": "Ravi",
+  "approved_at": "2026-08-26T18:11:57+00:00"
+}

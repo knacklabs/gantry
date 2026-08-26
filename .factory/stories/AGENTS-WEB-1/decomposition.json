@@ -22,7 +22,57 @@
         "Protected Gantry runtime and safety prompt layers remain outside editable role content."
       ],
       "dependencies": [],
-      "user_facing": false
+      "user_facing": false,
+      "write_scope": [
+        "packages/contracts/src/agents",
+        "apps/core/src/domain/agent",
+        "apps/core/src/domain/ports/repositories.ts",
+        "apps/core/src/application/agents",
+        "apps/core/src/adapters/storage/postgres/schema",
+        "apps/core/src/adapters/storage/postgres/repositories",
+        "apps/core/test/unit/application",
+        "apps/core/test/unit/adapters/storage/postgres"
+      ],
+      "verify_commands": [
+        "npm run build:contracts",
+        "npm run typecheck",
+        "npm run db:migrations:check"
+      ],
+      "required_tests": [
+        {
+          "id": "CustomRoleService > preserves an agent role snapshot when its source template changes or is deleted",
+          "path": "apps/core/test/unit/application/custom-role-service.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "prompt-profile-service > compiles a custom role snapshot without replacing protected runtime guidance",
+          "path": "apps/core/test/unit/application/prompt-profile-service.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "reviewer_focus": "App scoping, unique role names, immutable copied snapshots, migration completeness, and no source-to-authority collapse.",
+      "review_budget": {
+        "max_changed_files": 13,
+        "max_changed_lines": 20000,
+        "reason": "This otherwise small schema slice requires a generated Drizzle snapshot; its 18,926 metadata lines are mechanically derived and reviewed through migration consistency checks."
+      },
+      "plan_contracts": [
+        {
+          "id": "agents-web-roles-app-scoped",
+          "statement": "Custom role templates are app-scoped, validated, and auditable.",
+          "source": "plans/active/AGENTS-WEB-1-build-truthful-agents-management-ui.md#Acceptance Criteria"
+        },
+        {
+          "id": "agents-web-role-snapshot-immutable",
+          "statement": "An agent stores an immutable selected role snapshot that survives later role edit or deletion.",
+          "source": "plans/active/AGENTS-WEB-1-build-truthful-agents-management-ui.md#Acceptance Criteria"
+        },
+        {
+          "id": "agents-web-protected-guidance",
+          "statement": "Protected Gantry runtime and safety prompt layers remain outside editable role content.",
+          "source": "plans/active/AGENTS-WEB-1-build-truthful-agents-management-ui.md#Acceptance Criteria"
+        }
+      ]
     },
     {
       "id": "AGENTS-WEB-1-2",
@@ -99,5 +149,5 @@
   ],
   "linear_plan": [],
   "plan_sha256": "6b11615e428b3017886fe6a308facac7abedf91422c617662082f86318a78625",
-  "commit": "dc293117fb48769965f64609c682c208cb285945"
+  "commit": "975af351bfd8b7b5fb9396f47f3f147ece2d820d"
 }

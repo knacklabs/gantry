@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-26T18:01:39+00:00", "story": "AGENTS-WEB-1", "detail": "S-0001-d5aa: Approved bounded scope: 18 files covers required role snapshot migration, repository mapping, prompt integration, and focused tests; keep the implementation minimal and do not add compatibility layers"}

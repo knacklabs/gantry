@@ -4,7 +4,42 @@
     {
       "id": "AGENTS-WEB-1-1",
       "title": "Create custom role and agent snapshot foundations",
-      "status": "pending"
+      "status": "done",
+      "started_at": "2026-08-26T17:57:44+00:00",
+      "base_sha": "6047a3dc890922968e8e8b4785af171825d65bfd",
+      "dirty_at_start": {
+        ".factory/events/02ec7eceeda94d2593482a65ad379826.json": {
+          "digest": "8aeccde94263d13b927a0f11b80f96a5c8485958e43b5cfb405a6fce354fa8d6",
+          "git": "? .factory/events/02ec7eceeda94d2593482a65ad379826.json\u0000\u0000\u0000"
+        },
+        ".factory/events/fa6142e5ac4544a1896aa972c330397a.json": {
+          "digest": "665414eca4c86f11ea11d428caa449d2d2d3e61a67ac784fc67121933088ff5c",
+          "git": "? .factory/events/fa6142e5ac4544a1896aa972c330397a.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/AGENTS-WEB-1/decomposition.json": {
+          "digest": "da6f7e4dc9874e9fcb1aaa0c5bd47bb2c3f9f84401aa4e93ee61c11758493a07",
+          "git": "1 .M N... 100644 100644 100644 d7d9e996cb18123c64149bb6ee864f7db3192bcd d7d9e996cb18123c64149bb6ee864f7db3192bcd .factory/stories/AGENTS-WEB-1/decomposition.json\u0000\u0000100644 d7d9e996cb18123c64149bb6ee864f7db3192bcd 0\t.factory/stories/AGENTS-WEB-1/decomposition.json\u0000\u0000H .factory/stories/AGENTS-WEB-1/decomposition.json\u0000"
+        },
+        ".factory/stories/AGENTS-WEB-1/grills/tasks/AGENTS-WEB-1-1.json": {
+          "digest": "3fe8e20715dc8c7fc32147a5848fe412cb46f321c35418ebfd3646667d034abf",
+          "git": "? .factory/stories/AGENTS-WEB-1/grills/tasks/AGENTS-WEB-1-1.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/AGENTS-WEB-1/task-plans/AGENTS-WEB-1-1.md": {
+          "digest": "c100feca26e18582a618e666b983de1eb33cd5ac4f86239fa2eb3974aa2d2d31",
+          "git": "? .factory/stories/AGENTS-WEB-1/task-plans/AGENTS-WEB-1-1.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "9cc9f0d961a16e1de7d12e67996dd8d99b10a383aa05a242bc364f7473a2733d",
+      "local_review_stamp": {
+        "stage_id": "AGENTS-WEB-1-1",
+        "task_sha256": "9cc9f0d961a16e1de7d12e67996dd8d99b10a383aa05a242bc364f7473a2733d",
+        "brief_sha256": "308d110394afa778c7e9f994e5ccd6f41ea5fd16e99dd536f5ca327d5f6e6bb9",
+        "base_sha": "6047a3dc890922968e8e8b4785af171825d65bfd",
+        "product_tree_digest": "6f11b8ca5ce8e78117537c1392f5fab6de0a9a23bfcab22144bfe2968b00d895",
+        "recorded_at": "2026-08-26T18:13:16+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-08-26T18:13:36+00:00"
     },
     {
       "id": "AGENTS-WEB-1-2",
