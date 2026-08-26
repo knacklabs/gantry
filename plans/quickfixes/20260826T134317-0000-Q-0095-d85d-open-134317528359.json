@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0095-d85d",
+  "profile": "lite",
+  "reason": "Q-0095: rollup label for surplus wrapper browser failures says the call never reached the browser; live run 7f3ec256 proves it is the runner timing out",
+  "started_at": "2026-08-26T13:43:17+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "c2496d92d55d6057c8114e727363b40b7877f04f"
+}
