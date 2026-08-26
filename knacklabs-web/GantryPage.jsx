@@ -384,13 +384,13 @@ export function GantryPage({ assetBase = './' }) {
   const h2Big = { ...h2, fontSize: 'clamp(28px, 5vw, 36px)', fontWeight: 700, letterSpacing: '-0.02em' };
 
   const arc = [
-    { k: 'DAY 1', t: 'It gets a seat', d: 'IT adds it to the Teams or Slack channels it belongs in, with only the access that role needs. Nothing installed on anyone\u2019s laptop.' },
-    { k: 'WEEK 1', t: 'It keeps a record', d: 'What it learns about how you work is written down where you can read it, edit it, or reject it. No silent drift.' },
-    { k: 'MONTH 1', t: 'It earns more', d: 'Repeat work becomes a routine you signed off on. Every action it takes is still in the audit log, and it can be offboarded in one command.' },
+    { k: 'DAY 1', t: 'It shows up', d: 'Arrives in Slack or Teams with a personality, and asks the right question instead of guessing.' },
+    { k: 'WEEK 1', t: 'It remembers', d: 'Picks up how you like things done and remembers the calls you make. You stop saying the same things twice.' },
+    { k: 'MONTH 1', t: 'It settles in', d: 'The work you do over and over becomes something it just handles, once you approve.' },
   ];
   const engine = [
-    { k: 'Memory', t: 'Memory you can review', d: 'Preferences, decisions, corrections. Each one is a record an admin can read, edit, or revoke, and nothing is applied until it is approved.' },
-    { k: 'Skills', t: 'Routines you signed off', d: 'The things you ask for again and again become saved routines. Each one is approved before it runs, and each one can be switched off.' },
+    { k: 'Memory', t: 'It remembers what matters', d: 'Your preferences, your decisions, the corrections you make along the way. It holds onto them and applies them next time.' },
+    { k: 'Skills', t: 'It learns your routines', d: 'The things you ask for again and again become saved routines. You sign off on each one, and the list keeps growing with your team.' },
   ];
   const capabilities = [
     { n: '01', label: 'Works where your team works', items: [
@@ -425,12 +425,12 @@ export function GantryPage({ assetBase = './' }) {
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'radial-gradient(55% 55% at 72% 38%, rgba(106,241,176,.14), rgba(106,241,176,0) 70%)' }} />
         <div style={{ ...wrap, position: 'relative', zIndex: 1, display: 'grid', gridTemplateColumns: heroStack ? '1fr' : 'minmax(0,1fr) minmax(0,1.6fr)', gap: heroStack ? 36 : 48, alignItems: 'center' }}>
           <div style={{ textAlign: heroStack ? 'center' : 'left' }}>
-            <Eyebrow onDark size="lg" style={{ marginBottom: 14, ...rise(0.05) }}>Onboard AI employees like real ones</Eyebrow>
+            <Eyebrow onDark size="lg" style={{ marginBottom: 14, ...rise(0.05) }}>An AI teammate, not another tool</Eyebrow>
             <h1 style={{ fontSize: 'clamp(30px, 3.6vw, 48px)', fontWeight: 800, lineHeight: 1.06, letterSpacing: '-0.03em', color: '#fff', margin: heroStack ? '0 auto' : 0, maxWidth: '15ch', ...rise(0.15) }}>
-              Onboard AI employees<span style={{ color: 'var(--kl-mint)' }}> like real ones.</span>
+              Not another AI tool.<span style={{ color: 'var(--kl-mint)' }}> A teammate who learns.</span>
             </h1>
             <p style={{ fontSize: 'clamp(15px, 1.6vw, 17px)', lineHeight: 1.55, color: 'var(--kl-text-on-dark)', maxWidth: '46ch', margin: heroStack ? '16px auto 0' : '18px 0 0', ...rise(0.3) }}>
-              Give them a seat in Teams or Slack, only the access they need, a full audit trail, and offboarding in one command. Self-hosted, any model. A new hire on day one, a veteran within a month.
+              Most AI forgets you the moment you close the tab. Gantry joins your team in Slack and Microsoft Teams, learns how you like things done, and quietly takes the repeat work off your plate. A new hire on day one, a veteran within a month.
             </p>
             <div style={{ display: 'flex', gap: 12, marginTop: 26, flexWrap: 'wrap', justifyContent: heroStack ? 'center' : 'flex-start', ...rise(0.45) }}>
               <Button variant="dark-primary" mono>Talk to us</Button>
@@ -448,9 +448,9 @@ export function GantryPage({ assetBase = './' }) {
       <section style={{ padding: '64px 0 56px' }}>
         <Reveal style={{ ...wrap, maxWidth: 880, textAlign: narrow ? 'left' : 'center' }}>
           <Eyebrow style={{ marginBottom: 12 }}>Why it&rsquo;s different</Eyebrow>
-          <h2 style={{ ...h2Big, maxWidth: '22ch', margin: narrow ? 0 : '0 auto' }}>Staff are already installing AI bots. IT finds out from the bill.</h2>
+          <h2 style={{ ...h2Big, maxWidth: '22ch', margin: narrow ? 0 : '0 auto' }}>You&rsquo;ve tried the AI tools. The work is still on your team.</h2>
           <p style={{ fontSize: 17, lineHeight: 1.6, color: 'var(--kl-ink-2)', maxWidth: '60ch', margin: narrow ? '16px 0 0' : '16px auto 0' }}>
-            Personal AI tools land on laptops with full access and no record. Gantry is the other way round: IT onboards the AI employee, gives it a seat in the team chat and only the abilities it needs, and every action lands in the audit log. It builds real context and earns more trust over time, on your terms.
+            Every assistant starts from scratch. You explain your business again, spell out every step, and check the work. It never really leaves your plate. A teammate is different. It works alongside you, builds real context, and earns more of your trust over time.
           </p>
         </Reveal>
       </section>
@@ -459,8 +459,8 @@ export function GantryPage({ assetBase = './' }) {
       <section style={{ background: '#fff', borderTop: '1px solid var(--kl-line)', borderBottom: '1px solid var(--kl-line)', padding: '56px 0' }}>
         <div style={wrap}>
           <Reveal>
-            <Eyebrow style={{ marginBottom: 12 }}>How it is onboarded</Eyebrow>
-            <h2 style={h2}>A seat on Monday. Trusted, on the record, by month&rsquo;s end.</h2>
+            <Eyebrow style={{ marginBottom: 12 }}>How it grows</Eyebrow>
+            <h2 style={h2}>An intern on Monday. A veteran by month&rsquo;s end.</h2>
           </Reveal>
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : 'repeat(3, 1fr)', gap: narrow ? 26 : 40, marginTop: 30 }}>
             {arc.map((s, i) => (
@@ -479,9 +479,9 @@ export function GantryPage({ assetBase = './' }) {
         <div style={wrap}>
           <Reveal>
             <Eyebrow style={{ marginBottom: 12 }}>Personas</Eyebrow>
-            <h2 style={{ ...h2Big, maxWidth: '20ch' }}>It comes with a role, not a master key.</h2>
+            <h2 style={{ ...h2Big, maxWidth: '20ch' }}>It shows up with personality and opinions.</h2>
             <p style={{ fontSize: 17, lineHeight: 1.55, color: 'var(--kl-ink-2)', maxWidth: '58ch', margin: '14px 0 0' }}>
-              Pick the role. Each one has its own voice, its own tools, and its own limits. The persona shapes how it talks; the access preset decides what it can touch. Both are yours to set.
+              Choose the personality that fits the role. Each one has its own voice and its own judgment. Gantry holds real opinions and says them plainly. Shape it to match how your team actually works.
             </p>
           </Reveal>
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : 'repeat(3, 1fr)', gap: 16, marginTop: 28 }}>
@@ -496,8 +496,8 @@ export function GantryPage({ assetBase = './' }) {
       <section style={{ background: '#fff', borderTop: '1px solid var(--kl-line)', padding: '56px 0 64px' }}>
         <div style={wrap}>
           <Reveal>
-            <Eyebrow style={{ marginBottom: 12 }}>What it learns stays visible</Eyebrow>
-            <h2 style={h2}>It improves, and you can see exactly how.</h2>
+            <Eyebrow style={{ marginBottom: 12 }}>What makes it better</Eyebrow>
+            <h2 style={h2}>It gets better every week.</h2>
           </Reveal>
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : '1fr 1fr', gap: narrow ? 30 : 64, marginTop: 30 }}>
             {engine.map((s, i) => (
@@ -516,9 +516,9 @@ export function GantryPage({ assetBase = './' }) {
         <div style={wrap}>
           <Reveal style={{ textAlign: narrow ? 'left' : 'center' }}>
             <Eyebrow style={{ marginBottom: 12 }}>Capabilities</Eyebrow>
-            <h2 style={{ ...h2Big, maxWidth: '22ch', margin: narrow ? 0 : '0 auto' }}>Everything you&rsquo;d expect from a properly onboarded hire.</h2>
+            <h2 style={{ ...h2Big, maxWidth: '22ch', margin: narrow ? 0 : '0 auto' }}>Everything you&rsquo;d expect from a great hire.</h2>
             <p style={{ fontSize: 17, lineHeight: 1.6, color: 'var(--kl-ink-2)', maxWidth: '64ch', margin: narrow ? '16px 0 0' : '16px auto 0' }}>
-              Gantry gives you an AI employee that sits in your team chat, uses only the access you granted, remembers how things should be done, leaves a receipt for every important action, and can be offboarded in one command. Runs on your servers, with any model.
+              Gantry gives you an AI employee that works where your team already works, remembers how things should be done, uses only approved abilities, and leaves a receipt for every important action.
             </p>
           </Reveal>
           <div style={{ marginTop: narrow ? 36 : 52, display: 'flex', flexDirection: 'column', gap: narrow ? 40 : 52 }}>
@@ -548,7 +548,7 @@ export function GantryPage({ assetBase = './' }) {
       <section style={{ background: 'url(' + assetBase + 'assets/backgrounds/mesh-dark.png) center/cover no-repeat, var(--gradient-hero)', padding: '72px 0' }}>
         <Reveal style={{ ...wrap, textAlign: 'center' }}>
           <h2 style={{ fontSize: 'clamp(26px, 5.5vw, 38px)', fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', margin: 0, maxWidth: '20ch', marginLeft: 'auto', marginRight: 'auto' }}>
-            Onboard your first AI employee <span style={{ color: 'var(--kl-mint)' }}>the proper way.</span>
+            Give your team a teammate who <span style={{ color: 'var(--kl-mint)' }}>never stops learning.</span>
           </h2>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 28, flexWrap: 'wrap' }}>
             <Button variant="dark-primary" mono>Talk to us</Button>

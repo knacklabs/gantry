@@ -670,7 +670,7 @@ function GantryDiagram() {
         <IsoAt x={190} y={286} z={4}>
           <div className="gobj" style={{ '--d': '.35s', width: 140, textAlign: 'center' }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: DEEP, letterSpacing: '-0.02em' }}>Gantry</div>
-            <div style={{ fontSize: 12, color: 'var(--kl-slate, #5F706A)', marginTop: 1 }}>AI employees, onboarded like real ones</div>
+            <div style={{ fontSize: 12, color: 'var(--kl-slate, #5F706A)', marginTop: 1 }}>your AI teammate</div>
           </div>
         </IsoAt>
 
@@ -843,10 +843,10 @@ function FdeLeadBand({ narrow, wrap, assetBase = './', href = 'fde.html' }) {
    Brand-true: Emerald on light, mint never carries text on light. */
 function GantryPlatformBand({ narrow, wrap, assetBase = './', href = 'gantry.html' }) {
   const caps = [
-    'A seat in Teams, Slack, or Telegram',
-    'Only the access they need',
-    'A full audit trail',
-    'Self-hosted, any model',
+    'Works in Slack, Teams, and Telegram',
+    'Asks first, with a full record',
+    'Remembers how your team works',
+    'Runs in your cloud, on your model',
   ];
   return (
     <section style={{
@@ -890,13 +890,13 @@ function GantryPlatformBand({ narrow, wrap, assetBase = './', href = 'gantry.htm
             fontSize: 'clamp(30px, 5.2vw, 48px)', fontWeight: 800, lineHeight: 1.05,
             letterSpacing: '-0.03em', color: 'var(--kl-deep-forest)', margin: 0, maxWidth: '17ch',
           }}>
-            Meet Gantry. Onboard AI employees <span style={{ color: 'var(--kl-emerald)' }}>like real ones.</span>
+            Meet Gantry, the AI teammate <span style={{ color: 'var(--kl-emerald)' }}>who learns your business.</span>
           </h2>
 
           <p style={{ fontSize: 'clamp(15px, 1.9vw, 17.5px)', lineHeight: 1.55, color: 'var(--kl-ink-2)', maxWidth: '52ch', margin: '18px 0 0' }}>
-            Give them a seat in Teams or Slack, only the access they need, a full audit
-            trail, and offboarding in one command. Self-hosted, any model. They pick up how
-            you like things done and take the repeat work off your plate.
+            Gantry joins your team in Slack and Microsoft Teams, picks up how you like things
+            done, and quietly takes the repeat work off your plate. It asks before anything
+            important and keeps a clear record of everything it does.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: narrow ? '1fr' : '1fr 1fr', gap: '12px 28px', margin: '26px 0 0' }}>
