@@ -342,6 +342,14 @@ and rerun until clean.
 
 # IDENTITY-02 — Canonical Agent Identity (extension)
 
+> **Reconciled 2026-08-26 (decision 0138):** the confirmed spec
+> `person-identity-aliases` already makes agents `kind: service` Persons. Read
+> every "Agent principal" below as *the service-kind Person bound to `agentId`*,
+> `PrincipalRef.kind` as `human | service | system`, and `principalId` as
+> `personId`. There is no separate agent principal table. The binding contract
+> is `docs/specs/agent-identity-and-offboarding.md`; where this section and the
+> spec differ, the spec wins.
+
 > **Status:** Proposed — extends IDENTITY-01; does not reopen its locked decisions.
 > **Positioning it serves:** "Onboard AI employees like real ones" — one directory
 > shape for people and agents, so onboarding, access, audit, and offboarding
