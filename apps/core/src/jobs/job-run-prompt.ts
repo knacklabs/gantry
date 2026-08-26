@@ -7,8 +7,8 @@ const OUTCOME_PARAGRAPH =
 export function scheduledJobRunPrompt(job: Pick<Job, 'prompt'>): string {
   if (job.prompt === MEMORY_DREAM_SYSTEM_PROMPT) return job.prompt;
 
-  const prompt = job.prompt.trimEnd();
-  if (prompt.includes(OUTCOME_PARAGRAPH)) return prompt;
+  if (job.prompt.trimEnd().endsWith(OUTCOME_PARAGRAPH)) return job.prompt;
 
-  return `${prompt}\n\n${OUTCOME_PARAGRAPH}`;
+  const separator = job.prompt.endsWith('\n') ? '\n' : '\n\n';
+  return `${job.prompt}${separator}${OUTCOME_PARAGRAPH}`;
 }

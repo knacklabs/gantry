@@ -22,9 +22,25 @@ describe('scheduledJobRunPrompt', () => {
     );
   });
 
-  it('normalizes trailing prompt whitespace', () => {
-    expect(
-      scheduledJobRunPrompt({ prompt: 'Summarize current status  \n\n' }),
-    ).toBe(`Summarize current status\n\n${OUTCOME_PARAGRAPH}`);
+  it('appends the Outcome paragraph when a copied occurrence is followed by instructions', () => {
+    const prompt = `First follow this copied guidance: ${OUTCOME_PARAGRAPH}\nThen summarize the changes.`;
+
+    expect(scheduledJobRunPrompt({ prompt })).toBe(
+      `${prompt}\n\n${OUTCOME_PARAGRAPH}`,
+    );
+  });
+
+  it('returns a prompt ending with the Outcome paragraph and trailing whitespace unchanged', () => {
+    const prompt = `Summarize current status\n\n${OUTCOME_PARAGRAPH}  \n\n`;
+
+    expect(scheduledJobRunPrompt({ prompt })).toBe(prompt);
+  });
+
+  it('preserves user trailing whitespace before appending the Outcome paragraph', () => {
+    const prompt = 'Summarize current status  ';
+    const result = scheduledJobRunPrompt({ prompt });
+
+    expect(result.startsWith(prompt)).toBe(true);
+    expect(result).toBe(`${prompt}\n\n${OUTCOME_PARAGRAPH}`);
   });
 });
