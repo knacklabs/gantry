@@ -67,6 +67,36 @@ describe('bash command parser', () => {
     });
   });
 
+  it('rejects a carriage return in a heredoc delimiter candidate', () => {
+    expect(parseBashCommand("cat <<'EOF'\nEOF\r\necho body\nEOF")).toEqual({
+      ok: false,
+      reason: 'Bash heredoc uses unsupported line endings.',
+    });
+  });
+
+  it.each([
+    ['two', 'line\\\\', true],
+    ['one', 'line\\', false],
+    ['three', 'line\\\\\\', false],
+  ])(
+    'handles %s trailing backslashes in unquoted heredoc bodies like Bash',
+    (_count, line, ok) => {
+      const parsed = parseBashCommand(`cat <<EOF\n${line}\nEOF`);
+
+      if (ok) {
+        expect(parsed).toMatchObject({
+          ok: true,
+          leaves: [{ redirects: [{ target: 'EOF', heredoc: `${line}\n` }] }],
+        });
+        return;
+      }
+      expect(parsed).toEqual({
+        ok: false,
+        reason: 'Bash heredoc body uses unsupported line continuation.',
+      });
+    },
+  );
+
   it('rejects bare heredoc body line continuations', () => {
     expect(parseBashCommand('cat <<EOF\nline\\\nEOF\necho body\nEOF')).toEqual({
       ok: false,

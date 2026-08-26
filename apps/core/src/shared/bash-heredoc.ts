@@ -72,9 +72,16 @@ export function parseHeredocBodies(
     const body: string[] = [];
     for (;;) {
       const newlineIndex = command.indexOf('\n', cursor);
-      const line = command
-        .slice(cursor, newlineIndex === -1 ? command.length : newlineIndex)
-        .replace(/\r$/, '');
+      const line = command.slice(
+        cursor,
+        newlineIndex === -1 ? command.length : newlineIndex,
+      );
+      if (line.includes('\r')) {
+        return {
+          ok: false,
+          reason: 'Bash heredoc uses unsupported line endings.',
+        };
+      }
       const delimiterLine = heredoc.stripTabs ? line.replace(/^\t+/, '') : line;
       if (delimiterLine === heredoc.delimiter) {
         heredoc.redirect.heredoc = body.join('');
@@ -84,7 +91,8 @@ export function parseHeredocBodies(
       if (newlineIndex === -1) {
         return { ok: false, reason: 'Bash heredoc delimiter not terminated.' };
       }
-      if (!heredoc.quoted && command[newlineIndex - 1] === '\\') {
+      const trailingBackslashes = line.match(/\\+$/)?.[0].length ?? 0;
+      if (!heredoc.quoted && trailingBackslashes % 2 === 1) {
         return {
           ok: false,
           reason: 'Bash heredoc body uses unsupported line continuation.',
