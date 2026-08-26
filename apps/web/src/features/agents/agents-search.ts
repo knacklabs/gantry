@@ -3,11 +3,10 @@ import { z } from 'zod';
 export const agentListSearchSchema = z.object({
   q: z.string().catch(''),
   status: z
-    .enum(['all', 'deployed', 'draft', 'paused', 'blocked'])
+    .enum(['all', 'active', 'disabled'])
     .catch('all'),
-  model: z.enum(['all', 'sonnet', 'opus', 'gpt-5']).catch('all'),
   page: z.coerce.number().int().min(1).catch(1),
-  sort: z.enum(['name', 'status', 'modelAlias', 'lastRun']).catch('name'),
+  sort: z.enum(['name', 'status', 'updatedAt']).catch('name'),
   desc: z.coerce.boolean().catch(false),
 });
 
