@@ -3,7 +3,7 @@
 Facts: classic permission prompts print "Reply in Nm" from the interactive timeout, but scheduled-job requests (`request.jobId` set) never expire on that timer — prompt-binding's resolveInteractionSettlementDelayMs returns undefined for jobId requests and the durable row lasts 24h. A live prompt (run fba3fbe7, 2026-08-26) said "Reply in 1m" for a job request; the run itself then hit the job timeout while waiting.
 
 Contract for this diff:
-- Prompt parts carry `waitsForDecision` (true when `request.jobId` is set). Every text variant in permission-interaction.ts and the Telegram HTML renderer print "This job waits for your decision." instead of the "Reply in Nm" line when it is true; non-job prompts are unchanged.
+- Prompt parts carry `waitsForDecision` (true when `request.jobId` is set). Every text variant in permission-interaction.ts and the Telegram HTML renderer print "This request stays open until you decide." (attributes the wait to the request, promises nothing about the run) instead of the "Reply in Nm" line when it is true; non-job prompts are unchanged.
 - Slack's permission blocks are OUT OF SCOPE for this window (follow-up); do not report their "Reply in" line.
 - No change to timers, rows, keyboards, or the durability wiring.
 

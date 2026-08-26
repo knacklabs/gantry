@@ -3,6 +3,6 @@ export function permissionPromptWaitLine(
   replyInMinutes: number,
 ): string {
   return waitsForDecision
-    ? 'This job waits for your decision.'
+    ? 'This request stays open until you decide.'
     : `Reply in ${replyInMinutes}m`;
 }

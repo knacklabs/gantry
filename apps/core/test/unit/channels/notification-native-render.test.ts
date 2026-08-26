@@ -398,11 +398,11 @@ describe('Telegram HTML rendering', () => {
 
     expect(parts.waitsForDecision).toBe(true);
     expect(formatPermissionPromptPartsText(parts)).toContain(
-      'This job waits for your decision.',
+      'This request stays open until you decide.',
     );
     expect(formatPermissionPromptPartsText(parts)).not.toContain('Reply in');
     expect(renderPermissionPromptHtml(parts)).toContain(
-      '<i>This job waits for your decision.</i>',
+      '<i>This request stays open until you decide.</i>',
     );
     expect(renderPermissionPromptHtml(parts)).not.toContain('Reply in');
   });
@@ -418,7 +418,7 @@ describe('Telegram HTML rendering', () => {
     };
 
     expect(formatPermissionPromptText(request, 60_000)).toContain(
-      'This job waits for your decision.',
+      'This request stays open until you decide.',
     );
     expect(formatPermissionPromptText(request, 60_000)).not.toContain(
       'Reply in',
