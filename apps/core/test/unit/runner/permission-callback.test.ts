@@ -288,7 +288,7 @@ describe('requestPermissionApproval', () => {
     delete process.env.GANTRY_JOB_ID;
     delete process.env.GANTRY_JOB_RUN_ID;
     vi.resetModules();
-    const { requestPermissionApproval } =
+    const { inFlightPermissionRequests, requestPermissionApproval } =
       await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
     const controller = new AbortController();
 
@@ -319,6 +319,10 @@ describe('requestPermissionApproval', () => {
       'permission-responses',
       `${request.requestId}.json`,
     );
+    expect(inFlightPermissionRequests()).toEqual({
+      count: 1,
+      toolNames: ['RunCommand'],
+    });
     const originalExistsSync = fs.existsSync.bind(fs);
     const existsSync = vi
       .spyOn(fs, 'existsSync')
@@ -363,6 +367,7 @@ describe('requestPermissionApproval', () => {
     expect(
       existsSync.mock.calls.filter(([candidate]) => candidate === responsePath),
     ).toHaveLength(responsePollsAfterCancellation);
+    expect(inFlightPermissionRequests()).toEqual({ count: 0, toolNames: [] });
   });
 
   it('signals the host when an interactive request was claimed before cancellation', async () => {
