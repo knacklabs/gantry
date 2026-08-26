@@ -416,6 +416,12 @@ describe('job status formatting', () => {
       jobOutcomeHeadline('## Final Job Report\nAdded 2 leads.'),
     ).toBeUndefined();
     expect(
+      jobOutcomeHeadline('## Final Job Report\n\nOutcome: Added 2 leads.'),
+    ).toBe('Added 2 leads.');
+    expect(
+      jobOutcomeHeadline('## Final Job Report\n\nSummary text\nOutcome: x'),
+    ).toBeUndefined();
+    expect(
       jobOutcomeHeadline('  outcome:   No changes found.  \nDetails follow.'),
     ).toBe('No changes found.');
   });

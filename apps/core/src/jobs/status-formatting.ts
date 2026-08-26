@@ -275,14 +275,14 @@ export function selectJobNotificationSummary(summary: string): string {
 }
 
 export function jobOutcomeHeadline(summary: string): string | undefined {
-  const [firstLine, secondLine] = selectJobNotificationSummary(summary)
+  const [firstLine, ...followingLines] = selectJobNotificationSummary(summary)
     .split('\n')
     .map((line) => line.trim());
   const outcomeLine =
     /^(?:#+\s*)?(?:Final Job Report|Final Report|Scoring Summary|Score Summary)\s*$/i.test(
       firstLine,
     )
-      ? secondLine
+      ? followingLines.find((line) => line)
       : firstLine;
   const match = outcomeLine?.match(/^Outcome:\s*(.*)$/i);
   return match?.[1]?.trim() || undefined;
