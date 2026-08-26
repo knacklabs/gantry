@@ -1,5 +1,6 @@
 import { uptime } from 'node:os';
 
+import { logger } from '../../infrastructure/logging/logger.js';
 import {
   canonicalJobPermissionNeedIdentity,
   JobPermissionDurabilityService,
@@ -200,6 +201,7 @@ export function createJobPermissionDurabilityWiring(
         (() => process.env.GANTRY_HOST_BOOT_ID ?? 'current-host-boot'),
     },
     { maxRows: 10, maxGrantAtomsPerRow: 20 },
+    logger,
   ) as JobPermissionDurabilityService & {
     attachRequest(input: {
       request: PermissionApprovalRequest;

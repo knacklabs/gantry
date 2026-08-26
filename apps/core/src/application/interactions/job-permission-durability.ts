@@ -102,11 +102,17 @@ export interface JobPermissionDurabilityClock {
   hostBootId(): string;
 }
 
+export interface JobPermissionDurabilityLogger {
+  info(context: Record<string, unknown>, message: string): void;
+  warn(context: Record<string, unknown>, message: string): void;
+}
+
 export interface JobPermissionDurabilityDependencies {
   repository: JobPermissionDurabilityRepository;
   effects: JobPermissionDurabilityEffects;
   clock: JobPermissionDurabilityClock;
   capacity: JobPermissionCardCapacity;
+  logger: JobPermissionDurabilityLogger;
 }
 
 export type AttachJobPermissionNeedOutcome =
@@ -140,6 +146,10 @@ export class JobPermissionDurabilityService {
     private readonly effects: JobPermissionDurabilityEffects,
     private readonly clock: JobPermissionDurabilityClock,
     private readonly capacity: JobPermissionCardCapacity,
+    private readonly logger: JobPermissionDurabilityLogger = {
+      info: () => undefined,
+      warn: () => undefined,
+    },
   ) {
     if (
       !Number.isInteger(capacity.maxRows) ||
@@ -154,6 +164,7 @@ export class JobPermissionDurabilityService {
       effects,
       clock,
       capacity,
+      logger,
     };
     this.providerActions = new JobPermissionProviderActions(dependencies);
     this.reconciler = new JobPermissionReconciler(

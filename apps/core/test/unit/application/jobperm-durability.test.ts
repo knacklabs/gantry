@@ -7,6 +7,7 @@ import {
   JobPermissionDurabilityService,
   type JobPermissionDurabilityClock,
   type JobPermissionDurabilityEffects,
+  type JobPermissionDurabilityLogger,
   type JobPermissionRevalidationResult,
 } from '@core/application/interactions/job-permission-durability.js';
 import { revalidateJobPermissionCurrentPolicy } from '@core/app/bootstrap/job-permission-durability-wiring.js';
@@ -200,13 +201,23 @@ function createHarness(capacity = { maxRows: 8, maxGrantAtomsPerRow: 8 }) {
   const repository = new MemoryJobPermissionRepository();
   const effects = new TestEffects();
   const clock = new TestClock();
+  const logs: Array<{
+    level: 'info' | 'warn';
+    context: Record<string, unknown>;
+    message: string;
+  }> = [];
+  const logger: JobPermissionDurabilityLogger = {
+    info: (context, message) => logs.push({ level: 'info', context, message }),
+    warn: (context, message) => logs.push({ level: 'warn', context, message }),
+  };
   const service = new JobPermissionDurabilityService(
     repository,
     effects,
     clock,
     capacity,
+    logger,
   );
-  return { repository, effects, clock, service };
+  return { repository, effects, clock, logs, service };
 }
 
 function attach(
@@ -461,6 +472,62 @@ it('q-0074-no-op-revision-after-confirm', async () => {
       (delivery) => delivery.status === 'pending',
     ),
   ).toHaveLength(0);
+});
+
+it('logs a delivered card revision after recording it durably', async () => {
+  const { logs, repository, service } = createHarness();
+  await attach(service);
+  const card = (await readState(repository))!.card;
+  const revision = card.revisions.at(-1)!;
+  await confirmLatest(service, repository);
+
+  await service.reconcile();
+
+  expect(logs).toEqual([
+    {
+      level: 'info',
+      context: {
+        jobId: 'job-1',
+        cardId: card.id,
+        revision: revision.revision,
+        operation: 'send',
+        provider: 'telegram',
+        providerMessageId: 'message:1',
+        deliveryId: revision.deliveryId,
+      },
+      message: 'Job permission card delivered',
+    },
+  ]);
+});
+
+it('logs a failed card revision after recording its reason durably', async () => {
+  const { logs, repository, service } = createHarness();
+  await attach(service);
+  const state = await readState(repository);
+  const revision = state!.card.revisions.at(-1)!;
+  repository.deliveries.set(revision.deliveryId, {
+    status: 'exhausted',
+    reason: 'provider delivery exhausted',
+  });
+
+  await service.reconcile();
+
+  expect(logs).toEqual([
+    {
+      level: 'warn',
+      context: {
+        jobId: 'job-1',
+        cardId: state!.card.id,
+        revision: revision.revision,
+        operation: 'send',
+        provider: 'unknown',
+        providerMessageId: null,
+        deliveryId: revision.deliveryId,
+        reason: 'provider delivery exhausted',
+      },
+      message: 'Job permission card delivery failed',
+    },
+  ]);
 });
 
 it('replaces a stale message for a new permission need while a paging edit is pending', async () => {

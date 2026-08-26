@@ -46,6 +46,10 @@ export class JobPermissionReconciler {
     return this.dependencies.capacity;
   }
 
+  private get logger() {
+    return this.dependencies.logger;
+  }
+
   async reconcile(limit = 100): Promise<number> {
     const cards = await this.repository.listJobPermissionCardsForReconciliation(
       { limit },
@@ -93,7 +97,7 @@ export class JobPermissionReconciler {
     if (!selected) return false;
     const { revision, outcome } = selected;
     if (outcome.status === 'delivered') {
-      return this.providerActions.confirmCardDelivery({
+      const delivered = await this.providerActions.confirmCardDelivery({
         appId: card.appId,
         jobId: card.jobId,
         sourceAgentFolder: card.sourceAgentFolder,
@@ -102,9 +106,24 @@ export class JobPermissionReconciler {
         providerMessageId: outcome.providerMessageId,
         deliveredAt: outcome.deliveredAt,
       });
+      if (delivered) {
+        this.logger.info(
+          {
+            jobId: card.jobId,
+            cardId: card.id,
+            revision: revision.revision,
+            operation: revision.operation,
+            provider: outcome.provider ?? 'unknown',
+            providerMessageId: outcome.providerMessageId,
+            deliveryId: revision.deliveryId,
+          },
+          'Job permission card delivered',
+        );
+      }
+      return delivered;
     }
     const now = this.clock.now();
-    return this.repository.mutateJobPermissionState<boolean>({
+    const failed = await this.repository.mutateJobPermissionState<boolean>({
       appId: card.appId,
       jobId: card.jobId,
       initialCard: card,
@@ -159,6 +178,25 @@ export class JobPermissionReconciler {
         return { state, result: true };
       },
     });
+    if (failed) {
+      const tracking = card.revisionDeliveries.find(
+        (entry) => entry.revision === revision.revision,
+      );
+      this.logger.warn(
+        {
+          jobId: card.jobId,
+          cardId: card.id,
+          revision: revision.revision,
+          operation: revision.operation,
+          provider: tracking?.provider ?? 'unknown',
+          providerMessageId: tracking?.providerMessageId ?? null,
+          deliveryId: revision.deliveryId,
+          reason: outcome.reason,
+        },
+        'Job permission card delivery failed',
+      );
+    }
+    return failed;
   }
 
   private async reconcileNeed(candidate: JobPermissionNeedRecord) {
