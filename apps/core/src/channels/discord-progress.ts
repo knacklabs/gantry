@@ -86,14 +86,19 @@ export function createDiscordProgressCallbacks(input: {
         );
       } catch (err) {
         if (!isDiscordEmbedRejection(err)) throw err;
-        await input.edit(messageId, body, signal);
+        await input.edit(messageId, { ...body, embeds: [] }, signal);
       }
     },
   };
 }
 
 function isDiscordEmbedRejection(err: unknown): boolean {
-  return err instanceof DiscordRestError && err.status === 400;
+  return (
+    err instanceof DiscordRestError &&
+    err.status === 400 &&
+    (Object.hasOwn(err.errors ?? {}, 'embeds') ||
+      err.discordMessage?.toLowerCase().includes('embeds') === true)
+  );
 }
 
 const DISCORD_PROGRESS_RETENTION_MS = 10 * 60_000;

@@ -936,10 +936,17 @@ describe('DiscordChannel', () => {
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ code: 50_035 }), {
-          status: 400,
-          headers: { 'content-type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({
+            code: 50_035,
+            message: 'Invalid Form Body',
+            errors: { embeds: { _errors: [] } },
+          }),
+          {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
       )
       .mockResolvedValueOnce(new Response('{}', { status: 200 }));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
@@ -965,6 +972,90 @@ describe('DiscordChannel', () => {
       expect.objectContaining({ title: '✅ Completed · Nightly report' }),
     ]);
     expect(String(fetchMock.mock.calls[2]?.[1]?.body)).toBe(
+      JSON.stringify({
+        content: 'Completed in text',
+        allowed_mentions: { parse: [] },
+        components: [],
+        embeds: [],
+      }),
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('rethrows terminal progress errors that target components', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 50_035,
+            message: 'Invalid Form Body',
+            errors: { components: { _errors: [] } },
+          }),
+          {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      );
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.sendProgressUpdate('dc:channel-1', 'Working', {
+      generation: 1,
+    });
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', 'Completed in text', {
+        generation: 1,
+        done: true,
+        jobNotificationView: {
+          status: 'completed',
+          jobName: 'Nightly report',
+          fallbackText: 'Report completed',
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      errors: { components: { _errors: [] } },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    fetchMock.mockRestore();
+  });
+
+  it('posts text when Discord rejects a terminal progress embed', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 50_035,
+            message: 'Invalid Form Body',
+            errors: { embeds: { _errors: [] } },
+          }),
+          {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'terminal-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', 'Completed in text', {
+        generation: 1,
+        done: true,
+        jobNotificationView: {
+          status: 'completed',
+          jobName: 'Nightly report',
+          fallbackText: 'Report completed',
+        },
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toBe(
       JSON.stringify({
         content: 'Completed in text',
         allowed_mentions: { parse: [] },
