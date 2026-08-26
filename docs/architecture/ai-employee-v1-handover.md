@@ -121,8 +121,10 @@ cap stay in V1.1.
 - **DESIGN-1** runs first: one approved mockup canvas in the console's design
   system before DIR-UI-1 and ONBOARD-UI-1 are planned.
   Mockups (14 artboards, light/dark tweak, sample data):
-  https://claude.ai/code/artifact/cbcf11f1-8bc2-4912-bb37-b2ea7c300010 — pending
-  product-owner approval.
+  https://claude.ai/code/artifact/cbcf11f1-8bc2-4912-bb37-b2ea7c300010 — **approved
+  2026-08-26 by vrknetha** (21 artboards: Directory, detail tabs incl. Conversations,
+  wizard, Add seat, Access editor, Handoffs, offboard dialog, Connector accounts,
+  Model providers + egress, Add provider, Reports).
 
 ## Model governance and enterprise data (added 2026-08-26)
 

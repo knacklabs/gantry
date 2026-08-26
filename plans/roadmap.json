@@ -1909,10 +1909,11 @@
       "acceptance_criteria": [
         "One design canvas with: unified Directory list (kind filter People | AI employees), agent detail with tabs (Overview, Access, Audit, Approvals, Usage), person detail, onboarding wizard screens, Handoffs view, offboard confirmation; light and dark",
         "Uses existing console primitives and tokens; no new component library",
-        "Approved by the product owner before DIR-UI-1 and ONBOARD-UI-1 are planned; mockups linked from their plans"
+        "Approved by the product owner before DIR-UI-1 and ONBOARD-UI-1 are planned; mockups linked from their plans",
+        "APPROVED 2026-08-26 by vrknetha \u2014 canvas https://claude.ai/code/artifact/cbcf11f1-8bc2-4912-bb37-b2ea7c300010 (21 artboards, light/dark). DIR-UI-1 and ONBOARD-UI-1 plan from these mockups."
       ],
       "order": 95,
-      "status": "pending",
+      "status": "done",
       "epic": "ai-employee-v1",
       "skill": "frontend",
       "depends_on": [],
