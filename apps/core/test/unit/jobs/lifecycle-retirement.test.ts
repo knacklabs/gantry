@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ConversationRoute, Job, JobRun } from '@core/domain/types.js';
+import type {
+  ConversationRoute,
+  Job,
+  JobRun,
+  MessageActionAffordance,
+} from '@core/domain/types.js';
 import type { SchedulerDependencies } from '@core/jobs/types.js';
 import { createSchedulerLifecycleNotificationUpdater } from '@core/app/bootstrap/scheduler-lifecycle-notification.js';
 import { notifySchedulerTerminalRunState } from '@core/jobs/execution-notifications.js';
@@ -1111,12 +1116,6 @@ describe('lifecycle retirement', () => {
         done: true,
         replaceOnly: true,
         progressCardIdentity: expect.stringContaining('scheduler-card:'),
-      }),
-    );
-    expect(primary.sendMessage).toHaveBeenCalledWith(
-      'tg:scheduler',
-      expect.stringContaining('Completed'),
-      expect.objectContaining({
         actionAffordances: [
           expect.objectContaining({
             kind: 'scheduler_run_now',
@@ -1126,6 +1125,7 @@ describe('lifecycle retirement', () => {
         ],
       }),
     );
+    expect(primary.sendMessage).not.toHaveBeenCalled();
   });
 
   it('dead-letter exit retires or replaces the running bubble', async () => {
@@ -1164,9 +1164,14 @@ describe('lifecycle retirement', () => {
     expect(sendProgressUpdate).toHaveBeenCalledWith(
       'tg:scheduler',
       expect.stringContaining('Paused after failures'),
-      expect.objectContaining({ done: true }),
+      expect.objectContaining({
+        done: true,
+        actionAffordances: [
+          expect.objectContaining({ kind: 'scheduler_pause_job' }),
+        ],
+      }),
     );
-    expect(deadLetter.sendMessage).toHaveBeenCalledTimes(1);
+    expect(deadLetter.sendMessage).not.toHaveBeenCalled();
   });
 
   it('stale-lease exit sends a terminal receipt without prior in-process capture', async () => {
@@ -1203,13 +1208,14 @@ describe('lifecycle retirement', () => {
     expect(sendProgressUpdate).toHaveBeenCalledWith(
       'tg:scheduler',
       expect.stringContaining('Timed out'),
-      expect.objectContaining({ done: true }),
+      expect.objectContaining({
+        done: true,
+        actionAffordances: [
+          expect.objectContaining({ kind: 'scheduler_pause_job' }),
+        ],
+      }),
     );
-    expect(stale.sendMessage).toHaveBeenCalledWith(
-      'tg:scheduler',
-      expect.stringContaining('Timed out'),
-      expect.objectContaining({ threadId: 'thread-1' }),
-    );
+    expect(stale.sendMessage).not.toHaveBeenCalled();
   });
 
   it("does not replace run B's card when run A terminates on the same route", async () => {
@@ -1262,7 +1268,7 @@ describe('lifecycle retirement', () => {
     expect(runBStart?.[2]?.generation).toBeGreaterThan(
       runATerminal?.[2]?.generation,
     );
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('falls back only on routes whose lifecycle update did not land', async () => {
@@ -1313,7 +1319,128 @@ describe('lifecycle retirement', () => {
     );
   });
 
-  it('retires the running bubble and still sends Run again controls', async () => {
+  it('terminal edit carries run-again actions', async () => {
+    const job = makeJob();
+    const actionAffordances: MessageActionAffordance[] = [
+      {
+        kind: 'scheduler_run_now',
+        label: 'Run again',
+        jobId: job.id,
+        runId: 'run-actions',
+      },
+    ];
+    const sendProgressUpdate = vi.fn(async () => true);
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+
+    await lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-actions',
+    });
+    await lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-actions',
+      runStatus: 'completed',
+      summaryMessage: 'Completed.',
+      actionAffordances,
+    });
+
+    expect(sendProgressUpdate).toHaveBeenLastCalledWith(
+      'tg:scheduler',
+      'Completed.',
+      expect.objectContaining({
+        replaceOnly: true,
+        actionAffordances,
+      }),
+    );
+  });
+
+  it('fresh fallback carries the actions too', async () => {
+    const job = makeJob();
+    const actionAffordances: MessageActionAffordance[] = [
+      {
+        kind: 'scheduler_run_now',
+        label: 'Run again',
+        jobId: job.id,
+        runId: 'run-fallback-actions',
+      },
+    ];
+    const sendProgressUpdate = vi.fn(async () => true);
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+
+    await lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-fallback-actions',
+      runStatus: 'completed',
+      summaryMessage: 'Completed.',
+      actionAffordances,
+    });
+
+    expect(sendProgressUpdate).toHaveBeenCalledWith(
+      'tg:scheduler',
+      'Completed.',
+      expect.objectContaining({ actionAffordances }),
+    );
+  });
+
+  it('late-landing terminal edit carries the captured actions', async () => {
+    const job = makeJob();
+    const actionAffordances: MessageActionAffordance[] = [
+      {
+        kind: 'scheduler_run_now',
+        label: 'Run again',
+        jobId: job.id,
+        runId: 'run-late-actions',
+      },
+    ];
+    let releaseRunningCard!: (landed: boolean) => void;
+    let markRunningCardStarted!: () => void;
+    const runningCardStarted = new Promise<void>((resolve) => {
+      markRunningCardStarted = resolve;
+    });
+    const runningCard = new Promise<boolean>((resolve) => {
+      releaseRunningCard = resolve;
+    });
+    const sendProgressUpdate = vi.fn((_: string, text: string) => {
+      if (text.startsWith('Running:')) {
+        markRunningCardStarted();
+        return runningCard;
+      }
+      return Promise.resolve(false);
+    });
+    const lifecycle = createSchedulerLifecycleNotificationUpdater({
+      channelWiring: { sendProgressUpdate },
+    });
+
+    const capture = lifecycle.captureLifecycleNotification?.({
+      job,
+      runId: 'run-late-actions',
+    });
+    await runningCardStarted;
+    await lifecycle.updateLifecycleNotification?.({
+      job,
+      runId: 'run-late-actions',
+      runStatus: 'completed',
+      summaryMessage: 'Completed.',
+      actionAffordances,
+    });
+    releaseRunningCard(true);
+    await capture;
+
+    expect(sendProgressUpdate).toHaveBeenLastCalledWith(
+      'tg:scheduler',
+      'Completed.',
+      expect.objectContaining({
+        replaceOnly: true,
+        actionAffordances,
+      }),
+    );
+  });
+
+  it('moves Run again controls onto the retired lifecycle card', async () => {
     const job = makeJob();
     const updateLifecycleNotification = vi.fn(async () =>
       (job.notification_routes ?? []).map((route) => ({
@@ -1336,9 +1463,7 @@ describe('lifecycle retirement', () => {
     });
 
     expect(updateLifecycleNotification).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenCalledWith(
-      'tg:scheduler',
-      expect.stringContaining('Completed'),
+    expect(updateLifecycleNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         actionAffordances: [
           expect.objectContaining({
@@ -1348,6 +1473,7 @@ describe('lifecycle retirement', () => {
         ],
       }),
     );
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('retires review-created lifecycle ownership before sending review actions', async () => {

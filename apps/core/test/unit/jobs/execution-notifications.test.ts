@@ -124,7 +124,7 @@ describe('jobs/execution-notifications', () => {
     );
   });
 
-  it('retires lifecycle progress and preserves Run again controls', async () => {
+  it('does not send a second native message when the limited-completion edit lands', async () => {
     const sendMessage = vi.fn(async () => undefined);
     const update = vi.fn(async () => [
       {
@@ -145,20 +145,84 @@ describe('jobs/execution-notifications', () => {
       nextRun: null,
       retryCount: 0,
       pauseReason: null,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 0,
+        browserActivityCount: 0,
+        transientPermissionApprovals: [],
+        unprojectedPermissionGrants: ['capability:browser.use'],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+      },
       sendMessage,
       updateLifecycleNotification: update,
     });
 
     expect(notified).toBe(true);
     expect(update).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenCalledWith(
-      'tg:scheduler',
-      expect.stringContaining('Completed'),
+    expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
         actionAffordances: [
           expect.objectContaining({
             kind: 'scheduler_run_now',
-            label: 'Run again',
+            label: 'Run again now',
+          }),
+        ],
+      }),
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('uses the native fallback once when the limited-completion edit is refused', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const update = vi.fn(async () => [
+      {
+        route: {
+          conversationJid: 'tg:scheduler',
+          threadId: 'thread-1',
+          label: 'Primary',
+        },
+        status: 'unsupported' as const,
+      },
+    ]);
+
+    const notified = await notifySchedulerTerminalRunState({
+      job: makeJob(),
+      runId: 'run-1',
+      runStatus: 'completed',
+      summary: 'Result summary',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: null,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 0,
+        browserActivityCount: 0,
+        transientPermissionApprovals: [],
+        unprojectedPermissionGrants: ['capability:browser.use'],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+      },
+      sendMessage,
+      updateLifecycleNotification: update,
+    });
+
+    expect(notified).toBe(true);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:scheduler',
+      expect.stringContaining('Completed with limits'),
+      expect.objectContaining({
+        actionAffordances: [
+          expect.objectContaining({
+            kind: 'scheduler_run_now',
+            label: 'Run again now',
           }),
         ],
       }),

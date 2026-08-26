@@ -29,7 +29,11 @@ import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js
 import type { BrowserSessionStatus } from '../runtime/browser-capability-types.js';
 import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
-import type { Job, JobRunStatus } from '../domain/types.js';
+import type {
+  Job,
+  JobRunStatus,
+  MessageActionAffordance,
+} from '../domain/types.js';
 import type { JobNotificationLifecycleUpdateResult } from './execution-notifications.js';
 
 export interface SchedulerDependencies {
@@ -62,6 +66,7 @@ export interface SchedulerDependencies {
       'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered'
     >;
     summaryMessage: string;
+    actionAffordances?: MessageActionAffordance[];
   }) => Promise<JobNotificationLifecycleUpdateResult>;
   sendStreamingChunk?: (
     jid: string,

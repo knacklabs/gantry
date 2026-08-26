@@ -74,6 +74,7 @@ export function createSchedulerLifecycleRetirementTracker(
       runId: string;
       runStatus: TerminalRunStatus;
       summaryMessage: string;
+      actionAffordances?: MessageActionAffordance[];
     }) => Promise<JobNotificationLifecycleUpdateResult>;
     discardLifecycleNotification?: (runId: string) => void;
   },
@@ -363,6 +364,7 @@ export async function notifySchedulerTerminalRunState(input: {
     runId: string;
     runStatus: TerminalRunStatus;
     summaryMessage: string;
+    actionAffordances?: MessageActionAffordance[];
   }) => Promise<JobNotificationLifecycleUpdateResult>;
 }): Promise<boolean> {
   if (input.job.silent) return false;
@@ -467,16 +469,6 @@ export async function notifySchedulerTerminalRunState(input: {
     fallbackText: summaryMessage,
     ...(input.nextRun === null ? {} : { nextRunAt: input.nextRun }),
   });
-  const updateOutcomes =
-    input.updateLifecycleNotification === undefined
-      ? undefined
-      : await input.updateLifecycleNotification({
-          job: input.job,
-          runId: input.runId,
-          runStatus: input.runStatus,
-          summaryMessage,
-        });
-  const fallbackJob = jobForLifecycleFallback(input.job, updateOutcomes);
   const actionAffordances =
     input.runStatus === 'completed'
       ? runAgainActionAffordances({
@@ -487,8 +479,18 @@ export async function notifySchedulerTerminalRunState(input: {
           ),
         })
       : recoveryActionAffordances({ job: input.job, runId: input.runId });
-  const notificationJob =
-    actionAffordances.length > 0 ? input.job : fallbackJob;
+  const updateOutcomes =
+    input.updateLifecycleNotification === undefined
+      ? undefined
+      : await input.updateLifecycleNotification({
+          job: input.job,
+          runId: input.runId,
+          runStatus: input.runStatus,
+          summaryMessage,
+          actionAffordances,
+        });
+  const fallbackJob = jobForLifecycleFallback(input.job, updateOutcomes);
+  const notificationJob = fallbackJob;
   if (!notificationJob) return true;
   return sendJobNotification({
     job: notificationJob,
