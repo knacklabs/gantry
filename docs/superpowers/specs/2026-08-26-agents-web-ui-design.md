@@ -2,7 +2,8 @@
 
 ## Status
 
-Approved in interactive design review on 2026-08-26.
+Final design approved in interactive design review on 2026-08-26 and updated
+after the interactive-control audit.
 
 This design replaces the orphaned local `WEB-CONSOLE-6` concept. Current
 `main` remains the implementation source of truth; the supplied standalone
@@ -64,6 +65,7 @@ The first release covers:
 - guided agent creation;
 - optional source and capability selection during setup;
 - truthful agent detail for overview, instructions, access, and settings;
+- read-only configuration version history backed by real version snapshots;
 - enable and disable actions.
 
 The release does not add:
@@ -76,6 +78,7 @@ The release does not add:
 - capability-definition authoring;
 - bulk agent operations;
 - harness selection;
+- configuration-version restoration;
 - a redesign of the broader Web console.
 
 Existing source, capability, conversation, credential, and job flows remain
@@ -96,19 +99,28 @@ The agent detail view has four sections:
 3. `Access`
 4. `Settings`
 
-The selected tab, agent, search query, filters, sorting, page, and page size are
-represented in the URL. Refresh, browser history, and shared links preserve the
-current view.
+The selected area, agent, detail section, search query, filters, sorting, page,
+and page size are represented in the URL. Refresh, browser history, shared
+links, and returning from detail preserve the current view.
 
 ## Agents Directory
 
 ### Desktop Layout
 
-Use a responsive master-detail layout:
+Use one full-width, bounded, searchable, server-paginated table. There is no
+selected-agent side panel. Selecting an agent opens its routed detail page.
+`New agent` is the only primary page action and appears at the top right.
 
-- left: bounded, searchable, paginated agent list;
-- right: selected-agent summary and detail navigation;
-- top-right: primary `New agent` action.
+The toolbar contains:
+
+- a labeled `Search agents` field;
+- a labeled status selector;
+- a labeled role selector using actual role values;
+- `Clear filters` only while at least one filter is active.
+
+Search fetches after a 300-400 ms debounce. Enter fetches immediately. Filter,
+sort, page-size, and pagination changes fetch immediately. There is no Search
+button.
 
 Each row shows:
 
@@ -118,14 +130,9 @@ Each row shows:
 - model alias or `Deployment default`;
 - connected-conversation count.
 
-The selected summary shows:
-
-- `Active`, `Disabled`, or current setup warnings;
-- `Not connected` or the number of connected conversations;
-- scheduled-job count as a separate fact;
-- current config version;
-- model and role snapshot;
-- links to the four detail sections.
+The agent-name link is the row's single keyboard focus target. Pointer clicks
+elsewhere in the row activate the same link. The implementation must preserve
+normal link behavior, including open-in-new-tab and Command/Control-click.
 
 Do not use `deployed`, `running`, or `online` for an enabled configuration.
 Preferred labels are:
@@ -134,6 +141,9 @@ Preferred labels are:
 - `Active · 3 conversations`
 - `Disabled · 3 conversations`
 - `2 scheduled jobs`
+
+`Not connected` is neutral usage information, not a setup warning. Only a
+blocker present in the agent projection receives warning treatment.
 
 ### Narrow Layout
 
@@ -182,6 +192,11 @@ values safely, and expose the full value on hover and keyboard focus.
 Rows are real links so keyboard activation, open-in-new-tab, and
 Command/Control-click work normally. Do not add selection checkboxes until bulk
 actions exist.
+
+The visible row range, total, page badge, enabled pagination controls, and
+rendered records must always agree with the server response. While a request is
+pending, preserve the table dimensions, mark the region busy, and prevent
+duplicate page requests. No static or estimated totals are shown.
 
 ## Role Model
 
@@ -259,6 +274,15 @@ Custom-role actions:
 - `Duplicate`;
 - `Delete`.
 
+Selecting a built-in role opens a read-only role detail panel with the full
+canonical prompt and `Duplicate and customize`. Selecting a custom role opens
+the same panel in editable mode with `Save changes`, `Duplicate`, and `Delete`.
+`New custom role` opens a blank editor with required name and prompt fields.
+
+Custom-role deletion uses a confirmation dialog. Its body states how many
+existing agents retain snapshots and that those agents will not change. The
+confirming action is `Delete role`; the cancelling action is `Cancel`.
+
 The custom-role table columns are:
 
 - role name;
@@ -274,6 +298,10 @@ contract. Built-ins are six fixed records and are not paginated.
 
 The table stays read-only. Selecting a role opens a detail/editor panel so
 long-form prompt editing does not destabilize row layout.
+
+Every role action above is required. No overflow menu appears unless it
+contains at least two valid actions. The role page has no decorative cards,
+metrics, or inactive controls.
 
 ## Role Selector
 
@@ -294,9 +322,17 @@ Role results are fetched in bounded pages. Do not preload an unbounded custom
 role library. Pills may be considered later for a small recent-role shortcut,
 but they are not the primary selector.
 
+Typing filters after a 300-400 ms debounce and Enter fetches immediately. The
+combobox provides loading, no-results, failure, retry, and keyboard-selection
+states. Selecting a role updates the prompt preview immediately.
+
 ## Agent Creation Flow
 
 The guided flow has four steps.
+
+Only the current step and completed steps are interactive. Steps 2-4 remain
+disabled until Step 1 successfully creates the base agent. After creation,
+completed steps may be revisited without discarding later saved work.
 
 ### Step 1: Agent
 
@@ -317,6 +353,12 @@ profile, applies the optional model selection, and opens setup Step 2.
 
 The resulting agent is valid even if the user leaves setup. With no
 conversation bindings its directory label is `Active · Not connected`.
+
+Name and role validation is inline. A duplicate or invalid name keeps entered
+values, explains the problem next to the field, and moves focus to the first
+invalid field. Closing before creation warns only when the form is dirty.
+Closing after creation states that the saved agent will remain and offers
+`Continue setup` or `Leave setup`.
 
 ### Step 2: Sources
 
@@ -346,6 +388,11 @@ visible while the list scrolls.
 The step states: `Connecting a source does not grant its actions.` It is
 optional and offers `Skip for now`.
 
+`Clear selections` appears only when the active source step has a selection
+and clears the current saved draft after confirmation if clearing would remove
+already-saved sources. `Skip for now` saves no new sources and advances to
+Capabilities.
+
 ### Step 3: Allowed Capabilities
 
 Show capabilities derived from selected sources plus available built-in
@@ -366,6 +413,14 @@ authority.
 
 The step is optional and offers `Skip for now`.
 
+`How access works` opens a short read-only drawer containing the three-part
+flow `Connected sources -> Allowed capabilities -> Runtime checks` and the
+single explanation: `Connected sources provide tools. Allowed capabilities
+authorize actions. Some risky actions may still require approval.` The drawer
+does not repeat the current selection summary or add a second setup status.
+
+`Skip for now` saves no new capabilities and advances to Review.
+
 ### Step 4: Review
 
 Review displays:
@@ -383,6 +438,10 @@ Review displays:
 The primary action is `Finish setup`, not `Create agent`, because the agent was
 created after Step 1. Secondary actions return to a step or leave setup.
 Completion opens agent detail at Overview.
+
+Review is derived from the current saved and unsaved wizard state; it never
+uses placeholder counts, source names, capabilities, warnings, or instruction
+lengths. Each `Edit` action returns to its corresponding completed step.
 
 ## Save And Failure Behavior
 
@@ -402,13 +461,31 @@ Forms keep entered non-secret values after recoverable errors. Validation is
 inline, moves focus to the first invalid field, and does not rely on a toast
 alone. Unsaved prompt edits warn before navigation.
 
+Each save disables only its submitting action, announces progress, and returns
+one of these outcomes:
+
+- `Agent created. Continue setup.`
+- `Sources saved. Available next run.`
+- `Capabilities saved. Available next run.`
+- a scoped error that identifies the unsaved stage and offers `Retry`.
+
 ## Agent Detail
+
+Agent detail is a routed page, not a side panel. Its header contains the agent
+name, purpose, status, neutral conversation count, separate scheduled-job
+count, `Version history`, and `Disable` or `Enable`. It contains no overflow
+menu. `Back to agents` restores the directory URL and focus to the originating
+agent link.
 
 ### Overview
 
 Show status, role snapshot, model, config version, connected conversations,
 scheduled-job count, and current setup warnings. Conversation and job counts
 are separate. Connections are managed by their owning conversation surface.
+
+Do not show a separate positive `Ready for new work` card. The status in the
+header is sufficient. The warnings region is absent when no real projected
+warning exists.
 
 ### Instructions
 
@@ -423,6 +500,10 @@ Show:
 Editing the agent's instructions creates a new agent configuration/profile
 version. It never updates the source role template.
 
+`View source role` appears only when the source role template still exists and
+the current user may read it. Advanced profile source labels such as
+`AGENTS.md` appear only when the projection identifies that exact source.
+
 ### Access
 
 Use the existing `AgentAccessSummary` language and grouping:
@@ -435,6 +516,10 @@ Use the existing `AgentAccessSummary` language and grouping:
 
 Do not invent per-agent pending-request rows from app-wide counts. Do not merge
 source inventory and durable authority into one field.
+
+`Edit sources` and `Edit capabilities` open the corresponding setup editor for
+this agent. Empty groups are omitted. A GitHub, credential, or source warning
+appears only when returned for this agent.
 
 ### Settings
 
@@ -455,9 +540,74 @@ The first release has no Delete Agent action. Current removal is a CLI/settings
 cleanup lifecycle that preserves historical projection; the Web UI must not
 represent it as hard deletion.
 
+The Settings availability copy is one sentence: `Disabling preserves this
+agent's configuration and history.` It does not display a separate `No Web
+delete action` notice.
+
+### Version History
+
+`Version history` opens a read-only drawer only when the browser projection can
+return real version records. Each record includes version id, timestamp,
+actor/source, change summary, and the stored snapshot fields available for
+that version. Selecting a version updates the preview without changing the
+agent.
+
+The drawer states `Read-only history`. It supports loading, empty, failure,
+retry, and keyboard navigation. It does not fabricate missing snapshots,
+infer historical values from the current agent, show a Restore action, or
+compare fields the service cannot project truthfully.
+
+## Interaction And Copy Discipline
+
+Every visible control must do one of three things:
+
+1. navigate to a real route;
+2. change local view state with an observable result; or
+3. invoke a defined browser-facade operation with loading, success, and failure
+   states.
+
+Controls with no first-release behavior are omitted rather than disabled or
+left decorative. The shipped page contains no prototype variant switcher,
+design rationale, metric strip, setup-attention rail, inactive sidebar item,
+decorative overflow menu, or Search button.
+
+Explanatory notes are limited to behavior users could otherwise misunderstand:
+
+- role prompts exclude protected Gantry runtime and safety layers;
+- connecting a source does not grant its actions;
+- access changes are `Available next run`;
+- disabling rejects new sessions and delegation while preserving records;
+- deleting a custom role does not change existing agent snapshots.
+
+Positive status, section-purpose text, and source-versus-capability explanations
+are not repeated across cards, summaries, and drawers. Empty space is preferred
+to redundant instructional UI.
+
+### Required State Copy
+
+Use these concise messages rather than generic or decorative notices:
+
+- initial directory empty: `No agents yet.` and `Create an agent to define a
+reusable identity for Gantry work.` with `Create agent`;
+- filtered directory empty: `No agents match these filters.` with
+  `Clear filters`;
+- directory failure: `Agents could not be loaded.` with `Retry`;
+- role results empty: `No roles match this search.` with `Clear search`;
+- source results empty: `No available sources match this search.` with
+  `Clear search`;
+- recoverable stage failure: `<Stage> was not saved. Earlier setup is still
+available.` with `Retry`;
+- post-creation exit: `This agent has been created. You can finish setup now or
+return later.` with `Continue setup` and `Leave setup`.
+
+Loading states use skeleton rows or a local progress label and retain layout.
+Success messages may use a polite live region or toast, but errors and required
+actions remain visible in the affected section.
+
 ## Access And Permission Language
 
-Use this explanation throughout the flow:
+Use this as the canonical access explanation. Show it once in the creation flow
+and again only where the user explicitly requests access help:
 
 > Connected sources provide tools. Allowed capabilities authorize actions.
 > Some risky actions may still require approval.
@@ -505,6 +655,8 @@ Planning must account for these clean contract changes:
 - reuse existing source attachment and capability replacement services for
   setup Steps 2 and 3;
 - expose the existing agent access summary through the browser projection;
+- expose real read-only configuration version metadata and available snapshot
+  fields through the existing profile/version service boundary;
 - preserve desired-state revision, settings export, validation,
   reconciliation, audit, and next-run activation.
 
@@ -517,12 +669,66 @@ write directly to settings from the Web route.
 - Use semantic links for agent and role navigation.
 - Use buttons for actions and real tab/combobox semantics for selection.
 - Preserve visible keyboard focus and complete keyboard operation.
+- Give each linked table row one keyboard focus target.
 - Associate every field with a label and inline error.
 - Announce asynchronous save results without relying on color.
 - Keep status text next to status color.
 - Make destructive role deletion and agent disablement confirmed actions.
+- Trap focus inside open dialogs and drawers, make the background inert, close
+  with Escape, and restore focus to the opening control.
+- Use at least 44 by 44 CSS-pixel touch targets on narrow screens.
 - Keep sticky headers and footers from covering the focused row or control.
 - On mobile, avoid nested horizontal and vertical table scrolling.
+
+## Surface Impact Matrix
+
+| Surface                      | Status               | Final-design impact                                                                                                                         |
+| ---------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime behavior             | Changed              | Custom role snapshots replace the fixed persona block for those agents; existing Gantry runtime and safety layers remain protected.         |
+| `settings.yaml`              | Changed              | Agent, source, capability, model, and active-state mutations continue through desired-state services and revision handling.                 |
+| Postgres/runtime projection  | Changed              | Add app-scoped custom roles, paginated queries, role snapshots, and truthful read projections required by the UI.                           |
+| Control API                  | Changed              | Add pagination/filtering, role management, model/role-aware creation, access setup, and version-history reads through application services. |
+| SDK/contracts                | Changed              | Add sanitized paginated browser DTO inputs/results and role/version contracts without exposing persistence records.                         |
+| CLI                          | Read-only/observable | Existing agent/profile behavior remains an implementation reference; no new CLI UX is required for the Web release.                         |
+| Gantry MCP tools/admin skill | Unchanged by design  | Agent Web management does not add a parallel MCP administration lifecycle.                                                                  |
+| Channel/provider adapters    | Unchanged by design  | Conversation binding remains conversation-owned and provider rendering does not change.                                                     |
+| Docs/prompts                 | Changed              | Document custom-role prompt compilation, snapshot behavior, access language, and operator workflow.                                         |
+| Audit/events                 | Changed              | Record role mutations, agent creation/profile changes, source/capability revisions, model changes, and enable/disable operations.           |
+| Tests/verification           | Changed              | Add contract, application, browser-facade, Web interaction, accessibility, responsive, pagination, and functional-flow coverage.            |
+
+## Validation Plan
+
+Focused automated coverage must prove:
+
+- agent and custom-role pagination, filtering, sorting, totals, and URL inputs;
+- built-in prompt projection without a duplicate browser-owned prompt copy;
+- custom-role create, edit, duplicate, and delete, including retained agent
+  snapshots after template edits or deletion;
+- base-agent creation before optional setup, stage-specific persistence, and
+  recovery when a later stage fails;
+- truthful review/detail/version projections with no current-state fallback for
+  missing historical data;
+- source attachment remaining separate from capability authority;
+- rename, model change, enable, and disable through existing services with
+  desired-state revision, audit, and next-run behavior preserved;
+- authenticated same-origin reads, administrator mutation checks, Origin,
+  CSRF, recent reauthentication where required, sanitized DTOs, and rejection
+  of browser-session/Bearer crossover;
+- debounced search, immediate filters, server pagination, state restoration,
+  loading/empty/error/retry states, and prevention of duplicate requests;
+- keyboard and screen-reader operation for linked rows, comboboxes, tabs,
+  dialogs, drawers, confirmation flows, focus restoration, and live results.
+
+The functional check uses the real local Web UI to create an agent, leave after
+Step 1, resume setup, attach one ready source, allow one capability, inspect the
+saved detail and real version history, disable and re-enable the agent, and
+confirm the directory state survives navigation and refresh. A narrow-screen
+check verifies the compact list and routed detail without nested scrolling.
+
+Cleanup searches must find no shipped prototype variant switcher, selected
+agent side panel, decorative metrics/setup rail, Search button, standalone
+browser prompt copy, hard-coded agent detail projection, or no-op visible
+control.
 
 ## Repository Evidence
 
@@ -566,4 +772,10 @@ The design is successful when an operator can:
 10. inspect the resulting identity, instructions, access, and settings;
 11. enable or disable the agent without implying hard deletion;
 12. understand that source visibility, durable authority, and transient
-    approval are related but separate states.
+    approval are related but separate states;
+13. open only controls that have a real route, local state result, or defined
+    browser operation;
+14. use loading, empty, error, retry, validation, and partial-save states
+    without losing previously saved work;
+15. use the directory, wizard, dialogs, drawers, role editor, and detail route
+    with keyboard, screen reader, and narrow-screen navigation.
