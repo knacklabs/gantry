@@ -120,6 +120,9 @@ cap stay in V1.1.
 - **Handoffs** have a read-only console view; claiming stays in Teams/Slack.
 - **DESIGN-1** runs first: one approved mockup canvas in the console's design
   system before DIR-UI-1 and ONBOARD-UI-1 are planned.
+  Mockups (14 artboards, light/dark tweak, sample data):
+  https://claude.ai/code/artifact/cbcf11f1-8bc2-4912-bb37-b2ea7c300010 — pending
+  product-owner approval.
 
 ## Model governance and enterprise data (added 2026-08-26)
 
