@@ -46,6 +46,7 @@ export function RolesLibrary({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [sourceRoleId, setSourceRoleId] = useState<string>();
   const [editing, setEditing] = useState<BrowserRole>();
   const save = useMutation({
     mutationFn: async () => {
@@ -63,9 +64,7 @@ export function RolesLibrary({
           body: JSON.stringify({
             name,
             prompt,
-            ...(editing?.sourceRoleId
-              ? { sourceRoleId: editing.sourceRoleId }
-              : {}),
+            ...(sourceRoleId ? { sourceRoleId } : {}),
           }),
         },
       );
@@ -79,15 +78,17 @@ export function RolesLibrary({
       setEditing(undefined);
       setName('');
       setPrompt('');
+      setSourceRoleId(undefined);
       return queryClient.invalidateQueries({ queryKey: ['agents', 'roles'] });
     },
   });
-  function start(role?: BrowserRole) {
-    setEditing(role?.kind === 'custom' ? role : undefined);
+  function start(role?: BrowserRole, duplicate = false) {
+    setEditing(role?.kind === 'custom' && !duplicate ? role : undefined);
     setName(
       role ? (role.kind === 'custom' ? role.name : `${role.name} copy`) : '',
     );
     setPrompt(role?.prompt ?? '');
+    setSourceRoleId(duplicate ? role?.id : role?.sourceRoleId);
     setOpen(true);
   }
   const remove = useMutation({
@@ -161,10 +162,7 @@ export function RolesLibrary({
                   <Pencil size={15} aria-hidden="true" />
                   Edit
                 </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => start({ ...role, kind: 'built-in' })}
-                >
+                <Button variant="secondary" onClick={() => start(role, true)}>
                   <Copy size={15} aria-hidden="true" />
                   Duplicate
                 </Button>
@@ -199,7 +197,7 @@ export function RolesLibrary({
                 </AlertDialog>
               </div>
             ) : (
-              <Button variant="secondary" onClick={() => start(role)}>
+              <Button variant="secondary" onClick={() => start(role, true)}>
                 <Copy size={15} aria-hidden="true" />
                 Make custom copy
               </Button>
