@@ -1368,6 +1368,22 @@
       "skill": "frontend",
       "depends_on": [],
       "spec": "docs/specs/web-brand-1.md"
+    },
+    {
+      "key": "AGENTS-WEB-1",
+      "title": "Build truthful Agents management UI",
+      "story": "As a Gantry administrator, I can manage reusable agents and reusable role templates safely in the browser so that I understand their configuration, access, and lifecycle.",
+      "acceptance_criteria": [
+        "A browser-authenticated administrator can use the paginated Agents directory and routed detail with truthful loading, error, empty, URL, and narrow-screen states.",
+        "A browser-authenticated administrator can create and manage custom roles and create agents with independent source and capability setup while preserving role snapshots and lifecycle boundaries.",
+        "Every shipped control has a real result; detail, disablement, access, and version history project real server data and preserve existing authority boundaries."
+      ],
+      "order": 69,
+      "status": "pending",
+      "epic": "agents-web-management",
+      "skill": "fullstack",
+      "depends_on": [],
+      "spec": "docs/specs/agents-web-ui.md"
     }
   ],
   "epics": [
@@ -1461,8 +1477,16 @@
       "source_refs": [
         "docs/specs/authentication-access-web-ui.md"
       ]
+    },
+    {
+      "id": "agents-web-management",
+      "title": "Gantry Agents Web Management",
+      "objective": "Provide truthful browser management for reusable agents and role templates while preserving Gantry's access and lifecycle boundaries.",
+      "source_refs": [
+        "docs/specs/agents-web-ui.md"
+      ]
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-25T18:09:52+00:00"
+  "updated_at": "2026-08-26T15:43:33+00:00"
 }
