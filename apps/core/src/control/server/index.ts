@@ -684,7 +684,6 @@ export function startControlServer(input: {
 function resolveControlHost(): string {
   return getControlEnvValue('GANTRY_CONTROL_HOST') || '127.0.0.1';
 }
-
 export const _testControlServer = {
   parseControlApiKeys,
   parseControlApiKeysStrict,
