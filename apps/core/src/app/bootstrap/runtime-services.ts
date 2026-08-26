@@ -74,7 +74,6 @@ import { brainReviewOutboundProfile, brainReviewNotifyGatewayFor } from './brain
 // prettier-ignore
 import {
   closeBrowser,
-  ensureBrowserReady,
   getBrowserStatus,
 } from '../../runtime/browser-capability.js';
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
@@ -424,7 +423,6 @@ export async function startRuntimeServices(
       getToolRepository: resolved.getToolRepository,
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
       getBrowserStatus,
-      openBrowserSession: (profileName) => ensureBrowserReady({ profileName }),
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
       runnerSandboxProvider:

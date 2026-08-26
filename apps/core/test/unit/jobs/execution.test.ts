@@ -2714,41 +2714,6 @@ describe('jobs/execution', () => {
     );
   });
 
-  it('never calls openBrowserSession before a Browser job starts the runner', async () => {
-    const job = makeJob({
-      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
-    });
-    const opsRepository = makeOpsRepository(job);
-    const toolRepository = makeToolRepository(['Browser']);
-    const openBrowserSession = vi.fn();
-    const runAgent = vi.fn(async () => {
-      expect(openBrowserSession).not.toHaveBeenCalled();
-      return {
-        status: 'success',
-        result: 'browser done',
-      };
-    });
-
-    await runJob(
-      job,
-      {
-        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
-        queue: {} as never,
-        onProcess: () => {},
-        sendMessage: vi.fn(async () => undefined) as never,
-        opsRepository: opsRepository as never,
-        getToolRepository: () => toolRepository as never,
-        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
-        openBrowserSession,
-        runAgent: runAgent as never,
-      },
-      'tg:scheduler',
-    );
-
-    expect(runAgent).toHaveBeenCalledOnce();
-    expect(openBrowserSession).not.toHaveBeenCalled();
-  });
-
   it('keeps Browser activity diagnostics when a required-Browser run fails later', async () => {
     const job = makeJob({
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
