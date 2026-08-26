@@ -13,4 +13,20 @@ describe('prompt-profile-service', () => {
       'When creating a scheduled job, declare every tool the task will need in scheduler_upsert_job access_requirements at creation. Prefer reviewed semantic-capability IDs',
     );
   });
+
+  it('adds the outcome contract to scheduled runs only', async () => {
+    const service = new PromptProfileService();
+    const scheduled = await service.compileSystemPrompt({
+      agentFolder: 'job-outcome',
+      runtimeContext: { job: { id: 'job-1', name: 'Daily digest' } },
+    });
+    const interactive = await service.compileSystemPrompt({
+      agentFolder: 'interactive-outcome',
+    });
+
+    expect(scheduled).toContain(
+      'Outcome: <one sentence stating what changed or was found, with counts and names>',
+    );
+    expect(interactive).not.toContain('Outcome: <one sentence');
+  });
 });

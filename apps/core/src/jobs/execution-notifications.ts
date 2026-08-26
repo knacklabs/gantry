@@ -15,6 +15,8 @@ import {
 import {
   boundJobNotificationView,
   formatRunStatusMessage,
+  jobOutcomeHeadline,
+  selectJobNotificationSummary,
   structuredJobResultFromRecordedActions,
   terminalRunNotificationStats,
 } from './status-formatting.js';
@@ -441,6 +443,12 @@ export async function notifySchedulerTerminalRunState(input: {
   const result = structuredJobResultFromRecordedActions(
     input.recordedActions ?? [],
   );
+  const headline = jobOutcomeHeadline(
+    selectJobNotificationSummary(input.summary),
+  );
+  const notificationResult = headline
+    ? { ...(result ?? { items: [] }), headline }
+    : result;
   const summaryMessage =
     compactMemoryDreamingTerminalMessage(input) ??
     formatRunStatusMessage({
@@ -460,6 +468,7 @@ export async function notifySchedulerTerminalRunState(input: {
         input.pauseReason,
       ),
       toolDenial: input.toolDenial,
+      headline,
       resultItems: result?.items,
     });
   const stats = terminalRunNotificationStats(input);
@@ -468,7 +477,7 @@ export async function notifySchedulerTerminalRunState(input: {
     jobName: input.job.name,
     ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
     ...(stats ? { stats } : {}),
-    ...(result ? { result } : {}),
+    ...(notificationResult ? { result: notificationResult } : {}),
     fallbackText: summaryMessage,
     ...(input.nextRun === null ? {} : { nextRunAt: input.nextRun }),
   });

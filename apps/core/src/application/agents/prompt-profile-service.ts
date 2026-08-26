@@ -390,7 +390,7 @@ function runtimeContextLines(options: CompilePromptProfileOptions): string[] {
           ? `"${context.job.name}"`
           : (context.job.id ?? 'this scheduled job');
     lines.push(
-      `- This run executes scheduled job ${label}. Job runs are quiet until terminal: deliver one final outcome report; do not send interim progress messages.`,
+      `- This run executes scheduled job ${label}. Job runs are quiet until terminal: deliver one final outcome report beginning \`Outcome: <one sentence stating what changed or was found, with counts and names>\` (say so if nothing changed), then details; do not send interim progress messages.`,
     );
   } else {
     lines.push(

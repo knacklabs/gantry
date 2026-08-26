@@ -159,6 +159,7 @@ export function formatRunStatusMessage(args: {
   diagnostics?: JobRunDiagnostics;
   degradedReason?: string;
   toolDenial?: JobToolDenial | null;
+  headline?: string;
   resultItems?: Array<{
     outcome: 'done' | 'skipped' | 'failed';
     label: string;
@@ -177,13 +178,22 @@ export function formatRunStatusMessage(args: {
     args.durationMs === undefined
       ? ''
       : ` · ${formatDuration(args.durationMs)}`;
-  const summary = notificationOutcome(displaySummary, args.runStatus, denial);
+  const headline = args.headline
+    ? truncateJobNotificationText(
+        args.headline,
+        JOB_NOTIFICATION_VIEW_LIMITS.headline,
+      )
+    : undefined;
+  const summary = headline
+    ? null
+    : notificationOutcome(displaySummary, args.runStatus, denial);
   const action = notificationAction(args.runStatus, displaySummary, denial);
   const stats = terminalRunStats(args);
   // Header+stats (<250) + 10 items x (50+70+5) + compacted summary (<=180 + receipt lines)
   // + next-run (<80) stays far below the 4096-character transport limit.
   const lines = [
     `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
+    ...(headline ? [headline] : []),
     ...(stats ? [stats] : []),
     ...(args.resultItems
       ?.slice(0, JOB_NOTIFICATION_VIEW_LIMITS.items)
@@ -200,7 +210,7 @@ export function formatRunStatusMessage(args: {
           : '';
         return `${JOB_RESULT_OUTCOME_MARKER[outcome]} ${boundedLabel}${boundedDetail ? ` — ${boundedDetail}` : ''}`;
       }) ?? []),
-    summary,
+    ...(summary ? [summary] : []),
   ];
   if (args.degradedReason) lines.push(`⚠️ Degraded: ${args.degradedReason}`);
   // A "Completed with issues" header must carry its blocker even when the
@@ -262,6 +272,20 @@ export function selectJobNotificationSummary(summary: string): string {
   const selected =
     markerIndex >= 0 ? normalized.slice(markerIndex) : normalized;
   return stripTrailingEmptyReceiptLines(selected).trim() || summary;
+}
+
+export function jobOutcomeHeadline(summary: string): string | undefined {
+  const [firstLine, secondLine] = selectJobNotificationSummary(summary)
+    .split('\n')
+    .map((line) => line.trim());
+  const outcomeLine =
+    /^(?:#+\s*)?(?:Final Job Report|Final Report|Scoring Summary|Score Summary)\s*$/i.test(
+      firstLine,
+    )
+      ? secondLine
+      : firstLine;
+  const match = outcomeLine?.match(/^Outcome:\s*(.*)$/i);
+  return match?.[1]?.trim() || undefined;
 }
 
 function statusLabel(

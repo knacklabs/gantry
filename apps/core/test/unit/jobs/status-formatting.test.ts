@@ -5,6 +5,7 @@ import {
   boundJobNotificationView,
   formatRunStatusMessage,
   JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH,
+  jobOutcomeHeadline,
   structuredJobResultFromRecordedActions,
 } from '@core/jobs/status-formatting.js';
 import { JOB_NOTIFICATION_VIEW_LIMITS } from '@core/jobs/job-notification-tool-rollup.js';
@@ -405,6 +406,20 @@ it('keeps wrapper-only failures when a shared invocation is deduplicated', () =>
 });
 
 describe('job status formatting', () => {
+  it('extracts only an outcome line from the selected terminal report', () => {
+    expect(
+      jobOutcomeHeadline(
+        'Checking existing leads.\n## Final Job Report\nOutcome: Added 2 leads (rows 2030-2031)\nDetails follow.',
+      ),
+    ).toBe('Added 2 leads (rows 2030-2031)');
+    expect(
+      jobOutcomeHeadline('## Final Job Report\nAdded 2 leads.'),
+    ).toBeUndefined();
+    expect(
+      jobOutcomeHeadline('  outcome:   No changes found.  \nDetails follow.'),
+    ).toBe('No changes found.');
+  });
+
   it('bounds structured notification views before provider rendering', () => {
     const longText = (prefix: string) =>
       `${prefix} ${'descriptive words '.repeat(100)}`;
@@ -698,6 +713,39 @@ describe('job status formatting', () => {
       'Imported 3 records.',
       expect.stringMatching(/^Runs again at /),
     ]);
+  });
+
+  it('places an outcome headline after the header instead of the compacted summary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary:
+        '## Final Job Report\nOutcome: Added 2 leads.\nDetails that must not repeat.',
+      headline: 'Added 2 leads.',
+      nextRun: null,
+      retryCount: 0,
+      durationMs: 34_000,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 2,
+        browserActivityCount: 1,
+        transientPermissionApprovals: [],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+        lastTool: 'browser_act',
+      },
+    });
+
+    expect(message.split('\n')).toEqual([
+      `**✅ Completed** · ${job().name} · 34s`,
+      'Added 2 leads.',
+      '34s, 2 tools, browser used, last browser_act',
+    ]);
+    expect(message).not.toContain('Details that must not repeat.');
   });
 
   it('bounds terminal result item labels and details for provider delivery', () => {
