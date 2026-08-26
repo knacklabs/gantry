@@ -1,7 +1,7 @@
 ---
 slug: agents-web-ui
 title: Agents Web UI
-status: draft
+status: confirmed
 saved: 2026-08-26T15:41:45+00:00
 ---
 

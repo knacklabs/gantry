@@ -5,37 +5,50 @@
   "gaps": [],
   "contradictions": [],
   "resolutions": [
-    "The approved contract keeps the mark decorative beside existing live wordmarks and limits the asset pack to the favicon and one touch icon.",
-    "The canonical mark is a transparent vector; the browser icon tiles are the only dark-background variants."
+    "The capability spec now states the factory-required why, behaviour, and testable acceptance criteria while retaining the approved detailed design.",
+    "The design keeps MCP and skill sources separate from durable semantic-capability authority.",
+    "The Web surface uses same-origin session facades and does not expose Control API Bearer credentials.",
+    "The first release has no hard agent delete or configuration-version restore."
   ],
   "inspected_refs": [
-    "docs/specs/web-brand-1.md",
-    "apps/web/src/features/auth/auth-card.tsx",
-    "apps/web/src/app/app-navigation.tsx",
-    "apps/web/index.html"
+    "docs/specs/agents-web-ui.md",
+    "docs/product/BRIEF.md",
+    "docs/decisions/0003-early-stage-no-backcompat.md",
+    "docs/decisions/0020-mcp-source-vs-action-capability.md",
+    "docs/decisions/0021-capability-artifacts.md",
+    "docs/decisions/0050-agent-removal-projection-cleanup.md",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md",
+    "docs/architecture/capability-management.md"
   ],
-  "current_flow": "Auth identity is shared by AuthCard, while the authenticated shell owns the sidebar lockup and index.html owns browser identity links.",
+  "current_flow": "Current main has fixture-backed Agents routes, unpaginated Control API agent listing, versioned profile files, source/capability replacement, and no browser management facade or custom-role domain.",
   "criteria_map": {
-    "Auth and sidebar use the canonical accessible visual mark without legacy G badges.": "A shared masked GantryMark replaces both literal badges.",
-    "The built console serves the canonical mark, favicon, and 180px touch icon under /ui/.": "Vite public assets and an asset-focused test prove paths and dimensions."
+    "Truthful directory and role library": "Adds server-owned browser projections and paginated contracts rather than extending fixture data.",
+    "Separated agent setup": "Creates the base agent before independently saved source and capability revisions.",
+    "Authority boundary": "Reuses the existing source versus semantic-capability lifecycle; raw MCP tools are never stored as authority.",
+    "Secure browser operation": "Browser routes use session authentication, administrator mutation authorization, Origin and CSRF checks, and sanitized DTOs.",
+    "Accessible functional UI": "Every visible control maps to a route, observable view state, or browser-facade operation with tested states."
   },
   "decision": "keep",
   "new_abstractions": [
-    "One internal GantryMark presentation component"
+    "One app-scoped custom-role template domain/application contract is required; no parallel agent-access or browser-auth model is introduced."
   ],
   "rounds": [],
   "citations": [
     {
-      "finding": "Existing live text provides the accessible name, so the mark must remain decorative.",
-      "source": "apps/web/src/features/auth/auth-card.tsx"
+      "finding": "MCP source attachment cannot imply action authority.",
+      "source": "docs/decisions/0020-mcp-source-vs-action-capability.md"
     },
     {
-      "finding": "The web build is rooted beneath /ui/, so public browser assets must use that deployed base.",
-      "source": "apps/web/vite.config.ts"
+      "finding": "Removing an agent is disable-and-preserve, not hard delete.",
+      "source": "docs/decisions/0050-agent-removal-projection-cleanup.md"
+    },
+    {
+      "finding": "Browser sessions and bearer Control API credentials are separate trust paths.",
+      "source": "docs/decisions/0132-adaptive-browser-authentication-access.md"
     }
   ],
   "open_items": [],
-  "input_sha256": "2dce67a8e3902d1bd58a9a4ddc1a6766d2712a9f593908b2f8656e9ae47c6042",
-  "recorded_at": "2026-08-25T18:09:52+00:00",
-  "commit": "082326001faf7665c6cbf2462082a12b17a9c27d"
+  "input_sha256": "09510b836e6604fcf5bb90fd30f07d6215c505611583db9c0fe2f08055c49508",
+  "recorded_at": "2026-08-26T15:43:04+00:00",
+  "commit": "fbf3c6b3bb763ab47cd6ac3db28aa3f34837625c"
 }
