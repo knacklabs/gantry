@@ -22,6 +22,7 @@ import {
   agentQueryKeys,
   type AgentDirectoryItem,
 } from '../agents-queries';
+import { AgentSetupManager } from '../components/agent-setup-manager';
 
 export function AgentDetailRoute() {
   const { agentId } = useParams({ from: '/agents/$agentId' });
@@ -143,9 +144,19 @@ function Content({
     );
   if (tab === 'access')
     return (
-      <div className="p-5 text-sm text-text-secondary">
-        Sources are inventory; selected capabilities are configured separately.
-        This agent has {agent.conversationCount} connected conversations.
+      <div className="grid divide-y divide-border">
+        <section>
+          <div className="px-5 pt-5">
+            <h3 className="text-sm font-semibold">Sources</h3>
+          </div>
+          <AgentSetupManager agentId={agent.id} kind="sources" />
+        </section>
+        <section>
+          <div className="px-5 pt-5">
+            <h3 className="text-sm font-semibold">Capabilities</h3>
+          </div>
+          <AgentSetupManager agentId={agent.id} kind="capabilities" />
+        </section>
       </div>
     );
   if (tab === 'settings')

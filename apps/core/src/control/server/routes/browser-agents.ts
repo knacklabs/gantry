@@ -17,6 +17,7 @@ import type {
 import type { AppId } from '../../../domain/app/app.js';
 import { nowIso } from '../../../shared/time/datetime.js';
 import { AGENT_PERSONAS } from '../../../shared/agent-persona.js';
+import { semanticCapabilityFromToolCatalogItem } from '../../../shared/semantic-capabilities.js';
 import { isCanonicalBrowserOrigin } from '../browser-auth-boundary.js';
 import { browserRoleAllowsScope } from '../browser-scope-policy.js';
 import type { ControlRouteContext } from '../handler-context.js';
@@ -162,6 +163,34 @@ function capabilityService(storage: ReturnType<typeof getRuntimeStorage>) {
   });
 }
 
+function browserCapabilityCatalog(
+  catalog: Awaited<
+    ReturnType<AgentCapabilityAdministrationService['listCatalog']>
+  >,
+) {
+  return {
+    skills: catalog.skills,
+    mcpServers: catalog.mcpServers,
+    capabilities: catalog.tools.flatMap((tool) => {
+      const capability = semanticCapabilityFromToolCatalogItem({
+        name: tool.name,
+        inputSchema: tool.inputSchema,
+      });
+      return capability
+        ? [
+            {
+              id: capability.capabilityId,
+              version: capability.version,
+              label: tool.displayName,
+              description: tool.description,
+              risk: tool.risk,
+            },
+          ]
+        : [];
+    }),
+  };
+}
+
 export async function handleBrowserAgentRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -254,7 +283,13 @@ export async function handleBrowserAgentRoutes(
         capabilityService(storage).getSources({ appId, agentId }),
         capabilityService(storage).listCatalog(appId),
       ]);
-      sendJson(res, 200, { sources, catalog });
+      sendJson(res, 200, {
+        sources,
+        catalog: {
+          skills: catalog.skills,
+          mcpServers: catalog.mcpServers,
+        },
+      });
       return true;
     }
     const capabilitiesMatch = pathname.match(AGENT_CAPABILITIES_PATH);
@@ -267,7 +302,10 @@ export async function handleBrowserAgentRoutes(
         capabilityService(storage).getCapabilities({ appId, agentId }),
         capabilityService(storage).listCatalog(appId),
       ]);
-      sendJson(res, 200, { capabilities, catalog });
+      sendJson(res, 200, {
+        capabilities,
+        catalog: browserCapabilityCatalog(catalog),
+      });
       return true;
     }
     const roleMatch = pathname.match(ROLE_PATH);
@@ -388,7 +426,10 @@ export async function handleBrowserAgentRoutes(
     if (sourcesMatch && req.method === 'PUT') {
       const body = await readJson(req);
       if (!object(body) || !object(body.sources))
-        return (sendError(res, 400, 'INVALID_REQUEST', 'Sources are required.'), true);
+        return (
+          sendError(res, 400, 'INVALID_REQUEST', 'Sources are required.'),
+          true
+        );
       const agentId = decodeURIComponent(sourcesMatch[1]) as AgentId;
       const sources = await capabilityService(storage).replaceSources({
         appId,
@@ -409,11 +450,16 @@ export async function handleBrowserAgentRoutes(
           sendError(res, 400, 'INVALID_REQUEST', 'Capabilities are required.'),
           true
         );
-      const capabilities = await capabilityService(storage).replaceCapabilities({
-        appId,
-        agentId: decodeURIComponent(capabilitiesMatch[1]) as AgentId,
-        capabilities: body.capabilities as Array<{ id: string; version: string }>,
-      });
+      const capabilities = await capabilityService(storage).replaceCapabilities(
+        {
+          appId,
+          agentId: decodeURIComponent(capabilitiesMatch[1]) as AgentId,
+          capabilities: body.capabilities as Array<{
+            id: string;
+            version: string;
+          }>,
+        },
+      );
       await ctx.syncSettingsFromProjection(appId);
       sendJson(res, 200, { capabilities });
       return true;

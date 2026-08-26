@@ -62,6 +62,76 @@ export type BrowserRole = {
   updatedAt?: string;
 };
 
+export type AgentSource = {
+  skills: Array<{ id: string; name?: string }>;
+  mcpServers: Array<{ id: string; tools?: string[] }>;
+  tools: Array<{ id: string; kind: string; version?: string }>;
+};
+
+export type CapabilityCatalog = {
+  capabilities?: Array<{
+    id: string;
+    version: string;
+    label: string;
+    description?: string;
+    risk: 'low' | 'medium' | 'high';
+  }>;
+  skills?: Array<{ id: string; name: string; description?: string }>;
+  mcpServers?: Array<{
+    id: string;
+    name: string;
+    displayName?: string;
+    description?: string;
+  }>;
+};
+
+export type AgentCapabilities = {
+  sources: AgentSource;
+  capabilities: Array<{ id: string; version: string }>;
+  summary: { capabilities: number; [key: string]: unknown };
+};
+
+export function agentSourcesQuery(agentId: string) {
+  return queryOptions({
+    queryKey: [...agentQueryKeys.all, 'sources', agentId] as const,
+    queryFn: async (): Promise<{
+      sources: { sources: AgentSource };
+      catalog: CapabilityCatalog;
+    }> => {
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}/sources`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok) throw new Error('Agent sources could not be loaded.');
+      return response.json() as Promise<{
+        sources: { sources: AgentSource };
+        catalog: CapabilityCatalog;
+      }>;
+    },
+  });
+}
+
+export function agentCapabilitiesQuery(agentId: string) {
+  return queryOptions({
+    queryKey: [...agentQueryKeys.all, 'capabilities', agentId] as const,
+    queryFn: async (): Promise<{
+      capabilities: AgentCapabilities;
+      catalog: CapabilityCatalog;
+    }> => {
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}/capabilities`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok)
+        throw new Error('Agent capabilities could not be loaded.');
+      return response.json() as Promise<{
+        capabilities: AgentCapabilities;
+        catalog: CapabilityCatalog;
+      }>;
+    },
+  });
+}
+
 export function agentDirectoryQuery(input: {
   page: number;
   pageSize: number;
