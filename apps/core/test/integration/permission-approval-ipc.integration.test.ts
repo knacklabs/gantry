@@ -62,7 +62,7 @@ afterEach(async () => {
 });
 
 describe('permission approval IPC boundary', () => {
-  it('emits a host permission request before denying unattended jobs without waiting', async () => {
+  it('lets an unattended job receive a signed reviewed host decision', async () => {
     vi.stubEnv('GANTRY_PERMISSION_LANE', 'autonomous');
 
     const tempRoot = makeTempRoot();
@@ -78,11 +78,18 @@ describe('permission approval IPC boundary', () => {
     vi.stubEnv('GANTRY_IPC_INPUT_DIR', path.join(groupIpcDir, 'input'));
 
     vi.resetModules();
-    const { createIpcAuthEnvelope } = await import('@core/runtime/ipc-auth.js');
+    const { createIpcAuthEnvelope, getIpcResponseSigningPrivateKey } =
+      await import('@core/runtime/ipc-auth.js');
     const envelope = createIpcAuthEnvelope(workspaceFolder, undefined, {
       appId: 'app:team',
       agentId: 'agent:team-main',
     });
+    const responseSigningKey = getIpcResponseSigningPrivateKey(
+      workspaceFolder,
+      undefined,
+      envelope.responseKeyId,
+    );
+    expect(responseSigningKey).toBeTruthy();
     vi.stubEnv('GANTRY_IPC_AUTH_TOKEN', envelope.authToken);
     vi.stubEnv('GANTRY_IPC_RESPONSE_VERIFY_KEY', envelope.responseVerifyKey);
     vi.stubEnv('GANTRY_IPC_RESPONSE_KEY_ID', envelope.responseKeyId);
@@ -94,32 +101,28 @@ describe('permission approval IPC boundary', () => {
       await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
     const { parsePermissionIpcRequest } =
       await import('@core/runtime/ipc-parsing.js');
+    const { writePermissionIpcResponse } =
+      await import('@core/runtime/ipc-interaction-handler.js');
 
-    await expect(
-      requestPermissionApproval({
-        appId: 'app:team',
-        agentId: 'agent:team-main',
-        workspaceFolder: workspaceFolder,
-        toolName: 'Bash',
-        closestRule: {
-          rule: 'RunCommand(/Users/example/bin/post-lead *)',
-          reason: 'Closest scoped command rule',
-        },
-      }),
-    ).resolves.toEqual({
-      approved: false,
-      decidedBy: 'runtime',
-      reason:
-        'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
-      decisionClassification: 'user_reject',
+    const pendingDecision = requestPermissionApproval({
+      appId: 'app:team',
+      agentId: 'agent:team-main',
+      workspaceFolder: workspaceFolder,
+      toolName: 'Bash',
+      closestRule: {
+        rule: 'RunCommand(/Users/example/bin/post-lead *)',
+        reason: 'Closest scoped command rule',
+      },
     });
 
     const pendingRequest = await waitForPermissionRequest(
       permissionRequestsDir,
     );
-    expect(
-      parsePermissionIpcRequest(pendingRequest.raw, workspaceFolder),
-    ).toMatchObject({
+    const parsedRequest = parsePermissionIpcRequest(
+      pendingRequest.raw,
+      workspaceFolder,
+    );
+    expect(parsedRequest).toMatchObject({
       appId: 'app:team',
       agentId: 'agent:team-main',
       sourceAgentFolder: workspaceFolder,
@@ -128,6 +131,27 @@ describe('permission approval IPC boundary', () => {
         rule: 'RunCommand(/Users/example/bin/post-lead *)',
         reason: 'Closest scoped command rule',
       },
+    });
+
+    writePermissionIpcResponse(
+      path.join(tempRoot, 'ipc'),
+      workspaceFolder,
+      {
+        requestId: pendingRequest.requestId,
+        responseNonce: parsedRequest.responseNonce,
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'reviewed_rule',
+        source: 'reviewed_rule',
+        reason: 'Matched selected autonomous policy',
+      },
+      responseSigningKey,
+    );
+
+    await expect(pendingDecision).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'reviewed_rule',
     });
   });
 

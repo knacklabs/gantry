@@ -1,4 +1,7 @@
 import dns from 'node:dns/promises';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,12 +24,16 @@ vi.mock(
 
 const { createCanUseToolCallback } =
   await import('@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js');
+const { attributedSkillActionRules } =
+  await import('@core/adapters/llm/anthropic-claude-agent/runner/protected-capability-hook.js');
 const { WORKSPACE_FOLDER_OPTION_KEY } =
   await import('@core/adapters/llm/anthropic-claude-agent/runner/types.js');
 const { evaluatePermissionDeterministicRails } =
   await import('@core/domain/permission-deterministic-rails.js');
 const { stripShellCommandEnvPrefix } =
   await import('@core/runtime/ipc-shell-command-prefix.js');
+const { appendLiveToolRules } = await import('@core/shared/live-tool-rules.js');
+const GANTRY_SKILL_ACTIONS_ENV = 'GANTRY_SKILL_ACTIONS_JSON';
 
 function makePermissionOptions(overrides: Record<string, unknown> = {}) {
   return {
@@ -129,6 +136,9 @@ describe('tool permission gate', () => {
   });
 
   afterEach(() => {
+    delete process.env.GANTRY_IPC_DIR;
+    delete process.env.GANTRY_AGENT_RUN_HANDLE;
+    delete process.env[GANTRY_SKILL_ACTIONS_ENV];
     vi.restoreAllMocks();
   });
 
@@ -941,6 +951,390 @@ describe('tool permission gate', () => {
       }),
     );
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a host-selected scheduled skill action at its generated runtime path', async () => {
+    const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-action-ipc-'));
+    const runHandle = 'browser-source-sync-run';
+    const concreteRule =
+      'RunCommand(skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync)';
+    process.env.GANTRY_IPC_DIR = ipcDir;
+    process.env.GANTRY_AGENT_RUN_HANDLE = runHandle;
+    appendLiveToolRules({ ipcDir, runHandle, rules: [concreteRule] });
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.browser-source-sync.portal-a',
+        displayName: 'Synchronize Portal A records',
+        category: 'Browser_Source_Sync',
+        risk: 'write',
+        can: 'run the reviewed Portal A sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-browser-source',
+          skillName: 'Browser_Source_Sync',
+          actionId: 'sync_portal-a',
+        },
+      },
+    ]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:browser-source-sync',
+        runId: 'run-browser-source-sync',
+        jobId: 'job-browser-source-sync',
+        chatJid: 'app:default:browser-source-sync-dev',
+        allowedTools: [concreteRule],
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    try {
+      await expect(
+        canUseTool(
+          'Bash',
+          {
+            command:
+              '/srv/reagent/home/agents/browser-source-sync/.llm-runtime/claude/skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync',
+          },
+          makePermissionOptions() as never,
+        ),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          behavior: 'allow',
+          updatedInput: expect.objectContaining({
+            command: expect.stringContaining('portal-a-worker.mjs sync'),
+          }),
+        }),
+      );
+      expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(ipcDir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows a scheduled action selected by reviewed semantic alias without a transient live rule', async () => {
+    const concreteRule =
+      'RunCommand(skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync)';
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.browser-source-sync.portal-a',
+        displayName: 'Synchronize Portal A records',
+        category: 'Browser_Source_Sync',
+        risk: 'write',
+        can: 'run the reviewed Portal A sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-browser-source',
+          skillName: 'Browser_Source_Sync',
+          actionId: 'sync_portal-a',
+        },
+      },
+    ]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:browser-source-sync',
+        runId: 'run-browser-source-sync',
+        jobId: 'job-browser-source-sync',
+        chatJid: 'app:default:browser-source-sync-dev',
+        allowedTools: ['capability:skill.browser-source-sync.portal-a'],
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'Bash',
+        {
+          command:
+            '/srv/reagent/home/agents/browser-source-sync/.llm-runtime/claude/skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync',
+        },
+        makePermissionOptions() as never,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        behavior: 'allow',
+        updatedInput: expect.objectContaining({
+          command: expect.stringContaining('portal-a-worker.mjs sync'),
+        }),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it('canonicalizes a redundant stderr merge on a reviewed scheduled skill action', async () => {
+    const concreteRule =
+      'RunCommand(skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync)';
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.browser-source-sync.portal-a',
+        displayName: 'Synchronize Portal A records',
+        category: 'Browser_Source_Sync',
+        risk: 'write',
+        can: 'run the reviewed Portal A sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-browser-source',
+          skillName: 'Browser_Source_Sync',
+          actionId: 'sync_portal-a',
+        },
+      },
+    ]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:browser-source-sync',
+        runId: 'run-browser-source-sync',
+        jobId: 'job-browser-source-sync',
+        chatJid: 'app:default:browser-source-sync-dev',
+        allowedTools: ['capability:skill.browser-source-sync.portal-a'],
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    const result = await canUseTool(
+      'Bash',
+      {
+        command:
+          '/srv/reagent/home/agents/browser-source-sync/.llm-runtime/claude/skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync 2>&1',
+      },
+      makePermissionOptions() as never,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        behavior: 'allow',
+        updatedInput: expect.objectContaining({
+          command: expect.stringMatching(/portal-a-worker\.mjs sync$/),
+        }),
+      }),
+    );
+    expect(
+      permissionMock.requestPermissionApproval.mock.calls[0]?.[0]?.toolInput
+        ?.command,
+    ).toMatch(/portal-a-worker\.mjs sync$/);
+    expect(
+      permissionMock.requestPermissionApproval.mock.calls[0]?.[0]?.toolInput
+        ?.command,
+    ).not.toContain('2>&1');
+  });
+
+  it('allows the live runner shape with a selected definition and expanded concrete rule', async () => {
+    const concreteRule =
+      'RunCommand(skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync)';
+    const capability = {
+      capabilityId: 'skill.browser-source-sync.portal-a',
+      displayName: 'Synchronize Portal A records',
+      category: 'Browser_Source_Sync',
+      risk: 'write',
+      can: 'run the reviewed Portal A sync worker',
+      cannot: 'run other commands',
+      credentialSource: 'skill_secret',
+      implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+      preflight: { kind: 'none' },
+      sandboxProfile: {
+        network: 'required',
+        filesystem: 'workspace_write',
+      },
+      source: {
+        kind: 'skill_action',
+        skillId: 'skill-browser-source',
+        skillName: 'Browser_Source_Sync',
+        actionId: 'sync_portal-a',
+      },
+    };
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([capability]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:browser-source-sync',
+        runId: 'run-browser-source-sync',
+        jobId: 'job-browser-source-sync',
+        chatJid: 'app:default:browser-source-sync-dev',
+        allowedTools: [concreteRule],
+        semanticCapabilities: [capability],
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'Bash',
+        {
+          command:
+            '/srv/reagent/home/agents/browser-source-sync/.llm-runtime/claude/skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync',
+        },
+        makePermissionOptions() as never,
+      ),
+    ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
+  });
+
+  it('does not trust a reviewed action whose concrete rule is not configured', async () => {
+    const concreteRule =
+      'RunCommand(skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync)';
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.browser-source-sync.portal-a',
+        displayName: 'Synchronize Portal A records',
+        category: 'Browser_Source_Sync',
+        risk: 'write',
+        can: 'run the reviewed Portal A sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-browser-source',
+          skillName: 'Browser_Source_Sync',
+          actionId: 'sync_portal-a',
+        },
+      },
+    ]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:browser-source-sync',
+        runId: 'run-browser-source-sync',
+        jobId: 'job-browser-source-sync',
+        chatJid: 'app:default:browser-source-sync-dev',
+        allowedTools: [],
+        semanticCapabilities: [],
+        hideAuthorityTools: true,
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'Bash',
+        {
+          command:
+            '/srv/reagent/home/agents/browser-source-sync/.llm-runtime/claude/skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync',
+        },
+        makePermissionOptions() as never,
+      ),
+    ).resolves.toEqual(expect.objectContaining({ behavior: 'deny' }));
+  });
+
+  it('does not authorize an unselected reviewed skill action', async () => {
+    const concreteRule =
+      'RunCommand(skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync)';
+    process.env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify([
+      {
+        capabilityId: 'skill.browser-source-sync.portal-a',
+        displayName: 'Synchronize Portal A records',
+        category: 'Browser_Source_Sync',
+        risk: 'write',
+        can: 'run the reviewed Portal A sync worker',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [{ kind: 'tool_rule', rule: concreteRule }],
+        preflight: { kind: 'none' },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-browser-source',
+          skillName: 'Browser_Source_Sync',
+          actionId: 'sync_portal-a',
+        },
+      },
+    ]);
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:browser-source-sync',
+        runId: 'run-browser-source-sync',
+        jobId: 'job-browser-source-sync',
+        chatJid: 'app:default:browser-source-sync-dev',
+        allowedTools: ['capability:skill.browser-source-sync.portal-b'],
+        hideAuthorityTools: true,
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'Bash',
+        {
+          command:
+            '/srv/reagent/home/agents/browser-source-sync/.llm-runtime/claude/skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync',
+        },
+        makePermissionOptions() as never,
+      ),
+    ).resolves.toEqual(expect.objectContaining({ behavior: 'deny' }));
+  });
+
+  it('does not let a skill definition add commands missing from host live rules', () => {
+    const portalARule =
+      'RunCommand(skills/Browser_Source_Sync/scripts/portal-a-worker.mjs sync)';
+    const portalBRule =
+      'RunCommand(skills/Browser_Source_Sync/scripts/portal-b-worker.mjs sync)';
+    const capabilities = [
+      {
+        capabilityId: 'skill.browser-source-sync.combined',
+        displayName: 'Synchronize sources',
+        category: 'Browser_Source_Sync',
+        risk: 'write',
+        can: 'run both reviewed source workers',
+        cannot: 'run other commands',
+        credentialSource: 'skill_secret',
+        implementationBindings: [
+          { kind: 'tool_rule', rule: portalARule },
+          { kind: 'tool_rule', rule: portalBRule },
+        ],
+        preflight: { kind: 'none' },
+        sandboxProfile: {
+          network: 'required',
+          filesystem: 'workspace_write',
+        },
+        source: {
+          kind: 'skill_action',
+          skillId: 'skill-browser-source',
+          skillName: 'Browser_Source_Sync',
+          actionId: 'sync_sources',
+        },
+      },
+    ] as never;
+
+    expect(attributedSkillActionRules([portalARule], capabilities)).toEqual([
+      portalARule,
+    ]);
   });
 
   it('offers persistent access in autonomous job prompts with suggestions', async () => {

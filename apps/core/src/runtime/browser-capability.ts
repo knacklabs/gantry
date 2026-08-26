@@ -3,7 +3,7 @@ import { ChildProcess, spawn } from 'child_process';
 import { createServer } from 'net';
 
 import { logger } from '../infrastructure/logging/logger.js';
-import { DEFAULT_CHROME_ARGS } from './browser-config.js';
+import { buildChromeLaunchArgs } from './browser-config.js';
 import { resolveChromeExecutablePath } from '../shared/chrome-executable.js';
 import { ensureBrowserTarget } from './browser-cdp-targets.js';
 import type {
@@ -473,11 +473,13 @@ async function launchBrowserInner(
     cleanupChromeSingletonArtifacts(profile.userDataDir);
     const debuggingPort = await reserveLoopbackPort();
     assertProfileLockValid(lock);
-    const chromeFlags = [
-      ...DEFAULT_CHROME_ARGS,
-      `--user-data-dir=${profile.userDataDir}`,
-      `--remote-debugging-port=${debuggingPort}`,
-    ];
+    // The ECS runtime runs as root. Use the shared launch-argument builder so
+    // Chromium receives --no-sandbox in that case; without it Chrome exits
+    // immediately and leaves the visible noVNC desktop black.
+    const chromeFlags = buildChromeLaunchArgs({
+      userDataDir: profile.userDataDir,
+      port: debuggingPort,
+    });
 
     chromeProcess = spawn(findChrome(), chromeFlags, {
       detached: true,

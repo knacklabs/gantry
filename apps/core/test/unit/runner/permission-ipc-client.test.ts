@@ -221,36 +221,34 @@ describe('requestPermissionApprovalViaIpc', () => {
     });
   });
 
-  it('does not wait for approval in the autonomous lane at the no-timeout sentinel', async () => {
-    const result = await requestPermissionApprovalViaIpc(
+  it('waits for a bounded reviewed host decision in autonomous ask mode', async () => {
+    const keys = createIpcResponseSigningKeyPair();
+    const decision = requestPermissionApprovalViaIpc(
       runtimeEnv({
         jobId: 'job-1',
         jobRunId: 'run-1',
         permissionLane: 'autonomous',
         permissionRequestTimeoutMs: 0,
         permissionMode: 'ask',
+        ipcResponseVerifyKey: keys.publicKeyPem,
       }),
       {
         agentFolder: 'main_agent',
         toolName: 'mcp__notion__search',
       },
     );
-    expect(result.approved).toBe(false);
-    expect(result.decisionClassification).toBe('user_reject');
-    expect(result.reason).toContain('Unattended jobs do not wait for approval');
-    // The request file is still written so the host records the durable row and
-    // surfaces the capability blocker.
     const requestDir = path.join(
       tempDir,
       'ipc',
       'main_agent',
       'permission-requests',
     );
-    const files = await waitForFiles(requestDir, 1);
-    expect(files).toHaveLength(1);
+    const [requestFile] = await waitForFiles(requestDir, 1);
     const request = JSON.parse(
-      fs.readFileSync(path.join(requestDir, files[0]), 'utf-8'),
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
     ) as {
+      requestId: string;
+      responseNonce: string;
       jobId?: string;
       runId?: string;
       expiresAt?: string;
@@ -264,6 +262,38 @@ describe('requestPermissionApprovalViaIpc', () => {
     expect(request.unattended).toBe(true);
     expect(request.expiresAt).toBeUndefined();
     expect(request.authExpiresAt).toEqual(expect.any(String));
+
+    const responsePayload = {
+      requestId: request.requestId,
+      responseNonce: request.responseNonce,
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'reviewed_rule',
+      source: 'reviewed_rule',
+      repeatableForFutureRuns: false,
+      reason: 'matched the selected job tool policy',
+      decisionClassification: 'policy_allow',
+    };
+    const responseDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({
+        ...responsePayload,
+        signature: signIpcResponsePayload(keys.privateKeyPem, responsePayload),
+      }),
+    );
+
+    await expect(decision).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'reviewed_rule',
+    });
   });
 
   it('marks a finite-timeout autonomous request unattended from its lane', async () => {

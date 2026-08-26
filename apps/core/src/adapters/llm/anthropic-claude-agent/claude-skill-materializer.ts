@@ -229,9 +229,66 @@ export async function materializeClaudeSkills(input: {
     } else {
       continue;
     }
+    linkRuntimeNodeModules(targetDir);
+    makeReviewedActionEntrypointsExecutable({
+      targetDir,
+      targetName,
+      actionPermissions: skill.actionPermissions ?? [],
+    });
     materialized.push({ ...skill, materializedName: targetName });
   }
   return materialized;
+}
+
+/**
+ * Skill action files are materialized into an isolated directory.  When a
+ * skill ships a package.json, Node's ESM resolver starts at that directory and
+ * cannot see Gantry's application dependencies, even though those packages
+ * are already installed in the runtime image.  Link the runtime dependency
+ * tree only for package-backed skills; this keeps the artifact immutable while
+ * allowing reviewed skill entrypoints to use the dependencies declared by the
+ * skill (for example @aws-sdk/client-s3 and playwright-core).
+ */
+function linkRuntimeNodeModules(targetDir: string): void {
+  const packageJson = path.join(targetDir, 'package.json');
+  if (!fs.existsSync(packageJson)) return;
+  const runtimeNodeModules =
+    process.env.GANTRY_SKILL_NODE_MODULES_DIR?.trim() ||
+    path.join(process.cwd(), 'node_modules');
+  if (!fs.existsSync(runtimeNodeModules)) return;
+  const target = path.join(targetDir, 'node_modules');
+  if (
+    fs.existsSync(target) ||
+    fs.lstatSync(target, { throwIfNoEntry: false })
+  ) {
+    return;
+  }
+  fs.symlinkSync(runtimeNodeModules, target, 'dir');
+}
+
+function makeReviewedActionEntrypointsExecutable(input: {
+  targetDir: string;
+  targetName: string;
+  actionPermissions: readonly SkillActionPermission[];
+}): void {
+  const materializedPrefix = `skills/${input.targetName}/`;
+  const root = path.resolve(input.targetDir);
+  for (const action of input.actionPermissions) {
+    for (const template of action.commandTemplates) {
+      const commandPath = template
+        .trim()
+        .split(/\s+/, 1)[0]
+        ?.replace(/^\.\//, '');
+      if (!commandPath?.startsWith(materializedPrefix)) continue;
+      const relativePath = normalizeSkillAssetPath(
+        commandPath.slice(materializedPrefix.length),
+      );
+      const entrypoint = path.resolve(root, relativePath);
+      if (!entrypoint.startsWith(`${root}${path.sep}`)) continue;
+      const stat = fs.statSync(entrypoint, { throwIfNoEntry: false });
+      if (stat?.isFile()) fs.chmodSync(entrypoint, 0o700);
+    }
+  }
 }
 
 function isValidAssetSkill(

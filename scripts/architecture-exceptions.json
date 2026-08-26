@@ -1642,5 +1642,12 @@
     "remove_by": "2026-08-28",
     "kind": "dual_read",
     "maxViolations": 4
+  },
+  {
+    "file": "apps/core/src/jobs/deterministic-source-sync.ts",
+    "rule": "provider_specific_path",
+    "reason": "The provider-neutral deterministic browser lane resolves the installed sandbox runtime package only to locate its shared dependency tree; execution remains behind the scheduler sandbox port.",
+    "removeByPhase": "sandbox-runtime-dependency-root-port",
+    "maxViolations": 1
   }
 ]

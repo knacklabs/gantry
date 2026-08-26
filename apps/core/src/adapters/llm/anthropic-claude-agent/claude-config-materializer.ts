@@ -69,7 +69,14 @@ export async function materializeClaudeRuntime(
   const cleanupBaseDir = Boolean(input.baseTempDir);
   const baseTempDir = input.baseTempDir ?? createDefaultBaseDir(input.groupDir);
   const claudeConfigDir = path.join(baseTempDir, 'claude');
-  const skillsDir = path.join(claudeConfigDir, 'skills');
+  // Reviewed action templates intentionally use the provider-neutral
+  // `skills/<name>/...` command path. Materialize that executable projection
+  // at the workspace root, then mirror it into Claude's private discovery
+  // directory. Both trees are write-protected by the outer sandbox. A symlink
+  // cannot be used here because Bubblewrap deliberately masks writable-path
+  // symlinks and cannot mount that protection over this nested runtime path.
+  const skillsDir = path.join(input.groupDir, 'skills');
+  const claudeSkillsDir = path.join(claudeConfigDir, 'skills');
   const projectDir = path.join(
     claudeConfigDir,
     'projects',
@@ -81,6 +88,7 @@ export async function materializeClaudeRuntime(
   try {
     fs.mkdirSync(projectDir, { recursive: true, mode: 0o700 });
     fs.rmSync(skillsDir, { recursive: true, force: true });
+    fs.rmSync(claudeSkillsDir, { recursive: true, force: true });
     fs.writeFileSync(
       claudeSettingsPath,
       stringifyClaudeSettings(
@@ -97,6 +105,11 @@ export async function materializeClaudeRuntime(
       skillsDir,
       enabledSkillIds: input.enabledSkillIds,
     });
+    fs.cpSync(skillsDir, claudeSkillsDir, {
+      recursive: true,
+      dereference: true,
+      preserveTimestamps: true,
+    });
   } catch (err) {
     if (cleanupBaseDir) {
       fs.rmSync(baseTempDir, { recursive: true, force: true });
@@ -107,7 +120,7 @@ export async function materializeClaudeRuntime(
   const protectedFilesystemDenyReadPaths = resolveProtectedFilesystemPaths([
     claudeSettingsPath,
     input.runtimeSettingsPath,
-    ...workspaceProtectedPaths(input.groupDir),
+    ...workspaceProtectedPaths(input.groupDir, { includeSkills: false }),
     ...(input.globalDir ? workspaceProtectedPaths(input.globalDir) : []),
     path.join(input.packageRoot, '.codex', 'skills'),
     path.join(input.packageRoot, '.agents', 'skills'),
@@ -147,7 +160,10 @@ function createDefaultBaseDir(groupDir: string): string {
   return runtimeDir;
 }
 
-function workspaceProtectedPaths(root: string): string[] {
+function workspaceProtectedPaths(
+  root: string,
+  options: { includeSkills?: boolean } = {},
+): string[] {
   const providerDir = ['.clau', 'de'].join('');
   return [
     path.join(root, '.mcp.json'),
@@ -156,7 +172,7 @@ function workspaceProtectedPaths(root: string): string[] {
     path.join(root, providerDir, 'settings.local.json'),
     path.join(root, providerDir, 'mcp'),
     path.join(root, providerDir, 'skills'),
-    path.join(root, 'skills'),
+    ...(options.includeSkills === false ? [] : [path.join(root, 'skills')]),
   ];
 }
 

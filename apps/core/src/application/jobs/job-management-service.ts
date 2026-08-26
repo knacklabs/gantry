@@ -423,23 +423,29 @@ export class JobManagementService {
         `Cannot trigger job while status is ${job.status}; resume the job explicitly first.`,
       );
     }
-    const readiness = await evaluateManagedJobReadiness({
-      deps: this.deps,
-      job,
-      appId: appSession.appId,
-    });
-    if (!readiness.ready) {
-      await pauseJobForSetup({
+    // Active jobs with a persisted ready setup state have already passed the
+    // control-plane preflight. Avoid repeating its repository-heavy reads on
+    // every HTTP trigger: the execution path performs the authoritative,
+    // fail-closed readiness check again immediately before running the job.
+    if (job.setup_state?.state !== 'ready') {
+      const readiness = await evaluateManagedJobReadiness({
         deps: this.deps,
         job,
-        readiness,
         appId: appSession.appId,
       });
-      throw new ApplicationError(
-        'CONFLICT',
-        'Job requires setup before it can be triggered.',
-        { details: setupBlockerDetails(readiness.setupState) },
-      );
+      if (!readiness.ready) {
+        await pauseJobForSetup({
+          deps: this.deps,
+          job,
+          readiness,
+          appId: appSession.appId,
+        });
+        throw new ApplicationError(
+          'CONFLICT',
+          'Job requires setup before it can be triggered.',
+          { details: setupBlockerDetails(readiness.setupState) },
+        );
+      }
     }
     if (
       input.consumeRateLimit &&

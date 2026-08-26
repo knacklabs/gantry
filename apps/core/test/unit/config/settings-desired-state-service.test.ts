@@ -4602,4 +4602,47 @@ describe('reconcile preserves agent-installed bindings', () => {
       expect.objectContaining({ serverId: 'mcp:github' }),
     ]);
   });
+
+  it('resolves durable scheduler permission tools sequentially during reconcile', async () => {
+    const { replaceDesiredStateCapabilities } =
+      await import('@core/config/settings/desired-state-capability-reconcile.js');
+    const repositories = makeRepositories();
+    let activeGetToolCalls = 0;
+    repositories.tools.getTool = vi.fn(async () => {
+      activeGetToolCalls += 1;
+      try {
+        expect(activeGetToolCalls).toBe(1);
+        await Promise.resolve();
+        return null;
+      } finally {
+        activeGetToolCalls -= 1;
+      }
+    });
+
+    await replaceDesiredStateCapabilities({
+      appId: 'default' as never,
+      agentId: 'agent:main_agent' as never,
+      agent: {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        sources: {
+          skills: [],
+          mcpServers: [],
+          tools: [],
+        },
+        capabilities: [
+          { id: 'mcp__gantry__scheduler_get_job', version: 'builtin' },
+          { id: 'mcp__gantry__scheduler_update_job', version: 'builtin' },
+          { id: 'mcp__gantry__scheduler_run_now', version: 'builtin' },
+        ],
+      } as never,
+      repositories,
+      now: '2026-08-09T00:00:00.000Z',
+      authoritative: true,
+    });
+
+    expect(repositories.tools.getTool).toHaveBeenCalledTimes(3);
+    expect(repositories.tools.saveTool).toHaveBeenCalledTimes(3);
+  });
 });

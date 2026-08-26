@@ -3,8 +3,10 @@ import {
   type RuntimeEventType,
 } from '../domain/events/runtime-event-types.js';
 import type { Job } from '../domain/types.js';
+import { skillActionSource } from '../domain/skills/skill-action-permissions.js';
 import { setupStateForBrowserPrelaunchFailure } from '../application/jobs/job-setup-pause-states.js';
 import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
+import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { nowMs } from '../shared/time/datetime.js';
 import {
   type JobRunDiagnostics,
@@ -16,6 +18,7 @@ import { resolveConversationBrowserProfile } from '../shared/browser-profile-sco
 
 export async function prelaunchBrowserForJobRun(input: {
   currentJob: Job;
+  semanticCapabilities?: readonly SemanticCapabilityDefinition[];
   executionGroupFolder?: string;
   executionJid?: string;
   executionProviderAccountId?: string;
@@ -31,12 +34,7 @@ export async function prelaunchBrowserForJobRun(input: {
   setupState: NonNullable<Job['setup_state']>;
 } | null> {
   if (!input.executionGroupFolder || !input.executionJid) return null;
-  if (
-    !toolAccessRequirementsIncludeBrowser(
-      splitAccessRequirements(input.currentJob.access_requirements)
-        .toolAccessRequirements,
-    )
-  )
+  if (!jobRequiresManagedBrowser(input.currentJob, input.semanticCapabilities))
     return null;
   if (!input.deps.openBrowserSession) return null;
 
@@ -105,4 +103,31 @@ export async function prelaunchBrowserForJobRun(input: {
       }),
     };
   }
+}
+
+/**
+ * A reviewed skill action can need a managed browser profile without granting
+ * the model the interactive Browser capability. This lets deterministic
+ * Browser automation actions own page control while Gantry still launches the scoped,
+ * persisted profile for them.
+ */
+export function jobRequiresManagedBrowser(
+  job: Job,
+  semanticCapabilities: readonly SemanticCapabilityDefinition[] = [],
+): boolean {
+  const requirements = splitAccessRequirements(job.access_requirements);
+  if (
+    toolAccessRequirementsIncludeBrowser(requirements.toolAccessRequirements)
+  ) {
+    return true;
+  }
+  return requirements.capabilityRequirements.some((requirement) => {
+    const capability = semanticCapabilities.find(
+      (candidate) => candidate.capabilityId === requirement.capabilityId,
+    );
+    return (
+      capability !== undefined &&
+      skillActionSource(capability)?.browserAccess === 'managed_browser'
+    );
+  });
 }

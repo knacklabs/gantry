@@ -5,6 +5,17 @@ permissions:
 
 on:
   workflow_dispatch:
+    inputs:
+      postgres_pool_max:
+        description: Gantry Postgres pool size for this deployment
+        required: false
+        default: '6'
+        type: string
+      pgboss_pool_max:
+        description: Gantry pg-boss pool size for this deployment
+        required: false
+        default: '1'
+        type: string
   push:
     branches:
       - develop
@@ -16,7 +27,9 @@ env:
   ECS_SERVICE: kl-aws-aps1-prod-ecs-ats-gantry-reagent-service
   TASK_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent
   CONTAINER_NAME: kl-aws-aps1-prod-task_definition-ats-gantry-reagent-container
-
+  HEALTH_CHECK_START_PERIOD_SECONDS: 240
+  POSTGRES_POOL_MAX: ${{ inputs.postgres_pool_max || '6' }}
+  PGBOSS_POOL_MAX: ${{ inputs.pgboss_pool_max || '1' }}
 
 jobs:
   deploy:
@@ -53,20 +66,48 @@ jobs:
       - name: Download task definition
         run: aws ecs describe-task-definition --task-definition ${{ env.TASK_NAME }} --query taskDefinition > task-definition.json
 
+      - name: Update validated Gantry database pool settings
+        run: |
+          # The migrator holds one pooled connection for its advisory lock and
+          # uses another for Drizzle, so a pool of 1 deadlocks until the
+          # database statement timeout. Keep the production floor at 2.
+          [[ "$POSTGRES_POOL_MAX" =~ ^[2-9]$|^1[0-2]$ ]]
+          [[ "$PGBOSS_POOL_MAX" =~ ^[1-2]$ ]]
+          aws ssm put-parameter \
+            --name GANTRY_POSTGRES_POOL_MAX \
+            --type String \
+            --value "$POSTGRES_POOL_MAX" \
+            --overwrite
+          aws ssm put-parameter \
+            --name GANTRY_PGBOSS_POOL_MAX \
+            --type String \
+            --value "$PGBOSS_POOL_MAX" \
+            --overwrite
+
+      - name: Allow fleet runtime startup before container health checks
+        run: |
+          test "$(jq --arg container "$CONTAINER_NAME" '[.containerDefinitions[] | select(.name == $container)] | length' task-definition.json)" -eq 1
+          jq \
+            --arg container "$CONTAINER_NAME" \
+            --argjson startPeriod "$HEALTH_CHECK_START_PERIOD_SECONDS" \
+            '(.containerDefinitions[] | select(.name == $container) | .healthCheck.startPeriod) = $startPeriod' \
+            task-definition.json > task-definition.patched.json
+          mv task-definition.patched.json task-definition.json
+
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-            task-definition: task-definition.json
-            container-name: ${{ env.CONTAINER_NAME }}
-            image: ${{ steps.build-image.outputs.image }}
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
 
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-            task-definition: ${{ steps.task-def.outputs.task-definition }}
-            service: ${{ env.ECS_SERVICE }}
-            cluster: ${{ env.ECS_CLUSTER }}
-            wait-for-service-stability: true
-            wait-max-delay-seconds: 15
-            wait-for-minutes: 15
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          wait-max-delay-seconds: 15
+          wait-for-minutes: 15

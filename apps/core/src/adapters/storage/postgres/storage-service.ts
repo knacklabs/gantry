@@ -22,6 +22,14 @@ import {
   DEFAULT_TOOL_CATALOG,
   seedDefaultRuntimeData,
 } from './seeds.js';
+import {
+  resolvePgBossPostgresPoolMax,
+  resolveRuntimePostgresPoolMax,
+} from '../../../shared/postgres-pool-limits.js';
+export {
+  resolvePgBossPostgresPoolMax,
+  resolveRuntimePostgresPoolMax,
+} from '../../../shared/postgres-pool-limits.js';
 
 const storageDir = path.dirname(fileURLToPath(import.meta.url));
 export const postgresMigrationsFolder = path.join(
@@ -31,7 +39,6 @@ export const postgresMigrationsFolder = path.join(
 );
 const PGCRYPTO_EXTENSION_LOCK_NAMESPACE = 1_340_193_180;
 const PGCRYPTO_EXTENSION_LOCK_KEY = 1;
-const DEFAULT_RUNTIME_POSTGRES_POOL_MAX = 20;
 // Cross-instance "run gantry migrations" lock. One identity serializes every
 // explicit migrator using PostgresStorageService.migrate().
 export const RUNTIME_MIGRATION_LOCK_NAMESPACE = 1_340_193_180;
@@ -86,18 +93,6 @@ export function quotePostgresIdentifier(identifier: string): string {
     );
   }
   return `"${identifier.replace(/"/g, '""')}"`;
-}
-
-export function resolveRuntimePostgresPoolMax(
-  env: NodeJS.ProcessEnv = process.env,
-): number {
-  const raw = env.GANTRY_POSTGRES_POOL_MAX?.trim();
-  if (!raw) return DEFAULT_RUNTIME_POSTGRES_POOL_MAX;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error('GANTRY_POSTGRES_POOL_MAX must be a positive integer.');
-  }
-  return parsed;
 }
 
 function readLatestPostgresMigration(): LatestPostgresMigration {
@@ -318,6 +313,7 @@ export class PostgresStorageService implements StorageService {
     );
     const boss = new PgBoss({
       connectionString: poolConfig.connectionString,
+      max: resolvePgBossPostgresPoolMax(),
       schema: 'pgboss',
       createSchema: true,
       migrate: true,

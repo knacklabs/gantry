@@ -69,6 +69,7 @@ export async function runSandboxedAsyncCommand(
     allowedNetworkHosts: string[];
     egressProxyUrl?: string;
     resourceLimits: RunnerSandboxResourceLimits;
+    allowLocalBinding?: true;
     signal: AbortSignal;
     appId: string;
     agentId: string;
@@ -106,7 +107,14 @@ export async function runSandboxedAsyncCommand(
       );
   const child = provider.start({
     command: structuredCommand?.executable ?? '/bin/sh',
-    args: structuredCommand?.args ?? ['-c', asyncCommandLaunchScript()],
+    // Only durable async tasks need a launch barrier and PID handoff. A
+    // synchronous deterministic skill command can run directly, which keeps
+    // its invocation independent of the async-task control environment.
+    args:
+      structuredCommand?.args ??
+      (input.launchControl
+        ? ['-c', asyncCommandLaunchScript()]
+        : ['-c', input.command!]),
     cwd: input.cwd,
     workspaceRoot: input.cwd,
     configFilePath,
@@ -132,6 +140,7 @@ export async function runSandboxedAsyncCommand(
       id: 'async-command',
       network: input.egressProxyUrl ? 'required' : 'none',
       filesystem: 'workspace_write',
+      ...(input.allowLocalBinding ? { allowLocalBinding: true } : {}),
     },
     principal: {
       appId: input.appId,
@@ -156,7 +165,9 @@ export async function runSandboxedAsyncCommand(
             GANTRY_EGRESS_PROXY_URL: input.egressProxyUrl,
           }
         : {}),
-      ...(input.command ? { GANTRY_ASYNC_COMMAND_SCRIPT: input.command } : {}),
+      ...(input.launchControl
+        ? { GANTRY_ASYNC_COMMAND_SCRIPT: input.command }
+        : {}),
       ...(input.launchControl
         ? {
             GANTRY_ASYNC_LAUNCH_DIR: input.launchControl.directory,
@@ -318,11 +329,16 @@ export function buildAsyncCommandEnv(): Record<string, string> {
 function asyncCommandLaunchScript(): string {
   return [
     'set -eu',
-    'mkdir -p "$GANTRY_ASYNC_LAUNCH_DIR"',
-    'echo "$$" > "$GANTRY_ASYNC_PID_FILE"',
-    '(ps -o pgid= -p "$$" | tr -d " " > "$GANTRY_ASYNC_PGID_FILE") 2>/dev/null || echo "$$" > "$GANTRY_ASYNC_PGID_FILE"',
-    ': > "$GANTRY_ASYNC_READY_FILE"',
-    'while [ ! -f "$GANTRY_ASYNC_CONTINUE_FILE" ]; do sleep 0.05; done',
+    // launchControl is only used by the durable async-task service. The
+    // synchronous deterministic skill runner intentionally has no launch
+    // barrier, so its sandbox process must not dereference those unset vars.
+    'if [ -n "${GANTRY_ASYNC_LAUNCH_DIR:-}" ]; then',
+    '  mkdir -p "$GANTRY_ASYNC_LAUNCH_DIR"',
+    '  echo "$$" > "$GANTRY_ASYNC_PID_FILE"',
+    '  (ps -o pgid= -p "$$" | tr -d " " > "$GANTRY_ASYNC_PGID_FILE") 2>/dev/null || echo "$$" > "$GANTRY_ASYNC_PGID_FILE"',
+    '  : > "$GANTRY_ASYNC_READY_FILE"',
+    '  while [ ! -f "$GANTRY_ASYNC_CONTINUE_FILE" ]; do sleep 0.05; done',
+    'fi',
     'exec /bin/sh -c "$GANTRY_ASYNC_COMMAND_SCRIPT"',
   ].join('\n');
 }
