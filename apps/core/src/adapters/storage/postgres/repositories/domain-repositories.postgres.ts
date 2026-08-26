@@ -19,6 +19,7 @@ import type {
   LlmProfileId,
 } from '../../../../domain/agent/agent.js';
 import type { App } from '../../../../domain/app/app.js';
+import type { AppId } from '../../../../domain/app/app.js';
 import type {
   ConversationInstall,
   ConversationApprover,
@@ -437,6 +438,28 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
       ),
       createdAt: row.createdAt,
     } as AgentConfigVersion;
+  }
+  async listConfigVersions(input: {
+    appId: AppId;
+    agentId: AgentConfigVersion['agentId'];
+  }): Promise<AgentConfigVersion[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentConfigVersionsPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentConfigVersionsPostgres.appId, input.appId),
+          eq(pgSchema.agentConfigVersionsPostgres.agentId, input.agentId),
+        ),
+      )
+      .orderBy(desc(pgSchema.agentConfigVersionsPostgres.version));
+    return Promise.all(
+      rows.map((row) =>
+        this.getConfigVersion(row.id as AgentConfigVersion['id']),
+      ),
+    ).then((versions) =>
+      versions.filter((version): version is AgentConfigVersion => !!version),
+    );
   }
   async saveConfigVersion(version: AgentConfigVersion): Promise<void> {
     await this.db

@@ -161,6 +161,10 @@ export interface AgentConfigRepository {
   getConfigVersion(
     id: AgentConfigVersionId,
   ): Promise<AgentConfigVersion | null>;
+  listConfigVersions(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentConfigVersion[]>;
   saveConfigVersion(version: AgentConfigVersion): Promise<void>;
 }
 

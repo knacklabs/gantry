@@ -35,6 +35,7 @@ const AGENT_PATH = /^\/ui\/api\/agents\/([^/]+)$/;
 const AGENT_STATUS_PATH = /^\/ui\/api\/agents\/([^/]+)\/(enable|disable)$/;
 const AGENT_SOURCES_PATH = /^\/ui\/api\/agents\/([^/]+)\/sources$/;
 const AGENT_CAPABILITIES_PATH = /^\/ui\/api\/agents\/([^/]+)\/capabilities$/;
+const AGENT_VERSIONS_PATH = /^\/ui\/api\/agents\/([^/]+)\/versions$/;
 const ROLE_PATH = /^\/ui\/api\/roles\/([^/]+)$/;
 
 export function isBrowserAgentsPath(pathname: string): boolean {
@@ -295,6 +296,28 @@ export async function handleBrowserAgentRoutes(
               : [];
           }),
         },
+      });
+      return true;
+    }
+    const versionsMatch = pathname.match(AGENT_VERSIONS_PATH);
+    if (versionsMatch) {
+      const agentId = decodeURIComponent(versionsMatch[1]) as AgentId;
+      const agent = await storage.repositories.agents.getAgent(agentId);
+      if (!agent || agent.appId !== appId)
+        return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      const versions =
+        await storage.repositories.agentConfigs.listConfigVersions({
+          appId,
+          agentId,
+        });
+      sendJson(res, 200, {
+        versions: versions.map((version) => ({
+          id: version.id,
+          version: version.version,
+          createdAt: version.createdAt,
+          roleSnapshot: version.roleSnapshot,
+          llmProfileId: version.llmProfileId,
+        })),
       });
       return true;
     }

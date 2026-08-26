@@ -29,10 +29,12 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain('role.appId !== appId');
   expect(source).toContain('const AGENT_SOURCES_PATH');
   expect(source).toContain('const AGENT_CAPABILITIES_PATH');
+  expect(source).toContain('const AGENT_VERSIONS_PATH');
   expect(source).toContain('replaceSources({');
   expect(source).toContain('replaceCapabilities(');
   expect(source).toContain('getSources({ appId, agentId })');
   expect(source).toContain('getCapabilities({ appId, agentId })');
+  expect(source).toContain('listConfigVersions({');
 });
 
 it('requires Administrator, Origin, CSRF, and reauthentication for mutations', () => {

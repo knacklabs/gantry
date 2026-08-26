@@ -124,6 +124,28 @@ export function agentCapabilitiesQuery(agentId: string) {
   });
 }
 
+export type AgentVersion = {
+  id: string;
+  version: number;
+  createdAt: string;
+  roleSnapshot?: { displayName: string; prompt: string; sourceRoleId?: string };
+  llmProfileId: string;
+};
+
+export function agentVersionsQuery(agentId: string) {
+  return queryOptions({
+    queryKey: [...agentQueryKeys.all, 'versions', agentId] as const,
+    queryFn: async (): Promise<{ versions: AgentVersion[] }> => {
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}/versions`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok) throw new Error('Version history could not be loaded.');
+      return response.json() as Promise<{ versions: AgentVersion[] }>;
+    },
+  });
+}
+
 export function agentDirectoryQuery(input: {
   page: number;
   pageSize: number;

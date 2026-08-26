@@ -32,6 +32,7 @@ import {
   type AgentDirectoryItem,
 } from '../agents-queries';
 import { AgentSetupManager } from '../components/agent-setup-manager';
+import { AgentVersionHistory } from '../components/agent-version-history';
 
 export function AgentDetailRoute() {
   const { agentId } = useParams({ from: '/agents/$agentId' });
@@ -106,6 +107,7 @@ export function AgentDetailRoute() {
         action={
           <div className="flex gap-2">
             <StatusBadge status={agent.status} />
+            <AgentVersionHistory agentId={agent.id} />
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="secondary" disabled={status.isPending}>
