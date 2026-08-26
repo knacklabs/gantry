@@ -143,7 +143,7 @@ events are observable delivery evidence, not the sole audit source.
   filtering, unrelated Slack diagnostics/docs, dreaming verification notes,
   and MWORKER-adjacent expectation edits.
 - Keep Slack sender/route normalization that gates identity ingress.
-- Fix the runner fixture by copying `shared/runtime-env-command.ts` beside
+- Fix the runner fixture by copying `apps/core/src/shared/runtime-env-command.ts` beside
   `neutral-ca-trust-env.ts`.
 - Preserve unrelated dirt in the main checkout and leave MWORKER untouched.
 
