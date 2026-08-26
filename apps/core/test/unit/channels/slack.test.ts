@@ -200,6 +200,7 @@ import {
 } from '@core/channels/slack/channel-connect.js';
 import { noticeManualGroupInstall } from '@core/channels/group-install-bootstrap.js';
 import { handleSlackMemberJoinedChannel } from '@core/channels/slack/channel-interactions.js';
+import { slackJobNotificationBlocks } from '@core/channels/slack/message-action-affordances.js';
 import { handleTelegramGroupMembershipUpdate } from '@core/channels/telegram/group-join-onboarding.js';
 import '@core/channels/register-builtins.js';
 import { listChannelProviders } from '@core/channels/provider-registry.js';
@@ -5605,6 +5606,117 @@ describe('Slack channel', () => {
 
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1);
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+  });
+
+  it('edits a terminal structured Slack notice with native blocks and actions', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    const view = {
+      status: 'completed' as const,
+      jobName: 'Lead enrichment',
+      fallbackText: 'Completed plain fallback',
+      result: {
+        items: [{ outcome: 'done' as const, label: 'Added Acme' }],
+      },
+    };
+    const actions = [
+      {
+        kind: 'scheduler_run_now' as const,
+        label: 'Run again',
+        jobId: 'job-1',
+      },
+    ];
+    await channel.connect();
+    await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...');
+
+    await channel.sendProgressUpdate('sl:C1234567890', view.fallbackText, {
+      done: true,
+      jobNotificationView: view,
+      actionAffordances: actions,
+    });
+
+    expect(appRef.current.client.chat.update).toHaveBeenLastCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.100200',
+      text: view.fallbackText,
+      blocks: slackJobNotificationBlocks(view, actions, {
+        providerAccountId: 'slack_default',
+      }),
+    });
+  });
+
+  it('posts a no-handle terminal structured Slack notice with native blocks', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    const view = {
+      status: 'completed' as const,
+      jobName: 'Lead enrichment',
+      fallbackText: 'Completed plain fallback',
+      result: {
+        items: [{ outcome: 'done' as const, label: 'Added Acme' }],
+      },
+    };
+    await channel.connect();
+
+    await channel.sendProgressUpdate('sl:C1234567890', view.fallbackText, {
+      done: true,
+      jobNotificationView: view,
+    });
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      text: view.fallbackText,
+      blocks: slackJobNotificationBlocks(view, undefined, {
+        providerAccountId: 'slack_default',
+      }),
+    });
+  });
+
+  it('falls back to text when a terminal structured Slack update rejects blocks', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    const view = {
+      status: 'completed' as const,
+      jobName: 'Lead enrichment',
+      fallbackText: 'Completed plain fallback',
+      result: {
+        items: [{ outcome: 'done' as const, label: 'Added Acme' }],
+      },
+    };
+    await channel.connect();
+    await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...');
+    appRef.current.client.chat.update.mockRejectedValueOnce(
+      new Error('invalid_blocks'),
+    );
+
+    await channel.sendProgressUpdate('sl:C1234567890', view.fallbackText, {
+      done: true,
+      jobNotificationView: view,
+    });
+
+    expect(appRef.current.client.chat.update).toHaveBeenNthCalledWith(1, {
+      channel: 'C1234567890',
+      ts: '1710000000.100200',
+      text: view.fallbackText,
+      blocks: slackJobNotificationBlocks(view, undefined, {
+        providerAccountId: 'slack_default',
+      }),
+    });
+    expect(appRef.current.client.chat.update).toHaveBeenNthCalledWith(2, {
+      channel: 'C1234567890',
+      ts: '1710000000.100200',
+      text: view.fallbackText,
+      blocks: [],
+    });
   });
 
   it('drops stale Slack progress updates after a generation is done', async () => {
