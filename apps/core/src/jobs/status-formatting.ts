@@ -180,13 +180,26 @@ export function formatRunStatusMessage(args: {
   const summary = notificationOutcome(displaySummary, args.runStatus, denial);
   const action = notificationAction(args.runStatus, displaySummary, denial);
   const stats = terminalRunStats(args);
+  // Header+stats (<250) + 10 items x (50+70+5) + compacted summary (<=180 + receipt lines)
+  // + next-run (<80) stays far below the 4096-character transport limit.
   const lines = [
     `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
     ...(stats ? [stats] : []),
-    ...(args.resultItems?.map(
-      ({ outcome, label, detail }) =>
-        `${JOB_RESULT_OUTCOME_MARKER[outcome]} ${label}${detail ? ` — ${detail}` : ''}`,
-    ) ?? []),
+    ...(args.resultItems
+      ?.slice(0, JOB_NOTIFICATION_VIEW_LIMITS.items)
+      .map(({ outcome, label, detail }) => {
+        const boundedLabel = truncateJobNotificationItemLabel(
+          label,
+          JOB_NOTIFICATION_VIEW_LIMITS.itemLabel,
+        );
+        const boundedDetail = detail
+          ? truncateJobNotificationText(
+              detail,
+              JOB_NOTIFICATION_VIEW_LIMITS.itemDetail,
+            )
+          : '';
+        return `${JOB_RESULT_OUTCOME_MARKER[outcome]} ${boundedLabel}${boundedDetail ? ` — ${boundedDetail}` : ''}`;
+      }) ?? []),
     summary,
   ];
   if (args.degradedReason) lines.push(`⚠️ Degraded: ${args.degradedReason}`);

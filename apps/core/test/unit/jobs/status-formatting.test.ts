@@ -7,6 +7,7 @@ import {
   JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH,
   structuredJobResultFromRecordedActions,
 } from '@core/jobs/status-formatting.js';
+import { JOB_NOTIFICATION_VIEW_LIMITS } from '@core/jobs/job-notification-tool-rollup.js';
 import type { Job } from '@core/domain/types.js';
 import type { RuntimeEvent } from '@core/domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
@@ -697,6 +698,36 @@ describe('job status formatting', () => {
       'Imported 3 records.',
       expect.stringMatching(/^Runs again at /),
     ]);
+  });
+
+  it('bounds terminal result item labels and details for provider delivery', () => {
+    const label = 'l'.repeat(120);
+    const detail = 'd'.repeat(300);
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: 'Imported 3 records.',
+      nextRun: null,
+      retryCount: 0,
+      resultItems: Array.from({ length: 10 }, () => ({
+        outcome: 'failed' as const,
+        label,
+        detail,
+      })),
+    });
+    const itemLines = message
+      .split('\n')
+      .filter((line) => line.startsWith('❌ '));
+    const [renderedLabel, renderedDetail] = itemLines[0].slice(2).split(' — ');
+
+    expect(itemLines).toHaveLength(10);
+    expect(renderedLabel).toMatch(/\.\.\.$/);
+    expect(renderedLabel).toHaveLength(JOB_NOTIFICATION_VIEW_LIMITS.itemLabel);
+    expect(renderedDetail).toHaveLength(
+      JOB_NOTIFICATION_VIEW_LIMITS.itemDetail,
+    );
+    expect(message.length).toBeLessThan(4096);
   });
 
   it('keeps terminal summaries byte-identical without structured result items', () => {
