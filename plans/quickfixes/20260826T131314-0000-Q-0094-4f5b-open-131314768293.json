@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0094-4f5b",
+  "profile": "lite",
+  "reason": "Q-0094: outcome headline must lift the last Outcome: match from the concatenated run summary (live run 21cfd366 wrote it mid-string)",
+  "started_at": "2026-08-26T13:13:14+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "3eed4f501b9024380b9f0595187de21612b1aebc"
+}

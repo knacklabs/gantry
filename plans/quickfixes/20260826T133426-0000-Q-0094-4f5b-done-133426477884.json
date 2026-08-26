@@ -1,0 +1,151 @@
+{
+  "event": "done",
+  "id": "Q-0094-4f5b",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Q-0094: outcome headline must lift the last Outcome: match from the concatenated run summary (live run 21cfd366 wrote it mid-string)",
+  "base_sha": "3eed4f501b9024380b9f0595187de21612b1aebc",
+  "started_at": "2026-08-26T13:13:14+00:00",
+  "completed_at": "2026-08-26T13:34:26+00:00",
+  "files": [
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/jobs/status-formatting.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "Headline text is model-authored; renderers escape it as before"
+      ],
+      "summary": "Simplest correct lifter; 3 lines replace 11. Lite window Q-0094 (base 3eed4f50 -> HEAD a1e397868): jobOutcomeHeadline lifts the LAST Outcome: match from the concatenated run summary (split on marker, first line of last piece); report-heading special case deleted. Live run 21cfd366 wrote the marker mid-string after narration. Proof: jobs suite 66/722 green, tsc; autoreview 3 rounds (CR endings + same-line double marker fixed; U+2028 rejected by design).",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "1f7ad293f35b504a26146cdd7cbd15ace502a99546cc929210ab6ea88a36ba24",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "fb1ebbb8150b80a7d7d060ad09df8efeb70aabdda1c8ea970af80974770f2b54",
+      "recorded_at": "2026-08-26T13:29:41+00:00",
+      "commit": "e692d8d1b03805169e39d5d8067e7b74dbbf3a1e"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "Headline text is model-authored; renderers escape it as before"
+      ],
+      "summary": "One split over a bounded summary string per notification; no allocation concern. Lite window Q-0094 (base 3eed4f50 -> HEAD a1e397868): jobOutcomeHeadline lifts the LAST Outcome: match from the concatenated run summary (split on marker, first line of last piece); report-heading special case deleted. Live run 21cfd366 wrote the marker mid-string after narration. Proof: jobs suite 66/722 green, tsc; autoreview 3 rounds (CR endings + same-line double marker fixed; U+2028 rejected by design).",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "1f7ad293f35b504a26146cdd7cbd15ace502a99546cc929210ab6ea88a36ba24",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "fb1ebbb8150b80a7d7d060ad09df8efeb70aabdda1c8ea970af80974770f2b54",
+      "recorded_at": "2026-08-26T13:29:41+00:00",
+      "commit": "e692d8d1b03805169e39d5d8067e7b74dbbf3a1e"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "Headline text is model-authored; renderers escape it as before"
+      ],
+      "summary": "Pure string function on already-trusted agent text; no injection surface, no new IO. Lite window Q-0094 (base 3eed4f50 -> HEAD a1e397868): jobOutcomeHeadline lifts the LAST Outcome: match from the concatenated run summary (split on marker, first line of last piece); report-heading special case deleted. Live run 21cfd366 wrote the marker mid-string after narration. Proof: jobs suite 66/722 green, tsc; autoreview 3 rounds (CR endings + same-line double marker fixed; U+2028 rejected by design).",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "1f7ad293f35b504a26146cdd7cbd15ace502a99546cc929210ab6ea88a36ba24",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "fb1ebbb8150b80a7d7d060ad09df8efeb70aabdda1c8ea970af80974770f2b54",
+      "recorded_at": "2026-08-26T13:29:41+00:00",
+      "commit": "e692d8d1b03805169e39d5d8067e7b74dbbf3a1e"
+    }
+  }
+}
