@@ -47,6 +47,7 @@ import {
   type ChannelOpts,
 } from '@core/channels/channel-provider.js';
 import { DISCORD_LIVE_ATTACHMENT_DEADLINE_MS } from '@core/channels/discord-live-attachment-capture.js';
+import { DISCORD_MESSAGE_MAX_LENGTH } from '@core/channels/discord-limits.js';
 import { discordMessageContent } from '@core/channels/discord-conversation-context.js';
 import { createLiveReactionLifecycle } from '@core/app/bootstrap/live-reaction-lifecycle.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
@@ -982,7 +983,7 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
-  it('rethrows terminal progress errors that target components', async () => {
+  it('rethrows terminal progress errors that target embeds and components', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
@@ -990,8 +991,11 @@ describe('DiscordChannel', () => {
         new Response(
           JSON.stringify({
             code: 50_035,
-            message: 'Invalid Form Body: embeds',
-            errors: { components: { _errors: [] } },
+            message: 'Invalid Form Body: embeds and components',
+            errors: {
+              embeds: { _errors: [] },
+              components: { _errors: [] },
+            },
           }),
           {
             status: 400,
@@ -1016,14 +1020,17 @@ describe('DiscordChannel', () => {
       }),
     ).rejects.toMatchObject({
       status: 400,
-      errors: { components: { _errors: [] } },
+      errors: {
+        embeds: { _errors: [] },
+        components: { _errors: [] },
+      },
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     fetchMock.mockRestore();
   });
 
-  it('posts text when Discord rejects a terminal progress embed', async () => {
+  it('posts one truncated text message when Discord rejects a terminal progress embed', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -1041,9 +1048,10 @@ describe('DiscordChannel', () => {
       )
       .mockResolvedValueOnce(jsonResponse({ id: 'terminal-1' }));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const text = `${'a'.repeat(DISCORD_MESSAGE_MAX_LENGTH)}tail`;
 
     await expect(
-      channel.sendProgressUpdate('dc:channel-1', 'Completed in text', {
+      channel.sendProgressUpdate('dc:channel-1', text, {
         generation: 1,
         done: true,
         jobNotificationView: {
@@ -1057,7 +1065,7 @@ describe('DiscordChannel', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toBe(
       JSON.stringify({
-        content: 'Completed in text',
+        content: `${'a'.repeat(DISCORD_MESSAGE_MAX_LENGTH - 1)}…`,
         allowed_mentions: { parse: [] },
         components: [],
       }),

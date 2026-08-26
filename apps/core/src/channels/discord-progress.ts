@@ -59,7 +59,6 @@ export function createDiscordProgressCallbacks(input: {
       components,
       post: (channelId, body) => input.post(channelId, body, signal),
     });
-
   return {
     post: async (text, components, signal) => {
       if (!embed) return postText(text, components, signal);
@@ -73,7 +72,7 @@ export function createDiscordProgressCallbacks(input: {
         });
       } catch (err) {
         if (!isDiscordEmbedRejection(err)) throw err;
-        return postText(text, components, signal);
+        return postText(truncateDiscordMessageText(text), components, signal);
       }
     },
     edit: async (messageId, body, signal) => {
@@ -93,11 +92,13 @@ export function createDiscordProgressCallbacks(input: {
 }
 
 function isDiscordEmbedRejection(err: unknown): boolean {
-  return (
-    err instanceof DiscordRestError &&
-    err.status === 400 &&
-    Object.hasOwn(err.errors ?? {}, 'embeds')
-  );
+  if (!(err instanceof DiscordRestError) || err.status !== 400) return false;
+  const errors = err.errors ?? {};
+  return Object.keys(errors).length === 1 && Object.hasOwn(errors, 'embeds');
+}
+function truncateDiscordMessageText(text: string): string {
+  const [part] = splitDiscordText(text);
+  return text.length > part.length ? `${part.slice(0, -1)}…` : text;
 }
 
 const DISCORD_PROGRESS_RETENTION_MS = 10 * 60_000;
