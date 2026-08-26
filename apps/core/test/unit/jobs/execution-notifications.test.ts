@@ -811,6 +811,26 @@ describe('jobs/execution-notifications', () => {
     expect(options?.jobNotificationView?.result).toBeUndefined();
   });
 
+  it('lifts an outcome written before the final job report into the terminal headline', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    await notifySchedulerTerminalRunState({
+      job: makeJob(),
+      runId: 'run-1',
+      runStatus: 'completed',
+      summary:
+        'Narration.\nOutcome: Added 2 new leads.\n\n**Final Job Report**\nDetails follow.',
+      nextRun: null,
+      retryCount: 0,
+      pauseReason: null,
+      sendMessage,
+    });
+
+    expect(
+      sendMessage.mock.calls[0]?.[2]?.jobNotificationView?.result?.headline,
+    ).toBe('Added 2 new leads.');
+  });
+
   it('sends the review card + 3 decision affordances instead of a bare count', async () => {
     const sendMessage = vi.fn(async () => undefined);
 

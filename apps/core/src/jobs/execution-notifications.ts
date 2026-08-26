@@ -17,7 +17,6 @@ import {
   formatJobNextRunAt,
   formatRunStatusMessage,
   jobOutcomeHeadline,
-  selectJobNotificationSummary,
   structuredJobResultFromRecordedActions,
   terminalRunNotificationStats,
 } from './status-formatting.js';
@@ -444,9 +443,7 @@ export async function notifySchedulerTerminalRunState(input: {
   const result = structuredJobResultFromRecordedActions(
     input.recordedActions ?? [],
   );
-  const headline = jobOutcomeHeadline(
-    selectJobNotificationSummary(input.summary),
-  );
+  const headline = jobOutcomeHeadline(input.summary);
   const notificationResult = headline
     ? { ...(result ?? { items: [] }), headline }
     : result;
