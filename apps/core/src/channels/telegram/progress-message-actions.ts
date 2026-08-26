@@ -167,7 +167,7 @@ export async function sendNewProgressMessage(input: {
       chatId: String(input.chatId),
       threadId: input.threadId,
       messageId: sent.messageId,
-      lastText: sent.text,
+      lastText: input.html ? input.html.text : sent.text,
       ...(input.options.generation !== undefined
         ? { generation: input.options.generation }
         : {}),

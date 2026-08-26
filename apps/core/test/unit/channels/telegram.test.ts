@@ -4475,6 +4475,33 @@ describe('TelegramChannel', () => {
       ).resolves.toMatchObject({
         message_id: 2468,
       });
+      const renderedHtml = currentBot().api.sendMessage.mock.calls[0]?.[1];
+      expect(
+        (channel as any).activeProgressMessages.get('progress:tg:100200300:42'),
+      ).toMatchObject({ lastText: renderedHtml });
+
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          threadId: '42',
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalledWith(
+        '100200300',
+        2468,
+        expect.any(String),
+        expect.objectContaining({ parse_mode: 'HTML' }),
+      );
     });
 
     it('re-sends a terminal structured notification as HTML after a non-parse edit failure', async () => {
