@@ -1,0 +1,103 @@
+{
+  "generated_by": "docs-decomposer",
+  "project": "",
+  "story": "AGENTS-WEB-1",
+  "epic": "agents-web-management",
+  "plan_file": "plans/active/AGENTS-WEB-1-build-truthful-agents-management-ui.md",
+  "doc_roots": [
+    "docs/specs/agents-web-ui.md",
+    "docs/architecture/capability-management.md",
+    "docs/decisions"
+  ],
+  "user_facing": true,
+  "status": "recorded",
+  "tasks": [
+    {
+      "id": "AGENTS-WEB-1-1",
+      "title": "Create custom role and agent snapshot foundations",
+      "objective": "Add the smallest durable role-template and agent-snapshot foundation so reusable roles are safe to select without mutating existing agents.",
+      "acceptance_criteria": [
+        "Custom role templates are app-scoped, validated, and auditable.",
+        "An agent stores an immutable selected role snapshot that survives later role edit or deletion.",
+        "Protected Gantry runtime and safety prompt layers remain outside editable role content."
+      ],
+      "dependencies": [],
+      "user_facing": false
+    },
+    {
+      "id": "AGENTS-WEB-1-2",
+      "title": "Expose truthful agent and role browser projections",
+      "objective": "Provide paginated, sanitized same-origin reads and administrator mutations for agents, roles, setup, and real versions using the new role foundation and existing lifecycle services.",
+      "acceptance_criteria": [
+        "Agent and custom-role lists support server-owned pagination, search, filters, sorting, and truthful totals.",
+        "Browser routes enforce session, Administrator, Origin, CSRF, and reauthentication policy without exposing Bearer access or raw records.",
+        "Source attachment, capability authority, profile versions, and agent disablement preserve their existing service-owned meanings."
+      ],
+      "dependencies": [
+        "AGENTS-WEB-1-1"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "AGENTS-WEB-1-3",
+      "title": "Build Agents directory and Roles library",
+      "objective": "Replace preview inventory data with a responsive, URL-stateful Agents directory and reusable Roles library backed by the browser projections.",
+      "acceptance_criteria": [
+        "The directory has functional debounced search, immediate filters, sorting, pagination, loading, empty, failure, retry, and narrow-screen states.",
+        "The Roles library supports the approved built-in and custom role actions with no inert visible controls.",
+        "The old fixture data and connection-gate inventory actions are removed."
+      ],
+      "dependencies": [
+        "AGENTS-WEB-1-2"
+      ],
+      "user_facing": true
+    },
+    {
+      "id": "AGENTS-WEB-1-4",
+      "title": "Build staged agent creation",
+      "objective": "Create the four-step agent wizard so operators establish a base agent first and can safely save optional sources and capabilities independently.",
+      "acceptance_criteria": [
+        "Step 1 validates and creates the base agent before later steps unlock.",
+        "Sources and capabilities independently save or fail without erasing earlier success.",
+        "Review accurately reflects entered and saved state, and all setup help and skip actions work."
+      ],
+      "dependencies": [
+        "AGENTS-WEB-1-2"
+      ],
+      "user_facing": true
+    },
+    {
+      "id": "AGENTS-WEB-1-5",
+      "title": "Build truthful routed agent detail",
+      "objective": "Replace preview agent detail with a focused routed view for configuration, instructions, access, settings, disablement, and real read-only version history.",
+      "acceptance_criteria": [
+        "Overview, Instructions, Access, and Settings show only actual projected data for the selected agent.",
+        "Disable/enable confirmation and version history have real behavior and no fabricated state.",
+        "Obsolete preview tabs and no-op actions are removed."
+      ],
+      "dependencies": [
+        "AGENTS-WEB-1-2"
+      ],
+      "user_facing": true
+    },
+    {
+      "id": "AGENTS-WEB-1-6",
+      "title": "Verify the complete Agents management workflow",
+      "objective": "Prove the full browser workflow and remove remaining preview seams so the feature is accessible, responsive, and ready for review.",
+      "acceptance_criteria": [
+        "Automated coverage proves lifecycle, facade, URL state, and visible interaction behavior.",
+        "A real local functional flow covers creation, staged setup, detail, history, disablement, re-enable, refresh, and narrow layout.",
+        "Cleanup searches find no fixture-only Agents surface, no-op shipped controls, or source-authority collapse."
+      ],
+      "dependencies": [
+        "AGENTS-WEB-1-3",
+        "AGENTS-WEB-1-4",
+        "AGENTS-WEB-1-5"
+      ],
+      "user_facing": true
+    }
+  ],
+  "linear_plan": [],
+  "plan_sha256": "6b11615e428b3017886fe6a308facac7abedf91422c617662082f86318a78625",
+  "commit": "dc293117fb48769965f64609c682c208cb285945"
+}
