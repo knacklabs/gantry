@@ -7,6 +7,8 @@ visible in a three-minute real-product video (onboard → scope → approve via
 Adaptive Card → offboard in a real Teams tenant). Nothing here is implemented;
 this is the planning handover.
 
+**Rendered roadmap (same content, scannable):** https://claude.ai/code/artifact/549cb1c9-a199-43c6-b1a9-580f1620a693
+
 **Read first (in order):** `AGENTS.md` → `docs/product/BRIEF.md` (Positioning
 Rules) → the spec for your story → the decisions it cites →
 `docs/architecture/ai-employee-v1-gap-analysis.md` (what Codex found in the
@@ -20,15 +22,16 @@ code that the story must respect).
 | V1.0 | `PKG-1` | npm packaging and self-serve install | backend | — | `docs/specs/self-serve-install-and-docs.md` |
 | V1.0 | `RBAC-1` | Roles for people and agents | fullstack | IDENT-2 | `docs/specs/approvals-and-roles.md` |
 | V1.0 | `HITL-1` | In-chat approvals as principals | fullstack | IDENT-2, AUDIT-1, TEAMS-1 | `docs/specs/approvals-and-roles.md` |
-| V1.0 | `DIR-UI-1` | Directory UI: agents, access, audit, offboard | frontend | IDENT-2, UIFACADE-1 | `docs/specs/ai-employee-directory.md` |
+| V1.0 | `DIR-UI-1` | Directory UI: one list for people and AI employees, detail, offboard | frontend | IDENT-2, UIFACADE-1, DESIGN-1 | `docs/specs/ai-employee-directory.md` |
 | V1.0 | `DOCS-1` | Onboard/access/audit/offboard documentation spine | fullstack | — | `docs/specs/self-serve-install-and-docs.md` |
 | V1.0 | `IDENT-4` | Person offboarding | backend | IDENT-2 | `docs/specs/agent-identity-and-offboarding.md` |
 | V1.0 | `TEAMS-E2E-1` | Teams real-tenant agent-e2e | backend | TEAMS-1, IDENT-2 | `docs/specs/teams-channel.md` |
 | V1.0 | `TEAMS-1` | Teams transport: Bot Framework, manifest, endpoint | backend | — | `docs/specs/teams-channel.md` |
 | V1.0 | `AUDIT-1` | Audit actor migration matrix to PrincipalRef | backend | IDENT-2 | `docs/specs/agent-identity-and-offboarding.md` |
 | V1.0 | `UIFACADE-1` | Browser facades: live agents and audit read models | fullstack | IDENT-2 | `docs/specs/ai-employee-directory.md` |
-| V1.0 | `ONBOARD-UI-1` | Onboarding wizard: create agent, seat, scope, approvers | fullstack | UIFACADE-1, IDENT-2, TEAMS-1 | `docs/specs/console-ai-employee-management.md` |
-| V1.0 | `PEOPLE-UI-1` | People: live list, detail, offboard | fullstack | UIFACADE-1, IDENT-4 | `docs/specs/console-ai-employee-management.md` |
+| V1.0 | `ONBOARD-UI-1` | Onboarding wizard: create agent, seat, scope, approvers | fullstack | UIFACADE-1, IDENT-2, TEAMS-1, DESIGN-1 | `docs/specs/console-ai-employee-management.md` |
+| V1.0 | `PEOPLE-UI-1` | People in the Directory: detail, aliases, offboard | fullstack | UIFACADE-1, IDENT-4 | `docs/specs/console-ai-employee-management.md` |
+| V1.0 | `DESIGN-1` | Console design pass: directory, detail, wizard, people, handoffs | frontend | — | `docs/specs/console-ai-employee-management.md` |
 | V1.0.x | `CONN-GSUITE-1` | Google Workspace connector | backend | CONN-1, OAUTH-1 | `docs/specs/connector-accounts.md` |
 | V1.0.x | `IDENT-3` | Phone-number alias kind | backend | IDENT-2 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.0.x | `WA-1` | WhatsApp provider | backend | IDENT-3 | `docs/specs/phone-channels-and-cost-cap.md` |
@@ -104,6 +107,16 @@ Handoff is *not* approval: the human takes over the thread, the agent pauses in
 that conversation only, every switch is audited. Meta business verification and
 message templates are deployment prerequisites, not code. Voice and the hard cost
 cap stay in V1.1.
+
+## Console decisions (UI grill, 2026-08-26)
+
+- **One Directory** for people and AI employees with a kind filter; `/agents` and
+  `/people` previews are replaced, not extended.
+- **Audit and Approvals tabs** are visible to administrators and approvers only;
+  viewers see Overview and Access.
+- **Handoffs** have a read-only console view; claiming stays in Teams/Slack.
+- **DESIGN-1** runs first: one approved mockup canvas in the console's design
+  system before DIR-UI-1 and ONBOARD-UI-1 are planned.
 
 ## Working rules
 
