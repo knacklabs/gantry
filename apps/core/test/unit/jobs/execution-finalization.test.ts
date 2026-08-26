@@ -3,6 +3,7 @@ import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { finalizeSchedulerJobRun } from '@core/jobs/execution-finalization.js';
+import { computeNextJobRun } from '@core/jobs/schedule-math.js';
 import {
   createJobRunDiagnostics,
   updateDiagnosticsFromRuntimeEvent,
@@ -97,6 +98,82 @@ function makeDeps(): {
 }
 
 describe('execution finalization', () => {
+  it('keeps a failed cron job active for its next cron slot', async () => {
+    const { deps, updateJob } = makeDeps();
+    const job = makeJob({
+      schedule_type: 'cron',
+      schedule_value: '0 * * * *',
+      max_retries: 1,
+    });
+    const scheduledFor = '2024-01-01T00:30:00.000Z';
+    const nextRun = computeNextJobRun(job, scheduledFor);
+
+    const state = await finalizeSchedulerJobRun({
+      currentJob: job,
+      deps,
+      scheduledFor,
+      now: '2024-01-01T00:30:01.000Z',
+      error: 'Runner failed.',
+      diagnostics: createJobRunDiagnostics(),
+      pausedForSetupDuringRun: false,
+      deletedDuringRun: false,
+      runtimeAppId: 'default',
+      runId: 'run-cron-failure',
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      listRuntimeEvents: listDenialEvents(),
+    });
+
+    expect(state).toMatchObject({
+      runStatus: 'failed',
+      nextRun,
+      retryCount: 1,
+      incrementConsecutiveFailures: true,
+    });
+    expect(updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'active',
+        next_run: nextRun,
+        consecutive_failures: 1,
+      }),
+      { incrementConsecutiveFailures: true },
+    );
+  });
+
+  it('keeps a failed once job on its retry backoff', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2024-01-01T00:30:00.000Z'));
+    try {
+      const { deps, updateJob } = makeDeps();
+      const state = await finalizeSchedulerJobRun({
+        currentJob: makeJob({ schedule_type: 'once', schedule_value: 'once' }),
+        deps,
+        scheduledFor: '2024-01-01T00:30:00.000Z',
+        now: '2024-01-01T00:30:01.000Z',
+        error: 'Runner failed.',
+        diagnostics: createJobRunDiagnostics(),
+        pausedForSetupDuringRun: false,
+        deletedDuringRun: false,
+        runtimeAppId: 'default',
+        runId: 'run-once-failure',
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        listRuntimeEvents: listDenialEvents(),
+      });
+
+      expect(state.nextRun).toBe('2024-01-01T00:30:01.000Z');
+      expect(updateJob).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({
+          status: 'active',
+          next_run: '2024-01-01T00:30:01.000Z',
+        }),
+        { incrementConsecutiveFailures: true },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('AUTODET-1-2 > pause card renders grant-naming reason', async () => {
     const { deps, sendMessage } = makeDeps();
     const diagnostics = createJobRunDiagnostics();
