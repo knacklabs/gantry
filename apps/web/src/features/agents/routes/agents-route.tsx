@@ -27,6 +27,12 @@ export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
   const roles = useQuery(roleDirectoryQuery({ page: 1, search: '' }));
+  const builtInRoles = useQuery(
+    roleDirectoryQuery({ page: 1, search: '', kind: 'built-in' }),
+  );
+  const customRoles = useQuery(
+    roleDirectoryQuery({ page: search.page, search: search.q, kind: 'custom' }),
+  );
   const directory = useQuery(
     agentDirectoryQuery({
       page: search.page,
@@ -110,10 +116,14 @@ export function AgentsRoute() {
 
       {search.tab === 'roles' ? (
         <RolesLibrary
-          data={roles.data}
-          error={roles.isError}
-          loading={roles.isLoading}
-          onRetry={() => void roles.refetch()}
+          builtIns={builtInRoles.data}
+          data={customRoles.data}
+          error={builtInRoles.isError || customRoles.isError}
+          loading={builtInRoles.isLoading || customRoles.isLoading}
+          onRetry={() => {
+            void builtInRoles.refetch();
+            void customRoles.refetch();
+          }}
         />
       ) : (
         <>

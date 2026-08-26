@@ -8,7 +8,6 @@ import {
 } from '../../../lib/auth/browser-auth';
 import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
-import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import {
   AlertDialog,
@@ -33,11 +32,13 @@ import type { BrowserPage, BrowserRole } from '../agents-queries';
 
 export function RolesLibrary({
   data,
+  builtIns,
   error,
   loading,
   onRetry,
 }: {
   data: BrowserPage<BrowserRole> | undefined;
+  builtIns?: BrowserPage<BrowserRole>;
   error: boolean;
   loading: boolean;
   onRetry: () => void;
@@ -137,73 +138,113 @@ export function RolesLibrary({
         </Button>
       }
     >
-      <div className="grid max-h-[calc(100vh-20rem)] gap-3 overflow-y-auto p-4 sm:grid-cols-2">
-        {data?.data.map((role) => (
-          <article
-            className="grid gap-3 rounded-lg border border-border p-4"
-            key={role.id}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="m-0 text-sm font-semibold text-text">
+      <section className="grid gap-3 border-b border-border p-4">
+        <h2 className="m-0 text-sm font-semibold">Built-in roles</h2>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {builtIns?.data.map((role) => (
+            <details
+              className="rounded-md border border-border p-3"
+              key={role.id}
+            >
+              <summary className="cursor-pointer text-sm font-medium">
                 {role.name}
-              </h2>
-              <Badge
-                variant={role.kind === 'built-in' ? 'secondary' : 'outline'}
+              </summary>
+              <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-5 text-text-secondary">
+                {role.prompt}
+              </pre>
+              <Button
+                className="mt-3"
+                variant="secondary"
+                onClick={() => start(role, true)}
               >
-                {role.kind === 'built-in' ? 'Built-in' : 'Custom'}
-              </Badge>
-            </div>
-            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-surface-muted p-3 text-xs leading-5 text-text-secondary">
-              {role.prompt}
-            </pre>
-            {role.kind === 'custom' ? (
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={() => start(role)}>
-                  <Pencil size={15} aria-hidden="true" />
-                  Edit
-                </Button>
-                <Button variant="secondary" onClick={() => start(role, true)}>
-                  <Copy size={15} aria-hidden="true" />
-                  Duplicate
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive">
-                      <Trash2 size={15} aria-hidden="true" />
-                      Delete role
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete {role.name}?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Existing agents keep their saved role snapshot. This
-                        only removes the role from future selection.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel asChild>
-                        <Button variant="secondary">Cancel</Button>
-                      </AlertDialogCancel>
-                      <Button
-                        disabled={remove.isPending}
-                        variant="destructive"
-                        onClick={() => remove.mutate(role.id)}
-                      >
-                        Delete role
-                      </Button>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            ) : (
-              <Button variant="secondary" onClick={() => start(role, true)}>
-                <Copy size={15} aria-hidden="true" />
-                Make custom copy
+                <Copy size={15} aria-hidden="true" /> Make custom copy
               </Button>
-            )}
-          </article>
-        ))}
+            </details>
+          ))}
+        </div>
+      </section>
+      <div className="max-h-[calc(100vh-28rem)] overflow-auto p-4">
+        <h2 className="mb-3 text-sm font-semibold">Custom roles</h2>
+        <table className="w-full min-w-[680px] text-left text-sm">
+          <thead className="sticky top-0 bg-surface-muted text-xs text-text-secondary">
+            <tr>
+              <th className="p-3">Role</th>
+              <th className="p-3">Source</th>
+              <th className="p-3">Prompt</th>
+              <th className="p-3">Updated</th>
+              <th className="p-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data?.data.map((role) => (
+              <tr className="border-t border-border" key={role.id}>
+                <td className="p-3 font-medium">{role.name}</td>
+                <td className="p-3 text-text-secondary">
+                  {role.sourceRoleId ?? '—'}
+                </td>
+                <td className="max-w-64 truncate p-3 text-text-secondary">
+                  {role.prompt}
+                </td>
+                <td className="p-3 text-text-secondary">
+                  {role.updatedAt ?? '—'}
+                </td>
+                <td className="p-3">
+                  <div className="flex gap-2">
+                    <Button variant="secondary" onClick={() => start(role)}>
+                      <Pencil size={15} aria-hidden="true" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => start(role, true)}
+                    >
+                      <Copy size={15} aria-hidden="true" />
+                      Duplicate
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive">
+                          <Trash2 size={15} aria-hidden="true" />
+                          Delete role
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Delete {role.name}?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Existing agents keep their saved role snapshot. This
+                            only removes the role from future selection.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel asChild>
+                            <Button variant="secondary">Cancel</Button>
+                          </AlertDialogCancel>
+                          <Button
+                            disabled={remove.isPending}
+                            variant="destructive"
+                            onClick={() => remove.mutate(role.id)}
+                          >
+                            Delete role
+                          </Button>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!loading && !data?.data.length ? (
+              <tr>
+                <td className="p-6 text-center text-text-secondary" colSpan={5}>
+                  No custom roles yet.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
