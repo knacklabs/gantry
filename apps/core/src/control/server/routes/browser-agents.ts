@@ -8,6 +8,8 @@ import type { ConsoleRole } from '../../../application/auth/auth-foundations.js'
 import { isRecentlyReauthenticated } from '../../../application/auth/auth-foundations.js';
 import type {
   Agent,
+  AgentConfigVersion,
+  AgentConfigVersionId,
   AgentId,
   CustomRoleId,
 } from '../../../domain/agent/agent.js';
@@ -115,6 +117,26 @@ function builtInRoles(): BrowserRole[] {
     prompt: builtInRolePrompt(persona, 'full'),
     kind: 'built-in',
   }));
+}
+
+async function roleSnapshotFor(
+  storage: ReturnType<typeof getRuntimeStorage>,
+  appId: AppId,
+  roleId: string,
+) {
+  const builtIn = builtInRoles().find((role) => role.id === roleId);
+  if (builtIn)
+    return {
+      displayName: builtIn.name,
+      prompt: builtIn.prompt,
+      sourceRoleId: builtIn.id,
+    };
+  const role = await storage.repositories.customRoles.getCustomRole(
+    roleId as CustomRoleId,
+  );
+  if (!role || role.appId !== appId)
+    throw new Error('Selected role not found.');
+  return new CustomRoleService(storage.repositories.customRoles).snapshot(role);
 }
 
 function validName(value: unknown): value is string {
@@ -267,15 +289,35 @@ export async function handleBrowserAgentRoutes(
           true
         );
       const now = nowIso();
+      const roleId =
+        typeof body.roleId === 'string' ? body.roleId : 'built-in:developer';
+      const configId = `agent-config:${randomUUID()}` as AgentConfigVersionId;
       const agent: Agent = {
         id: `agent:${randomUUID()}` as AgentId,
         appId,
         name: body.name.trim(),
         status: 'active',
+        currentConfigVersionId: configId,
         createdAt: now,
         updatedAt: now,
       };
+      const config: AgentConfigVersion = {
+        id: configId,
+        appId,
+        agentId: agent.id,
+        version: 1,
+        promptProfileRef: 'browser-agent-role-snapshot',
+        roleSnapshot: await roleSnapshotFor(storage, appId, roleId),
+        // The control graph establishes this default profile for an app before
+        // agents are available to configure.
+        llmProfileId: 'llm:default' as AgentConfigVersion['llmProfileId'],
+        toolIds: [],
+        skillIds: [],
+        permissionPolicyIds: [],
+        createdAt: now,
+      };
       await storage.repositories.agents.saveAgent(agent);
+      await storage.repositories.agentConfigs.saveConfigVersion(config);
       await ctx.syncSettingsFromProjection(appId);
       sendJson(res, 201, { agent: await agentView(storage, agent) });
       return true;

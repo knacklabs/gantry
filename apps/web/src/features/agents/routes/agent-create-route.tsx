@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ArrowLeft, ArrowRight, Bot } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
@@ -9,18 +9,22 @@ import {
 } from '../../../lib/auth/browser-auth';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { TextField } from '../../../ui/compositions/text-field';
+import { SelectField } from '../../../ui/compositions/select-field';
 import { Button } from '../../../ui/primitives/button';
+import { roleDirectoryQuery } from '../agents-queries';
 
 export function AgentCreateRoute() {
   const navigate = useNavigate({ from: '/agents/new' });
   const [name, setName] = useState('');
+  const [roleId, setRoleId] = useState('built-in:developer');
+  const roles = useQuery(roleDirectoryQuery({ page: 1, search: '' }));
   const create = useMutation({
     mutationFn: async () => {
       const response = await browserFetch('/ui/api/agents', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, roleId }),
       });
       if (!response.ok) throw new Error('The base agent could not be created.');
       return response.json() as Promise<{ agent: { id: string } }>;
@@ -81,6 +85,15 @@ export function AgentCreateRoute() {
           error={create.isError ? create.error.message : undefined}
           placeholder="Customer research"
           autoFocus
+        />
+        <SelectField
+          label="Role"
+          value={roleId}
+          options={(roles.data?.data ?? []).map((role) => ({
+            value: role.id,
+            label: `${role.name}${role.kind === 'custom' ? ' (custom)' : ''}`,
+          }))}
+          onValueChange={setRoleId}
         />
         <div className="flex justify-end">
           <Button disabled={!name.trim() || create.isPending} type="submit">
