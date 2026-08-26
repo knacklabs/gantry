@@ -1368,6 +1368,180 @@
       "skill": "frontend",
       "depends_on": [],
       "spec": "docs/specs/web-brand-1.md"
+    },
+    {
+      "key": "IDENT-2",
+      "title": "Agent identity: agents as principals",
+      "story": "As an IT admin, I can see and manage every AI agent in the same directory shape as people, so that access, audit, and offboarding read identically for both.",
+      "acceptance_criteria": [
+        "Provider Accounts project to aliases with cross-kind uniqueness; a subject is never both Person and Agent",
+        "Every audit row carries a PrincipalRef actor; no bare 'agent' string remains",
+        "gantry agent offboard retires aliases, removes installs, disables accounts, cancels jobs atomically; agent remove is gated on offboarded",
+        "Agent senders never create a Person, load personal memory, or trigger a run"
+      ],
+      "order": 69,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "IDENTITY-02 section is Proposed in the identity plan doc; needs a confirmed spec"
+    },
+    {
+      "key": "PKG-1",
+      "title": "npm packaging and self-serve install",
+      "story": "As a platform engineer at an outside org, I can install Gantry from npm and reach a running Teams or Slack agent in one afternoon, so that no sales motion is needed to get to production.",
+      "acceptance_criteria": [
+        "One documented npm install path produces a running runtime with Postgres and one agent",
+        "Time-to-first-agent measured on a fresh machine and recorded"
+      ],
+      "order": 70,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
+    },
+    {
+      "key": "RBAC-1",
+      "title": "Roles for people and agents",
+      "story": "As an IT admin, I can assign roles to people and agents from one model, so that there is one RBAC, not two.",
+      "acceptance_criteria": [
+        "Role assignment targets a PrincipalRef of either kind",
+        "Identity adds no tool authority; tool permissions stay on agentId"
+      ],
+      "order": 71,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "V1 cut agreed 2026-08-26; depends on IDENT-2 spec"
+    },
+    {
+      "key": "HITL-1",
+      "title": "In-chat approvals: Teams Adaptive Cards and web",
+      "story": "As an approver, I can approve or reject an agent's risky action from Teams or the web console, so that human-in-the-loop lives where the team already works.",
+      "acceptance_criteria": [
+        "An approval raised by an agent renders as a Teams Adaptive Card and a web console item; both resolve the same durable approval",
+        "Approval outcomes are audited with the approver's PrincipalRef"
+      ],
+      "order": 72,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
+    },
+    {
+      "key": "DIR-UI-1",
+      "title": "Directory UI: agents, access, audit, offboard",
+      "story": "As an IT admin, I can open a directory of AI employees, see each one's seats and access, read its audit trail, and offboard it with one action, so that agents are managed like people.",
+      "acceptance_criteria": [
+        "Directory lists agents with aliases, installs, and status",
+        "Offboard action calls the atomic offboard use case and shows the audit row"
+      ],
+      "order": 73,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "frontend",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "V1 cut agreed 2026-08-26; depends on IDENT-2"
+    },
+    {
+      "key": "CONN-GSUITE-1",
+      "title": "Google Workspace connector",
+      "story": "As an IT admin, I can grant an AI employee scoped Google Workspace access (Gmail, Drive, Calendar) through OAuth, so that 'only the access they need' is demonstrable on the tool every org has.",
+      "acceptance_criteria": [
+        "Per-agent OAuth grant with explicit scopes; tokens via secret refs, never in settings or logs",
+        "Every Workspace tool call passes the permission gate and is audited"
+      ],
+      "order": 74,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
+    },
+    {
+      "key": "IDENT-3",
+      "title": "Phone-number alias kind",
+      "story": "As an operator, I can resolve a WhatsApp or voice caller to a Person through a verified phone alias, so that phone channels get the same identity model as chat.",
+      "acceptance_criteria": [
+        "Verified phone alias kind with possession proof; no admin bypass",
+        "Unverified callers stay anonymous and conversation-scoped"
+      ],
+      "order": 75,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Deferred slice from IDENTITY-01; required by WA-1 and VOICE-1 (V1.1)"
+    },
+    {
+      "key": "WA-1",
+      "title": "WhatsApp provider (V1.1)",
+      "story": "As a customer-facing team, I can give an AI employee a WhatsApp Business seat, so that the same governed agent serves customers on WhatsApp.",
+      "acceptance_criteria": [
+        "WhatsApp Business Platform Provider Account per agent; callers resolve via IDENT-3 or stay anonymous",
+        "Same permission gate, audit actor, and offboarding as other providers"
+      ],
+      "order": 76,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-3"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "V1.1 per 2026-08-26 cut; no spec yet"
+    },
+    {
+      "key": "VOICE-1",
+      "title": "Voice provider adapter (V1.1)",
+      "story": "As a customer-facing team, I can give an AI employee a phone line, so that the same governed agent answers calls under the same identity, permissions, and audit.",
+      "acceptance_criteria": [
+        "Existing voice engine consumed as a dependency behind a provider: voice adapter; no voice contract in core",
+        "Mid-call approvals route to Teams/Slack/web; permission timeout never proceeds",
+        "gantry agent offboard disables the voice Provider Account"
+      ],
+      "order": 77,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "backend",
+      "depends_on": [
+        "IDENT-2",
+        "IDENT-3"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "ADR 0136 accepted; adapter must target IDENT-2 contract"
+    },
+    {
+      "key": "DOCS-1",
+      "title": "Onboard/access/audit/offboard documentation spine",
+      "story": "As an IT lead evaluating Gantry, I can read how to onboard, scope, audit, and offboard an AI employee end to end, so that I can get security sign-off without a call.",
+      "acceptance_criteria": [
+        "Docs are organised as onboard -> access -> audit -> offboard with Teams and Slack quickstarts",
+        "A SECURITY page states threat model, locked posture, audit schema, and egress list"
+      ],
+      "order": 78,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "V1 cut agreed 2026-08-26; no spec yet"
     }
   ],
   "epics": [
@@ -1461,8 +1635,18 @@
       "source_refs": [
         "docs/specs/authentication-access-web-ui.md"
       ]
+    },
+    {
+      "id": "ai-employee-v1",
+      "title": "AI employee V1: onboard, scope, audit, offboard",
+      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon",
+      "source_refs": [
+        "docs/product/BRIEF.md",
+        "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
+        "docs/decisions/0136-voice-as-provider-adapter.md"
+      ]
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-25T18:09:52+00:00"
+  "updated_at": "2026-08-26T10:06:32+00:00"
 }
