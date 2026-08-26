@@ -30,21 +30,46 @@
         }
       },
       "task_sha256": "9cc9f0d961a16e1de7d12e67996dd8d99b10a383aa05a242bc364f7473a2733d",
-      "local_review_stamp": {
-        "stage_id": "AGENTS-WEB-1-1",
-        "task_sha256": "9cc9f0d961a16e1de7d12e67996dd8d99b10a383aa05a242bc364f7473a2733d",
-        "brief_sha256": "308d110394afa778c7e9f994e5ccd6f41ea5fd16e99dd536f5ca327d5f6e6bb9",
-        "base_sha": "6047a3dc890922968e8e8b4785af171825d65bfd",
-        "product_tree_digest": "6f11b8ca5ce8e78117537c1392f5fab6de0a9a23bfcab22144bfe2968b00d895",
-        "recorded_at": "2026-08-26T18:13:16+00:00",
-        "generated_by": "autoreview"
-      },
       "completed_at": "2026-08-26T18:13:36+00:00"
     },
     {
       "id": "AGENTS-WEB-1-2",
       "title": "Expose truthful agent and role browser projections",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-08-26T18:15:53+00:00",
+      "base_sha": "1786e91a7f9798339c956541e464de2576a80222",
+      "dirty_at_start": {
+        ".factory/events/3bd483e92d9340c9bf90a626592ce621.json": {
+          "digest": "63beb8bccabe5549ec909130968b49b3018e4a5de061c4065d4d5a29ca172586",
+          "git": "? .factory/events/3bd483e92d9340c9bf90a626592ce621.json\u0000\u0000\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "0cc8a8402225cea1e77109cab5cbadea80aab6ce736995223f3fa700947d818a",
+          "git": "1 .M N... 100644 100644 100644 9295aa2f9812f7412c1d11412f026971110d5147 9295aa2f9812f7412c1d11412f026971110d5147 .factory/stages.json\u0000\u0000100644 9295aa2f9812f7412c1d11412f026971110d5147 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        },
+        ".factory/stories/AGENTS-WEB-1/decomposition.json": {
+          "digest": "993bd9a485989483f3c511c8c920ebfb04fdbb710a9e8d5e9c57dd1cc3c8928e",
+          "git": "1 .M N... 100644 100644 100644 ca46e1583b7e4bed81baaef97f35b92a61829ce4 ca46e1583b7e4bed81baaef97f35b92a61829ce4 .factory/stories/AGENTS-WEB-1/decomposition.json\u0000\u0000100644 ca46e1583b7e4bed81baaef97f35b92a61829ce4 0\t.factory/stories/AGENTS-WEB-1/decomposition.json\u0000\u0000H .factory/stories/AGENTS-WEB-1/decomposition.json\u0000"
+        },
+        ".factory/stories/AGENTS-WEB-1/grills/tasks/AGENTS-WEB-1-2.json": {
+          "digest": "67324964908614e1be018057d720bcf872784e7d577885ec34698949518348c1",
+          "git": "? .factory/stories/AGENTS-WEB-1/grills/tasks/AGENTS-WEB-1-2.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/AGENTS-WEB-1/task-plans/AGENTS-WEB-1-2.md": {
+          "digest": "109f652c2125ebf9c0c72ffd9cc82f5dc5e3ec3afa660f5c721ed827a0cea798",
+          "git": "? .factory/stories/AGENTS-WEB-1/task-plans/AGENTS-WEB-1-2.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "c70235646d66dca5f46ea78043e30399778b911a14bf330e5f59a05408fb62aa",
+      "local_review_stamp": {
+        "stage_id": "AGENTS-WEB-1-2",
+        "task_sha256": "c70235646d66dca5f46ea78043e30399778b911a14bf330e5f59a05408fb62aa",
+        "brief_sha256": "",
+        "base_sha": "1786e91a7f9798339c956541e464de2576a80222",
+        "product_tree_digest": "a368ceff68854567cc319c0d67f5c0615d68db51c3e806a91fa5109d109cf367",
+        "recorded_at": "2026-08-26T18:21:55+00:00",
+        "generated_by": "autoreview"
+      }
     },
     {
       "id": "AGENTS-WEB-1-3",

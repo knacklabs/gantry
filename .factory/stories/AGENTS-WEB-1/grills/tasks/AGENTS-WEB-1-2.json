@@ -1,0 +1,49 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "The facade stays same-origin and session-authenticated; existing Bearer routes remain untouched.",
+    "Directory pagination and filtering are server-owned and app-scoped, not browser-side fixture filtering.",
+    "The facade projects existing source and authority facts without creating a second lifecycle or mutation owner."
+  ],
+  "inspected_refs": [
+    "apps/core/src/control/server/routes/browser-mcp-servers.ts",
+    "apps/core/src/control/server/routes/browser-model-providers.ts",
+    "apps/core/src/control/server/routes/browser-auth.ts",
+    "apps/core/src/control/server/routes/agents.ts",
+    "docs/architecture/capability-management.md",
+    "docs/decisions/0019-simple-permission-and-job-tool-lifecycle.md"
+  ],
+  "current_flow": "The completed browser facade now provides session-bound app-scoped agent and role projections; its direct dependencies remain the existing Agent and CustomRole persistence/services.",
+  "criteria_map": {
+    "Agent and custom-role lists support server-owned pagination, search, filters, sorting, and truthful totals.": "The facade adds explicit query DTOs and repository-backed app-scoped projections.",
+    "Browser routes enforce session, Administrator, Origin, CSRF, and reauthentication policy without exposing Bearer access or raw records.": "The route follows the browser-auth helpers and dedicated browser scope policy.",
+    "Source attachment, capability authority, profile versions, and agent disablement preserve their existing service-owned meanings.": "The facade calls existing services and emits sanitized representations rather than persisting alternate state."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "A narrow browser-only DTO projection is required to keep raw persistence and credentials out of the web client."
+  ],
+  "rounds": [],
+  "citations": [
+    {
+      "finding": "Existing browser routes separate session reads from admin mutations.",
+      "source": "apps/core/src/control/server/routes/browser-mcp-servers.ts:handleBrowserMcpServerRoutes"
+    },
+    {
+      "finding": "Sources and capabilities have deliberately different durable meanings.",
+      "source": "docs/architecture/capability-management.md:Capability Management"
+    }
+  ],
+  "open_items": [],
+  "task_id": "AGENTS-WEB-1-2",
+  "input_sha256": "1ee7f51fc61c90e3240e23dba3f07f24fb6f7cf75bd14de3b1cc59ce6c1f822f",
+  "recorded_at": "2026-08-26T18:22:13+00:00",
+  "commit": "91bbd2a80f33ba8fa975c60d193f171afa65b7fa",
+  "approved_task_plan_sha256": "3d9d2726380126daa03d85f09eeaf8bec9518f6c32ecb518eb7450f0aa751a5a",
+  "approved_by": "Ravi",
+  "approved_at": "2026-08-26T18:22:14+00:00"
+}

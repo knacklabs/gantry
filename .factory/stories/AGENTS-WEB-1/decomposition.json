@@ -86,7 +86,57 @@
       "dependencies": [
         "AGENTS-WEB-1-1"
       ],
-      "user_facing": false
+      "user_facing": false,
+      "write_scope": [
+        "packages/contracts/src/agents",
+        "apps/core/src/control/server/routes/browser-agents.ts",
+        "apps/core/src/control/server/routes/browser-agents.test.ts",
+        "apps/core/src/control/server/index.ts",
+        "apps/core/src/application/agents",
+        "apps/core/src/domain/ports/repositories.ts",
+        "apps/core/src/adapters/storage/postgres/repositories",
+        "apps/core/test/unit/control/server"
+      ],
+      "verify_commands": [
+        "npm run build:contracts",
+        "npm run typecheck",
+        "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/control/server"
+      ],
+      "required_tests": [
+        {
+          "id": "browser agents facade > paginates app-scoped directory results and rejects cross-app access",
+          "path": "apps/core/test/unit/control/server/browser-agents.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        },
+        {
+          "id": "browser agents facade > requires Administrator, Origin, CSRF, and reauthentication for mutations",
+          "path": "apps/core/test/unit/control/server/browser-agents.test.ts",
+          "command": "VITEST_JUNIT=1 FORGE_TEST_ID={id} npx vitest run -c vitest.unit.config.ts {path} --outputFile {report}"
+        }
+      ],
+      "reviewer_focus": "Session versus Bearer separation, sanitised DTOs, server-owned pagination, app isolation, and source visibility remaining distinct from durable capability authority.",
+      "review_budget": {
+        "max_changed_files": 15,
+        "max_changed_lines": 1500,
+        "reason": "The browser facade crosses contracts, route registration, application/repository read projections, and focused auth/pagination tests while preserving existing service ownership."
+      },
+      "plan_contracts": [
+        {
+          "id": "agents-web-browser-pagination",
+          "statement": "Agent and custom-role lists support server-owned pagination, search, filters, sorting, and truthful totals.",
+          "source": "plans/active/AGENTS-WEB-1-build-truthful-agents-management-ui.md#Acceptance Criteria"
+        },
+        {
+          "id": "agents-web-browser-security-boundary",
+          "statement": "Browser routes enforce session, Administrator, Origin, CSRF, and reauthentication policy without exposing Bearer access or raw records.",
+          "source": "plans/active/AGENTS-WEB-1-build-truthful-agents-management-ui.md#Acceptance Criteria"
+        },
+        {
+          "id": "agents-web-lifecycle-preservation",
+          "statement": "Source attachment, capability authority, profile versions, and agent disablement preserve their existing service-owned meanings.",
+          "source": "plans/active/AGENTS-WEB-1-build-truthful-agents-management-ui.md#Acceptance Criteria"
+        }
+      ]
     },
     {
       "id": "AGENTS-WEB-1-3",
@@ -149,5 +199,5 @@
   ],
   "linear_plan": [],
   "plan_sha256": "6b11615e428b3017886fe6a308facac7abedf91422c617662082f86318a78625",
-  "commit": "975af351bfd8b7b5fb9396f47f3f147ece2d820d"
+  "commit": "1786e91a7f9798339c956541e464de2576a80222"
 }
