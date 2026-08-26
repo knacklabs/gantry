@@ -2,8 +2,9 @@
 slug: phone-channels-and-cost-cap
 title: Customer support assistant: phone identity, WhatsApp, human handoff; voice and hard cost caps
 status: confirmed
-saved: 2026-08-26T11:34:48+00:00
+saved: 2026-08-26T11:43:45+00:00
 ---
+
 
 
 
@@ -48,7 +49,8 @@ conversation in Teams or Slack with a bounded context packet; a human claims it
 and replies through the agent's WhatsApp seat as themselves; resume returns the
 thread to the agent with the human turns in context. The customer is told who
 they are talking to at each switch. Every handoff, claim, human turn, and resume
-is audited with the human's `PrincipalRef`. Outbound messages after Meta's
+is audited with the human's `PrincipalRef`. The console shows a read-only
+Handoffs view for administrators and approvers; claiming stays in chat. Outbound messages after Meta's
 24-hour window use approved templates managed as desired state.
 
 ### Voice (V1.1)
@@ -80,6 +82,7 @@ delivery; cap raisable from the directory. Tokens, not USD.
   - Handoff card (reusing the approval card path) posted to the configured support conversation in Teams or Slack with a bounded context packet; a human claims it and replies through the agent's WhatsApp seat as themselves
   - Resume returns the conversation to the agent with the human's turns in context; the customer is told who they are talking to at each switch
   - Every handoff, claim, human turn, and resume is audited with the human's PrincipalRef; outbound after Meta's 24-hour window uses approved templates
+  - Read-only Handoffs view in the console (open, claimed, resumed; who and when) via /ui/api/handoffs for administrator and approver; claiming stays in Teams/Slack
 - **VOICE-1** — Voice provider adapter
   - Existing voice engine consumed as a dependency behind a provider: voice adapter; no voice contract in core
   - Mid-call approvals route to Teams/Slack/web; permission timeout never proceeds

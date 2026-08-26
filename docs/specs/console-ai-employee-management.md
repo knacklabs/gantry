@@ -2,8 +2,9 @@
 slug: console-ai-employee-management
 title: Console: onboarding, people, connector accounts, access editing
 status: confirmed
-saved: 2026-08-26T11:22:26+00:00
+saved: 2026-08-26T11:43:45+00:00
 ---
+
 
 # Console: onboarding, people, connector accounts, access editing
 
@@ -43,10 +44,13 @@ The browser never receives a secret value. A write-only ingest facade stores a
 submitted value in the Gantry secret provider and returns only its reference
 (decision 0143); existing `env:` and `aws-sm:` references are selected by name.
 
-### People (V1.0)
+### Directory and People (V1.0)
 
-`/people` and `/people/:id` become live: list, detail, aliases with verification
-state, kind. Offboard is administrator-only with hosted re-authentication and an
+There is one Directory: people and AI employees in a single list with a kind
+filter (People | AI employees), search, and URL state; the `/agents` and `/people`
+previews are replaced. Audit and Approvals tabs render only for administrators
+and approvers; viewers see Overview and Access. Person detail shows aliases with
+verification state and kind. Offboard is administrator-only with hosted re-authentication and an
 exact-name confirmation; it calls the person offboard use case and shows the audit
 row. Service-kind Persons link to their agent.
 
@@ -63,6 +67,19 @@ are never shown.
 The agent's Access tab becomes editable — access document, tool rules, capability
 grants, MCP bindings — as desired-state revisions with visible audit rows.
 
+### Handoffs view (V1.0.x)
+
+A read-only Handoffs view (open, claimed, resumed; who and when) for
+administrators and approvers; claiming stays in Teams/Slack, consistent with no
+console approval authority in V1.
+
+### Design pass first
+
+DESIGN-1 produces one approved mockup canvas — Directory, agent and person
+detail, onboarding wizard, Handoffs, offboard confirmation, light and dark — in
+the console's existing design system. DIR-UI-1 and ONBOARD-UI-1 are planned from
+those mockups plus this spec.
+
 ### Facade rules
 
 All surfaces follow decisions 0132/0135: same-origin `/ui/api/*`, viewer read and
@@ -74,13 +91,17 @@ toast system — inline receipts.
 
 ## Acceptance criteria
 
+- **DESIGN-1** — Console design pass: directory, detail, wizard, people, handoffs
+  - One design canvas with: unified Directory list (kind filter People | AI employees), agent detail with tabs (Overview, Access, Audit, Approvals, Usage), person detail, onboarding wizard screens, Handoffs view, offboard confirmation; light and dark
+  - Uses existing console primitives and tokens; no new component library
+  - Approved by the product owner before DIR-UI-1 and ONBOARD-UI-1 are planned; mockups linked from their plans
 - **ONBOARD-UI-1** — Onboarding wizard: create agent, seat, scope, approvers
   - Screens: Employee (name, model alias, access preset full|locked default full, harness auto), Channel seat (provider, label, secret references via SecretRefField, provider validation), Scope (discover or enter conversation id, memory scope default conversation, trigger), Approvals (one or more resolvable approvers), Review and activate
   - Facades: POST /ui/api/agents (creates agent + service Person + desired-state entry atomically), /ui/api/provider-accounts, /ui/api/provider-accounts/:id/discover-conversations, /ui/api/agents/:id/conversation-installs, /ui/api/conversations/:id/approvers — administrator, Origin+CSRF, hosted reauth, audit
   - Write-only secret ingest endpoint stores a Gantry-held secret and returns only its reference; the browser never receives a secret value (decision 0143)
   - Persona/profile editing, non-default harness, provider secret rotation, and Slack/Teams discovery beyond manual id may stay CLI in V1.0 and are labelled so
-- **PEOPLE-UI-1** — People: live list, detail, offboard
-  - /people and /people/:id replaced from preview to live via /ui/api/people list/get (viewer read)
+- **PEOPLE-UI-1** — People in the Directory: detail, aliases, offboard
+  - People appear in the unified Directory (kind = People) via /ui/api/people; person detail replaces the /people/:id preview
   - Offboard action (administrator, hosted reauth, exact-name confirmation dialog) calls the IDENT-4 use case and shows the audit row
   - Service-kind Persons link to their agent detail; humans show verified/unverified/retired aliases
 - **UI-CONN-ACCOUNTS-1** — Connector Accounts page: add, connect OAuth, health, revoke
@@ -96,4 +117,4 @@ toast system — inline receipts.
 ## Source
 
 Console UI sweep 2026-08-26 (docs/architecture/ai-employee-v1-gap-analysis.md, Part
-2); decisions 0132, 0135, 0142, 0143. Stories: ONBOARD-UI-1, PEOPLE-UI-1, UI-CONN-ACCOUNTS-1, ACCESS-UI-1.
+2); decisions 0132, 0135, 0142, 0143. Stories: DESIGN-1, ONBOARD-UI-1, PEOPLE-UI-1, UI-CONN-ACCOUNTS-1, ACCESS-UI-1. UI grill 2026-08-26: one Directory, audit for administrators/approvers, read-only Handoffs, design pass first.

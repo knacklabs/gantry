@@ -1462,13 +1462,15 @@
     },
     {
       "key": "DIR-UI-1",
-      "title": "Directory UI: agents, access, audit, offboard (V1.0)",
-      "story": "As an IT admin, I can open a directory of AI employees, see each one's seats and access, read its audit trail, and offboard it with one action, so that agents are managed like people.",
+      "title": "Directory UI: one list for people and AI employees, detail, offboard (V1.0)",
+      "story": "As an IT admin, I open one Directory of people and AI employees, filter by kind, open either kind's detail, and pause, assign, or offboard from there, so that agents are managed like people in the same place.",
       "acceptance_criteria": [
-        "/agents replaced from preview to the live directory: filters, URL state, paged table, empty state (people-route pattern); heading 'AI employees'",
+        "One Directory route replaces the /agents and /people previews: kind filter chips People | AI employees, search, URL state, paged table, empty state; heading 'Directory'",
         "Agent detail tabs read-only in V1.0: Overview, Access (preset, tool rules, grants, sources, connector accounts), Audit (live activity filtered to the agent), Approvals (pending interactions and recent decisions, read-only)",
         "Detail is the control surface: owner assignment, approver assignment, pause/resume (owner or administrator), offboard (administrator, hosted reauth, exact-name confirmation, shows the audit row); directory row exposes pause/resume as a quick action only",
-        "Uses existing primitives (PageHeader, Panel, DataTable, Dialog/AlertDialog, PageState); no toast system \u2014 inline receipts"
+        "Uses existing primitives (PageHeader, Panel, DataTable, Dialog/AlertDialog, PageState); no toast system \u2014 inline receipts",
+        "Audit and Approvals tabs render only for administrator and approver roles; viewers see Overview and Access",
+        "Built from the DESIGN-1 approved mockups"
       ],
       "order": 73,
       "status": "pending",
@@ -1476,7 +1478,8 @@
       "skill": "frontend",
       "depends_on": [
         "IDENT-2",
-        "UIFACADE-1"
+        "UIFACADE-1",
+        "DESIGN-1"
       ],
       "origin": "adhoc",
       "spec": "docs/specs/ai-employee-directory.md"
@@ -1723,7 +1726,8 @@
         "/ui/api/agents/:id and /:id/{installs,access,audit,approvals} read; /:id/status PATCH (pause|resume), /:id/owner PATCH, /:id/approvers PATCH, /:id/offboard POST \u2014 administrator or owner where the spec allows, Origin+CSRF, hosted reauth, audit",
         "/ui/api/activity: live unified audit rows (time, actor PrincipalRef, action, target, conversation, outcome, source) across runtime_events, permission_audit_events, permission_decisions, mcp_server_audit_events, with agentId filter added to each source",
         "/ui/api/people list/get; /ui/api/usage wrapping /v1/usage",
-        "Scopes classified in browser-scope-policy per decision 0132; boundary tests under apps/core/test/unit/auth/"
+        "Scopes classified in browser-scope-policy per decision 0132; boundary tests under apps/core/test/unit/auth/",
+        "/ui/api/agents/:id/audit and /:id/approvals require administrator or approver; /ui/api/activity likewise; scope policy classifies them so"
       ],
       "order": 86,
       "status": "pending",
@@ -1809,17 +1813,18 @@
       "depends_on": [
         "UIFACADE-1",
         "IDENT-2",
-        "TEAMS-1"
+        "TEAMS-1",
+        "DESIGN-1"
       ],
       "origin": "adhoc",
       "spec": "docs/specs/console-ai-employee-management.md"
     },
     {
       "key": "PEOPLE-UI-1",
-      "title": "People: live list, detail, offboard (V1.0)",
+      "title": "People in the Directory: detail, aliases, offboard (V1.0)",
       "story": "As an IT admin, I see the people the AI employees work with, their aliases and status, and offboard a person who has left, so that human offboarding is one action in the same directory.",
       "acceptance_criteria": [
-        "/people and /people/:id replaced from preview to live via /ui/api/people list/get (viewer read)",
+        "People appear in the unified Directory (kind = People) via /ui/api/people; person detail replaces the /people/:id preview",
         "Offboard action (administrator, hosted reauth, exact-name confirmation dialog) calls the IDENT-4 use case and shows the audit row",
         "Service-kind Persons link to their agent detail; humans show verified/unverified/retired aliases"
       ],
@@ -1882,7 +1887,8 @@
         "Handoff triggers: customer asks for a person, the agent declares it cannot resolve, or a conversation policy rule fires; the agent pauses in that conversation only",
         "Handoff card (reusing the approval card path) posted to the configured support conversation in Teams or Slack with a bounded context packet; a human claims it and replies through the agent's WhatsApp seat as themselves",
         "Resume returns the conversation to the agent with the human's turns in context; the customer is told who they are talking to at each switch",
-        "Every handoff, claim, human turn, and resume is audited with the human's PrincipalRef; outbound after Meta's 24-hour window uses approved templates"
+        "Every handoff, claim, human turn, and resume is audited with the human's PrincipalRef; outbound after Meta's 24-hour window uses approved templates",
+        "Read-only Handoffs view in the console (open, claimed, resumed; who and when) via /ui/api/handoffs for administrator and approver; claiming stays in Teams/Slack"
       ],
       "order": 94,
       "status": "pending",
@@ -1894,6 +1900,23 @@
       ],
       "origin": "adhoc",
       "spec": "docs/specs/phone-channels-and-cost-cap.md"
+    },
+    {
+      "key": "DESIGN-1",
+      "title": "Console design pass: directory, detail, wizard, people, handoffs (V1.0)",
+      "story": "As the team building four console stories, I work from one approved set of mockups in the console's existing design system, so that the directory, detail, onboarding wizard, and handoffs view look and behave like one product.",
+      "acceptance_criteria": [
+        "One design canvas with: unified Directory list (kind filter People | AI employees), agent detail with tabs (Overview, Access, Audit, Approvals, Usage), person detail, onboarding wizard screens, Handoffs view, offboard confirmation; light and dark",
+        "Uses existing console primitives and tokens; no new component library",
+        "Approved by the product owner before DIR-UI-1 and ONBOARD-UI-1 are planned; mockups linked from their plans"
+      ],
+      "order": 95,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "frontend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/console-ai-employee-management.md"
     }
   ],
   "epics": [
@@ -1991,7 +2014,7 @@
     {
       "id": "ai-employee-v1",
       "title": "AI employee V1: onboard, scope, audit, offboard",
-      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap",
+      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap. Console: one Directory for people and AI employees; audit visible to administrators and approvers; handoffs viewable in console, claimed in chat; design pass before UI stories",
       "source_refs": [
         "docs/product/BRIEF.md",
         "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
@@ -2001,5 +2024,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-26T11:35:56+00:00"
+  "updated_at": "2026-08-26T11:44:50+00:00"
 }

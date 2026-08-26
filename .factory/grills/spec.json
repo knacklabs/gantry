@@ -2,39 +2,30 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "summary": "Re-grilled 2026-08-26 after adding WhatsApp + human handoff (customer support assistant) to V1.0.x.",
-  "questions_asked": 38,
+  "summary": "phone-channels-and-cost-cap: re-grilled 2026-08-26 after the UI grill (round 9: directory IA, audit access, handoff queue, design pass).",
+  "questions_asked": 42,
   "gaps": [
-    "HITL-1 approval semantics do not cover a human taking over a customer thread",
-    "WhatsApp Business Platform has operational prerequisites (Meta verification, templates, 24h window)",
-    "Phone identity was deferred in IDENTITY-01"
+    "Support leads had no overview of handoffs"
   ],
-  "contradictions": [
-    "Earlier grill placed WhatsApp/phone in V1.1; product decision moves them to V1.0.x"
-  ],
+  "contradictions": [],
   "resolutions": [
-    "HANDOFF-1 defines handoff as pause-and-takeover with claim card, human turns through the agent seat, resume, audit",
-    "WA-1 documents Meta prerequisites as deployment prerequisites; templates as desired state",
-    "IDENT-3 phone alias built once in V1.0.x",
-    "Milestone move recorded in roadmap, BRIEF (second proof), handover; V1.0 video path unchanged"
+    "Read-only Handoffs view in console via /ui/api/handoffs"
   ],
-  "open_items": [
-    "Handoff policy rules (confidence threshold) \u2014 set in HANDOFF-1 plan, non-blocking"
-  ],
+  "open_items": [],
   "rounds": [
     {
-      "round": 8,
-      "questions": "Product decision: WhatsApp + HITL as customer support assistant"
+      "round": 9,
+      "questions": "UI grill: Directory IA, audit access by role, handoffs in console, design pass"
     }
   ],
   "inspected_refs": [
-    "docs/product/BRIEF.md",
-    "docs/architecture/ai-employee-v1-handover.md"
+    "docs/architecture/ai-employee-v1-handover.md",
+    "docs/product/BRIEF.md"
   ],
   "citations": [
     "docs/specs/phone-channels-and-cost-cap.md"
   ],
-  "input_sha256": "8a7c5bbff2417b4d278b2b604644a897836603c62c8df7d4cf08fdc5ee6df808",
-  "recorded_at": "2026-08-26T11:35:55+00:00",
-  "commit": "93eea3a69ff547bd56e531428392ea02aceda11e"
+  "input_sha256": "ee974009abe82ee070d9a7dd8d0ad08edd5c6c208bd63899e8e4e51ac69eb8c0",
+  "recorded_at": "2026-08-26T11:44:49+00:00",
+  "commit": "fef8b09668af0e74887edb97e6fe4720257eef09"
 }
