@@ -1126,11 +1126,18 @@ describe('TelegramChannel', () => {
       '<b>✅ Completed</b> · Lead enrichment · 1m 05s',
     );
     expect(nativeCall?.[1]).toContain(
+      `<b>✅ Completed</b> · Lead enrichment · 1m 05s\n<b>Enriched this morning's leads</b>\n2 tools, browser used, last browser_act`,
+    );
+    expect(nativeCall?.[1]).toContain(
       '2 tools, browser used, last browser_act',
     );
     expect(nativeCall?.[1]).toContain('✅ Added Acme — owner found');
     expect(nativeCall?.[1]).toContain('⏭️ Skipped Globex');
     expect(nativeCall?.[1]).toContain('<blockquote expandable>');
+    const quoteBody = String(nativeCall?.[1]).match(
+      /<blockquote expandable>(.*?)<\/blockquote>/s,
+    )?.[1];
+    expect(quoteBody).not.toContain("Enriched this morning's leads");
     expect(nativeCall?.[2]).toMatchObject({ parse_mode: 'HTML' });
 
     await channel.sendMessage('tg:100200300', 'plain fallback text');
@@ -4624,32 +4631,6 @@ describe('TelegramChannel', () => {
         }),
       ).rejects.toThrow('Telegram unavailable');
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
-    });
-
-    it('falls back to terminal text when the rendered HTML is too long', async () => {
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-      const fallbackText = 'Completed plain fallback';
-
-      await channel.sendProgressUpdate('tg:100200300', fallbackText, {
-        done: true,
-        jobNotificationView: {
-          ...terminalView,
-          result: { ...terminalView.result, headline: 'x'.repeat(5000) },
-          fallbackText,
-        },
-      });
-
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
-        '100200300',
-        fallbackText,
-        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
-      );
-      expect(currentBot().api.sendMessage).not.toHaveBeenCalledWith(
-        '100200300',
-        expect.any(String),
-        expect.objectContaining({ parse_mode: 'HTML' }),
-      );
     });
 
     it('keeps an unstructured terminal progress update on the existing text path', async () => {

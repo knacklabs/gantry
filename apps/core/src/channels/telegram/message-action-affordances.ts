@@ -335,6 +335,9 @@ export function telegramJobNotificationMessage(view: JobNotificationView): {
   const lines = [
     `<b>${status.emoji} ${status.label}</b> · ${escapeTelegramHtml(view.jobName)}${duration}`,
   ];
+  if (view.result?.headline) {
+    lines.push(`<b>${escapeTelegramHtml(view.result.headline)}</b>`);
+  }
   if (view.stats) {
     lines.push(
       `${view.stats.toolCount} tool${view.stats.toolCount === 1 ? '' : 's'}, ${view.stats.browserUsed ? 'browser used' : 'browser not used'}, last ${escapeTelegramHtml(view.stats.lastAction ?? 'none')}`,
@@ -342,9 +345,6 @@ export function telegramJobNotificationMessage(view: JobNotificationView): {
   }
   const body = view.result
     ? [
-        ...(view.result.headline
-          ? [escapeTelegramHtml(view.result.headline)]
-          : []),
         ...view.result.items.map((item) =>
           [
             TELEGRAM_JOB_OUTCOME_MARKER[item.outcome],
