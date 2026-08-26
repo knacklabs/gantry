@@ -1,0 +1,161 @@
+{
+  "event": "done",
+  "id": "Q-0083-0218",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Completion notice edit of the running card shows the summary excerpt but not the per-tool outcome list; the item list only appears on the native fallback send (which no longer fires now that the running card is reliable). Include the structured tool outcome lines in the terminal summary message. Scope: status-formatting.ts, execution-notifications.ts, their tests.",
+  "base_sha": "9b51da8bbd140b8e169b888b9b2f47ff00862e5f",
+  "started_at": "2026-08-26T04:24:00+00:00",
+  "completed_at": "2026-08-26T04:48:29+00:00",
+  "files": [
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/jobs/status-formatting.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Run-again/recovery buttons still trigger a second native message until Q-0084 moves them onto the edit"
+      ],
+      "summary": "One completion message now carries header, outcomes, summary and next run. Lite window Q-0083 (base 9b51da8bb -> HEAD): owner rule ONE terminal message. The edited running card now carries the bounded per-tool outcome lines (same rollup as the native view; itemLabel/itemDetail/items limits reused). Proof: jobs suite 65/709 green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 1 accepted+fixed (length bound), 2 rejected by design (Telegram MarkdownV2 ladder already handles escaping; memory-dreaming compact notice stays minimal), final clean.",
+      "non_blocking_findings": [
+        {
+          "category": "notification-content",
+          "area": "jobs",
+          "summary": "FIXED: tool outcome lines were only visible on the native fallback send"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0083 (terminal notice content only); verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "ad7e1b9aad0b0c98ec08a4776ba34864507236d0a97c2ac643fef7b764d884bf",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "ec4081c703b151e8ca1c365caae315dbbb81a79153058e5756679b2efdc67d18",
+      "recorded_at": "2026-08-26T04:48:28+00:00",
+      "commit": "29577387e0e66df09e5e0112f30179c91403fe98"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Run-again/recovery buttons still trigger a second native message until Q-0084 moves them onto the edit"
+      ],
+      "summary": "Rollup computed once per terminal notice (was already computed for the view). Lite window Q-0083 (base 9b51da8bb -> HEAD): owner rule ONE terminal message. The edited running card now carries the bounded per-tool outcome lines (same rollup as the native view; itemLabel/itemDetail/items limits reused). Proof: jobs suite 65/709 green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 1 accepted+fixed (length bound), 2 rejected by design (Telegram MarkdownV2 ladder already handles escaping; memory-dreaming compact notice stays minimal), final clean.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "ad7e1b9aad0b0c98ec08a4776ba34864507236d0a97c2ac643fef7b764d884bf",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "ec4081c703b151e8ca1c365caae315dbbb81a79153058e5756679b2efdc67d18",
+      "recorded_at": "2026-08-26T04:48:28+00:00",
+      "commit": "29577387e0e66df09e5e0112f30179c91403fe98"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Run-again/recovery buttons still trigger a second native message until Q-0084 moves them onto the edit"
+      ],
+      "summary": "Bounded, transport-escaped text only. Lite window Q-0083 (base 9b51da8bb -> HEAD): owner rule ONE terminal message. The edited running card now carries the bounded per-tool outcome lines (same rollup as the native view; itemLabel/itemDetail/items limits reused). Proof: jobs suite 65/709 green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 1 accepted+fixed (length bound), 2 rejected by design (Telegram MarkdownV2 ladder already handles escaping; memory-dreaming compact notice stays minimal), final clean.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "ad7e1b9aad0b0c98ec08a4776ba34864507236d0a97c2ac643fef7b764d884bf",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "ec4081c703b151e8ca1c365caae315dbbb81a79153058e5756679b2efdc67d18",
+      "recorded_at": "2026-08-26T04:48:28+00:00",
+      "commit": "29577387e0e66df09e5e0112f30179c91403fe98"
+    }
+  }
+}

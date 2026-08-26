@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0084-de21",
+  "profile": "lite",
+  "reason": "Owner rule: exactly one terminal message per run. When run-again/recovery action buttons exist, the terminal path edits the running card AND sends a second native message. Carry actionAffordances on the lifecycle edit (ProgressUpdateOptions already supports them) and reserve the native send for routes the edit did not reach. Scope: jobs/types.ts, scheduler-lifecycle-notification.ts, execution-notifications.ts, tests.",
+  "started_at": "2026-08-26T04:49:06+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "29577387e0e66df09e5e0112f30179c91403fe98"
+}
