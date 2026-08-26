@@ -82,7 +82,11 @@ export function AgentsRoute() {
         header: 'Conversations',
         cell: ({ getValue }) => `${getValue<number>()} connected`,
       },
-      { accessorKey: 'updatedAt', header: 'Updated' },
+      {
+        accessorKey: 'updatedAt',
+        header: 'Updated',
+        cell: ({ getValue }) => new Date(String(getValue())).toLocaleString(),
+      },
     ],
     [],
   );
