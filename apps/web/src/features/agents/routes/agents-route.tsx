@@ -22,6 +22,7 @@ import type { AgentDirectoryItem } from '../agents-queries';
 import { agentDirectoryQuery, roleDirectoryQuery } from '../agents-queries';
 import { AgentsDirectoryToolbar } from '../components/agents-directory-toolbar';
 import { RolesLibrary } from '../components/roles-library';
+import { RolesLibraryToolbar } from '../components/roles-library-toolbar';
 
 export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
@@ -115,19 +116,39 @@ export function AgentsRoute() {
       />
 
       {search.tab === 'roles' ? (
-        <RolesLibrary
-          builtIns={builtInRoles.data}
-          data={customRoles.data}
-          error={builtInRoles.isError || customRoles.isError}
-          loading={builtInRoles.isLoading || customRoles.isLoading}
-          onPageChange={(page) =>
-            void navigate({ search: { ...search, page } })
-          }
-          onRetry={() => {
-            void builtInRoles.refetch();
-            void customRoles.refetch();
-          }}
-        />
+        <>
+          <RolesLibraryToolbar
+            search={search.q}
+            onChange={(q) =>
+              void navigate({ search: { ...search, q, page: 1 } })
+            }
+          />
+          {search.q ? (
+            <div>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  void navigate({ search: { ...search, q: '', page: 1 } })
+                }
+              >
+                Clear search
+              </Button>
+            </div>
+          ) : null}
+          <RolesLibrary
+            builtIns={builtInRoles.data}
+            data={customRoles.data}
+            error={builtInRoles.isError || customRoles.isError}
+            loading={builtInRoles.isLoading || customRoles.isLoading}
+            onPageChange={(page) =>
+              void navigate({ search: { ...search, page } })
+            }
+            onRetry={() => {
+              void builtInRoles.refetch();
+              void customRoles.refetch();
+            }}
+          />
+        </>
       ) : (
         <>
           <AgentsDirectoryToolbar

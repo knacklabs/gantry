@@ -19,6 +19,8 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain('Math.min(\n    100,');
   expect(source).toContain('listAgents(appId)');
   expect(source).toContain('listCustomRoles(appId)');
+  expect(source).toContain('retainedAgentCounts(');
+  expect(source).toContain('retainedAgentCount: counts.get(role.id) ?? 0');
   expect(source).toContain('data: items.slice');
   expect(source).toContain('hasNext: end < total');
   expect(source).toContain("builtInRolePrompt(persona, 'full')");
@@ -35,6 +37,7 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain('getSources({ appId, agentId })');
   expect(source).toContain('getCapabilities({ appId, agentId })');
   expect(source).toContain('listConfigVersions({');
+  expect(source).toContain('sendJson(res, 200, { retainedAgentCount:');
 });
 
 it('requires Administrator, Origin, CSRF, and reauthentication for mutations', () => {

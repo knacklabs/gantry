@@ -103,6 +103,7 @@ type BrowserRole = {
   sourceRoleId?: string;
   createdAt?: string;
   updatedAt?: string;
+  retainedAgentCount?: number;
 };
 
 function roleView(role: Omit<BrowserRole, 'kind'>): BrowserRole {
@@ -144,6 +145,27 @@ async function roleSnapshotFor(
   if (!role || role.appId !== appId)
     throw new Error('Selected role not found.');
   return new CustomRoleService(storage.repositories.customRoles).snapshot(role);
+}
+
+async function retainedAgentCounts(
+  storage: ReturnType<typeof getRuntimeStorage>,
+  appId: AppId,
+) {
+  const agents = await storage.repositories.agents.listAgents(appId);
+  const versions = await Promise.all(
+    agents.map((agent) =>
+      agent.currentConfigVersionId
+        ? storage.repositories.agentConfigs.getConfigVersion(
+            agent.currentConfigVersionId,
+          )
+        : null,
+    ),
+  );
+  return versions.reduce((counts, version) => {
+    const roleId = version?.roleSnapshot?.sourceRoleId;
+    if (roleId) counts.set(roleId, (counts.get(roleId) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
 }
 
 function validName(value: unknown): value is string {
@@ -226,6 +248,7 @@ export async function handleBrowserAgentRoutes(
     if (pathname === '/ui/api/roles') {
       const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
       const kind = url.searchParams.get('kind');
+      const counts = await retainedAgentCounts(storage, appId);
       const roles = [
         ...(kind !== 'custom' ? builtInRoles() : []),
         ...(kind !== 'built-in'
@@ -235,6 +258,10 @@ export async function handleBrowserAgentRoutes(
           : []),
       ]
         .filter((role) => !search || role.name.toLowerCase().includes(search))
+        .map((role) => ({
+          ...role,
+          retainedAgentCount: counts.get(role.id) ?? 0,
+        }))
         .sort((a, b) => a.name.localeCompare(b.name));
       sendJson(res, 200, page(roles, pageNumber, pageSize));
       return true;
@@ -527,12 +554,13 @@ export async function handleBrowserAgentRoutes(
       return true;
     }
     if (roleMatch && req.method === 'DELETE') {
+      const roleId = decodeURIComponent(roleMatch[1]) as CustomRoleId;
+      const counts = await retainedAgentCounts(storage, appId);
       await roleService.delete({
         appId,
-        id: decodeURIComponent(roleMatch[1]) as CustomRoleId,
+        id: roleId,
       });
-      res.writeHead(204);
-      res.end();
+      sendJson(res, 200, { retainedAgentCount: counts.get(roleId) ?? 0 });
       return true;
     }
     sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');

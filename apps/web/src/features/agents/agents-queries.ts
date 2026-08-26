@@ -50,6 +50,7 @@ export type BrowserRole = {
   prompt: string;
   kind: 'built-in' | 'custom';
   sourceRoleId?: string;
+  retainedAgentCount?: number;
   createdAt?: string;
   updatedAt?: string;
 };
