@@ -1,6 +1,6 @@
 ---
-status: proposed
-confirmed_by: ""
+status: accepted
+confirmed_by: "vrknetha"
 date: 2026-08-26
 stories: [CONN-1, CONN-GSUITE-1, IDENT-2]
 ---
