@@ -39,19 +39,31 @@ export async function sendTerminalTelegramProgressMessage(input: {
   api: Parameters<typeof sendTelegramMessageWithResult>[0];
   chatId: string;
   text: string;
+  fallbackText: string;
   sendOptions: TelegramSendMessageOptions;
 }): Promise<number | undefined> {
-  const sent = await input.api.sendMessage(input.chatId, input.text, {
-    parse_mode: 'HTML',
-    ...input.sendOptions,
-  });
-  return (sent as { message_id?: number }).message_id;
+  try {
+    const sent = await input.api.sendMessage(input.chatId, input.text, {
+      parse_mode: 'HTML',
+      ...input.sendOptions,
+    });
+    return (sent as { message_id?: number }).message_id;
+  } catch (err) {
+    if (!isTelegramHtmlParseError(err)) throw err;
+    return sendTelegramMessageWithResult(
+      input.api,
+      input.chatId,
+      input.fallbackText,
+      input.sendOptions,
+    );
+  }
 }
 
 export function sendTelegramProgressReplacementMessage(input: {
   api: Parameters<typeof sendTelegramMessageWithResult>[0];
   chatId: string;
   text: string;
+  fallbackText: string;
   sendOptions: TelegramSendMessageOptions;
   terminal: boolean;
 }): Promise<number | undefined> {

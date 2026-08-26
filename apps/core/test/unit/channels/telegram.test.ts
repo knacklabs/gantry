@@ -4364,6 +4364,62 @@ describe('TelegramChannel', () => {
       );
     });
 
+    it('falls back to terminal text when a no-handle terminal HTML send cannot parse', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      currentBot().api.sendMessage.mockRejectedValueOnce(
+        new Error("Bad Request: can't parse entities"),
+      );
+      currentBot().api.sendMessage.mockResolvedValueOnce({ message_id: 2468 });
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          threadId: '42',
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        '100200300',
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        terminalView.fallbackText,
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'MarkdownV2',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+      await expect(
+        currentBot().api.sendMessage.mock.results[1]?.value,
+      ).resolves.toMatchObject({
+        message_id: 2468,
+      });
+    });
+
     it('re-sends a terminal structured notification as HTML after a non-parse edit failure', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
@@ -4406,6 +4462,84 @@ describe('TelegramChannel', () => {
           },
         }),
       );
+    });
+
+    it('falls back to terminal text when the replacement terminal HTML send cannot parse', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...', {
+        threadId: '42',
+      });
+      currentBot().api.editMessageText.mockRejectedValueOnce(
+        new Error('Bad Request: message to edit not found'),
+      );
+      currentBot().api.sendMessage.mockRejectedValueOnce(
+        new Error("Bad Request: can't parse entities"),
+      );
+      currentBot().api.sendMessage.mockResolvedValueOnce({ message_id: 2468 });
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          threadId: '42',
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        '100200300',
+        terminalView.fallbackText,
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'MarkdownV2',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+      await expect(
+        currentBot().api.sendMessage.mock.results[2]?.value,
+      ).resolves.toMatchObject({
+        message_id: 2468,
+      });
+    });
+
+    it('propagates a non-parse terminal HTML send error', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      currentBot().api.sendMessage.mockRejectedValueOnce(
+        new Error('Telegram unavailable'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', terminalView.fallbackText, {
+          done: true,
+          jobNotificationView: terminalView,
+        }),
+      ).rejects.toThrow('Telegram unavailable');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
     });
 
     it('falls back to terminal text when the rendered HTML is too long', async () => {

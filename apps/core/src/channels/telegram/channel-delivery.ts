@@ -424,6 +424,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
           api: this.bot.api,
           chatId: numericId,
           text: nextText,
+          fallbackText,
           sendOptions,
         });
       } else {
@@ -492,7 +493,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       }
       return true;
     }
-
     if (existing.messageId) {
       try {
         await editTelegramProgressMessage({
@@ -516,6 +516,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
             api: this.bot.api,
             chatId: numericId,
             text: nextText,
+            fallbackText,
             sendOptions,
             terminal: Boolean(terminalMessage),
           });
@@ -571,7 +572,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     );
     return true;
   }
-
   async requestPermissionApproval(
     jid: string,
     request: DomainTypes.PermissionApprovalRequest,
