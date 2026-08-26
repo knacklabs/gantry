@@ -31,6 +31,7 @@ import {
   splitDiscordText,
 } from './discord-delivery.js';
 import {
+  createDiscordProgressCallbacks,
   DiscordProgressIdentityLifecycle,
   sendDiscordProgressUpdateForRoute,
 } from './discord-progress.js';
@@ -283,19 +284,18 @@ export class DiscordChannel implements ChannelAdapter {
       identityLifecycle: this.progressIdentityLifecycle,
       text,
       options,
-      post: (body, components, signal) =>
-        postDiscordMessageParts({
-          channelId,
-          parts: splitDiscordText(body),
-          components,
-          post: (target, payload) => this.postMessage(target, payload, signal),
-        }),
-      edit: (messageId, body, signal) =>
-        this.messageMutations.edit(channelId, messageId, body, signal),
+      ...createDiscordProgressCallbacks({
+        channelId,
+        options,
+        post: (target, body, signal) => this.postMessage(target, body, signal),
+        edit: (messageId, body, signal) =>
+          this.messageMutations.edit(channelId, messageId, body, signal),
+      }),
       delete: (messageId, signal) =>
         this.messageMutations.delete(channelId, messageId, signal),
     });
   }
+
   progressCardIdentity(
     jid: string,
     options: ProgressUpdateOptions = {},
