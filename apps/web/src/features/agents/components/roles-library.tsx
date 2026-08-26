@@ -1,9 +1,24 @@
-import { BookOpen, RefreshCw } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { BookOpen, Plus, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 
+import {
+  browserCsrfHeader,
+  browserFetch,
+} from '../../../lib/auth/browser-auth';
 import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../../ui/primitives/dialog';
+import { Textarea } from '../../../ui/primitives/textarea';
+import { TextField } from '../../../ui/compositions/text-field';
 import type { BrowserPage, BrowserRole } from '../agents-queries';
 
 export function RolesLibrary({
@@ -17,6 +32,27 @@ export function RolesLibrary({
   loading: boolean;
   onRetry: () => void;
 }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const create = useMutation({
+    mutationFn: async () => {
+      const response = await browserFetch('/ui/api/roles', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
+        body: JSON.stringify({ name, prompt }),
+      });
+      if (!response.ok) throw new Error('Role could not be created.');
+    },
+    onSuccess: () => {
+      setOpen(false);
+      setName('');
+      setPrompt('');
+      return queryClient.invalidateQueries({ queryKey: ['agents', 'roles'] });
+    },
+  });
   if (error) {
     return (
       <PageState
@@ -41,6 +77,12 @@ export function RolesLibrary({
           ? 'Loading roles…'
           : 'Role prompts are visible. Custom role changes affect future selections only.'
       }
+      action={
+        <Button onClick={() => setOpen(true)}>
+          <Plus size={15} aria-hidden="true" />
+          New custom role
+        </Button>
+      }
     >
       <div className="grid max-h-[calc(100vh-20rem)] gap-3 overflow-y-auto p-4 sm:grid-cols-2">
         {data?.data.map((role) => (
@@ -64,6 +106,44 @@ export function RolesLibrary({
           </article>
         ))}
       </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New custom role</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <TextField
+              id="role-name"
+              label="Role name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+            <label
+              className="grid gap-1.5 text-xs font-semibold text-text"
+              htmlFor="role-prompt"
+            >
+              Prompt
+              <Textarea
+                id="role-prompt"
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                rows={8}
+              />
+            </label>
+            {create.isError ? (
+              <p className="m-0 text-xs text-danger">{create.error.message}</p>
+            ) : null}
+          </div>
+          <DialogFooter showCloseButton>
+            <Button
+              disabled={!name.trim() || !prompt.trim() || create.isPending}
+              onClick={() => create.mutate()}
+            >
+              {create.isPending ? 'Creating…' : 'Create role'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Panel>
   );
 }
