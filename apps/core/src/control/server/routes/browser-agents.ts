@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { CustomRoleService } from '../../../application/agents/custom-role-service.js';
+import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
 import { builtInRolePrompt } from '../../../application/agents/prompt-profile-service.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
 import { isRecentlyReauthenticated } from '../../../application/auth/auth-foundations.js';
@@ -31,6 +32,8 @@ type BrowserAgentsSettings = {
 
 const AGENT_PATH = /^\/ui\/api\/agents\/([^/]+)$/;
 const AGENT_STATUS_PATH = /^\/ui\/api\/agents\/([^/]+)\/(enable|disable)$/;
+const AGENT_SOURCES_PATH = /^\/ui\/api\/agents\/([^/]+)\/sources$/;
+const AGENT_CAPABILITIES_PATH = /^\/ui\/api\/agents\/([^/]+)\/capabilities$/;
 const ROLE_PATH = /^\/ui\/api\/roles\/([^/]+)$/;
 
 export function isBrowserAgentsPath(pathname: string): boolean {
@@ -149,6 +152,16 @@ function object(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+function capabilityService(storage: ReturnType<typeof getRuntimeStorage>) {
+  const { repositories } = storage;
+  return new AgentCapabilityAdministrationService({
+    agents: repositories.agents,
+    tools: repositories.tools,
+    skills: repositories.skills,
+    mcpServers: repositories.mcpServers,
+  });
+}
+
 export async function handleBrowserAgentRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -229,6 +242,32 @@ export async function handleBrowserAgentRoutes(
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
       sendJson(res, 200, { agent: await agentView(storage, agent) });
+      return true;
+    }
+    const sourcesMatch = pathname.match(AGENT_SOURCES_PATH);
+    if (sourcesMatch) {
+      const agentId = decodeURIComponent(sourcesMatch[1]) as AgentId;
+      const agent = await storage.repositories.agents.getAgent(agentId);
+      if (!agent || agent.appId !== appId)
+        return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      const [sources, catalog] = await Promise.all([
+        capabilityService(storage).getSources({ appId, agentId }),
+        capabilityService(storage).listCatalog(appId),
+      ]);
+      sendJson(res, 200, { sources, catalog });
+      return true;
+    }
+    const capabilitiesMatch = pathname.match(AGENT_CAPABILITIES_PATH);
+    if (capabilitiesMatch) {
+      const agentId = decodeURIComponent(capabilitiesMatch[1]) as AgentId;
+      const agent = await storage.repositories.agents.getAgent(agentId);
+      if (!agent || agent.appId !== appId)
+        return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      const [capabilities, catalog] = await Promise.all([
+        capabilityService(storage).getCapabilities({ appId, agentId }),
+        capabilityService(storage).listCatalog(appId),
+      ]);
+      sendJson(res, 200, { capabilities, catalog });
       return true;
     }
     const roleMatch = pathname.match(ROLE_PATH);
@@ -343,6 +382,40 @@ export async function handleBrowserAgentRoutes(
         await storage.repositories.agents.saveAgent(updated!);
       await ctx.syncSettingsFromProjection(appId);
       sendJson(res, 200, { agent: await agentView(storage, updated!) });
+      return true;
+    }
+    const sourcesMatch = pathname.match(AGENT_SOURCES_PATH);
+    if (sourcesMatch && req.method === 'PUT') {
+      const body = await readJson(req);
+      if (!object(body) || !object(body.sources))
+        return (sendError(res, 400, 'INVALID_REQUEST', 'Sources are required.'), true);
+      const agentId = decodeURIComponent(sourcesMatch[1]) as AgentId;
+      const sources = await capabilityService(storage).replaceSources({
+        appId,
+        agentId,
+        sources: body.sources as Parameters<
+          AgentCapabilityAdministrationService['replaceSources']
+        >[0]['sources'],
+      });
+      await ctx.syncSettingsFromProjection(appId);
+      sendJson(res, 200, { sources });
+      return true;
+    }
+    const capabilitiesMatch = pathname.match(AGENT_CAPABILITIES_PATH);
+    if (capabilitiesMatch && req.method === 'PUT') {
+      const body = await readJson(req);
+      if (!object(body) || !Array.isArray(body.capabilities))
+        return (
+          sendError(res, 400, 'INVALID_REQUEST', 'Capabilities are required.'),
+          true
+        );
+      const capabilities = await capabilityService(storage).replaceCapabilities({
+        appId,
+        agentId: decodeURIComponent(capabilitiesMatch[1]) as AgentId,
+        capabilities: body.capabilities as Array<{ id: string; version: string }>,
+      });
+      await ctx.syncSettingsFromProjection(appId);
+      sendJson(res, 200, { capabilities });
       return true;
     }
     if (pathname === '/ui/api/roles' && req.method === 'POST') {
