@@ -9,6 +9,13 @@ import {
 import { Button } from '../../../ui/primitives/button';
 import { Checkbox } from '../../../ui/primitives/checkbox';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '../../../ui/primitives/dialog';
+import {
   agentCapabilitiesQuery,
   agentQueryKeys,
   agentSourcesQuery,
@@ -154,6 +161,27 @@ export function AgentSetupManager({
             )
           </Button>
         </div>
+      ) : null}
+      {kind === 'capabilities' ? (
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button className="w-fit" size="sm" variant="secondary">
+              How access works
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>How access works</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-text-secondary">
+              Connected sources → Allowed capabilities → Runtime checks
+            </p>
+            <p className="text-sm text-text-secondary">
+              Connected sources provide tools. Allowed capabilities authorize
+              actions. Some risky actions may still require approval.
+            </p>
+          </DialogContent>
+        </Dialog>
       ) : null}
       {items.length ? (
         <div className="grid max-h-80 gap-2 overflow-y-auto rounded-md border border-border p-3">
