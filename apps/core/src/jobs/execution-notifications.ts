@@ -1,5 +1,6 @@
 import type {
   Job,
+  JobNotificationView,
   JobSetupState,
   JobRunStatus,
   MessageActionAffordance,
@@ -75,6 +76,7 @@ export function createSchedulerLifecycleRetirementTracker(
       runStatus: TerminalRunStatus;
       summaryMessage: string;
       actionAffordances?: MessageActionAffordance[];
+      jobNotificationView?: JobNotificationView;
     }) => Promise<JobNotificationLifecycleUpdateResult>;
     discardLifecycleNotification?: (runId: string) => void;
   },
@@ -365,6 +367,7 @@ export async function notifySchedulerTerminalRunState(input: {
     runStatus: TerminalRunStatus;
     summaryMessage: string;
     actionAffordances?: MessageActionAffordance[];
+    jobNotificationView?: JobNotificationView;
   }) => Promise<JobNotificationLifecycleUpdateResult>;
 }): Promise<boolean> {
   if (input.job.silent) return false;
@@ -488,6 +491,7 @@ export async function notifySchedulerTerminalRunState(input: {
           runStatus: input.runStatus,
           summaryMessage,
           actionAffordances,
+          jobNotificationView,
         });
   const fallbackJob = jobForLifecycleFallback(input.job, updateOutcomes);
   const notificationJob = fallbackJob;

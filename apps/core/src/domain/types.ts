@@ -508,6 +508,9 @@ export interface ProgressUpdateOptions {
   generation?: number;
   actionOnly?: boolean;
   actionAffordances?: MessageActionAffordance[];
+  /** Structured terminal view for done updates; providers that can render it
+   * natively should prefer it over the text, others ignore it. */
+  jobNotificationView?: JobNotificationView;
 }
 
 export interface StructuredJobResult {

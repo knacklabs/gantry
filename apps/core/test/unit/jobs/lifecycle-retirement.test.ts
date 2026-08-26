@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ConversationRoute,
   Job,
+  JobNotificationView,
   JobRun,
   MessageActionAffordance,
 } from '@core/domain/types.js';
@@ -325,6 +326,7 @@ describe('lifecycle retirement', () => {
     expect(doneCall?.[2]?.progressCardIdentity).toBe(
       runningCall?.[2]?.progressCardIdentity,
     );
+    expect(doneCall?.[2]).not.toHaveProperty('jobNotificationView');
   });
 
   it('awaits an in-flight terminal fallback before editing a late-landing running card', async () => {
@@ -1321,6 +1323,11 @@ describe('lifecycle retirement', () => {
 
   it('terminal edit carries run-again actions', async () => {
     const job = makeJob();
+    const jobNotificationView: JobNotificationView = {
+      status: 'completed',
+      jobName: job.name,
+      fallbackText: 'Completed.',
+    };
     const actionAffordances: MessageActionAffordance[] = [
       {
         kind: 'scheduler_run_now',
@@ -1344,6 +1351,7 @@ describe('lifecycle retirement', () => {
       runStatus: 'completed',
       summaryMessage: 'Completed.',
       actionAffordances,
+      jobNotificationView,
     });
 
     expect(sendProgressUpdate).toHaveBeenLastCalledWith(
@@ -1352,12 +1360,18 @@ describe('lifecycle retirement', () => {
       expect.objectContaining({
         replaceOnly: true,
         actionAffordances,
+        jobNotificationView,
       }),
     );
   });
 
   it('fresh fallback carries the actions too', async () => {
     const job = makeJob();
+    const jobNotificationView: JobNotificationView = {
+      status: 'completed',
+      jobName: job.name,
+      fallbackText: 'Completed.',
+    };
     const actionAffordances: MessageActionAffordance[] = [
       {
         kind: 'scheduler_run_now',
@@ -1377,17 +1391,23 @@ describe('lifecycle retirement', () => {
       runStatus: 'completed',
       summaryMessage: 'Completed.',
       actionAffordances,
+      jobNotificationView,
     });
 
     expect(sendProgressUpdate).toHaveBeenCalledWith(
       'tg:scheduler',
       'Completed.',
-      expect.objectContaining({ actionAffordances }),
+      expect.objectContaining({ actionAffordances, jobNotificationView }),
     );
   });
 
   it('late-landing terminal edit carries the captured actions', async () => {
     const job = makeJob();
+    const jobNotificationView: JobNotificationView = {
+      status: 'completed',
+      jobName: job.name,
+      fallbackText: 'Completed.',
+    };
     const actionAffordances: MessageActionAffordance[] = [
       {
         kind: 'scheduler_run_now',
@@ -1426,6 +1446,7 @@ describe('lifecycle retirement', () => {
       runStatus: 'completed',
       summaryMessage: 'Completed.',
       actionAffordances,
+      jobNotificationView,
     });
     releaseRunningCard(true);
     await capture;
@@ -1436,6 +1457,7 @@ describe('lifecycle retirement', () => {
       expect.objectContaining({
         replaceOnly: true,
         actionAffordances,
+        jobNotificationView,
       }),
     );
   });

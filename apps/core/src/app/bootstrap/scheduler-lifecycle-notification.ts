@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { SchedulerDependencies } from '../../jobs/types.js';
 import { resolveJobNotificationRoutes } from '../../jobs/job-notification-routes.js';
 import type {
+  JobNotificationView,
   MessageActionAffordance,
   ProgressUpdateOptions,
 } from '../../domain/types.js';
@@ -35,6 +36,7 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
     fallbacks: Map<string, Promise<'updated' | 'unsupported' | 'failed'>>;
     terminalSummary?: string;
     terminalActionAffordances?: MessageActionAffordance[];
+    terminalJobNotificationView?: JobNotificationView;
   };
   const capturesByRun = new Map<string, LifecycleCapture>();
 
@@ -101,6 +103,12 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
                               actionAffordances:
                                 capture.terminalActionAffordances,
                             }),
+                        ...(capture.terminalJobNotificationView === undefined
+                          ? {}
+                          : {
+                              jobNotificationView:
+                                capture.terminalJobNotificationView,
+                            }),
                       },
                     ),
                   )
@@ -130,7 +138,13 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
 
   const updateLifecycleNotification: NonNullable<
     SchedulerDependencies['updateLifecycleNotification']
-  > = async ({ job, runId, summaryMessage, actionAffordances }) => {
+  > = async ({
+    job,
+    runId,
+    summaryMessage,
+    actionAffordances,
+    jobNotificationView,
+  }) => {
     const routes = resolveJobNotificationRoutes(job);
     const capture: LifecycleCapture = capturesByRun.get(runId) ?? {
       identities: new Map(),
@@ -140,6 +154,7 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
     capturesByRun.set(runId, capture);
     capture.terminalSummary = summaryMessage;
     capture.terminalActionAffordances = actionAffordances;
+    capture.terminalJobNotificationView = jobNotificationView;
     const outcomes = await Promise.all(
       routes.map(async (route, index) => {
         const key = routeKey(route);
@@ -165,6 +180,9 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
                   ...(actionAffordances === undefined
                     ? {}
                     : { actionAffordances }),
+                  ...(jobNotificationView === undefined
+                    ? {}
+                    : { jobNotificationView }),
                 },
               ),
             )
@@ -193,6 +211,9 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
               progressCardIdentity: identity.progressCardIdentity,
               generation: identity.generation,
               ...(actionAffordances === undefined ? {} : { actionAffordances }),
+              ...(jobNotificationView === undefined
+                ? {}
+                : { jobNotificationView }),
             },
           );
           const outcome = {

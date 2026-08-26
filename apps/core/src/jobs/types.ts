@@ -31,6 +31,7 @@ import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
 import type {
   Job,
+  JobNotificationView,
   JobRunStatus,
   MessageActionAffordance,
 } from '../domain/types.js';
@@ -67,6 +68,7 @@ export interface SchedulerDependencies {
     >;
     summaryMessage: string;
     actionAffordances?: MessageActionAffordance[];
+    jobNotificationView?: JobNotificationView;
   }) => Promise<JobNotificationLifecycleUpdateResult>;
   sendStreamingChunk?: (
     jid: string,
