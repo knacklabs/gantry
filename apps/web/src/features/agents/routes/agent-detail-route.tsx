@@ -18,6 +18,15 @@ import { RouteTabs } from '../../../ui/compositions/route-tabs';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { Button } from '../../../ui/primitives/button';
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../../../ui/primitives/alert-dialog';
+import {
   agentDetailQuery,
   agentQueryKeys,
   type AgentDirectoryItem,
@@ -97,14 +106,40 @@ export function AgentDetailRoute() {
         action={
           <div className="flex gap-2">
             <StatusBadge status={agent.status} />
-            <Button
-              variant="secondary"
-              disabled={status.isPending}
-              onClick={() => status.mutate(action)}
-            >
-              <Power size={15} aria-hidden="true" />
-              {action === 'disable' ? 'Disable' : 'Enable'}
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="secondary" disabled={status.isPending}>
+                  <Power size={15} aria-hidden="true" />
+                  {action === 'disable' ? 'Disable' : 'Enable'}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {action === 'disable'
+                      ? `Disable ${agent.name}?`
+                      : `Enable ${agent.name}?`}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {action === 'disable'
+                      ? 'It will not be available for new work. Existing configuration is kept.'
+                      : 'It will become available for new work again.'}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <Button
+                    disabled={status.isPending}
+                    onClick={() => status.mutate(action)}
+                  >
+                    {status.isPending
+                      ? 'Saving…'
+                      : action === 'disable'
+                        ? 'Disable agent'
+                        : 'Enable agent'}
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         }
       />
@@ -149,13 +184,21 @@ function Content({
           <div className="px-5 pt-5">
             <h3 className="text-sm font-semibold">Sources</h3>
           </div>
-          <AgentSetupManager agentId={agent.id} kind="sources" />
+          <AgentSetupManager
+            agentId={agent.id}
+            kind="sources"
+            disabled={agent.status !== 'active'}
+          />
         </section>
         <section>
           <div className="px-5 pt-5">
             <h3 className="text-sm font-semibold">Capabilities</h3>
           </div>
-          <AgentSetupManager agentId={agent.id} kind="capabilities" />
+          <AgentSetupManager
+            agentId={agent.id}
+            kind="capabilities"
+            disabled={agent.status !== 'active'}
+          />
         </section>
       </div>
     );

@@ -21,10 +21,12 @@ export function AgentSetupManager({
   agentId,
   kind,
   onSaved,
+  disabled = false,
 }: {
   agentId: string;
   kind: SetupKind;
   onSaved?: () => void;
+  disabled?: boolean;
 }) {
   const queryClient = useQueryClient();
   const sources = useQuery(agentSourcesQuery(agentId));
@@ -121,6 +123,7 @@ export function AgentSetupManager({
             >
               <Checkbox
                 checked={selected.includes(item.id)}
+                disabled={disabled}
                 onCheckedChange={() =>
                   setSelected((value) =>
                     value.includes(item.id)
@@ -148,7 +151,10 @@ export function AgentSetupManager({
         <p className="text-sm text-destructive">{save.error.message}</p>
       ) : null}
       <div className="flex justify-end">
-        <Button disabled={save.isPending} onClick={() => save.mutate()}>
+        <Button
+          disabled={disabled || save.isPending}
+          onClick={() => save.mutate()}
+        >
           <Save size={15} aria-hidden="true" />
           {save.isPending ? 'Saving…' : 'Save changes'}
         </Button>
@@ -164,7 +170,14 @@ function nextSources(selected: string[], current: AgentSource): AgentSource {
       .map((id) => ({ id: id.slice(6) })),
     mcpServers: selected
       .filter((id) => id.startsWith('mcp:'))
-      .map((id) => ({ id: id.slice(4) })),
+      .map((id) => {
+        const serverId = id.slice(4);
+        return (
+          current.mcpServers.find((source) => source.id === serverId) ?? {
+            id: serverId,
+          }
+        );
+      }),
     tools: current?.tools ?? [],
   };
 }
