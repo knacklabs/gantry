@@ -62,6 +62,10 @@ import { createRateLimiter } from './rate-limit.js';
 import { handleAgentRoutes } from './routes/agents.js';
 import { handleBrainRoutes } from './routes/brain.js';
 import { handleBrowserAuthRoutes } from './routes/browser-auth.js';
+import {
+  handleBrowserAgentRoutes,
+  isBrowserAgentsPath,
+} from './routes/browser-agents.js';
 import { handleBrowserModelProviderRoutes } from './routes/browser-model-providers.js';
 import {
   handleBrowserMcpServerRoutes,
@@ -191,6 +195,7 @@ function createControlRequestHandler(
       if (
         pathname.startsWith('/auth/') ||
         pathname.startsWith('/ui/api/auth/') ||
+        isBrowserAgentsPath(pathname) ||
         pathname.startsWith('/ui/api/model-providers') ||
         isBrowserMcpServerPath(pathname)
       ) {
@@ -205,6 +210,18 @@ function createControlRequestHandler(
           return;
         }
       }
+      if (
+        isBrowserAgentsPath(pathname) &&
+        (await handleBrowserAgentRoutes(
+          req,
+          res,
+          ctx,
+          pathname,
+          url,
+          getRuntimeSettingsForConfig(),
+        ))
+      )
+        return;
       if (
         isBrowserMcpServerPath(pathname) &&
         (await handleBrowserMcpServerRoutes(
