@@ -86,14 +86,11 @@ import {
   emitToolActivity,
 } from './tool-permission-events.js';
 import { createPostToolUseHook } from './query-tool-activity-hook.js';
-
 export { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
-
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
   persistSdkSession?: boolean;
 }
-
 function localCliCredentialDirectoriesFromRuntimeAccess(
   agentInput: AgentRunnerInput,
 ): string[] {
@@ -102,7 +99,6 @@ function localCliCredentialDirectoriesFromRuntimeAccess(
   );
   return normalizeFilesystemSandboxPaths(dirs);
 }
-
 export async function runQuery(
   prompt: string,
   mcpServerPath: string,
@@ -284,6 +280,7 @@ export async function runQuery(
   let sawStructuredTextSinceLastResult = false;
   let visibleTextSinceLastResult = '';
   let pendingStructuredToPartialBoundary = false;
+  let nudgedScheduledRunToFinish = false;
   const primeToolAttempts: AgentRunnerToolAttemptOutput[] = [];
   const heartbeat = startJobHeartbeat({
     agentInput,
@@ -699,6 +696,18 @@ export async function runQuery(
           fallbackModel: configuredModel,
         });
         const contextUsagePromise = readContextUsage(sdkQuery);
+        if (
+          agentInput.isScheduledJob &&
+          !nudgedScheduledRunToFinish &&
+          !closedDuringQuery &&
+          !/\bOutcome:/i.test(visibleTextSinceLastResult || textResult || '') &&
+          steeringGate.accept(
+            'You stopped before finishing. Continue the task now. When you are finished, your final message must begin with a line "Outcome: <one sentence>".',
+          ) !== 'closed'
+        ) {
+          nudgedScheduledRunToFinish = true;
+          log('Nudged scheduled run to finish: no Outcome line at turn end');
+        }
         const continuedByFollowup = steeringGate.pendingCount() > 0;
         writeOutput({
           status: 'success',
