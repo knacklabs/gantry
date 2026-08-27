@@ -313,3 +313,75 @@ The generic local-process form must not become the connector UI: its stdio execu
 | Secret references | Partial pattern only: provider values are write-only and never returned; MCP maps named credentials without values. `apps/web/src/features/operations/routes/provider-dialogs.tsx` | No reusable secret-ref component exists. Add a small shared validated `SecretRefField` for `env:`, `gantry-secret:`, or `aws-sm:` references; retain write-only input for raw-secret modes | Reuse model-provider facade pattern; connector/provider schemas validate refs | CONN-1, SOV-1 |
 
 New roadmap UI story: **UI-CONN-ACCOUNTS-1**. CONN-1/OAUTH-1 define the account platform and OAuth behavior, but neither existing MCP management UI nor directory UI supplies the distinct account lifecycle, owner binding, OAuth receipt, and supervisor-health surface.
+
+
+# Part 3 — roadmap review, product lens (2026-08-27)
+
+Two independent read-only reviews of the 30-story roadmap: a Fable product review from the docs and a Codex review checking each journey against code. Resolutions: INTRO-1, BOOTSTRAP-1, INCIDENT-1, ADMIN-ALERT-1, OPS-DR-1 added to V1.0; LIFECYCLE-1, REVISION-1, SELF-1 to V1.0.x; MEMORY-CONSENT-1, QUAL-1, SUPPORT-1 to V1.1; decisions 0144–0149 proposed; acceptance criteria amended on HITL-1, RBAC-1, TEAMS-1, EGRESS-1, COST-1, WA-1, GUARD-1, DOCS-1, PKG-1 and the console stories (WCAG AA).
+
+## Fable — product lifecycle review
+
+| # | Gap | Why it matters | Milestone | Proposal | Severity |
+|---|---|---|---|---|---|
+| 1 | The AI employee never introduces itself; no first-contact story; Teams manifest branding only implied | The video opens on this moment; trust in a regulated org starts with disclosure | V1.0 | INTRO-1 intro card, about/help, manifest identity | blocker |
+| 2 | Kill switch is per-agent, console-only; no deployment-wide freeze that works when console/IdP is down; paused agents say nothing | First security review: "how do you stop all of it in 60 seconds at 2am?" | V1.0 | INCIDENT-1 freeze/unfreeze, paused replies, approver pause from card | blocker |
+| 3 | No backup/restore, upgrade with migration safety, version pinning, rollback; decision 0003 contradicts tagged releases | A failed upgrade with no restore path ends the engagement | V1.0 | OPS-DR-1; amend 0003 | blocker |
+| 4 | Admins never told anything until COST-2 (V1.1) | The first incident happens silently | V1.0 | ADMIN-ALERT-1 one admin conversation, named events | blocker |
+| 5 | Retention/deletion is person-shaped only; no erase for anonymous WhatsApp callers; no deployment decommission | DPDP/GDPR requests arrive the week WhatsApp goes live | V1.0.x | LIFECYCLE-1 | blocker |
+| 6 | No quality signal: no feedback, sampling, resolution rate | Renewal needs more than "it didn't crash" | V1.0.x/V1.1 | QUAL-1 | should |
+| 7 | Persona/prompt change control undefined: no versioning, diff, rollback | "Who changed what the agent is told to do" is the second audit question | V1.0.x | REVISION-1 | should |
+| 8 | Approval expiry/reminder/fallback approver; last approver offboarded | Stuck approvals block work; dead approver silently disables the agent | V1.0 | HITL-1/RBAC-1 AC | should |
+| 9 | Customer Teams tenant prerequisites (consent, catalog, least-privilege list) not a story | The customer's Teams admin, not KnackLabs, must click consent | V1.0 | TEAMS-1/DOCS-1 AC | should |
+| 10 | Security packet thin: SBOM, licence report, disclosure policy, data-flow, no-telemetry statement | Procurement in BFSI is a questionnaire | V1.0.x | DOCS-1/PKG-1 AC | should |
+| 11 | Open-core boundary undecided (voice engine licence, NOTICE) | Surprises poison OSS trust and contracts | V1.0 decision | decision 0149 | should |
+| 12 | No support bundle, release notes, support tiers | "How do I send you a bug" | V1.1 | SUPPORT-1 | should |
+| 13 | Multi-language for India (Hindi/Hinglish/Tamil), templates per locale, IN PII defaults | Support-assistant proof is for Indian clients | V1.0.x | WA-1/GUARD-1 AC | should |
+| 14 | WhatsApp AI disclosure and privacy line on first contact | Meta policy and DPDP expect disclosure | V1.0.x | WA-1 AC | should |
+| 15 | Cost-centre tag, CSV export, access-review export before V1.1 | Monthly/quarterly rituals hit at first renewal | V1.0.x | COST-1 AC | should |
+| 16 | "Scope" in the video is a preset switch only; tool rules are CLI until ACCESS-UI-1 | "Where do I take away Drive?" | V1.0 | script the video honestly | should |
+| 17 | No accessibility criteria | Gov/BFSI procurement asks WCAG AA | V1.0 | UI story AC | nice |
+| 18 | No clone/duplicate agent for the 2nd–10th employee | Expansion friction | V1.0.x | later | nice |
+| 19 | First-admin bootstrap and break-glass undocumented | Day-0 friction; audit question | V1.0 | DOCS-1 AC / BOOTSTRAP-1 | nice |
+
+Verdict: V1.0 video sufficient on the admin side, not on the employee side (#1, #16). First client: not sufficient — product but not its operation (#2, #3, #4, #7, #10). Self-serve outsider: stalls at Teams/Entra admin steps, Day-0, first upgrade. Biggest add: the day-two pair OPS-DR-1 + ADMIN-ALERT-1 with INCIDENT-1.
+
+## Codex — journeys checked against code
+
+Read-only review complete; no files changed or tests run. I checked all 30 `ai-employee-v1` stories against the listed specs and code.
+
+| # | Journey step | Exists today (path) | Roadmap coverage | Gap / contradiction | Severity (blocker/should/nice) | Proposed story or decision |
+|---|---|---|---|---|---|---|
+| 1 | Decision authority | 0136–0137 accepted; 0138–0143 remain `proposed` (decisions 0138–0143) | Many V1 stories rely on them | Handover calls all binding; the active-decision command excludes 0138–0143 | blocker | Accept, revise, or remove 0138–0143 before planning dependent stories |
+| 2 | Org/app bootstrap | Seeded “Default Local App” / `personal` (`apps/core/src/adapters/storage/postgres/seeds.ts`) | PKG-1 only | No organisation-scoped bootstrap; default personal app conflicts with IT-owned org positioning | blocker | `BOOTSTRAP-1` + deployment-app identity decision |
+| 3 | First administrator before IdP | Local one-time admin URL; OIDC approval via `gantry auth access approve` (`apps/core/src/cli/auth.ts`, `auth-access.ts`) | PKG-1, RBAC-1 | No tested local-admin → configured IdP → first real admin journey; invitations require an existing admin | blocker | `BOOTSTRAP-1`; add first-Entra-admin acceptance to RBAC-1 |
+| 4 | Initial secrets | CLI setup/key custody; provider facade is write-only (`onboarding-config.ts`, `browser-model-providers.ts`) | ONBOARD-UI-1 relies on 0143 | Browser cannot safely ingest a Teams/Slack seat secret; 0143 is proposed | blocker | Accept 0143; include custody/rotation proof in `BOOTSTRAP-1` |
+| 5 | Browser onboarding dependency order | Console is preview-backed (`apps/web/src/features/agents/agents-queries.ts`) | ONBOARD-UI-1 | Wizard requires an administrator, but does not depend on RBAC-1 | blocker | Add RBAC-1 dependency; require it in end-to-end video proof |
+| 6 | Teams seat works | SDK factory returns `null` (`apps/core/src/channels/teams-sdk-client.ts`) | TEAMS-1, TEAMS-E2E-1 | Correctly planned, but no present Teams V1 capability | blocker | Keep TEAMS-1/TEAMS-E2E-1 as release prerequisites |
+| 7 | Teams DM discovery | Discovery lists teams/channels, not chats (`teams-setup-discovery.ts`) | None | Unregistered DMs are dropped; no personal-app/DM first-contact contract | blocker | Teams first-contact decision + `TEAMS-DM-UX-1` |
+| 8 | First greeting / “who are you?” | Generic prompt identity only (`gantry-agent-system-prompt.ts`) | None | No deterministic employee identity, access, capability, or data-use answer | should | `TEAMS-DM-UX-1`, derived from effective capability catalog |
+| 9 | Report a bad answer | Observer-digest feedback exists (`teams-message-actions.ts`) | None | It is insight feedback, not reply-bound answer feedback | should | `EMP-FEEDBACK-1` with audited correction and review-only learning |
+| 10 | Opt out of personal memory | DMs default to user memory (`app-memory-subject-resolver.ts`) | None | No data-subject opt-out; proactive-alert opt-out is unrelated | blocker | `PERSONAL-MEMORY-CONSENT` decision + `MEMORY-CONSENT-1` |
+| 11 | Pause everywhere / per conversation | Jobs pause individually; installs only `active|disabled` (`job-management-service.ts`, `provider-conversation-routes.ts`) | RBAC-1; HANDOFF-1 promises conversation pause | No atomic agent/global pause, in-flight semantics, or distinct handoff pause state | blocker | `INCIDENT-1`; amend HANDOFF-1 |
+| 12 | Incident alert and evidence | Job-specific delivery routes; capped runtime-event reads (`apps/core/src/jobs/delivery.ts`) | REPORT-1 in V1.1 | No admin incident recipient/deduplication or incident export bundle | should | Add to `INCIDENT-1`; amend REPORT-1 |
+| 13 | Revert persona/prompt/access | Revisioned desired state (`settings-fleet-import.ts`) | ACCESS-UI-1 | Revisions list metadata only; no operator restore; code explicitly says no generic rollback | blocker | `REVISION-RECOVERY-1`—append a CAS-fenced corrective revision |
+| 14 | Backup/restore and bad-release recovery | Safe serialized migrations (`postgres-migrate.ts`, `ops/docker/entrypoint.sh`) | None | No backup, restore drill, downgrade/forward-fix policy, or release recovery runbook | blocker | `OPS-DR-1` |
+| 15 | Version-pinned deployment rollback | Build inputs pinned; mutable deployment tag (`ops/docker/Dockerfile`, deployment workflow) | PKG-1 partial | No selected prior digest, rollback command, or signed release manifest | should | `OPS-RELEASE-1` |
+| 16 | Secret rotation | Model credential rotation exists (`apps/core/src/cli/credentials.ts`) | 0143 / ONBOARD-UI-1 partial | No generic dependency-aware rotate→verify→activate→retire lifecycle | should | `SECRET-LIFECYCLE-1` |
+| 17 | Retention and deletion | 30-day live-admission sweep; tool-event deletion only (`live-admission-retention.ts`, `runtime-event-repository.postgres.ts`) | IDENT-4 covers person erasure only | No policy/hold/purge for messages, memory, or general audit | blocker | Data-lifecycle ADR + `LIFECYCLE-RETENTION-1` |
+| 18 | Customer contract-end export | Per-agent audit export only planned in V1.1 REPORT-1 | REPORT-1 | No tenant export, deletion certificate, delivery expiry, or explicit exclusions | should | `LIFECYCLE-EXIT-1` |
+| 19 | Sovereign egress / telemetry | Default-allow egress; OTLP can export content (`egress-gateway.ts`, `tracing.ts`) | EGRESS-1 in V1.0.x | No current default-deny proof for SDK, telemetry, MCP, browser, sandbox/direct paths | blocker | Expand EGRESS-1 with fail-closed no-connect proof |
+| 20 | Evals, thumbs, conversation review | Observer and memory-review primitives exist | None | No response evals, thresholds, review workflow, or prompt/model revision linkage | should | `QUALITY-DECISION-1`, `EVAL-1`, `CONVERSATION-REVIEW-1` |
+| 21 | Reviewable learning promise | Dreaming can auto-promote candidates (`app-memory-dreaming.ts`) | None | Contradicts brief: learning is reviewable, “never autonomous drift” | blocker | `MEMORY-GOVERNANCE` decision + console review facade |
+| 22 | Hindi/regional WhatsApp | No WhatsApp or localisation implementation | WA-1, HANDOFF-1 | No BCP-47 preference, Indic fixtures, localized templates, or translation/egress decision | should | `WA-LANG-1` + translation-ownership decision |
+| 23 | Console accessibility | Some accessible primitives exist | DESIGN-1, DIR-UI-1, ONBOARD-UI-1 | No WCAG target or keyboard, screen-reader, contrast, zoom, and assistive-tech acceptance | should | `A11Y-1` as V1 prerequisite |
+| 24 | Calendar month/cap time zone | Usage is arbitrary ISO range and UTC grouping (`usage.ts`, `runtime-event-repository.postgres.ts`) | COST-1, COST-2 | No explicit month-boundary/display-zone contract or cap-ledger semantics | should | `COST-CALENDAR-1`; make COST-2 depend on it |
+| 25 | MIT, SBOM, procurement | MIT `LICENSE`; CI produces CycloneDX SBOMs (`.github/workflows/ci.yml`) | PKG-1 provenance only | SBOMs are CI artifacts, not release-bound procurement evidence | should | `PROC-1` or amend PKG-1/DOCS-1 |
+| 26 | WhatsApp release sequence | Accepted 0136 says WhatsApp and voice together in V1.1 | Handover/roadmap place WA-1/HANDOFF-1 in V1.0.x | Direct release-milestone contradiction | blocker | Amend/supersede 0136 or move WhatsApp chain to V1.1 |
+
+Verdict:
+
+- V1.0 video: not sufficient—core stories exist, but bootstrap, decision acceptance, secret ingest, and real Teams transport lack a joined proof path.
+- First client deployment: not sufficient—incident containment, recovery, retention, personal-memory consent, and sovereign egress are unowned release risks.
+- Self-serve outsider: not sufficient—backup/restore, lifecycle exit, release rollback, and procurement evidence are missing.
+- The highest-leverage first move is to accept/reconcile 0138–0143, then add `BOOTSTRAP-1`, `INCIDENT-1`, and the lifecycle/DR stories.
+- The WhatsApp V1.0.x versus V1.1 conflict needs an explicit human decision before any sequencing work.

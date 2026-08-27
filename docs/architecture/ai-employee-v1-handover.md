@@ -25,13 +25,18 @@ code that the story must respect).
 | V1.0 | `DIR-UI-1` | Directory UI: one list for people and AI employees, detail, offboard | frontend | IDENT-2, UIFACADE-1, DESIGN-1 | `docs/specs/ai-employee-directory.md` |
 | V1.0 | `DOCS-1` | Onboard/access/audit/offboard documentation spine | fullstack | — | `docs/specs/self-serve-install-and-docs.md` |
 | V1.0 | `IDENT-4` | Person offboarding | backend | IDENT-2 | `docs/specs/agent-identity-and-offboarding.md` |
-| V1.0 | `TEAMS-E2E-1` | Teams real-tenant agent-e2e | backend | TEAMS-1, IDENT-2 | `docs/specs/teams-channel.md` |
+| V1.0 | `TEAMS-E2E-1` | Teams real-tenant agent-e2e | backend | TEAMS-1, IDENT-2, INTRO-1 | `docs/specs/teams-channel.md` |
 | V1.0 | `TEAMS-1` | Teams transport: Bot Framework, manifest, endpoint | backend | — | `docs/specs/teams-channel.md` |
 | V1.0 | `AUDIT-1` | Audit actor migration matrix to PrincipalRef | backend | IDENT-2 | `docs/specs/agent-identity-and-offboarding.md` |
 | V1.0 | `UIFACADE-1` | Browser facades: live agents and audit read models | fullstack | IDENT-2 | `docs/specs/ai-employee-directory.md` |
-| V1.0 | `ONBOARD-UI-1` | Onboarding wizard: create agent, seat, scope, approvers | fullstack | UIFACADE-1, IDENT-2, TEAMS-1, DESIGN-1 | `docs/specs/console-ai-employee-management.md` |
+| V1.0 | `ONBOARD-UI-1` | Onboarding wizard: create agent, seat, scope, approvers | fullstack | UIFACADE-1, IDENT-2, TEAMS-1, DESIGN-1, RBAC-1 | `docs/specs/console-ai-employee-management.md` |
 | V1.0 | `PEOPLE-UI-1` | People in the Directory: detail, aliases, offboard | fullstack | UIFACADE-1, IDENT-4 | `docs/specs/console-ai-employee-management.md` |
 | V1.0 | `DESIGN-1` | Console design pass: directory, detail, wizard, people, handoffs | frontend | — | `docs/specs/console-ai-employee-management.md` |
+| V1.0 | `INTRO-1` | First contact: the AI employee introduces itself | fullstack | TEAMS-1, IDENT-2, ADMIN-ALERT-1 | `docs/specs/teams-channel.md` |
+| V1.0 | `BOOTSTRAP-1` | Org bootstrap: first administrator, org app, initial secrets | backend | — | `docs/specs/day-two-operations.md` |
+| V1.0 | `INCIDENT-1` | Incident controls: freeze, real pause, paused replies | backend | IDENT-2 | `docs/specs/day-two-operations.md` |
+| V1.0 | `OPS-DR-1` | Day-two operations: backup, restore, upgrade, rollback | backend | PKG-1 | `docs/specs/day-two-operations.md` |
+| V1.0 | `ADMIN-ALERT-1` | Admin notifications: one channel, named events | backend | IDENT-2 | `docs/specs/day-two-operations.md` |
 | V1.0.x | `CONN-GSUITE-1` | Google Workspace connector | backend | CONN-1, OAUTH-1 | `docs/specs/connector-accounts.md` |
 | V1.0.x | `IDENT-3` | Phone-number alias kind | backend | IDENT-2 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.0.x | `WA-1` | WhatsApp provider | backend | IDENT-3 | `docs/specs/phone-channels-and-cost-cap.md` |
@@ -42,12 +47,18 @@ code that the story must respect).
 | V1.0.x | `EGRESS-1` | Host-owned egress allowlist | fullstack | — | `docs/specs/sovereign-mode.md` |
 | V1.0.x | `UI-CONN-ACCOUNTS-1` | Connector Accounts page: add, connect OAuth, health, revoke | fullstack | CONN-1, OAUTH-1 | `docs/specs/console-ai-employee-management.md` |
 | V1.0.x | `ACCESS-UI-1` | Access editor: preset, tool rules, capability grants | fullstack | DIR-UI-1 | `docs/specs/console-ai-employee-management.md` |
-| V1.0.x | `HANDOFF-1` | Customer handoff to a human agent | fullstack | WA-1, HITL-1 | `docs/specs/phone-channels-and-cost-cap.md` |
+| V1.0.x | `HANDOFF-1` | Customer handoff to a human agent | fullstack | WA-1, HITL-1, INCIDENT-1 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.0.x | `MODEL-1` | Per-agent model allowlist enforced at the gateway | backend | SOV-1 | `docs/specs/model-governance.md` |
 | V1.0.x | `GUARD-1` | Pre-model guardrail hook with built-in PII and secret redaction | backend | AUDIT-1 | `docs/specs/model-governance.md` |
+| V1.0.x | `LIFECYCLE-1` | Data lifecycle: retention, anonymous erase, decommission | backend | IDENT-4, WA-1 | `docs/specs/day-two-operations.md` |
+| V1.0.x | `REVISION-1` | Revision restore: persona and access rollback | fullstack | UIFACADE-1 | `docs/specs/day-two-operations.md` |
+| V1.0.x | `SELF-1` | Agent self-improvement by proposal | backend | REVISION-1, HITL-1, ADMIN-ALERT-1 | `docs/specs/agent-self-improvement.md` |
 | V1.1 | `VOICE-1` | Voice provider adapter | backend | IDENT-2, IDENT-3 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.1 | `COST-2` | Per-agent hard monthly token cap | backend | COST-1 | `docs/specs/phone-channels-and-cost-cap.md` |
 | V1.1 | `REPORT-1` | Per-agent reports and exports | fullstack | UIFACADE-1, AUDIT-1 | `docs/specs/ai-employee-directory.md` |
+| V1.1 | `MEMORY-CONSENT-1` | Personal memory consent and opt-out | backend | IDENT-2 | `docs/specs/agent-self-improvement.md` |
+| V1.1 | `QUAL-1` | Quality signal: feedback and conversation review | fullstack | ADMIN-ALERT-1 | `docs/specs/agent-self-improvement.md` |
+| V1.1 | `SUPPORT-1` | Support bundle and release notes | backend | OPS-DR-1 | `docs/specs/day-two-operations.md` |
 
 Entry points with no dependencies today: **IDENT-2** (unblocks 12), **TEAMS-1**,
 **CONN-1**, **EGRESS-1**, PKG-1, DOCS-1. Run `./forge roadmap parallel` for the
@@ -65,6 +76,12 @@ current fan-out; one worktree per story.
 | 0141 sandboxed-stdio-mcp-for-connectors | connector processes: sandboxed stdio under a supervisor |
 | 0142 third-console-role-approver | administrator / approver / viewer; amends 0132 |
 | 0143 browser-write-only-secret-ingest | browser submits secrets once, gets a reference back; never reads one |
+| 0144 memory-governance-reviewed-learning | one review/auto-apply knob for memory, consent, and self-revisions; no autonomous promotion |
+| 0145 agents-are-clients-of-their-own-configuration | one API, three clients; agents propose changes to themselves, never their own access |
+| 0146 whatsapp-ships-in-v1-0-x | amends 0136: WhatsApp + handoff in V1.0.x, voice stays V1.1 |
+| 0147 tagged-releases-supersede-no-back-compat | release tags carry migration check, pinned digest, rollback |
+| 0148 data-lifecycle-retention-erase-decommission | retention per class, anonymous erase, deployment decommission |
+| 0149 open-core-licensing-boundary | repo is MIT; voice engine and engagement connectors are KnackLabs-licensed; NOTICE in CI |
 | 0025, 0016, 0118, 0132, 0135, 0101, 0024, 0033, 0044 | pre-existing; cited inside the specs |
 
 ## Facts from the code you must not re-discover
@@ -136,6 +153,21 @@ via an imported open price table. `REPORT-1` (V1.1) covers reliability, access
 changes, blocked actions, memory changes, audit export, SIEM sink, access-review
 export, Prometheus. Rate limits ride with `COST-2`. Orgs with LiteLLM point the
 `openai_compatible` provider at it. Spec: `docs/specs/model-governance.md`.
+
+## Day-two operations and self-improvement (roadmap review, 2026-08-27)
+
+Two reviews (Fable product lens, Codex against code; gap analysis Part 3) found the
+roadmap built the product but not its operation. V1.0 now includes `BOOTSTRAP-1`
+(org app, first admin), `INCIDENT-1` (freeze from the CLI without console/IdP, real
+pause states, paused replies), `ADMIN-ALERT-1` (one admin channel, named events),
+`OPS-DR-1` (backup/restore/upgrade/rollback), and `INTRO-1` (the employee introduces
+itself in Teams; DMs first-class). V1.0.x adds `LIFECYCLE-1`, `REVISION-1`, and
+`SELF-1` — agents propose changes to themselves through the same API the CLI uses,
+owners review or auto-apply low-risk classes, never their own access (0145). The
+CLI stays as break-glass, automation, and the agent's surface. Code facts behind
+this: dreaming auto-promotes memory (`apps/core/src/memory/app-memory-dreaming.ts`),
+DMs keep personal memory with no opt-out, Pause everywhere pauses jobs only, no
+revision restore, fresh installs seed a personal app, OTLP can export content.
 
 ## Working rules
 
