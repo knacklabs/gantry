@@ -250,30 +250,38 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         return;
       }
 
+      const actionCallbackMessage = ctx.callbackQuery?.message as
+        | {
+            chat?: { id?: number | string };
+            message_id?: number;
+            message_thread_id?: number;
+          }
+        | undefined;
+      const actionCallbackChatId =
+        actionCallbackMessage?.chat?.id?.toString() ||
+        ctx.chat?.id?.toString() ||
+        '';
+      const actionCallbackThreadId =
+        typeof actionCallbackMessage?.message_thread_id === 'number'
+          ? String(actionCallbackMessage.message_thread_id)
+          : undefined;
+      const actionCallbackUserId = ctx.from?.id?.toString();
+      const actionCallbackProviderAccountId = this.opts.providerAccountId;
+      const actionCallbackMessageId =
+        typeof actionCallbackMessage?.message_id === 'number'
+          ? String(actionCallbackMessage.message_id)
+          : undefined;
+
       if (data.startsWith('lt:stop:')) {
-        const callbackMessage = ctx.callbackQuery?.message as
-          | {
-              chat?: { id?: number | string };
-              message_id?: number;
-              message_thread_id?: number;
-            }
-          | undefined;
-        const chatId =
-          callbackMessage?.chat?.id?.toString() ||
-          ctx.chat?.id?.toString() ||
-          '';
-        if (!chatId) return;
+        if (!actionCallbackChatId) return;
         await this.opts.onMessageAction?.({
           kind: 'live_turn_stop',
-          conversationJid: `tg:${chatId}`,
-          ...(this.opts.providerAccountId
-            ? { providerAccountId: this.opts.providerAccountId }
+          conversationJid: `tg:${actionCallbackChatId}`,
+          ...(actionCallbackProviderAccountId
+            ? { providerAccountId: actionCallbackProviderAccountId }
             : {}),
-          threadId:
-            typeof callbackMessage?.message_thread_id === 'number'
-              ? String(callbackMessage.message_thread_id)
-              : undefined,
-          userId: ctx.from?.id?.toString(),
+          threadId: actionCallbackThreadId,
+          userId: actionCallbackUserId,
           actionToken: data.slice('lt:stop:'.length),
         });
         await ctx.answerCallbackQuery({ text: 'Stopping current run.' });
@@ -281,31 +289,17 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       }
 
       if (data.startsWith('jp:')) {
-        const callbackMessage = ctx.callbackQuery?.message as
-          | {
-              chat?: { id?: number | string };
-              message_id?: number;
-              message_thread_id?: number;
-            }
-          | undefined;
-        const chatId =
-          callbackMessage?.chat?.id?.toString() ||
-          ctx.chat?.id?.toString() ||
-          '';
-        if (!chatId) return;
+        if (!actionCallbackChatId) return;
         await this.opts.onMessageAction?.({
           kind: 'job_permission_decision',
-          conversationJid: `tg:${chatId}`,
-          ...(this.opts.providerAccountId
-            ? { providerAccountId: this.opts.providerAccountId }
+          conversationJid: `tg:${actionCallbackChatId}`,
+          ...(actionCallbackProviderAccountId
+            ? { providerAccountId: actionCallbackProviderAccountId }
             : {}),
-          threadId:
-            typeof callbackMessage?.message_thread_id === 'number'
-              ? String(callbackMessage.message_thread_id)
-              : undefined,
-          userId: ctx.from?.id?.toString(),
-          ...(typeof callbackMessage?.message_id === 'number'
-            ? { messageId: String(callbackMessage.message_id) }
+          threadId: actionCallbackThreadId,
+          userId: actionCallbackUserId,
+          ...(actionCallbackMessageId
+            ? { messageId: actionCallbackMessageId }
             : {}),
           actionToken: data,
         });

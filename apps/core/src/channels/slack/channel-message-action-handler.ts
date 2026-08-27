@@ -57,6 +57,8 @@ export function registerSlackMessageActionHandler(
       message?: { thread_ts?: string; ts?: string };
       user?: { id?: string };
     };
+    const channelId = body.channel?.id;
+    const userId = body.user?.id;
     let payload:
       | {
           kind?: unknown;
@@ -78,15 +80,15 @@ export function registerSlackMessageActionHandler(
       payload?.kind === 'job_permission_decision' &&
       typeof payload.actionToken === 'string' &&
       payload.actionToken.trim() &&
-      body.channel?.id &&
-      body.user?.id
+      channelId &&
+      userId
     ) {
       await opts?.onMessageAction?.({
         kind: 'job_permission_decision',
-        conversationJid: `sl:${body.channel.id}`,
+        conversationJid: `sl:${channelId}`,
         ...providerAccountFromPayload(payload, opts?.providerAccountId),
         threadId: body.message?.thread_ts,
-        userId: body.user.id,
+        userId,
         ...(body.message?.ts ? { messageId: body.message.ts } : {}),
         actionToken: payload.actionToken,
       });
@@ -95,9 +97,7 @@ export function registerSlackMessageActionHandler(
     }
     await args.ack();
     const observerFeedback = parseSlackObserverFeedback(payload);
-    if (observerFeedback && body.channel?.id && body.user?.id) {
-      const channelId = body.channel.id;
-      const userId = body.user.id;
+    if (observerFeedback && channelId && userId) {
       const messageTs = body.message?.ts;
       // Serialize concurrent clicks on THIS digest message so the later one
       // rebuilds from the earlier's committed state (no resurrected buttons).
@@ -177,16 +177,16 @@ export function registerSlackMessageActionHandler(
       (payload.decision === 'approve' ||
         payload.decision === 'reject' ||
         payload.decision === 'edit') &&
-      body.channel?.id &&
-      body.user?.id
+      channelId &&
+      userId
     ) {
       const messageTs = body.message?.ts;
       const outcome = await opts?.onMessageAction?.({
         kind: 'memory_review_decision',
-        conversationJid: `sl:${body.channel.id}`,
+        conversationJid: `sl:${channelId}`,
         ...providerAccountFromPayload(payload, opts?.providerAccountId),
         threadId: body.message?.thread_ts,
-        userId: body.user.id,
+        userId,
         reviewId: payload.reviewId,
         decision: payload.decision as MemoryReviewActionDecision,
         label: '',
@@ -197,7 +197,7 @@ export function registerSlackMessageActionHandler(
             // Rebuild the shared message as a receipt: Slack renders blocks, so
             // replace them (not just fallback text) to actually drop the buttons.
             await app.client.chat.update({
-              channel: body.channel.id,
+              channel: channelId,
               ts: messageTs,
               text: outcome.receipt,
               blocks: [
@@ -213,8 +213,8 @@ export function registerSlackMessageActionHandler(
               ? `${outcome.receipt}\n\n${outcome.replacementText}`
               : outcome.receipt;
             await app.client.chat.postEphemeral({
-              channel: body.channel.id,
-              user: body.user.id,
+              channel: channelId,
+              user: userId,
               text,
             });
           }
@@ -225,17 +225,17 @@ export function registerSlackMessageActionHandler(
       return;
     }
     const brainReview = parseSlackBrainReview(payload);
-    if (brainReview && body.channel?.id && body.user?.id) {
+    if (brainReview && channelId && userId) {
       const messageTs = body.message?.ts;
       const outcome = await opts?.onMessageAction?.({
         kind: 'brain_dream_review_decision',
-        conversationJid: `sl:${body.channel.id}`,
+        conversationJid: `sl:${channelId}`,
         ...providerAccountFromPayload(
           { providerAccountId: brainReview.providerAccountId },
           opts?.providerAccountId,
         ),
         threadId: body.message?.thread_ts,
-        userId: body.user.id,
+        userId,
         reviewId: brainReview.reviewId,
         decision: brainReview.decision,
       });
@@ -244,7 +244,7 @@ export function registerSlackMessageActionHandler(
           if (isTerminalReviewOutcome(outcome) && messageTs) {
             // Terminal: replace blocks with a receipt section to drop buttons.
             await app.client.chat.update({
-              channel: body.channel.id,
+              channel: channelId,
               ts: messageTs,
               text: outcome.receipt,
               blocks: [
@@ -260,8 +260,8 @@ export function registerSlackMessageActionHandler(
               ? `${outcome.receipt}\n\n${outcome.replacementText}`
               : outcome.receipt;
             await app.client.chat.postEphemeral({
-              channel: body.channel.id,
-              user: body.user.id,
+              channel: channelId,
+              user: userId,
               text,
             });
           }
@@ -279,18 +279,18 @@ export function registerSlackMessageActionHandler(
       ) ||
       typeof payload.jobId !== 'string' ||
       payload.jobId.trim().length === 0 ||
-      !body.channel?.id ||
-      !body.user?.id
+      !channelId ||
+      !userId
     ) {
       return;
     }
     if (payload.kind === 'scheduler_run_now') {
       await opts?.onMessageAction?.({
         kind: 'scheduler_run_now',
-        conversationJid: `sl:${body.channel.id}`,
+        conversationJid: `sl:${channelId}`,
         ...providerAccountFromPayload(payload, opts?.providerAccountId),
         threadId: body.message?.thread_ts,
-        userId: body.user.id,
+        userId,
         jobId: payload.jobId,
         runId: typeof payload.runId === 'string' ? payload.runId : null,
       });
@@ -298,8 +298,8 @@ export function registerSlackMessageActionHandler(
     }
     try {
       await app.client.chat.postEphemeral({
-        channel: body.channel.id,
-        user: body.user.id,
+        channel: channelId,
+        user: userId,
         text: 'Scheduler action buttons are visible hints only in this channel. Open the scheduler surface or use scheduler tools to run this action.',
       });
     } catch {

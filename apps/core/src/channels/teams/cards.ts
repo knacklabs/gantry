@@ -301,6 +301,7 @@ export function buildTeamsMessageCard(options: {
   actionOnly?: boolean;
   actionAffordances?: MessageActionAffordance[];
 }): TeamsAdaptiveCardPayload {
+  const threadFragment = options.threadId ? { threadId: options.threadId } : {};
   const actions = (options.actionAffordances ?? [])
     .map((action): TeamsAdaptiveCardAction | null => {
       if (!action.label.trim()) return null;
@@ -314,7 +315,7 @@ export function buildTeamsMessageCard(options: {
             kind: 'live_turn_stop',
             actionToken: action.actionToken,
             targetJid: options.targetJid,
-            ...(options.threadId ? { threadId: options.threadId } : {}),
+            ...threadFragment,
           },
         };
       }
@@ -328,7 +329,7 @@ export function buildTeamsMessageCard(options: {
             kind: 'job_permission_decision',
             actionToken: action.actionToken,
             targetJid: options.targetJid,
-            ...(options.threadId ? { threadId: options.threadId } : {}),
+            ...threadFragment,
           },
         };
       }
@@ -342,7 +343,7 @@ export function buildTeamsMessageCard(options: {
             kind: 'scheduler_run_now',
             jobId: action.jobId,
             targetJid: options.targetJid,
-            ...(options.threadId ? { threadId: options.threadId } : {}),
+            ...threadFragment,
           },
         };
       }
@@ -356,7 +357,7 @@ export function buildTeamsMessageCard(options: {
             kind: 'scheduler_pause_job',
             jobId: action.jobId,
             targetJid: options.targetJid,
-            ...(options.threadId ? { threadId: options.threadId } : {}),
+            ...threadFragment,
           },
         };
       }
