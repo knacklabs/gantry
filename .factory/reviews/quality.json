@@ -1,0 +1,16 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "Clean external Codex review: the patch narrowly excludes disabled provider accounts whose owning agent is absent while preserving disabled accounts for existing agents and all historical database rows.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "apps/core/src/config/settings/desired-state-current-export.ts",
+    "apps/core/test/unit/config/desired-state-current-export.test.ts"
+  ],
+  "aspect": "quality",
+  "recorded_at": "2026-08-27T08:46:10+00:00",
+  "commit": "2f55b12f1e6952726d68c4925b2d10111bba9f93"
+}
