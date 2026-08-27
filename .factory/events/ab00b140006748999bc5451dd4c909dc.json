@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-27T16:34:18+00:00", "story": "CHAN-2", "detail": "CHAN-2-T1 required VITEST_JUNIT focused test command is rejected by managed command policy before Vitest starts; the equivalent focused test and full channel suite pass."}

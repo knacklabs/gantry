@@ -4,7 +4,7 @@
     {
       "id": "CHAN-2-T1",
       "title": "Five repeated-guard hoists across the provider adapters",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-27T16:25:01+00:00",
       "base_sha": "a630d4af1ad3d3b73a38d22e7ff95c35935ca3a0",
       "dirty_at_start": {
@@ -17,7 +17,17 @@
           "git": "? .factory/stories/CHAN-2/grills/tasks/CHAN-2-T1.json\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "c4cffdd8fc0f40336ad277c1c2918926a67ac4c56138a967744ab16aa75263a3"
+      "task_sha256": "c4cffdd8fc0f40336ad277c1c2918926a67ac4c56138a967744ab16aa75263a3",
+      "local_review_stamp": {
+        "stage_id": "CHAN-2-T1",
+        "task_sha256": "c4cffdd8fc0f40336ad277c1c2918926a67ac4c56138a967744ab16aa75263a3",
+        "brief_sha256": "e8529b09e6d308a53126c821bfd342874849c783a8418c641b748afc97a67211",
+        "base_sha": "a630d4af1ad3d3b73a38d22e7ff95c35935ca3a0",
+        "product_tree_digest": "464fafc4f8c8bbfebdf90e98b77c8914f19ea0a9cb5297868a2aaae11bd2f88d",
+        "recorded_at": "2026-08-27T16:36:40+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-08-27T16:37:16+00:00"
     },
     {
       "id": "CHAN-2-T2",

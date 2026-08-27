@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T16:35:04+00:00", "story": "CHAN-2", "detail": "S-0031-7d2b: Informational: the VITEST_JUNIT required-test command is executed by forge stage done on the host, not by the worker sandbox; the worker's equivalent focused run suffices for its report. No action."}
