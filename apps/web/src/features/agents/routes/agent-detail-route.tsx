@@ -415,8 +415,15 @@ function RoleAssignmentDialog({
       );
       if (!response.ok) throw new Error('Role could not be updated.');
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: agentQueryKeys.all });
+    onSuccess: async () => {
+      await queryClient.refetchQueries({
+        queryKey: agentDetailQuery(agent.id).queryKey,
+        type: 'active',
+      });
+      await queryClient.invalidateQueries({
+        queryKey: agentQueryKeys.all,
+        refetchType: 'active',
+      });
       onOpenChange(false);
     },
   });
