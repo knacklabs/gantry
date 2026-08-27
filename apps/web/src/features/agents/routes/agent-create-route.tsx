@@ -61,7 +61,6 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [selectedRole, setSelectedRole] = useState<BrowserRole>();
-  const [instructions, setInstructions] = useState('');
   const [baseErrors, setBaseErrors] = useState<{
     name?: string;
     role?: string;
@@ -308,18 +307,6 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                 }}
                 onCreateCustom={() => setRoleEditor({ mode: 'create' })}
               />
-              <label className="grid gap-1.5 text-xs font-semibold text-text">
-                Additional instructions{' '}
-                <span className="font-normal text-text-secondary">
-                  Optional · applies only to this agent
-                </span>
-                <textarea
-                  className="min-h-24 rounded-md border border-border-strong bg-surface p-3 text-[13px] text-text"
-                  placeholder="Example: Keep every report under two pages and finish with three recommended actions…"
-                  value={instructions}
-                  onChange={(event) => setInstructions(event.target.value)}
-                />
-              </label>
             </form>
           ) : null}
           <RoleEditorDialog
