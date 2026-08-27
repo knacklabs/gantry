@@ -67,6 +67,7 @@ export async function exportCurrentDesiredState(input: {
       ),
     ]),
   ];
+  const agentIdSet = new Set(agentIds);
   const groupEntries =
     agentIds.length === 0
       ? Object.entries(groups)
@@ -171,7 +172,12 @@ export async function exportCurrentDesiredState(input: {
   for (const connection of storedProviderAccounts.filter(
     (connection) =>
       !isInternalAppControlProviderAccount(connection) &&
-      !isCanonicalFallbackProviderAccount(connection),
+      !isCanonicalFallbackProviderAccount(connection) &&
+      // A disabled provider account can retain historical conversations after
+      // its agent is removed. Keep that history in Postgres, but do not project
+      // the orphan into runtime settings: its missing agent would make every
+      // unrelated settings mutation fail validation.
+      (connection.status !== 'disabled' || agentIdSet.has(connection.agentId)),
   )) {
     const providerId = connection.providerId as string;
     const agentFolder =

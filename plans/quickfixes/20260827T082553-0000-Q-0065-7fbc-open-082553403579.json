@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0065-7fbc",
+  "profile": "lite",
+  "reason": "Prevent disabled provider accounts owned by removed agents from breaking desired-state validation and agent skill updates.",
+  "started_at": "2026-08-27T08:25:53+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Yash Khurana",
+  "base_sha": "260c3bfe1e9c2f7fab38e4b0633a13b12ab71566"
+}

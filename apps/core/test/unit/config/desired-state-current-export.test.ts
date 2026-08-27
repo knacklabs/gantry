@@ -820,6 +820,70 @@ permissions:
     ).not.toThrow();
   });
 
+  it('skips disabled provider accounts whose agent was removed', async () => {
+    const settings = createDefaultRuntimeSettings();
+    const deps = {
+      ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => [
+            {
+              id: 'slack-orphaned',
+              agentId: 'agent:removed_agent',
+              providerId: 'slack',
+              label: 'Removed agent Slack',
+              status: 'disabled',
+              config: {},
+              runtimeSecretRefs: {},
+            },
+          ]),
+          listConversationInstalls: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => [
+            {
+              id: 'conversation:slack-orphaned',
+              providerAccountId: 'slack-orphaned',
+              externalRef: { value: 'C999' },
+              kind: 'channel',
+              title: 'Historical channel',
+              status: 'active',
+            },
+          ]),
+          listConversationApproversForConversations: vi.fn(async () => [
+            {
+              conversationId: 'conversation:slack-orphaned',
+              externalUserId: 'U1',
+            },
+          ]),
+        },
+      },
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings,
+    });
+
+    expect(exported.providerAccounts['slack-orphaned']).toBeUndefined();
+    expect(exported.conversations).toEqual({});
+    expect(() =>
+      parseRuntimeSettings(renderRuntimeSettingsYaml(exported)),
+    ).not.toThrow();
+  });
+
   it('exports live route bindings without mutating configured installed agents', async () => {
     const deps = {
       ops: {
