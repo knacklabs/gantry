@@ -1,0 +1,89 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "CHAN-1-T1",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "inspected_refs": [
+    "apps/core/src/channels/discord.ts",
+    "apps/core/src/channels/discord-delivery.ts",
+    "apps/core/src/channels/discord-interactions.ts",
+    "apps/core/src/channels/slack",
+    "apps/core/src/channels/telegram",
+    "apps/core/test/unit/channels/discord.test.ts",
+    "apps/core/src/channels/interaction-settlement.ts"
+  ],
+  "current_flow": "Discord adapter modules are flat prefix-named files at the channels root importing each other via ./discord-<x>.js and shared channel modules via ./<shared>.js; the provider entry is channels/discord.ts; external code imports channels/discord-<x>.js.",
+  "criteria_map": {
+    "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts": "steps 1-5: git mv of all 34 discord files (teams half is T2), in-folder + external import rewrite, tests moved, budget paths re-pointed; step 6 zero-hit grep + tsc + architecture + unit lane",
+    "Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point": "branch carries origin/main after #444 merged (merge commit 20db560fe)"
+  },
+  "decision": "keep",
+  "new_abstractions": [],
+  "rounds": [
+    {
+      "question": "Entry module naming?",
+      "options": [
+        "discord/discord.ts",
+        "discord/index.ts"
+      ],
+      "chosen": "discord/index.ts"
+    },
+    {
+      "question": "Tests move or stay?",
+      "options": [
+        "stay flat, fix imports",
+        "move under test/unit/channels/discord/"
+      ],
+      "chosen": "move under test/unit/channels/discord/"
+    },
+    {
+      "question": "Rewrite mechanism?",
+      "options": [
+        "hand edits",
+        "scripted pass verified by tsc"
+      ],
+      "chosen": "scripted pass verified by tsc"
+    },
+    {
+      "question": "Any behaviour change allowed?",
+      "options": [
+        "opportunistic cleanups",
+        "none"
+      ],
+      "chosen": "none"
+    },
+    {
+      "question": "How are path strings tsc cannot see caught?",
+      "options": [
+        "trust tsc only",
+        "zero-hit grep for old prefixes in src and test"
+      ],
+      "chosen": "zero-hit grep for old prefixes in src and test"
+    }
+  ],
+  "gaps": [
+    "vi.mock path strings and dynamic import() paths are invisible to tsc \u2014 covered by the zero-hit grep in verify."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Renames via git mv so history and review (-M) stay intact."
+  ],
+  "citations": [
+    {
+      "finding": "no rule prescribes channel layout; it is drift",
+      "source": "docs/architecture/channel-interactions.md (no layout rule); git log for channels/slack, channels/telegram (2026-04-25 eea2a81bd)"
+    },
+    {
+      "finding": "vi.mock path strings and dynamic import() paths are invisible to tsc \u2014 covered by the zero-hit grep in verify.",
+      "source": "apps/core/test/unit/channels/discord.test.ts (vi.mock by module path); verify step 6 grep in /tmp/chan1/T1.md"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "039059b43483fc4d647ae437f99eb5ee246f61c030a31ae3d933fdbf515d0578",
+  "recorded_at": "2026-08-27T08:56:17+00:00",
+  "commit": "20db560fe4dfc610791944a7c09a3c68eca6f22d",
+  "approved_task_plan_sha256": "21ea0c6bd6ddb573dce248a963fcac84ea566cbe5fc4964756789219f4e0fb97",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-27T08:56:17+00:00"
+}

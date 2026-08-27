@@ -1,0 +1,93 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": false,
+  "story": "CHAN-1",
+  "epic": "harness-hygiene",
+  "plan_contracts": [
+    {
+      "id": "CHAN-1-AC1",
+      "statement": "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts",
+      "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-1-AC4",
+      "statement": "Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point",
+      "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "CHAN-1-T1",
+      "title": "Discord adapter moves to channels/discord/",
+      "objective": "git mv every apps/core/src/channels/discord-*.ts (34 files) to apps/core/src/channels/discord/<name>.ts with the prefix dropped (discord.ts becomes discord/index.ts); rewrite sibling and parent relative imports inside the folder, the 13 importers elsewhere in apps/core/src, and the discord unit tests, which move to apps/core/test/unit/channels/discord/; re-point architecture-budget paths. No symbol renames, no behaviour change.",
+      "acceptance_criteria": [
+        "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts",
+        "Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point"
+      ],
+      "write_scope": [
+        "apps/core/src/channels/discord/",
+        "apps/core/src/channels/",
+        "apps/core/src/",
+        "apps/core/test/unit/channels/",
+        "apps/core/test/",
+        "apps/core/architecture-budgets.json",
+        "apps/core/scripts/"
+      ],
+      "required_tests": [
+        {
+          "id": "discord",
+          "path": "apps/core/test/unit/channels/discord",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture",
+        "sh -c \"! grep -rn \\\"channels/discord-\\|from './discord-\\|from '../discord-\\\" apps/core/src apps/core/test\""
+      ],
+      "plan_contracts": [
+        {
+          "id": "CHAN-1-AC1",
+          "statement": "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts",
+          "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+        },
+        {
+          "id": "CHAN-1-AC4",
+          "statement": "Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point",
+          "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+        }
+      ],
+      "reviewer_focus": [
+        "renames only (git diff -M \u226590% similarity)",
+        "every import resolves (tsc) and the old-prefix grep is zero",
+        "architecture-budget path entries re-pointed, none dropped",
+        "no exported symbol renamed, no behaviour change"
+      ],
+      "review_budget": {
+        "max_changed_files": 62,
+        "max_changed_lines": 1600,
+        "reason": "Mechanical folder move of every discord adapter file plus its tests and importers; the diff is renames (git mv) and import-path edits only \u2014 the file count is the move itself, not code creep."
+      },
+      "user_facing": false
+    },
+    {
+      "id": "CHAN-1-T2",
+      "title": "Teams adapter moves to channels/teams/",
+      "objective": "git mv every apps/core/src/channels/teams-*.ts (22 files) to apps/core/src/channels/teams/<name>.ts with the prefix dropped (teams.ts becomes teams/index.ts); rewrite sibling and parent relative imports inside the folder, the 14 importers elsewhere in apps/core/src, and the teams unit tests, which move to apps/core/test/unit/channels/teams/; re-point architecture-budget paths. No symbol renames, no behaviour change.",
+      "acceptance_criteria": [
+        "No apps/core/src/channels/teams-*.ts remains; grep for 'channels/teams-' and \"'./teams-\" returns 0 hits",
+        "tsc --noEmit and npm run check:architecture pass",
+        "teams unit tests pass from their new folder; full unit lane green",
+        "git diff -M shows renames (>=90% similarity) plus import-path-only edits"
+      ],
+      "user_facing": false,
+      "depends_on": [
+        "CHAN-1-T1"
+      ]
+    }
+  ],
+  "project": "",
+  "plan_file": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md",
+  "plan_sha256": "097ae733f3e917f5174c2bb272024d383c4b77c353ff6174176f3af27b148aab",
+  "commit": "20db560fe4dfc610791944a7c09a3c68eca6f22d"
+}
