@@ -19,6 +19,7 @@ export function AgentSetupCatalog({
   selected,
   items,
   search,
+  sourceSummary,
   page,
   hasNext,
   loading,
@@ -36,6 +37,7 @@ export function AgentSetupCatalog({
   selected: string[];
   items: SetupCatalogItem[];
   search: string;
+  sourceSummary?: string;
   page?: number;
   hasNext?: boolean;
   loading: boolean;
@@ -97,7 +99,8 @@ export function AgentSetupCatalog({
       ) : (
         <>
           <AgentDrawer
-            description="Connected sources → Allowed capabilities → Runtime checks"
+            bodyClassName="grid min-h-0 flex-1 content-start gap-[18px] overflow-y-auto p-5"
+            description="A connected source is not automatic permission."
             eyebrow="Step 3 help"
             footer={
               <Button type="button" onClick={() => setAccessOpen(false)}>
@@ -108,22 +111,78 @@ export function AgentSetupCatalog({
             title="How agent access works"
             onOpenChange={setAccessOpen}
           >
-            <div className="grid gap-2 rounded-md bg-surface-muted p-3 text-sm text-text-secondary">
-              <strong className="text-text">1 · Sources</strong>
-              <span>Expose reviewed tools and information to the agent.</span>
-              <strong className="text-text">2 · Capabilities</strong>
-              <span>Authorize the durable actions this agent may request.</span>
-              <strong className="text-text">3 · Runtime checks</strong>
-              <span>Apply session approval, credentials, and host safety.</span>
+            <div
+              aria-label="Sources expose tools, capabilities authorize actions, and runtime gates remain in force"
+              className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-[7px]"
+            >
+              <AccessStage
+                description="Expose reviewed tools and information to the agent."
+                title="1 · Sources"
+              />
+              <span className="self-center text-sm text-text-secondary">→</span>
+              <AccessStage
+                description="Authorize the durable actions this agent may request."
+                title="2 · Capabilities"
+              />
+              <span className="self-center text-sm text-text-secondary">→</span>
+              <AccessStage
+                description="Apply session approval, credentials, and host safety."
+                title="3 · Runtime gates"
+              />
             </div>
-            <p className="m-0 text-sm text-text-secondary">
-              Connecting a source does not grant authority. An allowed write
-              action can still require approval.
-            </p>
-            <p className="m-0 rounded-md bg-surface-muted p-3 text-xs text-text-secondary">
-              No changes happen here. Close this drawer to continue choosing
-              capabilities.
-            </p>
+            <section>
+              <h3 className="mb-[13px] text-[12px] font-semibold text-text">
+                The practical rules
+              </h3>
+              <div className="grid gap-[13px]">
+                <AccessRule
+                  mark="S"
+                  description="A source can be available while all of its actions remain unavailable to this agent."
+                  title="Connecting does not grant authority"
+                />
+                <AccessRule
+                  mark="C"
+                  description="The agent can request only the actions selected in this step. Raw IDs remain visible under each capability’s Details."
+                  title="Capabilities are explicit"
+                />
+                <AccessRule
+                  mark="!"
+                  description="An allowed write action may still require approval. Missing credentials and runtime safety rules always win."
+                  title="Risk controls still apply"
+                />
+                <AccessRule
+                  mark="↻"
+                  description="Saved source and capability changes become available on this agent’s next run."
+                  title="Changes apply to future work"
+                />
+              </div>
+            </section>
+            <section>
+              <h3 className="mb-2 text-[12px] font-semibold text-text">
+                Current setup
+              </h3>
+              <div className="grid gap-2 rounded-md border border-border bg-surface-muted p-3">
+                <AccessSummary
+                  label="Connected sources"
+                  value={sourceSummary ?? 'Loading saved sources'}
+                />
+                <AccessSummary
+                  label="Allowed capabilities"
+                  value={`${selected.length} selected`}
+                />
+                <AccessSummary
+                  label="Unavailable"
+                  muted
+                  value="Checked at run time"
+                />
+              </div>
+            </section>
+            <div className="rounded-md border border-status-attention/50 bg-status-attention-soft px-[11px] py-[10px] text-[10.5px] leading-[1.5] text-text">
+              <strong>No changes happen here.</strong>
+              <br />
+              This drawer only explains the access model. Close it to continue
+              choosing capabilities.
+            </div>
           </AgentDrawer>
         </>
       )}
@@ -272,5 +331,65 @@ export function AgentSetupCatalog({
         </div>
       ) : null}
     </>
+  );
+}
+
+function AccessStage({
+  description,
+  title,
+}: {
+  description: string;
+  title: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-border bg-surface-muted px-[9px] py-[11px]">
+      <strong className="mb-[5px] block text-[11.5px] text-text">{title}</strong>
+      <span className="block text-[10px] leading-[1.4] text-text-secondary">
+        {description}
+      </span>
+    </div>
+  );
+}
+
+function AccessRule({
+  description,
+  mark,
+  title,
+}: {
+  description: string;
+  mark: string;
+  title: string;
+}) {
+  return (
+    <div className="grid grid-cols-[22px_minmax(0,1fr)] gap-[9px]">
+      <span className="grid size-[22px] place-items-center rounded-full bg-surface-strong font-mono text-[10px] font-bold text-text-secondary">
+        {mark}
+      </span>
+      <div>
+        <strong className="mb-[3px] block text-[12px] text-text">{title}</strong>
+        <p className="m-0 text-[11px] leading-[1.5] text-text-secondary">
+          {description}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function AccessSummary({
+  label,
+  muted = false,
+  value,
+}: {
+  label: string;
+  muted?: boolean;
+  value: string;
+}) {
+  return (
+    <div className="flex min-h-7 items-center justify-between gap-3 border-t border-border py-1 text-[10.5px] first:border-t-0 first:pt-0 last:pb-0">
+      <span>{label}</span>
+      <strong className={muted ? 'text-text-secondary' : 'text-text'}>
+        {value}
+      </strong>
+    </div>
   );
 }

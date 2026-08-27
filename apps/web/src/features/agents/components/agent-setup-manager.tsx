@@ -39,7 +39,7 @@ export function AgentSetupManager({
   const queryClient = useQueryClient();
   const sources = useQuery({
     ...agentSourcesQuery(agentId),
-    enabled: kind === 'sources',
+    enabled: true,
   });
   const capabilities = useQuery({
     ...agentCapabilitiesQuery(agentId),
@@ -190,6 +190,7 @@ export function AgentSetupManager({
         page={catalog.data?.catalog.page}
         search={catalogInput}
         selected={selected}
+        sourceSummary={`${sourceCurrent?.skills.length ?? 0} skills · ${sourceCurrent?.mcpServers.length ?? 0} MCP servers`}
         sourceTab={sourceTab}
         onPageChange={setCatalogPage}
         onRetry={() => void catalog.refetch()}
