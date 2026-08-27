@@ -1,9 +1,9 @@
 {
-  "commit": "eeb6559229ba6db0934ad4f62337cde3c5ee5d3a",
+  "commit": "6baec6a16b90022ba93df88a5085a0edcb777b6f",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "At HEAD 92668e1d7: unit lane 675 files / 9,025 tests passed; integration lane 13 files / 87 tests passed (DB-gated suites skipped per config); architecture, format, vendor integrity and dual-runtime checks green; verify.py Verification passed. New proof suites since the story stages: JSONB-faithful jobperm fakes + q-0074 no-op-revision test, Telegram/Slack/Discord native terminal render suites, heredoc parser cases, lifecycle fallback/idempotency cases, notice rollup/headline cases. Q-0092/Q-0093 add job-run-prompt and next-run formatting tests (jobs suite 66 files / 719 tests). Q-0094 adds last-match headline cases (jobs suite 66 files / 722 tests). Q-0095 label test, Q-0096/97 prelaunch deletion (jobs+application lanes 139 files / 1670 tests; jobs lane 66/720 after dep removal). Q-0098 heartbeat in-flight registry tests (runner+adapters lanes 130 files / 1292 tests). Q-0099 stale-card replace + Q-0100 delivery log tests (application lane 73 files / 957 tests). Q-0101 cron no-retry tests (jobs lane 66/722). Q-0102 raw-summary headline test (jobs lane 66/723). Q-0103 Telegram headline-on-face test (channels lane 40/1006). Q-0104 two-button card (domain+application 85/1084), Q-0105 finish nudge (runner 43/502 + runner-path 57), Q-0106 humanizer (telegram 210). Q-0107 replace-sends-new-message tests (telegram+domain 14/335). Q-0108 stream-open-for-nudge tests (runner 43/501).",
+    "summary": "At merge 6baec6a16 (origin/main merged in): unit lane 675 files / 9,025 tests passed; integration lane 13 files / 87 tests passed (DB-gated suites skipped per config); architecture, format, vendor integrity and dual-runtime checks green; verify.py Verification passed. New proof suites since the story stages: JSONB-faithful jobperm fakes + q-0074 no-op-revision test, Telegram/Slack/Discord native terminal render suites, heredoc parser cases, lifecycle fallback/idempotency cases, notice rollup/headline cases. Q-0092/Q-0093 add job-run-prompt and next-run formatting tests (jobs suite 66 files / 719 tests). Q-0094 adds last-match headline cases (jobs suite 66 files / 722 tests). Q-0095 label test, Q-0096/97 prelaunch deletion (jobs+application lanes 139 files / 1670 tests; jobs lane 66/720 after dep removal). Q-0098 heartbeat in-flight registry tests (runner+adapters lanes 130 files / 1292 tests). Q-0099 stale-card replace + Q-0100 delivery log tests (application lane 73 files / 957 tests). Q-0101 cron no-retry tests (jobs lane 66/722). Q-0102 raw-summary headline test (jobs lane 66/723). Q-0103 Telegram headline-on-face test (channels lane 40/1006). Q-0104 two-button card (domain+application 85/1084), Q-0105 finish nudge (runner 43/502 + runner-path 57), Q-0106 humanizer (telegram 210). Q-0107 replace-sends-new-message tests (telegram+domain 14/335). Q-0108 stream-open-for-nudge tests (runner 43/501). Merged tree: verify.py green; jobs+application+channels+runner+domain 235 files / 3317 tests; tsc; architecture.",
     "blocking_findings": [],
     "commands_run": [
       "npx vitest run -c vitest.unit.config.ts",
@@ -41,10 +41,10 @@
     "non_blocking_findings": [],
     "residual_risks": [],
     "manual_validation_steps": [],
-    "recorded_at": "2026-08-27T04:23:49+00:00",
-    "commit": "92668e1d73368d7d3136c3df68b98ceb9cfaf2a0"
+    "recorded_at": "2026-08-27T06:28:47+00:00",
+    "commit": "6baec6a16b90022ba93df88a5085a0edcb777b6f"
   },
-  "updated_at": "2026-08-27T04:37:44+00:00",
+  "updated_at": "2026-08-27T06:28:47+00:00",
   "functional": {
     "generated_by": "functional-checker",
     "status": "passed",
