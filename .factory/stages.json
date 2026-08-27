@@ -18,21 +18,49 @@
         }
       },
       "task_sha256": "c4cffdd8fc0f40336ad277c1c2918926a67ac4c56138a967744ab16aa75263a3",
-      "local_review_stamp": {
-        "stage_id": "CHAN-2-T1",
-        "task_sha256": "c4cffdd8fc0f40336ad277c1c2918926a67ac4c56138a967744ab16aa75263a3",
-        "brief_sha256": "e8529b09e6d308a53126c821bfd342874849c783a8418c641b748afc97a67211",
-        "base_sha": "a630d4af1ad3d3b73a38d22e7ff95c35935ca3a0",
-        "product_tree_digest": "464fafc4f8c8bbfebdf90e98b77c8914f19ea0a9cb5297868a2aaae11bd2f88d",
-        "recorded_at": "2026-08-27T16:36:40+00:00",
-        "generated_by": "autoreview"
-      },
       "completed_at": "2026-08-27T16:37:16+00:00"
     },
     {
       "id": "CHAN-2-T2",
       "title": "Split the Telegram callback by action kind",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-08-27T16:39:20+00:00",
+      "base_sha": "0e6ba4ce42576a80086fcb2bb1bf974ce88b90a4",
+      "dirty_at_start": {
+        ".factory/events/4562bdc705374072b929c38a4fe31d22.json": {
+          "digest": "32f8de272c182202cc5cbbd6d290dba470ee3811484386cf86eaa7de54e5b8cb",
+          "git": "? .factory/events/4562bdc705374072b929c38a4fe31d22.json\u0000\u0000\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "9e914d75cdcef9e57631bf9621f94d6cc6f8557ed8863d7af345a99aa37c131f",
+          "git": "1 .M N... 100644 100644 100644 f727a635b33fee6b5ec3eaa60675456eb0618b49 f727a635b33fee6b5ec3eaa60675456eb0618b49 .factory/stages.json\u0000\u0000100644 f727a635b33fee6b5ec3eaa60675456eb0618b49 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        },
+        ".factory/stories/CHAN-2/decomposition.json": {
+          "digest": "7f24a0b622eed3e9b98a50dedad63ba5ad9de38525f46f6215abb3b9f9032c34",
+          "git": "1 .M N... 100644 100644 100644 3d67fdbc449fe558970a85b03a32a462211cc595 3d67fdbc449fe558970a85b03a32a462211cc595 .factory/stories/CHAN-2/decomposition.json\u0000\u0000100644 3d67fdbc449fe558970a85b03a32a462211cc595 0\t.factory/stories/CHAN-2/decomposition.json\u0000\u0000H .factory/stories/CHAN-2/decomposition.json\u0000"
+        },
+        ".factory/stories/CHAN-2/grill-rounds/a63242e0-cc61-4f1d-8063-dff55ff442d8.json": {
+          "digest": "a3a5713b1eda1a2540e163bd92793d4de55e2bfa859cef0f3a10f9ce17eee43c",
+          "git": "? .factory/stories/CHAN-2/grill-rounds/a63242e0-cc61-4f1d-8063-dff55ff442d8.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json": {
+          "digest": "957a3c7c1ca8096004715fc40648933b5b74844aa8c6008fa7370ad86d03a294",
+          "git": "? .factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/CHAN-2/plan-mode/98cc9eff-fe99-4ac7-bb44-29c055ee0567.json": {
+          "digest": "9ef587a57e11f37a60470be4da1bb1899a3632889d91719519f704186ff2685b",
+          "git": "? .factory/stories/CHAN-2/plan-mode/98cc9eff-fe99-4ac7-bb44-29c055ee0567.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/CHAN-2/task-plans/CHAN-2-T2.md": {
+          "digest": "e5e4a4fe6c748b53b61acc2298ce060dbb932e2ceeecef8ad3b120de44ed195e",
+          "git": "? .factory/stories/CHAN-2/task-plans/CHAN-2-T2.md\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/chan-2-t1-hoists.md": {
+          "digest": "02ff3879a739de5493419d408b87e2db7e5901db98e7a7564fc1323d15a3eb32",
+          "git": "? plans/review-briefs/chan-2-t1-hoists.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "60dec1a3dcd3171ea8e2c838a27dd5215d67427851cc1986208ad3478c06170d"
     }
   ]
 }

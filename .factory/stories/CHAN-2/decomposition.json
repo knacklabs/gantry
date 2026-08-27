@@ -67,7 +67,46 @@
       "user_facing": false,
       "depends_on": [
         "CHAN-2-T1"
-      ]
+      ],
+      "write_scope": [
+        "apps/core/src/channels/telegram/",
+        "apps/core/test/unit/channels/",
+        "scripts/architecture-map.json"
+      ],
+      "required_tests": [
+        {
+          "id": "adds Telegram reactions idempotently",
+          "path": "apps/core/test/unit/channels/telegram.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "plan_contracts": [
+        {
+          "id": "CHAN-2-AC2",
+          "statement": "The Telegram bot.on callback in telegram/channel-connect.ts is split by action kind into named handlers, each with cyclomatic complexity <= 25, dispatched from a callback whose own complexity is <= 15; no behaviour change",
+          "source": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria"
+        },
+        {
+          "id": "CHAN-2-AC3",
+          "statement": "No behaviour change: existing unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green",
+          "source": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria"
+        }
+      ],
+      "reviewer_focus": [
+        "every branch moved verbatim (call sites, not re-implementations)",
+        "dispatcher CC <= 15, handlers <= 25 by AST count",
+        "no existing test edited",
+        "context built once, passed through"
+      ],
+      "review_budget": {
+        "max_changed_files": 6,
+        "max_changed_lines": 1800,
+        "reason": "One large callback (~700 lines) moves into a new module; line count is the move itself (deletions + additions), not new logic."
+      }
     }
   ],
   "plan_contracts": [
@@ -80,10 +119,20 @@
       "id": "CHAN-2-AC4",
       "statement": "Lands after PR #446 merged (CHAN-1 folder layout); branch based on main after it",
       "source": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-2-AC2",
+      "statement": "The Telegram bot.on callback in telegram/channel-connect.ts is split by action kind into named handlers, each with cyclomatic complexity <= 25, dispatched from a callback whose own complexity is <= 15; no behaviour change",
+      "source": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-2-AC3",
+      "statement": "No behaviour change: existing unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green",
+      "source": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria"
     }
   ],
   "project": "",
   "plan_file": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md",
   "plan_sha256": "b649108af41702a707a0f56dc80a18fc1e56dbf6d55bb32ae235c624ee66706f",
-  "commit": "3f6790cba6ab84af068e6985bfac50ab7c8881a4"
+  "commit": "0e6ba4ce42576a80086fcb2bb1bf974ce88b90a4"
 }
