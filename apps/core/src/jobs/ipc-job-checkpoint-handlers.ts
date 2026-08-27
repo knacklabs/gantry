@@ -264,7 +264,7 @@ const checkpointHandler: TaskHandler = async (context) => {
       const shapeError = websiteRecipeTestPlanShapeError(testPlan.content);
       if (shapeError) {
         reject(shapeError, 'invalid_checkpoint', [
-          'Store one object shaped {version:"website_recipe.test_plan@1",recipeSha256,observationInventorySha256,coverageManifestSha256,cases}. cases is the only array; never store a bare cases array or put version on a case.',
+          'Store one object shaped {version:"website_recipe.test_plan@2",recipeSha256,observationInventorySha256,coverageManifestSha256,cases}. cases is the only array; never store a bare cases array or put version on a case.',
         ]);
         return;
       }
@@ -391,8 +391,8 @@ export function websiteRecipeTestPlanShapeError(
     return 'Website recipe test-plan artifact must be one top-level object; a bare cases array is invalid.';
   }
   const plan = parsed as { version?: unknown; cases?: unknown };
-  if (plan.version !== 'website_recipe.test_plan@1') {
-    return 'Website recipe test-plan artifact requires top-level version="website_recipe.test_plan@1".';
+  if (plan.version !== 'website_recipe.test_plan@2') {
+    return 'Website recipe test-plan artifact requires top-level version="website_recipe.test_plan@2".';
   }
   if (!Array.isArray(plan.cases)) {
     return 'Website recipe test-plan artifact requires a top-level cases array.';

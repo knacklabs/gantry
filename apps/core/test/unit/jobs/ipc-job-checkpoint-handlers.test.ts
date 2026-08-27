@@ -502,7 +502,7 @@ describe('job checkpoint IPC handlers', () => {
           readFileArtifact: vi.fn(async () => ({
             artifact: {},
             content: JSON.stringify([
-              { id: 'case-1', version: 'website_recipe.test_plan@1' },
+              { id: 'case-1', version: 'website_recipe.test_plan@2' },
             ]),
           })),
         }),
@@ -522,7 +522,7 @@ describe('job checkpoint IPC handlers', () => {
     expect(
       websiteRecipeTestPlanShapeError(
         JSON.stringify({
-          version: 'website_recipe.test_plan@1',
+          version: 'website_recipe.test_plan@2',
           cases: [],
         }),
       ),
