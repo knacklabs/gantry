@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 import type { Agent } from '../../../../domain/agent/agent.js';
 import type { App } from '../../../../domain/app/app.js';
@@ -67,7 +67,7 @@ export class PostgresAgentRepository implements AgentRepository {
         set: {
           name: agent.name,
           status: agent.status,
-          currentConfigVersionId: agent.currentConfigVersionId ?? null,
+          currentConfigVersionId: sql`coalesce(excluded.current_config_version_id, ${pgSchema.agentsPostgres.currentConfigVersionId})`,
           updatedAt: agent.updatedAt,
         },
       });
