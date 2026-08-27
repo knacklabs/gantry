@@ -45,7 +45,7 @@ phone alias or stay anonymous; same permission gate, audit actor, and offboardin
 
 First contact on WhatsApp carries an AI disclosure and privacy line as desired
 state; "talk to a person" is always honoured; each agent has a default language and
-templates per locale (Hindi and regional first). Milestone per decision 0146.
+templates per locale (Hindi and regional first). Milestone per decision 0147.
 
 ### Human handoff (V1.0.x)
 

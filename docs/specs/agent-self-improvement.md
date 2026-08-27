@@ -28,7 +28,7 @@ differentiator neither QM nor Copilot Studio has.
 
 ### Proposals (V1.0.x)
 
-Per decision 0145 an agent may propose revisions only to persona wording, routines
+Per decision 0146 an agent may propose revisions only to persona wording, routines
 and skills within its library scope, default model within its allowlist, and
 intro/help text — never access preset, tool rules, model allowlist, approvers,
 owner, connector accounts, or other agents; the boundary is enforced in the
@@ -37,7 +37,7 @@ into auto-apply; locked-preset agents are review-only. Applied proposals are
 revisions under the agent's own `PrincipalRef`, posted to the admin channel,
 restorable in one action.
 
-### Memory governance and consent (decision 0144; V1.1)
+### Memory governance and consent (decision 0145; V1.1)
 
 Memory promotion, personal memory in DMs, and self-revisions share one knob per
 agent. First DM discloses personal memory; opt-out and erase commands exist; state
@@ -51,7 +51,7 @@ gains resolution and handoff rates; owners get a sampled-conversation review lis
 ## Acceptance criteria
 
 - **SELF-1** — Agent self-improvement by proposal
-  - An agent may propose revisions only to: persona wording, routines/skills already in its library scope, default model within its allowlist, intro/help text. Never: access preset, tool rules, model allowlist, approvers, owner, connector accounts, other agents (decision 0145)
+  - An agent may propose revisions only to: persona wording, routines/skills already in its library scope, default model within its allowlist, intro/help text. Never: access preset, tool rules, model allowlist, approvers, owner, connector accounts, other agents (decision 0146)
   - Owner sets per agent: review (every proposal is an approval card in the owner's conversation) or auto-apply for named low-risk classes; locked-preset agents are review-only and cannot see the machinery
   - Every applied proposal is a revision under the agent's own PrincipalRef with diff, ADMIN-ALERT-1 post, and one-action restore
   - Default for a new agent is review-only; the owner opts specific classes into auto-apply
@@ -62,4 +62,4 @@ gains resolution and handoff rates; owners get a sampled-conversation review lis
 
 ## Source
 
-Product decision 2026-08-27 (one API, three clients); roadmap review; decisions 0144, 0145. Stories: SELF-1, MEMORY-CONSENT-1, QUAL-1.
+Product decision 2026-08-27 (one API, three clients); roadmap review; decisions 0145, 0146. Stories: SELF-1, MEMORY-CONSENT-1, QUAL-1.

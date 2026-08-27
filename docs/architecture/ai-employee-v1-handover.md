@@ -76,12 +76,12 @@ current fan-out; one worktree per story.
 | 0141 sandboxed-stdio-mcp-for-connectors | connector processes: sandboxed stdio under a supervisor |
 | 0142 third-console-role-approver | administrator / approver / viewer; amends 0132 |
 | 0143 browser-write-only-secret-ingest | browser submits secrets once, gets a reference back; never reads one |
-| 0144 memory-governance-reviewed-learning | one review/auto-apply knob for memory, consent, and self-revisions; no autonomous promotion |
-| 0145 agents-are-clients-of-their-own-configuration | one API, three clients; agents propose changes to themselves, never their own access |
-| 0146 whatsapp-ships-in-v1-0-x | amends 0136: WhatsApp + handoff in V1.0.x, voice stays V1.1 |
-| 0147 tagged-releases-supersede-no-back-compat | release tags carry migration check, pinned digest, rollback |
-| 0148 data-lifecycle-retention-erase-decommission | retention per class, anonymous erase, deployment decommission |
-| 0149 open-core-licensing-boundary | repo is MIT; voice engine and engagement connectors are KnackLabs-licensed; NOTICE in CI |
+| 0145 memory-governance-reviewed-learning | one review/auto-apply knob for memory, consent, and self-revisions; no autonomous promotion |
+| 0146 agents-are-clients-of-their-own-configuration | one API, three clients; agents propose changes to themselves, never their own access |
+| 0147 whatsapp-ships-in-v1-0-x | amends 0136: WhatsApp + handoff in V1.0.x, voice stays V1.1 |
+| 0148 tagged-releases-supersede-no-back-compat | release tags carry migration check, pinned digest, rollback |
+| 0149 data-lifecycle-retention-erase-decommission | retention per class, anonymous erase, deployment decommission |
+| 0150 open-core-licensing-boundary | repo is MIT; voice engine and engagement connectors are KnackLabs-licensed; NOTICE in CI |
 | 0025, 0016, 0118, 0132, 0135, 0101, 0024, 0033, 0044 | pre-existing; cited inside the specs |
 
 ## Facts from the code you must not re-discover
@@ -163,7 +163,7 @@ pause states, paused replies), `ADMIN-ALERT-1` (one admin channel, named events)
 `OPS-DR-1` (backup/restore/upgrade/rollback), and `INTRO-1` (the employee introduces
 itself in Teams; DMs first-class). V1.0.x adds `LIFECYCLE-1`, `REVISION-1`, and
 `SELF-1` — agents propose changes to themselves through the same API the CLI uses,
-owners review or auto-apply low-risk classes, never their own access (0145). The
+owners review or auto-apply low-risk classes, never their own access (0146). The
 CLI stays as break-glass, automation, and the agent's surface. Code facts behind
 this: dreaming auto-promotes memory (`apps/core/src/memory/app-memory-dreaming.ts`),
 DMs keep personal memory with no opt-out, Pause everywhere pauses jobs only, no

@@ -2124,7 +2124,7 @@
       "title": "Agent self-improvement by proposal (V1.0.x)",
       "story": "As an AI employee, I can propose improvements to my own persona, routines, and intro text through the same configuration API the CLI uses, and my owner reviews or lets low-risk classes auto-apply, so that agents get better without a human always editing them \u2014 with a manager's sign-off.",
       "acceptance_criteria": [
-        "An agent may propose revisions only to: persona wording, routines/skills already in its library scope, default model within its allowlist, intro/help text. Never: access preset, tool rules, model allowlist, approvers, owner, connector accounts, other agents (decision 0145)",
+        "An agent may propose revisions only to: persona wording, routines/skills already in its library scope, default model within its allowlist, intro/help text. Never: access preset, tool rules, model allowlist, approvers, owner, connector accounts, other agents (decision 0146)",
         "Owner sets per agent: review (every proposal is an approval card in the owner's conversation) or auto-apply for named low-risk classes; locked-preset agents are review-only and cannot see the machinery",
         "Every applied proposal is a revision under the agent's own PrincipalRef with diff, ADMIN-ALERT-1 post, and one-action restore",
         "Default for a new agent is review-only; the owner opts specific classes into auto-apply"

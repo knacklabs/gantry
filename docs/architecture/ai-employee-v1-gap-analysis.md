@@ -317,7 +317,7 @@ New roadmap UI story: **UI-CONN-ACCOUNTS-1**. CONN-1/OAUTH-1 define the account 
 
 # Part 3 — roadmap review, product lens (2026-08-27)
 
-Two independent read-only reviews of the 30-story roadmap: a Fable product review from the docs and a Codex review checking each journey against code. Resolutions: INTRO-1, BOOTSTRAP-1, INCIDENT-1, ADMIN-ALERT-1, OPS-DR-1 added to V1.0; LIFECYCLE-1, REVISION-1, SELF-1 to V1.0.x; MEMORY-CONSENT-1, QUAL-1, SUPPORT-1 to V1.1; decisions 0144–0149 proposed; acceptance criteria amended on HITL-1, RBAC-1, TEAMS-1, EGRESS-1, COST-1, WA-1, GUARD-1, DOCS-1, PKG-1 and the console stories (WCAG AA).
+Two independent read-only reviews of the 30-story roadmap: a Fable product review from the docs and a Codex review checking each journey against code. Resolutions: INTRO-1, BOOTSTRAP-1, INCIDENT-1, ADMIN-ALERT-1, OPS-DR-1 added to V1.0; LIFECYCLE-1, REVISION-1, SELF-1 to V1.0.x; MEMORY-CONSENT-1, QUAL-1, SUPPORT-1 to V1.1; decisions 0145–0150 proposed; acceptance criteria amended on HITL-1, RBAC-1, TEAMS-1, EGRESS-1, COST-1, WA-1, GUARD-1, DOCS-1, PKG-1 and the console stories (WCAG AA).
 
 ## Fable — product lifecycle review
 
@@ -333,7 +333,7 @@ Two independent read-only reviews of the 30-story roadmap: a Fable product revie
 | 8 | Approval expiry/reminder/fallback approver; last approver offboarded | Stuck approvals block work; dead approver silently disables the agent | V1.0 | HITL-1/RBAC-1 AC | should |
 | 9 | Customer Teams tenant prerequisites (consent, catalog, least-privilege list) not a story | The customer's Teams admin, not KnackLabs, must click consent | V1.0 | TEAMS-1/DOCS-1 AC | should |
 | 10 | Security packet thin: SBOM, licence report, disclosure policy, data-flow, no-telemetry statement | Procurement in BFSI is a questionnaire | V1.0.x | DOCS-1/PKG-1 AC | should |
-| 11 | Open-core boundary undecided (voice engine licence, NOTICE) | Surprises poison OSS trust and contracts | V1.0 decision | decision 0149 | should |
+| 11 | Open-core boundary undecided (voice engine licence, NOTICE) | Surprises poison OSS trust and contracts | V1.0 decision | decision 0150 | should |
 | 12 | No support bundle, release notes, support tiers | "How do I send you a bug" | V1.1 | SUPPORT-1 | should |
 | 13 | Multi-language for India (Hindi/Hinglish/Tamil), templates per locale, IN PII defaults | Support-assistant proof is for Indian clients | V1.0.x | WA-1/GUARD-1 AC | should |
 | 14 | WhatsApp AI disclosure and privacy line on first contact | Meta policy and DPDP expect disclosure | V1.0.x | WA-1 AC | should |

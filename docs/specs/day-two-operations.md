@@ -56,14 +56,14 @@ and webhook sinks come later.
 
 Scripted backup/restore drill tested in CI, targeting an S3-compatible bucket or a
 local path at the operator's choice (secret references, never values); upgrade with pre-flight migration check,
-release notes per tag, pinned image digest and a rollback command (decision 0147).
+release notes per tag, pinned image digest and a rollback command (decision 0148).
 
 ### Data lifecycle (V1.0.x)
 
 Retention per class with holds (defaults: messages 90 days, memory until
 offboarding, audit 400 days minimum); `conversation erase` for anonymous callers;
 `deployment decommission` exporting the tenant audit hash-stamped, wiping, and
-producing a deletion certificate (decision 0148).
+producing a deletion certificate (decision 0149).
 
 ### Revision restore (V1.0.x)
 
@@ -111,4 +111,4 @@ Redacted diagnostics bundle, release notes, support policy.
 
 ## Source
 
-Roadmap review 2026-08-27 (Fable and Codex, docs/architecture/ai-employee-v1-gap-analysis.md Part 3); decisions 0147, 0148. Stories: BOOTSTRAP-1, INCIDENT-1, ADMIN-ALERT-1, OPS-DR-1, LIFECYCLE-1, REVISION-1, SUPPORT-1.
+Roadmap review 2026-08-27 (Fable and Codex, docs/architecture/ai-employee-v1-gap-analysis.md Part 3); decisions 0148, 0149. Stories: BOOTSTRAP-1, INCIDENT-1, ADMIN-ALERT-1, OPS-DR-1, LIFECYCLE-1, REVISION-1, SUPPORT-1.
