@@ -126,7 +126,11 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="h-[calc(100dvh-46px)] max-h-[900px] w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-none"
+        className={`w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-none ${
+          step === 'base'
+            ? 'max-h-[calc(100dvh-46px)]'
+            : 'h-[calc(100dvh-46px)] max-h-[900px]'
+        }`}
       >
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="grid gap-1">
