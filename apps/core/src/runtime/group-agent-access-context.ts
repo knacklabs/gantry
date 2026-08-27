@@ -45,6 +45,7 @@ export async function resolveGroupAgentAccessContext(input: {
     await resolveTurnPromptCapabilityCatalogFromSnapshot(
       catalogSnapshot,
       configuredToolPolicy.semanticCapabilities,
+      configuredToolPolicy.toolPolicyRules ?? [],
     );
   const approvedSkillContextBlock = accessSnapshot
     ? buildApprovedSkillContextBlockFromSkills(

@@ -2934,10 +2934,11 @@ describe('TeamsChannel adapter scaffold', () => {
       {
         permissionLane: 'autonomous',
       } as Partial<PermissionApprovalRequest>,
+      false,
     ],
   ])(
-    'settles a %s Teams permission using its explicit lane when expiresAt is absent',
-    async (lane, timeoutEnv, requestContext) => {
+    'applies the %s Teams permission timeout policy when expiresAt is absent',
+    async (lane, timeoutEnv, requestContext, expectsTimer = true) => {
       vi.useFakeTimers();
       vi.stubEnv(timeoutEnv, '10000');
       const sdkClient: TeamsSdkClient = {
@@ -2975,6 +2976,17 @@ describe('TeamsChannel adapter scaffold', () => {
       const pending = [
         ...(channel as any).pendingPermissionPrompts.values(),
       ][0];
+      if (!expectsTimer) {
+        expect(pending.timer).toBeUndefined();
+        await channel.disconnect();
+        await expect(approval).resolves.toMatchObject({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'system',
+          reason: 'Teams channel disconnected',
+        });
+        return;
+      }
       expect(pending.timer).toBeDefined();
       await vi.advanceTimersByTimeAsync(9_999);
       expect((channel as any).pendingPermissionPrompts.size).toBe(1);
@@ -3463,7 +3475,7 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(lifecycleEvents).toEqual(['resolve']);
   });
 
-  it('settles and cleans up an autonomous Teams question without a job id at its finite deadline', async () => {
+  it('keeps an autonomous Teams question pending without an explicit expiry', async () => {
     vi.useFakeTimers();
     vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '60000');
     const lifecycleEvents: string[] = [];
@@ -3540,23 +3552,21 @@ describe('TeamsChannel adapter scaffold', () => {
 
     expect((channel as any).pendingUserQuestions.size).toBe(1);
     const pending = [...(channel as any).pendingUserQuestions.values()][0];
-    expect(pending.timer).toBeDefined();
+    expect(pending.timer).toBeUndefined();
     await vi.advanceTimersByTimeAsync(60_000);
 
+    expect((channel as any).pendingUserQuestions.size).toBe(1);
+    expect(lifecycleEvents).toEqual([]);
+    expect(pendingQuestion.payload.questionRecoveryEnvelope).toMatchObject({
+      completedQuestionIndexes: [],
+    });
+    await channel.disconnect();
     await expect(answer).resolves.toEqual({
       requestId: request.requestId,
-      answers: { 'Continue?': '' },
+      answers: {},
       answeredBy: 'system',
     });
-    expect((channel as any).pendingUserQuestions.size).toBe(0);
-    expect(lifecycleEvents).toEqual(['persist', 'resolve']);
-    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messageId: 'teams-autonomous-question-card',
-        card: expect.objectContaining({ actions: [] }),
-      }),
-    );
-    await channel.disconnect();
+    expect(lifecycleEvents).toEqual(['resolve']);
   });
 
   it('keeps pending Teams permission prompts unresolved when decision user is unauthorized', async () => {

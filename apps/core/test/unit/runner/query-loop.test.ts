@@ -349,6 +349,24 @@ describe('Claude query loop usage event IDs', () => {
 });
 
 describe('Claude query loop declarative tool names', () => {
+  it('keeps one-shot scheduled input open only for an accepted finish nudge', () => {
+    const source = fs.readFileSync(
+      new URL(
+        '../../../src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+
+    expect(source).toContain(
+      'if (!enableIpcFollowups && !agentInput.isScheduledJob) stream.end();',
+    );
+    expect(source).toContain('const nudgeDeliveredThisTurn =');
+    expect(source).toContain(
+      'if (scheduledOneShot && !nudgeDeliveredThisTurn) stream.end();',
+    );
+  });
+
   it('does not pass allowedTools while retaining canUseTool in SDK query options', () => {
     const source = fs.readFileSync(
       new URL(

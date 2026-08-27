@@ -49,9 +49,14 @@ def _task_section(task: dict) -> list[str]:
             ])
     else:
         lines.append("- None declared.")
+    reviewer_focus = task.get("reviewer_focus") \
+        or "No task-specific reviewer focus declared."
+    if isinstance(reviewer_focus, list):
+        # The decomposition records reviewer_focus as a LIST; render bullets.
+        reviewer_focus = "\n".join(f"- {item}" for item in reviewer_focus)
     lines.extend([
         "", "### Reviewer focus", "",
-        task.get("reviewer_focus") or "No task-specific reviewer focus declared.",
+        reviewer_focus,
         "",
     ])
     return lines

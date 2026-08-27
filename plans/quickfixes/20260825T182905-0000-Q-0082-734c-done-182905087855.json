@@ -1,0 +1,161 @@
+{
+  "event": "done",
+  "id": "Q-0082-734c",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Deploy gate for Q-0081: sanitizeRetryTailProviderPayload drops jobPermissionCard.callbackKey/revision which the wiring parser now requires, so sanitized card payloads would be rejected as malformed. Preserve and validate both fields; restore the jobperm-edges test to run through the sanitizer. Scope: retry-tail-provider-payload.ts + its test + jobperm-edges.test.ts.",
+  "base_sha": "64318445e675651bf74fc60d4153c8b76d1fd787",
+  "started_at": "2026-08-25T18:12:00+00:00",
+  "completed_at": "2026-08-25T18:29:05+00:00",
+  "files": [
+    "apps/core/src/domain/messages/retry-tail-provider-payload.ts",
+    "apps/core/test/unit/application/jobperm-edges.test.ts",
+    "apps/core/test/unit/domain/messages/retry-tail-provider-payload.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/domain/messages/retry-tail-provider-payload.ts",
+        "apps/core/test/unit/domain/messages/retry-tail-provider-payload.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0064 replace handoff fence (deferred)"
+      ],
+      "summary": "Card identity survives the retry-tail sanitizer; Q-0081 is deployable. Lite window Q-0082 (base 64318445e -> HEAD): deploy gate for Q-0081. Sanitizer keeps jobPermissionCard.callbackKey (24-hex) and revision (safe int >= 0, uncapped \u2014 live card at 10,115); jobperm-edges test runs through the sanitizer again. Proof: sanitizer + jobperm-edges + telegram + destination-hints suites green, tsc, architecture, verify.py passed. Autoreview: clean, then one self-found cap bug fixed (readInt's 10,000 cap), final run clean. The Q-0081 deploy gate recorded in the previous artifacts is now CLEARED.",
+      "non_blocking_findings": [
+        {
+          "category": "payload-contract",
+          "area": "domain/messages",
+          "summary": "FIXED: sanitizer dropped the required card identity; revision no longer capped at part count"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0082 completes the D-0058 identity contract end-to-end (sanitizer preserves it); verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "33df1beffb1612963a9d719d32dd96203d1591ff09ca94e4fcf62c535862f563",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "ae2ec75ac8e7640ac2c7ba317655d8c77e2145079ab0377b48af5454fc5edc14",
+      "recorded_at": "2026-08-25T18:29:04+00:00",
+      "commit": "b68eebc0c9890280fe604912dd06509aceac85ab"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/domain/messages/retry-tail-provider-payload.ts",
+        "apps/core/test/unit/domain/messages/retry-tail-provider-payload.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0064 replace handoff fence (deferred)"
+      ],
+      "summary": "Two field reads per card; negligible. Lite window Q-0082 (base 64318445e -> HEAD): deploy gate for Q-0081. Sanitizer keeps jobPermissionCard.callbackKey (24-hex) and revision (safe int >= 0, uncapped \u2014 live card at 10,115); jobperm-edges test runs through the sanitizer again. Proof: sanitizer + jobperm-edges + telegram + destination-hints suites green, tsc, architecture, verify.py passed. Autoreview: clean, then one self-found cap bug fixed (readInt's 10,000 cap), final run clean. The Q-0081 deploy gate recorded in the previous artifacts is now CLEARED.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "33df1beffb1612963a9d719d32dd96203d1591ff09ca94e4fcf62c535862f563",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "ae2ec75ac8e7640ac2c7ba317655d8c77e2145079ab0377b48af5454fc5edc14",
+      "recorded_at": "2026-08-25T18:29:04+00:00",
+      "commit": "b68eebc0c9890280fe604912dd06509aceac85ab"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/domain/messages/retry-tail-provider-payload.ts",
+        "apps/core/test/unit/domain/messages/retry-tail-provider-payload.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0064 replace handoff fence (deferred)"
+      ],
+      "summary": "Identity validated to the exact accepted shapes; malformed cards dropped whole. Lite window Q-0082 (base 64318445e -> HEAD): deploy gate for Q-0081. Sanitizer keeps jobPermissionCard.callbackKey (24-hex) and revision (safe int >= 0, uncapped \u2014 live card at 10,115); jobperm-edges test runs through the sanitizer again. Proof: sanitizer + jobperm-edges + telegram + destination-hints suites green, tsc, architecture, verify.py passed. Autoreview: clean, then one self-found cap bug fixed (readInt's 10,000 cap), final run clean. The Q-0081 deploy gate recorded in the previous artifacts is now CLEARED.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "33df1beffb1612963a9d719d32dd96203d1591ff09ca94e4fcf62c535862f563",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "ae2ec75ac8e7640ac2c7ba317655d8c77e2145079ab0377b48af5454fc5edc14",
+      "recorded_at": "2026-08-25T18:29:04+00:00",
+      "commit": "b68eebc0c9890280fe604912dd06509aceac85ab"
+    }
+  }
+}

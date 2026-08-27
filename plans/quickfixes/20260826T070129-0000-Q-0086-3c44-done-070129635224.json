@@ -1,0 +1,169 @@
+{
+  "event": "done",
+  "id": "Q-0086-3c44",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Scheduled-job permission prompts print 'Reply in 1m' although job requests never expire on that timer (24h durable row); render 'This job waits for your decision.' for jobId requests in the text variants and the Telegram HTML renderer. Slack copy is a follow-up. Scope: permission-interaction.ts, telegram/html-render.ts, notification-native-render.test.ts.",
+  "base_sha": "ba3d5bfd34bf603a6b0ae67fe206c690c93d589e",
+  "started_at": "2026-08-26T06:41:17+00:00",
+  "completed_at": "2026-08-26T07:01:29+00:00",
+  "files": [
+    "apps/core/src/channels/permission-batch-coalescer.ts",
+    "apps/core/src/channels/permission-interaction.ts",
+    "apps/core/src/channels/permission-prompt-wait-line.ts",
+    "apps/core/src/channels/telegram/html-render.ts",
+    "apps/core/test/unit/channels/notification-native-render.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/permission-interaction.ts",
+        "apps/core/src/channels/permission-batch-coalescer.ts",
+        "apps/core/src/channels/permission-prompt-wait-line.ts",
+        "apps/core/src/channels/telegram/html-render.ts",
+        "apps/core/test/unit/channels/notification-native-render.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Slack permission blocks still print 'Reply in Nm' for job requests (deferred)"
+      ],
+      "summary": "Honest wait copy on job prompts. Lite window Q-0086 (base ba3d5bfd3 -> HEAD): scheduled-job permission prompts printed 'Reply in 1m' although job requests never expire on the interactive timer. Text variants, batch prompt and Telegram HTML now print 'This request stays open until you decide.' for jobId requests. Proof: channels 40/985 green, tsc, architecture, verify.py passed; autoreview 2 rounds (wording corrected to not imply the run stays alive), final clean. Slack copy deferred.",
+      "non_blocking_findings": [
+        {
+          "category": "notification-content",
+          "area": "channels",
+          "summary": "FIXED: false 'Reply in 1m' deadline on non-expiring job prompts"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0086 corrects prompt copy only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "12ab37ffe24110d91a9e5b97cc31e4f612267c997e7683cb0a13fb82f91f80c6",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "1153b2d10955f659caf6562f9bb7a28a8a756c152ab3292c3fe2e684ee8bd171",
+      "recorded_at": "2026-08-26T07:01:29+00:00",
+      "commit": "7c930b3fd9c93c3c62910de89b0a6c9ae637896a"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/permission-interaction.ts",
+        "apps/core/src/channels/permission-batch-coalescer.ts",
+        "apps/core/src/channels/permission-prompt-wait-line.ts",
+        "apps/core/src/channels/telegram/html-render.ts",
+        "apps/core/test/unit/channels/notification-native-render.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Slack permission blocks still print 'Reply in Nm' for job requests (deferred)"
+      ],
+      "summary": "String selection only. Lite window Q-0086 (base ba3d5bfd3 -> HEAD): scheduled-job permission prompts printed 'Reply in 1m' although job requests never expire on the interactive timer. Text variants, batch prompt and Telegram HTML now print 'This request stays open until you decide.' for jobId requests. Proof: channels 40/985 green, tsc, architecture, verify.py passed; autoreview 2 rounds (wording corrected to not imply the run stays alive), final clean. Slack copy deferred.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "12ab37ffe24110d91a9e5b97cc31e4f612267c997e7683cb0a13fb82f91f80c6",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "1153b2d10955f659caf6562f9bb7a28a8a756c152ab3292c3fe2e684ee8bd171",
+      "recorded_at": "2026-08-26T07:01:29+00:00",
+      "commit": "7c930b3fd9c93c3c62910de89b0a6c9ae637896a"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/permission-interaction.ts",
+        "apps/core/src/channels/permission-batch-coalescer.ts",
+        "apps/core/src/channels/permission-prompt-wait-line.ts",
+        "apps/core/src/channels/telegram/html-render.ts",
+        "apps/core/test/unit/channels/notification-native-render.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Slack permission blocks still print 'Reply in Nm' for job requests (deferred)"
+      ],
+      "summary": "Copy only; no change to decisions, timers or keyboards. Lite window Q-0086 (base ba3d5bfd3 -> HEAD): scheduled-job permission prompts printed 'Reply in 1m' although job requests never expire on the interactive timer. Text variants, batch prompt and Telegram HTML now print 'This request stays open until you decide.' for jobId requests. Proof: channels 40/985 green, tsc, architecture, verify.py passed; autoreview 2 rounds (wording corrected to not imply the run stays alive), final clean. Slack copy deferred.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "12ab37ffe24110d91a9e5b97cc31e4f612267c997e7683cb0a13fb82f91f80c6",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "1153b2d10955f659caf6562f9bb7a28a8a756c152ab3292c3fe2e684ee8bd171",
+      "recorded_at": "2026-08-26T07:01:29+00:00",
+      "commit": "7c930b3fd9c93c3c62910de89b0a6c9ae637896a"
+    }
+  }
+}

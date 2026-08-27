@@ -86,14 +86,11 @@ import {
   emitToolActivity,
 } from './tool-permission-events.js';
 import { createPostToolUseHook } from './query-tool-activity-hook.js';
-
 export { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
-
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
   persistSdkSession?: boolean;
 }
-
 function localCliCredentialDirectoriesFromRuntimeAccess(
   agentInput: AgentRunnerInput,
 ): string[] {
@@ -102,7 +99,6 @@ function localCliCredentialDirectoriesFromRuntimeAccess(
   );
   return normalizeFilesystemSandboxPaths(dirs);
 }
-
 export async function runQuery(
   prompt: string,
   mcpServerPath: string,
@@ -134,6 +130,7 @@ export async function runQuery(
     toolName: string;
     family?: ToolActivityFamily;
     outcome: 'success' | 'failure';
+    detail?: string;
   }): void => {
     if (terminalToolInvocationIds.has(input.invocationId)) return;
     terminalToolInvocationIds.add(input.invocationId);
@@ -217,10 +214,9 @@ export async function runQuery(
     }
     return { continue: true as const };
   };
+  const scheduledOneShot = agentInput.isScheduledJob && !enableIpcFollowups;
   stream.pushInitialPrompt(prompt, memoryBlock);
-  if (!enableIpcFollowups) {
-    stream.end();
-  }
+  if (!enableIpcFollowups && !agentInput.isScheduledJob) stream.end();
   let ipcPolling = true;
   let closedDuringQuery = false;
   const steeringGate = new SteeringDeliveryGate((text) => {
@@ -283,6 +279,7 @@ export async function runQuery(
   let sawStructuredTextSinceLastResult = false;
   let visibleTextSinceLastResult = '';
   let pendingStructuredToPartialBoundary = false;
+  let nudgedScheduledRunToFinish = false;
   const primeToolAttempts: AgentRunnerToolAttemptOutput[] = [];
   const heartbeat = startJobHeartbeat({
     agentInput,
@@ -698,6 +695,18 @@ export async function runQuery(
           fallbackModel: configuredModel,
         });
         const contextUsagePromise = readContextUsage(sdkQuery);
+        const nudgeDeliveredThisTurn =
+          agentInput.isScheduledJob &&
+          !nudgedScheduledRunToFinish &&
+          !closedDuringQuery &&
+          !/\bOutcome:/i.test(visibleTextSinceLastResult || textResult || '') &&
+          steeringGate.accept(
+            'You stopped before finishing. Continue the task now. When you are finished, your final message must begin with a line "Outcome: <one sentence>".',
+          ) !== 'closed';
+        if (nudgeDeliveredThisTurn) {
+          nudgedScheduledRunToFinish = true;
+          log('Nudged scheduled run to finish: no Outcome line at turn end');
+        }
         const continuedByFollowup = steeringGate.pendingCount() > 0;
         writeOutput({
           status: 'success',
@@ -724,6 +733,7 @@ export async function runQuery(
         visibleTextSinceLastResult = '';
         pendingStructuredToPartialBoundary = false;
         steeringGate.markTurnBoundary();
+        if (scheduledOneShot && !nudgeDeliveredThisTurn) stream.end();
         const contextUsage = await contextUsagePromise;
         if (contextUsage) {
           writeOutput({

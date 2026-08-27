@@ -1,0 +1,163 @@
+{
+  "event": "done",
+  "id": "Q-0096-0a86",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Q-0096: delete the eager Chrome prelaunch for scheduled jobs; the first Browser call launches lazily via ensureBrowserReady (owner decision)",
+  "base_sha": "550ff5a0e927389f02c9010d34f91596c2b3fd06",
+  "started_at": "2026-08-26T13:51:52+00:00",
+  "completed_at": "2026-08-26T14:02:30+00:00",
+  "files": [
+    "apps/core/src/application/jobs/job-setup-pause-states.ts",
+    "apps/core/src/jobs/execution-browser-prelaunch.ts",
+    "apps/core/src/jobs/execution.ts",
+    "apps/core/test/unit/application/job-readiness-service.test.ts",
+    "apps/core/test/unit/jobs/execution.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution.ts",
+        "apps/core/src/jobs/execution-browser-prelaunch.ts (deleted)",
+        "apps/core/src/application/jobs/job-setup-pause-states.ts",
+        "apps/core/test/unit/jobs/execution.test.ts",
+        "apps/core/test/unit/application/job-readiness-service.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "Launch failures now surface as the first Browser tool failure instead of a pre-run pause (owner-accepted)"
+      ],
+      "summary": "Deletion-only change; no replacement layer. Lite window Q-0096 (base 550ff5a0 -> HEAD ecf24ff1f): eager scheduled-job Chrome prelaunch deleted (-283/+9); first Browser call launches lazily via ensureBrowserReady; final-readiness pause path unchanged; cleanup predicate intentionally untouched (closeBrowser on not-running profile is a no-op). Proof: jobs+application unit lanes 139 files / 1670 tests, tsc, architecture; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "b8b3f79daf8e60c54d3a3451b76a2acfb79feec0cce0ed046bc8c43a79ccec74",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "4bed0e71f4a0a887759ab98ab8654e60e66550c3c9e84666a872868bf0139528",
+      "recorded_at": "2026-08-26T13:57:40+00:00",
+      "commit": "ecf24ff1f6842725f6b425312cece385b9386098"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution.ts",
+        "apps/core/src/jobs/execution-browser-prelaunch.ts (deleted)",
+        "apps/core/src/application/jobs/job-setup-pause-states.ts",
+        "apps/core/test/unit/jobs/execution.test.ts",
+        "apps/core/test/unit/application/job-readiness-service.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "First Browser call latency includes launch"
+      ],
+      "summary": "Removes ~1.6 s of pre-spawn work per scheduled run; first browser call pays warm-up instead. Lite window Q-0096 (base 550ff5a0 -> HEAD ecf24ff1f): eager scheduled-job Chrome prelaunch deleted (-283/+9); first Browser call launches lazily via ensureBrowserReady; final-readiness pause path unchanged; cleanup predicate intentionally untouched (closeBrowser on not-running profile is a no-op). Proof: jobs+application unit lanes 139 files / 1670 tests, tsc, architecture; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "b8b3f79daf8e60c54d3a3451b76a2acfb79feec0cce0ed046bc8c43a79ccec74",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "4bed0e71f4a0a887759ab98ab8654e60e66550c3c9e84666a872868bf0139528",
+      "recorded_at": "2026-08-26T13:57:40+00:00",
+      "commit": "ecf24ff1f6842725f6b425312cece385b9386098"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution.ts",
+        "apps/core/src/jobs/execution-browser-prelaunch.ts (deleted)",
+        "apps/core/src/application/jobs/job-setup-pause-states.ts",
+        "apps/core/test/unit/jobs/execution.test.ts",
+        "apps/core/test/unit/application/job-readiness-service.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None new"
+      ],
+      "summary": "Removes a code path; profile lease/lock semantics unchanged (lease still taken in ensureBrowserReady). Lite window Q-0096 (base 550ff5a0 -> HEAD ecf24ff1f): eager scheduled-job Chrome prelaunch deleted (-283/+9); first Browser call launches lazily via ensureBrowserReady; final-readiness pause path unchanged; cleanup predicate intentionally untouched (closeBrowser on not-running profile is a no-op). Proof: jobs+application unit lanes 139 files / 1670 tests, tsc, architecture; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "b8b3f79daf8e60c54d3a3451b76a2acfb79feec0cce0ed046bc8c43a79ccec74",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "4bed0e71f4a0a887759ab98ab8654e60e66550c3c9e84666a872868bf0139528",
+      "recorded_at": "2026-08-26T13:57:40+00:00",
+      "commit": "ecf24ff1f6842725f6b425312cece385b9386098"
+    }
+  }
+}

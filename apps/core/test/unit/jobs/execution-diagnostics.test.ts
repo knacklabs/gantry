@@ -42,6 +42,41 @@ describe('job execution diagnostics', () => {
     expect(take([event('e1'), event('e2')])).toEqual([]);
   });
 
+  it('counts runner-forwarded browser successes', () => {
+    const diagnostics = createJobRunDiagnostics();
+
+    // Diagnostics never see the gateway's authoritative rows; the runner
+    // wrapper is the only browser signal that reaches them.
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+      {
+        phase: 'success',
+        tool: 'Browser',
+        family: 'browser',
+        ok: true,
+        authoritative: false,
+        invocationId: 'toolu_1',
+        seq: 3,
+      },
+    );
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+      {
+        phase: 'failure',
+        tool: 'Browser',
+        family: 'browser',
+        ok: false,
+        authoritative: false,
+        invocationId: 'toolu_2',
+        seq: 4,
+      },
+    );
+
+    expect(diagnostics.browserActivityCount).toBe(1);
+  });
+
   it('fingerprints a denial from the run, tool, kind, and provenance seam', () => {
     const denial = {
       invocationId: 'denial-1',

@@ -26,6 +26,7 @@ import {
 } from '../../application/interactions/pending-interaction-durability.js';
 import {
   configureSetupPausePermissionPrompt,
+  jobRequirementsForApprovedRules,
   setupPauseApproverRoute,
   setupPauseRequirementForApprovedSuggestions,
 } from '../../application/jobs/setup-pause-permission-prompt.js';
@@ -366,19 +367,29 @@ export async function appendSetupPauseRequirementAfterPersistentGrant(
   request: PermissionApprovalRequest,
   effectiveUpdates: readonly PermissionApprovalUpdate[],
 ): Promise<boolean> {
-  if (!request.setupFingerprint) return true;
-  if (!request.jobId) return false;
+  if (!request.jobId) return true;
   for (
     let attempt = 0;
     attempt <= SETUP_REQUIREMENT_CAS_RETRY_LIMIT;
     attempt += 1
   ) {
     const job = await opsRepository.getJobById(request.jobId);
-    if (!job || !setupPauseGrantIsCurrentForJob(job, request)) return false;
-    const approved = setupPauseRequirementForApprovedSuggestions({
-      job,
-      suggestions: effectiveUpdates,
-    });
+    if (!job) return false;
+    if (
+      request.setupFingerprint &&
+      !setupPauseGrantIsCurrentForJob(job, request)
+    ) {
+      return false;
+    }
+    const approved = request.setupFingerprint
+      ? setupPauseRequirementForApprovedSuggestions({
+          job,
+          suggestions: effectiveUpdates,
+        })
+      : jobRequirementsForApprovedRules({
+          job,
+          suggestions: effectiveUpdates,
+        });
     if (!approved.matched) return false;
     const requirements = approved.requirements ?? [];
     if (requirements.length === 0) return true;

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-24T13:40:39+00:00", "story": "JOBPERM-1", "detail": "S-0025-edd8: Window cycled with interaction-settlement.ts and the telegram delivery/card files explicitly in scope; partial work committed."}

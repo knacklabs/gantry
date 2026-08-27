@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0078-22db",
+  "profile": "degraded",
+  "reason": "Sanctioned write path is wedged: forge mode lite snapshots max_files from hard-coded MAX_FILES=5 while forge fix validates against harness.yaml modes.lite.bound=6 (raised f7b3e64cf), so every new lite window is refused. Bounded inline work: (1) revert harness.yaml bound to 5 to match MAX_FILES (lesson 54 filed for upstream); (2) execution-diagnostics.ts isBrowserToolActivity: count runner-forwarded family=browser successes without the authoritative requirement (live run 80a34c5a still printed 'browser not used'); (3) its unit test.",
+  "started_at": "2026-08-25T12:47:11+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

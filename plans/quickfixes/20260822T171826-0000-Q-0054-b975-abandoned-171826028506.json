@@ -1,0 +1,21 @@
+{
+  "event": "abandoned",
+  "id": "Q-0054-b975",
+  "profile": "lite",
+  "reason": "Fix needs 8 product files (4 source + 4 test for coverage), over the 5-file lite bound. Committed d957c973a, autoreview clean (0.88), 146 focused tests pass. Landing as a direct CI-gated PR.",
+  "opened_reason": "Bounded bug fix: autonomous compound RunCommand denial dead-ends scheduled jobs with a buttonless double-notification (KnackLabs live repro).",
+  "started_at": "2026-08-22T16:55:28+00:00",
+  "completed_at": "2026-08-22T17:18:26+00:00",
+  "files": [
+    "apps/core/src/jobs/execution-readiness.ts",
+    "apps/core/src/shared/autonomous-bash-recovery-rule.ts",
+    "apps/core/src/shared/tool-execution-policy-service.ts",
+    "apps/core/src/shared/tool-rule-matcher.ts",
+    "apps/core/test/unit/application/setup-pause-prompt.test.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+    "apps/core/test/unit/shared/tool-execution-policy-service.test.ts",
+    "apps/core/test/unit/shared/tool-rule-matcher.test.ts"
+  ],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "73b86a67846b69728d7c0e125427efe29fa157a0"
+}

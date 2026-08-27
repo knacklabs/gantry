@@ -1126,11 +1126,18 @@ describe('TelegramChannel', () => {
       '<b>✅ Completed</b> · Lead enrichment · 1m 05s',
     );
     expect(nativeCall?.[1]).toContain(
+      `<b>✅ Completed</b> · Lead enrichment · 1m 05s\n<b>Enriched this morning's leads</b>\n2 tools, browser used, last browser_act`,
+    );
+    expect(nativeCall?.[1]).toContain(
       '2 tools, browser used, last browser_act',
     );
     expect(nativeCall?.[1]).toContain('✅ Added Acme — owner found');
     expect(nativeCall?.[1]).toContain('⏭️ Skipped Globex');
     expect(nativeCall?.[1]).toContain('<blockquote expandable>');
+    const quoteBody = String(nativeCall?.[1]).match(
+      /<blockquote expandable>(.*?)<\/blockquote>/s,
+    )?.[1];
+    expect(quoteBody).not.toContain("Enriched this morning's leads");
     expect(nativeCall?.[2]).toMatchObject({ parse_mode: 'HTML' });
 
     await channel.sendMessage('tg:100200300', 'plain fallback text');
@@ -3037,6 +3044,219 @@ describe('TelegramChannel', () => {
       );
     });
 
+    it('renders each delivered job-permission revision as one humanized inline card', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect({ inbound: false });
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+
+      const actionsFor = (revision: number) => [
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Allow always for this job',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:a`,
+        },
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Deny',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:d`,
+        },
+      ];
+      const curlRow = 'Run command: curl -s https://api.ashbyhq.com/*';
+
+      const first = await channel.sendMessage(
+        'tg:100200300',
+        `Permissions needed for this job\n${curlRow}`,
+        { actionAffordances: actionsFor(1) },
+      );
+      const duplicate = await channel.sendMessage(
+        'tg:100200300',
+        `Permissions needed for this job\n${curlRow}`,
+        { actionAffordances: actionsFor(1) },
+      );
+      const second = await channel.sendMessage(
+        'tg:100200300',
+        `Permissions needed for this job\n${curlRow}\nRun command: true`,
+        { actionAffordances: actionsFor(2) },
+      );
+      const third = await channel.sendMessage(
+        'tg:100200300',
+        `Permissions needed for this job\n${curlRow}\nRun command: true\nRun command: pwd`,
+        { actionAffordances: actionsFor(3) },
+      );
+
+      expect(first.externalMessageId).toBe('987');
+      expect(duplicate.externalMessageId).toBe('987');
+      expect(second.externalMessageId).toBe('987');
+      expect(third.externalMessageId).toBe('987');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(3);
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+
+      const [chatId, sentText, sentOptions] =
+        currentBot().api.sendMessage.mock.calls[0]!;
+      expect(chatId).toBe('100200300');
+      expect(sentText).toContain('This job needs your approval.');
+      expect(sentText).toContain(curlRow);
+      expect(sentOptions).toEqual(
+        expect.objectContaining({
+          reply_markup: {
+            inline_keyboard: expect.arrayContaining([
+              expect.arrayContaining([
+                expect.objectContaining({
+                  text: 'Allow always for this job',
+                  callback_data: 'jp:abcdef012345abcdef012345:1:0:a',
+                }),
+                expect.objectContaining({
+                  text: 'Deny',
+                  callback_data: 'jp:abcdef012345abcdef012345:1:0:d',
+                }),
+              ]),
+            ]),
+          },
+        }),
+      );
+      expect(sentOptions).toMatchObject({ parse_mode: 'HTML' });
+    });
+
+    it('serializes job-permission card mutations and ignores stale or malformed revisions', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect({ inbound: false });
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      const actionsFor = (revision: number, token = 'a') => [
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Allow always for this job',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:${token}`,
+        },
+      ];
+      const send = (revision: number) =>
+        channel.sendMessage('tg:100200300', `Revision ${revision}`, {
+          actionAffordances: actionsFor(revision),
+        });
+
+      // Concurrent retries of the first revision collapse into one provider send.
+      const [a, b] = await Promise.all([send(1), send(1)]);
+      expect([a.externalMessageId, b.externalMessageId]).toEqual([
+        '987',
+        '987',
+      ]);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+
+      // A newer revision sends a fresh card; a delayed older one neither edits nor sends.
+      await send(3);
+      const stale = await send(2);
+      expect(stale.externalMessageId).toBe('987');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+
+      // An explicit edit still replaces its persisted message and retries short-circuit.
+      const edited = await channel.sendMessage('tg:100200300', 'Revision 4', {
+        actionAffordances: actionsFor(4),
+        replaceMessageId: '456',
+      });
+      const retried = await channel.sendMessage('tg:100200300', 'Revision 4', {
+        actionAffordances: actionsFor(4),
+        replaceMessageId: '456',
+      });
+      expect([edited.externalMessageId, retried.externalMessageId]).toEqual([
+        '456',
+        '456',
+      ]);
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.editMessageText.mock.calls[0]![1]).toBe(456);
+
+      // Malformed job-permission actions fail closed instead of falling back to plain text.
+      await expect(
+        channel.sendMessage('tg:100200300', 'Broken', {
+          actionAffordances: [
+            {
+              kind: 'job_permission_decision',
+              label: 'Allow',
+              actionToken: 'not-a-card-token',
+            },
+          ],
+        }),
+      ).rejects.toThrow('no valid actions');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it('a retired job-permission card rejects a delayed older action revision', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect({ inbound: false });
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      const actionsFor = (revision: number) => [
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Allow always for this job',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:a`,
+        },
+      ];
+
+      await channel.sendMessage('tg:100200300', 'Revision 1', {
+        actionAffordances: actionsFor(1),
+      });
+      await channel.sendMessage('tg:100200300', 'Retired', {
+        actionAffordances: [],
+        replaceMessageId: '987',
+        jobPermissionCardRevision: {
+          callbackKey: 'abcdef012345abcdef012345',
+          revision: 2,
+          operation: 'retire',
+        },
+      });
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+
+      const delayed = await channel.sendMessage('tg:100200300', 'Revision 1', {
+        actionAffordances: actionsFor(1),
+      });
+
+      expect(delayed.externalMessageId).toBe('987');
+      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('queues a buttonless retire edit behind an in-flight card send', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect({ inbound: false });
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      const actionsFor = (revision: number) => [
+        {
+          kind: 'job_permission_decision' as const,
+          label: 'Allow always for this job',
+          actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:a`,
+        },
+      ];
+      await channel.sendMessage('tg:100200300', 'Revision 1', {
+        actionAffordances: actionsFor(1),
+      });
+      let releaseCardSend!: () => void;
+      currentBot().api.sendMessage.mockImplementationOnce(
+        () =>
+          new Promise(
+            (resolve) => (releaseCardSend = () => resolve({ message_id: 988 })),
+          ),
+      );
+
+      const actionEdit = channel.sendMessage('tg:100200300', 'Revision 2', {
+        actionAffordances: actionsFor(2),
+      });
+      const retireEdit = channel.sendMessage('tg:100200300', 'Settled', {
+        actionAffordances: [],
+        replaceMessageId: '987',
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+
+      releaseCardSend();
+      await Promise.all([actionEdit, retireEdit]);
+      expect(
+        currentBot().api.editMessageText.mock.calls.map((call) => call[2]),
+      ).toEqual(['Settled']);
+    });
+
     it('uploads message files as Telegram documents', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -4087,6 +4307,395 @@ describe('TelegramChannel', () => {
   });
 
   describe('sendProgressUpdate', () => {
+    const terminalView = {
+      status: 'completed' as const,
+      jobName: 'Lead enrichment',
+      stats: { toolCount: 2, browserUsed: true, lastAction: 'browser_act' },
+      result: {
+        headline: "Enriched this morning's leads",
+        items: [
+          {
+            outcome: 'done' as const,
+            label: 'Added Acme',
+            detail: 'owner found',
+          },
+          { outcome: 'skipped' as const, label: 'Skipped Globex' },
+        ],
+        nextAction: 'Review the new leads',
+      },
+      fallbackText: '**Completed** plain fallback',
+      nextRunAt: '2026-08-27T09:00:00.000Z',
+    };
+
+    it('edits a terminal structured notification as HTML with its actions', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      const call = currentBot().api.editMessageText.mock.calls.at(-1);
+      expect(call?.[0]).toBe('100200300');
+      expect(call?.[1]).toBe(987);
+      expect(call?.[2]).toContain('<b>✅ Completed</b>');
+      expect(call?.[2]).toContain('✅ Added Acme — owner found');
+      expect(call?.[2]).toContain('⏭️ Skipped Globex');
+      expect(call?.[2]).toContain('<blockquote expandable>');
+      expect(call?.[3]).toMatchObject({
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: 'Run again', callback_data: 'r:job-1' }]],
+        },
+      });
+      expect(call?.[2]).not.toContain(terminalView.fallbackText);
+    });
+
+    it('records a no-handle terminal HTML notice and reuses it for an action-only update', async () => {
+      const runtimeHome = fs.mkdtempSync('/tmp/gantry-tg-progress-');
+      const savedHome = process.env.GANTRY_HOME;
+      process.env.GANTRY_HOME = runtimeHome;
+      try {
+        const channel = new TelegramChannel('test-token', createTestOpts());
+        await channel.connect();
+
+        await channel.sendProgressUpdate(
+          'tg:100200300',
+          terminalView.fallbackText,
+          {
+            done: true,
+            jobNotificationView: terminalView,
+            threadId: '42',
+          },
+        );
+
+        const sentHtml = currentBot().api.sendMessage.mock.calls.at(-1)?.[1];
+        expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+          '100200300',
+          expect.stringContaining('<b>✅ Completed</b>'),
+          expect.objectContaining({
+            message_thread_id: 42,
+            parse_mode: 'HTML',
+          }),
+        );
+        expect(
+          (channel as any).activeProgressMessages.get(
+            'progress:tg:100200300:42',
+          ),
+        ).toMatchObject({
+          chatId: '100200300',
+          threadId: 42,
+          messageId: 987,
+          lastText: sentHtml,
+        });
+        const stateFile = fs
+          .readdirSync(`${runtimeHome}/run`)
+          .find((name) => name.startsWith('telegram-progress-state-'));
+        expect(stateFile).toBeTruthy();
+        expect(
+          JSON.parse(
+            fs.readFileSync(`${runtimeHome}/run/${stateFile}`, 'utf8'),
+          ),
+        ).toContainEqual([
+          'progress:tg:100200300:42',
+          expect.objectContaining({ messageId: 987, lastText: sentHtml }),
+        ]);
+
+        currentBot().api.sendMessage.mockClear();
+        currentBot().api.editMessageText.mockClear();
+        await channel.sendProgressUpdate('tg:100200300', '', {
+          actionOnly: true,
+          threadId: '42',
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        });
+
+        expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+        expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+          '100200300',
+          987,
+          String.fromCharCode(8288),
+          expect.objectContaining({
+            parse_mode: 'MarkdownV2',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: 'Run again', callback_data: 'r:job-1' }],
+              ],
+            },
+          }),
+        );
+      } finally {
+        if (savedHome === undefined) delete process.env.GANTRY_HOME;
+        else process.env.GANTRY_HOME = savedHome;
+        fs.rmSync(runtimeHome, { recursive: true, force: true });
+      }
+    });
+
+    it('falls back to terminal text when a no-handle terminal HTML send cannot parse', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      currentBot().api.sendMessage.mockRejectedValueOnce(
+        new Error("Bad Request: can't parse entities"),
+      );
+      currentBot().api.sendMessage.mockResolvedValueOnce({ message_id: 2468 });
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          threadId: '42',
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        '100200300',
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        terminalView.fallbackText,
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'MarkdownV2',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+      await expect(
+        currentBot().api.sendMessage.mock.results[1]?.value,
+      ).resolves.toMatchObject({
+        message_id: 2468,
+      });
+      const renderedHtml = currentBot().api.sendMessage.mock.calls[0]?.[1];
+      expect(
+        (channel as any).activeProgressMessages.get('progress:tg:100200300:42'),
+      ).toMatchObject({ lastText: renderedHtml });
+
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          threadId: '42',
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalledWith(
+        '100200300',
+        2468,
+        expect.any(String),
+        expect.objectContaining({ parse_mode: 'HTML' }),
+      );
+    });
+
+    it('re-sends a terminal structured notification as HTML after a non-parse edit failure', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...', {
+        threadId: '42',
+      });
+      currentBot().api.editMessageText.mockRejectedValueOnce(
+        new Error('Bad Request: message to edit not found'),
+      );
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          threadId: '42',
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        987,
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({ parse_mode: 'HTML' }),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenLastCalledWith(
+        '100200300',
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+    });
+
+    it('falls back to terminal text when the replacement terminal HTML send cannot parse', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...', {
+        threadId: '42',
+      });
+      currentBot().api.editMessageText.mockRejectedValueOnce(
+        new Error('Bad Request: message to edit not found'),
+      );
+      currentBot().api.sendMessage.mockRejectedValueOnce(
+        new Error("Bad Request: can't parse entities"),
+      );
+      currentBot().api.sendMessage.mockResolvedValueOnce({ message_id: 2468 });
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+          threadId: '42',
+          actionAffordances: [
+            { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+          ],
+        },
+      );
+
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        '100200300',
+        terminalView.fallbackText,
+        expect.objectContaining({
+          message_thread_id: 42,
+          parse_mode: 'MarkdownV2',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Run again', callback_data: 'r:job-1' }],
+            ],
+          },
+        }),
+      );
+      await expect(
+        currentBot().api.sendMessage.mock.results[2]?.value,
+      ).resolves.toMatchObject({
+        message_id: 2468,
+      });
+    });
+
+    it('propagates a non-parse terminal HTML send error', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      currentBot().api.sendMessage.mockRejectedValueOnce(
+        new Error('Telegram unavailable'),
+      );
+
+      await expect(
+        channel.sendProgressUpdate('tg:100200300', terminalView.fallbackText, {
+          done: true,
+          jobNotificationView: terminalView,
+        }),
+      ).rejects.toThrow('Telegram unavailable');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps an unstructured terminal progress update on the existing text path', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+
+      await channel.sendProgressUpdate('tg:100200300', 'Finished.', {
+        done: true,
+      });
+
+      expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(
+        '100200300',
+        987,
+        'Finished.',
+        { parse_mode: 'MarkdownV2', reply_markup: { inline_keyboard: [] } },
+      );
+    });
+
+    it('falls back to the terminal text when an HTML progress edit cannot parse', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      currentBot().api.editMessageText.mockRejectedValueOnce(
+        new Error("Bad Request: can't parse entities"),
+      );
+
+      await channel.sendProgressUpdate(
+        'tg:100200300',
+        terminalView.fallbackText,
+        {
+          done: true,
+          jobNotificationView: terminalView,
+        },
+      );
+
+      expect(currentBot().api.editMessageText).toHaveBeenNthCalledWith(
+        1,
+        '100200300',
+        987,
+        expect.stringContaining('<b>✅ Completed</b>'),
+        expect.objectContaining({ parse_mode: 'HTML' }),
+      );
+      expect(currentBot().api.editMessageText).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        987,
+        terminalView.fallbackText,
+        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
+      );
+    });
+
     it('sends first progress message then edits it on updates', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -6419,7 +7028,7 @@ describe('TelegramChannel', () => {
       await channel.disconnect();
     });
 
-    it('auto-denies approval request after timeout', async () => {
+    it('keeps a job permission pending without an explicit expiry', async () => {
       vi.useFakeTimers();
       vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
       try {
@@ -6432,17 +7041,26 @@ describe('TelegramChannel', () => {
             requestId: 'perm-timeout',
             sourceAgentFolder: 'whatsapp_main',
             toolName: 'Edit',
+            jobId: 'job-1',
             permissionLane: 'autonomous',
           })
           .then(requirePermissionDecision);
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
 
+        const prompts = (channel as any).pendingPermissionPrompts as Map<
+          string,
+          any
+        >;
+        const pending = [...prompts.values()][0];
+        expect(pending.timer).toBeUndefined();
         await vi.advanceTimersByTimeAsync(300_000);
-        const decision = await decisionPromise;
-        expect(decision).toMatchObject({
+
+        expect(prompts.size).toBe(1);
+        await channel.disconnect();
+        await expect(decisionPromise).resolves.toMatchObject({
           approved: false,
           decidedBy: 'system',
-          reason: 'timed out',
+          reason: 'Telegram channel disconnected',
         });
       } finally {
         vi.useRealTimers();
@@ -6508,9 +7126,9 @@ describe('TelegramChannel', () => {
       await channel.disconnect();
     });
 
-    it('resolves the Telegram waiter after retryable timeout claims exhaust bounded retries', async () => {
+    it('settles a non-job autonomous permission after retryable timeout claims exhaust bounded retries', async () => {
       vi.useFakeTimers();
-      vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '300000');
+      vi.stubEnv('GANTRY_PERMISSION_TIMEOUT_MS', '300000');
       try {
         const channel = new TelegramChannel('test-token', createTestOpts());
         await channel.connect();

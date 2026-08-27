@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0082-734c",
+  "profile": "lite",
+  "reason": "Deploy gate for Q-0081: sanitizeRetryTailProviderPayload drops jobPermissionCard.callbackKey/revision which the wiring parser now requires, so sanitized card payloads would be rejected as malformed. Preserve and validate both fields; restore the jobperm-edges test to run through the sanitizer. Scope: retry-tail-provider-payload.ts + its test + jobperm-edges.test.ts.",
+  "started_at": "2026-08-25T18:12:00+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "64318445e675651bf74fc60d4153c8b76d1fd787"
+}

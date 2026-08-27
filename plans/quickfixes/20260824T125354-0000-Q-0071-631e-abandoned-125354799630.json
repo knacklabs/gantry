@@ -1,0 +1,24 @@
+{
+  "event": "abandoned",
+  "id": "Q-0071-631e",
+  "profile": "lite",
+  "reason": "Settlement repair committed; channels 979/979. Full-suite verify next.",
+  "opened_reason": "Scoped repair: restore user-question timer/callback settlement (0135 no-expiry applies only to jobId permission requests) across channels/interaction-settlement.ts, telegram/channel-delivery.ts, and the four channel test suites.",
+  "started_at": "2026-08-24T12:37:07+00:00",
+  "completed_at": "2026-08-24T12:53:54+00:00",
+  "files": [
+    "apps/core/src/channels/discord-interactions.ts",
+    "apps/core/src/channels/interaction-settlement.ts",
+    "apps/core/src/channels/slack/permission-approval-delivery.ts",
+    "apps/core/src/channels/teams-permission-approval.ts",
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/src/channels/telegram/prompt-binding.ts",
+    "apps/core/test/unit/channels/discord.test.ts",
+    "apps/core/test/unit/channels/interaction-settlement.test.ts",
+    "apps/core/test/unit/channels/slack.test.ts",
+    "apps/core/test/unit/channels/teams.test.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "833bacbd4ca315d752f8da100720cb0cefac28c8"
+}

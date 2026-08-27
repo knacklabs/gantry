@@ -23,6 +23,10 @@ import {
   canonicalGantryToolRuleName,
   gantryOwnedToolActivityFamily,
 } from '../../../../shared/gantry-tool-facades.js';
+import {
+  unprojectedAccessActivityDetail,
+  unprojectedAccessIdentityFromToolResult,
+} from '../../../../shared/unprojected-access.js';
 
 // Pure normalizer: turns an async iterable of LangGraph `streamEvents` (v2)
 // events into provider-neutral runner output frames. Kept free of any
@@ -230,6 +234,10 @@ export async function normalizeDeepAgentStream(
           toolResultIsError(event.data?.output)
             ? 'failure'
             : 'success';
+        const unprojectedIdentity =
+          family && isRequestAccessTool(event.name)
+            ? unprojectedAccessIdentityFromDeepAgentResult(event.data?.output)
+            : undefined;
         input.emit({
           status: 'success',
           result: null,
@@ -247,6 +255,12 @@ export async function normalizeDeepAgentStream(
                 ...(family ? { family } : {}),
                 outcome,
                 seq,
+                ...(unprojectedIdentity
+                  ? {
+                      detail:
+                        unprojectedAccessActivityDetail(unprojectedIdentity),
+                    }
+                  : {}),
               }),
             },
           ],
@@ -439,6 +453,36 @@ function privateToolActivityInvocationIdFromDeepAgentResult(
     });
   }
   return undefined;
+}
+
+function unprojectedAccessIdentityFromDeepAgentResult(
+  value: unknown,
+): string | undefined {
+  const direct = unprojectedAccessIdentityFromToolResult(value);
+  if (direct || !Array.isArray(value) || !Array.isArray(value[1])) {
+    return direct;
+  }
+  for (const artifact of value[1]) {
+    if (
+      !artifact ||
+      typeof artifact !== 'object' ||
+      Array.isArray(artifact) ||
+      (artifact as Record<string, unknown>).type !== 'mcp_meta'
+    ) {
+      continue;
+    }
+    const identity = unprojectedAccessIdentityFromToolResult({
+      _meta: (artifact as Record<string, unknown>).data,
+    });
+    if (identity) return identity;
+  }
+  return undefined;
+}
+
+function isRequestAccessTool(toolName: string): boolean {
+  return (
+    toolName === 'request_access' || toolName === 'mcp__gantry__request_access'
+  );
 }
 
 function textFromChunk(chunk: unknown): string {

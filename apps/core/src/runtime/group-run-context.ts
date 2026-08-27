@@ -156,11 +156,16 @@ export function resolveTurnSelectedMcpServerIdsFromSnapshot(
 export function resolveTurnPromptCapabilityCatalogFromSnapshot(
   snapshot: AgentAccessSnapshot,
   readySemanticCapabilities: readonly SemanticCapabilityDefinition[],
+  readyToolRules: readonly string[] = [],
 ) {
   return resolveAgentPromptCapabilityCatalog({
     appId: snapshot.appId,
     agentId: snapshot.agentId,
     readySemanticCapabilities,
+    requestableSemanticCapabilities:
+      resolveTurnSemanticCapabilitiesFromSnapshot(snapshot),
+    requestableTools: snapshot.tools.appActiveDefinitions,
+    readyToolRules,
     installedSkills: snapshot.skills.enabledDefinitions,
     connectedMcpSources: snapshot.mcp.materializedServers.map(
       (row) => row.definition,

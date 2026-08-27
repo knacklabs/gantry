@@ -17,6 +17,31 @@ import type { SchedulerDependencies } from './types.js';
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 export const RUNNER_CONTROL_EVENT_WRITE_TIMEOUT_MS = 5_000;
 
+type JobPermissionLeaseExtensionReader = (input: {
+  appId: string;
+  jobId: string;
+  sourceAgentFolder: string;
+  runId: string;
+}) => Promise<number>;
+
+let jobPermissionLeaseExtensionReader: JobPermissionLeaseExtensionReader | null =
+  null;
+
+export function configureJobPermissionLeaseExtensionReader(
+  next: JobPermissionLeaseExtensionReader | null,
+): void {
+  jobPermissionLeaseExtensionReader = next;
+}
+
+export function jobPermissionLeaseExtensionMs(input: {
+  appId: string;
+  jobId: string;
+  sourceAgentFolder: string;
+  runId: string;
+}): Promise<number> {
+  return jobPermissionLeaseExtensionReader?.(input) ?? Promise.resolve(0);
+}
+
 export type RecordRunnerControlEvent = (
   eventType: RunnerControlEventType,
   payload: Record<string, unknown>,
@@ -312,6 +337,7 @@ export function startSchedulerRunLeaseHeartbeat(input: {
   warn: WarnLog;
   onLeaseLost?: () => void;
   externalAbortSignal?: AbortSignal;
+  pendingLeaseExtensionMs?: () => Promise<number>;
 }): SchedulerRunLeaseHeartbeat {
   const intervalMs = Math.max(
     1_000,
@@ -320,8 +346,21 @@ export function startSchedulerRunLeaseHeartbeat(input: {
   let stopped = false;
   const heartbeat = async (): Promise<void> => {
     if (stopped) return;
+    const pendingLeaseExtensionMs = Math.max(
+      0,
+      (await input.pendingLeaseExtensionMs?.().catch((err) => {
+        input.warn(
+          { err, runId: input.runId },
+          'Failed to record pending-permission lease extension',
+        );
+        return 0;
+      })) ?? 0,
+    );
     const leaseTtlMs = input.deadlineMs
-      ? Math.min(input.ttlMs, input.deadlineMs + 30_000 - nowMs())
+      ? Math.min(
+          input.ttlMs,
+          input.deadlineMs + pendingLeaseExtensionMs + 30_000 - nowMs(),
+        )
       : input.ttlMs;
     if (leaseTtlMs <= 0) {
       stopped = true;

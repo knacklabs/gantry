@@ -1,5 +1,6 @@
 import type {
   Job,
+  JobNotificationView,
   JobSetupState,
   JobRunStatus,
   MessageActionAffordance,
@@ -13,7 +14,9 @@ import {
 } from '../memory/review-message-view.js';
 import {
   boundJobNotificationView,
+  formatJobNextRunAt,
   formatRunStatusMessage,
+  jobOutcomeHeadline,
   structuredJobResultFromRecordedActions,
   terminalRunNotificationStats,
 } from './status-formatting.js';
@@ -74,6 +77,8 @@ export function createSchedulerLifecycleRetirementTracker(
       runId: string;
       runStatus: TerminalRunStatus;
       summaryMessage: string;
+      actionAffordances?: MessageActionAffordance[];
+      jobNotificationView?: JobNotificationView;
     }) => Promise<JobNotificationLifecycleUpdateResult>;
     discardLifecycleNotification?: (runId: string) => void;
   },
@@ -161,12 +166,15 @@ function recoveryActionAffordances(input: {
 function runAgainActionAffordances(input: {
   job: Job;
   runId: string;
+  limitedCompletion?: boolean;
 }): MessageActionAffordance[] {
-  if (input.job.schedule_type !== 'manual') return [];
+  if (input.job.schedule_type !== 'manual' && !input.limitedCompletion) {
+    return [];
+  }
   return [
     {
       kind: 'scheduler_run_now',
-      label: 'Run again',
+      label: input.limitedCompletion ? 'Run again now' : 'Run again',
       jobId: input.job.id,
       runId: input.runId,
     },
@@ -360,6 +368,8 @@ export async function notifySchedulerTerminalRunState(input: {
     runId: string;
     runStatus: TerminalRunStatus;
     summaryMessage: string;
+    actionAffordances?: MessageActionAffordance[];
+    jobNotificationView?: JobNotificationView;
   }) => Promise<JobNotificationLifecycleUpdateResult>;
 }): Promise<boolean> {
   if (input.job.silent) return false;
@@ -430,6 +440,13 @@ export async function notifySchedulerTerminalRunState(input: {
       sendMessage: input.sendMessage,
     });
   }
+  const result = structuredJobResultFromRecordedActions(
+    input.recordedActions ?? [],
+  );
+  const headline = jobOutcomeHeadline(input.summary);
+  const notificationResult = headline
+    ? { ...(result ?? { items: [] }), headline }
+    : result;
   const summaryMessage =
     compactMemoryDreamingTerminalMessage(input) ??
     formatRunStatusMessage({
@@ -449,20 +466,31 @@ export async function notifySchedulerTerminalRunState(input: {
         input.pauseReason,
       ),
       toolDenial: input.toolDenial,
+      headline,
+      resultItems: result?.items,
     });
   const stats = terminalRunNotificationStats(input);
-  const result = structuredJobResultFromRecordedActions(
-    input.recordedActions ?? [],
-  );
+  const nextRunAt =
+    input.nextRun === null ? undefined : formatJobNextRunAt(input.nextRun);
   const jobNotificationView = boundJobNotificationView({
     status: input.runStatus,
     jobName: input.job.name,
     ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
     ...(stats ? { stats } : {}),
-    ...(result ? { result } : {}),
+    ...(notificationResult ? { result: notificationResult } : {}),
     fallbackText: summaryMessage,
-    ...(input.nextRun === null ? {} : { nextRunAt: input.nextRun }),
+    ...(nextRunAt ? { nextRunAt } : {}),
   });
+  const actionAffordances =
+    input.runStatus === 'completed'
+      ? runAgainActionAffordances({
+          job: input.job,
+          runId: input.runId,
+          limitedCompletion: Boolean(
+            input.diagnostics?.unprojectedPermissionGrants?.length,
+          ),
+        })
+      : recoveryActionAffordances({ job: input.job, runId: input.runId });
   const updateOutcomes =
     input.updateLifecycleNotification === undefined
       ? undefined
@@ -471,14 +499,11 @@ export async function notifySchedulerTerminalRunState(input: {
           runId: input.runId,
           runStatus: input.runStatus,
           summaryMessage,
+          actionAffordances,
+          jobNotificationView,
         });
   const fallbackJob = jobForLifecycleFallback(input.job, updateOutcomes);
-  const actionAffordances =
-    input.runStatus === 'completed'
-      ? runAgainActionAffordances({ job: input.job, runId: input.runId })
-      : recoveryActionAffordances({ job: input.job, runId: input.runId });
-  const notificationJob =
-    actionAffordances.length > 0 ? input.job : fallbackJob;
+  const notificationJob = fallbackJob;
   if (!notificationJob) return true;
   return sendJobNotification({
     job: notificationJob,
@@ -516,6 +541,15 @@ function degradedReasonForDiagnostics(
   // The denial that actually limited THIS run outranks a transient approval
   // note about future runs; show both when both happened.
   const parts: string[] = [];
+  if ((diagnostics.unprojectedPermissionGrants?.length ?? 0) > 0) {
+    parts.push(
+      `Missing ${diagnostics
+        .unprojectedPermissionGrants!.map(humanizeTechnicalIdentifier)
+        .join(
+          ', ',
+        )} access limited this run. The grant is available from the next run.`,
+    );
+  }
   if (diagnostics.terminalToolDenial) {
     parts.push(
       `Missing ${humanizeTechnicalIdentifier(diagnostics.terminalToolDenial.toolName)} access limited this run.`,

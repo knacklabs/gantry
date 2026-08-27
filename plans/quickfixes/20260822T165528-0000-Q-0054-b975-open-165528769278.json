@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0054-b975",
+  "profile": "lite",
+  "reason": "Bounded bug fix: autonomous compound RunCommand denial dead-ends scheduled jobs with a buttonless double-notification (KnackLabs live repro).",
+  "started_at": "2026-08-22T16:55:28+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "73b86a67846b69728d7c0e125427efe29fa157a0"
+}

@@ -1,0 +1,13 @@
+{
+  "topic": "JSONB persistence vs in-memory fakes",
+  "lesson": "Postgres JSONB normalizes object key order and drops undefined; any equality check against persisted state (JSON.stringify ===) silently fails in prod while structuredClone-based fakes keep it green. Compare with util.isDeepStrictEqual and make repository fakes persist through a JSONB-faithful round trip (see test/unit/application/jsonb-round-trip.ts).",
+  "source": "Q-0074 incident, job-permission-card-projection.ts revision loop (10k Telegram edits)",
+  "applies_to": [
+    "apps/core/src/application/**",
+    "apps/core/src/adapters/storage/postgres/**",
+    "apps/core/test/unit/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-08-25T10:11:20+00:00"
+}

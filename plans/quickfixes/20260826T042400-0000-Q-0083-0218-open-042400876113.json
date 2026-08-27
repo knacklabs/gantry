@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0083-0218",
+  "profile": "lite",
+  "reason": "Completion notice edit of the running card shows the summary excerpt but not the per-tool outcome list; the item list only appears on the native fallback send (which no longer fires now that the running card is reliable). Include the structured tool outcome lines in the terminal summary message. Scope: status-formatting.ts, execution-notifications.ts, their tests.",
+  "started_at": "2026-08-26T04:24:00+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "9b51da8bbd140b8e169b888b9b2f47ff00862e5f"
+}

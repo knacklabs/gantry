@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0091-cced",
+  "profile": "lite",
+  "reason": "Outcome-first terminal notice, job- and provider-neutral: scheduled runs end with an 'Outcome: <one sentence>' line (prompt guidance), jobOutcomeHeadline lifts it into StructuredJobResult.headline so every native renderer prints the outcome first and the text variant shows it after the header without the duplicate summary. Scope: prompt-profile-service.ts, status-formatting.ts (or rollup), execution-notifications.ts, tests.",
+  "started_at": "2026-08-26T11:33:58+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "5b30acbc800a288e769d3ce1a6f2cb15a37ab438"
+}

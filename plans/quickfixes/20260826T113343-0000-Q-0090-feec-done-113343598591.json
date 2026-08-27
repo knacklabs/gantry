@@ -1,0 +1,170 @@
+{
+  "event": "done",
+  "id": "Q-0090-feec",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Discord leg of the provider-neutral terminal notice: when the lifecycle terminal edit carries the structured view, render it with discordJobNotificationEmbed on the edit/post of the running card instead of markdown text; rejection falls back to text. Scope: discord progress helper, discord.ts, discord-delivery.ts, message-mutations helper if edit must accept embeds, discord test.",
+  "base_sha": "40d26aee3ff7a2af3381fd09ca963cb24b091335",
+  "started_at": "2026-08-26T10:34:25+00:00",
+  "completed_at": "2026-08-26T11:33:43+00:00",
+  "files": [
+    "apps/core/src/channels/discord-http-helpers.ts",
+    "apps/core/src/channels/discord-progress.ts",
+    "apps/core/src/channels/discord.ts",
+    "apps/core/test/unit/channels/discord.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/discord-progress.ts",
+        "apps/core/src/channels/discord.ts",
+        "apps/core/src/channels/discord-http-helpers.ts",
+        "apps/core/test/unit/channels/discord.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0066: dedupe ignores the view (text and view derive from the same data, so they change together)"
+      ],
+      "summary": "Discord terminal notice is the native embed in the same single message. Lite window Q-0090 (base 40d26aee3 -> HEAD): Discord renders the terminal progress edit with discordJobNotificationEmbed when the structured view is present (same message id, components kept); fallback only when Discord's structured errors identify embeds as the sole invalid field, fallback edit clears embeds, fallback post is a single truncated message; DiscordRestError retains code/errors/message. Proof: discord suite 111 green, unit lane 675/9022 green, integration lane green, tsc, architecture, verify.py passed (one load-flake rerun). Autoreview 5 rounds: 5 findings accepted+fixed; final theoretical dedupe point deferred D-0066 per the scope governor.",
+      "non_blocking_findings": [
+        {
+          "category": "notification-content",
+          "area": "channels/discord",
+          "summary": "FIXED: markdown terminal edit replaced by native embed with embed-specific fallback"
+        },
+        {
+          "category": "delivery-semantics",
+          "area": "channels/discord",
+          "summary": "RESIDUAL D-0066: dedupe keyed on text/components only"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0090 is Discord terminal rendering only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "ae8d9f93e966c6b0f1c2837661e87b6bc9bdd77cb520905e245b74243eea9ed3",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "a8933d67db4ca20442f1dd8d6d0df33f4fb70b44529b2ad182432d2e606c87b1",
+      "recorded_at": "2026-08-26T11:33:43+00:00",
+      "commit": "5b30acbc800a288e769d3ce1a6f2cb15a37ab438"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/discord-progress.ts",
+        "apps/core/src/channels/discord.ts",
+        "apps/core/src/channels/discord-http-helpers.ts",
+        "apps/core/test/unit/channels/discord.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0066: dedupe ignores the view (text and view derive from the same data, so they change together)"
+      ],
+      "summary": "One render per terminal update; no extra requests on the success path. Lite window Q-0090 (base 40d26aee3 -> HEAD): Discord renders the terminal progress edit with discordJobNotificationEmbed when the structured view is present (same message id, components kept); fallback only when Discord's structured errors identify embeds as the sole invalid field, fallback edit clears embeds, fallback post is a single truncated message; DiscordRestError retains code/errors/message. Proof: discord suite 111 green, unit lane 675/9022 green, integration lane green, tsc, architecture, verify.py passed (one load-flake rerun). Autoreview 5 rounds: 5 findings accepted+fixed; final theoretical dedupe point deferred D-0066 per the scope governor.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "ae8d9f93e966c6b0f1c2837661e87b6bc9bdd77cb520905e245b74243eea9ed3",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "a8933d67db4ca20442f1dd8d6d0df33f4fb70b44529b2ad182432d2e606c87b1",
+      "recorded_at": "2026-08-26T11:33:43+00:00",
+      "commit": "5b30acbc800a288e769d3ce1a6f2cb15a37ab438"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/discord-progress.ts",
+        "apps/core/src/channels/discord.ts",
+        "apps/core/src/channels/discord-http-helpers.ts",
+        "apps/core/test/unit/channels/discord.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0066: dedupe ignores the view (text and view derive from the same data, so they change together)"
+      ],
+      "summary": "Only embed-specific 400s retry (post-once); components preserved on fallback. Lite window Q-0090 (base 40d26aee3 -> HEAD): Discord renders the terminal progress edit with discordJobNotificationEmbed when the structured view is present (same message id, components kept); fallback only when Discord's structured errors identify embeds as the sole invalid field, fallback edit clears embeds, fallback post is a single truncated message; DiscordRestError retains code/errors/message. Proof: discord suite 111 green, unit lane 675/9022 green, integration lane green, tsc, architecture, verify.py passed (one load-flake rerun). Autoreview 5 rounds: 5 findings accepted+fixed; final theoretical dedupe point deferred D-0066 per the scope governor.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "ae8d9f93e966c6b0f1c2837661e87b6bc9bdd77cb520905e245b74243eea9ed3",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "a8933d67db4ca20442f1dd8d6d0df33f4fb70b44529b2ad182432d2e606c87b1",
+      "recorded_at": "2026-08-26T11:33:43+00:00",
+      "commit": "5b30acbc800a288e769d3ce1a6f2cb15a37ab438"
+    }
+  }
+}

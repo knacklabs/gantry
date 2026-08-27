@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0108-595a",
+  "profile": "lite",
+  "reason": "Q-0108: the finish nudge cannot reach the model because scheduled runs end the SDK input stream at start; keep it open for one nudge turn (run 00b9a0a9 ended mid-work again)",
+  "started_at": "2026-08-27T04:01:05+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "1c5b63e0f9f18a6473a138b74c608937c472b2c9"
+}

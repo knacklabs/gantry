@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0092-40a7",
+  "profile": "lite",
+  "reason": "Native terminal notice shows the next run as a raw ISO timestamp (view.nextRunAt is the unformatted value) while the text path humanizes it; humanize once where the view is built so every provider prints the same friendly time. Scope: execution-notifications.ts, status-formatting.ts (export the formatter), tests.",
+  "started_at": "2026-08-26T12:30:12+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "4f841f769bf2317397899c30e530c7673d09f203"
+}

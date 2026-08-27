@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T11:35:56+00:00", "story": "JOBPERM-1", "detail": "S-0002-5774: review_budget raised to 14 files / 1100 lines with recorded reason: the single-cut Deletions span eight seams by owner design; plus the new test file and stale-constant test updates. Proceed per the t"}

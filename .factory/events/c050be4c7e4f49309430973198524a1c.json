@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-23T17:54:43+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T3 replaces an autonomous grant miss with the shared durable wait/approval tail, but active decisions 0115, 0121, and 0126 require that miss to be a typed terminal denial routed through setu"}

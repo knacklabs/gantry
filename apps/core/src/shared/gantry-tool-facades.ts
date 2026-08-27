@@ -43,7 +43,12 @@ export function gantryOwnedToolActivityFamily(
   toolName: string,
 ): 'browser' | 'capability' | undefined {
   const canonicalToolName = canonicalGantryToolRuleName(toolName);
-  if (canonicalToolName === 'capability_run') return 'capability';
+  if (
+    canonicalToolName === 'capability_run' ||
+    canonicalToolName === 'request_access'
+  ) {
+    return 'capability';
+  }
   if (
     canonicalToolName === 'browser_status' ||
     canonicalToolName === 'browser_open' ||

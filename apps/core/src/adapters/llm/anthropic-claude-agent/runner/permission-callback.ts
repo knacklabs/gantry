@@ -4,7 +4,6 @@ import { randomUUID } from 'crypto';
 import { nowIso, nowMs, sleep } from '../../../../shared/time/datetime.js';
 import { isPlainObject } from '../../../../shared/object.js';
 import { persistentPermissionUpdates } from '../../../../shared/permission-tool-rules.js';
-import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../../../../shared/permission-mode.js';
 import { NO_PERMISSION_TIMEOUT_MS } from '../../../../shared/permission-timeout.js';
 import { writePrivateFileSync } from '../../../../shared/private-fs.js';
 import {
@@ -33,7 +32,6 @@ import {
   IPC_RESPONSE_KEY_ID,
   IPC_RESPONSE_VERIFY_KEY,
   PERMISSION_LANE,
-  PERMISSION_MODE,
   PERMISSION_REQUEST_TIMEOUT_MS,
   PROVIDER_ACCOUNT_ID,
   SENDER_ID,
@@ -43,18 +41,26 @@ import {
 } from './runtime-env.js';
 import type { PermissionDecision } from './types.js';
 import { WORKSPACE_FOLDER_OPTION_KEY } from './types.js';
+import { permissionRequestToolName } from './permission-suggestions.js';
 
 const DEFAULT_RUNNER_APP_ID = 'default';
 const AGENT_FOLDER_OPTION_KEY = WORKSPACE_FOLDER_OPTION_KEY;
-const UNATTENDED_JOB_PERMISSION_REASON =
-  'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.';
-const UNATTENDED_RUN_PERMISSION_REASON =
-  'Permission request was sent to the host. Autonomous runs do not wait for approval during the active tool call; approve the requested capability before retrying the run.';
-const AUTONOMOUS_PERMISSION_TIMEOUT_REASON =
-  'Timed out waiting for approval. Retry the autonomous run when an approver is available.';
-const INTERACTIVE_PERMISSION_TIMEOUT_REASON =
-  'Timed out waiting for interactive approval. Retry the live request when an approver is available.';
+const PERMISSION_TIMEOUT_REASON =
+  'Timed out waiting for approval. Retry the request when an approver is available.';
 const CANCELLED_PERMISSION_REASON = 'Permission request cancelled.';
+const inFlightPermissionWaits = new Map<string, string>();
+
+export function inFlightPermissionRequests(): {
+  count: number;
+  toolNames: string[];
+} {
+  return {
+    count: inFlightPermissionWaits.size,
+    toolNames: Array.from(new Set(inFlightPermissionWaits.values())).filter(
+      Boolean,
+    ),
+  };
+}
 
 async function sleepWithAbort(
   ms: number,
@@ -159,17 +165,12 @@ async function requestPermissionApprovalInner(options: {
     const responseNonce = randomUUID();
     const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
-    const autoClassifierWait =
-      PERMISSION_LANE === 'autonomous' &&
-      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
-      PERMISSION_MODE === 'auto';
-    const waitMs = autoClassifierWait
-      ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
-      : PERMISSION_REQUEST_TIMEOUT_MS;
+    const waitMs = PERMISSION_REQUEST_TIMEOUT_MS;
     const deadline =
-      waitMs > NO_PERMISSION_TIMEOUT_MS ? nowMs() + waitMs : undefined;
-    const unboundedInteractive =
-      PERMISSION_LANE === 'interactive' && deadline === undefined;
+      JOB_ID || waitMs <= NO_PERMISSION_TIMEOUT_MS
+        ? undefined
+        : nowMs() + waitMs;
+    const unboundedInteraction = deadline === undefined;
     const payload = {
       requestId,
       appId,
@@ -229,9 +230,7 @@ async function requestPermissionApprovalInner(options: {
       ...(TURN_INTENT_SUMMARY
         ? { turnIntentSummary: TURN_INTENT_SUMMARY.slice(0, 1_500) }
         : {}),
-      unattended:
-        PERMISSION_LANE === 'autonomous' &&
-        PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS,
+      unattended: PERMISSION_LANE === 'autonomous',
       context: {
         appId,
         ...(agentId ? { agentId } : {}),
@@ -254,201 +253,194 @@ async function requestPermissionApprovalInner(options: {
     const envelope = createSignedIpcRequestEnvelope(
       IPC_AUTH_TOKEN,
       payload,
-      ipcInteractionAuthEnvelopeOptions(unboundedInteractive),
+      ipcInteractionAuthEnvelopeOptions(unboundedInteraction),
     );
-    const authDeadline = unboundedInteractive
+    const authDeadline = unboundedInteraction
       ? Date.parse(String(envelope.authExpiresAt))
       : undefined;
-    writePrivateFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
-    fs.renameSync(requestTmpPath, requestPath);
+    inFlightPermissionWaits.set(
+      requestId,
+      permissionRequestToolName(options.toolName),
+    );
+    try {
+      writePrivateFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
+      fs.renameSync(requestTmpPath, requestPath);
 
-    if (
-      PERMISSION_LANE === 'autonomous' &&
-      PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS &&
-      !autoClassifierWait
-    ) {
-      return {
-        approved: false,
-        decidedBy: 'runtime',
-        reason: unattendedPermissionReason(),
-        decisionClassification: 'user_reject',
-      };
-    }
-
-    const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
-    let requestClaimed = false;
-    while (deadline === undefined || nowMs() < deadline) {
-      if (options.signal?.aborted) {
-        cancelPermissionRequest({
-          workspaceIpcDir,
-          requestPath,
-          requestId,
-          appId,
-          agentId,
-          agentFolder,
-          threadId: options.threadId,
-        });
-        return {
-          approved: false,
-          decidedBy: 'runtime',
-          reason: CANCELLED_PERMISSION_REASON,
-          decisionClassification: 'user_reject',
-        };
-      }
-      if (fs.existsSync(responsePath)) {
-        try {
-          const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));
-          fs.unlinkSync(responsePath);
-          if (
-            raw &&
-            typeof raw === 'object' &&
-            (raw as { requestId?: string }).requestId === requestId
-          ) {
-            const responsePayload =
-              buildPermissionResponseSignaturePayload(raw);
-            if (
-              (raw as { responseNonce?: unknown }).responseNonce !==
-              responseNonce
-            ) {
-              return {
-                approved: false,
-                reason: 'Malformed permission response',
-              };
-            }
-            if (typeof responsePayload.approved !== 'boolean') {
-              return {
-                approved: false,
-                reason: 'Malformed permission response',
-              };
-            }
-            if (
-              !hasValidIpcResponseSignature(
-                IPC_RESPONSE_VERIFY_KEY,
-                raw as Record<string, unknown>,
-              )
-            ) {
-              return {
-                approved: false,
-                reason: 'Permission response signature verification failed',
-              };
-            }
-            const mode =
-              responsePayload.mode === 'allow_once' ||
-              responsePayload.mode === 'allow_persistent_rule' ||
-              responsePayload.mode === 'cancel'
-                ? responsePayload.mode
-                : undefined;
-            if (typeof responsePayload.mode === 'string' && !mode) {
-              return {
-                approved: false,
-                reason: 'Malformed permission response',
-              };
-            }
-            const decisionClassification =
-              responsePayload.decisionClassification === 'user_temporary' ||
-              responsePayload.decisionClassification === 'user_permanent' ||
-              responsePayload.decisionClassification === 'user_reject'
-                ? responsePayload.decisionClassification
-                : undefined;
-            const sanitizedDecision = {
-              approved: responsePayload.approved as boolean,
-              mode,
-              decisionClassification,
-              updatedPermissions: Array.isArray(
-                responsePayload.updatedPermissions,
-              )
-                ? (responsePayload.updatedPermissions as never)
-                : undefined,
-            };
-            return {
-              approved: sanitizedDecision.approved,
-              decidedBy:
-                typeof responsePayload.decidedBy === 'string'
-                  ? responsePayload.decidedBy
-                  : undefined,
-              source: isPermissionDecisionSource(responsePayload.source)
-                ? responsePayload.source
-                : undefined,
-              repeatableForFutureRuns:
-                typeof responsePayload.repeatableForFutureRuns === 'boolean'
-                  ? responsePayload.repeatableForFutureRuns
-                  : undefined,
-              reason:
-                typeof responsePayload.reason === 'string'
-                  ? responsePayload.reason
-                  : undefined,
-              risk_level: isPermissionRiskLevel(responsePayload.risk_level)
-                ? responsePayload.risk_level
-                : undefined,
-              risk_category: isPermissionRiskCategory(
-                responsePayload.risk_category,
-              )
-                ? responsePayload.risk_category
-                : undefined,
-              mode,
-              updatedPermissions: persistentPermissionUpdates(
-                sanitizedDecision,
-              ) as never,
-              decisionClassification,
-            };
-          }
-          return { approved: false, reason: 'Malformed permission response' };
-        } catch (err) {
+      const responsePath = path.join(
+        permissionResponsesDir,
+        `${requestId}.json`,
+      );
+      let requestClaimed = false;
+      while (deadline === undefined || nowMs() < deadline) {
+        if (options.signal?.aborted) {
+          cancelPermissionRequest({
+            workspaceIpcDir,
+            requestPath,
+            requestId,
+            appId,
+            agentId,
+            agentFolder,
+            threadId: options.threadId,
+          });
           return {
             approved: false,
-            reason:
-              err instanceof Error
-                ? err.message
-                : 'Failed to read permission response',
+            decidedBy: 'runtime',
+            reason: CANCELLED_PERMISSION_REASON,
+            decisionClassification: 'user_reject',
+          };
+        }
+        if (fs.existsSync(responsePath)) {
+          try {
+            const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));
+            fs.unlinkSync(responsePath);
+            if (
+              raw &&
+              typeof raw === 'object' &&
+              (raw as { requestId?: string }).requestId === requestId
+            ) {
+              const responsePayload =
+                buildPermissionResponseSignaturePayload(raw);
+              if (
+                (raw as { responseNonce?: unknown }).responseNonce !==
+                responseNonce
+              ) {
+                return {
+                  approved: false,
+                  reason: 'Malformed permission response',
+                };
+              }
+              if (typeof responsePayload.approved !== 'boolean') {
+                return {
+                  approved: false,
+                  reason: 'Malformed permission response',
+                };
+              }
+              if (
+                !hasValidIpcResponseSignature(
+                  IPC_RESPONSE_VERIFY_KEY,
+                  raw as Record<string, unknown>,
+                )
+              ) {
+                return {
+                  approved: false,
+                  reason: 'Permission response signature verification failed',
+                };
+              }
+              const mode =
+                responsePayload.mode === 'allow_once' ||
+                responsePayload.mode === 'allow_persistent_rule' ||
+                responsePayload.mode === 'cancel'
+                  ? responsePayload.mode
+                  : undefined;
+              if (typeof responsePayload.mode === 'string' && !mode) {
+                return {
+                  approved: false,
+                  reason: 'Malformed permission response',
+                };
+              }
+              const decisionClassification =
+                responsePayload.decisionClassification === 'user_temporary' ||
+                responsePayload.decisionClassification === 'user_permanent' ||
+                responsePayload.decisionClassification === 'user_reject'
+                  ? responsePayload.decisionClassification
+                  : undefined;
+              const sanitizedDecision = {
+                approved: responsePayload.approved as boolean,
+                mode,
+                decisionClassification,
+                updatedPermissions: Array.isArray(
+                  responsePayload.updatedPermissions,
+                )
+                  ? (responsePayload.updatedPermissions as never)
+                  : undefined,
+              };
+              return {
+                approved: sanitizedDecision.approved,
+                decidedBy:
+                  typeof responsePayload.decidedBy === 'string'
+                    ? responsePayload.decidedBy
+                    : undefined,
+                source: isPermissionDecisionSource(responsePayload.source)
+                  ? responsePayload.source
+                  : undefined,
+                repeatableForFutureRuns:
+                  typeof responsePayload.repeatableForFutureRuns === 'boolean'
+                    ? responsePayload.repeatableForFutureRuns
+                    : undefined,
+                reason:
+                  typeof responsePayload.reason === 'string'
+                    ? responsePayload.reason
+                    : undefined,
+                risk_level: isPermissionRiskLevel(responsePayload.risk_level)
+                  ? responsePayload.risk_level
+                  : undefined,
+                risk_category: isPermissionRiskCategory(
+                  responsePayload.risk_category,
+                )
+                  ? responsePayload.risk_category
+                  : undefined,
+                mode,
+                updatedPermissions: persistentPermissionUpdates(
+                  sanitizedDecision,
+                ) as never,
+                decisionClassification,
+              };
+            }
+            return { approved: false, reason: 'Malformed permission response' };
+          } catch (err) {
+            return {
+              approved: false,
+              reason:
+                err instanceof Error
+                  ? err.message
+                  : 'Failed to read permission response',
+            };
+          }
+        }
+        if (authDeadline !== undefined && !requestClaimed) {
+          requestClaimed = hasIpcRequestClaimMarker(
+            requestPath,
+            options.claimProbe,
+          );
+          if (!requestClaimed && nowMs() >= authDeadline) break;
+        }
+        const aborted = await sleepWithAbort(100, options.signal);
+        if (aborted) {
+          cancelPermissionRequest({
+            workspaceIpcDir,
+            requestPath,
+            requestId,
+            appId,
+            agentId,
+            agentFolder,
+            threadId: options.threadId,
+          });
+          return {
+            approved: false,
+            decidedBy: 'runtime',
+            reason: CANCELLED_PERMISSION_REASON,
+            decisionClassification: 'user_reject',
           };
         }
       }
       if (authDeadline !== undefined && !requestClaimed) {
-        requestClaimed = hasIpcRequestClaimMarker(
-          requestPath,
-          options.claimProbe,
-        );
-        if (!requestClaimed && nowMs() >= authDeadline) break;
-      }
-      const aborted = await sleepWithAbort(100, options.signal);
-      if (aborted) {
-        cancelPermissionRequest({
-          workspaceIpcDir,
-          requestPath,
-          requestId,
-          appId,
-          agentId,
-          agentFolder,
-          threadId: options.threadId,
-        });
+        fs.rmSync(requestPath, { force: true });
         return {
           approved: false,
           decidedBy: 'runtime',
-          reason: CANCELLED_PERMISSION_REASON,
+          reason: ipcInteractionUnclaimableReason('permission'),
           decisionClassification: 'user_reject',
         };
       }
-    }
-    if (authDeadline !== undefined && !requestClaimed) {
-      fs.rmSync(requestPath, { force: true });
       return {
         approved: false,
         decidedBy: 'runtime',
-        reason: ipcInteractionUnclaimableReason('permission'),
+        reason: PERMISSION_TIMEOUT_REASON,
         decisionClassification: 'user_reject',
       };
+    } finally {
+      inFlightPermissionWaits.delete(requestId);
     }
-    return {
-      approved: false,
-      decidedBy: 'runtime',
-      reason:
-        PERMISSION_LANE === 'interactive'
-          ? INTERACTIVE_PERMISSION_TIMEOUT_REASON
-          : PERMISSION_REQUEST_TIMEOUT_MS <= NO_PERMISSION_TIMEOUT_MS
-            ? unattendedPermissionReason()
-            : AUTONOMOUS_PERMISSION_TIMEOUT_REASON,
-      decisionClassification: 'user_reject',
-    };
   } catch (err) {
     return {
       approved: false,
@@ -527,12 +519,6 @@ function cancelPermissionRequest(input: {
   });
   writePrivateFileSync(cancellationTmpPath, JSON.stringify(envelope, null, 2));
   fs.renameSync(cancellationTmpPath, cancellationPath);
-}
-
-function unattendedPermissionReason(): string {
-  return JOB_ID
-    ? UNATTENDED_JOB_PERMISSION_REASON
-    : UNATTENDED_RUN_PERMISSION_REASON;
 }
 
 function isPermissionRiskLevel(

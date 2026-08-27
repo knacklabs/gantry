@@ -1,14 +1,24 @@
 import type { McpServerDefinition } from '../../domain/mcp/mcp-servers.js';
 import type { SkillCatalogItem } from '../../domain/skills/skills.js';
+import type { ToolCatalogItem } from '../../domain/tools/tools.js';
 import { isSkillUsableForBinding } from '../../domain/skills/skills.js';
+import { isGantryFacadeExactToolName } from '../../shared/agent-tool-references.js';
+import { isDurableGantryMcpToolFullName } from '../../shared/admin-mcp-tools.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
-import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
+import {
+  semanticCapabilityFromToolCatalogItem,
+  type SemanticCapabilityDefinition,
+} from '../../shared/semantic-capabilities.js';
 import { humanizeTechnicalIdentifier } from '../../shared/user-visible-messages.js';
 
 // Tool-source-agnostic by design: built-in connectors (for example Google or
 // Microsoft) project as reviewed_capability entries instead of adding a
 // provider-specific catalog kind.
-export type CatalogEntryKind = 'reviewed_capability' | 'skill' | 'mcp_source';
+export type CatalogEntryKind =
+  | 'reviewed_capability'
+  | 'requestable_tool'
+  | 'skill'
+  | 'mcp_source';
 
 export interface CatalogEntry {
   kind: CatalogEntryKind;
@@ -23,6 +33,7 @@ export interface CatalogEntry {
 export interface AgentPromptCapabilityCatalog {
   schemaVersion: 1;
   readyActions: CatalogEntry[];
+  requestableActions?: CatalogEntry[];
   installedSkills: CatalogEntry[];
   connectedMcpSources: CatalogEntry[];
   digest: string;
@@ -37,10 +48,14 @@ export function resolveAgentPromptCapabilityCatalog(input: {
   appId: string;
   agentId: string;
   readySemanticCapabilities?: readonly SemanticCapabilityDefinition[];
+  requestableSemanticCapabilities?: readonly SemanticCapabilityDefinition[];
+  requestableTools?: readonly ToolCatalogItem[];
+  readyToolRules?: readonly string[];
   installedSkills?: readonly SkillCatalogItem[];
   connectedMcpSources?: readonly McpServerDefinition[];
 }): AgentPromptCapabilityCatalog {
   const readyActions = resolveReadyActions(input.readySemanticCapabilities);
+  const requestableActions = resolveRequestableActions(input);
   const installedSkills = projectInstalledSkills(
     input.appId,
     input.agentId,
@@ -53,10 +68,68 @@ export function resolveAgentPromptCapabilityCatalog(input: {
   const projection = {
     schemaVersion: 1 as const,
     readyActions: sortEntries(readyActions),
+    requestableActions: sortEntries(requestableActions),
     installedSkills: sortEntries(installedSkills),
     connectedMcpSources: sortEntries(connectedMcpSources),
   };
   return { ...projection, digest: stableSha256Json(projection) };
+}
+
+function resolveRequestableActions(input: {
+  readySemanticCapabilities?: readonly SemanticCapabilityDefinition[];
+  requestableSemanticCapabilities?: readonly SemanticCapabilityDefinition[];
+  requestableTools?: readonly ToolCatalogItem[];
+  readyToolRules?: readonly string[];
+}): CatalogEntry[] {
+  const readyCapabilityIds = new Set(
+    (input.readySemanticCapabilities ?? []).map(
+      (capability) => capability.capabilityId,
+    ),
+  );
+  const capabilities = resolveReadyActions(
+    (input.requestableSemanticCapabilities ?? []).filter(
+      (capability) => !readyCapabilityIds.has(capability.capabilityId),
+    ),
+  );
+  const readyToolRules = new Set(input.readyToolRules ?? []);
+  const directTools = (input.requestableTools ?? []).flatMap(
+    (tool): CatalogEntry[] => {
+      if (!tool.selectable || hasSemanticCapability(tool)) return [];
+      const identity = requestableToolIdentity(tool.name);
+      if (!identity || readyToolRules.has(identity)) return [];
+      return [
+        {
+          kind: 'requestable_tool',
+          stableRef: identity,
+          revision: String(tool.updatedAt),
+          displayName: normalizedText(
+            tool.displayName,
+            humanizeTechnicalIdentifier(identity),
+            DISPLAY_NAME_LIMIT,
+          ),
+          description: normalizedText(
+            tool.description,
+            'Reviewed Gantry action available after approval.',
+            DESCRIPTION_LIMIT,
+          ),
+          category: normalizedText(tool.category, 'actions', CATEGORY_LIMIT),
+        },
+      ];
+    },
+  );
+  return dedupeEntries([...capabilities, ...directTools]);
+}
+
+function hasSemanticCapability(tool: ToolCatalogItem): boolean {
+  return Boolean(semanticCapabilityFromToolCatalogItem(tool));
+}
+
+function requestableToolIdentity(name: string): string | undefined {
+  const value = name.trim();
+  return isGantryFacadeExactToolName(value) ||
+    isDurableGantryMcpToolFullName(value)
+    ? value
+    : undefined;
 }
 
 function resolveReadyActions(

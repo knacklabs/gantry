@@ -1,6 +1,7 @@
 import type {
   JobNotificationView,
   MessageActionAffordance,
+  MessageSendOptions,
 } from '../../domain/types.js';
 import {
   morePendingReviewsLabel,
@@ -8,6 +9,8 @@ import {
   type ReviewMessageView,
 } from '../../domain/review-message-view.js';
 import { formatDuration } from '../../shared/human-format.js';
+import { slackBrainReviewBlocks } from './brain-review-affordances.js';
+import { slackObserverDigestBlocks } from './observer-digest-affordances.js';
 
 const SLACK_ACTION_VALUE_MAX_BYTES = 2000;
 const SLACK_SECTION_TEXT_MAX_LENGTH = 3000;
@@ -15,6 +18,46 @@ const SCHEDULER_ACTION_KINDS = new Set<MessageActionAffordance['kind']>([
   'scheduler_run_now',
   'scheduler_pause_job',
 ]);
+
+export function slackActionBlocks(text: string, options: MessageSendOptions) {
+  if (options.observerDigestView) {
+    return slackObserverDigestBlocks(options.observerDigestView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
+  if (options.reviewMessageView) {
+    return slackReviewMessageBlocks(options.reviewMessageView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
+  if (options.jobNotificationView) {
+    return slackJobNotificationBlocks(
+      options.jobNotificationView,
+      options.actionAffordances,
+      {
+        ...(options.providerAccountId
+          ? { providerAccountId: options.providerAccountId }
+          : {}),
+      },
+    );
+  }
+  if (options.brainReviewView) {
+    return slackBrainReviewBlocks(options.brainReviewView, {
+      ...(options.providerAccountId
+        ? { providerAccountId: options.providerAccountId }
+        : {}),
+    });
+  }
+  return options.actionAffordances
+    ? slackMessageActionBlocks(text, options.actionAffordances, {
+        providerAccountId: options.providerAccountId,
+      })
+    : undefined;
+}
 
 function truncateSlackButtonLabel(label: string): string {
   const trimmed = label.trim();
@@ -42,11 +85,29 @@ function slackActionValue(
       ? value
       : undefined;
   }
+  if (action.kind === 'job_permission_decision') {
+    const value = JSON.stringify({
+      kind: action.kind,
+      actionToken: action.actionToken,
+      ...(providerAccountId ? { providerAccountId } : {}),
+    });
+    return Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
+      ? value
+      : undefined;
+  }
   const value = SCHEDULER_ACTION_KINDS.has(action.kind)
     ? JSON.stringify({
         kind: action.kind,
-        jobId: action.jobId,
-        runId: action.runId ?? null,
+        jobId:
+          action.kind === 'scheduler_run_now' ||
+          action.kind === 'scheduler_pause_job'
+            ? action.jobId
+            : '',
+        runId:
+          action.kind === 'scheduler_run_now' ||
+          action.kind === 'scheduler_pause_job'
+            ? (action.runId ?? null)
+            : null,
         ...(providerAccountId ? { providerAccountId } : {}),
       })
     : undefined;

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T13:11:39+00:00", "story": "JOBPERM-1", "detail": "S-0006-306e: v9 doc NOW verified tracked at plans/review-briefs/scheduled-job-permission-parity-design.md (previous commit had silently failed). Read it for Core model + A2/A4/A5/A6/A7."}

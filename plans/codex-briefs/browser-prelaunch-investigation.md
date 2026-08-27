@@ -1,0 +1,17 @@
+READ-ONLY investigation of this repo. Do NOT modify any file, do not run commands that write to the database, restart services, or edit files.
+
+Deliverable: a SHORT report — findings with file:line evidence first, then a minimal fix plan (files + one line each), ranked by diff size and by how many concepts a maintainer must hold in their head.
+
+OWNER CONSTRAINT: the fix must be SIMPLE. Prefer deleting or collapsing code over adding a layer. If launching Chrome lazily (on the first browser tool call) is the right fix, propose the version with the fewest moving parts — one seam, one predicate. If the current prelaunch/cleanup/lease code is what makes a simple fix hard, name the refactor that removes that complexity rather than working around it.
+
+SYMPTOMS (scheduled job job-knacklabs-lead-maintenance-43527c192a6e, Telegram completion notices on 2026-08-26): rows like "Browser: failed before reaching the browser service" (a wrapper-side failure before the IPC/gateway call) and "Browser: Act x5" failures. The owner also observed Chrome being launched eagerly at run start together with DB connection setup, consuming a lot of time, and proposes launching Chrome lazily on the first browser call. A later run today (21cfd366, 13:03Z) had no browser failures, so the failure is intermittent.
+
+QUESTIONS
+1. Where exactly does "failed before reaching the browser service" originate and what causes it in a scheduled run? Trace apps/core/src/runner/mcp/tools/browser.ts, apps/core/src/runner/mcp/ipc.ts, apps/core/src/runtime/ipc-browser-handler.ts, apps/core/src/runtime/ipc-browser-requests.ts, apps/core/src/jobs/execution-browser-prelaunch.ts, apps/core/src/jobs/execution-browser-cleanup.ts, and the tool-activity emission (authoritative flag, family browser). Is it a pre-dispatch timeout or a lease/profile-lock race with the eager prelaunch?
+2. Why do Act calls fail several times in a row — site/selectors, session, profile lock, or wrapper timeout? Evidence: ~/gantry/logs/gantry.log (grep the job id and today's run ids) and the gantry Postgres via docker exec gantry-postgres psql -U postgres -d gantry (READ-ONLY selects; runtime_events.payload_json is TEXT, cast it to jsonb; inspect tool.activity events for family browser with ok=false — error text, seq, timestamps).
+3. Measure from logs how long the eager Chrome prelaunch and DB connection setup take at run start and whether they delay the first agent turn.
+4. Is lazy launch feasible with the existing lease/cleanup design? What breaks (profile lock, cleanup on run end, prelaunch warm cache) and what is the smallest change that makes the first browser call launch Chrome with everything else unchanged?
+
+CONTEXT BUDGET (a previous attempt died from context overflow): never print more than 40 lines of gantry.log at once; use rg with -m and cut -c1-300; prefer SQL aggregates (counts, min/max timestamps, distinct error text) over row dumps. Read source files in targeted ranges.
+
+INTERIM FINDING FROM THE PREVIOUS ATTEMPT (verify, do not re-derive from scratch): the visible "failed before reaching the browser service" row is produced only when a NON-authoritative wrapper failure has no matching authoritative browser failure; the host also has a distinct deadline error emitted before it calls the browser backend. Establish which of the two occurred in the affected runs (2026-08-26 runs before 13:00Z, e.g. runId 7f3ec256-f8b7-455a-a00d-3e00000fa8f9) from the actual events, not from the Telegram wording.

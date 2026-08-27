@@ -30,28 +30,18 @@ import {
   registerTelegramBotCommands,
 } from './bot-setup.js';
 import { registerTelegramMediaHandlers } from './media-ingestion.js';
-import { clearProgressActions } from './progress-message-actions.js';
+import { clearRestoredTelegramProgressActions } from './extracted-helpers.js';
 import { handleTelegramTextMessage } from './text-message-handler.js';
 import { handleTelegramGroupMembershipUpdate } from './group-join-onboarding.js';
 
 export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
   private async clearRestoredProgressActions(): Promise<void> {
     this.loadPersistedProgressMessages();
-    for (const [key, state] of this.activeProgressMessages.entries()) {
-      if (!state.restored || !state.messageId) continue;
-      await clearProgressActions({
-        api: this.bot!.api,
-        chatId: state.chatId,
-        messageId: state.messageId,
-        text: state.lastText,
-        editReplyMarkup: { reply_markup: { inline_keyboard: [] } },
-      }).catch((err) =>
-        logger.debug(
-          { key, err: this.sanitizeErrorMessage(err) },
-          'Failed to clear restored Telegram progress actions',
-        ),
-      );
-    }
+    await clearRestoredTelegramProgressActions({
+      activeProgressMessages: this.activeProgressMessages,
+      api: this.bot!.api,
+      sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+    });
   }
 
   async connect(
@@ -264,6 +254,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         const callbackMessage = ctx.callbackQuery?.message as
           | {
               chat?: { id?: number | string };
+              message_id?: number;
               message_thread_id?: number;
             }
           | undefined;
@@ -286,6 +277,39 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           actionToken: data.slice('lt:stop:'.length),
         });
         await ctx.answerCallbackQuery({ text: 'Stopping current run.' });
+        return;
+      }
+
+      if (data.startsWith('jp:')) {
+        const callbackMessage = ctx.callbackQuery?.message as
+          | {
+              chat?: { id?: number | string };
+              message_id?: number;
+              message_thread_id?: number;
+            }
+          | undefined;
+        const chatId =
+          callbackMessage?.chat?.id?.toString() ||
+          ctx.chat?.id?.toString() ||
+          '';
+        if (!chatId) return;
+        await this.opts.onMessageAction?.({
+          kind: 'job_permission_decision',
+          conversationJid: `tg:${chatId}`,
+          ...(this.opts.providerAccountId
+            ? { providerAccountId: this.opts.providerAccountId }
+            : {}),
+          threadId:
+            typeof callbackMessage?.message_thread_id === 'number'
+              ? String(callbackMessage.message_thread_id)
+              : undefined,
+          userId: ctx.from?.id?.toString(),
+          ...(typeof callbackMessage?.message_id === 'number'
+            ? { messageId: String(callbackMessage.message_id) }
+            : {}),
+          actionToken: data,
+        });
+        await ctx.answerCallbackQuery({ text: 'Decision received.' });
         return;
       }
 

@@ -1,0 +1,16 @@
+{
+  "event": "abandoned",
+  "id": "Q-0067-3d3a",
+  "profile": "lite",
+  "reason": "Discord trims committed; final two core extractions next.",
+  "opened_reason": "Trim discord.ts (751/740) and discord-interactions.ts (717/700) via a shared discord-extracted-helpers module.",
+  "started_at": "2026-08-24T10:28:36+00:00",
+  "completed_at": "2026-08-24T10:36:03+00:00",
+  "files": [
+    "apps/core/src/channels/discord-extracted-helpers.ts",
+    "apps/core/src/channels/discord-interactions.ts",
+    "apps/core/src/channels/discord.ts"
+  ],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "bdd5c0b41b9dc339f8a95e40f688b0e543252906"
+}

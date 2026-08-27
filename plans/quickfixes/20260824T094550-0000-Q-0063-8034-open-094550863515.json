@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0063-8034",
+  "profile": "lite",
+  "reason": "Post-stage structural-gate fixes for JOBPERM-1 (verify.py): two file-size budget extractions (execution.ts 875>870, runner mcp service.ts 938>850) plus the runtime-services layer-import exception bump for the jobperm wiring.",
+  "started_at": "2026-08-24T09:45:50+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "7da83b1a2518984673889dcdef06c8a90b7140d5"
+}
