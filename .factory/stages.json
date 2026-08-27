@@ -95,7 +95,20 @@
     {
       "id": "CHAN-1-T2",
       "title": "Teams adapter moves to channels/teams/",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-08-27T10:26:21+00:00",
+      "base_sha": "b09f0a8ba5ba1a01c9635963aabf99a2a6d6e54a",
+      "dirty_at_start": {
+        ".factory/stories/CHAN-1/grills/tasks/CHAN-1-T2.json": {
+          "digest": "027817707e2b44512e983570301b00aa9a57d91320229a4967406e70d992d769",
+          "git": "1 .M N... 100644 100644 100644 0fd7c07b087ff199f1d511bf6d242e7a92e27e30 0fd7c07b087ff199f1d511bf6d242e7a92e27e30 .factory/stories/CHAN-1/grills/tasks/CHAN-1-T2.json\u0000\u0000100644 0fd7c07b087ff199f1d511bf6d242e7a92e27e30 0\t.factory/stories/CHAN-1/grills/tasks/CHAN-1-T2.json\u0000\u0000H .factory/stories/CHAN-1/grills/tasks/CHAN-1-T2.json\u0000"
+        },
+        ".factory/stories/CHAN-1/task-plans/CHAN-1-T2.md": {
+          "digest": "527c3174133ccc1a04039b4a896c85e3ff8e31e2587e9bacdc983fa8ded44d59",
+          "git": "? .factory/stories/CHAN-1/task-plans/CHAN-1-T2.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "54c235be1eb797140738285f6e82f312cfab7e16fbecfbc657bd1996ad0aa41a"
     }
   ]
 }
