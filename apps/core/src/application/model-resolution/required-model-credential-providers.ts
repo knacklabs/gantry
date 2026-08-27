@@ -47,6 +47,11 @@ export type RequiredModelCredentialProvidersSettings = {
   };
 };
 
+export type RequiredModelCredentialProviderUsage = {
+  providerId: string;
+  reason: string;
+};
+
 /**
  * Compute the set of model provider IDs that the configured chat/job/memory
  * model defaults require active credentials for. Pure function shared by the
@@ -56,47 +61,83 @@ export function requiredModelCredentialProviders(
   settings: RequiredModelCredentialProvidersSettings,
   options: { configuredProviderIds?: ReadonlySet<string> } = {},
 ): string[] {
-  const slots: Array<{ alias: string; workload: ModelWorkload }> = [];
-  const providers = new Set<string>();
+  return [
+    ...new Set(
+      requiredModelCredentialProviderUsage(settings, options).map(
+        (usage) => usage.providerId,
+      ),
+    ),
+  ].sort();
+}
+
+/** Human-readable reasons for the effective runtime providers required by settings. */
+export function requiredModelCredentialProviderUsage(
+  settings: RequiredModelCredentialProvidersSettings,
+  options: { configuredProviderIds?: ReadonlySet<string> } = {},
+): RequiredModelCredentialProviderUsage[] {
+  const slots: Array<{
+    alias: string;
+    workload: ModelWorkload;
+    reason: string;
+  }> = [];
+  const usage: RequiredModelCredentialProviderUsage[] = [];
   const chatAlias = settings.agent.defaultModel || DEFAULT_SETUP_MODEL_ALIAS;
   slots.push(
-    { alias: chatAlias, workload: 'chat' },
+    { alias: chatAlias, workload: 'chat', reason: 'Default chat model' },
     {
       alias: settings.agent.oneTimeJobDefaultModel || chatAlias,
       workload: 'one_time_job',
+      reason: 'One-time jobs',
     },
     {
       alias: settings.agent.recurringJobDefaultModel || chatAlias,
       workload: 'recurring_job',
+      reason: 'Recurring jobs',
     },
   );
   for (const agent of Object.values(settings.agents ?? {})) {
     if (!agent) continue;
-    if (agent.model) slots.push({ alias: agent.model, workload: 'chat' });
+    if (agent.model)
+      slots.push({
+        alias: agent.model,
+        workload: 'chat',
+        reason: 'Agent model override',
+      });
     if (agent.oneTimeJobDefaultModel) {
       slots.push({
         alias: agent.oneTimeJobDefaultModel,
         workload: 'one_time_job',
+        reason: 'Agent one-time job override',
       });
     }
     if (agent.recurringJobDefaultModel) {
       slots.push({
         alias: agent.recurringJobDefaultModel,
         workload: 'recurring_job',
+        reason: 'Agent recurring job override',
       });
     }
   }
   for (const binding of Object.values(settings.bindings ?? {})) {
-    if (binding?.model) slots.push({ alias: binding.model, workload: 'chat' });
+    if (binding?.model)
+      slots.push({
+        alias: binding.model,
+        workload: 'chat',
+        reason: 'Conversation binding override',
+      });
   }
   if (settings.memory.enabled && settings.memory.llm) {
     const memoryModels = settings.memory.llm.models;
-    for (const [alias, workload] of [
-      [memoryModels.extractor, 'memory_extractor'],
-      [memoryModels.dreaming, 'memory_dreaming'],
-      [memoryModels.consolidation, 'memory_consolidation'],
+    for (const [alias, workload, reason] of [
+      [memoryModels.extractor, 'memory_extractor', 'Memory extraction'],
+      [memoryModels.dreaming, 'memory_dreaming', 'Memory dreaming'],
+      [
+        memoryModels.consolidation,
+        'memory_consolidation',
+        'Memory consolidation',
+      ],
     ] as const) {
-      slots.push({ alias, workload });
+      slots.push({ alias, workload, reason });
     }
     const embeddingProviders = [
       settings.memory.embeddings?.enabled
@@ -106,8 +147,14 @@ export function requiredModelCredentialProviders(
         ? settings.memory.dreaming.embeddings.provider
         : 'disabled',
     ];
-    for (const providerId of embeddingProviders) {
-      if (providerId !== 'disabled') providers.add(providerId);
+    for (const [providerId, reason] of embeddingProviders.map(
+      (providerId, index) =>
+        [
+          providerId,
+          index === 0 ? 'Memory embeddings' : 'Memory dreaming embeddings',
+        ] as const,
+    )) {
+      if (providerId !== 'disabled') usage.push({ providerId, reason });
     }
   }
   for (const slot of slots) {
@@ -123,7 +170,16 @@ export function requiredModelCredentialProviders(
         })?.alias ?? slot.alias)
       : slot.alias;
     const resolved = resolveModelSelectionForWorkload(alias, slot.workload);
-    if (resolved.ok) providers.add(resolved.entry.modelRoute.id);
+    if (resolved.ok) {
+      usage.push({
+        providerId: resolved.entry.modelRoute.id,
+        reason: slot.reason,
+      });
+    }
   }
-  return [...providers].sort();
+  return usage.sort((left, right) =>
+    `${left.providerId}:${left.reason}`.localeCompare(
+      `${right.providerId}:${right.reason}`,
+    ),
+  );
 }

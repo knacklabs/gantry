@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "The Gantry web console now uses one exact Helvetica Neue and four-square logo lockup across authentication and sidebar identity surfaces, with matching browser icons for tabs and touch devices.",
+  "issue": "WEB-BRAND-1",
+  "commit": "931a8930632c4faa8796b39606a1069bebfb11dd",
+  "recorded_at": "2026-08-25T19:07:23+00:00"
+}

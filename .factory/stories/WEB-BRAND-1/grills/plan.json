@@ -1,0 +1,44 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "The user superseded the earlier split uppercase lockup with one title-case Helvetica Neue SVG lockup at a fixed 102 by 24 ratio.",
+    "The standalone four-square SVG remains only for browser icons; auth and sidebar both consume the combined lockup asset."
+  ],
+  "inspected_refs": [
+    "plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md",
+    "apps/web/public/brand/gantry-logo.svg",
+    "apps/web/src/ui/compositions/gantry-logo.tsx",
+    "apps/web/src/app/app-navigation.tsx",
+    "apps/web/src/features/auth/auth-card.tsx"
+  ],
+  "current_flow": "Auth and sidebar both render GantryLogo, which resolves the same base-aware public SVG through a currentColor CSS mask.",
+  "criteria_map": {
+    "Single consistent lockup": "Both consumers use the same GantryLogo component and h-6 w-[102px] dimensions.",
+    "Browser icons": "The standalone four-square SVG remains the source for the favicon and 180px touch icon.",
+    "No behavior change": "The change remains static browser identity rendering with no API, schema, configuration, or runtime change."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "GantryLogo is the single existing-use composition that owns the combined visual lockup."
+  ],
+  "rounds": [],
+  "citations": [
+    {
+      "finding": "The previous independent icon and wordmark rendering allowed visual-ratio drift.",
+      "source": "apps/web/src/app/app-navigation.tsx"
+    },
+    {
+      "finding": "The final lockup is a single public SVG asset shared by every visual consumer.",
+      "source": "apps/web/public/brand/gantry-logo.svg"
+    }
+  ],
+  "open_items": [],
+  "input_sha256": "2257cca6afa1a087b4a03cb255377da4e3a5948ff1503ae68436157a8caf6d84",
+  "issue": "WEB-BRAND-1",
+  "recorded_at": "2026-08-25T19:41:59+00:00",
+  "commit": "40196317b57e8d1838438fa412258eab533d52f4"
+}

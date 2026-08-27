@@ -1,218 +1,110 @@
 import { useQuery } from '@tanstack/react-query';
+import { rootRoute } from '../../../app/root-route';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import type { ColumnDef } from '@tanstack/react-table';
-import { KeyRound, PlugZap, RefreshCw } from 'lucide-react';
-import { type FormEvent, useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
-import { useConnectionGate } from '../../../ui/compositions/connection-gate';
-import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { SelectField } from '../../../ui/compositions/select-field';
-import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { TextField } from '../../../ui/compositions/text-field';
-import { Button } from '../../../ui/primitives/button';
-import type { ProviderPreview } from '../operations-preview';
-import { providerPreviewQuery } from '../operations-queries';
+import { ProviderDialog, ProviderRow } from './provider-dialogs';
+import { type ModelProvider, modelProviderQuery } from '../operations-queries';
 
 export function ProvidersRoute() {
   const search = useSearch({ from: '/providers' });
+  const { session } = rootRoute.useRouteContext();
+  const canManage = session?.principal.role === 'administrator';
   const navigate = useNavigate({ from: '/providers' });
-  const { data } = useQuery(providerPreviewQuery);
-  const { requestConnection } = useConnectionGate();
-  const visible = data.filter((provider) => {
-    const query = search.q.toLowerCase();
-    return (
-      (search.status === 'all' || provider.status === search.status) &&
-      (!query ||
-        `${provider.name} ${provider.kind} ${provider.account}`
-          .toLowerCase()
-          .includes(query))
-    );
-  });
-  const selected =
-    data.find((provider) => provider.id === search.selected) ?? data[0];
-
-  function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    void navigate({
-      search: { ...search, q: String(form.get('q') ?? ''), page: 1 },
-    });
-  }
-
-  const columns = useMemo<ColumnDef<ProviderPreview>[]>(
-    () => [
-      {
-        accessorKey: 'name',
-        header: 'Provider',
-        cell: ({ row }) => (
-          <button
-            className="grid min-h-9 content-center text-left"
-            type="button"
-            onClick={() =>
-              void navigate({
-                search: { ...search, selected: row.original.id },
-              })
-            }
-          >
-            <span className="font-semibold text-text">{row.original.name}</span>
-            <span className="text-xs text-text-muted">
-              {row.original.account}
-            </span>
-          </button>
-        ),
-      },
-      { accessorKey: 'kind', header: 'Type' },
-      {
-        accessorKey: 'conversations',
-        header: 'Conversations',
-        cell: ({ getValue }) => (
-          <span className="font-mono text-xs">{String(getValue())}</span>
-        ),
-      },
-      {
-        accessorKey: 'status',
-        header: 'Status',
-        cell: ({ getValue }) => <StatusBadge status={String(getValue())} />,
-      },
-      {
-        accessorKey: 'discoveredAt',
-        header: 'Last discovery',
-        enableSorting: false,
-      },
-    ],
-    [navigate, search],
+  const query = useQuery(modelProviderQuery);
+  const [editing, setEditing] = useState<ModelProvider | null>(null);
+  const providers = query.data ?? [];
+  const visible = useMemo(
+    () =>
+      providers.filter((provider) => {
+        const status =
+          provider.health === 'missing' ? 'attention' : provider.health;
+        return (
+          (search.status === 'all' || search.status === status) &&
+          (!search.q ||
+            `${provider.label} ${provider.providerId} ${provider.supportedWorkloads.join(' ')}`
+              .toLowerCase()
+              .includes(search.q.toLowerCase()))
+        );
+      }),
+    [providers, search.q, search.status],
   );
 
   return (
-    <div className="mx-auto grid w-full max-w-[1240px] gap-6">
+    <div className="mx-auto grid w-full max-w-[1120px] gap-6">
       <PageHeader
-        eyebrow="Operations"
-        title="Providers"
-        description="Installed channel and model-provider accounts with readiness evidence."
-        action={
-          <Button onClick={() => requestConnection('Add provider')}>
-            <PlugZap size={16} aria-hidden="true" />
-            Add provider
-          </Button>
-        }
+        eyebrow="Configure"
+        title="Model providers"
+        description="Credentials and readiness for the models Gantry can use."
       />
 
-      <form
-        className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_190px_auto]"
-        onSubmit={submitSearch}
-      >
-        <TextField
-          defaultValue={search.q}
-          id="provider-search"
-          label="Search providers"
-          name="q"
-          placeholder="Name, type, or account"
-        />
+      <div className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_190px]">
+        <div>
+          <TextField
+            id="provider-search"
+            label="Search providers"
+            name="q"
+            onChange={(event) =>
+              void navigate({
+                replace: true,
+                search: { ...search, page: 1, q: event.target.value },
+              })
+            }
+            placeholder="Provider or workload"
+            value={search.q}
+          />
+        </div>
         <SelectField
           label="Status"
           value={search.status}
           options={[
             { label: 'All statuses', value: 'all' },
-            { label: 'Ready', value: 'ready' },
-            { label: 'Needs attention', value: 'attention' },
-            { label: 'Offline', value: 'offline' },
+            { label: 'Configured', value: 'ready' },
+            { label: 'Not configured', value: 'attention' },
+            { label: 'Disabled', value: 'disabled' },
           ]}
           onValueChange={(status) =>
             void navigate({ search: { ...search, status, page: 1 } })
           }
         />
-        <Button variant="secondary" type="submit">
-          Search
-        </Button>
-      </form>
-
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <Panel
-          title="Provider accounts"
-          description="Select an account to inspect its preview readiness."
-        >
-          <DataTable
-            columns={columns}
-            data={visible}
-            emptyMessage="No providers match these filters."
-            page={search.page}
-            sort={search.sort}
-            descending={search.desc}
-            onPageChange={(page) =>
-              void navigate({ search: { ...search, page } })
-            }
-            onSortChange={(sort, desc) =>
-              void navigate({
-                search: {
-                  ...search,
-                  sort: sort as typeof search.sort,
-                  desc,
-                  page: 1,
-                },
-              })
-            }
-          />
-        </Panel>
-
-        <Panel
-          title={selected.name}
-          description={selected.kind}
-          action={<StatusBadge status={selected.status} />}
-        >
-          <div className="grid gap-5 p-4">
-            <p className="m-0 text-sm leading-6 text-text-secondary">
-              {selected.detail}
-            </p>
-            <dl className="m-0 grid gap-3 text-[13px]">
-              <Detail label="Account" value={selected.account} />
-              <Detail
-                label="Conversations"
-                value={String(selected.conversations)}
-              />
-              <Detail label="Last discovery" value={selected.discoveredAt} />
-              <Detail label="Provider ID" value={selected.id} mono />
-            </dl>
-            <div className="grid gap-2">
-              <Button
-                onClick={() => requestConnection(`Refresh ${selected.name}`)}
-              >
-                <RefreshCw size={16} aria-hidden="true" />
-                Refresh discovery
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => requestConnection(`Configure ${selected.name}`)}
-              >
-                <KeyRound size={16} aria-hidden="true" />
-                Review credentials
-              </Button>
-            </div>
-          </div>
-        </Panel>
       </div>
-    </div>
-  );
-}
 
-function Detail({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
-      <dt className="text-text-muted">{label}</dt>
-      <dd
-        className={`m-0 min-w-0 break-words text-text ${mono ? 'font-mono text-xs' : ''}`}
-      >
-        {value}
-      </dd>
+      <Panel>
+        {query.isLoading ? (
+          <p className="p-4 text-sm text-text-muted">Loading providers…</p>
+        ) : null}
+        {query.isError ? (
+          <p className="p-4 text-sm text-danger">
+            Model providers could not be loaded.
+          </p>
+        ) : null}
+        {!query.isLoading && !query.isError ? (
+          <ul className="m-0 grid list-none divide-y divide-border p-0">
+            {visible.map((provider) => (
+              <ProviderRow
+                key={provider.providerId}
+                provider={provider}
+                canManage={canManage}
+                onManage={() => setEditing(provider)}
+              />
+            ))}
+            {visible.length === 0 ? (
+              <li className="p-4 text-sm text-text-muted">
+                No model providers match these filters.
+              </li>
+            ) : null}
+          </ul>
+        ) : null}
+      </Panel>
+
+      <ProviderDialog
+        provider={editing}
+        onOpenChange={(open) => !open && setEditing(null)}
+      />
     </div>
   );
 }

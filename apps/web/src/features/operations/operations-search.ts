@@ -5,7 +5,7 @@ const descending = z.coerce.boolean().catch(false);
 
 export const providerSearchSchema = z.object({
   q: z.string().catch(''),
-  status: z.enum(['all', 'ready', 'attention', 'offline']).catch('all'),
+  status: z.enum(['all', 'ready', 'attention', 'disabled']).catch('all'),
   selected: z.string().optional().catch(undefined),
   page,
   sort: z.enum(['name', 'kind', 'status']).catch('name'),

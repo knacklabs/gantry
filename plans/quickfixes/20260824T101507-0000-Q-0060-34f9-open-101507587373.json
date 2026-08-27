@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0060-34f9",
+  "profile": "quickfix",
+  "reason": "Allow permanent removal of model provider credentials",
+  "started_at": "2026-08-24T10:15:07+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
