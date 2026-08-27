@@ -31,6 +31,7 @@ import {
   splitDiscordText,
 } from './discord-delivery.js';
 import {
+  createDiscordProgressCallbacks,
   DiscordProgressIdentityLifecycle,
   sendDiscordProgressUpdateForRoute,
 } from './discord-progress.js';
@@ -71,24 +72,9 @@ import { createDiscordHistoricalAttachmentFetcher } from './discord-historical-a
 import { StreamResetEpochs } from './stream-reset-epochs.js';
 import { resolveInboundConversationIdentity } from './inbound-conversation-identity.js';
 import { routeDiscordGatewayDispatch } from './discord-gateway-dispatch.js';
+import * as discordExtractedHelpers from './discord-extracted-helpers.js';
 
-export const DISCORD_JID_PREFIX = 'dc:';
-
-const DISCORD_API_ROOT = 'https://discord.com/api/v10';
-const DISCORD_GATEWAY_INTENTS = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
-export function normalizeDiscordJid(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  return trimmed.startsWith(DISCORD_JID_PREFIX)
-    ? trimmed
-    : `${DISCORD_JID_PREFIX}${trimmed}`;
-}
-
-export function discordChannelIdFromJid(jid: string): string | null {
-  const normalized = normalizeDiscordJid(jid);
-  return normalized ? normalized.slice(DISCORD_JID_PREFIX.length) : null;
-}
-
+export * from './discord-extracted-helpers.js';
 export class DiscordChannel implements ChannelAdapter {
   readonly reportsHistoryCoverageInboundLiveness = true;
   name = 'discord';
@@ -158,7 +144,7 @@ export class DiscordChannel implements ChannelAdapter {
   }
 
   ownsJid(jid: string): boolean {
-    return jid.trim().startsWith(DISCORD_JID_PREFIX);
+    return jid.trim().startsWith(discordExtractedHelpers.DISCORD_JID_PREFIX);
   }
 
   async connect(
@@ -166,8 +152,8 @@ export class DiscordChannel implements ChannelAdapter {
   ): Promise<void> {
     this.gateway = await connectDiscordGateway({
       botToken: this.botToken,
-      apiRoot: DISCORD_API_ROOT,
-      intents: DISCORD_GATEWAY_INTENTS,
+      apiRoot: discordExtractedHelpers.DISCORD_API_ROOT,
+      intents: discordExtractedHelpers.DISCORD_GATEWAY_INTENTS,
       createWebSocket: this.createWebSocket,
       channelOpts: this.opts,
       options,
@@ -190,17 +176,45 @@ export class DiscordChannel implements ChannelAdapter {
     text: string,
     options: MessageSendOptions = {},
   ): Promise<MessageDeliveryResult> {
-    const channelId = options.threadId || discordChannelIdFromJid(jid);
+    const channelId =
+      options.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) throw new Error(`Invalid Discord conversation id: ${jid}`);
+    const parts = options.jobNotificationView ? [''] : splitDiscordText(text);
+    const components = discordActionComponents(options);
+    if (options.replaceMessageId) {
+      if (parts.length !== 1 || options.files?.length) {
+        throw new Error(
+          'Discord living-card replacement must fit one message without files.',
+        );
+      }
+      await this.messageMutations.edit(channelId, options.replaceMessageId, {
+        content: parts[0] ?? '',
+        allowed_mentions: { parse: [] },
+        components: components ?? [],
+        ...(options.jobNotificationView
+          ? {
+              embeds: [
+                discordJobNotificationEmbed(options.jobNotificationView),
+              ],
+            }
+          : { embeds: [] }),
+      });
+      return {
+        externalMessageId: options.replaceMessageId,
+        externalMessageIds: [options.replaceMessageId],
+        deliveredParts: 1,
+        totalParts: 1,
+      };
+    }
     return postDiscordMessageParts({
       channelId,
-      parts: options.jobNotificationView ? [''] : splitDiscordText(text),
-      components: discordActionComponents(options),
+      parts,
+      components,
       ...(options.jobNotificationView
         ? { embeds: [discordJobNotificationEmbed(options.jobNotificationView)] }
         : {}),
       files: options.files,
-      apiRoot: DISCORD_API_ROOT,
+      apiRoot: discordExtractedHelpers.DISCORD_API_ROOT,
       botToken: this.botToken,
       post: (target, body) => this.postMessage(target, body),
     });
@@ -258,7 +272,8 @@ export class DiscordChannel implements ChannelAdapter {
     text: string,
     options: ProgressUpdateOptions = {},
   ): Promise<boolean> {
-    const channelId = options.threadId || discordChannelIdFromJid(jid);
+    const channelId =
+      options.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) return false;
     const progressKey =
       options.progressCardIdentity ?? this.progressCardIdentity(jid, options);
@@ -269,19 +284,18 @@ export class DiscordChannel implements ChannelAdapter {
       identityLifecycle: this.progressIdentityLifecycle,
       text,
       options,
-      post: (body, components, signal) =>
-        postDiscordMessageParts({
-          channelId,
-          parts: splitDiscordText(body),
-          components,
-          post: (target, payload) => this.postMessage(target, payload, signal),
-        }),
-      edit: (messageId, body, signal) =>
-        this.messageMutations.edit(channelId, messageId, body, signal),
+      ...createDiscordProgressCallbacks({
+        channelId,
+        options,
+        post: (target, body, signal) => this.postMessage(target, body, signal),
+        edit: (messageId, body, signal) =>
+          this.messageMutations.edit(channelId, messageId, body, signal),
+      }),
       delete: (messageId, signal) =>
         this.messageMutations.delete(channelId, messageId, signal),
     });
   }
+
   progressCardIdentity(
     jid: string,
     options: ProgressUpdateOptions = {},
@@ -302,7 +316,8 @@ export class DiscordChannel implements ChannelAdapter {
     text: string,
     options: StreamingChunkOptions = {},
   ): Promise<boolean> {
-    const channelId = options.threadId || discordChannelIdFromJid(jid);
+    const channelId =
+      options.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) return false;
     if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
     const key = `${jid}\n${options.threadId ?? ''}`;
@@ -433,7 +448,8 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     render: AgentTodoRender,
   ): Promise<boolean> {
-    const channelId = render.threadId || discordChannelIdFromJid(jid);
+    const channelId =
+      render.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) return false;
     const todoKey = `${jid}:${render.cardKind ?? 'todo'}:${render.threadId || ''}`;
     const components =
@@ -524,7 +540,7 @@ export class DiscordChannel implements ChannelAdapter {
     parseJson = true,
   ): Promise<T> {
     return requestDiscordJson<T>({
-      url: `${DISCORD_API_ROOT}${path}`,
+      url: `${discordExtractedHelpers.DISCORD_API_ROOT}${path}`,
       init,
       errorMessage,
       parseJson,

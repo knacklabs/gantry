@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-23T18:02:58+00:00", "story": "JOBPERM-1", "detail": "The approved task plan says Commit your work, but the implementer contract says the orchestrator owns git commit and explicitly forbids the implementer from committing; I will follow the more specific"}

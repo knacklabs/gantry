@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0100-f914",
+  "profile": "lite",
+  "reason": "Q-0100: log the provider result of every job-permission card delivery (a card edit at 14:47Z left no log line; buttons could not be proven from logs)",
+  "started_at": "2026-08-26T16:27:51+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "5263ff9ce2aca631862dcf748f13d5b82bcc6011"
+}

@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-23T23:57:12+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T3 item 1 is implemented, but check_dual_runtime fails because accepted decision 0135 lacks substantive Context and Consequences; repairing that decision is outside this item-1-only run."}

@@ -5,6 +5,10 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import { z } from 'zod';
 
 import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../../../../shared/neutral-ca-trust-env.js';
+import {
+  type DurableAccessReformulationResult,
+  remoteContentExecutionReformulation,
+} from '../../../../shared/durable-access-policy.js';
 import { evaluateNeutralToolPreChecks } from '../../../../runner/tool-gate-core.js';
 import {
   requestPermissionApprovalViaIpc,
@@ -181,6 +185,11 @@ export function createGantryShellTool(
         preChecks,
         invocationId,
       );
+    }
+
+    if (config.gateContext.isScheduledJob) {
+      const reformulation = remoteContentExecutionReformulation(command);
+      if (reformulation) return reformulationResult(reformulation);
     }
 
     const approval = await requestPermissionApprovalViaIpc(
@@ -371,4 +380,18 @@ function truncate(value: string): string {
 
 function denyMessage(reason: string) {
   return gatedToolErrorResult(reason);
+}
+
+function reformulationResult(result: DurableAccessReformulationResult) {
+  return {
+    content: [{ type: 'text' as const, text: result.message }],
+    isError: true as const,
+    error: {
+      category: 'validation' as const,
+      isRetryable: false as const,
+      kind: result.kind,
+      code: result.code,
+      message: result.message,
+    },
+  };
 }

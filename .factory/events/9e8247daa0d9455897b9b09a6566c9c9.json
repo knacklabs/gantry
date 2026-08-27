@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-23T13:18:21+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T2 partial implementation stores a separate card-revision delivery state machine inside pending_interactions, but binding decision 0124 requires the outbound-delivery subsystem and rejects a"}

@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0075-1f42",
+  "profile": "lite",
+  "reason": "INCIDENT Q-0074 (Ravi directed 2026-08-25): job-permission living card re-raised an identical edit revision every reconciler tick (10,115 revisions / ~10k Telegram edits of ONE KnackLabs card overnight; prod reverted to main). ROOT CAUSE: reviseLivingCard in apps/core/src/application/interactions/job-permission-card-projection.ts guards no-op revisions with JSON.stringify(last.rows) === JSON.stringify(visible); last.rows comes back from Postgres JSONB with normalized key order, so it never matches. MANDATORY CODE CHANGE, exactly these files: (1) job-permission-card-projection.ts: use isDeepStrictEqual(last.rows, visible) from node:util; (2) NEW apps/core/test/unit/application/jsonb-round-trip.ts exporting jsonbRoundTrip<T>(v) = JSON.parse(JSON.stringify(v, replacer sorting object keys by length then bytewise)); (3) apps/core/test/unit/application/jobperm-durability.test.ts and (4) jobperm-edges.test.ts: fake repositories persist with jsonbRoundTrip(mutation.state) instead of structuredClone; (5) jobperm-durability.test.ts: add it('q-0074-no-op-revision-after-confirm'): attach, confirmLatest, reconcile twice, expect card.revisions.length === 1 and no pending revisionDeliveries. PROOF: with (2)-(5) only the suites must go RED; with (1) GREEN: npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/jobperm-durability.test.ts apps/core/test/unit/application/jobperm-edges.test.ts; then prettier + tsc --noEmit clean. No commit.",
+  "started_at": "2026-08-25T10:05:17+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "da42d4ffe4b907d7303ba505bb1eebecac2765f2"
+}

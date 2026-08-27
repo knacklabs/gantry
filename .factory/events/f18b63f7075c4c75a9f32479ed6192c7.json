@@ -1,0 +1,1 @@
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-08-23T17:40:27+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T3 binds v9 sections B/C/D plus physics limits and requires live KnackLabs scenarios 1-3, but the supplied whole-context brief omits those definitions; inline the exact contract and scenario"}

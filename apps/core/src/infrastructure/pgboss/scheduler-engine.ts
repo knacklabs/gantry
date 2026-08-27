@@ -520,7 +520,7 @@ export class PgBossSchedulerEngine {
           'pg-boss scheduler run crashed before completion',
         );
       } finally {
-        releaseSlot?.();
+        await releaseSlot?.();
       }
       this.requestSync();
     }

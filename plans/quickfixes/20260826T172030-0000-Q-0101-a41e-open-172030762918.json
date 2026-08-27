@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0101-a41e",
+  "profile": "lite",
+  "reason": "Q-0101: cron jobs promise a post-failure retry time that the scheduler never dispatches; owner chose no retry for cron jobs, next run = next cron slot",
+  "started_at": "2026-08-26T17:20:30+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "b0f5ce49eea66d5f23e611ef173a78d43751079c"
+}

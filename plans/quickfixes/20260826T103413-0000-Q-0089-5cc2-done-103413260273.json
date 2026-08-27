@@ -1,0 +1,159 @@
+{
+  "event": "done",
+  "id": "Q-0089-5cc2",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Slack leg of the provider-neutral terminal notice: when the lifecycle terminal edit carries the structured view, render it with slackJobNotificationBlocks on chat.update/postMessage instead of markdown text; text stays as the fallback field; API rejection falls back to text. Scope: slack progress helper, slack channel-delivery.ts, slack message-action-affordances.ts, slack test.",
+  "base_sha": "a9d092fd09e3756d01fe76003934213f2ba58218",
+  "started_at": "2026-08-26T09:00:31+00:00",
+  "completed_at": "2026-08-26T10:34:13+00:00",
+  "files": [
+    "apps/core/src/channels/slack/channel-delivery-helpers.ts",
+    "apps/core/src/channels/slack/message-action-affordances.ts",
+    "apps/core/src/channels/slack/progress-terminal-render.ts",
+    "apps/core/test/unit/channels/slack.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/slack/channel-delivery-helpers.ts",
+        "apps/core/src/channels/slack/message-action-affordances.ts",
+        "apps/core/src/channels/slack/progress-terminal-render.ts",
+        "apps/core/test/unit/channels/slack.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [],
+      "summary": "Slack terminal notice is the native block card in the same single message. Lite window Q-0089 (base a9d092fd0 -> HEAD): Slack renders the terminal progress edit with slackJobNotificationBlocks when the structured view is present (same ts when a handle exists, post-once otherwise); fallback only on block-validation errors and it keeps the action-only blocks; terminal dedupe keyed on canonical block JSON, non-terminal dedupe unchanged. Proof: slack suite 196 green, channels suite green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 3 findings accepted+fixed, 1 rejected (TypeScript build claim \u2014 tsc clean at HEAD), final clean. Note: the companion job for the first pass hung after finishing its edits (log silent 51 min at 'Running focused TypeScript tests'); the tree it produced was verified independently.",
+      "non_blocking_findings": [
+        {
+          "category": "notification-content",
+          "area": "channels/slack",
+          "summary": "FIXED: markdown terminal update replaced by native blocks with safe fallback"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0089 is Slack terminal rendering only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "bf0e46e38637aee4f92f39f03b9146fbf6cc9b267d7a18083d8064aea9450160",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "38c54a98170b88f8aee25db7169a2679d5085e2f34c8eb2f7cb9277281b3172b",
+      "recorded_at": "2026-08-26T10:34:12+00:00",
+      "commit": "40d26aee3ff7a2af3381fd09ca963cb24b091335"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/slack/channel-delivery-helpers.ts",
+        "apps/core/src/channels/slack/message-action-affordances.ts",
+        "apps/core/src/channels/slack/progress-terminal-render.ts",
+        "apps/core/test/unit/channels/slack.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [],
+      "summary": "One render per terminal update; no extra API calls on the success path. Lite window Q-0089 (base a9d092fd0 -> HEAD): Slack renders the terminal progress edit with slackJobNotificationBlocks when the structured view is present (same ts when a handle exists, post-once otherwise); fallback only on block-validation errors and it keeps the action-only blocks; terminal dedupe keyed on canonical block JSON, non-terminal dedupe unchanged. Proof: slack suite 196 green, channels suite green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 3 findings accepted+fixed, 1 rejected (TypeScript build claim \u2014 tsc clean at HEAD), final clean. Note: the companion job for the first pass hung after finishing its edits (log silent 51 min at 'Running focused TypeScript tests'); the tree it produced was verified independently.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "bf0e46e38637aee4f92f39f03b9146fbf6cc9b267d7a18083d8064aea9450160",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "38c54a98170b88f8aee25db7169a2679d5085e2f34c8eb2f7cb9277281b3172b",
+      "recorded_at": "2026-08-26T10:34:12+00:00",
+      "commit": "40d26aee3ff7a2af3381fd09ca963cb24b091335"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/slack/channel-delivery-helpers.ts",
+        "apps/core/src/channels/slack/message-action-affordances.ts",
+        "apps/core/src/channels/slack/progress-terminal-render.ts",
+        "apps/core/test/unit/channels/slack.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [],
+      "summary": "Fallback never drops affordances; only validation errors trigger a retry (post-once preserved). Lite window Q-0089 (base a9d092fd0 -> HEAD): Slack renders the terminal progress edit with slackJobNotificationBlocks when the structured view is present (same ts when a handle exists, post-once otherwise); fallback only on block-validation errors and it keeps the action-only blocks; terminal dedupe keyed on canonical block JSON, non-terminal dedupe unchanged. Proof: slack suite 196 green, channels suite green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 3 findings accepted+fixed, 1 rejected (TypeScript build claim \u2014 tsc clean at HEAD), final clean. Note: the companion job for the first pass hung after finishing its edits (log silent 51 min at 'Running focused TypeScript tests'); the tree it produced was verified independently.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "bf0e46e38637aee4f92f39f03b9146fbf6cc9b267d7a18083d8064aea9450160",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "38c54a98170b88f8aee25db7169a2679d5085e2f34c8eb2f7cb9277281b3172b",
+      "recorded_at": "2026-08-26T10:34:12+00:00",
+      "commit": "40d26aee3ff7a2af3381fd09ca963cb24b091335"
+    }
+  }
+}

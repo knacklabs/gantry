@@ -1,6 +1,6 @@
-// Transient-permission and browser-prelaunch pause states, extracted from
-// job-readiness-service to keep it inside its architecture line budget.
-import type { Job, JobSetupBlocker } from '../../domain/job-types.js';
+// Transient-permission pause states, extracted from job-readiness-service to
+// keep it inside its architecture line budget.
+import type { Job } from '../../domain/job-types.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
   parseReadableScopedToolRule,
@@ -53,26 +53,4 @@ function transientPermissionSetupAction(toolName: string) {
         'This job used temporary command access. Approve a scoped command grant from its approval card, then resume the job.',
       )
     : approveRuleSetupAction(toolName);
-}
-
-export function setupStateForBrowserPrelaunchFailure(input: {
-  checkedAt?: string;
-  previous?: JobSetupState;
-}): JobSetupState {
-  return buildJobSetupState({
-    checkedAt: input.checkedAt ?? nowIso(),
-    previous: input.previous,
-    blockers: [
-      {
-        state: 'browser_login_may_be_required',
-        type: 'browser',
-        id: 'Browser',
-        summary:
-          'Browser could not be launched for this scheduled job before the agent run started.',
-        action: instructionSetupAction(
-          'Run `gantry browser status`, fix the Browser profile if needed, then resume the job.',
-        ),
-      },
-    ],
-  });
 }

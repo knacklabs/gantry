@@ -1,5 +1,10 @@
 import type { ProgressUpdateOptions } from '../domain/types.js';
-import { splitDiscordText } from './discord-delivery.js';
+import {
+  discordJobNotificationEmbed,
+  postDiscordMessageParts,
+  splitDiscordText,
+} from './discord-delivery.js';
+import { DiscordRestError } from './discord-http-helpers.js';
 import {
   dispatchDiscordProgressUpdate,
   type DiscordProgressEdit,
@@ -24,6 +29,77 @@ import {
 } from './discord-progress-terminal-render.js';
 
 export type { DiscordProgressEdit, DiscordProgressPost };
+
+export function createDiscordProgressCallbacks(input: {
+  channelId: string;
+  options: ProgressUpdateOptions;
+  post: (
+    channelId: string,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => Promise<{ id?: string }>;
+  edit: (
+    messageId: string,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => Promise<void>;
+}): { post: DiscordProgressPost; edit: DiscordProgressEdit } {
+  const embed =
+    input.options.done && input.options.jobNotificationView
+      ? discordJobNotificationEmbed(input.options.jobNotificationView)
+      : undefined;
+  const postText = (
+    text: string,
+    components: unknown[] | undefined,
+    signal: AbortSignal | undefined,
+  ) =>
+    postDiscordMessageParts({
+      channelId: input.channelId,
+      parts: splitDiscordText(text),
+      components,
+      post: (channelId, body) => input.post(channelId, body, signal),
+    });
+  return {
+    post: async (text, components, signal) => {
+      if (!embed) return postText(text, components, signal);
+      try {
+        return await postDiscordMessageParts({
+          channelId: input.channelId,
+          parts: [''],
+          components,
+          embeds: [embed],
+          post: (channelId, body) => input.post(channelId, body, signal),
+        });
+      } catch (err) {
+        if (!isDiscordEmbedRejection(err)) throw err;
+        return postText(truncateDiscordMessageText(text), components, signal);
+      }
+    },
+    edit: async (messageId, body, signal) => {
+      if (!embed) return input.edit(messageId, body, signal);
+      try {
+        await input.edit(
+          messageId,
+          { ...body, content: '', embeds: [embed] },
+          signal,
+        );
+      } catch (err) {
+        if (!isDiscordEmbedRejection(err)) throw err;
+        await input.edit(messageId, { ...body, embeds: [] }, signal);
+      }
+    },
+  };
+}
+
+function isDiscordEmbedRejection(err: unknown): boolean {
+  if (!(err instanceof DiscordRestError) || err.status !== 400) return false;
+  const errors = err.errors ?? {};
+  return Object.keys(errors).length === 1 && Object.hasOwn(errors, 'embeds');
+}
+function truncateDiscordMessageText(text: string): string {
+  const [part] = splitDiscordText(text);
+  return text.length > part.length ? `${part.slice(0, -1)}…` : text;
+}
 
 const DISCORD_PROGRESS_RETENTION_MS = 10 * 60_000;
 const DISCORD_PROGRESS_MAX_KEYS = 5_000;

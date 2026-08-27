@@ -70,6 +70,7 @@ export interface JobControlPort {
   ): Promise<AppSessionRecord[]>;
   createJobTrigger(input: {
     jobId: string;
+    triggerId?: string;
     // Opaque audit string. SDK triggers use JSON `{kind:"sdk",...}`;
     // MCP triggers use JSON `{kind:"mcp",...}`. Queryable auth fields belong
     // on job/session records, not in this free-form trigger column.

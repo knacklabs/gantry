@@ -10,6 +10,10 @@ import {
   recordSuccessfulToolUse,
   toolResponseIsError,
 } from './query-tool-success-ledger.js';
+import {
+  unprojectedAccessActivityDetail,
+  unprojectedAccessIdentityFromToolResult,
+} from '../../../../shared/unprojected-access.js';
 
 export function createPostToolUseHook(input: {
   toolSuccessLedger?: RunScopedToolSuccessLedger;
@@ -18,6 +22,7 @@ export function createPostToolUseHook(input: {
     toolName: string;
     family?: ToolActivityFamily;
     outcome: 'success' | 'failure';
+    detail?: string;
   }) => void;
   takeGantryOwnedToolActivityFamily?: (
     providerInvocationId: string,
@@ -53,6 +58,10 @@ export function createPostToolUseHook(input: {
           ? privateToolActivityInvocationIdFromResult(toolResponse)
           : undefined) ?? providerInvocationId;
       if (invocationId) {
+        const unprojectedIdentity =
+          family && isRequestAccessTool(hookInput.tool_name)
+            ? unprojectedAccessIdentityFromToolResult(toolResponse)
+            : undefined;
         input.emitTerminalToolOutcome({
           invocationId,
           toolName: hookInput.tool_name,
@@ -62,9 +71,20 @@ export function createPostToolUseHook(input: {
             toolResponseIsError(toolResponse)
               ? 'failure'
               : 'success',
+          ...(unprojectedIdentity
+            ? {
+                detail: unprojectedAccessActivityDetail(unprojectedIdentity),
+              }
+            : {}),
         });
       }
     }
     return input.postToolUse(hookInput, toolUseID, hookOptions);
   };
+}
+
+function isRequestAccessTool(toolName: string): boolean {
+  return (
+    toolName === 'request_access' || toolName === 'mcp__gantry__request_access'
+  );
 }

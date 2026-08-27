@@ -1,0 +1,165 @@
+{
+  "event": "done",
+  "id": "Q-0075-1f42",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "INCIDENT Q-0074 (Ravi directed 2026-08-25): job-permission living card re-raised an identical edit revision every reconciler tick (10,115 revisions / ~10k Telegram edits of ONE KnackLabs card overnight; prod reverted to main). ROOT CAUSE: reviseLivingCard in apps/core/src/application/interactions/job-permission-card-projection.ts guards no-op revisions with JSON.stringify(last.rows) === JSON.stringify(visible); last.rows comes back from Postgres JSONB with normalized key order, so it never matches. MANDATORY CODE CHANGE, exactly these files: (1) job-permission-card-projection.ts: use isDeepStrictEqual(last.rows, visible) from node:util; (2) NEW apps/core/test/unit/application/jsonb-round-trip.ts exporting jsonbRoundTrip<T>(v) = JSON.parse(JSON.stringify(v, replacer sorting object keys by length then bytewise)); (3) apps/core/test/unit/application/jobperm-durability.test.ts and (4) jobperm-edges.test.ts: fake repositories persist with jsonbRoundTrip(mutation.state) instead of structuredClone; (5) jobperm-durability.test.ts: add it('q-0074-no-op-revision-after-confirm'): attach, confirmLatest, reconcile twice, expect card.revisions.length === 1 and no pending revisionDeliveries. PROOF: with (2)-(5) only the suites must go RED; with (1) GREEN: npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/jobperm-durability.test.ts apps/core/test/unit/application/jobperm-edges.test.ts; then prettier + tsc --noEmit clean. No commit.",
+  "base_sha": "da42d4ffe4b907d7303ba505bb1eebecac2765f2",
+  "started_at": "2026-08-25T10:05:17+00:00",
+  "completed_at": "2026-08-25T10:24:23+00:00",
+  "files": [
+    "apps/core/src/application/interactions/job-permission-card-projection.ts",
+    "apps/core/test/unit/application/jobperm-durability.test.ts",
+    "apps/core/test/unit/application/jobperm-edges.test.ts",
+    "apps/core/test/unit/application/jsonb-round-trip.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/application/interactions/job-permission-card-projection.ts",
+        "apps/core/test/unit/application/jsonb-round-trip.ts",
+        "apps/core/test/unit/application/jobperm-durability.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Card row for job-knacklabs-lead-maintenance is at revision 10115 in prod DB; first reconcile after redeploy delivers its pending tail once, then stays quiet"
+      ],
+      "summary": "Correctness of the revision-loop fix and the test-fidelity change. Lite window Q-0075 (base da42d4ffe -> HEAD): INCIDENT fix for the living-card revision loop (10,115 revisions / ~10k Telegram edits of one KnackLabs card while the branch was deployed 2026-08-24 17:59Z..2026-08-25 09:58Z; prod reverted to main). Root cause: JSON.stringify no-op guard vs JSONB-normalized persisted rows. Fix via shared canonicalJson; fakes persist JSONB-faithfully; new q-0074 no-op-revision test. Proof: with original source 2 tests red (new test + existing one-card test), with fix 8/8 green; tsc clean; architecture gate green; verify.py Verification passed. Autoreview (codex sol/high, brief plans/review-briefs/q-0074-revision-loop.md): 3 rounds; 1 finding rejected on merits (isDeepStrictEqual would re-create the loop on undefined-only diffs and is forbidden by the architecture gate); final run clean.",
+      "non_blocking_findings": [
+        {
+          "category": "persistence-shape-equality",
+          "area": "application/interactions",
+          "summary": "FIXED: no-op revision guard compared source-ordered JSON to JSONB-normalized rows; every reconciler tick minted an identical edit revision"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (stage reviews stamped at T1-T3 close); unchanged by Q-0075 (living-card no-op guard only); verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "cf59311098e919db9e77384dd1f7796ed92312714bb831f0e1fee492938bab9e",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "226d883222b24ba5f5f96be7093ac6a2d26c54547b5e29b8bfde300cc57921c3",
+      "recorded_at": "2026-08-25T10:24:23+00:00",
+      "commit": "56bd173d7855abef0c137b4d311c391fab957c85"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/application/interactions/job-permission-card-projection.ts",
+        "apps/core/test/unit/application/jsonb-round-trip.ts",
+        "apps/core/test/unit/application/jobperm-durability.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Card row for job-knacklabs-lead-maintenance is at revision 10115 in prod DB; first reconcile after redeploy delivers its pending tail once, then stays quiet"
+      ],
+      "summary": "Removes a runaway ~10 provider edits/min; canonicalJson on a handful of rows per tick is negligible. Lite window Q-0075 (base da42d4ffe -> HEAD): INCIDENT fix for the living-card revision loop (10,115 revisions / ~10k Telegram edits of one KnackLabs card while the branch was deployed 2026-08-24 17:59Z..2026-08-25 09:58Z; prod reverted to main). Root cause: JSON.stringify no-op guard vs JSONB-normalized persisted rows. Fix via shared canonicalJson; fakes persist JSONB-faithfully; new q-0074 no-op-revision test. Proof: with original source 2 tests red (new test + existing one-card test), with fix 8/8 green; tsc clean; architecture gate green; verify.py Verification passed. Autoreview (codex sol/high, brief plans/review-briefs/q-0074-revision-loop.md): 3 rounds; 1 finding rejected on merits (isDeepStrictEqual would re-create the loop on undefined-only diffs and is forbidden by the architecture gate); final run clean.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "cf59311098e919db9e77384dd1f7796ed92312714bb831f0e1fee492938bab9e",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "226d883222b24ba5f5f96be7093ac6a2d26c54547b5e29b8bfde300cc57921c3",
+      "recorded_at": "2026-08-25T10:24:23+00:00",
+      "commit": "56bd173d7855abef0c137b4d311c391fab957c85"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/application/interactions/job-permission-card-projection.ts",
+        "apps/core/test/unit/application/jsonb-round-trip.ts",
+        "apps/core/test/unit/application/jobperm-durability.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Card row for job-knacklabs-lead-maintenance is at revision 10115 in prod DB; first reconcile after redeploy delivers its pending tail once, then stays quiet"
+      ],
+      "summary": "No authority change; comparison only affects whether an identical card is re-rendered. Lite window Q-0075 (base da42d4ffe -> HEAD): INCIDENT fix for the living-card revision loop (10,115 revisions / ~10k Telegram edits of one KnackLabs card while the branch was deployed 2026-08-24 17:59Z..2026-08-25 09:58Z; prod reverted to main). Root cause: JSON.stringify no-op guard vs JSONB-normalized persisted rows. Fix via shared canonicalJson; fakes persist JSONB-faithfully; new q-0074 no-op-revision test. Proof: with original source 2 tests red (new test + existing one-card test), with fix 8/8 green; tsc clean; architecture gate green; verify.py Verification passed. Autoreview (codex sol/high, brief plans/review-briefs/q-0074-revision-loop.md): 3 rounds; 1 finding rejected on merits (isDeepStrictEqual would re-create the loop on undefined-only diffs and is forbidden by the architecture gate); final run clean.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "cf59311098e919db9e77384dd1f7796ed92312714bb831f0e1fee492938bab9e",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "226d883222b24ba5f5f96be7093ac6a2d26c54547b5e29b8bfde300cc57921c3",
+      "recorded_at": "2026-08-25T10:24:23+00:00",
+      "commit": "56bd173d7855abef0c137b4d311c391fab957c85"
+    }
+  }
+}

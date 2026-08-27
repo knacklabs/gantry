@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0066-be48",
+  "profile": "lite",
+  "reason": "Trim two more ratchet budgets grown by the jobperm card work: apps/core/src/channels/slack/channel-delivery.ts (757/732) and apps/core/src/channels/teams-cards.ts (715/700), extracting helpers into sibling modules.",
+  "started_at": "2026-08-24T10:17:15+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "64cf3fb70edae9008f2ec41aab59a4c5b886d91b"
+}

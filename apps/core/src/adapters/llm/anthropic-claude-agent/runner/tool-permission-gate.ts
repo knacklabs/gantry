@@ -37,6 +37,7 @@ import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import {
   emitGateDenialActivity,
+  emitPermissionReformulationDenial,
   emitToolActivity,
   emitYoloDenylistHit,
   formatPermissionAllowedMessage,
@@ -48,6 +49,7 @@ import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import {
   autonomousDenialSetupAction,
   denyNonPromptableAutonomousRecovery,
+  truthfulAutonomousDenialDetail,
 } from './autonomous-permission-recovery.js';
 import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 import { formatPermissionDeniedMessage } from '../../../../shared/permission-decision-message.js';
@@ -470,6 +472,15 @@ export function createCanUseToolCallback(
       const suggestions = yoloDenylistReason
         ? undefined
         : permissionPlan.suggestions;
+      if (permissionPlan.reformulation) {
+        return emitPermissionReformulationDenial({
+          agentInput: input.agentInput,
+          getNewSessionId: input.getNewSessionId,
+          toolName,
+          invocationId: permissionOpts.toolUseID,
+          result: permissionPlan.reformulation,
+        });
+      }
       log(
         `Autonomous run requesting permission for tool ${toolName}: ${recoveryMessage}`,
       );
@@ -567,7 +578,10 @@ export function createCanUseToolCallback(
       });
       if (nonPromptableDenial) return nonPromptableDenial;
       const reason = decision.reason || 'Denied by operator';
-      const message = `Permission denied: ${reason}. ${recoveryMessage}`;
+      const message = `Permission denied: ${truthfulAutonomousDenialDetail({
+        denialReason: reason,
+        recoveryMessage,
+      })}`;
       log(`Autonomous run denied tool ${toolName}: ${message}`);
       emitGateDenialActivity({
         agentInput: input.agentInput,

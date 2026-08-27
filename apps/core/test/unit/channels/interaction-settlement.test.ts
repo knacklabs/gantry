@@ -12,7 +12,7 @@ describe('interaction settlement delay', () => {
   it('prefers a parseable absolute expiry and recomputes from now', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-25T00:00:00.000Z'));
-    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '120000');
+    vi.stubEnv('PERMISSION_APPROVAL_TIMEOUT_MS', '120000');
 
     expect(
       resolveInteractionSettlementDelayMs({
@@ -23,19 +23,33 @@ describe('interaction settlement delay', () => {
     ).toBe(60000);
   });
 
-  it('uses a finite lane timeout when the expiry is absent or invalid', () => {
-    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '120000');
+  it('keeps a job permission pending when expiry is absent or invalid', () => {
+    vi.stubEnv('PERMISSION_APPROVAL_TIMEOUT_MS', '120000');
 
     expect(
       resolveInteractionSettlementDelayMs({
         expiresAt: 'not-a-date',
+        isPermissionRequest: true,
+        jobId: 'job-1',
+        permissionLane: 'autonomous',
+        fallbackTimeoutMs: 180000,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('uses the lane timeout for a non-job permission request', () => {
+    vi.stubEnv('PERMISSION_APPROVAL_TIMEOUT_MS', '120000');
+
+    expect(
+      resolveInteractionSettlementDelayMs({
+        isPermissionRequest: true,
         permissionLane: 'autonomous',
         fallbackTimeoutMs: 180000,
       }),
     ).toBe(120000);
   });
 
-  it('treats a lane sentinel as no timer even when a fallback is finite', () => {
+  it('treats a permission lane sentinel as no timer even when a fallback is finite', () => {
     vi.stubEnv(
       'GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS',
       String(NO_PERMISSION_TIMEOUT_MS),
@@ -43,6 +57,7 @@ describe('interaction settlement delay', () => {
 
     expect(
       resolveInteractionSettlementDelayMs({
+        isPermissionRequest: true,
         permissionLane: 'interactive',
         fallbackTimeoutMs: 180000,
       }),
@@ -55,6 +70,18 @@ describe('interaction settlement delay', () => {
         fallbackTimeoutMs: 180000,
       }),
     ).toBe(180000);
+  });
+
+  it('uses a question lane timer even when it carries job metadata', () => {
+    vi.stubEnv('PERMISSION_APPROVAL_TIMEOUT_MS', '120000');
+
+    expect(
+      resolveInteractionSettlementDelayMs({
+        jobId: 'job-1',
+        permissionLane: 'autonomous',
+        fallbackTimeoutMs: 180000,
+      }),
+    ).toBe(120000);
   });
 
   it('schedules no timer without an absolute, lane, or finite fallback', () => {

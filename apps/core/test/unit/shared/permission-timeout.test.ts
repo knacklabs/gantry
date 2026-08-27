@@ -4,24 +4,21 @@ import {
   getPermissionTimeoutMs,
   NO_PERMISSION_TIMEOUT_MS,
 } from '@core/shared/permission-timeout.js';
-import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '@core/shared/permission-mode.js';
 
 describe('permission-timeout', () => {
-  it('leaves enough runner-side margin for the permission classifier', () => {
-    expect(AUTO_PERMISSION_CLASSIFIER_WAIT_MS).toBe(20_000);
-  });
-
   it('defaults interactive permission prompts to no timeout', () => {
     expect(getPermissionTimeoutMs('interactive', {}, {})).toBe(
       NO_PERMISSION_TIMEOUT_MS,
     );
   });
 
-  it('defaults autonomous permission checks to no IPC wait', () => {
-    expect(getPermissionTimeoutMs('autonomous', {}, {})).toBe(0);
+  it('defaults autonomous permission prompts to the shared no-timeout policy', () => {
+    expect(getPermissionTimeoutMs('autonomous', {}, {})).toBe(
+      NO_PERMISSION_TIMEOUT_MS,
+    );
   });
 
-  it('supports separate interactive and autonomous timeout env overrides', () => {
+  it('uses one timeout configuration for interactive and autonomous prompts', () => {
     expect(
       getPermissionTimeoutMs(
         'interactive',
@@ -32,10 +29,13 @@ describe('permission-timeout', () => {
     expect(
       getPermissionTimeoutMs(
         'autonomous',
-        { GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS: '1000' },
+        {
+          GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS: '1000',
+          GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: '20000',
+        },
         {},
       ),
-    ).toBe(1_000);
+    ).toBe(20_000);
   });
 
   it('preserves the explicit interactive no-timeout sentinel', () => {

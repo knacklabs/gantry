@@ -1,0 +1,159 @@
+{
+  "event": "done",
+  "id": "Q-0092-40a7",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Native terminal notice shows the next run as a raw ISO timestamp (view.nextRunAt is the unformatted value) while the text path humanizes it; humanize once where the view is built so every provider prints the same friendly time. Scope: execution-notifications.ts, status-formatting.ts (export the formatter), tests.",
+  "base_sha": "4f841f769bf2317397899c30e530c7673d09f203",
+  "started_at": "2026-08-26T12:30:12+00:00",
+  "completed_at": "2026-08-26T12:42:07+00:00",
+  "files": [
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/jobs/execution-notifications.test.ts",
+    "apps/core/test/unit/jobs/status-formatting.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [],
+      "summary": "Friendly next-run time on every provider. Lite window Q-0092 (base 4f841f769 -> HEAD): native terminal view carries the humanized next-run time (single formatter reused by the text path). Proof: jobs suite 65/716 green, tsc, architecture, verify.py passed; autoreview clean first pass.",
+      "non_blocking_findings": [
+        {
+          "category": "notification-content",
+          "area": "jobs",
+          "summary": "FIXED: raw ISO next-run on native renderers"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0092 is notice formatting only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "af5a59fb78436d9f025080052775fd658fdaea9d3b902b5945d8b6ddbdb742b7",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "0864ca348e4cd0ce7e2ae7d33642e1a07d33dec6459a20c553bee1fe561da47d",
+      "recorded_at": "2026-08-26T12:42:06+00:00",
+      "commit": "72765aea79352a9003ea35ed2bf804c167ce33f1"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [],
+      "summary": "One Intl format per notice. Lite window Q-0092 (base 4f841f769 -> HEAD): native terminal view carries the humanized next-run time (single formatter reused by the text path). Proof: jobs suite 65/716 green, tsc, architecture, verify.py passed; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "af5a59fb78436d9f025080052775fd658fdaea9d3b902b5945d8b6ddbdb742b7",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "0864ca348e4cd0ce7e2ae7d33642e1a07d33dec6459a20c553bee1fe561da47d",
+      "recorded_at": "2026-08-26T12:42:06+00:00",
+      "commit": "72765aea79352a9003ea35ed2bf804c167ce33f1"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [],
+      "summary": "Formatting only. Lite window Q-0092 (base 4f841f769 -> HEAD): native terminal view carries the humanized next-run time (single formatter reused by the text path). Proof: jobs suite 65/716 green, tsc, architecture, verify.py passed; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "af5a59fb78436d9f025080052775fd658fdaea9d3b902b5945d8b6ddbdb742b7",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "0864ca348e4cd0ce7e2ae7d33642e1a07d33dec6459a20c553bee1fe561da47d",
+      "recorded_at": "2026-08-26T12:42:06+00:00",
+      "commit": "72765aea79352a9003ea35ed2bf804c167ce33f1"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "event": "abandoned",
+  "id": "Q-0074-86ee",
+  "profile": "quickfix",
+  "reason": "quickfix profile does not grant delegate write access; reopening as lite window with the same incident scope",
+  "opened_reason": "INCIDENT: job-permission living card re-raised an identical edit revision every reconciler tick (10k Telegram edits of one KnackLabs card overnight). reviseLivingCard compares JSON.stringify(last.rows) to a fresh literal; Postgres JSONB normalizes key order so the no-op guard never matches. Fix: key-order-insensitive compare (util.isDeepStrictEqual) + make the in-memory repository fakes round-trip state like JSONB so the suite catches this class.",
+  "started_at": "2026-08-25T10:01:32+00:00",
+  "completed_at": "2026-08-25T10:05:17+00:00",
+  "files": []
+}

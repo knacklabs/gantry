@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0096-0a86",
+  "profile": "lite",
+  "reason": "Q-0096: delete the eager Chrome prelaunch for scheduled jobs; the first Browser call launches lazily via ensureBrowserReady (owner decision)",
+  "started_at": "2026-08-26T13:51:52+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "550ff5a0e927389f02c9010d34f91596c2b3fd06"
+}

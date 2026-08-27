@@ -3,17 +3,118 @@ import {
   NO_PERMISSION_TIMEOUT_MS,
 } from '../shared/permission-timeout.js';
 import type {
+  MessageActionAffordance,
   PermissionApprovalCancellation,
   PermissionApprovalRequest,
   UserQuestionCancellation,
   UserQuestionRequest,
 } from '../domain/types.js';
+import { parseJobPermissionCardAction } from '../domain/job-permission-card-actions.js';
 import { resolvePendingInteractionRecordOutcome } from '../application/interactions/pending-interaction-durability.js';
 
 export const RUNNER_CANCELLED_PERMISSION_REASON =
   'Permission request cancelled by its runner.';
 export const RUNNER_CANCELLED_QUESTION_REASON =
   'Question cancelled by its runner.';
+
+export type JobPermissionCardRevision = {
+  callbackKey: string;
+  revision: number;
+};
+
+/**
+ * A provider message carries exactly one card per callback key. Only the
+ * newest delivered revision matters: a retry of an already-delivered or
+ * older revision must not mutate the provider again, and mutations for one
+ * card are serialized so concurrent retries cannot both send.
+ */
+export class JobPermissionCardDeliverySettlement {
+  private readonly latest = new Map<
+    string,
+    { revision: number; messageId: string }
+  >();
+  private readonly lanes = new Map<string, Promise<unknown>>();
+  private readonly laneByMessage = new Map<string, string>();
+
+  async serialize<T>(callbackKey: string, work: () => Promise<T>): Promise<T> {
+    const prior = this.lanes.get(callbackKey) ?? Promise.resolve();
+    const next = prior.catch(() => undefined).then(work);
+    this.lanes.set(callbackKey, next);
+    try {
+      return await next;
+    } finally {
+      if (this.lanes.get(callbackKey) === next) this.lanes.delete(callbackKey);
+    }
+  }
+
+  /** Message already carrying this revision or a newer one. */
+  settledMessageId(revision: JobPermissionCardRevision): string | undefined {
+    const latest = this.latest.get(revision.callbackKey);
+    return latest && latest.revision >= revision.revision
+      ? latest.messageId
+      : undefined;
+  }
+
+  /** Lane a later buttonless (retire/replace) edit of this message must join. */
+  laneForMessage(messageKey: string): string {
+    return this.laneByMessage.get(messageKey) ?? `message:${messageKey}`;
+  }
+
+  /** Bind a message to a card lane before its first mutation is awaited. */
+  bindMessage(messageKey: string, callbackKey: string) {
+    this.laneByMessage.set(messageKey, callbackKey);
+  }
+
+  record(
+    revision: JobPermissionCardRevision,
+    messageId: string,
+    messageKey: string,
+  ) {
+    this.bindMessage(messageKey, revision.callbackKey);
+    const latest = this.latest.get(revision.callbackKey);
+    if (!latest || latest.revision <= revision.revision) {
+      this.latest.set(revision.callbackKey, {
+        revision: revision.revision,
+        messageId,
+      });
+    }
+  }
+}
+
+export function jobPermissionCardRevision(
+  actions?: MessageActionAffordance[],
+): JobPermissionCardRevision | undefined {
+  if (
+    !actions?.length ||
+    actions.some((action) => action.kind !== 'job_permission_decision')
+  ) {
+    return undefined;
+  }
+  const cardActions = actions.filter(
+    (
+      action,
+    ): action is Extract<
+      MessageActionAffordance,
+      { kind: 'job_permission_decision' }
+    > => action.kind === 'job_permission_decision',
+  );
+  const parsed = cardActions.map((action) =>
+    parseJobPermissionCardAction(action.actionToken),
+  );
+  const first = parsed[0];
+  if (
+    !first ||
+    parsed.some(
+      (action) =>
+        !action ||
+        action.callbackKey !== first.callbackKey ||
+        action.revision !== first.revision,
+    )
+  ) {
+    return undefined;
+  }
+  return { callbackKey: first.callbackKey, revision: first.revision };
+}
 
 export type InteractionCancellationResult =
   | 'settled'
@@ -100,6 +201,8 @@ export async function cancelMatchingPendingQuestions<Pending>(input: {
 
 export function resolveInteractionSettlementDelayMs(input: {
   expiresAt?: unknown;
+  isPermissionRequest?: boolean;
+  jobId?: string;
   permissionLane?: 'interactive' | 'autonomous';
   fallbackTimeoutMs?: number;
 }): number | undefined {
@@ -109,6 +212,9 @@ export function resolveInteractionSettlementDelayMs(input: {
       : Number.NaN;
   if (Number.isFinite(expiresAtMs)) {
     return Math.max(0, expiresAtMs - Date.now());
+  }
+  if (input.isPermissionRequest && input.jobId?.trim()) {
+    return undefined;
   }
   if (input.permissionLane) {
     const timeoutMs = getPermissionTimeoutMs(input.permissionLane);

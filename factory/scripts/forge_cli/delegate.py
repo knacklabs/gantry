@@ -921,6 +921,30 @@ def _section(title: str, body: str) -> str:
     return f"\n## {title}\n\n{body.rstrip()}\n" if body.strip() else ""
 
 
+CONSTITUTION_BRIEF = (
+    "The KnackLabs Engineering Constitution in `constitution/` is BINDING — it is "
+    "law for HOW code is written, not just how you behave. Before you write a line, "
+    "open `constitution/README.md` (its index maps the work at hand to the "
+    "authoritative reference) and READ + FOLLOW every matching doc: coding "
+    "standards (`pnp-coding-standards-modular-monolith.md` — file suffixes, DTOs, "
+    "mappers, interfaces, providers, module layout), API + Swagger "
+    "(`pnp-api-standards.md`, `pnp-swagger-api-documentation-standards.md` — every "
+    "endpoint has typed request AND response DTOs), logging/observability "
+    "(`05`/`06`), exception handling (`07`), notification port (`08`), database "
+    "(`pnp-database-standards.md`), provider pattern "
+    "(`pnp-provider-pattern-for-integration.md`), modular-monolith structure "
+    "(`03`). The constitution wins over habit and over anything this brief forgot "
+    "to restate; a task never re-derives a standard the constitution already sets. "
+    "Deviate only deliberately and in writing, with a reason (\"Context is King\") "
+    "— never silently.\n\n"
+    "This is UNCONDITIONAL and ENVIRONMENT-INDEPENDENT: `constitution/` is vendored "
+    "into this repo, so it is on disk and readable even in a sandbox or worktree "
+    "with no network. If you spawn or delegate to ANY subagent, you MUST pass it "
+    "this same instruction — every agent that touches code follows the "
+    "constitution, everywhere."
+)
+
+
 def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
                   story: str) -> str:
     scope = task.get("write_scope") or []
@@ -949,6 +973,7 @@ def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
         "always in full, process chatter never (conduct §8).",
     ]
     body = "\n".join(lines) + "\n"
+    body += _section("Constitution — coding standards (BINDING)", CONSTITUTION_BRIEF)
     body += _section("Objective", task.get("objective", ""))
     body += _section("Acceptance criteria", "\n".join(
         f"- {c}" for c in task.get("acceptance_criteria") or []))
@@ -966,13 +991,27 @@ def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
            if task.get("required_tests") else ""))
     body += _section("Verify commands (they will be run when the stage closes)",
                      "\n".join(f"- `{c}`" for c in task.get("verify_commands") or []))
-    body += _section("Reviewer focus", task.get("reviewer_focus", ""))
+    reviewer_focus = task.get("reviewer_focus", "")
+    if isinstance(reviewer_focus, list):
+        # The decomposition records reviewer_focus as a LIST (the stage-start
+        # gate requires it non-empty); render it like the other list sections.
+        reviewer_focus = "\n".join(f"- {item}" for item in reviewer_focus)
+    body += _section("Reviewer focus", reviewer_focus)
     decisions = [r for r in decision_records(base) if r["status"] == "accepted"]
     body += _section("Active decisions — binding", "\n".join(
         f"- {r['id']}: {r['title']}" for r in decisions))
     lessons = relevant_lessons(base, scope)
     body += _section("Lessons recorded against these paths", "\n".join(
         f"- {le.get('lesson', '')}" for le in lessons))
+    # The APPROVED TASK PLAN is the task's authored contract detail; without it
+    # workers see only the skeletal fields and raise "definitions omitted"
+    # confusion signals for anything the plan specifies.
+    tid = str(task.get("id") or "")
+    candidates = list((base / ".factory" / "stories").glob(f"*/task-plans/{tid}.md")) if tid else []
+    plan_file = candidates[0] if candidates else (base / ".factory" / "task-plans" / f"{tid}.md")
+    if plan_file.is_file():
+        body += _section("Approved task plan — follow it exactly",
+                         plan_file.read_text(encoding="utf-8"))
     prompt = base / "factory" / "prompts" / "implementer.md"
     if prompt.is_file():
         body += _section("Implementer contract", prompt.read_text(encoding="utf-8"))

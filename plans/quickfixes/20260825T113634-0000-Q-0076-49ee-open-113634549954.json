@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0076-49ee",
+  "profile": "lite",
+  "reason": "Job completion notice bugs (Ravi directed 2026-08-25): (1) 'browser not used' although browser calls succeeded \u2014 isBrowserToolActivity requires phase 'browser_action' which nothing emits; (2) every browser/capability call is listed twice (SDK-lane wrapper event with toolu_* id + authoritative gateway event with browser-*/capability-run-* id) because the CLI forwards only tool_result content to PostToolUse hooks, so the _meta.invocationId private channel never arrives on the SDK lane. Fix: count authoritative events for browserUsed; in the rollup, for gantry-owned families render authoritative rows only and surface wrapper-only failures as an exact arithmetic remainder. Scope: execution-diagnostics.ts, status-formatting.ts, their tests.",
+  "started_at": "2026-08-25T11:36:34+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "56bd173d7855abef0c137b4d311c391fab957c85"
+}

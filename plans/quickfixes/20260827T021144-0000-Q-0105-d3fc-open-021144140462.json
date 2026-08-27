@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0105-d3fc",
+  "profile": "lite",
+  "reason": "Q-0105: scheduled runs end mid-work when the model narrates instead of acting; one-shot nudge to finish with the Outcome line (runs 790aecae, 8169590a)",
+  "started_at": "2026-08-27T02:11:44+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "4bde01b2483ff290631bf7e1ca5f312ebd7dade4"
+}

@@ -17,6 +17,8 @@ const PERMISSION_RESPONSE_FIELDS_AFTER_APPROVED = [
   'risk_category',
   'updatedPermissions',
   'decisionClassification',
+  'jobPermissionOutcome',
+  'unprojectedAccessIdentity',
 ] as const;
 
 export function buildPermissionResponseSignaturePayload(

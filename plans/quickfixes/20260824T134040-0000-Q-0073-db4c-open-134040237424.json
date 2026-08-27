@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0073-db4c",
+  "profile": "lite",
+  "reason": "Incident fix continuation: per-revision delivery recording, inline-keyboard payload wiring, humanized copy \u2014 scope includes channels/interaction-settlement.ts, telegram delivery/card files, jobperm durability card modules, tests.",
+  "started_at": "2026-08-24T13:40:40+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "2dc2b1ce8bec53d31ac060ac12b23e6776e6cf9f"
+}

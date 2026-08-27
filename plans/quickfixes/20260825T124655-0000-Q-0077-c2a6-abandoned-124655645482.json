@@ -1,0 +1,12 @@
+{
+  "event": "abandoned",
+  "id": "Q-0077-c2a6",
+  "profile": "lite",
+  "reason": "forge fix refuses: window snapshotted max_files=5 (hard-coded MAX_FILES in quickfix.py) while modes.lite.bound is 6; reopening via the degraded exception",
+  "opened_reason": "Q-0076 follow-up: live test 12:44Z still printed browser not used because run diagnostics are fed only from runner-forwarded events; the gateway's authoritative browser events bypass diagnostics. Count family=browser successes without the authoritative requirement. Scope: execution-diagnostics.ts and its test.",
+  "started_at": "2026-08-25T12:46:12+00:00",
+  "completed_at": "2026-08-25T12:46:55+00:00",
+  "files": [],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "f7b3e64cfbab84f262988d7f2bc7f5634689831a"
+}

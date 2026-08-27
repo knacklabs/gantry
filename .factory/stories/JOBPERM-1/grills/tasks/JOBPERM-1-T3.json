@@ -1,0 +1,93 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "decision": "keep",
+  "gaps": [],
+  "contradictions": [],
+  "new_abstractions": [
+    "Durable need row + one reconciler + card-revision outbox \u2014 REPLACE ad-hoc terminal-denial/setup-card handoff code (net deletion per v9 Deletions); no new card kind, no classifier for autonomous (0121)."
+  ],
+  "inspected_refs": [
+    "plans/review-briefs/scheduled-job-permission-parity-design.md",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/shared/tool-rule-matcher.ts",
+    "apps/core/src/application/jobs/setup-pause-permission-prompt.ts",
+    "apps/core/src/jobs/execution-lease.ts"
+  ],
+  "current_flow": "Autonomous tool call -> worker policy miss -> host round-trip -> hostJobId branch cancels ('no declared grant') -> terminal denial -> job pauses -> setup card -> approve -> RERUN from scratch. Browser/request_access/unlisted tools all die on the same hard-return.",
+  "criteria_map": {
+    "equivalence class blocked incl. staged download-then-execute": "Durable-grantability rejects the download-then-execute equivalence class across calls; typed reformulation results; tested.",
+    "unprojected: persisted grant, limited completion, no auto-rerun": "Unprojected approvals persist, end the run Completed-with-limits naming the tool, human Run-again only; tested.",
+    "catalog present and complete": "Runner prompt catalog lists every requestable unprojected identity (capabilities AND MCP tools); request_access always callable; tested.",
+    "provider contract tests x3 green; live scenarios 1-3 pass": "Provider card lifecycle contract tests on Telegram/Slack/Discord (send, edit, revision+epoch actions, unauthorized-actor rejection, stale clicks); live scenarios 1-3 on KnackLabs.",
+    "carried T2 hardening: per-revision delivery tracking, ambiguous-send reconciliation, provider ack atomicity and limits, credential delivery-anchor, need-after-rails ordering, snapshot tool input, pagination slot release, compound-scope paging, and the durability-service file-size split": "The eight carried hardening items implemented and the durability service split into cohesive modules passing scripts/architecture_rules.py budgets."
+  },
+  "rounds": [
+    {
+      "question": "Allow-once on job cards?",
+      "options": [
+        "keep",
+        "remove"
+      ],
+      "chosen": "remove"
+    },
+    {
+      "question": "Permanent pins for pipes?",
+      "options": [
+        "exact-byte pin",
+        "reformulation-only"
+      ],
+      "chosen": "reformulation-only"
+    },
+    {
+      "question": "Auto-rerun for unprojected grants?",
+      "options": [
+        "auto-rerun",
+        "human Run-again"
+      ],
+      "chosen": "human Run-again"
+    },
+    {
+      "question": "New lane or single-cut?",
+      "options": [
+        "parallel lane",
+        "delete old lane"
+      ],
+      "chosen": "delete old lane"
+    },
+    {
+      "question": "T1 test file shape?",
+      "options": [
+        "spread across suites",
+        "one new top-level suite"
+      ],
+      "chosen": "one new top-level suite"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "single date allowed, compound cancelled; 6 days of dead-ends; browser prelaunched but unused; request_access denied",
+      "source": "~/gantry/logs/gantry.log 2026-08-08..23 sweeps"
+    },
+    {
+      "finding": "wait/resume plumbing exists and is interactive-only by construction",
+      "source": "permission-callback.ts:171-172,280-431"
+    }
+  ],
+  "resolutions": [
+    "Durable-grantability rejects the download-then-execute equivalence class across calls; typed reformulation results; tested.",
+    "Unprojected approvals persist, end the run Completed-with-limits naming the tool, human Run-again only; tested.",
+    "Runner prompt catalog lists every requestable unprojected identity (capabilities AND MCP tools); request_access always callable; tested.",
+    "Provider card lifecycle contract tests on Telegram/Slack/Discord (send, edit, revision+epoch actions, unauthorized-actor rejection, stale clicks); live scenarios 1-3 on KnackLabs.",
+    "The eight carried hardening items implemented and the durability service split into cohesive modules passing scripts/architecture_rules.py budgets."
+  ],
+  "task_id": "JOBPERM-1-T3",
+  "input_sha256": "5e39ecafe991f87a2b21ded2a8eca6a5dd72eefbaccc7db32de78f632a9f443b",
+  "recorded_at": "2026-08-24T09:35:44+00:00",
+  "commit": "f17f73a1b9fbfebf6d6bd6f5f7206a7138366de5",
+  "approved_task_plan_sha256": "6057f1dc190c8377a64e72dda6b2aa514af1f73dc7f1779b89b875c64f1de5b8",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-24T09:35:44+00:00"
+}

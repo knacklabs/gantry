@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0102-8dc4",
+  "profile": "lite",
+  "reason": "Q-0102: outcome headline lifter fed the marker-sliced summary, dropping an Outcome line written above the Final Job Report heading (run add7e178)",
+  "started_at": "2026-08-26T17:32:26+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "1579c84fbb8d61ade2f9dcc0d40ab4631a24c559"
+}

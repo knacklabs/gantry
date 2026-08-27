@@ -300,6 +300,8 @@ export async function requestSlackPermissionApproval(input: {
     };
     const settlementDelayMs = resolveInteractionSettlementDelayMs({
       expiresAt,
+      isPermissionRequest: true,
+      jobId: input.request.jobId,
       permissionLane: input.request.permissionLane,
       fallbackTimeoutMs: input.timeoutMs,
     });

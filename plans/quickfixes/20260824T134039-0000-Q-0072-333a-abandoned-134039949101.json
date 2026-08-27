@@ -1,0 +1,18 @@
+{
+  "event": "abandoned",
+  "id": "Q-0072-333a",
+  "profile": "lite",
+  "reason": "cycle for scope",
+  "opened_reason": "Live-incident fix round: telegram job-permission card sent plain text with no buttons in a re-send loop (3 defects, quarantined branch).",
+  "started_at": "2026-08-24T13:31:17+00:00",
+  "completed_at": "2026-08-24T13:40:39+00:00",
+  "files": [
+    "apps/core/src/adapters/storage/postgres/repositories/job-permission-need-repository.postgres.ts",
+    "apps/core/src/domain/job-permission-card-actions.ts",
+    "apps/core/src/domain/messages/retry-tail-provider-payload.ts",
+    "apps/core/test/unit/application/jobperm-durability.test.ts",
+    "apps/core/test/unit/application/jobperm-edges.test.ts"
+  ],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "e06dcbe4c7a4904adda16ff4a464b651eef470a8"
+}

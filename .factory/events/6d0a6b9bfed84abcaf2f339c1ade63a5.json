@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-23T17:10:47+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T2 passes its required checks, but architecture verification shows this stage newly exceeds ten file-size budgets; splitting the 1,723-line service and related seams cannot fit the remaining"}

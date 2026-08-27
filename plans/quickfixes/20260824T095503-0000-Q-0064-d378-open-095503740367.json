@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0064-d378",
+  "profile": "lite",
+  "reason": "Final JOBPERM-1 structural item: move shared/unprojected-access off the domain import (layer rule) + rename synthetic fixture tokens to the test-token shape so the closeout review bundle scans clean.",
+  "started_at": "2026-08-24T09:55:03+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "2f96a192cf18c60ad6fecf071f6ded8e1c78f043"
+}

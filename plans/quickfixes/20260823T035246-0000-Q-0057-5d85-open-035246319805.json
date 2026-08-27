@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0057-5d85",
+  "profile": "degraded",
+  "reason": "Fix the 0133->0134 decision-number collision on PR #434 (main renumbered 0133). Canon rename + stale-story-field fix so scaffold-check passes; fix is otherwise verified/green, landing via admin-merge.",
+  "started_at": "2026-08-23T03:52:46+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

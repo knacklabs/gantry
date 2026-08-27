@@ -1,0 +1,189 @@
+{
+  "event": "done",
+  "id": "Q-0073-db4c",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Incident fix continuation: per-revision delivery recording, inline-keyboard payload wiring, humanized copy \u2014 scope includes channels/interaction-settlement.ts, telegram delivery/card files, jobperm durability card modules, tests.",
+  "base_sha": "2dc2b1ce8bec53d31ac060ac12b23e6776e6cf9f",
+  "started_at": "2026-08-24T13:40:40+00:00",
+  "completed_at": "2026-08-24T17:53:23+00:00",
+  "files": [
+    "apps/core/src/channels/interaction-settlement.ts",
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
+    "apps/core/test/unit/application/jobperm-edges.test.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/interaction-settlement.ts",
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
+        "apps/core/test/unit/channels/telegram.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0058 (see non_blocking_findings)"
+      ],
+      "summary": "Incident fix correctness: one Telegram card per job-permission request across revisions, idempotent redelivery, native inline keyboard, humanized HTML copy. Lite window Q-0073 (base 2dc2b1ce8 -> HEAD da42d4ffe): six autoreview rounds (codex gpt-5.6-sol high, incident brief plans/review-briefs/q-0073-incident.md); 7 findings accepted+fixed in-code with regression tests (telegram.test.ts: one-card-across-revisions, serialize/stale/malformed, retire-behind-in-flight-edit), 3 rejected as by-design (retire/replace zero-action path; restart idempotency owned by reconciler per-revision outcomes), 1 deferred as D-0058. verify.py Verification passed at HEAD; channels 40/980, application+jobs 138 files green.",
+      "non_blocking_findings": [
+        {
+          "category": "delivery-semantics",
+          "area": "channels/telegram",
+          "summary": "FIXED: concurrent retries of one card revision could both send; mutations now serialized per chat-scoped card lane"
+        },
+        {
+          "category": "delivery-semantics",
+          "area": "channels/telegram",
+          "summary": "FIXED: delayed older revision could edit the card back to stale text or send a second card; settlement keeps only the newest revision and suppresses stale ones"
+        },
+        {
+          "category": "fail-closed-validation",
+          "area": "channels/telegram",
+          "summary": "FIXED: malformed job_permission_decision affordances fell through to plain text; card path now enters on affordance kind and throws without a valid keyboard"
+        },
+        {
+          "category": "delivery-semantics",
+          "area": "channels/telegram",
+          "summary": "FIXED: buttonless retire/replace edits and persisted-id recoveries now share the card lane (bound synchronously before the serialized section)"
+        },
+        {
+          "category": "delivery-semantics",
+          "area": "channels/telegram",
+          "summary": "DEFERRED D-0058: zero-action retire/replace revisions carry no card identity into settlement, so a delayed older action revision could theoretically re-arm a retired card; needs payload/wiring contract change (durability owner boundary); upstream per-revision delivery outcomes cover the realistic path"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "exact-named JUnit proof tests + reconciled suites green (8950/8950); stage-local review stamped; unchanged by Q-0073 incident fix (Telegram card delivery only), verify.py green at HEAD da42d4ffe"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "8f46f13e0697b292ff6e5883101bd1841a072c7648beb8cd0aeb59cf9ea3ae19",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "7a42ee06ed653319d8d237df3eac62be60d6f64ecb107d07ded8b0bdf815abee",
+      "recorded_at": "2026-08-24T17:53:23+00:00",
+      "commit": "da42d4ffe4b907d7303ba505bb1eebecac2765f2"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/interaction-settlement.ts",
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
+        "apps/core/test/unit/channels/telegram.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0058 (see non_blocking_findings)"
+      ],
+      "summary": "No hot-path impact: per-card promise lane adds O(1) map work per delivery; settlement state is one entry per card instead of one per revision (smaller than before); no extra provider calls (fewer: duplicate sends eliminated). Lite window Q-0073 (base 2dc2b1ce8 -> HEAD da42d4ffe): six autoreview rounds (codex gpt-5.6-sol high, incident brief plans/review-briefs/q-0073-incident.md); 7 findings accepted+fixed in-code with regression tests (telegram.test.ts: one-card-across-revisions, serialize/stale/malformed, retire-behind-in-flight-edit), 3 rejected as by-design (retire/replace zero-action path; restart idempotency owned by reconciler per-revision outcomes), 1 deferred as D-0058. verify.py Verification passed at HEAD; channels 40/980, application+jobs 138 files green.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "8f46f13e0697b292ff6e5883101bd1841a072c7648beb8cd0aeb59cf9ea3ae19",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "7a42ee06ed653319d8d237df3eac62be60d6f64ecb107d07ded8b0bdf815abee",
+      "recorded_at": "2026-08-24T17:53:23+00:00",
+      "commit": "da42d4ffe4b907d7303ba505bb1eebecac2765f2"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/interaction-settlement.ts",
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
+        "apps/core/test/unit/channels/telegram.test.ts",
+        "apps/core/test/unit/application/jobperm-edges.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "D-0058 (see non_blocking_findings)"
+      ],
+      "summary": "No authority change: card actions still come only from actionAffordances tokens; malformed tokens now fail closed instead of degrading to plain text; settlement keys are chat-scoped so one chat's message id can never be edited from another. Lite window Q-0073 (base 2dc2b1ce8 -> HEAD da42d4ffe): six autoreview rounds (codex gpt-5.6-sol high, incident brief plans/review-briefs/q-0073-incident.md); 7 findings accepted+fixed in-code with regression tests (telegram.test.ts: one-card-across-revisions, serialize/stale/malformed, retire-behind-in-flight-edit), 3 rejected as by-design (retire/replace zero-action path; restart idempotency owned by reconciler per-revision outcomes), 1 deferred as D-0058. verify.py Verification passed at HEAD; channels 40/980, application+jobs 138 files green.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "8f46f13e0697b292ff6e5883101bd1841a072c7648beb8cd0aeb59cf9ea3ae19",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "7a42ee06ed653319d8d237df3eac62be60d6f64ecb107d07ded8b0bdf815abee",
+      "recorded_at": "2026-08-24T17:53:23+00:00",
+      "commit": "da42d4ffe4b907d7303ba505bb1eebecac2765f2"
+    }
+  }
+}

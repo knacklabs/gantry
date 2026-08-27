@@ -1,5 +1,5 @@
 {
-  "harness_commit": "974a43241b1c0a95d63627e446481bd369cabf92",
+  "harness_commit": "20fb60c181b4f8c98d2e88d69b8a63e9c9a18a8e",
   "files": {
     "factory/scripts/check_agents_hygiene.py": "63b5db9b788ebc55d3542af506566ab8d45ba7c7f588a6f93e78d3811d0003c4",
     "factory/scripts/check_board_complete.py": "75022051af7cc2928039641ba2ef1a5f31e45e6b5c1651e15c2213cca6c6a7a0",
@@ -22,7 +22,7 @@
     "factory/scripts/forge_cli/context.py": "6c013cbd0fab39f15d2ea798863c3eac0f1119db17be13ddceac4db9017938ef",
     "factory/scripts/forge_cli/decisions.py": "d1713328a1d9a277ea257a58450e2a25a01dff6687925afff8e5f52472afd90e",
     "factory/scripts/forge_cli/deferrals.py": "363ea77184d5582baee9f9dfe7912b1eb81972e132b912ac1b84544ff0c63071",
-    "factory/scripts/forge_cli/delegate.py": "3e7f1d4dd49de592fc4b8d0cb75783b06b857787facc03736e6bfa5aa127cc97",
+    "factory/scripts/forge_cli/delegate.py": "f7dc489b899b67d6a67a162d3fbd1e7e4ea85c30505db6836e4bf4b5bf7653ef",
     "factory/scripts/forge_cli/doctor.py": "209bd1c67e1c7813b12fb08934c11501d5ff6d2256d41d485a05374464ffa14f",
     "factory/scripts/forge_cli/events.py": "08769158e156d72da72da2443a6d39b759471721b2cd157a35f8672a3563960f",
     "factory/scripts/forge_cli/findings.py": "1174e15d803f541da22a019af2b6bb1655f954ede193736047c3c6c6a5f11862",
@@ -34,10 +34,10 @@
     "factory/scripts/forge_cli/phase.py": "0cba968e8d8c7a4e57f78e07bead7b6ea267cb7dae0ac22a56484fa8c4caa9b4",
     "factory/scripts/forge_cli/plans.py": "0d4d5966756041fc39399916b4649b18356ec9b8128e072ba960fa3a4fa8cb54",
     "factory/scripts/forge_cli/project.py": "3c97330a12c6e0de70004b04d8c39cf15a875f1542be63820b58b399ff91b520",
-    "factory/scripts/forge_cli/quickfix.py": "c0dc9fd7c67fd0c07938ff0917cc0dfc17d84a9c3f135ae3f3283d86e125e83f",
+    "factory/scripts/forge_cli/quickfix.py": "f87f1bbad7cf7c849a7152cafab42e318bf551b50b3fc511e7340aa2700aae3a",
     "factory/scripts/forge_cli/readiness.py": "7b18cacce293cce2e760c1c5ebdb8331d4ff5ca354f58e9a01a435a71b94882d",
     "factory/scripts/forge_cli/repo_kind.py": "427043c49817f650c77eb20dbc368914822e31e028a9bd1c5042ff64cd475c97",
-    "factory/scripts/forge_cli/review_brief.py": "4b90e14d2fd3b6b2d5f338c5ddac5aee08a1a833c05298a9a0adebdce83cc876",
+    "factory/scripts/forge_cli/review_brief.py": "eb2c988d3e067844770213ad7f5f38cce6b41cee745fc326d868a3a52b6fa92a",
     "factory/scripts/forge_cli/roadmap.py": "c33f5e9fde96f620962354114cf93a6ebb3bbc130ebb70719f09f6e286b91756",
     "factory/scripts/forge_cli/sanitise.py": "f8fe1115caf6ed19a63d400ca8e9688e5b267e6f284f280969edace274300d91",
     "factory/scripts/forge_cli/scaffold.py": "d67f9613962962170853b0c03136a2b21060bc2bc08c37bbfb235d260cd9eae2",

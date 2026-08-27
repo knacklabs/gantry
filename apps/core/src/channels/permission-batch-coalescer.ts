@@ -8,6 +8,7 @@ import { decisionForMode as domainDecisionForMode } from '../domain/permission-d
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { sha256Hex } from '../shared/stable-hash.js';
 import { limitPermissionMessage } from './permission-text-sanitizer.js';
+import { permissionPromptWaitLine } from './permission-prompt-wait-line.js';
 
 export const DEFAULT_PERMISSION_BATCH_WINDOW_MS = 1500;
 export const PENDING_PERMISSION_BATCH_WINDOW_MS = 3000;
@@ -120,6 +121,7 @@ export function formatPermissionBatchPrompt(
 export function formatPermissionBatchPromptText(
   request: PermissionApprovalRequest,
   timeoutMs: number,
+  waitsForDecision = Boolean(request.jobId),
 ): string | undefined {
   const batch = formatPermissionBatchPrompt(request, timeoutMs);
   return batch
@@ -127,7 +129,12 @@ export function formatPermissionBatchPromptText(
         `🔐 ${batch.title}`,
         '',
         ...batch.rows,
-        ...(timeoutMs > 0 ? ['', `Reply in ${batch.replyInMinutes}m`] : []),
+        ...(timeoutMs > 0 || waitsForDecision
+          ? [
+              '',
+              permissionPromptWaitLine(waitsForDecision, batch.replyInMinutes),
+            ]
+          : []),
       ].join('\n')
     : undefined;
 }

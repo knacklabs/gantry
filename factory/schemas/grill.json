@@ -18,6 +18,7 @@
     "issue": "str",
     "task_id": "str",
     "input_sha256": "str",
+    "task_plan_sha256": "str",
     "inspected_refs": "list",
     "current_flow": "str",
     "criteria_map": "dict",

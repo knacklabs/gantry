@@ -1421,9 +1421,9 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     expect(decisions[0]?.decision).toMatchObject({
       approved: false,
       mode: 'cancel',
-      decidedBy: 'deterministic_rails',
+      decidedBy: 'runtime',
       reason:
-        'Autonomous runs decide deterministically: RunCommand has no declared grant.',
+        'Autonomous permission approval is unavailable: RunCommand has no deliverable approver route.',
     });
     expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).not.toHaveBeenCalled();
@@ -1540,7 +1540,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       expect.arrayContaining([
         expect.objectContaining({
           phase: 'permission_denied',
-          decided_by: 'deterministic_rails',
+          decided_by: 'runtime',
         }),
         expect.objectContaining({
           phase: 'permission_allowed',

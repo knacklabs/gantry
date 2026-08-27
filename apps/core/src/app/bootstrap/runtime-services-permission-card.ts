@@ -21,12 +21,23 @@ export const PERMISSION_CARD_DISPATCH_ACTIVE = true;
 export function startRuntimePermissionCardReconciliation(
   repository: OutboundDeliveryRepository,
   opsRepository?: Pick<RuntimeJobRepository, 'listJobs'>,
+  jobPermissionDurability?: { reconcile(): Promise<number> },
 ): void {
   if (!PERMISSION_CARD_DISPATCH_ACTIVE) return;
   startSetupPromptReconciliationLoop({
     run: async () => {
-      await reconcileRuntimePermissionCards(repository);
-      await reRaiseUnnotifiedSetupPauses(opsRepository);
+      const outcomes = await Promise.allSettled([
+        (async () => {
+          await reconcileRuntimePermissionCards(repository);
+          await reRaiseUnnotifiedSetupPauses(opsRepository);
+        })(),
+        jobPermissionDurability?.reconcile() ?? Promise.resolve(),
+      ]);
+      const failure = outcomes.find(
+        (outcome): outcome is PromiseRejectedResult =>
+          outcome.status === 'rejected',
+      );
+      if (failure) throw failure.reason;
     },
     intervalMs: 5_000,
     warn: (meta, message) => logger.warn(meta, message),

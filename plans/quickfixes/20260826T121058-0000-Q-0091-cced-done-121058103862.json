@@ -1,0 +1,169 @@
+{
+  "event": "done",
+  "id": "Q-0091-cced",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Outcome-first terminal notice, job- and provider-neutral: scheduled runs end with an 'Outcome: <one sentence>' line (prompt guidance), jobOutcomeHeadline lifts it into StructuredJobResult.headline so every native renderer prints the outcome first and the text variant shows it after the header without the duplicate summary. Scope: prompt-profile-service.ts, status-formatting.ts (or rollup), execution-notifications.ts, tests.",
+  "base_sha": "5b30acbc800a288e769d3ce1a6f2cb15a37ab438",
+  "started_at": "2026-08-26T11:33:58+00:00",
+  "completed_at": "2026-08-26T12:10:58+00:00",
+  "files": [
+    "apps/core/src/application/agents/prompt-profile-service.ts",
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/jobs/status-formatting.ts",
+    "apps/core/test/unit/jobs/status-formatting.test.ts",
+    "apps/core/test/unit/runtime/prompt-profile.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/application/agents/prompt-profile-service.ts",
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts",
+        "apps/core/test/unit/runtime/prompt-profile.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Headline appears only once jobs follow the Outcome contract (guidance-driven; older runs render as before)"
+      ],
+      "summary": "Notice leads with the outcome when the run provides one. Lite window Q-0091 (base 5b30acbc8 -> HEAD): outcome-first terminal notice for all jobs and providers \u2014 scheduled-run guidance asks for a final 'Outcome: <one sentence>' line; jobOutcomeHeadline lifts it into StructuredJobResult.headline (native renderers print it first); text variant shows it after the header and drops the duplicate summary. Proof: jobs+application+runtime suites green, unit lane 9,025 green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 2 accepted+fixed (test expectation, blank line after heading), 2 rejected by design (marker list mirrors the picker; memory-dreaming compact notice stays minimal), final clean.",
+      "non_blocking_findings": [
+        {
+          "category": "notification-content",
+          "area": "jobs",
+          "summary": "FIXED: notice led with tool tallies and a narration excerpt"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0091 is notice content only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "24b2b4cfa41f3235ad105cbcbcbe2d069e334f6f78a2c12e5d1dd1d7275d2b82",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "17fb77ea02e62ebe8f094b5be1a93d8097d7938ba2f56262f12320ba8c646b87",
+      "recorded_at": "2026-08-26T12:10:57+00:00",
+      "commit": "9db4e8b52fb6bbb8d800ceb88a6570025bc1ab11"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/application/agents/prompt-profile-service.ts",
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts",
+        "apps/core/test/unit/runtime/prompt-profile.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Headline appears only once jobs follow the Outcome contract (guidance-driven; older runs render as before)"
+      ],
+      "summary": "One regex over the selected summary section. Lite window Q-0091 (base 5b30acbc8 -> HEAD): outcome-first terminal notice for all jobs and providers \u2014 scheduled-run guidance asks for a final 'Outcome: <one sentence>' line; jobOutcomeHeadline lifts it into StructuredJobResult.headline (native renderers print it first); text variant shows it after the header and drops the duplicate summary. Proof: jobs+application+runtime suites green, unit lane 9,025 green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 2 accepted+fixed (test expectation, blank line after heading), 2 rejected by design (marker list mirrors the picker; memory-dreaming compact notice stays minimal), final clean.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "24b2b4cfa41f3235ad105cbcbcbe2d069e334f6f78a2c12e5d1dd1d7275d2b82",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "17fb77ea02e62ebe8f094b5be1a93d8097d7938ba2f56262f12320ba8c646b87",
+      "recorded_at": "2026-08-26T12:10:57+00:00",
+      "commit": "9db4e8b52fb6bbb8d800ceb88a6570025bc1ab11"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/application/agents/prompt-profile-service.ts",
+        "apps/core/src/jobs/status-formatting.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts",
+        "apps/core/test/unit/runtime/prompt-profile.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Headline appears only once jobs follow the Outcome contract (guidance-driven; older runs render as before)"
+      ],
+      "summary": "Headline bounded to 160 chars and rendered through the existing escaping renderers. Lite window Q-0091 (base 5b30acbc8 -> HEAD): outcome-first terminal notice for all jobs and providers \u2014 scheduled-run guidance asks for a final 'Outcome: <one sentence>' line; jobOutcomeHeadline lifts it into StructuredJobResult.headline (native renderers print it first); text variant shows it after the header and drops the duplicate summary. Proof: jobs+application+runtime suites green, unit lane 9,025 green, tsc, architecture, verify.py passed. Autoreview 3 rounds: 2 accepted+fixed (test expectation, blank line after heading), 2 rejected by design (marker list mirrors the picker; memory-dreaming compact notice stays minimal), final clean.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "24b2b4cfa41f3235ad105cbcbcbe2d069e334f6f78a2c12e5d1dd1d7275d2b82",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "17fb77ea02e62ebe8f094b5be1a93d8097d7938ba2f56262f12320ba8c646b87",
+      "recorded_at": "2026-08-26T12:10:57+00:00",
+      "commit": "9db4e8b52fb6bbb8d800ceb88a6570025bc1ab11"
+    }
+  }
+}

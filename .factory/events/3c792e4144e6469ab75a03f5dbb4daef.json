@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T15:08:53+00:00", "story": "JOBPERM-1", "detail": "S-0011-fef6: Orchestrator ran the literal VITEST_JUNIT=1 npx selectors: 3/3 pass, JUnit XML carries the exact jobperm-1-t2-* testcase names."}
