@@ -1001,7 +1001,23 @@ it('q-0072-333a edits one Telegram job-permission card across delivered revision
     appId: 'default',
     jobId: 'job-provider-contract',
   });
-  await dispatchRevision(state!.card.revisions.at(-1)!);
+  const firstRevision = state!.card.revisions.at(-1)!;
+  expect(
+    jobPermissionCardActions(state!.card.callbackKey, firstRevision),
+  ).toEqual([
+    {
+      label: 'Allow',
+      token: `jp:${state!.card.callbackKey}:1:x:a`,
+    },
+    {
+      label: 'Deny',
+      token: `jp:${state!.card.callbackKey}:1:x:d`,
+    },
+  ]);
+  expect(jobPermissionCardText(state!.card.jobId, firstRevision)).toBe(
+    'Permissions needed for this job\nRun Command: task-knack-maintenance *',
+  );
+  await dispatchRevision(firstRevision);
 
   for (const suffix of ['records', 'reporting']) {
     await attachJobPermEdgeNeed(service, { suffix });
@@ -1036,14 +1052,9 @@ it('q-0072-333a edits one Telegram job-permission card across delivered revision
     };
   };
   const buttons = firstOptions.reply_markup?.inline_keyboard?.flat() ?? [];
-  expect(firstText).toContain('KnackLabs Lead Maintenance needs Run Command');
+  expect(firstText).toContain('Run Command: task-knack-maintenance *');
   expect(firstText).not.toContain('RunCommand(');
-  expect(buttons).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ text: 'Allow always for this job' }),
-      expect.objectContaining({ text: 'Deny' }),
-    ]),
-  );
+  expect(buttons.map((button) => button.text)).toEqual(['Allow', 'Deny']);
   expect(buttons.map((button) => button.callback_data)).toEqual(
     expect.arrayContaining(
       jobPermissionCardActions(
@@ -1129,8 +1140,7 @@ it('jobperm-1-t3-provider-card-contracts', async () => {
     );
     const batchToken = checklistAffordances.find(
       (action) =>
-        action.kind === 'job_permission_decision' &&
-        action.label === 'Allow all pending',
+        action.kind === 'job_permission_decision' && action.label === 'Allow',
     );
     const batchActionToken =
       batchToken?.kind === 'job_permission_decision'
@@ -1204,7 +1214,7 @@ it('jobperm-1-t3-provider-card-contracts', async () => {
     const thirdAllow = jobPermissionCardActions(
       state!.card.callbackKey,
       revision,
-    ).find((action) => action.label === 'Allow always for this job')!;
+    ).find((action) => action.label === 'Allow')!;
     await expect(
       service.decideCardAction({
         actor: { actorRef: 'approver' },
@@ -1260,7 +1270,7 @@ it('jobperm-1-t3-provider-card-contracts', async () => {
       epochRevision,
     );
     const oldAllowToken = epochActions.find(
-      (action) => action.label === 'Allow always for this job',
+      (action) => action.label === 'Allow',
     )!.token;
     const denyToken = epochActions.find(
       (action) => action.label === 'Deny',
@@ -1275,10 +1285,7 @@ it('jobperm-1-t3-provider-card-contracts', async () => {
       jobId: 'job-provider-contract',
     });
     const reconsiderRevision = epochState!.card.revisions.at(-1)!;
-    const reconsiderToken = jobPermissionCardActions(
-      epochState!.card.callbackKey,
-      reconsiderRevision,
-    ).find((action) => action.label === 'Reconsider')!.token;
+    const reconsiderToken = `jp:${epochState!.card.callbackKey}:${reconsiderRevision.revision.toString(36)}:0:r`;
     await expect(
       epoch.service.decideCardAction({
         actor: { actorRef: 'approver' },

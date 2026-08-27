@@ -122,12 +122,7 @@ export class JobPermissionProviderActions {
             now,
           );
           const rows = input.batch
-            ? revision.rows.filter(
-                (row) =>
-                  revision.batchNeedIds.includes(row.needId) &&
-                  row.action === 'allow_and_continue' &&
-                  row.actionEnabled,
-              )
+            ? revision.rows
             : revision.rows.filter(
                 (row) =>
                   row.needId === input.needId &&
@@ -137,9 +132,6 @@ export class JobPermissionProviderActions {
                     : row.action !== 'show_scope' && row.actionEnabled),
               );
           if (rows.length === 0) {
-            return { state, result: { status: 'stale' } as const };
-          }
-          if (input.batch && input.decision !== 'allow') {
             return { state, result: { status: 'stale' } as const };
           }
           const accepted: string[] = [];
@@ -152,10 +144,6 @@ export class JobPermissionProviderActions {
             if (!need) continue;
             const wasHandoff =
               need.state === 'handoff_pending' || need.state === 'handed_off';
-            const hasHandoffWaiter = need.waiters.some(
-              (waiter) => waiter.state === 'handoff',
-            );
-            if (input.batch && hasHandoffWaiter) continue;
             const decisionable = need.state === 'asking' || wasHandoff;
             if (!decisionable) continue;
             need.decidedAt = now;
@@ -240,8 +228,16 @@ export class JobPermissionProviderActions {
         providerMessageId: input.providerMessageId,
       });
     }
-    const target = cardActionTarget(state, action);
-    if (!target) return { status: 'stale' };
+    const target =
+      action.rowIndex === null ? null : cardActionTarget(state, action);
+    if (action.rowIndex !== null && !target) return { status: 'stale' };
+    if (
+      action.rowIndex === null &&
+      action.decision !== 'allow' &&
+      action.decision !== 'deny'
+    ) {
+      return { status: 'stale' };
+    }
     if (action.decision === 'show') {
       return this.showFullScope({
         appId: state.card.appId,
@@ -254,8 +250,8 @@ export class JobPermissionProviderActions {
           threadId: input.actor.threadId,
         },
         revision: action.revision,
-        needId: target.needId,
-        askingEpoch: target.askingEpoch,
+        needId: target!.needId,
+        askingEpoch: target!.askingEpoch,
         providerMessageId: input.providerMessageId,
       });
     }
@@ -271,8 +267,8 @@ export class JobPermissionProviderActions {
           threadId: input.actor.threadId,
         },
         revision: action.revision,
-        needId: target.needId,
-        askingEpoch: target.askingEpoch,
+        needId: target!.needId,
+        askingEpoch: target!.askingEpoch,
         providerMessageId: input.providerMessageId,
       });
     }
@@ -288,8 +284,8 @@ export class JobPermissionProviderActions {
       },
       revision: action.revision,
       decision: action.decision,
-      needId: target.needId,
-      askingEpoch: target.askingEpoch,
+      needId: target?.needId,
+      askingEpoch: target?.askingEpoch,
       batch: action.rowIndex === null,
       reason: input.reason,
       providerMessageId: input.providerMessageId,

@@ -18,50 +18,18 @@ export function jobPermissionCardActions(
   callbackKey: string,
   revision: JobPermissionCardRevision,
 ): JobPermissionCardAction[] {
-  const actions: JobPermissionCardAction[] = [];
-  if (revision.batchNeedIds.length > 1) {
-    actions.push({
-      token: actionToken(callbackKey, revision.revision, null, 'allow'),
-      label: 'Allow all pending',
-    });
-  }
-  if (revision.hiddenRowCount > 0) {
-    actions.push({
-      token: actionToken(callbackKey, revision.revision, null, 'next'),
-      label: 'Show next pending',
-    });
-  }
-  revision.rows.forEach((row, index) => {
-    if (row.actionEnabled) {
-      actions.push({
-        token: actionToken(
-          callbackKey,
-          revision.revision,
-          index,
-          row.action === 'reconsider'
-            ? 'reconsider'
-            : row.action === 'show_scope'
-              ? 'show'
-              : 'allow',
-        ),
-        label:
-          row.action === 'approve_and_run_again'
-            ? 'Approve and run again'
-            : row.action === 'reconsider'
-              ? 'Reconsider'
-              : row.action === 'show_scope'
-                ? 'Show full scope'
-                : 'Allow always for this job',
-      });
-    }
-    if (row.denyEnabled) {
-      actions.push({
-        token: actionToken(callbackKey, revision.revision, index, 'deny'),
-        label: 'Deny',
-      });
-    }
-  });
-  return actions;
+  return revision.rows.length > 0
+    ? [
+        {
+          token: actionToken(callbackKey, revision.revision, null, 'allow'),
+          label: 'Allow',
+        },
+        {
+          token: actionToken(callbackKey, revision.revision, null, 'deny'),
+          label: 'Deny',
+        },
+      ]
+    : [];
 }
 
 export function parseJobPermissionCardAction(
@@ -102,9 +70,12 @@ export function jobPermissionCardText(
   if (revision.operation === 'retire') {
     return `Permission requests for job ${jobId} are settled.`;
   }
-  const rows = revision.rows.map(
-    (row) => `${row.displayLabel} needs ${jobPermissionToolLabel(row)}`,
-  );
+  const rows = revision.rows.map((row) => {
+    const scopes = row.visibleGrantAtoms
+      .map((atom) => /\((.*)\)$/.exec(atom)?.[1] ?? atom)
+      .join('; ');
+    return `${jobPermissionToolLabel(row)}: ${scopes}`;
+  });
   const hidden = revision.hiddenRowCount
     ? `\n${revision.hiddenRowCount} more permission request(s) need review.`
     : '';

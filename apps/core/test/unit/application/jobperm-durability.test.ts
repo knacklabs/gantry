@@ -285,6 +285,22 @@ function decide(
   });
 }
 
+function legacyCardActionToken(
+  callbackKey: string,
+  revision: number,
+  rowIndex: number | null,
+  decision: 'allow' | 'deny' | 'reconsider' | 'show' | 'next',
+) {
+  const codes = {
+    allow: 'a',
+    deny: 'd',
+    reconsider: 'r',
+    show: 's',
+    next: 'n',
+  } as const;
+  return `jp:${callbackKey}:${revision.toString(36)}:${rowIndex === null ? 'x' : rowIndex.toString(36)}:${codes[decision]}`;
+}
+
 async function confirmLatest(
   service: JobPermissionDurabilityService,
   repository: MemoryJobPermissionRepository,
@@ -543,14 +559,16 @@ it('replaces a stale message for a new permission need while a paging edit is pe
   clock.nowIso = '2026-08-23T00:11:00.000Z';
 
   const cardState = await readState(repository);
-  const action = jobPermissionCardActions(
+  const revision = cardState!.card.revisions.at(-1)!;
+  const action = legacyCardActionToken(
     cardState!.card.callbackKey,
-    cardState!.card.revisions.at(-1)!,
-  ).find((entry) => entry.label === 'Show full scope');
-  expect(action).toBeDefined();
+    revision.revision,
+    0,
+    'show',
+  );
   await service.decideCardAction({
     actor: { actorRef: 'slack:user-1' },
-    token: action!.token,
+    token: action,
   });
   await attach(service, {
     label: 'Browser',
@@ -577,14 +595,16 @@ it('replaces when only an edit confirmation remains for the current message', as
   clock.nowIso = '2026-08-23T00:11:00.000Z';
 
   const cardState = await readState(repository);
-  const action = jobPermissionCardActions(
+  const revision = cardState!.card.revisions.at(-1)!;
+  const action = legacyCardActionToken(
     cardState!.card.callbackKey,
-    cardState!.card.revisions.at(-1)!,
-  ).find((entry) => entry.label === 'Show full scope');
-  expect(action).toBeDefined();
+    revision.revision,
+    0,
+    'show',
+  );
   await service.decideCardAction({
     actor: { actorRef: 'slack:user-1' },
-    token: action!.token,
+    token: action,
   });
 
   const edit = (await readState(repository))!.card.revisions.at(-1)!;
@@ -647,14 +667,16 @@ it('edits a stale card for a scope paging change', async () => {
   clock.nowIso = '2026-08-23T00:11:00.000Z';
 
   const state = await readState(repository);
-  const action = jobPermissionCardActions(
+  const revision = state!.card.revisions.at(-1)!;
+  const action = legacyCardActionToken(
     state!.card.callbackKey,
-    state!.card.revisions.at(-1)!,
-  ).find((entry) => entry.label === 'Show full scope');
-  expect(action).toBeDefined();
+    revision.revision,
+    0,
+    'show',
+  );
   await service.decideCardAction({
     actor: { actorRef: 'slack:user-1' },
-    token: action!.token,
+    token: action,
   });
 
   const updated = await readState(repository);
@@ -764,15 +786,16 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
     (needId) => !renderedRevision.batchNeedIds.includes(needId),
   )!;
   expect(renderedRevision.batchNeedIds).toHaveLength(2);
-  const nextPageAction = jobPermissionCardActions(
+  const nextPageAction = legacyCardActionToken(
     state!.card.callbackKey,
-    renderedRevision,
-  ).find((action) => action.label === 'Show next pending');
-  expect(nextPageAction).toBeDefined();
+    renderedRevision.revision,
+    null,
+    'next',
+  );
   await expect(
     service.decideCardAction({
       actor: { actorRef: 'slack:user-1' },
-      token: nextPageAction!.token,
+      token: nextPageAction,
     }),
   ).resolves.toEqual({ status: 'accepted', needIds: [hiddenNeedId] });
   state = await readState(repository);
@@ -784,7 +807,7 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
   await expect(
     service.decideCardAction({
       actor: { actorRef: 'slack:user-1' },
-      token: nextPageAction!.token,
+      token: nextPageAction,
     }),
   ).resolves.toEqual({ status: 'stale' });
 
@@ -839,14 +862,16 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
   await confirmLatest(service, repository);
   await service.reconcile();
 
-  const showAction = jobPermissionCardActions(
+  const showAction = legacyCardActionToken(
     state!.card.callbackKey,
-    current,
-  ).find((action) => action.label === 'Show full scope');
+    current.revision,
+    current.rows.findIndex((row) => row.needId === oversized.needId),
+    'show',
+  );
   await expect(
     service.decideCardAction({
       actor: { actorRef: 'slack:user-1' },
-      token: showAction!.token,
+      token: showAction,
     }),
   ).resolves.toEqual({ status: 'accepted', needIds: [oversized.needId] });
   state = await readState(repository);
@@ -883,7 +908,7 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
   const allowAction = jobPermissionCardActions(
     state!.card.callbackKey,
     callbackRevision,
-  ).find((action) => action.label === 'Allow always for this job');
+  ).find((action) => action.label === 'Allow');
   await expect(
     service.decideCardAction({
       actor: { actorRef: 'slack:user-1' },
@@ -897,6 +922,135 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
   state = await readState(repository, 'job-callback-proof');
   expect(state!.needs[0]!.waitStartedAt).toBe(clock.nowIso);
   expect(state!.card.revisions.at(-1)!.operation).toBe('retire');
+});
+
+it('batch allow decides every decisionable card row and records rerun consent', async () => {
+  const { repository, effects, service } = createHarness();
+  const handedOff = await attach(service, { runId: 'handed-off-run-1' });
+  await confirmLatest(service, repository);
+  await service.reconcile();
+  await attach(service, {
+    waiterId: 'handoff-waiter',
+    requestId: 'handoff-request',
+    runId: 'handed-off-run-2',
+  });
+  await service.reconcile();
+  effects.alive.set('handed-off-run-1', false);
+  await service.reconcile();
+  effects.alive.set('handed-off-run-2', false);
+  await service.reconcile();
+  await service.reconcile();
+  const second = await attach(service, {
+    atoms: ['RunCommand(second *)'],
+    waiterId: 'waiter-2',
+    requestId: 'request-2',
+    runId: 'run-2',
+  });
+  const third = await attach(service, {
+    atoms: ['RunCommand(third *)'],
+    waiterId: 'waiter-3',
+    requestId: 'request-3',
+    runId: 'run-3',
+  });
+  const state = await readState(repository);
+  const revision = state!.card.revisions.at(-1)!;
+  expect(revision.rows).toHaveLength(3);
+  expect(
+    revision.rows.find((row) => row.needId === handedOff.needId)?.action,
+  ).toBe('approve_and_run_again');
+  const allow = jobPermissionCardActions(
+    state!.card.callbackKey,
+    revision,
+  ).find((action) => action.label === 'Allow')!;
+
+  await expect(
+    service.decideCardAction({
+      actor: { actorRef: 'telegram:user-1' },
+      token: allow.token,
+    }),
+  ).resolves.toMatchObject({
+    status: 'accepted',
+    needIds: expect.arrayContaining([
+      handedOff.needId,
+      second.needId,
+      third.needId,
+    ]),
+  });
+
+  const updated = await readState(repository);
+  expect(updated!.needs.map((need) => need.state)).toEqual([
+    'approved_pending_apply',
+    'approved_pending_apply',
+    'approved_pending_apply',
+  ]);
+  expect(updated!.card.rerunBarriers).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ priorRunId: 'handed-off-run-1' }),
+    ]),
+  );
+});
+
+it('batch deny denies every decisionable card row', async () => {
+  const { repository, service } = createHarness();
+  const first = await attach(service);
+  const second = await attach(service, {
+    atoms: ['RunCommand(second *)'],
+    waiterId: 'waiter-2',
+    requestId: 'request-2',
+    runId: 'run-2',
+  });
+  const third = await attach(service, {
+    atoms: ['RunCommand(third *)'],
+    waiterId: 'waiter-3',
+    requestId: 'request-3',
+    runId: 'run-3',
+  });
+  const state = await readState(repository);
+  const deny = jobPermissionCardActions(
+    state!.card.callbackKey,
+    state!.card.revisions.at(-1)!,
+  ).find((action) => action.label === 'Deny')!;
+
+  await expect(
+    service.decideCardAction({
+      actor: { actorRef: 'telegram:user-1' },
+      token: deny.token,
+    }),
+  ).resolves.toMatchObject({
+    status: 'accepted',
+    needIds: expect.arrayContaining([
+      first.needId,
+      second.needId,
+      third.needId,
+    ]),
+  });
+
+  expect(
+    (await readState(repository))!.needs.map((need) => need.state),
+  ).toEqual([
+    'denied_pending_delivery',
+    'denied_pending_delivery',
+    'denied_pending_delivery',
+  ]);
+});
+
+it('accepts a legacy per-row token on the current revision', async () => {
+  const { repository, service } = createHarness();
+  const need = await attach(service);
+  const state = await readState(repository);
+  const revision = state!.card.revisions.at(-1)!;
+
+  await expect(
+    service.decideCardAction({
+      actor: { actorRef: 'telegram:user-1' },
+      token: legacyCardActionToken(
+        state!.card.callbackKey,
+        revision.revision,
+        0,
+        'allow',
+      ),
+    }),
+  ).resolves.toEqual({ status: 'accepted', needIds: [need.needId] });
 });
 
 it('jobperm-1-t2-handoff-and-deny-memory', async () => {
