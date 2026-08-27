@@ -31,7 +31,8 @@
         "apps/core/test/unit/channels/",
         "apps/core/test/",
         "apps/core/scripts/",
-        "scripts/architecture-map.json"
+        "scripts/architecture-map.json",
+        "docs/"
       ],
       "required_tests": [
         {
@@ -89,5 +90,5 @@
   "project": "",
   "plan_file": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md",
   "plan_sha256": "097ae733f3e917f5174c2bb272024d383c4b77c353ff6174176f3af27b148aab",
-  "commit": "3abc61b3dce7deaa76c6b44608978fe33eb49dfc"
+  "commit": "7e3373d9bbd1905dc2b15643a3cb2f0360c6a9ae"
 }

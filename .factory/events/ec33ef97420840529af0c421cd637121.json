@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-27T09:18:56+00:00", "story": "CHAN-1", "detail": "check:architecture requires re-pointing five active doc references under docs/, but CHAN-1-T1 write scope excludes docs."}
