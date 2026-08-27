@@ -621,6 +621,69 @@ it('denies a once need without writing a rule', async () => {
   ).toMatchObject({ state: 'denied', grant: 'once' });
 });
 
+it('settles a once need as expired when its run ended', async () => {
+  const { repository, effects, clock, service } = createHarness();
+  const expired = await attach(service, {
+    jobId: 'job-once-expired',
+    requestId: 'once-expired-request',
+    runId: 'run-once-expired',
+    grant: 'once',
+    label: 'Run Command: npm test | tee report.txt',
+  });
+  await confirmLatest(service, repository, 'job-once-expired');
+  await service.reconcile();
+
+  effects.alive.set('run-once-expired', false);
+  clock.nowIso = '2026-08-23T00:01:00.000Z';
+  await service.reconcile();
+
+  let state = await readState(repository, 'job-once-expired');
+  expect(state!.needs[0]).toMatchObject({
+    id: expired.needId,
+    state: 'cancelled',
+    grant: 'once',
+    decidedAt: null,
+    decidedBy: null,
+    grantAppliedAt: null,
+    expiredAt: clock.nowIso,
+  });
+  expect(state!.needs[0]!.waiters).toEqual([
+    expect.objectContaining({ state: 'retired' }),
+  ]);
+  expect(state!.card.revisions.at(-1)!.rows[0]).toMatchObject({
+    needId: expired.needId,
+    actionEnabled: false,
+    denyEnabled: false,
+    expiredAt: clock.nowIso,
+  });
+  expect(effects.grantKeys).toEqual([]);
+  expect(effects.responseKinds).toEqual([]);
+  expect(effects.rerunKeys).toEqual([]);
+
+  const fresh = await attach(service, {
+    jobId: 'job-once-expired',
+    waiterId: 'once-fresh-waiter',
+    requestId: 'once-fresh-request',
+    runId: 'run-once-fresh',
+    grant: 'once',
+    label: 'Run Command: npm test | tee report.txt',
+  });
+  expect(fresh).toMatchObject({ status: 'asking' });
+  expect(fresh.needId).not.toBe(expired.needId);
+  state = await readState(repository, 'job-once-expired');
+  expect(state!.needs).toHaveLength(2);
+  expect(state!.needs.find((need) => need.id === expired.needId)).toMatchObject(
+    {
+      state: 'cancelled',
+      expiredAt: clock.nowIso,
+    },
+  );
+  expect(state!.needs.find((need) => need.id === fresh.needId)).toMatchObject({
+    state: 'asking',
+    grant: 'once',
+  });
+});
+
 it('jobperm-1-t2-reconciler-crash-safe', async () => {
   const { repository, effects, service } = createHarness();
   const asking = await attach(service);

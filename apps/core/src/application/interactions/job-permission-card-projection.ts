@@ -119,12 +119,13 @@ export function reviseLivingCard(
       askingEpoch: need.askingEpoch,
       displayLabel: need.displayLabel,
       grant: need.grant ?? 'rule',
+      ...(need.expiredAt ? { expiredAt: need.expiredAt } : {}),
       renderedGrantAtoms: [...need.renderedGrantAtoms],
       visibleGrantAtoms,
       scopePageStart,
       scopeFullyVisible,
-      actionEnabled: true,
-      denyEnabled: need.state !== 'denied',
+      actionEnabled: need.state !== 'cancelled',
+      denyEnabled: !['cancelled', 'denied'].includes(need.state),
       action: scopeFullyVisible ? ordinaryAction : 'show_scope',
     };
   });
@@ -272,7 +273,11 @@ export function livingCardNeeds(
   state: JobPermissionDurabilityState,
 ): JobPermissionNeedRecord[] {
   return state.needs
-    .filter((need) => ['asking', 'handed_off', 'denied'].includes(need.state))
+    .filter(
+      (need) =>
+        ['asking', 'handed_off', 'denied'].includes(need.state) ||
+        (need.state === 'cancelled' && Boolean(need.expiredAt)),
+    )
     .sort((left, right) =>
       left.createdAt === right.createdAt
         ? left.id.localeCompare(right.id)

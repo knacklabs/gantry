@@ -60,6 +60,7 @@ export interface JobPermissionNeedRecord {
   denialReason: string | null;
   policyChangedReason: string | null;
   grantAppliedAt: string | null;
+  expiredAt?: string;
   requestSnapshots: Array<{
     requestId: string;
     request: PermissionApprovalRequest;
@@ -74,6 +75,7 @@ export interface JobPermissionCardRowSnapshot {
   askingEpoch: number;
   displayLabel: string;
   grant?: JobPermissionGrantMode;
+  expiredAt?: string;
   renderedGrantAtoms: string[];
   visibleGrantAtoms: string[];
   scopePageStart: number;

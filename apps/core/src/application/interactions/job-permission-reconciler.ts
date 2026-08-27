@@ -20,6 +20,7 @@ import {
   openPendingBudget,
   removePendingRerunBarriersForNeed,
 } from './job-permission-durability-state.js';
+import { resolveOnceExpiryTransition } from './job-permission-once-expiry.helper.js';
 import type { JobPermissionProviderActions } from './job-permission-provider-actions.js';
 
 const MAX_AMBIGUOUS_CARD_DELIVERY_ATTEMPTS = 4;
@@ -284,15 +285,13 @@ export class JobPermissionReconciler {
       ) {
         return false;
       }
-      const transitioningIds = new Set([...deadIds, ...expiredLiveIds]);
-      const hasLive = need.waiters.some(
-        (waiter) =>
-          ['awaiting_card_delivery', 'release_pending', 'waiting'].includes(
-            waiter.state,
-          ) && !transitioningIds.has(waiter.id),
+      const transition = resolveOnceExpiryTransition(
+        need,
+        deadIds,
+        expiredLiveIds,
       );
       for (const waiter of need.waiters) {
-        if (!deadIds.includes(waiter.id)) continue;
+        if (!transition.waiterIds.has(waiter.id)) continue;
         if (waiter.state === 'waiting' && waiter.slotReleased) {
           closePendingBudget(
             budgetForRun(state.card, waiter.runId),
@@ -300,17 +299,20 @@ export class JobPermissionReconciler {
             this.clock.monotonicMs(),
           );
         }
-        waiter.state = hasLive ? 'retired' : 'handoff';
+        waiter.state = transition.waiterState;
         waiter.updatedAt = now;
       }
-      need.state = hasLive ? 'asking' : 'handoff_pending';
+      need.state = transition.needState;
+      if (transition.expires) need.expiredAt = now;
       need.updatedAt = now;
-      if (hasLive) reviseLivingCard(state, this.capacity, now);
+      if (transition.hasLiveWaiter || transition.expires)
+        reviseLivingCard(state, this.capacity, now);
       return true;
     });
   }
 
   private async finishHandoff(candidate: JobPermissionNeedRecord) {
+    if ((candidate.grant ?? 'rule') === 'once') return false;
     await this.deliverNeedResponses(candidate, {
       kind: 'setup_required',
       reason:
@@ -321,18 +323,17 @@ export class JobPermissionReconciler {
     return this.mutateExisting(candidate, (state, need) => {
       if (
         need.state !== 'handoff_pending' ||
+        (need.grant ?? 'rule') === 'once' ||
         !need.waiters.every((waiter) =>
           ['delivered', 'retired', 'handoff'].includes(waiter.state),
         )
       ) {
         return false;
       }
-      need.state =
-        (need.grant ?? 'rule') === 'once' || need.approvedGrantAtoms?.length
-          ? 'approved_pending_apply'
-          : need.decidedBy
-            ? 'denied_pending_delivery'
-            : 'handed_off';
+      need.state = 'handed_off';
+      if (need.decidedBy) need.state = 'denied_pending_delivery';
+      if (need.approvedGrantAtoms?.length)
+        need.state = 'approved_pending_apply';
       need.updatedAt = now;
       reviseLivingCard(state, this.capacity, now);
       return true;
@@ -460,21 +461,21 @@ export class JobPermissionReconciler {
       grant: current.grant ?? 'rule',
       grantAtoms: current.approvedGrantAtoms ?? displayed,
     });
-    await this.reconcileRerunBarriers(current);
+    if (grant === 'rule') await this.reconcileRerunBarriers(current);
     const now = this.clock.now();
     await this.mutateExisting(current, (state, need) => {
       const waitersSettled = need.waiters.every((waiter) =>
         ['delivered', 'retired', 'handoff'].includes(waiter.state),
       );
-      const rerunsSettled = state.card.rerunBarriers
-        .filter((barrier) =>
-          barrier.requiredNeeds.some(
-            (required) =>
-              required.needId === need.id &&
-              required.askingEpoch === need.askingEpoch,
-          ),
-        )
-        .every((barrier) => barrier.enqueuedAt);
+      const rerunsSettled = state.card.rerunBarriers.every(
+        ({ enqueuedAt, requiredNeeds }) =>
+          grant === 'once' ||
+          !requiredNeeds.some(
+            ({ needId, askingEpoch }) =>
+              needId === need.id && askingEpoch === need.askingEpoch,
+          ) ||
+          Boolean(enqueuedAt),
+      );
       if (!waitersSettled || !rerunsSettled) return false;
       need.state = 'applied';
       need.updatedAt = now;

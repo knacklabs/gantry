@@ -1,0 +1,11 @@
+{
+  "topic": "managed-env-prefixed-test-policy",
+  "lesson": "Managed command policy can refuse required Vitest commands when a leading environment assignment obscures the inspected prefix; preserve the refusal and run an equivalent direct Vitest JUnit command separately.",
+  "source": "JOBPERM-2-T2 implementation",
+  "applies_to": [
+    "apps/core/test/unit/application/*.test.ts"
+  ],
+  "severity": "low",
+  "generated_by": "implementer",
+  "added_at": "2026-08-27T19:34:02+00:00"
+}
