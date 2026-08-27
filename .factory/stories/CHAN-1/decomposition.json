@@ -36,7 +36,7 @@
       ],
       "required_tests": [
         {
-          "id": "DiscordChannel > creates the runtime channel from configured runtime secret refs",
+          "id": "creates the runtime channel from configured runtime secret refs",
           "path": "apps/core/test/unit/channels/discord/discord.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         }
@@ -90,5 +90,5 @@
   "project": "",
   "plan_file": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md",
   "plan_sha256": "097ae733f3e917f5174c2bb272024d383c4b77c353ff6174176f3af27b148aab",
-  "commit": "a2aa5f75f27e2e229012e9f9f1458dab55a431fe"
+  "commit": "7e8b2494db5c6af3df0810307623c7603379ad0e"
 }
