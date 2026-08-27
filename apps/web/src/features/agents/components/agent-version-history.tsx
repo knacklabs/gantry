@@ -28,7 +28,14 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
       <AgentDrawer
         eyebrow="Read-only history"
         description={`${agent.name} · ${count === undefined ? 'Loading' : count} ${count === 1 ? 'version' : 'versions'}`}
-        footer={<Button onClick={() => setOpen(false)}>Done</Button>}
+        footer={
+          <Button
+            className="h-[34px] px-3 text-[12.5px]"
+            onClick={() => setOpen(false)}
+          >
+            Done
+          </Button>
+        }
         open={open}
         title="Configuration versions"
         onOpenChange={setOpen}
@@ -48,24 +55,24 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
           </p>
         ) : null}
         {selected ? (
-          <div className="grid gap-4 sm:grid-cols-[minmax(140px,0.75fr)_minmax(0,1fr)]">
-            <div className="grid content-start gap-2 border-b border-border pb-4 sm:max-h-[520px] sm:border-r sm:border-b-0 sm:pr-4 sm:pb-0">
+          <div className="grid gap-3 sm:grid-cols-[145px_minmax(0,1fr)]">
+            <div className="grid content-start gap-[7px] border-b border-border pb-3 sm:max-h-[520px] sm:border-r sm:border-b-0 sm:pr-3 sm:pb-0">
               {versions.data?.versions.map((version, index) => (
                 <button
-                  className="rounded-md border border-border p-3 text-left data-[selected=true]:border-text data-[selected=true]:bg-surface-muted"
+                  className="rounded-md border border-border bg-surface p-[9px] text-left hover:border-text-secondary hover:bg-surface-muted data-[selected=true]:border-text-secondary data-[selected=true]:bg-surface-muted"
                   data-selected={selected.id === version.id}
                   key={version.id}
                   onClick={() => setSelectedId(version.id)}
                   type="button"
                 >
-                  <strong className="block text-sm">
+                  <strong className="block text-[11px]">
                     v{version.version}
                     {index === 0 ? ' · Current' : ''}
                   </strong>
-                  <span className="mt-1 block text-xs text-text-secondary">
+                  <span className="mt-[3px] block text-[9px] text-text-secondary">
                     Configuration snapshot
                   </span>
-                  <span className="block text-xs text-text-secondary">
+                  <span className="block text-[9px] text-text-secondary">
                     {formatDate(version.createdAt)}
                   </span>
                 </button>
@@ -79,16 +86,22 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
                   : ''}
               </Badge>
               <div>
-                <h3 className="m-0 text-base font-semibold">
+                <h3 className="m-0 text-[13px] font-semibold">
                   Configuration snapshot
                 </h3>
-                <p className="mt-1 mb-0 text-sm text-text-secondary">
+                <p className="mt-1 mb-0 text-[13px] text-text-secondary">
                   {formatDateTime(selected.createdAt)}
                 </p>
               </div>
+              <div className="grid gap-2">
+                <Change
+                  text={`Saved role snapshot: ${selected.roleSnapshot?.displayName ?? 'none'}.`}
+                />
+                <Change text={`Configured model: ${selected.llmProfileId}.`} />
+              </div>
               <section>
-                <h4 className="m-0 text-sm font-semibold">Snapshot</h4>
-                <dl className="mt-2 grid rounded-md border border-border px-3">
+                <h4 className="m-0 text-[12px] font-semibold">Snapshot</h4>
+                <dl className="mt-2 grid rounded-md border border-border bg-surface-muted px-3">
                   <Row
                     label="Role"
                     value={
@@ -101,8 +114,8 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
             </article>
           </div>
         ) : null}
-        <div className="rounded-lg border border-status-attention/40 bg-status-attention-soft p-3 text-xs">
-          <strong className="block text-sm">History is read-only.</strong>
+        <div className="rounded-lg border border-status-attention/40 bg-status-attention-soft p-[11px] text-[10.5px] leading-[1.5]">
+          <strong className="block text-[12px]">History is read-only.</strong>
           Restoring an earlier version is not available in the Web release.
         </div>
       </AgentDrawer>
@@ -115,6 +128,14 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between gap-3 border-b border-border py-3 text-sm last:border-0">
       <dt>{label}</dt>
       <dd className="text-right font-semibold">{value}</dd>
+    </div>
+  );
+}
+function Change({ text }: { text: string }) {
+  return (
+    <div className="grid grid-cols-[18px_1fr] gap-[7px] rounded-md border border-border bg-surface-muted p-2 text-[10px] leading-[1.45]">
+      <span className="font-semibold text-status-success">+</span>
+      <span>{text}</span>
     </div>
   );
 }
