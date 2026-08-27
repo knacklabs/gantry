@@ -32,15 +32,28 @@ import {
   AlertDialogTitle,
 } from '../../../ui/primitives/alert-dialog';
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '../../../ui/primitives/dialog';
+import {
   agentCapabilitiesQuery,
   agentDetailQuery,
   agentQueryKeys,
   agentSourcesQuery,
   type AgentDirectoryItem,
+  type BrowserRole,
 } from '../agents-queries';
+import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentSetupManager } from '../components/agent-setup-manager';
 import { AgentSettings } from '../components/agent-settings';
 import { AgentVersionHistory } from '../components/agent-version-history';
+import {
+  RoleEditorDialog,
+  type RoleEditorTarget,
+} from '../components/role-editor-dialog';
 
 export function AgentDetailRoute() {
   const { agentId } = useParams({ from: '/agents/$agentId' });
@@ -130,6 +143,9 @@ export function AgentDetailRoute() {
               </p>
               <div className="flex flex-wrap gap-2">
                 <StatusPill status={agent.status} />
+                {!agent.roleName ? (
+                  <Badge variant="attention">No role assigned</Badge>
+                ) : null}
                 <Badge variant="attention">
                   {agent.conversationCount
                     ? `${agent.conversationCount} conversations`
@@ -315,35 +331,157 @@ function Overview({ agent }: { agent: AgentDirectoryItem }) {
 }
 
 function Instructions({ agent }: { agent: AgentDirectoryItem }) {
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const hasRole = Boolean(agent.roleName && agent.rolePrompt);
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-[1.4fr_0.9fr]">
       <InfoCard
-        title="Role snapshot"
+        title={hasRole ? 'Role snapshot' : 'No role assigned'}
         description={
-          agent.configVersion
+          hasRole && agent.configVersion
             ? `Copied into this agent at v${agent.configVersion}.`
-            : 'No saved configuration version.'
+            : 'This agent currently uses Gantry’s default Developer behavior.'
         }
       >
-        <p className="mb-2 text-sm font-semibold">
-          {agent.roleName ?? 'No role selected'}
-        </p>
-        <pre className="m-0 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface-muted p-3 text-xs leading-5 text-text-secondary">
-          {agent.rolePrompt ?? 'No role prompt was saved for this agent.'}
-        </pre>
+        {hasRole ? (
+          <>
+            <p className="mb-2 text-sm font-semibold">{agent.roleName}</p>
+            <pre className="m-0 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface-muted p-3 text-xs leading-5 text-text-secondary">
+              {agent.rolePrompt}
+            </pre>
+          </>
+        ) : (
+          <p className="m-0 text-sm text-text-secondary">
+            Assign a role to give this agent a reusable, visible behavior
+            prompt. Its runtime, safety, and access rules remain separate.
+          </p>
+        )}
+        <Button
+          className="mt-4"
+          variant="secondary"
+          onClick={() => setRoleDialogOpen(true)}
+        >
+          {hasRole ? 'Update role' : 'Assign role'}
+        </Button>
       </InfoCard>
       <InfoCard
-        title="Agent-specific instructions"
-        description="Additional instructions are not currently stored separately."
+        title="How role changes work"
+        description="Role changes are versioned with this agent."
       >
         <p className="m-0 text-sm text-text-secondary">
-          This agent uses its saved role snapshot only.
+          New work uses the saved role snapshot. Work already running keeps its
+          current prompt.
         </p>
         <div className="mt-4 border-t border-border pt-3 text-xs text-text-secondary">
           Last changed {formatDate(agent.updatedAt)}
         </div>
       </InfoCard>
+      <RoleAssignmentDialog
+        agent={agent}
+        open={roleDialogOpen}
+        onOpenChange={setRoleDialogOpen}
+      />
     </div>
+  );
+}
+
+function RoleAssignmentDialog({
+  agent,
+  onOpenChange,
+  open,
+}: {
+  agent: AgentDirectoryItem;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedRole, setSelectedRole] = useState<BrowserRole>();
+  const [roleEditor, setRoleEditor] = useState<RoleEditorTarget>();
+  const hasRole = Boolean(agent.roleName && agent.rolePrompt);
+  const saveRole = useMutation({
+    mutationFn: async () => {
+      if (!selectedRole) throw new Error('Select a role.');
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agent.id)}`,
+        {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: {
+            'content-type': 'application/json',
+            ...browserCsrfHeader(),
+          },
+          body: JSON.stringify({ name: agent.name, roleId: selectedRole.id }),
+        },
+      );
+      if (!response.ok) throw new Error('Role could not be updated.');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: agentQueryKeys.all });
+      onOpenChange(false);
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="grid max-h-[calc(100dvh-46px)] w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-none"
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div className="grid gap-1">
+            <DialogTitle className="text-lg font-semibold">
+              {hasRole ? 'Update role' : 'Assign role'}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-text-secondary">
+              Choose the reusable behavior prompt for {agent.name}.
+            </DialogDescription>
+          </div>
+          <DialogClose asChild>
+            <Button
+              aria-label="Close role dialog"
+              size="icon-sm"
+              variant="ghost"
+            >
+              <X size={16} aria-hidden="true" />
+            </Button>
+          </DialogClose>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-5">
+          <AgentRoleSelector
+            error={saveRole.isError ? saveRole.error.message : undefined}
+            value={selectedRole}
+            onChange={setSelectedRole}
+            onCreateCustom={() => setRoleEditor({ mode: 'create' })}
+          />
+          <p className="mt-4 mb-0 text-xs text-text-secondary">
+            A changed role creates a new configuration version. New work uses
+            it; running work is unchanged.
+          </p>
+          <RoleEditorDialog
+            target={roleEditor}
+            onOpenChange={(nextOpen) => !nextOpen && setRoleEditor(undefined)}
+            onSaved={setSelectedRole}
+          />
+        </div>
+        <footer className="flex items-center justify-end gap-3 border-t border-border bg-surface-muted px-5 py-3">
+          <DialogClose asChild>
+            <Button disabled={saveRole.isPending} variant="secondary">
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button
+            disabled={!selectedRole || saveRole.isPending}
+            onClick={() => saveRole.mutate()}
+          >
+            {saveRole.isPending
+              ? 'Saving…'
+              : hasRole
+                ? 'Update role'
+                : 'Assign role'}
+          </Button>
+        </footer>
+      </DialogContent>
+    </Dialog>
   );
 }
 
