@@ -71,13 +71,15 @@ class MemoryJobPermissionRepository implements JobPermissionDurabilityRepository
   ): Promise<JobPermissionNeedRecord[]> {
     return [...this.states.values()]
       .flatMap((state) => state.needs)
-      .filter((need) =>
-        [
-          'asking',
-          'approved_pending_apply',
-          'denied_pending_delivery',
-          'handoff_pending',
-        ].includes(need.state),
+      .filter(
+        (need) =>
+          [
+            'asking',
+            'approved_pending_apply',
+            'denied_pending_delivery',
+            'handoff_pending',
+          ].includes(need.state) ||
+          (need.state === 'handed_off' && need.grant === 'once'),
       )
       .slice(0, input.limit ?? 100)
       .map((need) => structuredClone(need));
@@ -682,6 +684,52 @@ it('settles a once need as expired when its run ended', async () => {
     state: 'asking',
     grant: 'once',
   });
+});
+
+it('expires a once need already handed off before the expiry sweep existed', async () => {
+  const { repository, effects, clock, service } = createHarness();
+  const pending = await attach(service, {
+    jobId: 'job-once-handoff-pending',
+    requestId: 'once-handoff-pending-request',
+    runId: 'once-handoff-pending-run',
+    grant: 'once',
+  });
+  const handedOff = await attach(service, {
+    jobId: 'job-once-handed-off',
+    requestId: 'once-handed-off-request',
+    runId: 'once-handed-off-run',
+    grant: 'once',
+  });
+  const pendingState = repository.states.get(
+    'default:job-once-handoff-pending',
+  )!;
+  pendingState.needs[0]!.state = 'handoff_pending';
+  pendingState.needs[0]!.waiters[0]!.state = 'handoff';
+  const handedOffState = repository.states.get('default:job-once-handed-off')!;
+  handedOffState.needs[0]!.state = 'handed_off';
+  handedOffState.needs[0]!.waiters[0]!.state = 'handoff';
+
+  clock.nowIso = '2026-08-23T00:01:00.000Z';
+  await service.reconcile();
+
+  for (const [jobId, needId] of [
+    ['job-once-handoff-pending', pending.needId],
+    ['job-once-handed-off', handedOff.needId],
+  ]) {
+    const state = (await readState(repository, jobId))!;
+    expect(state.needs[0]).toMatchObject({
+      id: needId,
+      state: 'cancelled',
+      expiredAt: clock.nowIso,
+      waiters: [expect.objectContaining({ state: 'handoff' })],
+    });
+    expect(
+      jobPermissionCardText(jobId, state.card.revisions.at(-1)!),
+    ).toContain('Expired —');
+  }
+  expect(effects.responseKinds).toEqual([]);
+  expect(effects.grantKeys).toEqual([]);
+  expect(effects.rerunKeys).toEqual([]);
 });
 
 it('jobperm-1-t2-reconciler-crash-safe', async () => {

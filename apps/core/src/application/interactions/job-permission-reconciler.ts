@@ -6,10 +6,7 @@ import type {
   JobPermissionNeedRecord,
   JobPermissionWaiter,
 } from '../../domain/ports/job-permission-durability.js';
-import {
-  initialCard,
-  reviseLivingCard,
-} from './job-permission-card-projection.js';
+import * as projection from './job-permission-card-projection.js';
 import type { JobPermissionDurabilityDependencies } from './job-permission-durability.js';
 import {
   budgetForRun,
@@ -20,7 +17,7 @@ import {
   openPendingBudget,
   removePendingRerunBarriersForNeed,
 } from './job-permission-durability-state.js';
-import { resolveOnceExpiryTransition } from './job-permission-once-expiry.helper.js';
+import * as onceExpiry from './job-permission-once-expiry.helper.js';
 import type { JobPermissionProviderActions } from './job-permission-provider-actions.js';
 
 const MAX_AMBIGUOUS_CARD_DELIVERY_ATTEMPTS = 4;
@@ -149,7 +146,7 @@ export class JobPermissionReconciler {
             currentRevision.deliveryAttempt <
             MAX_AMBIGUOUS_CARD_DELIVERY_ATTEMPTS
           ) {
-            reviseLivingCard(state, this.capacity, now, {
+            projection.reviseLivingCard(state, this.capacity, now, {
               force: true,
               deliveryAttempt: currentRevision.deliveryAttempt + 1,
             });
@@ -175,7 +172,7 @@ export class JobPermissionReconciler {
           need.state = 'handoff_pending';
           need.updatedAt = now;
         }
-        reviseLivingCard(state, this.capacity, now);
+        projection.reviseLivingCard(state, this.capacity, now);
         return { state, result: true };
       },
     });
@@ -209,7 +206,7 @@ export class JobPermissionReconciler {
       progressed = (await this.applyApprovedNeed(candidate)) || progressed;
     } else if (candidate.state === 'denied_pending_delivery') {
       progressed = (await this.deliverDeniedNeed(candidate)) || progressed;
-    } else if (candidate.state === 'handoff_pending') {
+    } else if (['handoff_pending', 'handed_off'].includes(candidate.state)) {
       progressed = (await this.finishHandoff(candidate)) || progressed;
     }
     return progressed;
@@ -285,7 +282,7 @@ export class JobPermissionReconciler {
       ) {
         return false;
       }
-      const transition = resolveOnceExpiryTransition(
+      const transition = onceExpiry.resolveOnceExpiryTransition(
         need,
         deadIds,
         expiredLiveIds,
@@ -306,13 +303,16 @@ export class JobPermissionReconciler {
       if (transition.expires) need.expiredAt = now;
       need.updatedAt = now;
       if (transition.hasLiveWaiter || transition.expires)
-        reviseLivingCard(state, this.capacity, now);
+        projection.reviseLivingCard(state, this.capacity, now);
       return true;
     });
   }
 
   private async finishHandoff(candidate: JobPermissionNeedRecord) {
-    if ((candidate.grant ?? 'rule') === 'once') return false;
+    if ((candidate.grant ?? 'rule') === 'once')
+      return this.mutateExisting(candidate, (state, need) =>
+        onceExpiry.expireHandoff(state, need, this.capacity, this.clock.now()),
+      );
     await this.deliverNeedResponses(candidate, {
       kind: 'setup_required',
       reason:
@@ -335,7 +335,7 @@ export class JobPermissionReconciler {
       if (need.approvedGrantAtoms?.length)
         need.state = 'approved_pending_apply';
       need.updatedAt = now;
-      reviseLivingCard(state, this.capacity, now);
+      projection.reviseLivingCard(state, this.capacity, now);
       return true;
     });
   }
@@ -362,7 +362,7 @@ export class JobPermissionReconciler {
         }
         need.state = 'cancelled';
         need.updatedAt = now;
-        reviseLivingCard(state, this.capacity, now);
+        projection.reviseLivingCard(state, this.capacity, now);
         return true;
       });
     }
@@ -428,7 +428,7 @@ export class JobPermissionReconciler {
               'Permission policy changed before the grant was applied.';
           }
           need.updatedAt = now;
-          reviseLivingCard(state, this.capacity, now);
+          projection.reviseLivingCard(state, this.capacity, now);
           return true;
         });
         return true;
@@ -479,7 +479,7 @@ export class JobPermissionReconciler {
       if (!waitersSettled || !rerunsSettled) return false;
       need.state = 'applied';
       need.updatedAt = now;
-      reviseLivingCard(state, this.capacity, now);
+      projection.reviseLivingCard(state, this.capacity, now);
       return true;
     });
     return true;
@@ -520,7 +520,7 @@ export class JobPermissionReconciler {
       await this.repository.mutateJobPermissionState({
         appId: candidate.appId,
         jobId: candidate.jobId,
-        initialCard: initialCard(candidate, now),
+        initialCard: projection.initialCard(candidate, now),
         mutate: (current) => {
           const pending = current.card.rerunBarriers.find(
             (entry) => entry.priorRunId === barrier.priorRunId,
@@ -550,7 +550,7 @@ export class JobPermissionReconciler {
       }
       need.state = 'denied';
       need.updatedAt = now;
-      reviseLivingCard(state, this.capacity, now);
+      projection.reviseLivingCard(state, this.capacity, now);
       return true;
     });
     return true;
@@ -687,7 +687,7 @@ export class JobPermissionReconciler {
     return this.repository.mutateJobPermissionState({
       appId: candidate.appId,
       jobId: candidate.jobId,
-      initialCard: initialCard(candidate, this.clock.now()),
+      initialCard: projection.initialCard(candidate, this.clock.now()),
       mutate: (state) => {
         const need = state.needs.find((entry) => entry.id === candidate.id);
         if (!need) return { state, result: false };

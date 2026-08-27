@@ -1,8 +1,11 @@
 import type {
+  JobPermissionDurabilityState,
   JobPermissionNeedRecord,
   JobPermissionNeedState,
   JobPermissionWaiterState,
 } from '../../domain/ports/job-permission-durability.js';
+import { reviseLivingCard } from './job-permission-card-projection.js';
+import type { JobPermissionCardCapacity } from './job-permission-durability.js';
 
 export function resolveOnceExpiryTransition(
   need: JobPermissionNeedRecord,
@@ -37,4 +40,23 @@ export function resolveOnceExpiryTransition(
         ? 'asking'
         : 'handoff_pending',
   };
+}
+
+export function expireHandoff(
+  state: JobPermissionDurabilityState,
+  need: JobPermissionNeedRecord,
+  capacity: JobPermissionCardCapacity,
+  now: string,
+): boolean {
+  if (
+    (need.grant ?? 'rule') !== 'once' ||
+    !['handoff_pending', 'handed_off'].includes(need.state)
+  ) {
+    return false;
+  }
+  need.state = 'cancelled';
+  need.expiredAt = now;
+  need.updatedAt = now;
+  reviseLivingCard(state, capacity, now);
+  return true;
 }
