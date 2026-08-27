@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createChannelWiringLiveUx } from '@core/app/bootstrap/channel-wiring-live-ux.js';
 import { createAppChannel } from '@core/channels/app.js';
 import type { ChannelAdapter } from '@core/channels/channel-provider.js';
-import { DiscordChannel } from '@core/channels/discord.js';
+import { DiscordChannel } from '@core/channels/discord/index.js';
 import { SlackChannel } from '@core/channels/slack/channel-adapter.js';
 import { TeamsChannel } from '@core/channels/teams.js';
 import { TelegramChannel } from '@core/channels/telegram/channel-adapter.js';

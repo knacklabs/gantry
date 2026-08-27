@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildBoundedPermissionCard } from '@core/channels/permission-card.js';
-import { DiscordChannel } from '@core/channels/discord.js';
-import { DiscordInteractionHandler } from '@core/channels/discord-interactions.js';
+import { DiscordChannel } from '@core/channels/discord/index.js';
+import { DiscordInteractionHandler } from '@core/channels/discord/interactions.js';
 import { SlackChannel } from '@core/channels/slack/channel-adapter.js';
 import { prepareSlackPermissionCardSend } from '@core/channels/slack/permission-approval-delivery.js';
 import { TeamsChannel } from '@core/channels/teams.js';

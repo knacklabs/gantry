@@ -8,7 +8,7 @@ import { MAX_MESSAGE_FILE_ATTACHMENT_BYTES } from '../application/core-tools/mes
 import {
   DISCORD_FILE_MAX_BYTES,
   DISCORD_MESSAGE_MAX_LENGTH,
-} from './discord-limits.js';
+} from './discord/limits.js';
 import { SLACK_FALLBACK_CHUNK_MAX_LENGTH } from './slack/text-limits.js';
 import {
   TEAMS_413_RETRY_MAX_BYTES,
@@ -46,7 +46,7 @@ async function createTeamsBuiltInChannel(
 async function createDiscordBuiltInChannel(
   opts: ChannelOpts,
 ): Promise<import('./channel-provider.js').ChannelAdapter | null> {
-  const mod = await import('./discord.js');
+  const mod = await import('./discord/index.js');
   return await mod.createDiscordChannel(opts);
 }
 

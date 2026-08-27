@@ -5,7 +5,7 @@ import {
   discordActionComponents,
   parsePermissionCustomId,
   permissionCustomId,
-} from '@core/channels/discord-components.js';
+} from '@core/channels/discord/components.js';
 import { normalizePermissionAction } from '@core/channels/permission-interaction.js';
 import { slackPermissionDecisionActionId } from '@core/channels/slack/permission-action-id.js';
 import {

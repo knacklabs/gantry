@@ -20,7 +20,7 @@ import {
 import {
   RestDiscordSetupDiscoveryClient,
   type DiscordSetupDiscoveryClient,
-} from './discord-setup-discovery.js';
+} from './discord/setup-discovery.js';
 import './register-builtins.js';
 import {
   getProvider,
