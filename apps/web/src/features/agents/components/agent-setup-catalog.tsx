@@ -62,8 +62,12 @@ export function AgentSetupCatalog({
             aria-selected={sourceTab === 'skills'}
             role="tab"
             size="sm"
-            className="min-w-36 justify-between"
-            variant={sourceTab === 'skills' ? 'secondary' : 'outline'}
+            className={`min-w-36 justify-between ${
+              sourceTab === 'skills'
+                ? 'border-text bg-surface text-text hover:bg-surface'
+                : ''
+            }`}
+            variant="outline"
             type="button"
             onClick={() => onSourceTabChange('skills')}
           >
@@ -73,8 +77,12 @@ export function AgentSetupCatalog({
             aria-selected={sourceTab === 'mcp'}
             role="tab"
             size="sm"
-            className="min-w-36 justify-between"
-            variant={sourceTab === 'mcp' ? 'secondary' : 'outline'}
+            className={`min-w-36 justify-between ${
+              sourceTab === 'mcp'
+                ? 'border-text bg-surface text-text hover:bg-surface'
+                : ''
+            }`}
+            variant="outline"
             type="button"
             onClick={() => onSourceTabChange('mcp')}
           >
