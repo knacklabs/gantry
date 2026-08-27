@@ -3,15 +3,13 @@
   "score": 10,
   "recommendation": "approve",
   "reviewed_scope": [
-    "apps/core/src/channels/discord/",
-    "apps/core/test/unit/channels/discord/",
-    "apps/core/src/channels/control-provider-catalog.ts",
-    "apps/core/src/channels/register-builtins.ts",
-    "apps/core/src/cli/discord.ts",
+    "apps/core/src/channels/teams/",
+    "apps/core/test/unit/channels/teams/",
+    "apps/core/src/channels/",
     "scripts/architecture-map.json",
     "docs/architecture/"
   ],
-  "summary": "No runtime change. CHAN-1-T1 at 77f5f6a3b: 34 Discord src files + 5 tests moved to per-provider folders (39 renames), 16 import/doc/map edits; no symbol renames, no logic change. Proof: full unit lane 679 files / 9,050 tests, tsc, check:architecture, zero old-prefix imports; autoreview clean across 3 chunks (1.1 MB bundle).",
+  "summary": "No runtime change. CHAN-1-T2 at abae435cf: 22 Teams src files + 2 tests moved to channels/teams/ (24 renames), 18 import/doc edits; no symbol renames, no logic change. Story-level proof: zero old-prefix imports for Discord or Teams; unit lane 679/9050; Postgres integration lane 62 files / 377 passed; tsc; check:architecture; autoreview 2 chunks, 1 finding rejected on evidence (helper path resolves; suite passes).",
   "residual_risks": [
     "None"
   ],
@@ -19,20 +17,25 @@
   "non_blocking_findings": [],
   "contract_verdicts": [
     {
-      "contract_id": "CHAN-1-AC1-D",
+      "contract_id": "CHAN-1-AC1-T",
       "verdict": "implemented",
-      "evidence": "git diff -M at 77f5f6a3b: 34 R entries channels/discord-*.ts -> channels/discord/*.ts incl. discord.ts -> discord/index.ts; grep for old prefixes in apps/core/src, apps/core/test, scripts = 0"
+      "evidence": "git diff -M at abae435cf: 22 R entries channels/teams-*.ts -> channels/teams/*.ts incl. teams.ts -> teams/index.ts"
     },
     {
-      "contract_id": "CHAN-1-AC4",
+      "contract_id": "CHAN-1-AC2",
       "verdict": "implemented",
-      "evidence": "branch contains origin/main post-#444 (merge commit 20db560fe); #444 merged 2026-08-27"
+      "evidence": "grep for channels/discord-, channels/teams-, './discord-', './teams-' in apps/core/src, apps/core/test, scripts = 0; tests live under test/unit/channels/discord/ and /teams/"
+    },
+    {
+      "contract_id": "CHAN-1-AC3",
+      "verdict": "implemented",
+      "evidence": "tsc --noEmit, npm run check:architecture, unit lane 679/9050, Postgres lane 62/377 green; git diff -M shows renames plus import-path edits only"
     }
   ],
   "aspect": "performance",
-  "review_run_id": "c086cb1780b8422a57006cbecf6a0373c0d2ebe01b36125fe461b4c475f9eb44",
-  "brief_sha256": "e8dbc6e7ff676cc711bbe625a45b327081dd1e5bce35489da1641bdd642eee1a",
-  "branch_diff_digest": "3c449dea8fd5437f5decbf42bece8a37402cbcaa6c94bf2ef1ffef01bd4dc3cf",
-  "recorded_at": "2026-08-27T09:51:53+00:00",
-  "commit": "55cdaab901c086ed82d9c6ecb573f4a974606cae"
+  "review_run_id": "4a18b5518c040ded9b2887b902415c1fd9ad67880942a2361764a50887f45188",
+  "brief_sha256": "64769ce06b54cd7621940eebccedeaecbaa3d4ef6e2af0fdd486faf1b14d8001",
+  "branch_diff_digest": "2784a9dc5ed97e311057b7ccc0cece4bb887ae712c6651cab1cb78fbb9733e22",
+  "recorded_at": "2026-08-27T10:55:14+00:00",
+  "commit": "abae435cff528ac33a0b368de0b086d67f02f9e2"
 }
