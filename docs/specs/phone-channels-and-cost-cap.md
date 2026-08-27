@@ -1,9 +1,10 @@
 ---
 slug: phone-channels-and-cost-cap
 title: Customer support assistant: phone identity, WhatsApp, human handoff; voice and hard cost caps
-status: confirmed
-saved: 2026-08-26T12:04:34+00:00
+status: draft
+saved: 2026-08-27T07:38:53+00:00
 ---
+
 
 
 
@@ -39,6 +40,12 @@ both WhatsApp and voice; built once.
 
 WhatsApp Business Platform Provider Account per agent; callers resolve through the
 phone alias or stay anonymous; same permission gate, audit actor, and offboarding.
+
+### Disclosure and language
+
+First contact on WhatsApp carries an AI disclosure and privacy line as desired
+state; "talk to a person" is always honoured; each agent has a default language and
+templates per locale (Hindi and regional first). Milestone per decision 0146.
 
 ### Human handoff (V1.0.x)
 
@@ -79,6 +86,7 @@ limits (requests/min, tokens/min) are enforced at admission with an audited refu
   - WhatsApp Business Platform Provider Account per agent; callers resolve via IDENT-3 or stay anonymous
   - Same permission gate, audit actor, and offboarding as other providers
   - WhatsApp Business Platform prerequisites (Meta business verification, phone number, message templates) documented as a deployment prerequisite; templates managed as desired state
+  - First-contact AI disclosure and privacy line as desired state; 'talk to a person' always honoured; per-agent default language with templates per locale (Hindi and regional first) as desired state
 - **HANDOFF-1** — Customer handoff to a human agent
   - Handoff triggers: customer asks for a person, the agent declares it cannot resolve, or a conversation policy rule fires; the agent pauses in that conversation only
   - Handoff card (reusing the approval card path) posted to the configured support conversation in Teams or Slack with a bounded context packet; a human claims it and replies through the agent's WhatsApp seat as themselves

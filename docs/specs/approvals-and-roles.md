@@ -1,9 +1,10 @@
 ---
 slug: approvals-and-roles
 title: Approvals by principals and console roles
-status: confirmed
-saved: 2026-08-26T11:22:26+00:00
+status: draft
+saved: 2026-08-27T07:38:52+00:00
 ---
+
 
 
 # Approvals by principals and console roles
@@ -39,7 +40,13 @@ Regulated buyers need approvals attributed to a person and console roles that ma
 - Shared authority/callback files are also touched by the active permission-engine
   work (PERM-2); this capability serializes behind it or jointly owns those files.
 
-### Console roles
+#### Approver lifecycle
+
+Approvals expire after a configured time with a reminder and escalation to the
+owner; expiry is a denial, audited. Offboarding the last owner or approver of an
+agent pauses it and notifies administrators until a replacement is assigned.
+
+## Console roles
 
 - Sign-in is generic OIDC (decision 0101). Entra ID is a configured issuer beside
   Google. Per-issuer grant policy: a configured tenant/domain claim (Google `hd`,
@@ -61,6 +68,7 @@ Regulated buyers need approvals attributed to a person and console roles that ma
   - Existing Slack/Teams/Discord cards and the durable claim/resolve path reused; no new cards, no parallel decision store
   - Browser-console approvals are out of scope for V1.0 (API route stays key-scoped); shared authority/callback files serialized with PERM-2
   - Approval outcomes audited with the approver's PrincipalRef (via AUDIT-1)
+  - Approvals expire after a configured time with a reminder to approvers and escalation to the owner via ADMIN-ALERT-1; an expired approval is a denial, audited
 - **RBAC-1** — Roles for people and agents
   - Entra ID OIDC login for the console beside existing Google OIDC
   - Third role 'approver': can approve, cannot administer
@@ -72,6 +80,8 @@ Regulated buyers need approvals attributed to a person and console roles that ma
   - Authentication & Access page: issuer collection with Entra beside Google, per-issuer tenant/domain auto-grant policy (Google hd, Entra tid), test/activate lifecycle per issuer, sign-in page issuer picker
   - Grant editor and CLI gantry auth access approve accept role approver; BrowserSession/isBrowserRole/web role unions widened
   - Decision 0132 amended for the third role (decision 0142) before implementation
+  - Offboarding the last owner or last approver of an agent pauses the agent (INCIDENT-1 state) and notifies administrators; the agent cannot resume until a replacement is assigned
+  - Entra app registration and tenant-admin consent steps documented for the customer's Teams/Entra administrator
 
 ## Source
 

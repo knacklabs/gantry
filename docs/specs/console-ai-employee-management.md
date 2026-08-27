@@ -1,9 +1,10 @@
 ---
 slug: console-ai-employee-management
 title: Console: onboarding, people, connector accounts, access editing
-status: confirmed
-saved: 2026-08-26T11:43:45+00:00
+status: draft
+saved: 2026-08-27T07:38:52+00:00
 ---
+
 
 
 # Console: onboarding, people, connector accounts, access editing
@@ -80,6 +81,11 @@ detail, onboarding wizard, Handoffs, offboard confirmation, light and dark — i
 the console's existing design system. DIR-UI-1 and ONBOARD-UI-1 are planned from
 those mockups plus this spec.
 
+### Accessibility
+
+All console surfaces meet WCAG 2.1 AA: keyboard operable, labelled controls,
+contrast, 200% zoom, screen-reader names on actions.
+
 ### Facade rules
 
 All surfaces follow decisions 0132/0135: same-origin `/ui/api/*`, viewer read and
@@ -95,24 +101,29 @@ toast system — inline receipts.
   - One design canvas with: unified Directory list (kind filter People | AI employees), agent detail with tabs (Overview, Access, Audit, Approvals, Usage), person detail, onboarding wizard screens, Handoffs view, offboard confirmation; light and dark
   - Uses existing console primitives and tokens; no new component library
   - Approved by the product owner before DIR-UI-1 and ONBOARD-UI-1 are planned; mockups linked from their plans
+  - APPROVED 2026-08-26 by vrknetha — canvas https://claude.ai/code/artifact/cbcf11f1-8bc2-4912-bb37-b2ea7c300010 (21 artboards, light/dark). DIR-UI-1 and ONBOARD-UI-1 plan from these mockups.
 - **ONBOARD-UI-1** — Onboarding wizard: create agent, seat, scope, approvers
   - Screens: Employee (name, model alias, access preset full|locked default full, harness auto), Channel seat (provider, label, secret references via SecretRefField, provider validation), Scope (discover or enter conversation id, memory scope default conversation, trigger), Approvals (one or more resolvable approvers), Review and activate
   - Facades: POST /ui/api/agents (creates agent + service Person + desired-state entry atomically), /ui/api/provider-accounts, /ui/api/provider-accounts/:id/discover-conversations, /ui/api/agents/:id/conversation-installs, /ui/api/conversations/:id/approvers — administrator, Origin+CSRF, hosted reauth, audit
   - Write-only secret ingest endpoint stores a Gantry-held secret and returns only its reference; the browser never receives a secret value (decision 0143)
   - Persona/profile editing, non-default harness, provider secret rotation, and Slack/Teams discovery beyond manual id may stay CLI in V1.0 and are labelled so
+  - WCAG 2.1 AA: keyboard operable, labelled controls, contrast, zoom to 200%, screen-reader names on actions
 - **PEOPLE-UI-1** — People in the Directory: detail, aliases, offboard
   - People appear in the unified Directory (kind = People) via /ui/api/people; person detail replaces the /people/:id preview
   - Offboard action (administrator, hosted reauth, exact-name confirmation dialog) calls the IDENT-4 use case and shows the audit row
   - Service-kind Persons link to their agent detail; humans show verified/unverified/retired aliases
+  - WCAG 2.1 AA: keyboard operable, labelled controls, contrast, zoom to 200%, screen-reader names on actions
 - **UI-CONN-ACCOUNTS-1** — Connector Accounts page: add, connect OAuth, health, revoke
   - Configure > Connector Accounts: list and detail with kind, label, owning agent, external identity, scopes, OAuth status, generated MCP binding, alias, supervisor health and capacity
   - Connect starts the OAUTH-1 authorization-code flow and lands on a verified/failed status; reauthorize, revoke, retire; tokens and transport controls never shown
   - Facades /ui/api/connector-accounts (GET/POST), /:id (GET/PATCH/DELETE), /:id/oauth/authorize, /:id/revoke; separate from the MCP Servers page
   - Shared SecretRefField component validating env:, gantry-secret:, aws-sm: references
+  - WCAG 2.1 AA: keyboard operable, labelled controls, contrast, zoom to 200%, screen-reader names on actions
 - **ACCESS-UI-1** — Access editor: preset, tool rules, capability grants
   - Access tab becomes editable: replace access document, modify tool rules and capability grants, manage MCP bindings; administrator with hosted reauth, Origin+CSRF, audit
   - Facade wraps GET|PUT /v1/agents/:id/access as /ui/api/agents/:id/access with a safe DTO
   - Every change is a desired-state revision with a visible audit row
+  - WCAG 2.1 AA: keyboard operable, labelled controls, contrast, zoom to 200%, screen-reader names on actions
 
 ## Source
 

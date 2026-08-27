@@ -1,9 +1,10 @@
 ---
 slug: self-serve-install-and-docs
 title: Self-serve install and lifecycle documentation
-status: confirmed
-saved: 2026-08-26T11:07:54+00:00
+status: draft
+saved: 2026-08-27T07:38:53+00:00
 ---
+
 
 # Self-serve install and lifecycle documentation
 
@@ -51,9 +52,12 @@ With no sales motion, the install and the docs are the product for every org aft
   - prepack builds the packaged artifact; npm pack -> fresh install -> gantry runs without workspace builds
   - Postgres: setup owns a local Compose lifecycle OR docs state user-started Postgres; one is chosen
   - Linux prerequisites (bubblewrap, socat) documented and present in the fresh-machine test image
+  - Release-bound SBOM, dependency licence report, and NOTICE generated in CI and attached to the tag
 - **DOCS-1** — Onboard/access/audit/offboard documentation spine
   - Docs are organised as onboard -> access -> audit -> offboard with Teams and Slack quickstarts
   - A SECURITY page states threat model, locked posture, audit schema, and egress list
+  - SECURITY page adds: never-phones-home statement, vulnerability disclosure policy, data-flow diagram, audit append-only statement, model-provider subprocessor list; Day-0 page: first administrator, break-glass CLI, IdP outage
+  - CLI documented as break-glass, automation, and the agent's own surface — not the human's primary tool once the console ships
 
 ## Source
 
