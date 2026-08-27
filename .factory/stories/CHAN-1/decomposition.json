@@ -19,7 +19,7 @@
     {
       "id": "CHAN-1-T1",
       "title": "Discord adapter moves to channels/discord/",
-      "objective": "git mv every apps/core/src/channels/discord-*.ts (34 files) to apps/core/src/channels/discord/<name>.ts with the prefix dropped (discord.ts becomes discord/index.ts); rewrite sibling and parent relative imports inside the folder, the 13 importers elsewhere in apps/core/src, and the discord unit tests, which move to apps/core/test/unit/channels/discord/; re-point architecture-budget paths. No symbol renames, no behaviour change.",
+      "objective": "git mv every apps/core/src/channels/discord-*.ts (34 files) to apps/core/src/channels/discord/<name>.ts with the prefix dropped (discord.ts becomes discord/index.ts); rewrite sibling and parent relative imports inside the folder, the 13 importers elsewhere in apps/core/src, and the discord unit tests, which move to apps/core/test/unit/channels/discord/; re-point architecture-map paths (scripts/architecture-map.json). No symbol renames, no behaviour change.",
       "acceptance_criteria": [
         "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts",
         "Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point"
@@ -30,8 +30,8 @@
         "apps/core/src/",
         "apps/core/test/unit/channels/",
         "apps/core/test/",
-        "apps/core/architecture-budgets.json",
-        "apps/core/scripts/"
+        "apps/core/scripts/",
+        "scripts/architecture-map.json"
       ],
       "required_tests": [
         {
@@ -89,5 +89,5 @@
   "project": "",
   "plan_file": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md",
   "plan_sha256": "097ae733f3e917f5174c2bb272024d383c4b77c353ff6174176f3af27b148aab",
-  "commit": "20db560fe4dfc610791944a7c09a3c68eca6f22d"
+  "commit": "4a262477f15c274485466e3adea03df7c8fffac9"
 }
