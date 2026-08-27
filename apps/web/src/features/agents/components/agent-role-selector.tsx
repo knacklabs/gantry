@@ -93,6 +93,7 @@ export function AgentRoleSelector({
               <Button
                 className="m-2"
                 size="sm"
+                type="button"
                 variant="secondary"
                 onClick={() => {
                   void builtIns.refetch();
@@ -107,6 +108,7 @@ export function AgentRoleSelector({
             <Button
               className="w-full"
               size="sm"
+              type="button"
               variant="outline"
               onClick={onCreateCustom}
             >
@@ -124,7 +126,12 @@ export function AgentRoleSelector({
                     Complete role behavior layer
                   </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={onCreateCustom}>
+                <Button
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  onClick={onCreateCustom}
+                >
                   Duplicate and customize
                 </Button>
               </div>
