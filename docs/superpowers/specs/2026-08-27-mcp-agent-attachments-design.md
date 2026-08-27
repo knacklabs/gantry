@@ -22,10 +22,11 @@ Replace the current single-agent attach form with an `Attached agents` panel.
 - Each row shows the agent name, `Source attached`, `Open agent`, and `Detach`.
 - Empty state: `No agents are attached to this MCP server.`
 
-Only an active and ready MCP server can show an enabled `Attach agents` action.
-For other lifecycle states, show the existing lifecycle reason and no attach
-control. Disabled or credential-missing servers are never attachable as
-"pending" sources.
+Only an active MCP server can show an enabled `Attach agents` action. The
+current runtime records active or disabled state, not a separate live
+connection-health value; disabled servers show their lifecycle state and no
+attach control. A future credential/readiness signal must also disable attach,
+rather than creating a "pending" source attachment.
 
 ### Attach agents dialog
 
@@ -66,7 +67,7 @@ compatibility with CLI and management clients. Add browser-only bulk surfaces:
   transaction, synchronizes the settings projection once, and returns the
   attached count.
 
-The endpoint rejects an inactive/non-ready server, disabled/nonexistent agents,
+The endpoint rejects an inactive server, disabled/nonexistent agents,
 already-attached agents supplied as new selections, duplicate IDs, an empty
 selection, and an unauthorized browser session. A failed validation creates no
 bindings. Existing attachment state is not silently remapped.
@@ -79,7 +80,7 @@ not read or written by this flow.
 ## Acceptance criteria
 
 1. An administrator can search, paginate, select, and bulk attach eligible
-   active agents from an active ready MCP detail page.
+   active agents from an active MCP detail page.
 2. Every selected agent is attached or none are; the response includes the
    attached count and the page updates without reload.
 3. Attached, disabled, and ineligible agents are clearly non-selectable with
@@ -103,27 +104,27 @@ not read or written by this flow.
 
 ## Surface impact matrix
 
-| Surface | Status | Impact |
-| --- | --- | --- |
-| Runtime behavior | Changed | Future-run source visibility follows the new bindings. |
-| `settings.yaml` | Changed | Projection is synchronized once after a successful bulk mutation. |
-| Postgres/runtime projection | Changed | Bulk source bindings are persisted atomically. |
-| Control API | Unchanged by design | Existing single-agent API remains intact. |
-| Browser control API | Changed | Adds eligible-agent listing and bulk attach routes. |
-| SDK/contracts | Changed | Adds browser DTO/request validation only if shared contracts are required. |
-| CLI | Unchanged by design | Existing single-agent commands retain their behavior. |
-| Gantry MCP/admin skill | Unchanged by design | No new tool is required for this Web-only workflow. |
-| Channel/provider adapters | Not applicable | Binding is provider-neutral source configuration. |
-| Docs/prompts | Changed | This design documents the source-versus-capability boundary. |
-| Audit/events | Read-only/observable | Existing settings/projection audit continues to reflect mutations. |
-| Tests/verification | Changed | Adds focused API, persistence, component, and browser checks. |
+| Surface                     | Status               | Impact                                                                     |
+| --------------------------- | -------------------- | -------------------------------------------------------------------------- |
+| Runtime behavior            | Changed              | Future-run source visibility follows the new bindings.                     |
+| `settings.yaml`             | Changed              | Projection is synchronized once after a successful bulk mutation.          |
+| Postgres/runtime projection | Changed              | Bulk source bindings are persisted atomically.                             |
+| Control API                 | Unchanged by design  | Existing single-agent API remains intact.                                  |
+| Browser control API         | Changed              | Adds eligible-agent listing and bulk attach routes.                        |
+| SDK/contracts               | Changed              | Adds browser DTO/request validation only if shared contracts are required. |
+| CLI                         | Unchanged by design  | Existing single-agent commands retain their behavior.                      |
+| Gantry MCP/admin skill      | Unchanged by design  | No new tool is required for this Web-only workflow.                        |
+| Channel/provider adapters   | Not applicable       | Binding is provider-neutral source configuration.                          |
+| Docs/prompts                | Changed              | This design documents the source-versus-capability boundary.               |
+| Audit/events                | Read-only/observable | Existing settings/projection audit continues to reflect mutations.         |
+| Tests/verification          | Changed              | Adds focused API, persistence, component, and browser checks.              |
 
 ## Locked decisions
 
 - MCP detail is the primary server-centric attachment surface; Agent Access is
   the agent-centric alternative.
 - Attaching a source does not grant capabilities or tool authority.
-- Only ready active MCP servers and active eligible agents can be attached.
+- Only active MCP servers and active eligible agents can be attached.
 - Detach removes the source for future runs and does not alter capabilities.
 - The normal Web flow has no advanced source-binding controls.
 - The Web flow uses paginated reads and one atomic bulk write.

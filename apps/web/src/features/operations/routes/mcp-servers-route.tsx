@@ -266,7 +266,6 @@ export function McpServersRoute() {
           {selected ? (
             <McpServerDetail
               canManage={Boolean(canManage)}
-              inventory={inventory!}
               key={selected.id}
               onReplace={() => {
                 setReplacement(selected);

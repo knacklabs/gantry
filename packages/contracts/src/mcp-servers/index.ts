@@ -126,3 +126,10 @@ export const UpdateAgentMcpServerBindingRequestSchema = z.object({
 export type UpdateAgentMcpServerBindingRequest = z.infer<
   typeof UpdateAgentMcpServerBindingRequestSchema
 >;
+
+export const BulkAttachAgentsToMcpServerRequestSchema = z.object({
+  agentIds: z.array(z.string().min(1)).min(1).max(100),
+});
+export type BulkAttachAgentsToMcpServerRequest = z.infer<
+  typeof BulkAttachAgentsToMcpServerRequestSchema
+>;

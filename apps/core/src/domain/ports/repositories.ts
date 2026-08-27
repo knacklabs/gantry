@@ -640,6 +640,7 @@ export interface McpServerRepository {
     serverId: McpServerId;
   }): Promise<AgentMcpServerBinding | null>;
   saveAgentBinding(binding: AgentMcpServerBinding): Promise<void>;
+  saveAgentBindingsBatch(bindings: AgentMcpServerBinding[]): Promise<void>;
   disableAgentBinding(input: {
     appId: AppId;
     agentId: AgentId;

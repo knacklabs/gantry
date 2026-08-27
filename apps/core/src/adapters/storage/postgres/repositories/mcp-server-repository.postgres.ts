@@ -342,6 +342,49 @@ export class PostgresMcpServerRepository implements McpServerRepository {
     });
   }
 
+  async saveAgentBindingsBatch(
+    bindings: AgentMcpServerBinding[],
+  ): Promise<void> {
+    if (bindings.length === 0) return;
+    await this.db.transaction(async (tx) => {
+      for (const binding of [...bindings].sort((left, right) =>
+        String(left.agentId).localeCompare(String(right.agentId)),
+      )) {
+        await lockAgentMcpBindingSet(tx, binding);
+      }
+      for (const binding of bindings) {
+        await tx
+          .insert(pgSchema.agentMcpServerBindingsPostgres)
+          .values({
+            id: binding.id,
+            appId: binding.appId,
+            agentId: binding.agentId,
+            serverId: binding.serverId,
+            status: binding.status,
+            required: binding.required,
+            permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
+            allowedToolPatternsJson: encodeJson(binding.allowedToolPatterns),
+            conversationId: binding.conversationId ?? null,
+            threadId: binding.threadId ?? null,
+            createdAt: binding.createdAt,
+            updatedAt: binding.updatedAt,
+          })
+          .onConflictDoUpdate({
+            target: pgSchema.agentMcpServerBindingsPostgres.id,
+            set: {
+              status: binding.status,
+              required: binding.required,
+              permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
+              allowedToolPatternsJson: encodeJson(binding.allowedToolPatterns),
+              conversationId: binding.conversationId ?? null,
+              threadId: binding.threadId ?? null,
+              updatedAt: binding.updatedAt,
+            },
+          });
+      }
+    });
+  }
+
   async getAgentBinding(input: {
     appId: AgentMcpServerBinding['appId'];
     agentId: AgentMcpServerBinding['agentId'];
