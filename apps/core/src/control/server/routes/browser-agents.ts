@@ -545,20 +545,18 @@ export async function handleBrowserAgentRoutes(
             ),
             true
           );
+        const configVersions =
+          await storage.repositories.agentConfigs.listConfigVersions({
+            appId,
+            agentId: agent.id,
+          });
+        const nextConfigVersion =
+          Math.max(...configVersions.map((version) => version.version), 0) + 1;
         const nextConfig: AgentConfigVersion = currentConfig
           ? {
               ...currentConfig,
               id: `agent-config:${randomUUID()}` as AgentConfigVersionId,
-              version:
-                Math.max(
-                  ...(
-                    await storage.repositories.agentConfigs.listConfigVersions({
-                      appId,
-                      agentId: agent.id,
-                    })
-                  ).map((version) => version.version),
-                  0,
-                ) + 1,
+              version: nextConfigVersion,
               agentNameSnapshot: updated.name,
               roleSnapshot: roleChanged
                 ? await roleSnapshotFor(storage, appId, roleId!)
@@ -569,7 +567,7 @@ export async function handleBrowserAgentRoutes(
               id: `agent-config:${randomUUID()}` as AgentConfigVersionId,
               appId,
               agentId: agent.id,
-              version: 1,
+              version: nextConfigVersion,
               promptProfileRef: 'browser-agent-role-snapshot',
               agentNameSnapshot: updated.name,
               roleSnapshot: await roleSnapshotFor(storage, appId, roleId!),
