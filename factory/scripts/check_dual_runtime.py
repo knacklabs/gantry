@@ -387,16 +387,15 @@ def check_path_parity(root: Path) -> None:
 
     codex_events = check_hook_registration(".codex/hooks.json")
     claude_events = check_hook_registration(".claude/settings.json")
-    # PreCompact exists only in Claude Code — Codex sessions have no
-    # compaction event to hook. The scratchpad SNAPSHOT is therefore
-    # Claude-only session machinery, not a gate; its counterpart
-    # (`forge note`, the facts ledgers) works identically in both runtimes.
-    claude_only = {"PreCompact"}
+    # PreCompact and PostToolUse exist only in Claude Code — Codex sessions
+    # expose neither event. Their snapshot/provenance records are therefore
+    # Claude-only session machinery, not gates.
+    claude_only = {"PostToolUse", "PreCompact"}
     if codex_events and claude_events and codex_events != claude_events - claude_only:
         violation(
             f"Hook parity broken: .codex/hooks.json registers {sorted(codex_events)} but "
             f".claude/settings.json registers {sorted(claude_events)}. Both runtimes must "
-            f"enforce the same GATES (Claude-only session events exempt: "
+            f"enforce the same GATES (Claude-only session/provenance events exempt: "
             f"{sorted(claude_only)})."
         )
 

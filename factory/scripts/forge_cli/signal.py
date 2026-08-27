@@ -21,7 +21,12 @@ from factory_lib import load_json, now_iso, repo_root, run_state_path, validate_
 from .common import fail
 from .events import append_event
 
-KINDS = {"contradiction", "confusion", "blocked", "scope-change"}
+# host-exception: the orchestrator logs a MINIMAL host-side product change that
+# is provably impossible to make or verify inside the companion sandbox (no
+# network/database/Docker the change or its verification needs) — WORKFLOW.md
+# "Who authors what". Bounded and always ledgered; paired with a degraded window
+# for the actual write. Not a worker pause like the other kinds.
+KINDS = {"contradiction", "confusion", "blocked", "scope-change", "host-exception"}
 
 
 def signals_path(base: Path) -> Path:

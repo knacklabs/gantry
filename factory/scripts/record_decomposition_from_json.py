@@ -375,6 +375,7 @@ with delegation_exclusion(
         "write_scope", "required_tests", "verify_commands", "reviewer_focus",
         "plan_contracts", "review_budget",
     )
+    graph_amended = False
     if first_recording:
         for task in tasks:
             for field in execution_fields:
@@ -384,28 +385,39 @@ with delegation_exclusion(
                         f"be fully skeletal and must not declare {field}; re-record "
                         "frontier execution detail after the skeleton is protected."
                     )
-    appended_tasks: list[dict] = []
     if not first_recording:
         prior_task_list = [
             task for task in prior_decomposition.get("tasks") or []
             if isinstance(task, dict)
         ]
-        prior_graph = _task_graph(prior_task_list)
-        if _task_graph(tasks[:len(prior_graph)]) != prior_graph:
+        # The prefix of tasks whose work has STARTED (an active or done stage) is
+        # HARD frozen: their ids, order, and dependencies never change here.
+        # Started work is never reordered or removed. (A done contract is frozen
+        # below; an active task's contract may still be amended — that stales its
+        # grill + approval, handled below. To change a task that is done but not
+        # yet shipped, reopen it — `./forge task reopen <id>` — which moves it
+        # back to active; to change shipped work, add a new follow-up task.)
+        started_statuses = {"active", "done"}
+        protected_len = 0
+        for index, task in enumerate(prior_task_list):
+            if stage_statuses.get(task.get("id")) in started_statuses:
+                protected_len = index + 1
+        prior_protected = _task_graph(prior_task_list[:protected_len])
+        if _task_graph(tasks[:protected_len]) != prior_protected:
             raise SystemExit(
-                "decomposition task graph is frozen after initial recording; "
-                "existing task ids, order, and dependencies must remain an exact "
-                "prefix"
+                "decomposition task graph is frozen for work that has started; "
+                "tasks up to the last active/done task (their ids, order, and "
+                "dependencies) must remain an exact prefix — started work is never "
+                "reordered or removed. Reopen a done-but-unshipped task with "
+                "`./forge task reopen <id>` to change it, or add a new follow-up "
+                "task for shipped work."
             )
-        appended_tasks = tasks[len(prior_graph):]
-        for task in appended_tasks:
-            for field in execution_fields:
-                if field in task:
-                    raise SystemExit(
-                        f"decomposition task {task['id']}: an appended task must "
-                        f"be skeletal and must not declare {field}; re-record "
-                        "frontier execution detail after the task is protected."
-                    )
+        # Beyond the started prefix the graph MAY change — a pending task may be
+        # reordered or removed, or a newly discovered task inserted among the
+        # pending ones (the mid-story case). That is never a silent reshuffle: it
+        # is an AMENDMENT of an approved plan. Flag it here; below it WITHDRAWS the
+        # plan approval so the flow is stuck until the human re-approves.
+        graph_amended = _task_graph(tasks) != _task_graph(prior_task_list)
     if frontier_index is not None:
         for task in tasks[frontier_index + 1:]:
             if stage_statuses.get(task.get("id")) == "done":
@@ -498,6 +510,28 @@ with delegation_exclusion(
                 "For a substantive scope change prefer a follow-up task rather than re-approving "
                 "completed work.\n"
             )
+    if graph_amended:
+        # A pending task was inserted, reordered, or removed after the plan was
+        # approved. Allowed — but NEVER silently. Mirror the active-contract-change
+        # discipline above: the plan approval and the affected task grills are now
+        # STALE and do not carry to the amended graph. We do not flip plan_status
+        # here (that would deadlock the recorder, which itself requires an approved
+        # plan to re-record the amendment's own detail); the missing/stale frontier
+        # grill mechanically blocks delegate, and this NOTE + the constitution's
+        # "any post-approval change stops for the human" rule carry the rest.
+        # Started work is untouched (frozen above); this only reshapes the pending
+        # tail.
+        print(
+            "\nNOTE: the task graph was AMENDED beyond the started prefix (a pending "
+            "task was inserted, reordered, or removed). This is an amendment of an "
+            "APPROVED plan — its approval and the affected task grills are now STALE "
+            "and do NOT carry to the amended graph.\n"
+            "Re-present the amended plan to the HUMAN, then before any stage start / "
+            "delegate:\n"
+            "  ./forge plan approve --by \"<name>\"   # only after the human confirms\n"
+            "  python3 factory/scripts/record_grill_from_json.py --gate task "
+            "--task <frontier-id>\n"
+        )
     payload["commit"] = head_sha(root)
     dump_json(protected_decomposition_state_path(root), payload)
     dump_json(decomposition_state_path(root, for_write=True), payload)

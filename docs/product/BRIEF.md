@@ -25,6 +25,13 @@ product and operations workflows.
   BFSI/enterprise client); self-serve install serves the organisations after.
 - Proof artifact for V1.0: a three-minute real-product video, onboard ->
   scope -> approve via Adaptive Card -> offboard.
+- One API, three clients: console, CLI, and the AI employee itself. Humans use
+  the console; the CLI is break-glass, automation, and the agent's own surface.
+  An agent may propose improvements to itself; a person reviews, or auto-applies
+  low-risk classes with an alert and one-action restore. Never its own access.
+- Product plus the operation of it: V1.0 includes bootstrap, freeze, admin
+  alerts, backup/upgrade/rollback, and first contact — the questions a client
+  asks in week one.
 - Second proof (V1.0.x): the customer support assistant — a WhatsApp seat plus
   human handoff into Teams/Slack. Same governed agent, same audit; the human
   takes over the thread, the agent pauses, every switch is on the record.

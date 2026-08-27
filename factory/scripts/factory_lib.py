@@ -1376,6 +1376,32 @@ def plan_digest_without_assumptions(path: Path) -> str:
     return hashlib.sha256(approved_text.encode()).hexdigest()
 
 
+def plan_body_digest(path: Path) -> str:
+    """Hash the authored plan body, excluding harness-managed content."""
+    raw = path.read_bytes()
+    frontmatter = re.match(br"\A---\r?\n.*?\r?\n---\r?\n", raw, re.DOTALL)
+    body = raw[frontmatter.end():] if frontmatter else raw
+    approved_body = body.partition(b"\n## Implementation Assumptions")[0]
+    return hashlib.sha256(approved_body).hexdigest()
+
+
+def require_plan_mode_marker(root: Path, plan: Path) -> None:
+    """Require plan-mode provenance for the current plan body."""
+    story_directory = evidence_path(root, _active_story_key(root), "plan-mode")
+    root_directory = evidence_path(root, None, "plan-mode")
+    digest = plan_body_digest(plan)
+    for directory in dict.fromkeys((story_directory, root_directory)):
+        markers = sorted(directory.glob("*.json")) if directory.is_dir() else ()
+        for marker_path in markers:
+            marker = load_json(marker_path, default={})
+            if marker.get("sha256_body") == digest:
+                return
+    raise SystemExit(
+        f"plan-mode marker required for {plan.name}: enter plan mode, edit or save "
+        "this exact plan file there, then retry without changing its body."
+    )
+
+
 def approved_plan_digest(
     root: Path, state: dict[str, Any], plan: Path,
 ) -> str | None:
@@ -1508,10 +1534,20 @@ def _task_contract_complete(task: dict) -> bool:
 
 
 def _task_grill_fresh(root: Path, task: dict, grill: dict) -> bool:
+    task_id = task.get("id")
+    plan = evidence_path(
+        root, _active_story_key(root), f"task-plans/{task_id}.md",
+    )
+    if not plan.is_file():
+        return False
+    plan_provenance_ok = (
+        grill.get("task_plan_sha256") == plan_digest_without_assumptions(plan)
+    )
     return bool(
         grill.get("verdict") == "pass"
         and grill.get("commit")
         and grill.get("input_sha256") == grounding_digest(root, task)
+        and plan_provenance_ok
     )
 
 
@@ -1566,11 +1602,14 @@ def task_rows(root: Path) -> list[dict]:
             state = "active"
         elif not _task_contract_complete(task):
             state = "skeleton"
-        elif not fresh:
-            state = "ready"
         else:
             plan_state = _task_plan_state(root, task, grill)
-            state = "grilled" if plan_state == "approved" else plan_state
+            if plan_state == "author-task-plan":
+                state = plan_state
+            elif not fresh:
+                state = "ready"
+            else:
+                state = "grilled" if plan_state == "approved" else plan_state
 
         budget = None
         if state == "active":
@@ -1645,9 +1684,11 @@ def task_frontier_state(root: Path) -> tuple[str, dict] | None:
 
     grill_path = evidence_path(root, key, f"grills/tasks/{task_id}.json")
     grill = load_json(grill_path, default={})
+    plan_state = _task_plan_state(root, frontier, grill)
+    if plan_state == "author-task-plan":
+        return plan_state, frontier
     if not _task_grill_fresh(root, frontier, grill):
         return "grill", frontier
-    plan_state = _task_plan_state(root, frontier, grill)
     if plan_state != "approved":
         return plan_state, frontier
     state = "delegate" if stage.get("status") == "active" else "stage-start"
@@ -1692,7 +1733,7 @@ def require_task_worktree(root: Path, *, allow_completed: bool = False) -> None:
 
 def require_ready_task(
     root: Path, task_id: str, *, require_approval: bool = True,
-    allow_completed: bool = False,
+    allow_completed: bool = False, require_grill: bool = True,
 ) -> dict:
     """Require the JIT execution contract and its fresh, passing grill."""
     tasks = load_json(
@@ -1736,18 +1777,19 @@ def require_ready_task(
     if allow_completed and completed:
         from forge_cli.stages import stage_baseline
         treeish = stage_baseline(root, stage)
-    require_task_grill(root, task_id, task, treeish=treeish)
-    if require_approval:
-        key = _active_story_key(root)
-        grill = load_json(
-            evidence_path(root, key, f"grills/tasks/{task_id}.json"), default={},
+    key = _active_story_key(root)
+    grill = load_json(
+        evidence_path(root, key, f"grills/tasks/{task_id}.json"), default={},
+    )
+    if require_approval and _task_plan_state(root, task, grill) == "author-task-plan":
+        raise SystemExit(
+            f"Task plan required first: author {task_id} in plan mode, then run "
+            f"`./forge task plan save {task_id} --from <path>`."
         )
+    if require_grill:
+        require_task_grill(root, task_id, task, treeish=treeish)
+    if require_approval:
         plan_state = _task_plan_state(root, task, grill)
-        if plan_state == "author-task-plan":
-            raise SystemExit(
-                f"Task plan required first: author {task_id} in plan mode, then run "
-                f"`./forge task plan save {task_id} --from <path>`."
-            )
         if plan_state == "await-approval":
             raise SystemExit(
                 f"Task plan approval required: a human must approve the current "
@@ -1803,12 +1845,20 @@ def require_task_sealed(root: Path, task_id: str) -> dict:
     from forge_cli.stages import _require_reviewed_commit, load_stages
 
     state = load_json(run_state_path(root), default={})
-    if state.get("task_id") != task_id:
-        raise SystemExit(
-            f"task worktree required: this worktree is bound to "
-            f"{state.get('task_id') or 'no task'!r}, not {task_id!r}"
-        )
-    require_task_worktree(root, allow_completed=True)
+    bound_task = state.get("task_id")
+    if bound_task:
+        # `forge task start` mode: the worktree is bound to a specific task_id;
+        # enforce that binding and the worktree pointer.
+        if bound_task != task_id:
+            raise SystemExit(
+                f"task worktree required: this worktree is bound to "
+                f"{bound_task!r}, not {task_id!r}"
+            )
+        require_task_worktree(root, allow_completed=True)
+    # Stage-based mode (no task_id in the run pointer, e.g. the task ran via
+    # `forge stage start` on the story branch): there is no task-bound worktree,
+    # so the seal is proven by the done stage + reviewed commit gate below
+    # rather than a worktree pointer.
     task = require_ready_task(root, task_id, allow_completed=True)
     stage = next(
         (candidate for candidate in load_stages(root).get("stages", [])

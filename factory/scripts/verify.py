@@ -20,23 +20,36 @@ gate(root, signoff=True, approved_plan=True, decomposition=True)
 # has nothing to do with the code. Worse in the other direction: a project
 # whose pnpm scripts are no-ops would record green having tested nothing.
 # Refuse instead, and say what to set.
-PHASES = (
+# Required phases: every project must declare these three (no toolchain guess).
+REQUIRED_PHASES = (
     ("structural", "FACTORY_STRUCTURAL_CMD"),
     ("typecheck", "FACTORY_TYPECHECK_CMD"),
     ("tests", "FACTORY_TEST_CMD"),
 )
-commands = [(phase, os.environ.get(variable) or "") for phase, variable in PHASES]
-if unset := [variable for (_, variable), (_, command) in zip(PHASES, commands)
-             if not command.strip()]:
+# Optional maintainability gate: a project declares its own linter/formatter/
+# style command (ESLint, Biome, ruff, golangci-lint, ...). Language-agnostic by
+# design — unset means skipped, never a guessed default. Runs AFTER typecheck
+# and BEFORE tests, so structure/style problems fail fast and cheap.
+OPTIONAL_PHASES = (
+    ("quality", "FACTORY_QUALITY_CMD"),
+)
+if unset := [variable for _, variable in REQUIRED_PHASES
+             if not (os.environ.get(variable) or "").strip()]:
     raise SystemExit(
         "verification is not configured: " + ", ".join(unset) + "\n"
         "Set each to the command this project actually runs, e.g.\n"
         "  FACTORY_STRUCTURAL_CMD='python3 factory/scripts/check_dual_runtime.py' \\\n"
         "  FACTORY_TYPECHECK_CMD='python3 factory/scripts/check_factory_scaffold.py' \\\n"
+        "  FACTORY_QUALITY_CMD='<your linter, optional>' \\\n"
         "  FACTORY_TEST_CMD='uv run --with pytest --with psutil python -m pytest factory/tests -q' \\\n"
         "  python3 factory/scripts/verify.py\n"
         "Put them in .envrc so every run and every worktree agrees."
     )
+# Ordered: structural -> typecheck -> quality (if declared) -> tests.
+_ordered = (REQUIRED_PHASES[0], REQUIRED_PHASES[1]) + OPTIONAL_PHASES + (REQUIRED_PHASES[2],)
+commands = [(phase, os.environ.get(variable) or "")
+            for phase, variable in _ordered
+            if (os.environ.get(variable) or "").strip()]
 
 results = []
 all_ok = True
