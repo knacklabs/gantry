@@ -1,0 +1,78 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "Which Codex model/effort should implement T1?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Required test leaf: 'attaches a job request with no persistable rule as a once need' in apps/core/test/unit/application/jobperm-durability.test.ts.",
+    "Expiry copy/settlement and the Postgres integration proof are T2."
+  ],
+  "rounds": [
+    {
+      "question": "Which Codex model/effort should implement T1?",
+      "options": [
+        "gpt-5.6-sol @ high (Recommended)",
+        "gpt-5.6-sol @ xhigh"
+      ],
+      "chosen": "gpt-5.6-sol @ high (Recommended)"
+    },
+    {
+      "question": "Anything else before T1 starts?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "attachRequest returns false when persistentRules(request) is empty, before any need row exists \u2014 the fallthrough that makes a piped command a chat prompt.",
+      "source": "apps/core/src/app/bootstrap/job-permission-durability-wiring.ts:212; task plan step 1"
+    },
+    {
+      "finding": "The hostJobId option rewrite yields ['cancel'] with no persistent rule \u2014 the Cancel-only prompt; live permission_prompts row 6299a039 rendered [\"cancel\"].",
+      "source": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:437; task plan step 4"
+    },
+    {
+      "finding": "Reconciler apply/handoff guards assume non-empty grant atoms; a once row has none and must still apply.",
+      "source": "apps/core/src/application/interactions/job-permission-reconciler.ts:330-341; task plan step 3"
+    }
+  ],
+  "task_id": "JOBPERM-2-T1",
+  "inspected_refs": [
+    "apps/core/src/app/bootstrap/job-permission-durability-wiring.ts",
+    "apps/core/src/application/interactions/job-permission-durability.ts",
+    "apps/core/src/application/interactions/job-permission-reconciler.ts",
+    "apps/core/src/application/interactions/job-permission-card-projection.ts",
+    "apps/core/src/domain/job-permission-card-actions.ts",
+    "apps/core/src/runtime/ipc-interaction-processing.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/test/unit/application/jobperm-durability.test.ts",
+    "plans/codex-briefs/jobperm-single-path-permissions.md"
+  ],
+  "current_flow": "ipc-interaction-processing.ts wraps requestPermissionApproval: for request.jobId it calls jobPermissionDurability.attachRequest, which returns false when persistentRules(request) is empty (wiring:212), so the request falls through to the classic requester; ipc-permission-classifier-decision.ts:437 then rewrites decisionOptions for hostJobId to ['allow_persistent_rule','cancel'] or ['cancel'] \u2014 a Cancel-only prompt for any request that cannot be remembered.",
+  "criteria_map": {
+    "a job-run request with no persistable rule creates a `once` need row and a card revision with Allow / Deny; no classic prompt is sent and the job-only cancel-only option rewrite no longer exists.": "steps 1\u20132 (attach every job-run request; once need with request-id identity and no atoms; row copy '(this run only)'; Allow/Deny unchanged) + step 4 (classifier rewrite deleted); required test 'attaches a job request with no persistable rule as a once need'",
+    "Allow on a `once` row replays a signed `allow_once` to the runner, writes no rule, and the held tool call resumes; Deny denies; the card settles and logs delivery as today.": "step 3 (reconciler guards tolerate empty atoms; once Allow replays signed allow_once with no updatedPermissions; Deny unchanged; existing delivery log) + jobperm-durability once-replay test",
+    "`rule` rows behave exactly as before (rule write + replay); existing rows without a mode read as `rule`.": "step 1 (rule needs unchanged; optional grant field, absent reads as rule) + absent-grant test",
+    "a job attach failure denies the tool call with a logged plain reason instead of falling through to the chat prompt.": "step 4 (IPC job branch denies with 'Could not raise the job permission card: <cause>' + one WARN line; never deps.requestPermissionApproval) + ask-and-wait attach-failure test"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "grant: 'rule' | 'once' on the job-permission need/revision record (optional JSONB field; absent reads as rule) \u2014 owner choice 2026-08-27; no new table, no migration (A-0065)"
+  ],
+  "owner_questions": [],
+  "input_sha256": "6ff34284a616b1cfa70726a6e06837256439f5528fbc73bfd8005b959b0c780c",
+  "task_plan_sha256": "ad19b343df1f42e05f985a72735060df573a9c1e2c5c726fbfdbe109ade6f7fd",
+  "recorded_at": "2026-08-27T17:29:37+00:00",
+  "commit": "83e9947af4297d5d5049af3a3f28b0a5fabf7636",
+  "approved_task_plan_sha256": "ad19b343df1f42e05f985a72735060df573a9c1e2c5c726fbfdbe109ade6f7fd",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-27T17:29:37+00:00"
+}

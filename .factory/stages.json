@@ -4,7 +4,16 @@
     {
       "id": "JOBPERM-2-T1",
       "title": "Once grants end to end: every job-run request gets the card; once Allow replays allow_once; fail-closed attach; cancel-only rewrite deleted",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-08-27T17:29:37+00:00",
+      "base_sha": "83e9947af4297d5d5049af3a3f28b0a5fabf7636",
+      "dirty_at_start": {
+        ".factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T1.json": {
+          "digest": "49dde08a3879934316dc51615bc8213fa6c156e4b1d701aee11649f58186aa50",
+          "git": "? .factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T1.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "87789d58f918cf06f13396de263df30692d6b0ba3e0fa9983d4bda884766030a"
     },
     {
       "id": "JOBPERM-2-T2",
