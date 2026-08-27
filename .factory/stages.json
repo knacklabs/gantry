@@ -17,10 +17,10 @@
       "local_review_stamp": {
         "stage_id": "JOBPERM-2-T1",
         "task_sha256": "87789d58f918cf06f13396de263df30692d6b0ba3e0fa9983d4bda884766030a",
-        "brief_sha256": "39abcc623285b05a692b4cf22d2adbec8cc39eaa1b438d13aab0ef5af0c8288d",
+        "brief_sha256": "71f4fd07adcc0287723f45993f6633311a85f3e3d615442f9d9bf7ff232d691e",
         "base_sha": "83e9947af4297d5d5049af3a3f28b0a5fabf7636",
-        "product_tree_digest": "b6d794d2941af57064f815be03cfa4458e21b13d7fb12094cec20ebfb71819b5",
-        "recorded_at": "2026-08-27T17:54:11+00:00",
+        "product_tree_digest": "f2d3b4c0705113d0e512482b1bb380703bf04be41f29d20eb887411c338f90d6",
+        "recorded_at": "2026-08-27T18:11:13+00:00",
         "generated_by": "autoreview"
       }
     },

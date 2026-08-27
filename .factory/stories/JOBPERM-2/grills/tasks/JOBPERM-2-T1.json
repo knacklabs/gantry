@@ -4,7 +4,7 @@
   "verdict": "pass",
   "questions_asked": 1,
   "gaps": [
-    "T1 amendment: the 'this run only' row shows the command itself. How long should that label be allowed to get on the card?"
+    "T1's code is in and green (29/29 focused, 9057/9057 full unit lane, tsc, architecture, autoreview clean). The harness wants a fresh confirmation before the final Codex verification run. Proceed?"
   ],
   "contradictions": [],
   "resolutions": [
@@ -14,12 +14,12 @@
   ],
   "rounds": [
     {
-      "question": "T1 amendment: the 'this run only' row shows the command itself. How long should that label be allowed to get on the card?",
+      "question": "T1's code is in and green (29/29 focused, 9057/9057 full unit lane, tsc, architecture, autoreview clean). The harness wants a fresh confirmation before the final Codex verification run. Proceed?",
       "options": [
-        "160 characters, secrets redacted (Recommended)",
-        "Full command, secrets redacted"
+        "Yes \u2014 run the verification pass and close T1 (Recommended)",
+        "Hold"
       ],
-      "chosen": "160 characters, secrets redacted (Recommended)",
+      "chosen": "Yes \u2014 run the verification pass and close T1 (Recommended)",
       "frontier_empty": true
     }
   ],
@@ -61,11 +61,11 @@
     "grant: 'rule' | 'once' on the job-permission need/revision record (optional JSONB field; absent reads as rule) \u2014 owner choice 2026-08-27; no new table, no migration (A-0065)"
   ],
   "owner_questions": [],
-  "input_sha256": "70f43def4e63d04f0c3fed19444eefb3422f39256dbb8af6f178216593403209",
+  "input_sha256": "22a432cd7672b9fb84d271954ee8a0c3f3fad55849cb1f47457d3813a3274cb7",
   "task_plan_sha256": "7a46588b51ead49e0b4e7a07228aeab1f976236a15135d27588fbbbd07bc94c7",
-  "recorded_at": "2026-08-27T17:57:21+00:00",
-  "commit": "80057e7c158a43ffe82c52cd1f732e560eed3c09",
+  "recorded_at": "2026-08-27T18:28:58+00:00",
+  "commit": "f9ae599d1d617994e3713be2a934b5cd6c445883",
   "approved_task_plan_sha256": "7a46588b51ead49e0b4e7a07228aeab1f976236a15135d27588fbbbd07bc94c7",
   "approved_by": "Ravi Kiran Vemula",
-  "approved_at": "2026-08-27T17:57:21+00:00"
+  "approved_at": "2026-08-27T18:28:58+00:00"
 }

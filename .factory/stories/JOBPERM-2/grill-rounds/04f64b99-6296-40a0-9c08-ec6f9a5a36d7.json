@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "T1's code is in and green (29/29 focused, 9057/9057 full unit lane, tsc, architecture, autoreview clean). The harness wants a fresh confirmation before the final Codex verification run. Proceed?",
+      "options": [
+        "Yes \u2014 run the verification pass and close T1 (Recommended)",
+        "Hold"
+      ],
+      "chosen": "Yes \u2014 run the verification pass and close T1 (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T18:28:47.360706+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
