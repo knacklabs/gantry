@@ -1,9 +1,10 @@
 ---
 slug: teams-channel
 title: Microsoft Teams channel
-status: draft
-saved: 2026-08-27T07:38:52+00:00
+status: confirmed
+saved: 2026-08-27T08:49:10+00:00
 ---
+
 
 
 # Microsoft Teams channel
@@ -38,7 +39,7 @@ The next client and the positioning are Teams-first, and the Teams transport is 
 
 #### First contact (INTRO-1)
 
-On install the agent posts an intro card — name, owner, scope preset, approvers,
+Once on install, and once on the first @mention by any new person, the agent posts an intro card — name, owner, scope preset, approvers,
 how to report a problem — and answers `about` / `help` from the effective
 capability catalog. Teams DMs are first-class: discovery covers chats, DM first
 contact posts the intro, manifest identity comes from the agent profile. A
@@ -71,6 +72,7 @@ publishing.
   - On conversation install the agent posts an intro card: name, owner, scope preset, approvers, how to report a problem; the same card answers @agent about or help, derived from the effective capability catalog, not free text
   - Teams DMs are first-class: discovery covers chats, DM first-contact posts the intro, manifest name/icon/description come from the agent profile
   - A report-a-problem action creates an audited row and notifies the owner via ADMIN-ALERT-1
+  - The intro card posts once on install and once on the first @mention by any new person; it never repeats for the same person
 
 ## Source
 

@@ -1,9 +1,10 @@
 ---
 slug: agent-self-improvement
 title: Agent self-improvement by proposal, memory consent, quality signal
-status: draft
-saved: 2026-08-27T07:38:52+00:00
+status: confirmed
+saved: 2026-08-27T07:48:12+00:00
 ---
+
 
 # Agent self-improvement by proposal, memory consent, quality signal
 
@@ -31,8 +32,8 @@ Per decision 0145 an agent may propose revisions only to persona wording, routin
 and skills within its library scope, default model within its allowlist, and
 intro/help text — never access preset, tool rules, model allowlist, approvers,
 owner, connector accounts, or other agents; the boundary is enforced in the
-desired-state validator. The owner sets review (approval card) or auto-apply for
-named low-risk classes; locked-preset agents are review-only. Applied proposals are
+desired-state validator. The default for a new agent is review-only; the owner opts named low-risk classes
+into auto-apply; locked-preset agents are review-only. Applied proposals are
 revisions under the agent's own `PrincipalRef`, posted to the admin channel,
 restorable in one action.
 
@@ -53,6 +54,7 @@ gains resolution and handoff rates; owners get a sampled-conversation review lis
   - An agent may propose revisions only to: persona wording, routines/skills already in its library scope, default model within its allowlist, intro/help text. Never: access preset, tool rules, model allowlist, approvers, owner, connector accounts, other agents (decision 0145)
   - Owner sets per agent: review (every proposal is an approval card in the owner's conversation) or auto-apply for named low-risk classes; locked-preset agents are review-only and cannot see the machinery
   - Every applied proposal is a revision under the agent's own PrincipalRef with diff, ADMIN-ALERT-1 post, and one-action restore
+  - Default for a new agent is review-only; the owner opts specific classes into auto-apply
 - **MEMORY-CONSENT-1** — Personal memory consent and opt-out
   - First DM discloses personal memory; opt-out and erase commands; state on the person detail
 - **QUAL-1** — Quality signal: feedback and conversation review

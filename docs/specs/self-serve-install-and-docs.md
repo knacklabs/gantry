@@ -1,7 +1,7 @@
 ---
 slug: self-serve-install-and-docs
 title: Self-serve install and lifecycle documentation
-status: draft
+status: confirmed
 saved: 2026-08-27T07:38:53+00:00
 ---
 

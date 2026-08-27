@@ -1,7 +1,7 @@
 ---
 slug: ai-employee-directory
 title: AI employee directory
-status: draft
+status: confirmed
 saved: 2026-08-27T07:38:53+00:00
 ---
 

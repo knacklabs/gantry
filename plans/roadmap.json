@@ -2006,7 +2006,8 @@
       "acceptance_criteria": [
         "On conversation install the agent posts an intro card: name, owner, scope preset, approvers, how to report a problem; the same card answers @agent about or help, derived from the effective capability catalog, not free text",
         "Teams DMs are first-class: discovery covers chats, DM first-contact posts the intro, manifest name/icon/description come from the agent profile",
-        "A report-a-problem action creates an audited row and notifies the owner via ADMIN-ALERT-1"
+        "A report-a-problem action creates an audited row and notifies the owner via ADMIN-ALERT-1",
+        "The intro card posts once on install and once on the first @mention by any new person; it never repeats for the same person"
       ],
       "order": 99,
       "status": "pending",
@@ -2018,7 +2019,7 @@
         "ADMIN-ALERT-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Fable #1, Codex #7-8): no first-contact story; Teams discovery drops DMs"
+      "spec": "docs/specs/teams-channel.md"
     },
     {
       "key": "BOOTSTRAP-1",
@@ -2035,7 +2036,7 @@
       "skill": "backend",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Codex #2-4): seeded personal app conflicts with IT-owned install; first-admin journey untested"
+      "spec": "docs/specs/day-two-operations.md"
     },
     {
       "key": "INCIDENT-1",
@@ -2044,7 +2045,8 @@
       "acceptance_criteria": [
         "gantry freeze / unfreeze stops new runs for all agents atomically with durable cancellation intent; audited; administrator-only; works from the CLI without console or IdP",
         "Per-agent pause and per-conversation pause are explicit states with in-flight semantics; HANDOFF-1's conversation pause uses this state; approvers can pause an agent from the channel card",
-        "A paused or frozen agent replies to messages with a fixed, configurable line and posts nothing else"
+        "A paused or frozen agent replies to messages with a fixed, configurable line and posts nothing else",
+        "freeze is soft by default (no new runs or tool calls; in-flight turns finish); --hard cancels immediately; both audited"
       ],
       "order": 101,
       "status": "pending",
@@ -2054,7 +2056,7 @@
         "IDENT-2"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Fable #2, Codex #11): Pause everywhere only pauses jobs; installs are active|disabled"
+      "spec": "docs/specs/day-two-operations.md"
     },
     {
       "key": "OPS-DR-1",
@@ -2063,7 +2065,8 @@
       "acceptance_criteria": [
         "Documented and scripted backup/restore drill covering Postgres and secret-provider references; restore tested in CI against a fresh install",
         "Upgrade path: pre-flight migration check, release notes per tag, pinned image digest with a rollback command",
-        "Decision amending 0003 for tagged releases recorded; secret rotation for provider/connector references documented"
+        "Decision amending 0003 for tagged releases recorded; secret rotation for provider/connector references documented",
+        "Backup target is an S3-compatible bucket or a local path, operator's choice; secret references are backed up, never secret values"
       ],
       "order": 102,
       "status": "pending",
@@ -2073,7 +2076,7 @@
         "PKG-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Fable #3, Codex #14-16): no backup, restore, or rollback path"
+      "spec": "docs/specs/day-two-operations.md"
     },
     {
       "key": "LIFECYCLE-1",
@@ -2082,7 +2085,8 @@
       "acceptance_criteria": [
         "Retention policy in settings per class (messages, memory, audit) with holds; purge is audited",
         "gantry conversation erase <id> redacts an anonymous caller's thread (WhatsApp, voice) irreversibly",
-        "gantry deployment decommission: offboard every principal, export tenant audit (hash-stamped), wipe; deletion certificate produced"
+        "gantry deployment decommission: offboard every principal, export tenant audit (hash-stamped), wipe; deletion certificate produced",
+        "Defaults when unset: messages 90 days, memory until offboarding, audit 400 days minimum; stated in SECURITY"
       ],
       "order": 103,
       "status": "pending",
@@ -2093,7 +2097,7 @@
         "WA-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Fable #5, Codex #17-18): retention/deletion is person-shaped only"
+      "spec": "docs/specs/day-two-operations.md"
     },
     {
       "key": "REVISION-1",
@@ -2102,7 +2106,8 @@
       "acceptance_criteria": [
         "Persona/profile is a revisioned desired-state document; every edit is a revision with author PrincipalRef, diff, and audit row",
         "Restore appends a CAS-fenced corrective revision (no destructive rollback); available from the agent detail and CLI",
-        "Access revisions (ACCESS-UI-1) use the same restore"
+        "Access revisions (ACCESS-UI-1) use the same restore",
+        "Owner may restore persona revisions; administrator (with reauth) may restore access revisions"
       ],
       "order": 104,
       "status": "pending",
@@ -2112,7 +2117,7 @@
         "UIFACADE-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Fable #7, Codex #13): revisions exist, restore does not"
+      "spec": "docs/specs/day-two-operations.md"
     },
     {
       "key": "SELF-1",
@@ -2121,7 +2126,8 @@
       "acceptance_criteria": [
         "An agent may propose revisions only to: persona wording, routines/skills already in its library scope, default model within its allowlist, intro/help text. Never: access preset, tool rules, model allowlist, approvers, owner, connector accounts, other agents (decision 0145)",
         "Owner sets per agent: review (every proposal is an approval card in the owner's conversation) or auto-apply for named low-risk classes; locked-preset agents are review-only and cannot see the machinery",
-        "Every applied proposal is a revision under the agent's own PrincipalRef with diff, ADMIN-ALERT-1 post, and one-action restore"
+        "Every applied proposal is a revision under the agent's own PrincipalRef with diff, ADMIN-ALERT-1 post, and one-action restore",
+        "Default for a new agent is review-only; the owner opts specific classes into auto-apply"
       ],
       "order": 105,
       "status": "pending",
@@ -2133,7 +2139,7 @@
         "ADMIN-ALERT-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Product decision 2026-08-27: CLI is break-glass, automation, and the agent's own surface; self-improvement is a reviewed revision"
+      "spec": "docs/specs/agent-self-improvement.md"
     },
     {
       "key": "MEMORY-CONSENT-1",
@@ -2150,7 +2156,7 @@
         "IDENT-2"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Codex #10): DMs default to user memory with no opt-out; decision 0144"
+      "spec": "docs/specs/agent-self-improvement.md"
     },
     {
       "key": "QUAL-1",
@@ -2167,7 +2173,7 @@
         "ADMIN-ALERT-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Fable #6, Codex #9, #20)"
+      "spec": "docs/specs/agent-self-improvement.md"
     },
     {
       "key": "SUPPORT-1",
@@ -2184,7 +2190,7 @@
         "OPS-DR-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Fable #12)"
+      "spec": "docs/specs/day-two-operations.md"
     },
     {
       "key": "ADMIN-ALERT-1",
@@ -2193,7 +2199,8 @@
       "acceptance_criteria": [
         "One configured admin conversation per deployment; delivery through the durable jobs/delivery path with de-duplication per event and threshold",
         "Named event list in settings: approval unanswered > N min, handoff unclaimed > N min, OAuth expired or unhealthy, provider endpoint unreachable, N consecutive run failures, freeze/unfreeze, offboarding, self-revision applied",
-        "COST-2 and SELF-1 reuse this channel"
+        "COST-2 and SELF-1 reuse this channel",
+        "V1.0 sink is one Teams or Slack conversation; email/webhook sinks are later"
       ],
       "order": 109,
       "status": "pending",
@@ -2203,7 +2210,7 @@
         "IDENT-2"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "Roadmap review 2026-08-27 (Fable #4, Codex #12): no admin alerting until V1.1"
+      "spec": "docs/specs/day-two-operations.md"
     }
   ],
   "epics": [
@@ -2311,5 +2318,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-27T07:37:20+00:00"
+  "updated_at": "2026-08-27T08:49:59+00:00"
 }

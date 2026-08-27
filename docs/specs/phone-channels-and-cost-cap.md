@@ -1,7 +1,7 @@
 ---
 slug: phone-channels-and-cost-cap
 title: Customer support assistant: phone identity, WhatsApp, human handoff; voice and hard cost caps
-status: draft
+status: confirmed
 saved: 2026-08-27T07:38:53+00:00
 ---
 

@@ -1,0 +1,42 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "LIFECYCLE-1 \u2014 default retention when the operator sets nothing?",
+      "options": [
+        "Messages 90 days, memory until offboarding, audit 400 days minimum (Recommended)",
+        "Keep everything until explicitly purged",
+        "Messages 30 days, memory 90 days, audit 1 year"
+      ],
+      "chosen": "Messages 90 days, memory until offboarding, audit 400 days minimum (Recommended)"
+    },
+    {
+      "question": "INTRO-1 \u2014 when does the intro card post in a channel?",
+      "options": [
+        "Once, on install, plus on first @mention by any new person (Recommended)",
+        "Only on install",
+        "On install and pinned; DM everyone in the channel"
+      ],
+      "chosen": "Once, on install, plus on first @mention by any new person (Recommended)"
+    },
+    {
+      "question": "REVISION-1 \u2014 who can restore a prior persona/access revision?",
+      "options": [
+        "Owner for persona; administrator for access (Recommended)",
+        "Administrator only for both",
+        "Owner or administrator for both"
+      ],
+      "chosen": "Owner for persona; administrator for access (Recommended)"
+    },
+    {
+      "question": "Anything else to settle before I confirm these eleven specs and open the PR?",
+      "options": [
+        "No \u2014 confirm and open the PR (Recommended)",
+        "Hold \u2014 I want to change something first"
+      ],
+      "chosen": "No \u2014 confirm and open the PR (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T08:48:33.940694+00:00",
+  "session_id": "6a103c87-a8c9-4ad2-8499-b9794c3dcc64"
+}

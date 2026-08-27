@@ -1,7 +1,7 @@
 ---
 slug: approvals-and-roles
 title: Approvals by principals and console roles
-status: draft
+status: confirmed
 saved: 2026-08-27T07:38:52+00:00
 ---
 

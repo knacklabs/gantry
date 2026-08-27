@@ -1,7 +1,7 @@
 ---
 slug: console-ai-employee-management
 title: Console: onboarding, people, connector accounts, access editing
-status: draft
+status: confirmed
 saved: 2026-08-27T07:38:52+00:00
 ---
 
