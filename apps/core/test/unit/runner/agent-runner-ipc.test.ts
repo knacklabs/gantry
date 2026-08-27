@@ -676,6 +676,20 @@ export async function* query({ prompt, options }) {
         call.streamMessages.push(followup.value.message.content);
       }
       yield { type: 'result', subtype: 'success', result: 'Not finished yet.' };
+      const closed = await nextWithTimeout(iterator, 1500);
+      call.streamEnded = Boolean(closed?.done);
+      appendRecord(call);
+      return;
+    }
+
+    if (process.env.TEST_SCHEDULED_OUTCOME_RESULT_STREAM_END === '1') {
+      yield {
+        type: 'result',
+        subtype: 'success',
+        result: 'Outcome: Lead 1 was written.',
+      };
+      const closed = await nextWithTimeout(iterator, 1500);
+      call.streamEnded = Boolean(closed?.done);
       appendRecord(call);
       return;
     }
@@ -2622,7 +2636,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'nudges a scheduled result without Outcome once and preserves continuedByFollowup',
+    'nudges a scheduled result without Outcome once, then ends after the second result',
     async () => {
       const fixture = createRunnerFixture();
       const result = await runRunner(
@@ -2632,9 +2646,12 @@ describe('agent-runner IPC lifecycle', () => {
       );
 
       expect(result.exitCode, result.stderr).toBe(0);
-      expect(readRecord(fixture.recordPath).calls[0]?.streamMessages).toContain(
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.streamMessages).toContain(
         'You stopped before finishing. Continue the task now. When you are finished, your final message must begin with a line "Outcome: <one sentence>".',
       );
+      expect(call?.streamMessages).toHaveLength(2);
+      expect(call?.streamEnded).toBe(true);
       expect(
         readRunnerOutputs(result.stdout).filter(
           (output) => output.continuedByFollowup === true,
@@ -2645,37 +2662,19 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'does not nudge a scheduled result with an Outcome line',
+    'ends a scheduled run with an Outcome after its first result',
     async () => {
       const fixture = createRunnerFixture();
       const result = await runRunner(
         fixture,
         baseInput({ isScheduledJob: true, jobId: 'job-1' }),
-        { TEST_OUTCOME_RESULT: '1' },
+        { TEST_SCHEDULED_OUTCOME_RESULT_STREAM_END: '1' },
       );
 
       expect(result.exitCode, result.stderr).toBe(0);
-      expect(
-        readRunnerOutputs(result.stdout).some(
-          (output) => output.continuedByFollowup === true,
-        ),
-      ).toBe(false);
-    },
-    RUNNER_IPC_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    'does not nudge a non-scheduled result without an Outcome line',
-    async () => {
-      const fixture = createRunnerFixture();
-      const result = await runRunner(fixture, baseInput());
-
-      expect(result.exitCode, result.stderr).toBe(0);
-      expect(
-        readRunnerOutputs(result.stdout).some(
-          (output) => output.continuedByFollowup === true,
-        ),
-      ).toBe(false);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.streamMessages).toHaveLength(1);
+      expect(call?.streamEnded).toBe(true);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -2710,30 +2709,6 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionRequests).toEqual([
         expect.objectContaining({ toolName: 'RunCommand' }),
       ]);
-    },
-    RUNNER_IPC_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    'closes the SDK prompt stream for one-shot scheduled jobs',
-    async () => {
-      const fixture = createRunnerFixture();
-
-      const result = await runRunner(
-        fixture,
-        baseInput({
-          isScheduledJob: true,
-          jobId: 'job-1',
-        }),
-        {
-          TEST_CHECK_STREAM_ENDED: '1',
-        },
-      );
-
-      expect(result.exitCode).toBe(0);
-      const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.streamMessages).toHaveLength(1);
-      expect(call?.streamEnded).toBe(true);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
