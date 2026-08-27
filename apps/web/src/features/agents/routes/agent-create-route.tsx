@@ -105,7 +105,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="h-[calc(100dvh-46px)] max-h-[900px] w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-w-none"
+        className="h-[calc(100dvh-46px)] max-h-[900px] w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-none"
       >
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="grid gap-1">
@@ -254,7 +254,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
             </section>
           ) : null}
           {step === 'base' ? (
-            <form className="grid gap-4" onSubmit={submit}>
+            <form id="agent-base-form" className="grid gap-4" onSubmit={submit}>
               <div className="grid gap-3 md:grid-cols-[1.2fr_.8fr]">
                 <TextField
                   id="agent-name"
@@ -293,18 +293,6 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                   onChange={(event) => setInstructions(event.target.value)}
                 />
               </label>
-              <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-between gap-3 border-t border-border bg-surface-muted px-5 py-3">
-                <span className="text-xs text-text-secondary">
-                  Step 1 of 4 · Create the reusable identity first.
-                </span>
-                <Button
-                  disabled={!name.trim() || !selectedRole || create.isPending}
-                  type="submit"
-                >
-                  {create.isPending ? 'Creating…' : 'Create and continue'}{' '}
-                  <ArrowRight size={16} aria-hidden="true" />
-                </Button>
-              </div>
             </form>
           ) : null}
           <RoleEditorDialog
@@ -313,6 +301,36 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
             onSaved={setSelectedRole}
           />
         </div>
+        <footer className="flex items-center justify-between gap-3 border-t border-border bg-surface-muted px-5 py-3">
+          <span className="text-xs text-text-secondary">
+            Step{' '}
+            {step === 'base'
+              ? 1
+              : step === 'sources'
+                ? 2
+                : step === 'capabilities'
+                  ? 3
+                  : 4}{' '}
+            of 4 ·{' '}
+            {step === 'base'
+              ? 'Create the reusable identity first.'
+              : step === 'sources'
+                ? 'Optional · select existing reviewed sources.'
+                : step === 'capabilities'
+                  ? 'Optional · choose durable agent authority.'
+                  : 'Review saved configuration and finish.'}
+          </span>
+          {step === 'base' ? (
+            <Button
+              disabled={!name.trim() || !selectedRole || create.isPending}
+              form="agent-base-form"
+              type="submit"
+            >
+              {create.isPending ? 'Creating…' : 'Create and continue'}{' '}
+              <ArrowRight size={16} aria-hidden="true" />
+            </Button>
+          ) : null}
+        </footer>
       </DialogContent>
     </Dialog>
   );
