@@ -1,10 +1,7 @@
 import type { RichInteractionRequest } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { TEAMS_ADAPTIVE_CARD_CONTENT_TYPE } from './cards.js';
-import {
-  teamsConversationIdFromJid,
-  type TeamsSdkClient,
-} from './types.js';
+import { teamsConversationIdFromJid, type TeamsSdkClient } from './types.js';
 import {
   richDescriptor,
   RICH_INTERACTION_FALLBACK_COPY,
