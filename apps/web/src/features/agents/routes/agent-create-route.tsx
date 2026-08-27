@@ -343,7 +343,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
           </span>
           {step === 'base' ? (
             <Button
-              disabled={saveAgent.isPending}
+              disabled={saveAgent.isPending || !name.trim() || !selectedRole}
               form="agent-base-form"
               type="submit"
             >
