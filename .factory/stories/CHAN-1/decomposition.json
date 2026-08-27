@@ -5,8 +5,8 @@
   "epic": "harness-hygiene",
   "plan_contracts": [
     {
-      "id": "CHAN-1-AC1",
-      "statement": "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts",
+      "id": "CHAN-1-AC1-D",
+      "statement": "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped; discord.ts becomes discord/index.ts) \u2014 the Discord half of story AC1; Teams is T2",
       "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
     },
     {
@@ -21,7 +21,7 @@
       "title": "Discord adapter moves to channels/discord/",
       "objective": "git mv every apps/core/src/channels/discord-*.ts (34 files) to apps/core/src/channels/discord/<name>.ts with the prefix dropped (discord.ts becomes discord/index.ts); rewrite sibling and parent relative imports inside the folder, the 13 importers elsewhere in apps/core/src, and the discord unit tests, which move to apps/core/test/unit/channels/discord/; re-point architecture-map paths (scripts/architecture-map.json). No symbol renames, no behaviour change.",
       "acceptance_criteria": [
-        "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts",
+        "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped; discord.ts becomes discord/index.ts) \u2014 the Discord half of story AC1; Teams is T2",
         "Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point"
       ],
       "write_scope": [
@@ -47,8 +47,8 @@
       ],
       "plan_contracts": [
         {
-          "id": "CHAN-1-AC1",
-          "statement": "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts",
+          "id": "CHAN-1-AC1-D",
+          "statement": "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped; discord.ts becomes discord/index.ts) \u2014 the Discord half of story AC1; Teams is T2",
           "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
         },
         {
@@ -89,5 +89,5 @@
   "project": "",
   "plan_file": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md",
   "plan_sha256": "097ae733f3e917f5174c2bb272024d383c4b77c353ff6174176f3af27b148aab",
-  "commit": "4a262477f15c274485466e3adea03df7c8fffac9"
+  "commit": "3abc61b3dce7deaa76c6b44608978fe33eb49dfc"
 }

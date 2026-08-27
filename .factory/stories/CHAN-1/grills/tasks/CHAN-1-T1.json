@@ -16,7 +16,7 @@
   ],
   "current_flow": "Discord adapter modules are flat prefix-named files at the channels root importing each other via ./discord-<x>.js and shared channel modules via ./<shared>.js; the provider entry is channels/discord.ts; external code imports channels/discord-<x>.js.",
   "criteria_map": {
-    "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts": "steps 1-5: git mv of all 34 discord files (teams half is T2), in-folder + external import rewrite, tests moved, budget paths re-pointed; step 6 zero-hit grep + tsc + architecture + unit lane",
+    "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped; discord.ts becomes discord/index.ts) \u2014 the Discord half of story AC1; Teams is T2": "steps 1-5: git mv of all Discord files, in-folder + external import rewrite, tests moved, architecture-map paths re-pointed; step 6 zero-hit grep + tsc + architecture + unit lane",
     "Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point": "branch carries origin/main after #444 merged (merge commit 20db560fe)"
   },
   "decision": "keep",
@@ -81,10 +81,10 @@
     }
   ],
   "owner_questions": [],
-  "input_sha256": "c543445df917cadad5809c6a51f024d997c17e5c408945eee0cab69432085db7",
-  "recorded_at": "2026-08-27T09:06:06+00:00",
-  "commit": "9a2b97a426823d4518d9deb3156b476091160f14",
+  "input_sha256": "3a586abf080e0fe39af0d89993fd1d18c8e03ce76736de79a5ad7e75f9219cf7",
+  "recorded_at": "2026-08-27T09:07:58+00:00",
+  "commit": "3abc61b3dce7deaa76c6b44608978fe33eb49dfc",
   "approved_task_plan_sha256": "3909e42b2a826c8cbca612f8d714d720e0bddb59277c84e73ea8bb2edfa69bd0",
   "approved_by": "Ravi Kiran Vemula",
-  "approved_at": "2026-08-27T09:06:07+00:00"
+  "approved_at": "2026-08-27T09:07:58+00:00"
 }

@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-27T09:07:15+00:00", "story": "CHAN-1", "detail": "CHAN-1-T1 acceptance criteria require moving apps/core/src/channels/teams-*.ts, but the approved task plan says Teams is T2 and explicitly not in scope; implementation is paused pending scope resoluti"}

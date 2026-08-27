@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T09:07:58+00:00", "story": "CHAN-1", "detail": "S-0028-39c8: Contract reworded: T1's contract CHAN-1-AC1-D covers Discord only (discord-*.ts -> discord/*.ts, discord.ts -> discord/index.ts). Teams is CHAN-1-T2. Proceed with the Discord move; do not touch teams-"}
