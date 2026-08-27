@@ -44,9 +44,9 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "64180f03dd468e9616832cfa5b30f5fb3f6620de5b7b364ea85e917a48ada995",
+  "review_run_id": "a05468859d37d0e83f49e66d66db2aa02aea399d0b9c72897251ddd5f8aa6aae",
   "brief_sha256": "64769ce06b54cd7621940eebccedeaecbaa3d4ef6e2af0fdd486faf1b14d8001",
-  "branch_diff_digest": "d57f352e6dd2cc6d08b9cf97ed7040ad00a151adb327f540ab67cca208be394b",
-  "recorded_at": "2026-08-27T11:30:13+00:00",
-  "commit": "a8c41635e527ea4b027bcb0efa46c5a6676da002"
+  "branch_diff_digest": "8fabaecc13b921d0f3b0711c2f2839b0089e4f5495d799d5d89e9e69bddde02c",
+  "recorded_at": "2026-08-27T11:39:09+00:00",
+  "commit": "2365e6af1c1345e05f9421d868823eb9a6318964"
 }
