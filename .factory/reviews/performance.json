@@ -1,0 +1,15 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "summary": "The change adds a constant-time Set membership check during settings export and no new database queries or hot-path work.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [],
+  "recommendation": "ship",
+  "reviewed_scope": [
+    "apps/core/src/config/settings/desired-state-current-export.ts"
+  ],
+  "aspect": "performance",
+  "recorded_at": "2026-08-27T08:46:11+00:00",
+  "commit": "2f55b12f1e6952726d68c4925b2d10111bba9f93"
+}
