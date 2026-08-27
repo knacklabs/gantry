@@ -17,7 +17,12 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
   const count = versions.data?.versions.length;
   return (
     <>
-      <Button variant="secondary" onClick={() => setOpen(true)}>
+      <Button
+        className="border-border-strong bg-surface px-3 text-xs font-semibold shadow-panel hover:bg-surface-muted"
+        size="sm"
+        variant="outline"
+        onClick={() => setOpen(true)}
+      >
         Version history
       </Button>
       <AgentDrawer

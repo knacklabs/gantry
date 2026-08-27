@@ -20,7 +20,6 @@ import {
   browserFetch,
 } from '../../../lib/auth/browser-auth';
 import { PageState } from '../../../ui/compositions/page-state';
-import { RouteTabs } from '../../../ui/compositions/route-tabs';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import {
@@ -144,21 +143,20 @@ export function AgentDetailRoute() {
             <AgentVersionHistory agent={agent} />
             <Button
               disabled={status.isPending}
-              variant={action === 'disable' ? 'destructive' : 'secondary'}
+              className={
+                action === 'disable'
+                  ? 'border-danger/60 bg-surface px-3 text-xs font-semibold text-danger shadow-panel hover:bg-danger-soft'
+                  : 'border-border-strong bg-surface px-3 text-xs font-semibold shadow-panel hover:bg-surface-muted'
+              }
+              size="sm"
+              variant="outline"
               onClick={() => setStatusOpen(true)}
             >
               {label}
             </Button>
           </div>
         </header>
-        <RouteTabs
-          label="Agent detail"
-          tabs={[
-            { value: 'overview', label: 'Overview' },
-            { value: 'instructions', label: 'Instructions' },
-            { value: 'access', label: 'Access' },
-            { value: 'settings', label: 'Settings' },
-          ]}
+        <DetailTabs
           value={search.tab}
           onValueChange={(tab) => void navigate({ search: { tab } })}
         />
@@ -179,6 +177,37 @@ export function AgentDetailRoute() {
         }
       />
     </div>
+  );
+}
+
+function DetailTabs({
+  onValueChange,
+  value,
+}: {
+  onValueChange: (
+    value: 'overview' | 'instructions' | 'access' | 'settings',
+  ) => void;
+  value: 'overview' | 'instructions' | 'access' | 'settings';
+}) {
+  const tabs = ['overview', 'instructions', 'access', 'settings'] as const;
+  return (
+    <nav
+      aria-label="Agent detail"
+      className="flex gap-0 border-y border-border bg-surface-muted px-[18px]"
+    >
+      {tabs.map((tab) => (
+        <button
+          aria-current={value === tab ? 'page' : undefined}
+          className="border-b-2 border-transparent bg-transparent px-[13px] pt-[11px] pb-[10px] text-xs font-semibold text-text-muted capitalize hover:text-text data-[active=true]:border-text data-[active=true]:bg-surface data-[active=true]:text-text"
+          data-active={value === tab}
+          key={tab}
+          type="button"
+          onClick={() => onValueChange(tab)}
+        >
+          {tab}
+        </button>
+      ))}
+    </nav>
   );
 }
 
