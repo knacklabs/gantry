@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T09:27:15+00:00", "story": "CHAN-1", "detail": "S-0030-714c: Build artifacts, not product code: I built packages/contracts/dist and packages/sdk/dist in this worktree (npm run build:contracts / build:sdk; both gitignored). tsc --noEmit resolves @gantry/contract"}

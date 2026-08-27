@@ -21,7 +21,7 @@ describe('generative UI provider renderers', () => {
     for (const file of [
       'apps/core/src/channels/rich-interaction.ts',
       'apps/core/src/channels/slack/rich-interaction.ts',
-      'apps/core/src/channels/discord-rich-interaction.ts',
+      'apps/core/src/channels/discord/rich-interaction.ts',
     ]) {
       const source = read(file);
       expect(
@@ -54,8 +54,8 @@ describe('generative UI provider renderers', () => {
   it('keeps Discord multi-field and free-text forms behind interaction modals', () => {
     const discord = [
       read('apps/core/src/channels/rich-interaction.ts'),
-      read('apps/core/src/channels/discord.ts'),
-      read('apps/core/src/channels/discord-rich-interaction.ts'),
+      read('apps/core/src/channels/discord/index.ts'),
+      read('apps/core/src/channels/discord/rich-interaction.ts'),
     ].join('\n');
 
     expect(discord).toContain('Open form');

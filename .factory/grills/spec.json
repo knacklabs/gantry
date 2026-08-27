@@ -2,99 +2,19 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "summary": "self-serve-install-and-docs: grilled 2026-08-27 (roadmap review; day-two operations; self-improvement by proposal) \u2014 two AskUserQuestion rounds, eight questions.",
-  "questions_asked": 8,
+  "questions_asked": 3,
   "gaps": [
-    "Security packet thin; CLI role after console undefined; Day-0 undocumented"
+    "Entry modules discord.ts/teams.ts map to <provider>/index.ts so external importers change one path segment only.",
+    "Architecture-budget and path-keyed config entries must be re-pointed in the same change."
   ],
   "contradictions": [],
   "resolutions": [
-    "DOCS-1 SECURITY additions, Day-0 page, CLI as break-glass/automation/agent surface (0145); PKG-1 SBOM/licence/NOTICE (0149)"
+    "Pure rename + import rewrite; no symbol renames; no behaviour change.",
+    "Tests move with their provider under apps/core/test/unit/channels/<provider>/.",
+    "Complexity work is out of scope (CHAN-2)."
   ],
-  "open_items": [],
-  "rounds": [
-    {
-      "question": "SELF-1 \u2014 when an AI employee proposes a change to itself, what is the default for a new agent?",
-      "options": [
-        "Review-only by default; owner opts specific classes into auto-apply (Recommended)",
-        "Auto-apply persona and intro text by default; review for routines and model",
-        "Review-only, no auto-apply at all in V1.0.x"
-      ],
-      "chosen": "Review-only by default; owner opts specific classes into auto-apply (Recommended)"
-    },
-    {
-      "question": "INCIDENT-1 \u2014 what does `freeze` do to work already in flight?",
-      "options": [
-        "Soft by default: no new runs or tool calls, in-flight turns finish; `--hard` cancels immediately (Recommended)",
-        "Hard only: cancel everything immediately",
-        "Soft only"
-      ],
-      "chosen": "Soft by default: no new runs or tool calls, in-flight turns finish; `--hard` cancels immediately (Recommended)"
-    },
-    {
-      "question": "ADMIN-ALERT-1 \u2014 where do admin alerts go in V1.0?",
-      "options": [
-        "One Teams/Slack conversation only (Recommended)",
-        "Teams/Slack plus email",
-        "Teams/Slack plus a webhook sink"
-      ],
-      "chosen": "One Teams/Slack conversation only (Recommended)"
-    },
-    {
-      "question": "OPS-DR-1 \u2014 where do backups go?",
-      "options": [
-        "S3-compatible bucket or local path, operator's choice (Recommended)",
-        "Local path only in V1.0",
-        "S3-compatible only"
-      ],
-      "chosen": "S3-compatible bucket or local path, operator's choice (Recommended)"
-    },
-    {
-      "question": "LIFECYCLE-1 \u2014 default retention when the operator sets nothing?",
-      "options": [
-        "Messages 90 days, memory until offboarding, audit 400 days minimum (Recommended)",
-        "Keep everything until explicitly purged",
-        "Messages 30 days, memory 90 days, audit 1 year"
-      ],
-      "chosen": "Messages 90 days, memory until offboarding, audit 400 days minimum (Recommended)"
-    },
-    {
-      "question": "INTRO-1 \u2014 when does the intro card post in a channel?",
-      "options": [
-        "Once, on install, plus on first @mention by any new person (Recommended)",
-        "Only on install",
-        "On install and pinned; DM everyone in the channel"
-      ],
-      "chosen": "Once, on install, plus on first @mention by any new person (Recommended)"
-    },
-    {
-      "question": "REVISION-1 \u2014 who can restore a prior persona/access revision?",
-      "options": [
-        "Owner for persona; administrator for access (Recommended)",
-        "Administrator only for both",
-        "Owner or administrator for both"
-      ],
-      "chosen": "Owner for persona; administrator for access (Recommended)"
-    },
-    {
-      "question": "Anything else to settle before I confirm these eleven specs and open the PR?",
-      "options": [
-        "No \u2014 confirm and open the PR (Recommended)",
-        "Hold \u2014 I want to change something first"
-      ],
-      "chosen": "No \u2014 confirm and open the PR (Recommended)",
-      "frontier_empty": true
-    }
-  ],
-  "inspected_refs": [
-    "docs/architecture/ai-employee-v1-gap-analysis.md",
-    "docs/architecture/ai-employee-v1-handover.md",
-    "docs/product/BRIEF.md"
-  ],
-  "citations": [
-    "docs/specs/self-serve-install-and-docs.md"
-  ],
-  "input_sha256": "424d795c4f798cd85f5ed7eb73c59ff9a3269d55879abb8e8e7ea9edeed920d0",
-  "recorded_at": "2026-08-27T08:49:59+00:00",
-  "commit": "96a6eaa032fa4aa3f5af7b44c651b773e97bfbe9"
+  "owner_questions": [],
+  "input_sha256": "93e92b93ff2e8a4f75b2557a846653ec1842c8fdc9417f899fcd109047e0d042",
+  "recorded_at": "2026-08-27T08:51:57+00:00",
+  "commit": "20db560fe4dfc610791944a7c09a3c68eca6f22d"
 }

@@ -43,9 +43,9 @@ import {
   type JobPermissionDurabilityClock,
   type JobPermissionDurabilityEffects,
 } from '@core/application/interactions/job-permission-durability.js';
-import { DiscordChannel } from '@core/channels/discord.js';
-import { discordActionComponents } from '@core/channels/discord-components.js';
-import { DiscordInteractionHandler } from '@core/channels/discord-interactions.js';
+import { DiscordChannel } from '@core/channels/discord/index.js';
+import { discordActionComponents } from '@core/channels/discord/components.js';
+import { DiscordInteractionHandler } from '@core/channels/discord/interactions.js';
 import { registerSlackMessageActionHandler } from '@core/channels/slack/channel-message-action-handler.js';
 import { SlackChannelDelivery } from '@core/channels/slack/channel-delivery.js';
 import { slackMessageActionBlocks } from '@core/channels/slack/message-action-affordances.js';

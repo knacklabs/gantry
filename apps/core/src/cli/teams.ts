@@ -4,11 +4,11 @@ import type {
   TeamsDiscoveredChannel,
   TeamsSetupCredentials,
   TeamsSetupDiscoveryClient,
-} from '../channels/teams-setup-discovery.js';
+} from '../channels/teams/setup-discovery.js';
 import {
   GraphTeamsSetupDiscoveryClient,
   trimTeamsSetupCredentials,
-} from '../channels/teams-setup-discovery.js';
+} from '../channels/teams/setup-discovery.js';
 import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
 import {
   ensureConfiguredAgent,

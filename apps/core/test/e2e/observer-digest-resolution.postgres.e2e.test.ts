@@ -18,8 +18,8 @@ import {
   TELEGRAM_OBSERVER_CALLBACK_PATTERN,
   OBSERVER_FEEDBACK_BY_CODE,
 } from '@core/channels/telegram/observer-digest-message.js';
-import { teamsObserverDigestCard } from '@core/channels/teams-cards.js';
-import { handleTeamsMessageAction } from '@core/channels/teams-message-actions.js';
+import { teamsObserverDigestCard } from '@core/channels/teams/cards.js';
+import { handleTeamsMessageAction } from '@core/channels/teams/message-actions.js';
 
 import {
   createPostgresIntegrationRuntime,

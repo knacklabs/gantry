@@ -86,7 +86,7 @@ current fan-out; one worktree per story.
 
 ## Facts from the code you must not re-discover
 
-- Teams transport is a stub (`apps/core/src/channels/teams-sdk-client.ts` returns
+- Teams transport is a stub (`apps/core/src/channels/teams/sdk-client.ts` returns
   `null`). TEAMS-1 is the first real Teams work.
 - Shipped identity schema is `users` + `user_aliases(provider, providerAccountId,
   externalUserId)`; IDENT-2 is a migration from that, not from the documented tuple.

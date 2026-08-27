@@ -1,0 +1,12 @@
+{
+  "topic": "review budget counts renames twice",
+  "lesson": "The stage review budget counts a git rename as two files (old path deleted plus new path added): a 39-file folder move measured 95 files against a budget of 62. Size max_changed_files for move/refactor tasks as 2x renames plus edits, with the reason on the record.",
+  "source": "CHAN-1-T1 stage done refusal 2026-08-27",
+  "applies_to": [
+    "factory/scripts/forge_cli/stages.py",
+    "plans/"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-08-27T09:53:11+00:00"
+}

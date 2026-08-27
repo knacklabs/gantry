@@ -2,80 +2,41 @@
 
 For each contract, emit a verdict — implemented | partial | missing — with file:line evidence, recorded as contract_verdicts in the quality artifact. Then review the diff normally; the contract check does not replace the quality/performance/security lenses.
 
-## Task JOBPERM-1-T1
+## Task CHAN-1-T1
 
 ### Plan contracts
 
-- **JP1-T1-C1**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: card raised not cancel; resume in place on Allow; rule persists + next-run silent allow
-- **JP1-T1-C2**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: Browser: no card, host verdict awaited
-- **JP1-T1-C3**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: Deny terminal, truthful texts
-- **JP1-T1-C4**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: deleted paths source-asserted
+- **CHAN-1-AC1-D**
+  - Source: plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria
+  - Statement: apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped; discord.ts becomes discord/index.ts) — the Discord half of story AC1; Teams is T2
+- **CHAN-1-AC4**
+  - Source: plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria
+  - Statement: Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point
 
 ### Reviewer focus
 
-- single-cut honored: no parallel autonomous lane survives (v9 Deletions)
-- no authority widening: persisted grant equals card-rendered scope
-- 0121 intact: no classifier on autonomous runs; rails-first fast path
-- resume correctness: held call resumes exactly once; deny stays terminal
+- renames only (git diff -M ≥90% similarity)
+- every import resolves (tsc) and the old-prefix grep is zero
+- architecture-budget path entries re-pointed, none dropped
+- no exported symbol renamed, no behaviour change
 
-## Task JOBPERM-1-T2
+## Task CHAN-1-T2
 
 ### Plan contracts
 
-- **JP1-T2-C1**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: reconciler crash-safe (approve/deny/handoff re-driven)
-- **JP1-T2-C2**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: living card: one per job, batch never covers unseen rows
-- **JP1-T2-C3**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: lease/slot rules tested (skew, restart, overlap)
-- **JP1-T2-C4**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: handoff keeps Deny; late approval never lost
-- **JP1-T2-C5**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: stage-review P1 fixes implemented: stale-click rerun consent gate, revision-bound paging action, run-scoped rerun barrier, current-policy apply-time revalidation
+- **CHAN-1-AC1-T**
+  - Source: plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria
+  - Statement: apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts (prefix dropped; teams.ts becomes teams/index.ts) — the Teams half of story AC1
+- **CHAN-1-AC2**
+  - Source: plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria
+  - Statement: All imports rewritten; no file left at the channels root for Discord or Teams; unit tests for both providers moved under their provider folder or updated in place
+- **CHAN-1-AC3**
+  - Source: plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria
+  - Statement: No behaviour change: tsc, architecture budgets (paths updated), unit + Postgres integration lanes green; diff consists of renames and import-path edits only
 
 ### Reviewer focus
 
-- crash-safety: decided needs can never strand a waiter; grants never widen past card-rendered scope
-- one living card per job; batch never covers unseen/handed-off rows
-- lease/slot rules: monotonic accounting, slot before any waking response
-- v9 sections A2/A4/A5/A6/A7 + Core model are the contract
-
-## Task JOBPERM-1-T3
-
-### Plan contracts
-
-- **JP1-T3-C1**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: equivalence class blocked incl. staged download-then-execute
-- **JP1-T3-C2**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: unprojected: persisted grant, limited completion, no auto-rerun
-- **JP1-T3-C3**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: catalog present and complete
-- **JP1-T3-C4**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: provider contract tests x3 green; live scenarios 1-3 pass
-- **JP1-T3-C5**
-  - Source: plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition
-  - Statement: carried T2 hardening: per-revision delivery tracking, ambiguous-send reconciliation, provider ack atomicity and limits, credential delivery-anchor, need-after-rails ordering, snapshot tool input, pagination slot release, compound-scope paging, and the durability-service file-size split
-
-### Reviewer focus
-
-- no permanent grant for the remote-content-execution class; truthful typed results
-- unprojected: Completed-with-limits + human Run-again; never auto-rerun
-- carried hardening complete; durability service split passes the architecture file-size gate
-- v9 sections B/C/D + physics limits are the contract
+- renames only (git diff -M)
+- every import resolves (tsc) and the old-prefix grep is zero
+- architecture-map path entries re-pointed, none dropped
+- no exported symbol renamed, no behaviour change

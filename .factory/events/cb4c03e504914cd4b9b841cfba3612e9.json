@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T09:19:43+00:00", "story": "CHAN-1", "detail": "S-0029-2145: Correct. T1 write scope now includes docs/ so the five doc path references check:architecture validates can be re-pointed to the new channels/discord/ paths (path text only; no doc content changes). T"}

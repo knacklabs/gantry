@@ -1,0 +1,22 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "gaps": [
+    "Architecture budget entries and any path-keyed config that name channels/discord-*.ts or channels/teams-*.ts must be re-pointed to the new folder paths in the same change, or the architecture check fails.",
+    "Seven unit test files under apps/core/test/unit/channels are provider-named but flat; they move with their provider (test/unit/channels/discord/, test/unit/channels/teams/) and their relative imports are rewritten \u2014 mirrors the src layout, per roadmap AC 2.",
+    "Barrel/entry files: discord.ts and teams.ts (the provider entry modules) become channels/discord/index.ts and channels/teams/index.ts so external importers change one path segment only."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Pure rename + import rewrite; zero behaviour change; the diff must be reviewable as renames (git mv, --find-renames) plus import-path edits only.",
+    "Lands after PR #444 (merged 2026-08-27); branch already carries origin/main post-merge.",
+    "Owner decision (2026-08-27): one folder per provider, matching slack/ and telegram/; no further restructuring inside the folders in this story (complexity work is CHAN-2)."
+  ],
+  "owner_questions": [],
+  "issue": "CHAN-1",
+  "input_sha256": "584e341617a6c3700dca58cb299603d808c2131b380b19031266ab1db2b26df3",
+  "recorded_at": "2026-08-27T08:51:57+00:00",
+  "commit": "20db560fe4dfc610791944a7c09a3c68eca6f22d"
+}

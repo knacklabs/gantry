@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T09:05:35+00:00", "story": "CHAN-1", "detail": "S-0027-ed18: Correct: the budgets live in scripts/architecture-map.json. T1 write scope now includes scripts/architecture-map.json; the task plan names it. Re-point the Discord entries there (none dropped) and pro"}

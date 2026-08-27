@@ -1,0 +1,52 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/channels/discord/",
+    "apps/core/src/channels/teams/",
+    "apps/core/src/channels/",
+    "apps/core/test/unit/channels/",
+    "scripts/architecture-map.json",
+    "docs/architecture/"
+  ],
+  "summary": "Layout-only story; every task reviewed clean. CHAN-1 story at 375ca5e99 vs origin/main: 63 renames (Discord 39, Teams 24) plus import/map/doc path edits; no symbol renames, no logic change. Proof: unit lane 679/9050, Postgres lane 62/377, tsc, check:architecture, zero old-prefix imports; verify.py passed; branch autoreview clean across 5 chunks (2.0 MB bundle).",
+  "residual_risks": [
+    "None \u2014 layout only"
+  ],
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "CHAN-1-AC1-T",
+      "verdict": "implemented",
+      "evidence": "git diff -M at abae435cf: 22 R entries channels/teams-*.ts -> channels/teams/*.ts incl. teams.ts -> teams/index.ts"
+    },
+    {
+      "contract_id": "CHAN-1-AC2",
+      "verdict": "implemented",
+      "evidence": "grep for channels/discord-, channels/teams-, './discord-', './teams-' in apps/core/src, apps/core/test, scripts = 0; tests live under test/unit/channels/discord/ and /teams/"
+    },
+    {
+      "contract_id": "CHAN-1-AC3",
+      "verdict": "implemented",
+      "evidence": "tsc --noEmit, npm run check:architecture, unit lane 679/9050, Postgres lane 62/377 green; git diff -M shows renames plus import-path edits only"
+    },
+    {
+      "contract_id": "CHAN-1-AC1-D",
+      "verdict": "implemented",
+      "evidence": "closed in T1 (stage done at 77f5f6a3b..): 34 Discord renames incl. discord.ts -> discord/index.ts"
+    },
+    {
+      "contract_id": "CHAN-1-AC4",
+      "verdict": "implemented",
+      "evidence": "branch carries origin/main after #444 merged (merge commit 20db560fe)"
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "b2fc98905ad7aa827e9fc0e7db73570cd45a8a5c4deb76efa7ea7ddd8b19fff6",
+  "brief_sha256": "64769ce06b54cd7621940eebccedeaecbaa3d4ef6e2af0fdd486faf1b14d8001",
+  "branch_diff_digest": "b322331d954f50a9bff88101631c72c3366fc233ce3d7c24fa096de57810a975",
+  "recorded_at": "2026-08-27T11:46:14+00:00",
+  "commit": "efdd773dc506c762c0d10d4a8ba2db3cb68fcdc2"
+}

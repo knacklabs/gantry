@@ -1,0 +1,12 @@
+{
+  "topic": "required_tests id is the JUnit leaf test name",
+  "lesson": "stage done matches a required test by exact testcase name OR its leaf after the last ' > '/' \u203a '/'::' separator. Use the it() title as the id (also a valid vitest -t substring); a describe name or a 'Describe > it' string never matches (0 tests run -> 'did not pass').",
+  "source": "CHAN-1-T1 stage done refusals 2026-08-27; factory/scripts/forge_cli/stages.py _junit_case_matches_id",
+  "applies_to": [
+    "factory/scripts/forge_cli/stages.py",
+    ".factory/"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-08-27T10:15:15+00:00"
+}

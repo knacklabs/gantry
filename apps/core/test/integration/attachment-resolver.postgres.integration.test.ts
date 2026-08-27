@@ -26,9 +26,9 @@ import {
   AttachmentResolver,
 } from '@core/application/attachments/attachment-resolver.js';
 import { fetchSlackHistoricalAttachment } from '@core/channels/slack/historical-attachment-fetcher.js';
-import { fetchDiscordHistoricalAttachment } from '@core/channels/discord-historical-attachment-fetcher.js';
-import { DiscordRestError } from '@core/channels/discord-http-helpers.js';
-import { routeDiscordDeletion } from '@core/channels/discord-message-deletion.js';
+import { fetchDiscordHistoricalAttachment } from '@core/channels/discord/historical-attachment-fetcher.js';
+import { DiscordRestError } from '@core/channels/discord/http-helpers.js';
+import { routeDiscordDeletion } from '@core/channels/discord/message-deletion.js';
 import { routeSlackDeletion } from '@core/channels/slack/slack-message-deletion.js';
 import { createChannelAttachmentDeletionHandler } from '@core/app/bootstrap/channel-wiring-attachment-deletion.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
