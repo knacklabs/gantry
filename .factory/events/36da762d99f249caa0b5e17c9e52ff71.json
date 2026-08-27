@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-23T13:01:17+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T2 has 1,981 changed lines in the durable need/card state machine, Postgres pending_interaction transaction adapter, and required tests; completing live wiring for the reconciler loop, provi"}

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T14:30:46+00:00", "story": "JOBPERM-1", "detail": "S-0010-9ae1: Exact parameters, binding: (1) wait cap = 24h from wait_started_at (confirmed delivery anchor, shared with auth, freeze on decision CAS). (2) Capacity = 10 need rows per card page; composite rows over"}

@@ -1,5 +1,9 @@
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { PermissionMode } from '../shared/permission-mode.js';
+import type {
+  PermissionApprovalRuleValue,
+  PermissionApprovalUpdate,
+} from '../shared/permission-approval-types.js';
 import type { ReviewMessageView } from './review-message-view.js';
 import type { MessageActionAffordance } from './message-actions.js';
 import type { ObserverDigestMessageView } from './observer-digest-view.js';
@@ -289,30 +293,7 @@ export interface PermissionCallbackClaim extends PermissionCallbackClaimReferenc
   };
 }
 
-export interface PermissionApprovalRuleValue {
-  toolName: string;
-  ruleContent?: string;
-}
-
-export interface PermissionApprovalUpdate {
-  type:
-    | 'addRules'
-    | 'replaceRules'
-    | 'removeRules'
-    | 'setMode'
-    | 'addDirectories'
-    | 'removeDirectories';
-  rules?: PermissionApprovalRuleValue[];
-  behavior?: 'allow' | 'deny' | 'ask';
-  destination?:
-    | 'userSettings'
-    | 'projectSettings'
-    | 'localSettings'
-    | 'session'
-    | 'cliArg';
-  mode?: string;
-  directories?: string[];
-}
+export type { PermissionApprovalRuleValue, PermissionApprovalUpdate };
 
 export interface PermissionApprovalDecision {
   approved: boolean;
@@ -527,6 +508,9 @@ export interface ProgressUpdateOptions {
   generation?: number;
   actionOnly?: boolean;
   actionAffordances?: MessageActionAffordance[];
+  /** Structured terminal view for done updates; providers that can render it
+   * natively should prefer it over the text, others ignore it. */
+  jobNotificationView?: JobNotificationView;
 }
 
 export interface StructuredJobResult {
@@ -557,6 +541,14 @@ export interface MessageSendOptions {
   threadId?: string;
   providerAccountId?: string;
   agentId?: string;
+  /** Provider message to edit in place for a durable living-card revision. */
+  replaceMessageId?: string;
+  /** Identity of a job-permission card revision; lets a provider settle zero-action retire/replace edits against the card. */
+  jobPermissionCardRevision?: {
+    callbackKey: string;
+    revision: number;
+    operation: 'send' | 'edit' | 'retire' | 'replace';
+  };
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
   /** When set, channels with native support render this as a compact-structured

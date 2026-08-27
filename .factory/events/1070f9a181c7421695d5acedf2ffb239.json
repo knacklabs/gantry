@@ -1,0 +1,1 @@
+{"event": "stage-incomplete", "generated_by": "implementer", "at": "2026-08-24T05:39:49+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T3: Items 2-6 remain (item 1 landed in-tree). Delegated backend unavailable ~10h; continuing via degraded windows per the outage exception; stage will restart for final binding when the backend recovers."}

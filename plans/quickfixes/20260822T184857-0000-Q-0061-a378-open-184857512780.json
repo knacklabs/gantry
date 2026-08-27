@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0061-a378",
+  "profile": "lite",
+  "reason": "Part A of the compound-RunCommand fix: route RunCommand through the generic per-leaf Bash matcher and block pipes (window 1 of 2, split for the 5-file bound).",
+  "started_at": "2026-08-22T18:48:57+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "7aad4ad784fec3aa3bf39e81b6d8cae784aa98f0"
+}

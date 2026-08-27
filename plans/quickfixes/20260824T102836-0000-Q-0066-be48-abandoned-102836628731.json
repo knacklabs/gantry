@@ -1,0 +1,17 @@
+{
+  "event": "abandoned",
+  "id": "Q-0066-be48",
+  "profile": "lite",
+  "reason": "Slack/teams trims committed; discord + core extractions get their own windows.",
+  "opened_reason": "Trim two more ratchet budgets grown by the jobperm card work: apps/core/src/channels/slack/channel-delivery.ts (757/732) and apps/core/src/channels/teams-cards.ts (715/700), extracting helpers into sibling modules.",
+  "started_at": "2026-08-24T10:17:15+00:00",
+  "completed_at": "2026-08-24T10:28:36+00:00",
+  "files": [
+    "apps/core/src/channels/slack/channel-delivery.ts",
+    "apps/core/src/channels/slack/extracted-helpers.ts",
+    "apps/core/src/channels/teams-cards-helpers.ts",
+    "apps/core/src/channels/teams-cards.ts"
+  ],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "64cf3fb70edae9008f2ec41aab59a4c5b886d91b"
+}

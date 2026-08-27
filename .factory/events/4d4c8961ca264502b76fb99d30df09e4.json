@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-24T07:57:11+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T3 item 2 literal VITEST_JUNIT=1 selector is rejected by managed shell policy before execution; equivalent explicit-junit selector passes with exact testcase and file attribution."}

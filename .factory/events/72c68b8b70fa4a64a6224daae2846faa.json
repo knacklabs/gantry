@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-24T10:02:41+00:00", "story": "JOBPERM-1", "detail": "Q-0064-d378's active lite window permits only JOBPERM files, but the requested Telegram file-size fix requires apps/core/src/channels/telegram/channel-connect.ts, channel-delivery.ts, and extracted-he"}

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T12:06:56+00:00", "story": "JOBPERM-1", "detail": "S-0003-88af: Orchestrator ran the literal VITEST_JUNIT=1 npx selector commands: JUnit XML rendered with the exact testcase names; full file 3/3 green."}

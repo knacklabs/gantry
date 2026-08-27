@@ -106,6 +106,20 @@ export function writeResolvedInteractionResponse(
               ) as never,
             }
           : {}),
+        ...(stringValue(resolution?.jobPermissionOutcome)
+          ? {
+              jobPermissionOutcome: stringValue(
+                resolution?.jobPermissionOutcome,
+              ),
+            }
+          : {}),
+        ...(stringValue(resolution?.unprojectedAccessIdentity)
+          ? {
+              unprojectedAccessIdentity: stringValue(
+                resolution?.unprojectedAccessIdentity,
+              ),
+            }
+          : {}),
       },
       privateKey,
     );

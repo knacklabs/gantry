@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0080-4d08",
+  "profile": "lite",
+  "reason": "D-0061: when a channel sink refuses a run's start progress card, no card identity is stored and the terminal notification returns 'unsupported' for that route, so the run's completion never reaches the chat (run 224d1141). Send the terminal summary as a fresh done message when no identity exists. Scope: scheduler-lifecycle-notification.ts + lifecycle-retirement.test.ts.",
+  "started_at": "2026-08-25T16:09:32+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "0978e25fdcd5420217b6a92637995116a28f31ca"
+}

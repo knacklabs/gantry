@@ -3,10 +3,13 @@ import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import {
   boundJobNotificationView,
+  formatJobNextRunAt,
   formatRunStatusMessage,
   JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH,
+  jobOutcomeHeadline,
   structuredJobResultFromRecordedActions,
 } from '@core/jobs/status-formatting.js';
+import { JOB_NOTIFICATION_VIEW_LIMITS } from '@core/jobs/job-notification-tool-rollup.js';
 import type { Job } from '@core/domain/types.js';
 import type { RuntimeEvent } from '@core/domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
@@ -291,7 +294,164 @@ it('toolact-projection', async () => {
   );
 });
 
+it('keeps only authoritative gantry-owned tool rows and unmatched wrapper failures', () => {
+  const terminal = (
+    invocationId: string,
+    tool: string,
+    outcome: 'success' | 'failure',
+    authoritative: boolean,
+    seq: number,
+    family: 'browser' | 'capability',
+    detail?: string,
+  ) => ({
+    eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+    correlationId: invocationId,
+    payload: {
+      phase: outcome,
+      tool,
+      family,
+      ok: outcome === 'success',
+      authoritative,
+      invocationId,
+      seq,
+      ...(detail ? { detail } : {}),
+    },
+  });
+  const result = structuredJobResultFromRecordedActions([
+    terminal('browser-1', 'browser_act', 'success', true, 1, 'browser'),
+    terminal('browser-2', 'browser_act', 'success', true, 2, 'browser'),
+    terminal('browser-3', 'browser_inspect', 'success', true, 3, 'browser'),
+    terminal(
+      'browser-4',
+      'browser_act',
+      'failure',
+      true,
+      4,
+      'browser',
+      'condorsoftware.com',
+    ),
+    terminal(
+      'browser-5',
+      'browser_act',
+      'failure',
+      true,
+      5,
+      'browser',
+      'condorsoftware.com',
+    ),
+    terminal('toolu-1', 'Browser', 'success', false, 41, 'browser'),
+    terminal('toolu-2', 'Browser', 'success', false, 42, 'browser'),
+    terminal('toolu-3', 'Browser', 'success', false, 43, 'browser'),
+    terminal('toolu-4', 'Browser', 'failure', false, 44, 'browser'),
+    terminal('toolu-5', 'Browser', 'failure', false, 45, 'browser'),
+    terminal('toolu-6', 'Browser', 'failure', false, 46, 'browser'),
+    terminal(
+      'capability-run-1',
+      'google.sheets.values.append',
+      'success',
+      true,
+      6,
+      'capability',
+    ),
+    terminal('toolu-7', 'capability_run', 'success', false, 47, 'capability'),
+  ]);
+
+  expect(result?.items).toEqual([
+    { outcome: 'failed', label: 'Browser: Act ×2' },
+    {
+      outcome: 'failed',
+      label: 'Browser: no reply in time',
+    },
+    { outcome: 'done', label: 'Browser: Act ×2' },
+    { outcome: 'done', label: 'Browser: Inspect' },
+    { outcome: 'done', label: 'Capability: Google Sheets Values Append' },
+  ]);
+  expect(result?.items.some((item) => item.label === 'Browser: Browser')).toBe(
+    false,
+  );
+});
+
+it('keeps wrapper-only failures when a shared invocation is deduplicated', () => {
+  const terminal = (
+    invocationId: string,
+    tool: string,
+    authoritative: boolean,
+    seq: number,
+  ) => ({
+    eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
+    correlationId: invocationId,
+    payload: {
+      phase: 'failure',
+      tool,
+      family: 'browser',
+      ok: false,
+      authoritative,
+      invocationId,
+      seq,
+    },
+  });
+
+  expect(
+    structuredJobResultFromRecordedActions([
+      terminal('shared-1', 'browser_act', true, 10),
+      terminal('shared-1', 'Browser', false, 10),
+      terminal('toolu-9', 'Browser', false, 11),
+    ])?.items,
+  ).toEqual([
+    { outcome: 'failed', label: 'Browser: Act' },
+    {
+      outcome: 'failed',
+      label: 'Browser: no reply in time',
+    },
+  ]);
+});
+
 describe('job status formatting', () => {
+  it('formats a valid next run for native notification views', () => {
+    const formatted = formatJobNextRunAt('2026-08-26T12:35:00.000Z');
+
+    expect(formatted).toContain('2026');
+    expect(formatted).not.toContain('T12:35:00.000Z');
+    expect(formatted).not.toBe('2026-08-26T12:35:00.000Z');
+    expect(formatJobNextRunAt('not-a-date')).toBeUndefined();
+  });
+
+  it('extracts the last outcome line from a job summary', () => {
+    expect(
+      jobOutcomeHeadline(
+        'Checking existing leads.\n## Final Job Report\nOutcome: Added 2 leads (rows 2030-2031)\nDetails follow.',
+      ),
+    ).toBe('Added 2 leads (rows 2030-2031)');
+    expect(
+      jobOutcomeHeadline('## Final Job Report\nAdded 2 leads.'),
+    ).toBeUndefined();
+    expect(
+      jobOutcomeHeadline('## Final Job Report\n\nOutcome: Added 2 leads.'),
+    ).toBe('Added 2 leads.');
+    expect(
+      jobOutcomeHeadline(
+        'Now writing lead 2 — Runlayer — to row 2037.Outcome: Added 2 leads.',
+      ),
+    ).toBe('Added 2 leads.');
+    expect(
+      jobOutcomeHeadline(
+        'Outcome: First result.\nNarration\nOutcome: Final result.',
+      ),
+    ).toBe('Final result.');
+    expect(jobOutcomeHeadline('Outcome: First.Outcome: Final.')).toBe('Final.');
+    expect(
+      jobOutcomeHeadline('  outcome:   No changes found.  \nDetails follow.'),
+    ).toBe('No changes found.');
+    expect(jobOutcomeHeadline('Narration without a result.')).toBeUndefined();
+    expect(jobOutcomeHeadline('Outcome:   \nNarration')).toBeUndefined();
+  });
+
+  it('stops an outcome headline at a CR line ending', () => {
+    expect(jobOutcomeHeadline('Outcome: Added 2 leads.\rDetails follow.')).toBe(
+      'Added 2 leads.',
+    );
+  });
+
   it('bounds structured notification views before provider rendering', () => {
     const longText = (prefix: string) =>
       `${prefix} ${'descriptive words '.repeat(100)}`;
@@ -544,6 +704,142 @@ describe('job status formatting', () => {
     );
     expect(message).toContain('Second sentence carries a meaningful result...');
     expect(message).not.toContain('narratio...');
+  });
+
+  it('includes structured result items between terminal stats and the summary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: 'Imported 3 records.',
+      nextRun: '2026-05-20T21:45:00.000Z',
+      retryCount: 0,
+      durationMs: 34_000,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 2,
+        browserActivityCount: 1,
+        transientPermissionApprovals: [],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+        lastTool: 'browser_act',
+      },
+      resultItems: [
+        { outcome: 'done', label: 'Web Search ×41' },
+        {
+          outcome: 'failed',
+          label: 'Browser: Act',
+          detail: 'startup.jobs',
+        },
+      ],
+    });
+
+    expect(message.split('\n')).toEqual([
+      `**✅ Completed** · ${job().name} · 34s`,
+      '34s, 2 tools, browser used, last browser_act',
+      '✅ Web Search ×41',
+      '❌ Browser: Act — startup.jobs',
+      'Imported 3 records.',
+      expect.stringMatching(/^Runs again at /),
+    ]);
+  });
+
+  it('places an outcome headline after the header instead of the compacted summary', () => {
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary:
+        '## Final Job Report\nOutcome: Added 2 leads.\nDetails that must not repeat.',
+      headline: 'Added 2 leads.',
+      nextRun: null,
+      retryCount: 0,
+      durationMs: 34_000,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 2,
+        browserActivityCount: 1,
+        transientPermissionApprovals: [],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+        lastTool: 'browser_act',
+      },
+    });
+
+    expect(message.split('\n')).toEqual([
+      `**✅ Completed** · ${job().name} · 34s`,
+      'Added 2 leads.',
+      '34s, 2 tools, browser used, last browser_act',
+    ]);
+    expect(message).not.toContain('Details that must not repeat.');
+  });
+
+  it('bounds terminal result item labels and details for provider delivery', () => {
+    const label = 'l'.repeat(120);
+    const detail = 'd'.repeat(300);
+    const message = formatRunStatusMessage({
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed',
+      summary: 'Imported 3 records.',
+      nextRun: null,
+      retryCount: 0,
+      resultItems: Array.from({ length: 10 }, () => ({
+        outcome: 'failed' as const,
+        label,
+        detail,
+      })),
+    });
+    const itemLines = message
+      .split('\n')
+      .filter((line) => line.startsWith('❌ '));
+    const [renderedLabel, renderedDetail] = itemLines[0].slice(2).split(' — ');
+
+    expect(itemLines).toHaveLength(10);
+    expect(renderedLabel).toMatch(/\.\.\.$/);
+    expect(renderedLabel).toHaveLength(JOB_NOTIFICATION_VIEW_LIMITS.itemLabel);
+    expect(renderedDetail).toHaveLength(
+      JOB_NOTIFICATION_VIEW_LIMITS.itemDetail,
+    );
+    expect(message.length).toBeLessThan(4096);
+  });
+
+  it('keeps terminal summaries byte-identical without structured result items', () => {
+    const args = {
+      job: job(),
+      runId: 'cb7f3c0a-c8f8-40eb-82f0-3b21d2cfc342',
+      runStatus: 'completed' as const,
+      summary: 'Imported 3 records.',
+      nextRun: null,
+      retryCount: 0,
+      durationMs: 34_000,
+      diagnostics: {
+        pendingPermissionRequests: 0,
+        pendingPermissionToolNames: [],
+        totalToolCalls: 2,
+        browserActivityCount: 1,
+        transientPermissionApprovals: [],
+        startupDiagnostics: [],
+        latestStreamedOutputChars: 0,
+        totalStreamedOutputChars: 0,
+        terminalToolDenials: [],
+        lastTool: 'browser_act',
+      },
+    };
+    const expected = [
+      `**✅ Completed** · ${job().name} · 34s`,
+      '34s, 2 tools, browser used, last browser_act',
+      'Imported 3 records.',
+    ].join('\n');
+
+    expect(formatRunStatusMessage(args)).toBe(expected);
+    expect(formatRunStatusMessage({ ...args, resultItems: [] })).toBe(expected);
   });
 
   it('hard-cuts a boundary-less summary at the limit, not after one character', () => {

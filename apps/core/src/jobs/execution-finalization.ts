@@ -264,7 +264,10 @@ export async function finalizeSchedulerJobRun(input: {
           lease_expires_at: null,
         });
       } else {
-        nextRun = toIso(nowMs() + retryBackoffMs(currentJob, retryCount));
+        nextRun =
+          currentJob.schedule_type === 'cron'
+            ? nextRunOnSuccess
+            : toIso(nowMs() + retryBackoffMs(currentJob, retryCount));
         await updateJob({
           status: 'active',
           next_run: nextRun,

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T18:03:46+00:00", "story": "JOBPERM-1", "detail": "S-0020-7452: The implementer contract wins: do NOT commit; leave the work uncommitted in the tree \u2014 the orchestrator commits after verification (that is how T1/T2 landed). Strike 'commit your work' from the plan r"}

@@ -5,34 +5,24 @@ type PermissionTimeoutContext = 'interactive' | 'autonomous';
 export const NO_PERMISSION_TIMEOUT_MS = 0;
 const INTERACTIVE_MIN_MS = 10_000;
 const INTERACTIVE_DEFAULT_MS = NO_PERMISSION_TIMEOUT_MS;
-const AUTONOMOUS_DEFAULT_MS = NO_PERMISSION_TIMEOUT_MS;
 const INTERACTIVE_KEYS = [
   'GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS',
   'PERMISSION_APPROVAL_TIMEOUT_MS',
   'GANTRY_PERMISSION_TIMEOUT_MS',
 ] as const;
-const AUTONOMOUS_KEYS = ['GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS'] as const;
-const RUNTIME_ENV_KEYS = new Set<string>([
-  ...INTERACTIVE_KEYS,
-  ...AUTONOMOUS_KEYS,
-]);
+const RUNTIME_ENV_KEYS = new Set<string>(INTERACTIVE_KEYS);
 let runtimeEnvCache: Record<string, string | undefined> | undefined;
 export function getPermissionTimeoutMs(
-  context: PermissionTimeoutContext,
+  _context: PermissionTimeoutContext,
   env: Record<string, string | undefined> = process.env,
   fallbackEnv: Record<string, string | undefined> = {},
 ): number {
-  const raw = firstValue(context, env, fallbackEnv, runtimeEnv());
-  const defaultMs =
-    context === 'interactive' ? INTERACTIVE_DEFAULT_MS : AUTONOMOUS_DEFAULT_MS;
-  const parsed = parseInt(raw || String(defaultMs), 10);
-  const timeoutMs = Number.isFinite(parsed) ? parsed : defaultMs;
-  if (context === 'interactive') {
-    return timeoutMs === NO_PERMISSION_TIMEOUT_MS
-      ? NO_PERMISSION_TIMEOUT_MS
-      : Math.max(INTERACTIVE_MIN_MS, timeoutMs);
-  }
-  return Math.max(NO_PERMISSION_TIMEOUT_MS, timeoutMs);
+  const raw = firstValue(env, fallbackEnv, runtimeEnv());
+  const parsed = parseInt(raw || String(INTERACTIVE_DEFAULT_MS), 10);
+  const timeoutMs = Number.isFinite(parsed) ? parsed : INTERACTIVE_DEFAULT_MS;
+  return timeoutMs === NO_PERMISSION_TIMEOUT_MS
+    ? NO_PERMISSION_TIMEOUT_MS
+    : Math.max(INTERACTIVE_MIN_MS, timeoutMs);
 }
 export function resolvePermissionApprovalTimeoutMs(
   env: Record<string, string | undefined> = process.env,
@@ -41,12 +31,10 @@ export function resolvePermissionApprovalTimeoutMs(
   return getPermissionTimeoutMs('interactive', env, fallbackEnv);
 }
 function firstValue(
-  context: PermissionTimeoutContext,
   ...sources: Array<Record<string, string | undefined>>
 ): string | undefined {
-  const keys = context === 'interactive' ? INTERACTIVE_KEYS : AUTONOMOUS_KEYS;
   for (const source of sources) {
-    for (const key of keys) {
+    for (const key of INTERACTIVE_KEYS) {
       const value = source[key]?.trim();
       if (value) return value;
     }

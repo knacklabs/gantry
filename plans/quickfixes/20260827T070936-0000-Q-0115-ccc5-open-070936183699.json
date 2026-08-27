@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0115-ccc5",
+  "profile": "lite",
+  "reason": "Q-0109: two Postgres integration tests assert pre-JOBPERM-1 contracts (bare run prompt; deterministic_rails denial) \u2014 CI red on PR #444",
+  "started_at": "2026-08-27T07:09:36+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "c9cafb765af175275ea5428f43612dcf9b42add3"
+}

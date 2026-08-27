@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-24T12:32:48+00:00", "story": "JOBPERM-1", "detail": "Q-0070-f6e1 cannot be repaired within the recorded lite scope: quickfix.json max_files is 5 but its files list already contains 6 entries, and the shared interaction settlement repair point apps/core/"}

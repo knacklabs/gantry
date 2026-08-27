@@ -1,0 +1,17 @@
+{
+  "event": "abandoned",
+  "id": "Q-0064-d378",
+  "profile": "lite",
+  "reason": "Scoped work committed; telegram size-budget trims need their own explicitly-scoped window.",
+  "opened_reason": "Final JOBPERM-1 structural item: move shared/unprojected-access off the domain import (layer rule) + rename synthetic fixture tokens to the test-token shape so the closeout review bundle scans clean.",
+  "started_at": "2026-08-24T09:55:03+00:00",
+  "completed_at": "2026-08-24T10:04:02+00:00",
+  "files": [
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/shared/permission-approval-types.ts",
+    "apps/core/src/shared/unprojected-access.ts",
+    "apps/core/test/unit/application/jobperm-edges.test.ts"
+  ],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "2f96a192cf18c60ad6fecf071f6ded8e1c78f043"
+}

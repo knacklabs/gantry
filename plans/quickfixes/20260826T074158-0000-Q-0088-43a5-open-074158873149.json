@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0088-43a5",
+  "profile": "lite",
+  "reason": "Telegram: render the terminal progress edit with the native job-notification HTML renderer when the structured view is present (bold header, expandable details, next run) instead of markdown text that falls to plain with literal asterisks. Scope: telegram/channel-delivery.ts (+sibling if budget), message-action-affordances.ts, telegram.test.ts.",
+  "started_at": "2026-08-26T07:41:58+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "a6eadc57fe5d5a089810a8fcd81699a3894f207a"
+}

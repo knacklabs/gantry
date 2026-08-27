@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0106-7e8b",
+  "profile": "lite",
+  "reason": "Q-0106: Telegram card humanizer erases the command text from rows (RunCommand(...) -> 'run command access'); rows must show the command as the shared text does",
+  "started_at": "2026-08-27T02:44:27+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "95d86d41f68ad39eb7fdd6f757f29b4923376a26"
+}

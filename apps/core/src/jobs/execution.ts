@@ -46,11 +46,13 @@ import type { MemoryReviewCreatedNotification } from './memory-dreaming-job-outc
 import {
   claimSchedulerRunLease,
   createSchedulerRunLeaseAbort,
+  jobPermissionLeaseExtensionMs,
   startSchedulerRunLeaseHeartbeat,
 } from './execution-lease.js';
 import { resolveExecutionContextOrDeadLetter } from './execution-dead-letter.js';
 import { runSystemJobTurn } from './execution-system-job.js';
 import { createJobExecutionDeletionGuard } from './execution-deletion-guard.js';
+import { scheduledJobRunPrompt } from './job-run-prompt.js';
 import { runtimeEventTypeForRunStatus } from './run-status-event.js';
 import {
   jobCompletedModelPayload,
@@ -67,13 +69,12 @@ import {
   publishTerminalToolDenials,
   createRuntimeEventPublisher as createEventPublisher,
   createSchedulerJobEventEmitter,
-  listRecordedToolActions,
+  listRecordedJobRunActions,
   publishSchedulerCompletionEvent,
 } from './execution-runtime-events.js';
 import { resolveAppSessionForJob } from './app-session-resolution.js';
 import { finalizeSchedulerJobRun } from './execution-finalization.js';
 import { closeBrowserAfterJobRun } from './execution-browser-cleanup.js';
-import { prelaunchBrowserForJobRun } from './execution-browser-prelaunch.js';
 import { isTrustedSystemJob } from '../shared/system-job-identity.js';
 import { completeFailedRunFailsafe } from './run-failsafe.js';
 import { createRunProviderMetadataUpdater } from './run-provider-metadata.js';
@@ -207,6 +208,13 @@ async function runActiveJob(
     warn,
     onLeaseLost: runLeaseAbort.abort,
     externalAbortSignal: control?.abortSignal,
+    pendingLeaseExtensionMs: () =>
+      jobPermissionLeaseExtensionMs({
+        appId: runtimeAppId,
+        jobId: currentJob.id,
+        sourceAgentFolder: execution.group.folder,
+        runId,
+      }),
   });
   let settled = false,
     deleted = false;
@@ -395,25 +403,9 @@ async function runActiveJob(
             accessSnapshot,
             publishRuntimeEvent,
           }));
-          const browserPrelaunchSetup = finalReadinessPassed
-            ? await prelaunchBrowserForJobRun({
-                currentJob,
-                executionGroupFolder: execution.group.folder,
-                executionJid: execution.executionJid,
-                executionProviderAccountId: execution.group.providerAccountId,
-                diagnostics,
-                deps,
-                emitJobEvent,
-                logger,
-              })
-            : undefined;
           if (!finalReadinessPassed) {
             pausedForSetupDuringRun = true;
             error = SETUP_REQUIRED_PAUSE_REASON;
-          } else if (browserPrelaunchSetup) {
-            error = browserPrelaunchSetup.error;
-            setupStateForSetupPause = browserPrelaunchSetup.setupState;
-            pausedForSetupDuringRun = true;
           }
           if (!error) {
             const runOptions = buildRuntimeRunOptions({
@@ -480,7 +472,7 @@ async function runActiveJob(
               log: (message) =>
                 logger.warn({ jobId: currentJob.id, runId }, message),
               baseInput: {
-                prompt: currentJob.prompt,
+                prompt: scheduledJobRunPrompt(currentJob),
                 workspaceFolder: execution.group.folder,
                 chatJid: execution.executionJid,
                 threadId: execution.threadId || undefined,
@@ -758,23 +750,12 @@ async function runActiveJob(
       emitJobEvent,
       logger,
     });
-    let recordedActions: Awaited<ReturnType<typeof listRecordedToolActions>>;
-    try {
-      recordedActions = await listRecordedToolActions({
-        filter: {
-          appId: (eventState.eventAppSession?.appId ?? runtimeAppId) as never,
-          jobId: currentJob.id as never,
-          runId: runId as never,
-          eventTypes: [
-            RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-            RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-          ],
-        },
-        listRuntimeEvents: (filter) => runtimeEventExchange.list(filter),
-      });
-    } catch {
-      recordedActions = [];
-    }
+    const recordedActions = await listRecordedJobRunActions({
+      appId: eventState.eventAppSession?.appId ?? runtimeAppId,
+      jobId: currentJob.id,
+      runId,
+      listRuntimeEvents: (filter) => runtimeEventExchange.list(filter),
+    });
     logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
     const notified =
       !(await deletionGuard.shouldSuppressDelivery()) &&

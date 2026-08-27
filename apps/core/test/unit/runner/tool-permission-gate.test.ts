@@ -1105,12 +1105,7 @@ describe('tool permission gate', () => {
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
-  it('autonomous non-promptable denial is terminal and interrupts the run', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: false,
-      reason: 'No reviewed capability or command rule matched.',
-      decidedBy: 'runtime',
-    });
+  it('returns a non-interrupting reformulation for autonomous hard boundaries', async () => {
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -1139,9 +1134,9 @@ describe('tool permission gate', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         behavior: 'deny',
-        interrupt: true,
+        interrupt: false,
         message: expect.stringContaining(
-          'cannot be durably approved for autonomous runs',
+          'Remote-content execution cannot be permanently approved',
         ),
       }),
     );
@@ -1150,10 +1145,10 @@ describe('tool permission gate', () => {
       .mocked(console.log)
       .mock.calls.map((call) => String(call[0]))
       .join('');
-    expect(output).toContain('"phase":"permission_denied"');
-    expect(output).toContain('"terminal":true');
+    expect(output).toContain('"phase":"deny"');
+    expect(output).not.toContain('"terminal":true');
     expect(output).toContain('"tool":"RunCommand"');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });
 
   it('auto-denies un-provisioned tools for a locked agent without prompting', async () => {

@@ -1,0 +1,169 @@
+{
+  "event": "done",
+  "id": "Q-0084-de21",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Owner rule: exactly one terminal message per run. When run-again/recovery action buttons exist, the terminal path edits the running card AND sends a second native message. Carry actionAffordances on the lifecycle edit (ProgressUpdateOptions already supports them) and reserve the native send for routes the edit did not reach. Scope: jobs/types.ts, scheduler-lifecycle-notification.ts, execution-notifications.ts, tests.",
+  "base_sha": "29577387e0e66df09e5e0112f30179c91403fe98",
+  "started_at": "2026-08-26T04:49:06+00:00",
+  "completed_at": "2026-08-26T05:01:51+00:00",
+  "files": [
+    "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/jobs/types.ts",
+    "apps/core/test/unit/jobs/execution-notifications.test.ts",
+    "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/types.ts",
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Slack/Discord progress sinks render affordances per their own progress-action support; Telegram verified"
+      ],
+      "summary": "Exactly one terminal message per route, buttons included. Lite window Q-0084 (base 29577387e -> HEAD): owner rule ONE terminal message per run per route. Action affordances (Run again / recovery) now ride on the lifecycle edit (identity edit, fresh fallback, late-landing summary edit); the native notification serves only routes the edit did not reach. Proof: jobs suite 65/713 green, tsc, architecture, verify.py passed; autoreview clean first pass.",
+      "non_blocking_findings": [
+        {
+          "category": "notification-content",
+          "area": "jobs",
+          "summary": "FIXED: affordances forced a second native message beside the edited card"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0084 keeps the JP1-T3 'Run again now' affordance (now on the edited card); verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "32bd0e46971950c565cc8b5ca53ea4122186fc82516ed7536e3576be521656fa",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "2aa1e7130a6fc12595129c2725a5884bc25a2b10ada4062eef1998c82a03b54c",
+      "recorded_at": "2026-08-26T05:01:50+00:00",
+      "commit": "9d72b366b39ac5b6c241ceaf53f335b9c5301fbb"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/types.ts",
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Slack/Discord progress sinks render affordances per their own progress-action support; Telegram verified"
+      ],
+      "summary": "Removes one provider send per actionable terminal notice. Lite window Q-0084 (base 29577387e -> HEAD): owner rule ONE terminal message per run per route. Action affordances (Run again / recovery) now ride on the lifecycle edit (identity edit, fresh fallback, late-landing summary edit); the native notification serves only routes the edit did not reach. Proof: jobs suite 65/713 green, tsc, architecture, verify.py passed; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "32bd0e46971950c565cc8b5ca53ea4122186fc82516ed7536e3576be521656fa",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "2aa1e7130a6fc12595129c2725a5884bc25a2b10ada4062eef1998c82a03b54c",
+      "recorded_at": "2026-08-26T05:01:50+00:00",
+      "commit": "9d72b366b39ac5b6c241ceaf53f335b9c5301fbb"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/types.ts",
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Slack/Discord progress sinks render affordances per their own progress-action support; Telegram verified"
+      ],
+      "summary": "Same affordance tokens as before; no re-minting between edit and fallback. Lite window Q-0084 (base 29577387e -> HEAD): owner rule ONE terminal message per run per route. Action affordances (Run again / recovery) now ride on the lifecycle edit (identity edit, fresh fallback, late-landing summary edit); the native notification serves only routes the edit did not reach. Proof: jobs suite 65/713 green, tsc, architecture, verify.py passed; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "32bd0e46971950c565cc8b5ca53ea4122186fc82516ed7536e3576be521656fa",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "2aa1e7130a6fc12595129c2725a5884bc25a2b10ada4062eef1998c82a03b54c",
+      "recorded_at": "2026-08-26T05:01:51+00:00",
+      "commit": "9d72b366b39ac5b6c241ceaf53f335b9c5301fbb"
+    }
+  }
+}

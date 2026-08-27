@@ -713,6 +713,7 @@ export class PostgresControlPlaneRepository {
 
   async createJobTrigger(input: {
     jobId: string;
+    triggerId?: string;
     requestedBy?: string;
   }): Promise<JobTriggerRecord> {
     return this.jobTriggers.create(input);

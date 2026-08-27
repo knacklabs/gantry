@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-23T19:03:55+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T3 plan item 6 says commit, but CURRENT STATUS and the implementer contract require leaving the tree uncommitted and reserve commits for the orchestrator; implementation will remain uncommit"}

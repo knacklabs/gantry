@@ -4,6 +4,7 @@ import type {
   PermissionCallbackScope,
   PermissionRecoveryEnvelope,
 } from '../types.js';
+import type { JobPermissionDurabilityRepository } from './job-permission-durability.js';
 import type { LiveTurnCommandAppendInput } from './live-turns.js';
 
 export type WorkerInstanceStatus =
@@ -90,7 +91,11 @@ export interface RunnerControlEvent {
   exposedAt: string | null;
 }
 
-export type PendingInteractionKind = 'permission' | 'question';
+export type PendingInteractionKind =
+  | 'permission'
+  | 'question'
+  | 'job_permission_card'
+  | 'job_permission_need';
 
 export type PendingInteractionStatus =
   | 'pending'
@@ -443,4 +448,5 @@ export interface WorkerCoordinationRepository
     RunSlotRepository,
     RunnerControlEventRepository,
     PendingInteractionRepository,
-    TransientGrantRepository {}
+    TransientGrantRepository,
+    JobPermissionDurabilityRepository {}

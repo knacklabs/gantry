@@ -863,6 +863,21 @@
       "backfill_evidence_missing": true
     },
     {
+      "key": "GANTRY-WEB-FOUNDATION",
+      "title": "Safe Web UI foundation shell",
+      "story": "As a Gantry maintainer, I can validate a disconnected web shell without changing the hosted runtime or its delivery artifacts.",
+      "acceptance_criteria": [
+        "apps/web builds independently under /ui and renders a responsive accessible Not connected shell with local preferences",
+        "separate root and CI commands validate web formatting, typecheck, lint and build",
+        "the production build does not create or copy dist/ui and runtime serving, APIs, auth, storage, providers and Docker remain unchanged",
+        "architecture docs state the source-only boundary and require a later approved integration PR"
+      ],
+      "order": 47,
+      "status": "pending",
+      "skill": "frontend",
+      "spec": "docs/specs/web-ui-foundation.md"
+    },
+    {
       "status": "done",
       "key": "TOOLS-1",
       "title": "Provider-aware tool surface: affinity-filtered projection + dynamic per-provider instructions",
@@ -881,21 +896,6 @@
       "history": ".factory/history/TOOLS-1/",
       "outcome": "Agents now only see the tools that actually work where they are: Slack agents keep the canvas tools, while Telegram, Discord and other conversations no longer carry three dead tools they could never use \u2014 enforced in both the spawn projection and inside the runner process, and even an operator config entry cannot re-add a tool that cannot function there. Each agent's instructions now also explain, per provider, how its shared tools behave: where long messages split, how rich cards degrade, how many question options fit \u2014 with every number imported from the real code constants so the guidance can never drift. A classification of all 75 tools plus a checklist for wiring future providers landed in docs/architecture.",
       "backfill_evidence_missing": true
-    },
-    {
-      "key": "GANTRY-WEB-FOUNDATION",
-      "title": "Safe Web UI foundation shell",
-      "story": "As a Gantry maintainer, I can validate a disconnected web shell without changing the hosted runtime or its delivery artifacts.",
-      "acceptance_criteria": [
-        "apps/web builds independently under /ui and renders a responsive accessible Not connected shell with local preferences",
-        "separate root and CI commands validate web formatting, typecheck, lint and build",
-        "the production build does not create or copy dist/ui and runtime serving, APIs, auth, storage, providers and Docker remain unchanged",
-        "architecture docs state the source-only boundary and require a later approved integration PR"
-      ],
-      "order": 47,
-      "status": "pending",
-      "skill": "frontend",
-      "spec": "docs/specs/web-ui-foundation.md"
     },
     {
       "status": "done",
@@ -1258,6 +1258,24 @@
       "spec": "docs/specs/capsafe-1.md"
     },
     {
+      "key": "NOTIFY-1",
+      "title": "Runtime-neutral structured job-completion notifications with per-provider native cards",
+      "story": "As an operator, I get a meaningful, structured job-completion notification (what ran and what it did) rendered natively per channel, so I understand a run at a glance instead of reading truncated agent narration.",
+      "acceptance_criteria": [
+        "Terminal completed/failed card leads with a structured stats line (duration, tool count, browser used, last action) and a sentence/word-boundary-truncated summary, not raw narration",
+        "Stats are accurate and neutral across both the Anthropic SDK and deepagents runtimes (final heartbeat snapshot on stop; browserActivityCount reflects a confirmed browser action, not just prelaunch)",
+        "The card renders natively per provider (Telegram HTML, Slack Block Kit, Discord embed) via a typed jobNotificationView, with the neutral markdown string as fallback for persistence and unsupported channels"
+      ],
+      "order": 64,
+      "status": "pending",
+      "epic": "observability",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "Capturing in-flight diagnosability/notification work (base card + heartbeat flush already implemented) as a tracked story; spec to be confirmed before formal planning of remaining tasks"
+    },
+    {
       "key": "WEB-AUTH-1",
       "title": "Authentication and Access Web UI",
       "story": "As a Gantry operator, I can securely authorize a browser locally or sign in through a company OIDC provider so that console access is revocable and role-enforced.",
@@ -1276,24 +1294,6 @@
       "completed_at": "2026-08-20T14:08:42+00:00",
       "history": ".factory/history/WEB-AUTH-1/",
       "outcome": "Gantry now provides a local and hosted browser sign-in path with separate opaque sessions, access administration, invitations, safe OIDC configuration, and recovery commands without changing the existing machine Bearer API."
-    },
-    {
-      "key": "NOTIFY-1",
-      "title": "Runtime-neutral structured job-completion notifications with per-provider native cards",
-      "story": "As an operator, I get a meaningful, structured job-completion notification (what ran and what it did) rendered natively per channel, so I understand a run at a glance instead of reading truncated agent narration.",
-      "acceptance_criteria": [
-        "Terminal completed/failed card leads with a structured stats line (duration, tool count, browser used, last action) and a sentence/word-boundary-truncated summary, not raw narration",
-        "Stats are accurate and neutral across both the Anthropic SDK and deepagents runtimes (final heartbeat snapshot on stop; browserActivityCount reflects a confirmed browser action, not just prelaunch)",
-        "The card renders natively per provider (Telegram HTML, Slack Block Kit, Discord embed) via a typed jobNotificationView, with the neutral markdown string as fallback for persistence and unsupported channels"
-      ],
-      "order": 64,
-      "status": "pending",
-      "epic": "observability",
-      "skill": "backend",
-      "kind": "feature",
-      "depends_on": [],
-      "origin": "adhoc",
-      "spec_debt_reason": "Capturing in-flight diagnosability/notification work (base card + heartbeat flush already implemented) as a tracked story; spec to be confirmed before formal planning of remaining tasks"
     },
     {
       "key": "NOTIFY-1-T7",
@@ -1315,6 +1315,29 @@
       "completed_at": "2026-08-22T04:03:17+00:00",
       "history": ".factory/stories/NOTIFY-1-T7/",
       "outcome": "Every scheduled job (and every live turn) now produces a structured, neutral summary of what it actually did for any tool on either runtime and provider - grouped actions with counts, failed-first, family-aware labels (e.g. 'Google Sheets Values Append x3', 'WebSearch x5', 'Browser: Open') - instead of falling back to raw narration. A single tool.activity event is recorded per tool call on both worker runtimes and both inline lanes with per-invocation correlation; Gantry-owned capability/browser events dedup against the generic event via trusted, provenance-gated result metadata (decision 0133), so a third-party tool can never spoof correlation. Someone reading a finished job now sees exactly which actions ran and which failed."
+    },
+    {
+      "key": "JOBPERM-1",
+      "title": "Chat-parity permissions for scheduled jobs",
+      "story": "JOBPERM-1",
+      "acceptance_criteria": [
+        "Unmatched grantable tool call raises the standard card; authorized Allow resumes the SAME run in place; rule persists; next run silent-allows; unit+live",
+        "Browser works for a granted job with no card (host verdict awaited); unit",
+        "Living card coalesces needs; revision/epoch-bound batch; no unseen approvals; provider contract tests x3 channels",
+        "Deny terminal per need with Reconsider epoch; handoff card keeps Deny + human Approve-and-run-again; unit",
+        "Hard-boundary and unprojected cases yield typed truthful results, never permanent grants or auto-reruns; unit",
+        "v9 Deletions land: old autonomous lane paths removed, source-asserted"
+      ],
+      "order": 66,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/jobperm-1-chat-parity-job-permissions.md",
+      "completed_at": "2026-08-26T12:24:41+00:00",
+      "history": ".factory/stories/JOBPERM-1/",
+      "outcome": "Scheduled jobs now ask for permission the same way a chat does: when a job needs a tool it is not yet allowed to use, one living card appears in the job's chat with Allow/Deny buttons and no timer, the run waits in place, and an Allow-always answer is remembered for future runs. The job notification was rebuilt alongside it: exactly one message per run, edited from Running into the result, rendered natively on Telegram, Slack and Discord, leading with a one-line outcome, then the per-tool results, then the next run time. Operators also got a heredoc-aware command gate, honest 'this request stays open' wording on job prompts, and the KnackLabs incident class (one card edited ten thousand times) is closed by JSONB-faithful settlement."
     },
     {
       "key": "WEB-PROVIDERS-1",
@@ -2318,5 +2341,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-27T08:49:59+00:00"
+  "updated_at": "2026-08-27T09:15:43+00:00"
 }

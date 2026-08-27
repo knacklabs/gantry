@@ -26,10 +26,14 @@ import type { JobReadinessBrowserStatus } from '../application/jobs/job-readines
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
-import type { BrowserSessionStatus } from '../runtime/browser-capability-types.js';
 import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
-import type { Job, JobRunStatus } from '../domain/types.js';
+import type {
+  Job,
+  JobNotificationView,
+  JobRunStatus,
+  MessageActionAffordance,
+} from '../domain/types.js';
 import type { JobNotificationLifecycleUpdateResult } from './execution-notifications.js';
 
 export interface SchedulerDependencies {
@@ -62,6 +66,8 @@ export interface SchedulerDependencies {
       'paused' | 'completed' | 'failed' | 'timeout' | 'dead_lettered'
     >;
     summaryMessage: string;
+    actionAffordances?: MessageActionAffordance[];
+    jobNotificationView?: JobNotificationView;
   }) => Promise<JobNotificationLifecycleUpdateResult>;
   sendStreamingChunk?: (
     jid: string,
@@ -85,7 +91,6 @@ export interface SchedulerDependencies {
   getBrowserStatus?: (
     profileName: string,
   ) => Promise<JobReadinessBrowserStatus | undefined>;
-  openBrowserSession?: (profileName: string) => Promise<BrowserSessionStatus>;
   executionAdapter?: AgentExecutionAdapter;
   executionAdapters?: AgentExecutionAdapterRegistry;
   runnerSandboxProvider: RunnerSandboxProvider;

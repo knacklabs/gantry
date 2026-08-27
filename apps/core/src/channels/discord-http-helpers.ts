@@ -7,18 +7,24 @@ export class DiscordRestError extends Error {
   readonly status: number;
   readonly discordCode: number | undefined;
   readonly retryDelayMs: number | undefined;
+  readonly errors: Record<string, unknown> | undefined;
+  readonly discordMessage: string | undefined;
 
   constructor(
     message: string,
     status: number,
     discordCode?: number,
     retryDelayMs?: number,
+    errors?: Record<string, unknown>,
+    discordMessage?: string,
   ) {
     super(message);
     this.name = 'DiscordRestError';
     this.status = status;
     this.discordCode = discordCode;
     this.retryDelayMs = retryDelayMs;
+    this.errors = errors;
+    this.discordMessage = discordMessage;
   }
 }
 
@@ -173,14 +179,16 @@ export async function requestDiscordJson<T>(input: {
         ? (undefined as T)
         : ((await response.json()) as T);
     }
-    const discordCode = await readDiscordErrorCode(response);
+    const discordError = await readDiscordError(response);
     const retryDelayMs = discordRateLimitRetryDelayMs(response);
     if (retryDelayMs === null || attempt >= maxAttempts - 1) {
       throw new DiscordRestError(
         input.errorMessage,
         response.status,
-        discordCode,
+        discordError.code,
         retryDelayMs ?? undefined,
+        discordError.errors,
+        discordError.message,
       );
     }
     input.onRetry?.(attempt + 1, retryDelayMs);
@@ -189,18 +197,28 @@ export async function requestDiscordJson<T>(input: {
   throw new Error(input.errorMessage);
 }
 
-async function readDiscordErrorCode(
-  response: Response,
-): Promise<number | undefined> {
+async function readDiscordError(response: Response): Promise<{
+  code: number | undefined;
+  errors: Record<string, unknown> | undefined;
+  message: string | undefined;
+}> {
   try {
     const body = (await response.json()) as unknown;
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return undefined;
+      return { code: undefined, errors: undefined, message: undefined };
     }
-    const code = (body as Record<string, unknown>).code;
-    return typeof code === 'number' && Number.isFinite(code) ? code : undefined;
+    const { code, errors, message } = body as Record<string, unknown>;
+    return {
+      code:
+        typeof code === 'number' && Number.isFinite(code) ? code : undefined,
+      errors:
+        errors && typeof errors === 'object' && !Array.isArray(errors)
+          ? (errors as Record<string, unknown>)
+          : undefined,
+      message: typeof message === 'string' ? message : undefined,
+    };
   } catch {
-    return undefined;
+    return { code: undefined, errors: undefined, message: undefined };
   }
 }
 

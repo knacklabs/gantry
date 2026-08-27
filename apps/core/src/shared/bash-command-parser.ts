@@ -1,7 +1,14 @@
+import {
+  parseHeredocBodies,
+  parseHeredocOperator,
+  type HeredocRedirect,
+} from './bash-heredoc.js';
+
 export interface BashCommandRedirect {
   operator: string;
   target: string;
   destructive: boolean;
+  heredoc?: string;
 }
 
 export interface BashCommandLeaf {
@@ -84,12 +91,33 @@ const SHELL_KEYWORDS = new Set([
 ]);
 
 export function parseBashCommand(command: string): BashCommandParseResult {
+  return parseBashCommandWithOptions(command, {
+    allowUnsafeMetaExecutors: false,
+  });
+}
+
+/**
+ * Parses meta-executor leaves for policy analysis only. Callers must never use
+ * this relaxed view to authorize execution; the public parser stays fail-closed.
+ */
+export function parseBashCommandForHardBoundaryAnalysis(
+  command: string,
+): BashCommandParseResult {
+  return parseBashCommandWithOptions(command, {
+    allowUnsafeMetaExecutors: true,
+  });
+}
+
+function parseBashCommandWithOptions(
+  command: string,
+  options: { allowUnsafeMetaExecutors: boolean },
+): BashCommandParseResult {
   const trimmed = command.trim();
   if (!trimmed) return { ok: false, reason: 'Bash command is empty.' };
   if (trimmed.length > 4096) {
     return { ok: false, reason: 'Bash command is too long to parse safely.' };
   }
-  return parseSegment(trimmed);
+  return parseSegment(trimmed, options);
 }
 
 export function firstDestructiveRedirectTarget(
@@ -244,7 +272,10 @@ export function summarizeBashCommandPrograms(
   return `${shown.join(', ')}${overflow}`;
 }
 
-function parseSegment(command: string): BashCommandParseResult {
+function parseSegment(
+  command: string,
+  options: { allowUnsafeMetaExecutors: boolean },
+): BashCommandParseResult {
   const leaves: BashCommandLeaf[] = [];
   let tokens: string[] = [];
   let redirects: BashCommandRedirect[] = [];
@@ -252,6 +283,7 @@ function parseSegment(command: string): BashCommandParseResult {
   let quote: "'" | '"' | null = null;
   let escaped = false;
   let piped = false;
+  let pendingHeredocs: HeredocRedirect[] = [];
 
   const flushToken = () => {
     if (!token) return;
@@ -262,7 +294,7 @@ function parseSegment(command: string): BashCommandParseResult {
   const flushLeaf = (): BashCommandParseResult | null => {
     flushToken();
     if (tokens.length === 0 && redirects.length === 0) return null;
-    const leaf = buildLeaf(tokens, redirects);
+    const leaf = buildLeaf(tokens, redirects, options);
     if (!leaf.ok) return leaf;
     leaves.push(leaf.leaf);
     tokens = [];
@@ -337,7 +369,7 @@ function parseSegment(command: string): BashCommandParseResult {
       if (end < 0) {
         return { ok: false, reason: 'Bash command has unmatched parentheses.' };
       }
-      const nested = parseSegment(command.slice(i + 1, end));
+      const nested = parseSegment(command.slice(i + 1, end), options);
       if (!nested.ok) return nested;
       leaves.push(...nested.leaves);
       if (nested.piped) piped = true;
@@ -365,6 +397,12 @@ function parseSegment(command: string): BashCommandParseResult {
     if (ch === '|' || ch === ';' || ch === '\n') {
       const flushed = flushLeaf();
       if (flushed) return flushed;
+      if (ch === '\n' && pendingHeredocs.length > 0) {
+        const heredocs = parseHeredocBodies(command, i + 1, pendingHeredocs);
+        if (!heredocs.ok) return heredocs;
+        pendingHeredocs = [];
+        i = heredocs.nextIndex - 1;
+      }
       if (ch === '|' && next === '|') i += 1;
       else if (ch === '|') piped = true;
       continue;
@@ -375,6 +413,7 @@ function parseSegment(command: string): BashCommandParseResult {
       if (!parsedRedirect.ok) return parsedRedirect;
       token = '';
       redirects.push(parsedRedirect.redirect);
+      if (parsedRedirect.heredoc) pendingHeredocs.push(parsedRedirect.heredoc);
       i = parsedRedirect.nextIndex;
       continue;
     }
@@ -390,6 +429,9 @@ function parseSegment(command: string): BashCommandParseResult {
   if (escaped)
     return { ok: false, reason: 'Bash command has dangling escape.' };
   if (quote) return { ok: false, reason: 'Bash command has unmatched quotes.' };
+  if (pendingHeredocs.length > 0) {
+    return { ok: false, reason: 'Bash heredoc delimiter not terminated.' };
+  }
   const flushed = flushLeaf();
   if (flushed) return flushed;
   if (leaves.length === 0) {
@@ -397,7 +439,6 @@ function parseSegment(command: string): BashCommandParseResult {
   }
   return { ok: true, leaves, piped };
 }
-
 function parseRedirect(
   command: string,
   index: number,
@@ -407,6 +448,7 @@ function parseRedirect(
       ok: true;
       redirect: BashCommandRedirect;
       nextIndex: number;
+      heredoc?: HeredocRedirect;
     }
   | { ok: false; reason: string } {
   const operatorChar = command[index];
@@ -418,9 +460,11 @@ function parseRedirect(
       reason: 'Bash redirection must be separated from command arguments.',
     };
   }
-
   let operator = `${fd ?? ''}${operatorChar}`;
   let cursor = index + 1;
+  if (operatorChar === '<' && command[cursor] === '<') {
+    return parseHeredocOperator(command, cursor, operator);
+  }
   if (operatorChar === '>' && command[cursor] === '>') {
     operator += '>';
     cursor += 1;
@@ -478,10 +522,10 @@ function parseRedirect(
     nextIndex: cursor - 1,
   };
 }
-
 function buildLeaf(
   argv: string[],
   redirects: BashCommandRedirect[],
+  options: { allowUnsafeMetaExecutors: boolean },
 ): { ok: true; leaf: BashCommandLeaf } | { ok: false; reason: string } {
   if (argv.length === 0) {
     return {
@@ -499,7 +543,9 @@ function buildLeaf(
   if (SHELL_KEYWORDS.has(command)) {
     return { ok: false, reason: `Bash keyword ${command} is not supported.` };
   }
-  const metaReason = unsafeMetaExecutorReason(argv);
+  const metaReason = options.allowUnsafeMetaExecutors
+    ? undefined
+    : unsafeMetaExecutorReason(argv);
   if (metaReason) return { ok: false, reason: metaReason };
   return {
     ok: true,

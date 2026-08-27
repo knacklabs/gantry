@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T16:57:09+00:00", "story": "JOBPERM-1", "detail": "S-0015-d587: Orchestrator ran the literal JUnit selectors at HEAD ce9c11994: report written, 6/6 proofs green across both jobperm test files."}

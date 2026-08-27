@@ -44,6 +44,12 @@ export function readTeamsMessageAction(value: unknown):
       threadId?: string;
     }
   | {
+      kind: 'job_permission_decision';
+      actionToken: string;
+      targetJid: string;
+      threadId?: string;
+    }
+  | {
       kind: 'memory_review_decision';
       reviewId: string;
       decision: MemoryReviewActionDecision;
@@ -75,6 +81,22 @@ export function readTeamsMessageAction(value: unknown):
   if (payload.action !== 'message_action') return null;
   if (typeof payload.targetJid !== 'string') {
     return null;
+  }
+  if (payload.kind === 'job_permission_decision') {
+    if (
+      typeof payload.actionToken !== 'string' ||
+      !payload.actionToken.trim()
+    ) {
+      return null;
+    }
+    return {
+      kind: 'job_permission_decision',
+      actionToken: payload.actionToken,
+      targetJid: payload.targetJid,
+      ...(typeof payload.threadId === 'string'
+        ? { threadId: payload.threadId }
+        : {}),
+    };
   }
   if (payload.kind === 'memory_review_decision') {
     if (typeof payload.reviewId !== 'string' || !payload.reviewId.trim()) {
@@ -364,6 +386,20 @@ export async function handleTeamsMessageAction(input: {
         : {}),
       userId: input.userId,
       jobId: payload.jobId,
+      ...(payload.threadId ? { threadId: payload.threadId } : {}),
+    });
+    return true;
+  }
+  if (payload.kind === 'job_permission_decision') {
+    await input.onMessageAction?.({
+      kind: 'job_permission_decision',
+      conversationJid: input.jid,
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
+        : {}),
+      userId: input.userId,
+      messageId: input.message.replyToId ?? input.message.id,
+      actionToken: payload.actionToken,
       ...(payload.threadId ? { threadId: payload.threadId } : {}),
     });
     return true;
