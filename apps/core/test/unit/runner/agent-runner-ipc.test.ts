@@ -669,6 +669,17 @@ export async function* query({ prompt, options }) {
       return;
     }
 
+    if (process.env.TEST_SCHEDULED_OUTCOME_NUDGE === '1') {
+      yield { type: 'result', subtype: 'success', result: 'Still working.' };
+      const followup = await nextWithTimeout(iterator, 1500);
+      if (followup && !followup.done) {
+        call.streamMessages.push(followup.value.message.content);
+      }
+      yield { type: 'result', subtype: 'success', result: 'Not finished yet.' };
+      appendRecord(call);
+      return;
+    }
+
     if (process.env.TEST_INTERACTION_BOUNDARY_FILE === '1') {
       const boundaryDir = path.join(process.env.GANTRY_IPC_DIR, 'interaction-boundaries');
       fs.mkdirSync(boundaryDir, { recursive: true });
@@ -713,6 +724,14 @@ export async function* query({ prompt, options }) {
         fs.writeFileSync(path.join(process.env.GANTRY_IPC_INPUT_DIR, '_close'), '');
       }, 20);
     }
+    return;
+  }
+  if (process.env.TEST_OUTCOME_RESULT === '1') {
+    yield {
+      type: 'result',
+      subtype: 'success',
+      result: 'Outcome: Lead 1 was written.',
+    };
     return;
   }
   if (process.env.TEST_STRUCTURED_THEN_STREAM_CREDENTIAL_RESULT === '1') {
@@ -2598,6 +2617,65 @@ describe('agent-runner IPC lifecycle', () => {
         'Do not claim Browser was used or opened unless',
       );
       expect(prompt).toContain('Find new leads.');
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'nudges a scheduled result without Outcome once and preserves continuedByFollowup',
+    async () => {
+      const fixture = createRunnerFixture();
+      const result = await runRunner(
+        fixture,
+        baseInput({ isScheduledJob: true, jobId: 'job-1' }),
+        { TEST_SCHEDULED_OUTCOME_NUDGE: '1' },
+      );
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(readRecord(fixture.recordPath).calls[0]?.streamMessages).toContain(
+        'You stopped before finishing. Continue the task now. When you are finished, your final message must begin with a line "Outcome: <one sentence>".',
+      );
+      expect(
+        readRunnerOutputs(result.stdout).filter(
+          (output) => output.continuedByFollowup === true,
+        ),
+      ).toHaveLength(1);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'does not nudge a scheduled result with an Outcome line',
+    async () => {
+      const fixture = createRunnerFixture();
+      const result = await runRunner(
+        fixture,
+        baseInput({ isScheduledJob: true, jobId: 'job-1' }),
+        { TEST_OUTCOME_RESULT: '1' },
+      );
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(
+        readRunnerOutputs(result.stdout).some(
+          (output) => output.continuedByFollowup === true,
+        ),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'does not nudge a non-scheduled result without an Outcome line',
+    async () => {
+      const fixture = createRunnerFixture();
+      const result = await runRunner(fixture, baseInput());
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(
+        readRunnerOutputs(result.stdout).some(
+          (output) => output.continuedByFollowup === true,
+        ),
+      ).toBe(false);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
