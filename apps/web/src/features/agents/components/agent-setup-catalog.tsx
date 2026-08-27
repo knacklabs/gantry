@@ -64,7 +64,7 @@ export function AgentSetupCatalog({
             role="tab"
             className={`h-[34px] min-w-[140px] justify-between gap-[7px] rounded-md px-3 text-[12.5px] ${
               sourceTab === 'skills'
-                ? 'border-2 border-text bg-surface-strong text-text hover:bg-surface-strong'
+                ? '!border-2 !border-text bg-surface-strong text-text ring-1 ring-text hover:bg-surface-strong'
                 : ''
             }`}
             variant="outline"
@@ -81,7 +81,7 @@ export function AgentSetupCatalog({
             role="tab"
             className={`h-[34px] min-w-[140px] justify-between gap-[7px] rounded-md px-3 text-[12.5px] ${
               sourceTab === 'mcp'
-                ? 'border-2 border-text bg-surface-strong text-text hover:bg-surface-strong'
+                ? '!border-2 !border-text bg-surface-strong text-text ring-1 ring-text hover:bg-surface-strong'
                 : ''
             }`}
             variant="outline"
