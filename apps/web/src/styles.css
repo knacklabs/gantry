@@ -165,7 +165,8 @@
 }
 
 .web-drawer {
-  width: min(100vw, clamp(40rem, 40vw, 45rem));
+  width: min(100vw, clamp(40rem, 40vw, 45rem)) !important;
+  max-width: none !important;
 }
 
 .auth-page-shell {
