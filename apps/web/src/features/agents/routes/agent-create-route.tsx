@@ -82,15 +82,28 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
     ...agentCapabilitiesQuery(agentId ?? ''),
     enabled: step === 'review' && !!agentId,
   });
-  const create = useMutation({
+  const saveAgent = useMutation({
     mutationFn: async () => {
-      const response = await browserFetch('/ui/api/agents', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
-        body: JSON.stringify({ name, roleId: selectedRole?.id }),
-      });
-      if (!response.ok) throw new Error('The base agent could not be created.');
+      const response = await browserFetch(
+        agentId
+          ? `/ui/api/agents/${encodeURIComponent(agentId)}`
+          : '/ui/api/agents',
+        {
+          method: agentId ? 'PATCH' : 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'content-type': 'application/json',
+            ...browserCsrfHeader(),
+          },
+          body: JSON.stringify({ name, roleId: selectedRole?.id }),
+        },
+      );
+      if (!response.ok)
+        throw new Error(
+          agentId
+            ? 'Agent changes could not be saved.'
+            : 'The agent could not be created.',
+        );
       return response.json() as Promise<{ agent: { id: string } }>;
     },
     onSuccess: ({ agent }) => {
@@ -106,7 +119,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
       role: selectedRole ? undefined : 'Select a role.',
     };
     setBaseErrors(errors);
-    if (!errors.name && !errors.role) create.mutate();
+    if (!errors.name && !errors.role) saveAgent.mutate();
   }
 
   return (
@@ -282,7 +295,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                   }}
                   error={
                     baseErrors.name ??
-                    (create.isError ? create.error.message : undefined)
+                    (saveAgent.isError ? saveAgent.error.message : undefined)
                   }
                   placeholder="Customer research"
                   autoFocus
@@ -307,6 +320,10 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                 }}
                 onCreateCustom={() => setRoleEditor({ mode: 'create' })}
               />
+              <p className="m-0 text-xs text-text-secondary">
+                Continue saves this agent now so you can configure sources and
+                capabilities. Returning here updates the same saved agent.
+              </p>
             </form>
           ) : null}
           <RoleEditorDialog
@@ -336,11 +353,15 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
           </span>
           {step === 'base' ? (
             <Button
-              disabled={create.isPending}
+              disabled={saveAgent.isPending}
               form="agent-base-form"
               type="submit"
             >
-              {create.isPending ? 'Creating…' : 'Create and continue'}{' '}
+              {saveAgent.isPending
+                ? 'Saving…'
+                : agentId
+                  ? 'Save changes and continue'
+                  : 'Save agent and continue'}{' '}
               <ArrowRight size={16} aria-hidden="true" />
             </Button>
           ) : null}

@@ -518,7 +518,43 @@ export async function handleBrowserAgentRoutes(
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
       await assertAvailableAgentName(storage, appId, body.name, agent.id);
-      const updated = { ...agent, name: body.name.trim(), updatedAt: nowIso() };
+      const now = nowIso();
+      let updated = { ...agent, name: body.name.trim(), updatedAt: now };
+      const roleId = typeof body.roleId === 'string' ? body.roleId : undefined;
+      if (roleId) {
+        const currentConfig = agent.currentConfigVersionId
+          ? await storage.repositories.agentConfigs.getConfigVersion(
+              agent.currentConfigVersionId,
+            )
+          : null;
+        if (!currentConfig)
+          return (
+            sendError(
+              res,
+              409,
+              'CONFLICT',
+              'Agent configuration could not be found.',
+            ),
+            true
+          );
+        if (currentConfig.roleSnapshot?.sourceRoleId !== roleId) {
+          const versions =
+            await storage.repositories.agentConfigs.listConfigVersions({
+              appId,
+              agentId: agent.id,
+            });
+          const nextConfig: AgentConfigVersion = {
+            ...currentConfig,
+            id: `agent-config:${randomUUID()}` as AgentConfigVersionId,
+            version:
+              Math.max(...versions.map((version) => version.version), 0) + 1,
+            roleSnapshot: await roleSnapshotFor(storage, appId, roleId),
+            createdAt: now,
+          };
+          await storage.repositories.agentConfigs.saveConfigVersion(nextConfig);
+          updated = { ...updated, currentConfigVersionId: nextConfig.id };
+        }
+      }
       await storage.repositories.agents.saveAgent(updated);
       await ctx.syncSettingsFromProjection(appId);
       sendJson(res, 200, { agent: await agentView(storage, updated) });

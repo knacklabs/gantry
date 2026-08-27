@@ -29,6 +29,8 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain('roleSnapshotFor(');
   expect(source).toContain('assertAvailableAgentName(');
   expect(source).toContain("roleId =\n        typeof body.roleId === 'string'");
+  expect(source).toContain("const roleId = typeof body.roleId === 'string'");
+  expect(source).toContain('currentConfigVersionId: nextConfig.id');
   expect(source).toContain('agent.appId !== appId');
   expect(source).toContain('role.appId !== appId');
   expect(source).toContain('const AGENT_SOURCES_PATH');
