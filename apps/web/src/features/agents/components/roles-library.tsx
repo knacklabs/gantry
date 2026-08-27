@@ -79,7 +79,7 @@ export function RolesLibrary({
         onEdit={(role) => setEditor({ mode: 'edit', role })}
         onDuplicate={duplicate}
       />
-      <div className="flex min-h-[52px] items-center justify-end gap-2 border-t border-border px-3">
+      <div className="flex min-h-[var(--table-pager-height)] items-center justify-end gap-2 border-t border-border px-[var(--table-cell-padding-inline)]">
         <Button
           disabled={(data?.page ?? 1) <= 1}
           variant="secondary"

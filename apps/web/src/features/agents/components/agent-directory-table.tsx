@@ -36,40 +36,40 @@ export function AgentDirectoryTable({
   const last = Math.min(page * pageSize, total);
   return (
     <section className="hidden overflow-hidden rounded-lg border border-border bg-surface shadow-panel md:block">
-      <header className="flex min-h-[54px] items-center justify-between gap-4 border-b border-border px-[15px] py-[13px]">
+      <header className="flex min-h-[var(--table-panel-header-height)] items-center justify-between gap-4 border-b border-border px-[var(--table-panel-padding-inline)] py-[13px]">
         <div>
           <h2 className="m-0 text-[13px] font-semibold text-text">
             Agent directory
           </h2>
-          <p className="mt-[3px] mb-0 text-[11px] text-text-secondary">
+          <p className="mt-[3px] mb-0 text-[length:var(--table-meta-font-size)] text-text-secondary">
             {total ? `${first}–${last} of ${total}` : '0'} agents · sorted by
             name
           </p>
         </div>
         <Badge
-          className="h-[22px] border-border bg-surface px-2 font-mono text-[9.5px] text-text-secondary"
+          className="h-[var(--table-status-height)] border-border bg-surface px-2 font-mono text-[length:var(--table-status-font-size)] text-text-secondary"
           variant="outline"
         >
           Page {page}
         </Badge>
       </header>
       <div className="max-h-[calc(100dvh-330px)] min-h-[330px] overflow-auto">
-        <table className="w-full min-w-[820px] border-collapse text-left text-[12px]">
+        <table className="w-full min-w-[820px] border-collapse text-left text-[length:var(--table-font-size)]">
           <thead className="sticky top-0 z-10 bg-surface-muted">
             <tr className="border-b border-border">
-              <th className="h-[39px] px-3 font-semibold text-text-secondary">
+              <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold text-text-secondary">
                 Agent
               </th>
-              <th className="h-[39px] px-3 font-semibold text-text-secondary">
+              <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold text-text-secondary">
                 Status
               </th>
-              <th className="h-[39px] px-3 font-semibold text-text-secondary">
+              <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold text-text-secondary">
                 Role
               </th>
-              <th className="h-[39px] px-3 font-semibold text-text-secondary">
+              <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold text-text-secondary">
                 Model
               </th>
-              <th className="h-[39px] px-3 font-semibold text-text-secondary">
+              <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold text-text-secondary">
                 Connections
               </th>
             </tr>
@@ -85,7 +85,7 @@ export function AgentDirectoryTable({
                     onRowClick(agent);
                   }}
                 >
-                  <td className="h-[54px] px-3 py-[7px] align-middle">
+                  <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] align-middle">
                     <Link
                       className="block font-semibold text-text no-underline hover:underline"
                       params={{ agentId: agent.id }}
@@ -98,16 +98,16 @@ export function AgentDirectoryTable({
                       {agent.rolePrompt ?? 'No saved role instructions'}
                     </p>
                   </td>
-                  <td className="h-[54px] px-3 py-[7px] align-middle">
+                  <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] align-middle">
                     <DirectoryStatus status={agent.status} />
                   </td>
-                  <td className="h-[54px] px-3 py-[7px] align-middle text-text-secondary">
+                  <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] align-middle text-text-secondary">
                     {agent.roleName ?? 'No role selected'}
                   </td>
-                  <td className="h-[54px] px-3 py-[7px] align-middle text-text-secondary">
+                  <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] align-middle text-text-secondary">
                     {agent.modelAlias ?? 'Deployment default'}
                   </td>
-                  <td className="h-[54px] px-3 py-[7px] align-middle text-text-secondary">
+                  <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] align-middle text-text-secondary">
                     {agent.conversationCount
                       ? `${agent.conversationCount} conversation${agent.conversationCount === 1 ? '' : 's'}`
                       : 'Not connected'}
@@ -117,7 +117,7 @@ export function AgentDirectoryTable({
             ) : (
               <tr>
                 <td
-                  className="h-[330px] px-3 text-center text-text-secondary"
+                  className="h-[330px] px-[var(--table-cell-padding-inline)] text-center text-text-secondary"
                   colSpan={5}
                 >
                   {emptyMessage}
@@ -127,7 +127,7 @@ export function AgentDirectoryTable({
           </tbody>
         </table>
       </div>
-      <footer className="flex min-h-[52px] items-center justify-between border-t border-border px-3 text-[11px] text-text-secondary">
+      <footer className="flex min-h-[var(--table-pager-height)] items-center justify-between border-t border-border px-[var(--table-cell-padding-inline)] text-[length:var(--table-meta-font-size)] text-text-secondary">
         <span>{total ? `${first}–${last} of ${total}` : '0'} agents</span>
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-2">
@@ -138,7 +138,7 @@ export function AgentDirectoryTable({
             >
               <SelectTrigger
                 aria-label="Rows per page"
-                className="h-[29px] w-16 text-[12px]"
+                className="h-[var(--table-control-size)] w-16 text-[length:var(--table-font-size)]"
               >
                 <SelectValue />
               </SelectTrigger>
@@ -151,7 +151,7 @@ export function AgentDirectoryTable({
           </label>
           <Button
             aria-label="Previous page"
-            className="size-[29px]"
+            className="size-[var(--table-control-size)]"
             disabled={page <= 1}
             size="icon"
             variant="outline"
@@ -161,7 +161,7 @@ export function AgentDirectoryTable({
           </Button>
           <Button
             aria-label="Next page"
-            className="size-[29px]"
+            className="size-[var(--table-control-size)]"
             disabled={page >= pageCount}
             size="icon"
             variant="outline"
@@ -179,7 +179,7 @@ function DirectoryStatus({ status }: { status: AgentDirectoryItem['status'] }) {
   const active = status === 'active';
   return (
     <Badge
-      className="h-[22px] px-2 font-mono text-[9.5px]"
+      className="h-[var(--table-status-height)] px-2 font-mono text-[length:var(--table-status-font-size)]"
       variant={active ? 'success' : 'danger'}
     >
       {active ? (

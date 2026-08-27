@@ -73,6 +73,18 @@
   --status-idle: #8a6a3c;
   --overlay: rgb(27 26 24 / 42%);
   --focus-ring: #6d665c;
+  --table-panel-header-height: 3.375rem;
+  --table-panel-padding-inline: 0.9375rem;
+  --table-header-height: 2.4375rem;
+  --table-row-height: 3.375rem;
+  --table-cell-padding-inline: 0.75rem;
+  --table-cell-padding-block: 0.4375rem;
+  --table-font-size: 0.75rem;
+  --table-meta-font-size: 0.6875rem;
+  --table-pager-height: 3.25rem;
+  --table-control-size: 1.8125rem;
+  --table-status-height: 1.375rem;
+  --table-status-font-size: 0.59375rem;
 }
 
 :root[data-theme='dark'] {

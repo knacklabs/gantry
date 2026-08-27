@@ -50,36 +50,48 @@ export function CustomRolesTable({
 
   return (
     <div className="max-h-[calc(100dvh-20rem)] min-h-[330px] overflow-auto">
-      <table className="w-full min-w-[760px] border-collapse text-left text-[12px]">
+      <table className="w-full min-w-[760px] border-collapse text-left text-[length:var(--table-font-size)]">
         <thead className="sticky top-0 z-10 bg-surface-muted text-text-secondary">
           <tr className="border-b border-border">
-            <th className="h-[39px] px-3 font-semibold">Role</th>
-            <th className="h-[39px] px-3 font-semibold">Source</th>
-            <th className="h-[39px] px-3 font-semibold">Prompt</th>
-            <th className="h-[39px] px-3 font-semibold">Agents</th>
-            <th className="h-[39px] px-3 font-semibold">Updated</th>
-            <th className="h-[39px] px-3 font-semibold">Actions</th>
+            <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
+              Role
+            </th>
+            <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
+              Source
+            </th>
+            <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
+              Prompt
+            </th>
+            <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
+              Agents
+            </th>
+            <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
+              Updated
+            </th>
+            <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody>
           {data?.data.map((role) => (
             <tr className="border-b border-border last:border-0" key={role.id}>
-              <td className="h-[54px] px-3 py-[7px] font-medium">
+              <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] font-medium">
                 {role.name}
               </td>
-              <td className="h-[54px] px-3 py-[7px] text-text-secondary">
+              <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] text-text-secondary">
                 {role.sourceRoleId ?? '—'}
               </td>
-              <td className="h-[54px] max-w-64 truncate px-3 py-[7px] text-text-secondary">
+              <td className="h-[var(--table-row-height)] max-w-64 truncate px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] text-text-secondary">
                 {role.prompt}
               </td>
-              <td className="h-[54px] px-3 py-[7px] text-text-secondary">
+              <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] text-text-secondary">
                 {role.retainedAgentCount ?? 0}
               </td>
-              <td className="h-[54px] px-3 py-[7px] text-text-secondary">
+              <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] text-text-secondary">
                 {role.updatedAt ?? '—'}
               </td>
-              <td className="h-[54px] px-3 py-[7px]">
+              <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)]">
                 <div className="flex gap-2">
                   <Button
                     size="sm"
@@ -144,7 +156,7 @@ export function CustomRolesTable({
           {!loading && !data?.data.length ? (
             <tr>
               <td
-                className="h-[330px] px-3 text-center text-text-secondary"
+                className="h-[330px] px-[var(--table-cell-padding-inline)] text-center text-text-secondary"
                 colSpan={6}
               >
                 No custom roles yet.
