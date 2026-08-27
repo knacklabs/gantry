@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Which Codex model/effort should implement T1?",
+      "options": [
+        "gpt-5.6-sol @ high (Recommended)",
+        "gpt-5.6-sol @ xhigh"
+      ],
+      "chosen": "gpt-5.6-sol @ high (Recommended)"
+    },
+    {
+      "question": "Anything else before T1 starts?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T17:25:36.977813+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

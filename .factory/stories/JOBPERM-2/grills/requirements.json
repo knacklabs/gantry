@@ -1,0 +1,49 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "A once row whose run ended before a decision settles as expired with row copy 'Expired \u2014 the run ended before a decision; it will ask again next run'; it never becomes durable authority."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Spec holds against the code: attach at job-permission-durability-wiring.ts:212 returns false for zero-rule requests; classifier rewrite at ipc-permission-classifier-decision.ts:437 is the cancel-only source; IPC wrapper ipc-interaction-processing.ts:205 is the fallback point.",
+    "Runner already verifies signed allow_once (permission-callback.ts:329); heartbeat unchanged; no schema migration (grant lives in the JSONB need/revision record, absent = rule)."
+  ],
+  "rounds": [
+    {
+      "question": "A 'this run only' row can't be used after the run ends. If the run finishes (or times out) before you tap, what should the card show?",
+      "options": [
+        "Mark it expired, ask again next run (Recommended)",
+        "Leave it open until the next run picks it up"
+      ],
+      "chosen": "Mark it expired, ask again next run (Recommended)"
+    },
+    {
+      "question": "Anything else to settle before I write the plan?",
+      "options": [
+        "No \u2014 write the plan (Recommended)",
+        "Hold \u2014 change something first"
+      ],
+      "chosen": "No \u2014 write the plan (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "settlement apply guard and handoff recovery assume non-empty grant atoms",
+      "path": "apps/core/src/application/interactions/job-permission-reconciler.ts",
+      "line": 330
+    },
+    {
+      "finding": "need record has no grant mode today",
+      "path": "apps/core/src/application/interactions/job-permission-durability.ts",
+      "line": 176
+    }
+  ],
+  "issue": "JOBPERM-2",
+  "input_sha256": "418832646359f61cfed98ee2495d5c2820f60c27ea2f0b6f78becb6d6a100ddb",
+  "recorded_at": "2026-08-27T17:15:22+00:00",
+  "commit": "67daf0edce1615c67384284aefba02d17c7030fb"
+}
