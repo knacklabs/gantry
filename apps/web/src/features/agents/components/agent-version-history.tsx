@@ -26,6 +26,7 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
         Version history
       </Button>
       <AgentDrawer
+        bodyClassName="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-[18px] overflow-hidden p-5"
         eyebrow="Read-only history"
         description={`${agent.name} · ${count === undefined ? 'Loading' : count} ${count === 1 ? 'version' : 'versions'}`}
         footer={
@@ -55,8 +56,8 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
           </p>
         ) : null}
         {selected ? (
-          <div className="grid gap-3 sm:grid-cols-[145px_minmax(0,1fr)]">
-            <div className="grid content-start gap-[7px] border-b border-border pb-3 sm:max-h-[520px] sm:border-r sm:border-b-0 sm:pr-3 sm:pb-0">
+          <div className="grid min-h-0 gap-3 sm:grid-cols-[145px_minmax(0,1fr)]">
+            <div className="grid min-h-0 content-start gap-[7px] overflow-y-auto border-b border-border pb-3 sm:border-r sm:border-b-0 sm:pr-3 sm:pb-0">
               {versions.data?.versions.map((version, index) => (
                 <button
                   className="rounded-md border border-border bg-surface p-[9px] text-left hover:border-text-secondary hover:bg-surface-muted data-[selected=true]:border-text-secondary data-[selected=true]:bg-surface-muted"
@@ -78,7 +79,7 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
                 </button>
               ))}
             </div>
-            <article className="grid content-start gap-3">
+            <article className="grid min-h-0 content-start gap-3 overflow-y-auto pr-1">
               <Badge variant="success">
                 v{selected.version}
                 {selected.id === versions.data?.versions[0]?.id
