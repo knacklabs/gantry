@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-// Interactive request authentication must remain valid for the entire durable
+// Permission request authentication must remain valid for the entire durable
 // pending-interaction retention window. One bound drives both so they cannot
 // drift apart.
 export const IPC_INTERACTION_RETENTION_TTL_MS = 24 * 60 * 60_000;
@@ -45,18 +45,16 @@ export function ipcInteractionAuthEnvelopeOptions(unbounded: boolean): {
   };
 }
 
-export function ipcInteractionAuthValidationOptions(permissionLane: unknown):
+export function ipcInteractionAuthValidationOptions(_permissionLane: unknown):
   | {
       extendedAuthPurpose: 'unbounded-interaction';
       extendedMaxAgeMs: number;
     }
   | undefined {
-  return permissionLane === 'interactive'
-    ? {
-        extendedAuthPurpose: 'unbounded-interaction',
-        extendedMaxAgeMs: IPC_INTERACTION_RETENTION_TTL_MS,
-      }
-    : undefined;
+  return {
+    extendedAuthPurpose: 'unbounded-interaction',
+    extendedMaxAgeMs: IPC_INTERACTION_RETENTION_TTL_MS,
+  };
 }
 
 export function ipcInteractionUnclaimableReason(

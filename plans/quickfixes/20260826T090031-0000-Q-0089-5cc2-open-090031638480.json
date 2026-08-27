@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0089-5cc2",
+  "profile": "lite",
+  "reason": "Slack leg of the provider-neutral terminal notice: when the lifecycle terminal edit carries the structured view, render it with slackJobNotificationBlocks on chat.update/postMessage instead of markdown text; text stays as the fallback field; API rejection falls back to text. Scope: slack progress helper, slack channel-delivery.ts, slack message-action-affordances.ts, slack test.",
+  "started_at": "2026-08-26T09:00:31+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "a9d092fd09e3756d01fe76003934213f2ba58218"
+}

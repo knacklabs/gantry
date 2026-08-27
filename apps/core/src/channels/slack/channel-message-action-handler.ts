@@ -51,7 +51,6 @@ export function registerSlackMessageActionHandler(
   },
 ): void {
   app.action('gantry_message_action', async (args: any) => {
-    await args.ack();
     const action = args.action as { value?: string };
     const body = args.body as {
       channel?: { id?: string };
@@ -65,14 +64,36 @@ export function registerSlackMessageActionHandler(
           runId?: unknown;
           reviewId?: unknown;
           decision?: unknown;
+          actionToken?: unknown;
           providerAccountId?: unknown;
         }
       | undefined;
     try {
       payload = action.value ? JSON.parse(action.value) : undefined;
     } catch {
+      await args.ack();
       return;
     }
+    if (
+      payload?.kind === 'job_permission_decision' &&
+      typeof payload.actionToken === 'string' &&
+      payload.actionToken.trim() &&
+      body.channel?.id &&
+      body.user?.id
+    ) {
+      await opts?.onMessageAction?.({
+        kind: 'job_permission_decision',
+        conversationJid: `sl:${body.channel.id}`,
+        ...providerAccountFromPayload(payload, opts?.providerAccountId),
+        threadId: body.message?.thread_ts,
+        userId: body.user.id,
+        ...(body.message?.ts ? { messageId: body.message.ts } : {}),
+        actionToken: payload.actionToken,
+      });
+      await args.ack();
+      return;
+    }
+    await args.ack();
     const observerFeedback = parseSlackObserverFeedback(payload);
     if (observerFeedback && body.channel?.id && body.user?.id) {
       const channelId = body.channel.id;

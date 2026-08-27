@@ -2,8 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { nowIso } from '../../../shared/time/datetime.js';
 import {
-  availableSemanticCapabilities,
   attachedMcpSourceIds,
+  availableSemanticCapabilities,
   chatJid,
   currentConfiguredAllowedTools,
   deploymentMode,
@@ -20,15 +20,14 @@ import {
   formatMcpApprovalResponse,
   formatSkillProposalResponse,
 } from './service-formatters.js';
-import { registerAccessRequestTool } from './capabilities.js';
 import { registerAdminPermissionTools } from './admin-permissions.js';
 import { registerSettingsTools } from './settings.js';
 import { makeIpcId } from '../ipc-ids.js';
 import type { AdminMcpToolName } from '../../../shared/admin-mcp-tools.js';
 import { humanizeTechnicalIdentifier } from '../../../shared/user-visible-messages.js';
-import type { SemanticCapabilityDefinition } from '../../../shared/semantic-capabilities.js';
 import { browserWrongLaneRequestGuidance } from './service-browser-guidance.js';
 import { registerMcpProxyTools } from './mcp-proxy-tools.js';
+import { registerServiceAccessRequestTool } from './service-access.js';
 
 export function registerServiceTools(server: McpServer): void {
   registerSkillProposalTool(
@@ -239,57 +238,7 @@ export function registerServiceTools(server: McpServer): void {
         },
       ),
   );
-  registerAccessRequestTool(server, submitCapabilityReviewTask, {
-    listCapabilities: () => availableSemanticCapabilities,
-    isCapabilitySelected: (capabilityId) =>
-      currentConfiguredAllowedTools().includes(`capability:${capabilityId}`),
-    isToolSelected: (toolName) =>
-      currentConfiguredAllowedTools().includes(toolName),
-    validateRunCommandFallback: ({ argvPattern }) => {
-      const currentAllowedTools = currentConfiguredAllowedTools();
-      const selectedMcpCapabilities = availableSemanticCapabilities.filter(
-        (capability) =>
-          currentAllowedTools.includes(
-            `capability:${capability.capabilityId}`,
-          ) &&
-          capability.implementationBindings.some(
-            (binding) =>
-              binding.kind === 'mcp_tool' ||
-              binding.kind === 'mcp_pattern' ||
-              Boolean(binding.mcpTool),
-          ),
-      );
-      const selectedMcpCapabilityIds = selectedMcpCapabilities
-        .map((capability) => capability.capabilityId)
-        .sort();
-      if (selectedMcpCapabilityIds.length === 0) return null;
-      const requestedPattern = normalizeMcpServerName(argvPattern);
-      const selectedMcpNames = [
-        ...new Set(
-          selectedMcpCapabilities.flatMap((capability) =>
-            mcpCapabilityNames(capability),
-          ),
-        ),
-      ].filter(Boolean);
-      const targetsSelectedMcp = selectedMcpNames.some((name) =>
-        requestedPattern.includes(name),
-      );
-      if (!targetsSelectedMcp) return null;
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: [
-              'RunCommand/Bash permission is not available as a fallback while MCP access is selected for this run.',
-              `Selected MCP capabilities: ${selectedMcpCapabilityIds.join(', ')}`,
-              'Use mcp_list_tools to inspect the ready source, then mcp_call_tool for immediate approved actions or async_mcp_call for long-running work.',
-            ].join('\n'),
-          },
-        ],
-      };
-    },
-  });
+  registerServiceAccessRequestTool(server);
 
   server.tool(
     'request_mcp_server',
@@ -553,24 +502,6 @@ The JID must be the current conversation. The folder name must be channel-prefix
       };
     },
   );
-}
-
-function mcpCapabilityNames(
-  capability: SemanticCapabilityDefinition,
-): string[] {
-  const names: string[] = [capability.capabilityId];
-  const sourceServerName = mcpSourceServerName(capability.source);
-  if (sourceServerName) names.push(sourceServerName);
-  for (const binding of capability.implementationBindings) {
-    if (binding.kind === 'mcp_pattern') {
-      if (binding.mcpServer) names.push(binding.mcpServer);
-      continue;
-    }
-    if (binding.kind !== 'mcp_tool' && !binding.mcpTool) continue;
-    const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
-    if (match?.[1]) names.push(match[1]);
-  }
-  return names.map(normalizeMcpServerName).filter(Boolean);
 }
 
 function adminToolUnavailable(toolName: AdminMcpToolName): {

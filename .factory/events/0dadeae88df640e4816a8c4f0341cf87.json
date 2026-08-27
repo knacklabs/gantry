@@ -1,0 +1,1 @@
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-08-23T12:38:09+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T2 binds v9 sections A2/A4/A5/A6/A7 and Core model, but their definitions are absent from the brief; please inline the persisted fields, transition/CAS rules, card batch boundary, and lease/"}

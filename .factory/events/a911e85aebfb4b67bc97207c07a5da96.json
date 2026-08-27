@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T13:20:33+00:00", "story": "JOBPERM-1", "detail": "S-0007-559d: 0124 stands; v9 does NOT amend it (A2 explicitly routes card publication via the bounded durable-delivery machinery). Replace the embedded delivery state machine with outbound-delivery entries; keep o"}

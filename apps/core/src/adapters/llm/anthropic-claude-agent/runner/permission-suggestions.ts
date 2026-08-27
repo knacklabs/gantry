@@ -11,7 +11,11 @@ import {
   parseBashCommand,
 } from '../../../../shared/bash-command-parser.js';
 import { permissionUpdateAllowedToolRules } from '../../../../shared/permission-tool-rules.js';
-import { validateDurableAccessRule } from '../../../../shared/durable-access-policy.js';
+import {
+  type DurableAccessReformulationResult,
+  remoteContentExecutionReformulation,
+  validateDurableAccessRule,
+} from '../../../../shared/durable-access-policy.js';
 import {
   expandSemanticCapabilityPermissionRules,
   semanticCapabilityRuntimeRules,
@@ -32,6 +36,7 @@ import { canonicalGantryToolRuleName } from '../../../../shared/gantry-tool-faca
 export interface PermissionSuggestionPlan {
   suggestions?: unknown[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
+  reformulation?: DurableAccessReformulationResult;
 }
 
 const GANTRY_SKILL_ACTIONS_ENV = 'GANTRY_SKILL_ACTIONS_JSON';
@@ -67,6 +72,10 @@ export function synthesizePermissionSuggestionPlan(
   );
   if (skillAction) return skillAction;
   if (normalizedToolName === RUN_COMMAND_TOOL_NAME) {
+    const reformulation = toolInputRemoteContentReformulation(
+      options.toolInput,
+    );
+    if (reformulation) return { reformulation };
     const commands = inferBashRuleContents(options.toolInput);
     if (!commands.length) return {};
     const rules = commands.map(
@@ -127,6 +136,12 @@ export function scheduledPermissionSuggestionPlan(
   }
   const skillAction = skillActionPermissionSuggestion(publicToolName, options);
   if (skillAction) return skillAction;
+  if (publicToolName === RUN_COMMAND_TOOL_NAME) {
+    const reformulation = toolInputRemoteContentReformulation(
+      options.toolInput,
+    );
+    if (reformulation) return { reformulation };
+  }
   const normalizedSdkSuggestions =
     normalizePermissionSuggestions(sdkSuggestions);
   if (normalizedSdkSuggestions) {
@@ -269,6 +284,17 @@ function inferBashRuleContents(toolInput: unknown): string[] {
     .map(normalizeBashLeafRuleContent)
     .filter((rule): rule is string => Boolean(rule));
   return [...new Set(rules)];
+}
+
+function toolInputRemoteContentReformulation(
+  toolInput: unknown,
+): DurableAccessReformulationResult | undefined {
+  if (!toolInput || typeof toolInput !== 'object') return undefined;
+  const input = toolInput as Record<string, unknown>;
+  const command = input.command ?? input.cmd;
+  return typeof command === 'string'
+    ? remoteContentExecutionReformulation(command)
+    : undefined;
 }
 
 function skillActionPermissionSuggestion(

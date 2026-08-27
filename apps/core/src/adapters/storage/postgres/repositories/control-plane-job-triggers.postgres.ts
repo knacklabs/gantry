@@ -16,6 +16,7 @@ export class PostgresJobTriggerRepository {
 
   async create(input: {
     jobId: string;
+    triggerId?: string;
     requestedBy?: string;
   }): Promise<JobTriggerRecord> {
     const job = await this.db
@@ -25,21 +26,39 @@ export class PostgresJobTriggerRepository {
       .limit(1);
     const appId = job[0]?.appId ?? 'default';
     const now = currentIso();
+    const triggerId = input.triggerId ?? randomUUID();
+    const requestedBy = input.requestedBy ?? 'sdk';
     const rows = await this.db
       .insert(pgSchema.canonicalJobTriggersPostgres)
       .values({
-        id: randomUUID(),
+        id: triggerId,
         appId,
         jobId: input.jobId,
         runId: null,
-        requestedBy: input.requestedBy ?? 'sdk',
+        requestedBy,
         requestedAt: now,
         status: 'pending',
         createdAt: now,
         updatedAt: now,
       })
+      .onConflictDoNothing({
+        target: pgSchema.canonicalJobTriggersPostgres.id,
+      })
       .returning();
-    return mapTrigger(rows[0] as CanonicalControlRow);
+    if (rows[0]) return mapTrigger(rows[0] as CanonicalControlRow);
+    const [existing] = await this.db
+      .select()
+      .from(pgSchema.canonicalJobTriggersPostgres)
+      .where(eq(pgSchema.canonicalJobTriggersPostgres.id, triggerId))
+      .limit(1);
+    if (
+      !existing ||
+      existing.jobId !== input.jobId ||
+      existing.requestedBy !== requestedBy
+    ) {
+      throw new Error('Job trigger idempotency scope does not match.');
+    }
+    return mapTrigger(existing as CanonicalControlRow);
   }
 
   async bindPendingToRun(

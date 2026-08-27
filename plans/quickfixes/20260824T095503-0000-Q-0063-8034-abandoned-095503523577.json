@@ -1,0 +1,18 @@
+{
+  "event": "abandoned",
+  "id": "Q-0063-8034",
+  "profile": "lite",
+  "reason": "Architecture fixes committed (2f96a192c); closing to run the story closeout reviews which mode-done requires \u2014 they are produced by the branch-level three-lens pass that follows in the next window.",
+  "opened_reason": "Post-stage structural-gate fixes for JOBPERM-1 (verify.py): two file-size budget extractions (execution.ts 875>870, runner mcp service.ts 938>850) plus the runtime-services layer-import exception bump for the jobperm wiring.",
+  "started_at": "2026-08-24T09:45:50+00:00",
+  "completed_at": "2026-08-24T09:55:03+00:00",
+  "files": [
+    "apps/core/src/jobs/execution-runtime-events.ts",
+    "apps/core/src/jobs/execution.ts",
+    "apps/core/src/runner/mcp/tools/service-access.ts",
+    "apps/core/src/runner/mcp/tools/service.ts",
+    "scripts/architecture-exceptions.json"
+  ],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "7da83b1a2518984673889dcdef06c8a90b7140d5"
+}

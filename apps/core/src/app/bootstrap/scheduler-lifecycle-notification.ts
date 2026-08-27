@@ -2,8 +2,23 @@ import { randomUUID } from 'node:crypto';
 
 import type { SchedulerDependencies } from '../../jobs/types.js';
 import { resolveJobNotificationRoutes } from '../../jobs/job-notification-routes.js';
-import type { ProgressUpdateOptions } from '../../domain/types.js';
+import type {
+  JobNotificationView,
+  MessageActionAffordance,
+  ProgressUpdateOptions,
+} from '../../domain/types.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
+
+let lastLifecycleGeneration = 0;
+
+// Sinks seal the last done generation per route key and accept only greater values,
+// so this must be monotonic, not a hash; Date.now() keeps it monotonic across restarts
+// (sealed maps are in-memory) and the max(+1) keeps it strict within one process.
+function nextLifecycleGeneration(): number {
+  const next = Math.max(Date.now(), lastLifecycleGeneration + 1);
+  lastLifecycleGeneration = next;
+  return next;
+}
 
 export function createSchedulerLifecycleNotificationUpdater(input: {
   channelWiring: Pick<ChannelWiring, 'sendProgressUpdate'>;
@@ -18,7 +33,10 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
       string,
       { progressCardIdentity: string; generation: number } | undefined
     >;
+    fallbacks: Map<string, Promise<'updated' | 'unsupported' | 'failed'>>;
     terminalSummary?: string;
+    terminalActionAffordances?: MessageActionAffordance[];
+    terminalJobNotificationView?: JobNotificationView;
   };
   const capturesByRun = new Map<string, LifecycleCapture>();
 
@@ -30,11 +48,11 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
       string,
       { progressCardIdentity: string; generation: number } | undefined
     >();
-    const capture: LifecycleCapture = { identities };
+    const capture: LifecycleCapture = { identities, fallbacks: new Map() };
     capturesByRun.set(runId, capture);
     const routes = resolveJobNotificationRoutes(job);
     const cardToken = randomUUID();
-    const generation = lifecycleGeneration(cardToken);
+    const generation = nextLifecycleGeneration();
     await Promise.all(
       routes.map(async (route, index) => {
         const key = routeKey(route);
@@ -53,21 +71,66 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
             if (capture.terminalSummary === undefined) {
               identities.set(key, { progressCardIdentity, generation });
             } else {
-              await input.channelWiring.sendProgressUpdate(
-                route.conversationJid,
-                capture.terminalSummary,
-                {
-                  ...routeOptions(route),
-                  done: true,
-                  replaceOnly: true,
-                  progressCardIdentity,
-                  generation,
-                },
-              );
+              const fallback = capture.fallbacks.get(key);
+              const landed = fallback ? (await fallback) === 'updated' : false;
+              if (landed) {
+                await input.channelWiring.sendProgressUpdate(
+                  route.conversationJid,
+                  'Done.',
+                  {
+                    ...routeOptions(route),
+                    done: true,
+                    replaceOnly: true,
+                    progressCardIdentity,
+                    generation: nextLifecycleGeneration(),
+                  },
+                );
+              } else {
+                const lateSummary = Promise.resolve()
+                  .then(() =>
+                    input.channelWiring.sendProgressUpdate(
+                      route.conversationJid,
+                      capture.terminalSummary!,
+                      {
+                        ...routeOptions(route),
+                        done: true,
+                        replaceOnly: true,
+                        progressCardIdentity,
+                        generation,
+                        ...(capture.terminalActionAffordances === undefined
+                          ? {}
+                          : {
+                              actionAffordances:
+                                capture.terminalActionAffordances,
+                            }),
+                        ...(capture.terminalJobNotificationView === undefined
+                          ? {}
+                          : {
+                              jobNotificationView:
+                                capture.terminalJobNotificationView,
+                            }),
+                      },
+                    ),
+                  )
+                  .then(
+                    (sent) =>
+                      sent === true
+                        ? ('updated' as const)
+                        : ('unsupported' as const),
+                    () => 'failed' as const,
+                  );
+                capture.fallbacks.set(key, lateSummary);
+                capturesByRun.set(runId, capture);
+                const status = await lateSummary;
+                if (status === 'failed') {
+                  capture.fallbacks.delete(key);
+                  identities.set(key, { progressCardIdentity, generation });
+                }
+              }
             }
           }
         } catch {
-          // A terminal notification will be sent separately when card creation fails.
+          // The terminal update falls back to a fresh done message when no card lands.
         }
       }),
     );
@@ -75,16 +138,67 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
 
   const updateLifecycleNotification: NonNullable<
     SchedulerDependencies['updateLifecycleNotification']
-  > = async ({ job, runId, summaryMessage }) => {
+  > = async ({
+    job,
+    runId,
+    summaryMessage,
+    actionAffordances,
+    jobNotificationView,
+  }) => {
     const routes = resolveJobNotificationRoutes(job);
-    const capture = capturesByRun.get(runId);
-    if (capture) capture.terminalSummary = summaryMessage;
+    const capture: LifecycleCapture = capturesByRun.get(runId) ?? {
+      identities: new Map(),
+      fallbacks: new Map(),
+      terminalSummary: summaryMessage,
+    };
+    capturesByRun.set(runId, capture);
+    capture.terminalSummary = summaryMessage;
+    capture.terminalActionAffordances = actionAffordances;
+    capture.terminalJobNotificationView = jobNotificationView;
     const outcomes = await Promise.all(
-      routes.map(async (route) => {
+      routes.map(async (route, index) => {
         const key = routeKey(route);
-        const identity = capture?.identities.get(key);
+        const identity = capture.identities.get(key);
         if (!identity) {
-          return { route, status: 'unsupported' } as const;
+          const existingFallback = capture.fallbacks.get(key);
+          if (existingFallback) {
+            return {
+              route,
+              status: await existingFallback,
+            } as const;
+          }
+          const fallback = Promise.resolve()
+            .then(() =>
+              input.channelWiring.sendProgressUpdate(
+                route.conversationJid,
+                summaryMessage,
+                {
+                  ...routeOptions(route),
+                  done: true,
+                  progressCardIdentity: `scheduler-card:${randomUUID()}:${index}`,
+                  generation: nextLifecycleGeneration(),
+                  ...(actionAffordances === undefined
+                    ? {}
+                    : { actionAffordances }),
+                  ...(jobNotificationView === undefined
+                    ? {}
+                    : { jobNotificationView }),
+                },
+              ),
+            )
+            .then(
+              (sent) =>
+                sent === true ? ('updated' as const) : ('unsupported' as const),
+              () => 'failed' as const,
+            );
+          capture.fallbacks.set(key, fallback);
+          const status = await fallback;
+          // Unsupported outcomes stay cached because the channel cannot render progress.
+          // Failed outcomes are deleted so transient send failures remain retryable.
+          if (status === 'failed') {
+            capture.fallbacks.delete(key);
+          }
+          return { route, status } as const;
         }
         try {
           const updated = await input.channelWiring.sendProgressUpdate(
@@ -96,6 +210,10 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
               replaceOnly: true,
               progressCardIdentity: identity.progressCardIdentity,
               generation: identity.generation,
+              ...(actionAffordances === undefined ? {} : { actionAffordances }),
+              ...(jobNotificationView === undefined
+                ? {}
+                : { jobNotificationView }),
             },
           );
           const outcome = {
@@ -108,34 +226,24 @@ export function createSchedulerLifecycleNotificationUpdater(input: {
         }
       }),
     );
-    if (capture) {
-      for (const outcome of outcomes) {
-        if (outcome.status === 'updated') {
-          capture.identities.delete(routeKey(outcome.route));
-        }
+    for (const outcome of outcomes) {
+      const key = routeKey(outcome.route);
+      if (outcome.status === 'updated' && capture.identities.has(key)) {
+        capture.fallbacks.set(key, Promise.resolve('updated'));
+        capture.identities.delete(key);
       }
-      if (capture.identities.size === 0) capturesByRun.delete(runId);
     }
     return outcomes;
   };
 
   return {
     captureLifecycleNotification,
+    // Captures live until explicit discard so retries and a late-landing start card share one capture.
     discardLifecycleNotification: (runId) => {
       capturesByRun.delete(runId);
     },
     updateLifecycleNotification,
   };
-}
-
-function lifecycleGeneration(runId: string): number {
-  let hash = 0xcbf29ce484222325n;
-  const mask = (1n << 53n) - 1n;
-  for (const character of runId) {
-    hash ^= BigInt(character.codePointAt(0) ?? 0);
-    hash = (hash * 0x100000001b3n) & mask;
-  }
-  return Number(hash);
 }
 
 function routeOptions(route: {

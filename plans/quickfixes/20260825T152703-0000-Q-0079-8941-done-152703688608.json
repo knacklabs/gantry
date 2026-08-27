@@ -1,0 +1,157 @@
+{
+  "event": "done",
+  "id": "Q-0079-8941",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Live bug (run 224d1141, 15:07Z): scheduled-job 'Running' progress card silently dropped because lifecycleGeneration is a hash of a random UUID while every channel progress sink accepts only generations greater than the previous run's sealed one; make the generation strictly monotonic. Scope: scheduler-lifecycle-notification.ts + lifecycle-retirement.test.ts.",
+  "base_sha": "bef4b76c8cb2c4ebc4609c0d92fa78fddfd797c7",
+  "started_at": "2026-08-25T15:18:37+00:00",
+  "completed_at": "2026-08-25T15:27:03+00:00",
+  "files": [
+    "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+    "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "A process that sealed a hash-era generation before deploy rejects Date.now()-era values until restart; deploys restart the runtime"
+      ],
+      "summary": "Progress-card generation ordering is now sound for every channel sink. Lite window Q-0079 (base bef4b76c -> HEAD): scheduled-job 'Running' progress card silently dropped when a run's hash-derived generation was lower than the previous run's sealed generation on the same chat/thread (live run 224d1141). Fix: strictly monotonic max(Date.now(), last+1). Proof: lifecycle-retirement + execution-notifications + telegram suites 249/249 green, tsc, architecture, verify.py passed; autoreview clean first pass; no other producer of progress generations (grep).",
+      "non_blocking_findings": [
+        {
+          "category": "delivery-semantics",
+          "area": "app/bootstrap",
+          "summary": "FIXED: random (hash) lifecycle generation vs monotonic sink gate dropped ~half of 'Running' cards"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; unchanged by Q-0079 (lifecycle generation only); verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "93fd0ef0423ef3759f4baa499eea86d9987c89f6fe6a75560fe6a1d2422399b3",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "89287f18c44c8938b4b3cf1c9690851504a6ae9981a41d86c0c31393ac614c22",
+      "recorded_at": "2026-08-25T15:27:03+00:00",
+      "commit": "0978e25fdcd5420217b6a92637995116a28f31ca"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "A process that sealed a hash-era generation before deploy rejects Date.now()-era values until restart; deploys restart the runtime"
+      ],
+      "summary": "Replaces a per-run FNV hash with Date.now(); trivially cheaper. Lite window Q-0079 (base bef4b76c -> HEAD): scheduled-job 'Running' progress card silently dropped when a run's hash-derived generation was lower than the previous run's sealed generation on the same chat/thread (live run 224d1141). Fix: strictly monotonic max(Date.now(), last+1). Proof: lifecycle-retirement + execution-notifications + telegram suites 249/249 green, tsc, architecture, verify.py passed; autoreview clean first pass; no other producer of progress generations (grep).",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "93fd0ef0423ef3759f4baa499eea86d9987c89f6fe6a75560fe6a1d2422399b3",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "89287f18c44c8938b4b3cf1c9690851504a6ae9981a41d86c0c31393ac614c22",
+      "recorded_at": "2026-08-25T15:27:03+00:00",
+      "commit": "0978e25fdcd5420217b6a92637995116a28f31ca"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/app/bootstrap/scheduler-lifecycle-notification.ts",
+        "apps/core/test/unit/jobs/lifecycle-retirement.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "A process that sealed a hash-era generation before deploy rejects Date.now()-era values until restart; deploys restart the runtime"
+      ],
+      "summary": "No authority change; generation is an ordering token only. Lite window Q-0079 (base bef4b76c -> HEAD): scheduled-job 'Running' progress card silently dropped when a run's hash-derived generation was lower than the previous run's sealed generation on the same chat/thread (live run 224d1141). Fix: strictly monotonic max(Date.now(), last+1). Proof: lifecycle-retirement + execution-notifications + telegram suites 249/249 green, tsc, architecture, verify.py passed; autoreview clean first pass; no other producer of progress generations (grep).",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "93fd0ef0423ef3759f4baa499eea86d9987c89f6fe6a75560fe6a1d2422399b3",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "89287f18c44c8938b4b3cf1c9690851504a6ae9981a41d86c0c31393ac614c22",
+      "recorded_at": "2026-08-25T15:27:03+00:00",
+      "commit": "0978e25fdcd5420217b6a92637995116a28f31ca"
+    }
+  }
+}

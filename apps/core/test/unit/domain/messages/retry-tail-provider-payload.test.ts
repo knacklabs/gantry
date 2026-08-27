@@ -316,3 +316,48 @@ describe('sanitizeRetryTailProviderPayload observerDigestView passthrough', () =
     ).toBeUndefined();
   });
 });
+
+describe('sanitizeRetryTailProviderPayload jobPermissionCard passthrough', () => {
+  const jobPermissionCard = {
+    callbackKey: '0123456789abcdef01234567',
+    revision: 3,
+    operation: 'send' as const,
+    actions: [
+      {
+        token: 'jp:0123456789abcdef01234567:request:grant:a',
+        label: 'Allow',
+      },
+    ],
+  };
+
+  it('carries callbackKey and revision through intact', () => {
+    const out = sanitizeRetryTailProviderPayload({ jobPermissionCard });
+
+    expect(out?.jobPermissionCard).toEqual(jobPermissionCard);
+    expect(
+      sanitizeRetryTailProviderPayload({
+        jobPermissionCard: { ...jobPermissionCard, revision: 10_115 },
+      })?.jobPermissionCard?.revision,
+    ).toBe(10_115);
+  });
+
+  it('drops cards without a callbackKey or safe integer revision', () => {
+    const { callbackKey: _callbackKey, ...withoutCallbackKey } =
+      jobPermissionCard;
+    expect(
+      sanitizeRetryTailProviderPayload({
+        jobPermissionCard: withoutCallbackKey,
+      })?.jobPermissionCard,
+    ).toBeUndefined();
+    expect(
+      sanitizeRetryTailProviderPayload({
+        jobPermissionCard: { ...jobPermissionCard, revision: 3.5 },
+      })?.jobPermissionCard,
+    ).toBeUndefined();
+    expect(
+      sanitizeRetryTailProviderPayload({
+        jobPermissionCard: { ...jobPermissionCard, revision: -1 },
+      })?.jobPermissionCard,
+    ).toBeUndefined();
+  });
+});

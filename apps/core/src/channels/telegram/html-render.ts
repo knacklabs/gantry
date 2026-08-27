@@ -10,6 +10,7 @@ import {
   PERMISSION_GLYPH,
   type PermissionPromptParts,
 } from '../permission-interaction.js';
+import { permissionPromptWaitLine } from '../permission-prompt-wait-line.js';
 import { truncateText } from './channel-shared.js';
 
 /**
@@ -99,7 +100,13 @@ export function renderPermissionPromptHtml(
       `<blockquote expandable>${escapeTelegramHtml(parts.fullView.content)}</blockquote>`,
     );
   }
-  segments.push('', `<i>Reply in ${parts.replyInMinutes}m</i>`);
+  segments.push(
+    '',
+    `<i>${permissionPromptWaitLine(
+      parts.waitsForDecision,
+      parts.replyInMinutes,
+    )}</i>`,
+  );
   return segments.join('\n');
 }
 

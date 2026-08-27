@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0085-3894",
+  "profile": "lite",
+  "reason": "Scheduled-run permission for a heredoc command (grep ... << 'EOF') bypassed the JOBPERM living card: the bash parser rejects heredocs ('redirection target missing'), so no persistent rule can be derived and the durability wiring falls back to the classic prompt, whose copy says 'Reply in 1m' although job prompts do not expire. Fix: parser heredoc support (body is literal data) + honest no-deadline copy for job prompts. Scope: bash-command-parser.ts + test, permission-interaction.ts + test.",
+  "started_at": "2026-08-26T05:11:45+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "ecfe3c17acab77db9e202c0c828721c4c478cf3c"
+}

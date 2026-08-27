@@ -1,0 +1,244 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "tasks": [
+    {
+      "id": "JOBPERM-1-T1",
+      "title": "Single-cut ask-and-wait lane core",
+      "objective": "Delete the parallel autonomous permission lane (v9 Deletions: worker hard-returns, hostJobId cancel, dead classifier-wait, dual auth/timeout rules) and make the one interactive path serve scheduled runs for the simple case: unmatched grantable need raises the standard card, tool call holds in the existing poll loop, authorized Allow resumes in place and persists to the job, Deny is terminal, Browser resolves from the host verdict with no card, denial texts truthful.",
+      "acceptance_criteria": [
+        "card raised not cancel; resume in place on Allow; rule persists + next-run silent allow",
+        "Browser: no card, host verdict awaited",
+        "Deny terminal, truthful texts",
+        "deleted paths source-asserted"
+      ],
+      "write_scope": [
+        "apps/core/src/app/",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/",
+        "apps/core/src/runner/",
+        "apps/core/src/runtime/",
+        "apps/core/src/shared/",
+        "apps/core/src/application/",
+        "apps/core/src/jobs/",
+        "apps/core/test/",
+        "docs/decisions/",
+        "docs/specs/"
+      ],
+      "required_tests": [
+        {
+          "id": "jobperm-1-t1-card-not-cancel",
+          "path": "apps/core/test/unit/application/jobperm-ask-and-wait.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "jobperm-1-t1-resume-and-persist",
+          "path": "apps/core/test/unit/application/jobperm-ask-and-wait.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "jobperm-1-t1-deletions-asserted",
+          "path": "apps/core/test/unit/application/jobperm-ask-and-wait.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/check_dual_runtime.py"
+      ],
+      "plan_contracts": [
+        {
+          "id": "JP1-T1-C1",
+          "statement": "card raised not cancel; resume in place on Allow; rule persists + next-run silent allow",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T1-C2",
+          "statement": "Browser: no card, host verdict awaited",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T1-C3",
+          "statement": "Deny terminal, truthful texts",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T1-C4",
+          "statement": "deleted paths source-asserted",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        }
+      ],
+      "reviewer_focus": [
+        "single-cut honored: no parallel autonomous lane survives (v9 Deletions)",
+        "no authority widening: persisted grant equals card-rendered scope",
+        "0121 intact: no classifier on autonomous runs; rails-first fast path",
+        "resume correctness: held call resumes exactly once; deny stays terminal"
+      ],
+      "review_budget": {
+        "max_changed_files": 20,
+        "max_changed_lines": 1100,
+        "reason": "Owner-mandated single-cut: the v9 Deletions remove eight distinct production seams in one pass (leaving the old lane alive alongside the new one is wrong by definition), plus the required new test file and updates to tests asserting deleted constants. Measured 17 includes the story spec doc and ceremony-adjacent files, not code creep (code diff: 14 files, 893 lines within budget)."
+      }
+    },
+    {
+      "id": "JOBPERM-1-T2",
+      "title": "Durable needs, reconciler, living card",
+      "objective": "Implement v9 durability: need rows with asking_epoch reusing the pending-interaction store, one idempotent reconciler (approved_pending_apply/denied_pending_delivery/handoff), card-revision outbox, living card per job with revision+epoch-bound capacity-aware batch, actor-authorized clicks (0118), confirmed-delivery wait anchor, lease extension from host-monotonic pending intervals, slot release/re-acquire, waiter-scoped handoff card with Approve-and-run-again plus Deny, coalescing.",
+      "acceptance_criteria": [
+        "reconciler crash-safe (approve/deny/handoff re-driven)",
+        "living card: one per job, batch never covers unseen rows",
+        "lease/slot rules tested (skew, restart, overlap)",
+        "handoff keeps Deny; late approval never lost",
+        "stage-review P1 fixes implemented: stale-click rerun consent gate, revision-bound paging action, run-scoped rerun barrier, current-policy apply-time revalidation"
+      ],
+      "dependencies": [
+        "JOBPERM-1-T1"
+      ],
+      "write_scope": [
+        "apps/core/src/",
+        "apps/core/test/",
+        "docs/decisions/"
+      ],
+      "required_tests": [
+        {
+          "id": "jobperm-1-t2-reconciler-crash-safe",
+          "path": "apps/core/test/unit/application/jobperm-durability.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "jobperm-1-t2-living-card-revision-bound",
+          "path": "apps/core/test/unit/application/jobperm-durability.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "jobperm-1-t2-handoff-and-deny-memory",
+          "path": "apps/core/test/unit/application/jobperm-durability.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/check_dual_runtime.py"
+      ],
+      "plan_contracts": [
+        {
+          "id": "JP1-T2-C1",
+          "statement": "reconciler crash-safe (approve/deny/handoff re-driven)",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T2-C2",
+          "statement": "living card: one per job, batch never covers unseen rows",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T2-C3",
+          "statement": "lease/slot rules tested (skew, restart, overlap)",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T2-C4",
+          "statement": "handoff keeps Deny; late approval never lost",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T2-C5",
+          "statement": "stage-review P1 fixes implemented: stale-click rerun consent gate, revision-bound paging action, run-scoped rerun barrier, current-policy apply-time revalidation",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        }
+      ],
+      "reviewer_focus": [
+        "crash-safety: decided needs can never strand a waiter; grants never widen past card-rendered scope",
+        "one living card per job; batch never covers unseen/handed-off rows",
+        "lease/slot rules: monotonic accounting, slot before any waking response",
+        "v9 sections A2/A4/A5/A6/A7 + Core model are the contract"
+      ],
+      "review_budget": {
+        "max_changed_files": 42,
+        "max_changed_lines": 6800,
+        "reason": "Durability is ONE cohesive protocol (need state machine + Postgres adapter + reconciler wiring + provider cards/callbacks + slot/lease); splitting would place the remainder after T3's live-proof stage in the frozen order. Quality is gated by reviewer_focus + stage autoreview vs v9, not the line count. Raised for the two review-driven hardening rounds (9 P1/P2 fixes) \u2014 same protocol, review-mandated, not scope creep. Final raise: architecture file-size budgets mandate splitting the 1,723-line durability service into cohesive modules (repo discipline, cf. JOBFLOW S4-INTENT split); the split itself costs ~950 lines/4 files."
+      }
+    },
+    {
+      "id": "JOBPERM-1-T3",
+      "title": "Honest edges, catalog, provider contracts, live proof",
+      "objective": "Implement v9 edges: hard-boundary remote-content-execution equivalence class yields typed reformulation (never a grant), unprojected approvals persist and end the run Completed-with-limits with human Run-again, request_access always callable raising the same card, requestable-identity catalog in the runner prompt, provider contract tests for the card lifecycle on Telegram Slack Discord, agent-e2e plus the three live KnackLabs scenarios.",
+      "acceptance_criteria": [
+        "equivalence class blocked incl. staged download-then-execute",
+        "unprojected: persisted grant, limited completion, no auto-rerun",
+        "catalog present and complete",
+        "provider contract tests x3 green; live scenarios 1-3 pass",
+        "carried T2 hardening: per-revision delivery tracking, ambiguous-send reconciliation, provider ack atomicity and limits, credential delivery-anchor, need-after-rails ordering, snapshot tool input, pagination slot release, compound-scope paging, and the durability-service file-size split"
+      ],
+      "dependencies": [
+        "JOBPERM-1-T2"
+      ],
+      "write_scope": [
+        "apps/core/src/",
+        "apps/core/test/",
+        "docs/decisions/"
+      ],
+      "required_tests": [
+        {
+          "id": "jobperm-1-t3-hard-boundary-class",
+          "path": "apps/core/test/unit/application/jobperm-edges.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "jobperm-1-t3-unprojected-limited-completion",
+          "path": "apps/core/test/unit/application/jobperm-edges.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "jobperm-1-t3-provider-card-contracts",
+          "path": "apps/core/test/unit/application/jobperm-edges.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/check_dual_runtime.py"
+      ],
+      "plan_contracts": [
+        {
+          "id": "JP1-T3-C1",
+          "statement": "equivalence class blocked incl. staged download-then-execute",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T3-C2",
+          "statement": "unprojected: persisted grant, limited completion, no auto-rerun",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T3-C3",
+          "statement": "catalog present and complete",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T3-C4",
+          "statement": "provider contract tests x3 green; live scenarios 1-3 pass",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        },
+        {
+          "id": "JP1-T3-C5",
+          "statement": "carried T2 hardening: per-revision delivery tracking, ambiguous-send reconciliation, provider ack atomicity and limits, credential delivery-anchor, need-after-rails ordering, snapshot tool input, pagination slot release, compound-scope paging, and the durability-service file-size split",
+          "source": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md#task-decomposition"
+        }
+      ],
+      "reviewer_focus": [
+        "no permanent grant for the remote-content-execution class; truthful typed results",
+        "unprojected: Completed-with-limits + human Run-again; never auto-rerun",
+        "carried hardening complete; durability service split passes the architecture file-size gate",
+        "v9 sections B/C/D + physics limits are the contract"
+      ],
+      "review_budget": {
+        "max_changed_files": 44,
+        "max_changed_lines": 6000,
+        "reason": "Edges + carried T2 hardening + architecture-mandated service split + provider contract tests across three channels; sized upfront. Final: 41 measured \u2014 one over the sized bound after the split touched extra import sites; lines well under."
+      }
+    }
+  ],
+  "project": "",
+  "story": "JOBPERM-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/JOBPERM-1-chat-parity-permissions-for-scheduled-jobs.md",
+  "plan_sha256": "363da154b8130f8b7dbf71d654f49b0beb39ecf1ae6d16a04bb25b5061e17475",
+  "commit": "f17f73a1b9fbfebf6d6bd6f5f7206a7138366de5"
+}

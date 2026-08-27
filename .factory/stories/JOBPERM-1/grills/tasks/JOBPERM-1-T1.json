@@ -1,0 +1,91 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "decision": "keep",
+  "gaps": [],
+  "contradictions": [],
+  "new_abstractions": [
+    "Durable need row + one reconciler + card-revision outbox \u2014 REPLACE ad-hoc terminal-denial/setup-card handoff code (net deletion per v9 Deletions); no new card kind, no classifier for autonomous (0121)."
+  ],
+  "inspected_refs": [
+    "plans/review-briefs/scheduled-job-permission-parity-design.md",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/shared/tool-rule-matcher.ts",
+    "apps/core/src/application/jobs/setup-pause-permission-prompt.ts",
+    "apps/core/src/jobs/execution-lease.ts"
+  ],
+  "current_flow": "Autonomous tool call -> worker policy miss -> host round-trip -> hostJobId branch cancels ('no declared grant') -> terminal denial -> job pauses -> setup card -> approve -> RERUN from scratch. Browser/request_access/unlisted tools all die on the same hard-return.",
+  "criteria_map": {
+    "card raised not cancel; resume in place on Allow; rule persists + next-run silent allow": "Soften the hostJobId cancel into the interactive tail; worker poll serves autonomous; signed response resumes the held call; allow_persistent_rule persists via setup-pause wiring extended past the fingerprint short-circuit; next-run silent allow asserted.",
+    "Browser: no card, host verdict awaited": "No projection change; worker awaits the host verdict mapping Browser to the five browser tool names; auto-allow without a card; unit-asserted.",
+    "Deny terminal, truthful texts": "Explicit Deny keeps 0115 terminal semantics with truthful reason; the Allowed-by denial-reason assembly is fixed; deny-path asserted.",
+    "deleted paths source-asserted": "Required test asserts the v9 Deletions are gone: worker hard-return, ipc-client duplicate, autoClassifierWait, dual auth/timeout special-cases."
+  },
+  "rounds": [
+    {
+      "question": "Allow-once on job cards?",
+      "options": [
+        "keep",
+        "remove"
+      ],
+      "chosen": "remove"
+    },
+    {
+      "question": "Permanent pins for pipes?",
+      "options": [
+        "exact-byte pin",
+        "reformulation-only"
+      ],
+      "chosen": "reformulation-only"
+    },
+    {
+      "question": "Auto-rerun for unprojected grants?",
+      "options": [
+        "auto-rerun",
+        "human Run-again"
+      ],
+      "chosen": "human Run-again"
+    },
+    {
+      "question": "New lane or single-cut?",
+      "options": [
+        "parallel lane",
+        "delete old lane"
+      ],
+      "chosen": "delete old lane"
+    },
+    {
+      "question": "T1 test file shape?",
+      "options": [
+        "spread across suites",
+        "one new top-level suite"
+      ],
+      "chosen": "one new top-level suite"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "single date allowed, compound cancelled; 6 days of dead-ends; browser prelaunched but unused; request_access denied",
+      "source": "~/gantry/logs/gantry.log 2026-08-08..23 sweeps"
+    },
+    {
+      "finding": "wait/resume plumbing exists and is interactive-only by construction",
+      "source": "permission-callback.ts:171-172,280-431"
+    }
+  ],
+  "resolutions": [
+    "Soften the hostJobId cancel into the interactive tail; worker poll serves autonomous; signed response resumes the held call; allow_persistent_rule persists via setup-pause wiring extended past the fingerprint short-circuit; next-run silent allow asserted.",
+    "No projection change; worker awaits the host verdict mapping Browser to the five browser tool names; auto-allow without a card; unit-asserted.",
+    "Explicit Deny keeps 0115 terminal semantics with truthful reason; the Allowed-by denial-reason assembly is fixed; deny-path asserted.",
+    "Required test asserts the v9 Deletions are gone: worker hard-return, ipc-client duplicate, autoClassifierWait, dual auth/timeout special-cases."
+  ],
+  "task_id": "JOBPERM-1-T1",
+  "input_sha256": "ff8758d9d2a9b73038a60b00f55382e73a5b37a23e8a0a02b5b499ef58217742",
+  "recorded_at": "2026-08-23T12:26:59+00:00",
+  "commit": "03e0696515b18b08f67eb233a023a253f0742698",
+  "approved_task_plan_sha256": "394a7e572c43b7e93d02133b3baf4f92ef3246523a0894dd0dc4a841b2f4a789",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-23T12:26:59+00:00"
+}

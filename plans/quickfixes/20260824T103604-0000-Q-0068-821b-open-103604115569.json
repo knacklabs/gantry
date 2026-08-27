@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0068-821b",
+  "profile": "lite",
+  "reason": "Final structural items: worker-coordination-interaction-repository.postgres.ts (976/700) and runtime-services.ts (1391/1186) \u2014 extract the jobperm-added sections into sibling modules.",
+  "started_at": "2026-08-24T10:36:04+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "5196d65aa2432029a26570748c174b3e3088683c"
+}

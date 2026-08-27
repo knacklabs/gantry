@@ -1,0 +1,151 @@
+{
+  "event": "done",
+  "id": "Q-0103-c357",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Q-0103: Telegram job card hides the outcome headline inside the collapsed quote; it must be on the card face like Slack/Discord",
+  "base_sha": "c789c852da56459352efc65716879cd5ab6ae753",
+  "started_at": "2026-08-26T17:54:52+00:00",
+  "completed_at": "2026-08-26T18:07:02+00:00",
+  "files": [
+    "apps/core/src/channels/telegram/message-action-affordances.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/telegram/message-action-affordances.ts",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "One added statement; headline bounded upstream. Lite window Q-0103 (base c789c852 -> HEAD 613712c6f): Telegram terminal card renders result.headline as a bold line after the status line instead of inside the collapsed quote (Slack/Discord already on the face). Proof: channels lane 40 files / 1006 tests, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "b6ac052efac3707339d1e1be12459495c9e58138e6d96cb6e17d0a1659b8b507",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "dc048c81c9c34c8c4f92006101d322ff46ccd59c017b11c2656fa9ffde67b5b4",
+      "recorded_at": "2026-08-26T18:02:00+00:00",
+      "commit": "613712c6fcd42873ddc36e834920f7196784de40"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/telegram/message-action-affordances.ts",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "Negligible. Lite window Q-0103 (base c789c852 -> HEAD 613712c6f): Telegram terminal card renders result.headline as a bold line after the status line instead of inside the collapsed quote (Slack/Discord already on the face). Proof: channels lane 40 files / 1006 tests, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "b6ac052efac3707339d1e1be12459495c9e58138e6d96cb6e17d0a1659b8b507",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "dc048c81c9c34c8c4f92006101d322ff46ccd59c017b11c2656fa9ffde67b5b4",
+      "recorded_at": "2026-08-26T18:02:00+00:00",
+      "commit": "613712c6fcd42873ddc36e834920f7196784de40"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/telegram/message-action-affordances.ts",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "HTML-escaped as before. Lite window Q-0103 (base c789c852 -> HEAD 613712c6f): Telegram terminal card renders result.headline as a bold line after the status line instead of inside the collapsed quote (Slack/Discord already on the face). Proof: channels lane 40 files / 1006 tests, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "b6ac052efac3707339d1e1be12459495c9e58138e6d96cb6e17d0a1659b8b507",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "dc048c81c9c34c8c4f92006101d322ff46ccd59c017b11c2656fa9ffde67b5b4",
+      "recorded_at": "2026-08-26T18:02:00+00:00",
+      "commit": "613712c6fcd42873ddc36e834920f7196784de40"
+    }
+  }
+}

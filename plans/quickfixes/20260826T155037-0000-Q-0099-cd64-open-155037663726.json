@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0099-cd64",
+  "profile": "lite",
+  "reason": "Q-0099: a new permission question must land as a fresh card message when the existing card message is stale (buttons were edited onto a two-day-old message at 14:47Z)",
+  "started_at": "2026-08-26T15:50:37+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "bc3522d27e8ce6998d38225e5da26fbec5587ab4"
+}

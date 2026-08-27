@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0079-8941",
+  "profile": "lite",
+  "reason": "Live bug (run 224d1141, 15:07Z): scheduled-job 'Running' progress card silently dropped because lifecycleGeneration is a hash of a random UUID while every channel progress sink accepts only generations greater than the previous run's sealed one; make the generation strictly monotonic. Scope: scheduler-lifecycle-notification.ts + lifecycle-retirement.test.ts.",
+  "started_at": "2026-08-25T15:18:37+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "bef4b76c8cb2c4ebc4609c0d92fa78fddfd797c7"
+}

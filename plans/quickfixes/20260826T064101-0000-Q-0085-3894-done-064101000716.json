@@ -1,0 +1,161 @@
+{
+  "event": "done",
+  "id": "Q-0085-3894",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Scheduled-run permission for a heredoc command (grep ... << 'EOF') bypassed the JOBPERM living card: the bash parser rejects heredocs ('redirection target missing'), so no persistent rule can be derived and the durability wiring falls back to the classic prompt, whose copy says 'Reply in 1m' although job prompts do not expire. Fix: parser heredoc support (body is literal data) + honest no-deadline copy for job prompts. Scope: bash-command-parser.ts + test, permission-interaction.ts + test.",
+  "base_sha": "ecfe3c17acab77db9e202c0c828721c4c478cf3c",
+  "started_at": "2026-08-26T05:11:45+00:00",
+  "completed_at": "2026-08-26T06:41:01+00:00",
+  "files": [
+    "apps/core/src/shared/bash-command-parser.ts",
+    "apps/core/src/shared/bash-heredoc.ts",
+    "apps/core/test/unit/shared/bash-command-parser.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/shared/bash-command-parser.ts",
+        "apps/core/src/shared/bash-heredoc.ts",
+        "apps/core/test/unit/shared/bash-command-parser.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Prompt copy 'Reply in Nm' on job prompts until Q-0086 lands; Slack copy after that"
+      ],
+      "summary": "Heredoc commands now parse for rule matching. Lite window Q-0085 (base ecfe3c17a -> HEAD), parser half: heredoc support so scheduled runs issuing `cmd << 'EOF'` get the JOBPERM living card instead of the classic prompt (live run fba3fbe7). Bodies are literal data on the redirect; fail-closed on unterminated heredocs, escaped/partially-quoted delimiters, unquoted continuation lines, carriage returns. Proof: shared suite 39/599 green, tsc, architecture (extracted bash-heredoc.ts, no prettier-ignore), verify.py passed. Autoreview 5 rounds, 7 findings accepted+fixed, final clean. Prompt-copy half follows in Q-0086 (stashed).",
+      "non_blocking_findings": [
+        {
+          "category": "parser-coverage",
+          "area": "shared",
+          "summary": "FIXED: heredocs were unparsable, bypassing the job living-card lane"
+        }
+      ],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "stage reviews stamped at T1-T3 close; Q-0085 widens the rails parser so heredoc commands reach the JP1-T1 ask-and-wait lane; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "72726e04aef1c32c3335591c72e9e97e1c3eb8e36958ff3f628c84869bd21171",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "8e1d87d49747d242b318eaa41bab20c4703e1aeb0939d0d4a9eefa9ddd59b82a",
+      "recorded_at": "2026-08-26T06:41:00+00:00",
+      "commit": "ba3d5bfd34bf603a6b0ae67fe206c690c93d589e"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/shared/bash-command-parser.ts",
+        "apps/core/src/shared/bash-heredoc.ts",
+        "apps/core/test/unit/shared/bash-command-parser.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Prompt copy 'Reply in Nm' on job prompts until Q-0086 lands; Slack copy after that"
+      ],
+      "summary": "Linear scan of heredoc bodies; negligible. Lite window Q-0085 (base ecfe3c17a -> HEAD), parser half: heredoc support so scheduled runs issuing `cmd << 'EOF'` get the JOBPERM living card instead of the classic prompt (live run fba3fbe7). Bodies are literal data on the redirect; fail-closed on unterminated heredocs, escaped/partially-quoted delimiters, unquoted continuation lines, carriage returns. Proof: shared suite 39/599 green, tsc, architecture (extracted bash-heredoc.ts, no prettier-ignore), verify.py passed. Autoreview 5 rounds, 7 findings accepted+fixed, final clean. Prompt-copy half follows in Q-0086 (stashed).",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "72726e04aef1c32c3335591c72e9e97e1c3eb8e36958ff3f628c84869bd21171",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "8e1d87d49747d242b318eaa41bab20c4703e1aeb0939d0d4a9eefa9ddd59b82a",
+      "recorded_at": "2026-08-26T06:41:00+00:00",
+      "commit": "ba3d5bfd34bf603a6b0ae67fe206c690c93d589e"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/shared/bash-command-parser.ts",
+        "apps/core/src/shared/bash-heredoc.ts",
+        "apps/core/test/unit/shared/bash-command-parser.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Prompt copy 'Reply in Nm' on job prompts until Q-0086 lands; Slack copy after that"
+      ],
+      "summary": "Body never reaches argv/rule matching; every ambiguous form is rejected rather than guessed. Lite window Q-0085 (base ecfe3c17a -> HEAD), parser half: heredoc support so scheduled runs issuing `cmd << 'EOF'` get the JOBPERM living card instead of the classic prompt (live run fba3fbe7). Bodies are literal data on the redirect; fail-closed on unterminated heredocs, escaped/partially-quoted delimiters, unquoted continuation lines, carriage returns. Proof: shared suite 39/599 green, tsc, architecture (extracted bash-heredoc.ts, no prettier-ignore), verify.py passed. Autoreview 5 rounds, 7 findings accepted+fixed, final clean. Prompt-copy half follows in Q-0086 (stashed).",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "72726e04aef1c32c3335591c72e9e97e1c3eb8e36958ff3f628c84869bd21171",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "8e1d87d49747d242b318eaa41bab20c4703e1aeb0939d0d4a9eefa9ddd59b82a",
+      "recorded_at": "2026-08-26T06:41:00+00:00",
+      "commit": "ba3d5bfd34bf603a6b0ae67fe206c690c93d589e"
+    }
+  }
+}

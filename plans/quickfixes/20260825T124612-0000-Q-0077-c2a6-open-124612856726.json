@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0077-c2a6",
+  "profile": "lite",
+  "reason": "Q-0076 follow-up: live test 12:44Z still printed browser not used because run diagnostics are fed only from runner-forwarded events; the gateway's authoritative browser events bypass diagnostics. Count family=browser successes without the authoritative requirement. Scope: execution-diagnostics.ts and its test.",
+  "started_at": "2026-08-25T12:46:12+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "f7b3e64cfbab84f262988d7f2bc7f5634689831a"
+}

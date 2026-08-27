@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0060-554d",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Close out verified compound-RunCommand fix as a clean two-window split: git-restructure the already-reviewed commit d957c973a into two <=5-file windows and renumber the decision 0133->0134 (collides with main's new 0133). The companion cannot restructure existing verified commits (codex:rescue is guard-blocked here; forge fix re-implements rather than splits), so this is the bounded Claude-write exception.",
+  "started_at": "2026-08-22T18:44:16+00:00",
+  "completed_at": "2026-08-22T18:47:57+00:00",
+  "files": [
+    "2>"
+  ]
+}

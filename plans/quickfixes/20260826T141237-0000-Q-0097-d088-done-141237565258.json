@@ -1,0 +1,159 @@
+{
+  "event": "done",
+  "id": "Q-0097-d088",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Q-0097: remove the dead openBrowserSession scheduler dependency left by the prelaunch deletion; fix stale prelaunch comment in cleanup",
+  "base_sha": "a9106b453e0ef51103a1e6c946051dc41880b828",
+  "started_at": "2026-08-26T14:03:25+00:00",
+  "completed_at": "2026-08-26T14:12:37+00:00",
+  "files": [
+    "apps/core/src/app/bootstrap/runtime-services.ts",
+    "apps/core/src/jobs/execution-browser-cleanup.ts",
+    "apps/core/src/jobs/types.ts",
+    "apps/core/test/unit/jobs/execution.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/types.ts",
+        "apps/core/src/app/bootstrap/runtime-services.ts",
+        "apps/core/src/jobs/execution-browser-cleanup.ts",
+        "apps/core/test/unit/jobs/execution.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "Pure deletion closing the Q-0096 cut. Lite window Q-0097 (base a9106b45 -> HEAD e9412e32a): dead SchedulerDependencies.openBrowserSession removed with its wiring and unused import; stale prelaunch comment in cleanup reworded; -41/+2. Proof: jobs lane 66/720, tsc, architecture; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "6dd4fe89c8ab7ecb2a4eb867a0a0e164e0ba3a618aa9185f89ee57cca0aaa6bb",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "892f7dd266c33493ee8f3e2f6e614335d5053fa7de04d7cadcfaf667b97798e1",
+      "recorded_at": "2026-08-26T14:07:47+00:00",
+      "commit": "e9412e32a63de03facf858df544d5073cc5040c1"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/types.ts",
+        "apps/core/src/app/bootstrap/runtime-services.ts",
+        "apps/core/src/jobs/execution-browser-cleanup.ts",
+        "apps/core/test/unit/jobs/execution.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "No runtime change. Lite window Q-0097 (base a9106b45 -> HEAD e9412e32a): dead SchedulerDependencies.openBrowserSession removed with its wiring and unused import; stale prelaunch comment in cleanup reworded; -41/+2. Proof: jobs lane 66/720, tsc, architecture; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "6dd4fe89c8ab7ecb2a4eb867a0a0e164e0ba3a618aa9185f89ee57cca0aaa6bb",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "892f7dd266c33493ee8f3e2f6e614335d5053fa7de04d7cadcfaf667b97798e1",
+      "recorded_at": "2026-08-26T14:07:48+00:00",
+      "commit": "e9412e32a63de03facf858df544d5073cc5040c1"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/types.ts",
+        "apps/core/src/app/bootstrap/runtime-services.ts",
+        "apps/core/src/jobs/execution-browser-cleanup.ts",
+        "apps/core/test/unit/jobs/execution.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "No runtime change. Lite window Q-0097 (base a9106b45 -> HEAD e9412e32a): dead SchedulerDependencies.openBrowserSession removed with its wiring and unused import; stale prelaunch comment in cleanup reworded; -41/+2. Proof: jobs lane 66/720, tsc, architecture; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "6dd4fe89c8ab7ecb2a4eb867a0a0e164e0ba3a618aa9185f89ee57cca0aaa6bb",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "892f7dd266c33493ee8f3e2f6e614335d5053fa7de04d7cadcfaf667b97798e1",
+      "recorded_at": "2026-08-26T14:07:48+00:00",
+      "commit": "e9412e32a63de03facf858df544d5073cc5040c1"
+    }
+  }
+}

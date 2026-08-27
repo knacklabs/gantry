@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0086-3c44",
+  "profile": "lite",
+  "reason": "Scheduled-job permission prompts print 'Reply in 1m' although job requests never expire on that timer (24h durable row); render 'This job waits for your decision.' for jobId requests in the text variants and the Telegram HTML renderer. Slack copy is a follow-up. Scope: permission-interaction.ts, telegram/html-render.ts, notification-native-render.test.ts.",
+  "started_at": "2026-08-26T06:41:17+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "ba3d5bfd34bf603a6b0ae67fe206c690c93d589e"
+}

@@ -158,6 +158,10 @@ function createMcpFixture(): {
     path.join(runnerDir, 'ipc-response-wait.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/permission-ipc-client.ts'),
+    path.join(runnerDir, 'permission-ipc-client.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );

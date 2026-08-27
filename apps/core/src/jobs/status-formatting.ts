@@ -1,189 +1,22 @@
 import type { Job, JobNotificationView } from '../domain/types.js';
-import type { RuntimeEvent } from '../domain/events/events.js';
 import {
   parseJobToolDeniedEvent,
   type JobToolDenial,
 } from '../domain/events/job-tool-denial.js';
-import { parseTerminalToolActivity } from '../domain/events/tool-activity.js';
 import type { JobRunDiagnostics } from './execution-diagnostics.js';
+import { JOB_NOTIFICATION_VIEW_LIMITS } from './job-notification-tool-rollup.js';
 import { formatDuration } from '../shared/human-format.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 
-const JOB_NOTIFICATION_VIEW_LIMITS = {
-  jobName: 120,
-  lastAction: 80,
-  nextRunAt: 80,
-  headline: 160,
-  itemLabel: 50,
-  itemDetail: 70,
-  nextAction: 160,
-  fallbackText: 500,
-  items: 10,
-} as const;
+export { structuredJobResultFromRecordedActions } from './job-notification-tool-rollup.js';
 
 export const JOB_NOTIFICATION_VIEW_MAX_TEXT_LENGTH = 2_300;
 
-type RecordedJobAction = Pick<
-  RuntimeEvent,
-  'eventType' | 'correlationId' | 'payload'
->;
-
-interface RecordedToolResult {
-  invocationId: string;
-  key: string;
-  label: string;
-  outcome: 'done' | 'failed';
-  detail?: string;
-  seq?: number;
-  precedence: number;
-}
-
-export function structuredJobResultFromRecordedActions(
-  actions: readonly RecordedJobAction[],
-): JobNotificationView['result'] {
-  const results = actions.flatMap((event): RecordedToolResult[] => {
-    const denial = parseJobToolDeniedEvent(event);
-    if (denial?.invocationId) {
-      return [
-        {
-          invocationId: denial.invocationId,
-          key: `denial:${denial.toolName}`,
-          label: `Could not use ${humanizeTechnicalIdentifier(denial.toolName)}`,
-          outcome: 'failed',
-          detail: denial.reason,
-          precedence: 2,
-        },
-      ];
-    }
-    const activity = parseTerminalToolActivity(event);
-    if (!activity) return [];
-    return [
-      {
-        invocationId: activity.invocationId,
-        key: `${activity.family}:${activity.tool}`,
-        label:
-          activity.family === 'browser'
-            ? `Browser: ${humanizeTechnicalIdentifier(
-                activity.tool.replace(/^browser[._-]/, ''),
-              )}`
-            : activity.family === 'capability'
-              ? `Capability: ${humanizeTechnicalIdentifier(activity.tool)}`
-              : humanizeTechnicalIdentifier(activity.tool),
-        outcome: activity.outcome === 'success' ? 'done' : 'failed',
-        ...(activity.detail ? { detail: activity.detail } : {}),
-        ...(activity.seq !== undefined ? { seq: activity.seq } : {}),
-        precedence: activity.authoritative ? 1 : 0,
-      },
-    ];
-  });
-  const byInvocation = new Map<string, RecordedToolResult>();
-  for (const result of results) {
-    const current = byInvocation.get(result.invocationId);
-    const selected =
-      !current || compareRecordedToolResult(result, current) < 0
-        ? result
-        : current;
-    const seq = minimumSequence(current?.seq, result.seq);
-    byInvocation.set(result.invocationId, {
-      ...selected,
-      ...(seq !== undefined ? { seq } : {}),
-    });
-  }
-  const grouped = new Map<
-    string,
-    {
-      key: string;
-      label: string;
-      outcome: RecordedToolResult['outcome'];
-      count: number;
-      firstSeq?: number;
-      details: string[];
-    }
-  >();
-  for (const result of byInvocation.values()) {
-    const groupKey = `${result.key}\u0000${result.outcome}`;
-    const group = grouped.get(groupKey) ?? {
-      key: result.key,
-      label: result.label,
-      outcome: result.outcome,
-      count: 0,
-      details: [],
-    };
-    group.count += 1;
-    group.firstSeq = minimumSequence(group.firstSeq, result.seq);
-    if (result.detail) group.details.push(result.detail);
-    grouped.set(groupKey, group);
-  }
-  const groups = [...grouped.values()].sort((left, right) => {
-    if (left.outcome !== right.outcome) {
-      return left.outcome === 'failed' ? -1 : 1;
-    }
-    const sequenceOrder = compareOptionalSequence(
-      left.firstSeq,
-      right.firstSeq,
-    );
-    return sequenceOrder || compareText(left.key, right.key);
-  });
-  if (groups.length === 0) return undefined;
-  const visibleLimit =
-    groups.length > JOB_NOTIFICATION_VIEW_LIMITS.items
-      ? JOB_NOTIFICATION_VIEW_LIMITS.items - 1
-      : JOB_NOTIFICATION_VIEW_LIMITS.items;
-  const visibleGroups = groups.slice(0, visibleLimit);
-  const items = visibleGroups.map((group) => ({
-    outcome: group.outcome,
-    label: `${group.label}${group.count > 1 ? ` ×${group.count}` : ''}`,
-    ...(group.count === 1 && group.details.length > 0
-      ? { detail: [...group.details].sort(compareText)[0] }
-      : {}),
-  }));
-  if (groups.length > visibleGroups.length) {
-    const overflow = groups.slice(visibleGroups.length);
-    items.push({
-      outcome: overflow.some((group) => group.outcome === 'failed')
-        ? 'failed'
-        : 'done',
-      label: `+${overflow.length} more`,
-    });
-  }
-  return { items };
-}
-
-function compareRecordedToolResult(
-  left: RecordedToolResult,
-  right: RecordedToolResult,
-): number {
-  if (left.precedence !== right.precedence) {
-    return right.precedence - left.precedence;
-  }
-  if (left.outcome !== right.outcome) return left.outcome === 'failed' ? -1 : 1;
-  return (
-    compareText(left.key, right.key) ||
-    compareText(left.detail ?? '', right.detail ?? '')
-  );
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function minimumSequence(
-  left: number | undefined,
-  right: number | undefined,
-): number | undefined {
-  if (left === undefined) return right;
-  if (right === undefined) return left;
-  return Math.min(left, right);
-}
-
-function compareOptionalSequence(
-  left: number | undefined,
-  right: number | undefined,
-): number {
-  if (left === undefined) return right === undefined ? 0 : 1;
-  if (right === undefined) return -1;
-  return left - right;
-}
+const JOB_RESULT_OUTCOME_MARKER = {
+  done: '✅',
+  skipped: '⏭️',
+  failed: '❌',
+} as const;
 
 // An empty structured result (no headline and no items) carries no meaning, so
 // it is dropped and renderers fall back to fallbackText instead of a blank card.
@@ -326,6 +159,12 @@ export function formatRunStatusMessage(args: {
   diagnostics?: JobRunDiagnostics;
   degradedReason?: string;
   toolDenial?: JobToolDenial | null;
+  headline?: string;
+  resultItems?: Array<{
+    outcome: 'done' | 'skipped' | 'failed';
+    label: string;
+    detail?: string;
+  }>;
 }): string {
   const denial = args.toolDenial ?? null;
   const displaySummary = selectJobNotificationSummary(args.summary);
@@ -339,13 +178,39 @@ export function formatRunStatusMessage(args: {
     args.durationMs === undefined
       ? ''
       : ` · ${formatDuration(args.durationMs)}`;
-  const summary = notificationOutcome(displaySummary, args.runStatus, denial);
+  const headline = args.headline
+    ? truncateJobNotificationText(
+        args.headline,
+        JOB_NOTIFICATION_VIEW_LIMITS.headline,
+      )
+    : undefined;
+  const summary = headline
+    ? null
+    : notificationOutcome(displaySummary, args.runStatus, denial);
   const action = notificationAction(args.runStatus, displaySummary, denial);
   const stats = terminalRunStats(args);
+  // Header+stats (<250) + 10 items x (50+70+5) + compacted summary (<=180 + receipt lines)
+  // + next-run (<80) stays far below the 4096-character transport limit.
   const lines = [
     `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
+    ...(headline ? [headline] : []),
     ...(stats ? [stats] : []),
-    summary,
+    ...(args.resultItems
+      ?.slice(0, JOB_NOTIFICATION_VIEW_LIMITS.items)
+      .map(({ outcome, label, detail }) => {
+        const boundedLabel = truncateJobNotificationItemLabel(
+          label,
+          JOB_NOTIFICATION_VIEW_LIMITS.itemLabel,
+        );
+        const boundedDetail = detail
+          ? truncateJobNotificationText(
+              detail,
+              JOB_NOTIFICATION_VIEW_LIMITS.itemDetail,
+            )
+          : '';
+        return `${JOB_RESULT_OUTCOME_MARKER[outcome]} ${boundedLabel}${boundedDetail ? ` — ${boundedDetail}` : ''}`;
+      }) ?? []),
+    ...(summary ? [summary] : []),
   ];
   if (args.degradedReason) lines.push(`⚠️ Degraded: ${args.degradedReason}`);
   // A "Completed with issues" header must carry its blocker even when the
@@ -407,6 +272,12 @@ export function selectJobNotificationSummary(summary: string): string {
   const selected =
     markerIndex >= 0 ? normalized.slice(markerIndex) : normalized;
   return stripTrailingEmptyReceiptLines(selected).trim() || summary;
+}
+
+export function jobOutcomeHeadline(summary: string): string | undefined {
+  const pieces = summary.split(/\bOutcome:/i);
+  if (pieces.length < 2) return undefined;
+  return pieces[pieces.length - 1].split(/[\r\n]/)[0].trim() || undefined;
 }
 
 function statusLabel(
@@ -666,16 +537,21 @@ function nextRunLabel(
 }
 
 function formatNextRun(nextRun: string): string | null {
+  const formattedNextRun = formatJobNextRunAt(nextRun);
+  return formattedNextRun ? `at ${formattedNextRun}` : null;
+}
+
+export function formatJobNextRunAt(nextRun: string): string | undefined {
   const date = new Date(nextRun);
-  if (Number.isNaN(date.getTime())) return null;
-  return `at ${new Intl.DateTimeFormat(undefined, {
+  if (Number.isNaN(date.getTime())) return undefined;
+  return new Intl.DateTimeFormat(undefined, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
     timeZoneName: 'short',
-  }).format(date)}`;
+  }).format(date);
 }
 
 function stripTrailingEmptyReceiptLines(summary: string): string {

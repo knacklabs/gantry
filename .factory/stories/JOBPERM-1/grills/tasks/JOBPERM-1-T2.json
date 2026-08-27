@@ -1,0 +1,93 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "decision": "keep",
+  "gaps": [],
+  "contradictions": [],
+  "new_abstractions": [
+    "Durable need row + one reconciler + card-revision outbox \u2014 REPLACE ad-hoc terminal-denial/setup-card handoff code (net deletion per v9 Deletions); no new card kind, no classifier for autonomous (0121)."
+  ],
+  "inspected_refs": [
+    "plans/review-briefs/scheduled-job-permission-parity-design.md",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/shared/tool-rule-matcher.ts",
+    "apps/core/src/application/jobs/setup-pause-permission-prompt.ts",
+    "apps/core/src/jobs/execution-lease.ts"
+  ],
+  "current_flow": "Autonomous tool call -> worker policy miss -> host round-trip -> hostJobId branch cancels ('no declared grant') -> terminal denial -> job pauses -> setup card -> approve -> RERUN from scratch. Browser/request_access/unlisted tools all die on the same hard-return.",
+  "criteria_map": {
+    "reconciler crash-safe (approve/deny/handoff re-driven)": "Need rows with asking_epoch in the pending-interaction store; one idempotent reconciler drives approved_pending_apply/denied_pending_delivery/handoff; crash re-drives; per-waiter delivery tracking retires dead waiters.",
+    "living card: one per job, batch never covers unseen rows": "Card-revision outbox; one living card per job; batch decisions revision+epoch-bound and persisted atomically before provider ack; capacity-aware.",
+    "lease/slot rules tested (skew, restart, overlap)": "Host-monotonic pending-interval lease extension; slot released on wait, re-acquired before ANY waking response; skew/restart/overlap tested.",
+    "handoff keeps Deny; late approval never lost": "Waiter-scoped handoff converts rows in place with Approve-and-run-again plus Deny; denied is durable per-need with Reconsider epoch; late approvals land.",
+    "stage-review P1 fixes implemented: stale-click rerun consent gate, revision-bound paging action, run-scoped rerun barrier, current-policy apply-time revalidation": "Four P1 findings from the stage autoreview (file:line anchors in the task plan) implemented in job-permission-durability.ts + wiring; verified by inspection + proofs."
+  },
+  "rounds": [
+    {
+      "question": "Allow-once on job cards?",
+      "options": [
+        "keep",
+        "remove"
+      ],
+      "chosen": "remove"
+    },
+    {
+      "question": "Permanent pins for pipes?",
+      "options": [
+        "exact-byte pin",
+        "reformulation-only"
+      ],
+      "chosen": "reformulation-only"
+    },
+    {
+      "question": "Auto-rerun for unprojected grants?",
+      "options": [
+        "auto-rerun",
+        "human Run-again"
+      ],
+      "chosen": "human Run-again"
+    },
+    {
+      "question": "New lane or single-cut?",
+      "options": [
+        "parallel lane",
+        "delete old lane"
+      ],
+      "chosen": "delete old lane"
+    },
+    {
+      "question": "T1 test file shape?",
+      "options": [
+        "spread across suites",
+        "one new top-level suite"
+      ],
+      "chosen": "one new top-level suite"
+    }
+  ],
+  "citations": [
+    {
+      "finding": "single date allowed, compound cancelled; 6 days of dead-ends; browser prelaunched but unused; request_access denied",
+      "source": "~/gantry/logs/gantry.log 2026-08-08..23 sweeps"
+    },
+    {
+      "finding": "wait/resume plumbing exists and is interactive-only by construction",
+      "source": "permission-callback.ts:171-172,280-431"
+    }
+  ],
+  "resolutions": [
+    "Need rows with asking_epoch in the pending-interaction store; one idempotent reconciler drives approved_pending_apply/denied_pending_delivery/handoff; crash re-drives; per-waiter delivery tracking retires dead waiters.",
+    "Card-revision outbox; one living card per job; batch decisions revision+epoch-bound and persisted atomically before provider ack; capacity-aware.",
+    "Host-monotonic pending-interval lease extension; slot released on wait, re-acquired before ANY waking response; skew/restart/overlap tested.",
+    "Waiter-scoped handoff converts rows in place with Approve-and-run-again plus Deny; denied is durable per-need with Reconsider epoch; late approvals land.",
+    "Four P1 findings from the stage autoreview (file:line anchors in the task plan) implemented in job-permission-durability.ts + wiring; verified by inspection + proofs."
+  ],
+  "task_id": "JOBPERM-1-T2",
+  "input_sha256": "a22b953fe86adaf7354dcda47a0415f80b58a413001fd90643ffa7e478eafd04",
+  "recorded_at": "2026-08-23T17:12:28+00:00",
+  "commit": "ce9c1199452d2bcc4db81c73e61360f48242fbda",
+  "approved_task_plan_sha256": "e054b80c14de863afffbf42d5c5f9dcc0b49741cab42bdcdafeed88ecd19749c",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-23T17:12:28+00:00"
+}

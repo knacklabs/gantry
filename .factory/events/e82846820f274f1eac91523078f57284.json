@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T19:04:53+00:00", "story": "JOBPERM-1", "detail": "S-0021-9cdd: Plan item 6 text corrected: leave the tree uncommitted; the orchestrator commits. No contradiction remains \u2014 implement."}

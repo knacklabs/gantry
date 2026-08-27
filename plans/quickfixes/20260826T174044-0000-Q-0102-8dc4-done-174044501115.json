@@ -1,0 +1,151 @@
+{
+  "event": "done",
+  "id": "Q-0102-8dc4",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Q-0102: outcome headline lifter fed the marker-sliced summary, dropping an Outcome line written above the Final Job Report heading (run add7e178)",
+  "base_sha": "1579c84fbb8d61ade2f9dcc0d40ab4631a24c559",
+  "started_at": "2026-08-26T17:32:26+00:00",
+  "completed_at": "2026-08-26T17:40:44+00:00",
+  "files": [
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/test/unit/jobs/execution-notifications.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "One-line fix at the call site; import removed. Lite window Q-0102 (base 1579c84f -> HEAD dcc15a3dc): jobOutcomeHeadline now reads the raw run summary; the marker-sliced summary dropped an Outcome line written above the Final Job Report heading (run add7e178). Proof: jobs lane 66/723, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "e81b48ac19029dc3d56d3c67f1de3000d458a79bcbed1c94fa28aa2fbc3463a8",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "61ccba93144a18123f9ed6691c3823f7309ab3d4fb081abbdebd16100d715308",
+      "recorded_at": "2026-08-26T17:35:44+00:00",
+      "commit": "dcc15a3dccee76a35f37cc5ee4df5abea9ff9f57"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "Negligible. Lite window Q-0102 (base 1579c84f -> HEAD dcc15a3dc): jobOutcomeHeadline now reads the raw run summary; the marker-sliced summary dropped an Outcome line written above the Final Job Report heading (run add7e178). Proof: jobs lane 66/723, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "e81b48ac19029dc3d56d3c67f1de3000d458a79bcbed1c94fa28aa2fbc3463a8",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "61ccba93144a18123f9ed6691c3823f7309ab3d4fb081abbdebd16100d715308",
+      "recorded_at": "2026-08-26T17:35:45+00:00",
+      "commit": "dcc15a3dccee76a35f37cc5ee4df5abea9ff9f57"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/execution-notifications.ts",
+        "apps/core/test/unit/jobs/execution-notifications.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "None. Lite window Q-0102 (base 1579c84f -> HEAD dcc15a3dc): jobOutcomeHeadline now reads the raw run summary; the marker-sliced summary dropped an Outcome line written above the Final Job Report heading (run add7e178). Proof: jobs lane 66/723, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "e81b48ac19029dc3d56d3c67f1de3000d458a79bcbed1c94fa28aa2fbc3463a8",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "61ccba93144a18123f9ed6691c3823f7309ab3d4fb081abbdebd16100d715308",
+      "recorded_at": "2026-08-26T17:35:45+00:00",
+      "commit": "dcc15a3dccee76a35f37cc5ee4df5abea9ff9f57"
+    }
+  }
+}

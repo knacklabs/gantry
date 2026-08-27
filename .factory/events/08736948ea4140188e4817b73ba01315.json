@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T17:12:28+00:00", "story": "JOBPERM-1", "detail": "S-0016-214e: SPLIT, do not except: budget raised to 42 files / 6800 lines specifically for the architecture-mandated split of the durability service into cohesive modules (state machine / reconciler / card project"}

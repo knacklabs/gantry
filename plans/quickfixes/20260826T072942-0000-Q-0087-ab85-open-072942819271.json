@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0087-ab85",
+  "profile": "lite",
+  "reason": "Provider-neutral terminal notice: carry the structured JobNotificationView on the lifecycle terminal edit (ProgressUpdateOptions.jobNotificationView) for every route, so each provider can render the outcome natively instead of plain progress text. Plumbing only in this window (types, lifecycle notification, execution-notifications, tests); per-provider renderers follow. Scope: domain/types.ts, jobs/types.ts, scheduler-lifecycle-notification.ts, execution-notifications.ts, lifecycle-retirement.test.ts.",
+  "started_at": "2026-08-26T07:29:42+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "08830abe88cb6fbce8551f2e95708334c9538b97"
+}

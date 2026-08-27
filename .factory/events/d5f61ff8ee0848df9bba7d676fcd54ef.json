@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T11:29:30+00:00", "story": "JOBPERM-1", "detail": "S-0001-d6a4: write_scope extended: apps/core/src/app/ added to JOBPERM-1-T1 (the persistence step requires setup-pause-permission-wiring.ts; omission was the orchestrator's, not scope creep). Re-recorded; proceed "}

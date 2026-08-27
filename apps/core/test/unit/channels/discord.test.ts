@@ -47,6 +47,7 @@ import {
   type ChannelOpts,
 } from '@core/channels/channel-provider.js';
 import { DISCORD_LIVE_ATTACHMENT_DEADLINE_MS } from '@core/channels/discord-live-attachment-capture.js';
+import { DISCORD_MESSAGE_MAX_LENGTH } from '@core/channels/discord-limits.js';
 import { discordMessageContent } from '@core/channels/discord-conversation-context.js';
 import { createLiveReactionLifecycle } from '@core/app/bootstrap/live-reaction-lifecycle.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
@@ -798,7 +799,87 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
-  it('edits the active Discord progress message instead of posting each update', async () => {
+  it('edits a terminal Discord progress message with a structured embed', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
+      .mockResolvedValue(new Response('{}', { status: 200 }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.sendProgressUpdate('dc:channel-1', 'Working', {
+      generation: 1,
+      actionAffordances: [
+        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+      ],
+    });
+    await channel.sendProgressUpdate('dc:channel-1', '**Completed** in text', {
+      generation: 1,
+      done: true,
+      jobNotificationView: {
+        status: 'completed',
+        jobName: 'Nightly report',
+        fallbackText: 'Report completed',
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://discord.com/api/v10/channels/channel-1/messages/progress-1',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body || '{}'));
+    expect(body).toMatchObject({
+      content: '',
+      allowed_mentions: { parse: [] },
+      components: [],
+      embeds: [
+        expect.objectContaining({
+          title: '✅ Completed · Nightly report',
+          description: 'Report completed',
+        }),
+      ],
+    });
+    expect(body.content).not.toContain('**Completed** in text');
+    fetchMock.mockRestore();
+  });
+
+  it('posts one structured terminal Discord progress message without a handle', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ id: 'terminal-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', '**Completed** in text', {
+        generation: 1,
+        done: true,
+        jobNotificationView: {
+          status: 'completed',
+          jobName: 'Nightly report',
+          fallbackText: 'Report completed',
+        },
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body || '{}'));
+    expect(body).toMatchObject({
+      allowed_mentions: { parse: [] },
+      components: [],
+      embeds: [
+        expect.objectContaining({ title: '✅ Completed · Nightly report' }),
+      ],
+    });
+    expect(body.content).toBeUndefined();
+    fetchMock.mockRestore();
+  });
+
+  it('keeps terminal Discord progress without a structured view byte-identical', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
@@ -836,7 +917,159 @@ describe('DiscordChannel', () => {
     const doneBody = JSON.parse(
       String(fetchMock.mock.calls[2]?.[1]?.body || '{}'),
     );
-    expect(doneBody).toMatchObject({ content: 'Done', components: [] });
+    expect(String(fetchMock.mock.calls[2]?.[1]?.body)).toBe(
+      JSON.stringify({
+        content: 'Done',
+        allowed_mentions: { parse: [] },
+        components: [],
+      }),
+    );
+    expect(doneBody).toEqual({
+      content: 'Done',
+      allowed_mentions: { parse: [] },
+      components: [],
+    });
+    fetchMock.mockRestore();
+  });
+
+  it('falls back to text when Discord rejects a terminal progress embed', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 50_035,
+            message: 'Invalid Form Body',
+            errors: { embeds: { _errors: [] } },
+          }),
+          {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.sendProgressUpdate('dc:channel-1', 'Working', {
+      generation: 1,
+    });
+    await channel.sendProgressUpdate('dc:channel-1', 'Completed in text', {
+      generation: 1,
+      done: true,
+      jobNotificationView: {
+        status: 'completed',
+        jobName: 'Nightly report',
+        fallbackText: 'Report completed',
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const rejectedBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body || '{}'),
+    );
+    expect(rejectedBody.embeds).toEqual([
+      expect.objectContaining({ title: '✅ Completed · Nightly report' }),
+    ]);
+    expect(String(fetchMock.mock.calls[2]?.[1]?.body)).toBe(
+      JSON.stringify({
+        content: 'Completed in text',
+        allowed_mentions: { parse: [] },
+        components: [],
+        embeds: [],
+      }),
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('rethrows terminal progress errors that target embeds and components', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 50_035,
+            message: 'Invalid Form Body: embeds and components',
+            errors: {
+              embeds: { _errors: [] },
+              components: { _errors: [] },
+            },
+          }),
+          {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      );
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.sendProgressUpdate('dc:channel-1', 'Working', {
+      generation: 1,
+    });
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', 'Completed in text', {
+        generation: 1,
+        done: true,
+        jobNotificationView: {
+          status: 'completed',
+          jobName: 'Nightly report',
+          fallbackText: 'Report completed',
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      errors: {
+        embeds: { _errors: [] },
+        components: { _errors: [] },
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    fetchMock.mockRestore();
+  });
+
+  it('posts one truncated text message when Discord rejects a terminal progress embed', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 50_035,
+            message: 'Invalid Form Body',
+            errors: { embeds: { _errors: [] } },
+          }),
+          {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'terminal-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const text = `${'a'.repeat(DISCORD_MESSAGE_MAX_LENGTH)}tail`;
+
+    await expect(
+      channel.sendProgressUpdate('dc:channel-1', text, {
+        generation: 1,
+        done: true,
+        jobNotificationView: {
+          status: 'completed',
+          jobName: 'Nightly report',
+          fallbackText: 'Report completed',
+        },
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[1]?.body)).toBe(
+      JSON.stringify({
+        content: `${'a'.repeat(DISCORD_MESSAGE_MAX_LENGTH - 1)}…`,
+        allowed_mentions: { parse: [] },
+        components: [],
+      }),
+    );
     fetchMock.mockRestore();
   });
 
@@ -4171,7 +4404,7 @@ describe('DiscordChannel', () => {
     });
   });
 
-  it('settles an autonomous Discord permission using its lane timeout without a job id', async () => {
+  it('keeps a job Discord permission pending without an explicit expiry', async () => {
     vi.useFakeTimers();
     vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '10000');
     vi.spyOn(globalThis, 'fetch')
@@ -4193,6 +4426,7 @@ describe('DiscordChannel', () => {
         sourceAgentFolder: 'main_agent',
         toolName: 'RunCommand',
         targetJid: 'dc:channel-1',
+        jobId: 'job-1',
         permissionLane: 'autonomous',
       })
       .then(requirePermissionDecision);
@@ -4201,19 +4435,19 @@ describe('DiscordChannel', () => {
     const pending = [
       ...(channel as any).interactions.pendingPermissions.values(),
     ][0];
-    expect(pending.timeout).toBeDefined();
-    await vi.advanceTimersByTimeAsync(9_999);
+    expect(pending.timeout).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(10_000);
     expect((channel as any).interactions.pendingPermissions.size).toBe(1);
-    await vi.advanceTimersByTimeAsync(1);
+
+    await channel.disconnect();
 
     await expect(approval).resolves.toMatchObject({
       approved: false,
       mode: 'cancel',
       decidedBy: 'system',
-      reason: 'timed out',
+      reason: 'channel disconnected',
     });
     expect((channel as any).interactions.pendingPermissions.size).toBe(0);
-    await channel.disconnect();
   });
 
   it('prefers a Discord permission expiry and recomputes its remaining delay after delivery', async () => {
@@ -4359,7 +4593,7 @@ describe('DiscordChannel', () => {
 
   it('preserves earlier Discord answers when a later question times out', async () => {
     vi.useFakeTimers();
-    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '600000');
+    vi.stubEnv('GANTRY_PERMISSION_TIMEOUT_MS', '600000');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
         jsonResponse({ url: 'wss://gateway.discord.test' }),
@@ -4433,7 +4667,7 @@ describe('DiscordChannel', () => {
 
   it('rejects a Discord timeout when completion cannot be persisted', async () => {
     vi.useFakeTimers();
-    vi.stubEnv('GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '600000');
+    vi.stubEnv('GANTRY_PERMISSION_TIMEOUT_MS', '600000');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
         jsonResponse({ url: 'wss://gateway.discord.test' }),

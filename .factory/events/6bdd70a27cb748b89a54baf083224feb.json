@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-23T16:56:15+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T2 current HEAD ce9c11994: managed policy rejects the three required literal VITEST_JUNIT=1 npx selectors before Vitest starts; equivalent repo-local node --env-file selectors pass 3/3 with "}

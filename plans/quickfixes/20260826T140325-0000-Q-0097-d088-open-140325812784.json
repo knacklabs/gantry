@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0097-d088",
+  "profile": "lite",
+  "reason": "Q-0097: remove the dead openBrowserSession scheduler dependency left by the prelaunch deletion; fix stale prelaunch comment in cleanup",
+  "started_at": "2026-08-26T14:03:25+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "a9106b453e0ef51103a1e6c946051dc41880b828"
+}

@@ -1,0 +1,1 @@
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-08-23T13:10:35+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T2 reviewer contract requires v9 sections A2/A4/A5/A6/A7 and Core model, but their contents are absent from the supplied whole-context brief; cannot audit or complete the existing partial im"}
