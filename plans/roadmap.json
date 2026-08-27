@@ -1978,6 +1978,25 @@
       ],
       "origin": "adhoc",
       "spec": "docs/specs/ai-employee-directory.md"
+    },
+    {
+      "key": "CHAN-1",
+      "title": "Channel adapters live in one folder per provider",
+      "story": "As a maintainer, I find every provider adapter under channels/<provider>/ so that the four providers are laid out the same way and reviews stay sane.",
+      "acceptance_criteria": [
+        "apps/core/src/channels/discord-*.ts moved to apps/core/src/channels/discord/*.ts (prefix dropped); apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts",
+        "All imports rewritten; no file left at the channels root for Discord or Teams; unit tests for both providers moved under their provider folder or updated in place",
+        "No behaviour change: tsc, architecture budgets (paths updated), unit + Postgres integration lanes green; diff consists of renames and import-path edits only",
+        "Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point"
+      ],
+      "order": 99,
+      "status": "pending",
+      "epic": "harness-hygiene",
+      "skill": "backend",
+      "kind": "refactor",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec_debt_reason": "Mechanical layout refactor: Discord and Teams adapters are flat prefix-named files while Slack and Telegram have folders; owner asked for one folder per provider. No behaviour change; no spec needed."
     }
   ],
   "epics": [
@@ -2085,5 +2104,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-26T12:05:35+00:00"
+  "updated_at": "2026-08-27T07:58:10+00:00"
 }
