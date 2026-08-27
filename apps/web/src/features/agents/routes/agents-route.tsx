@@ -47,7 +47,7 @@ export function AgentsRoute() {
   );
 
   return (
-    <div className="mx-auto grid w-full max-w-[1240px] gap-6">
+    <div className="mx-auto w-full max-w-[1240px]">
       <PageHeader
         eyebrow="Administration"
         title="Agents"
@@ -59,153 +59,157 @@ export function AgentsRoute() {
           </Button>
         }
       />
-      <RouteTabs
-        label="Agents administration"
-        tabs={[
-          { value: 'agents', label: 'Agents' },
-          { value: 'roles', label: 'Roles' },
-        ]}
-        value={search.tab}
-        onValueChange={(tab) =>
-          void navigate({ search: { ...search, tab, page: 1 } })
-        }
-      />
+      <div className="mt-5">
+        <RouteTabs
+          label="Agents administration"
+          tabs={[
+            { value: 'agents', label: 'Agents' },
+            { value: 'roles', label: 'Roles' },
+          ]}
+          value={search.tab}
+          onValueChange={(tab) =>
+            void navigate({ search: { ...search, tab, page: 1 } })
+          }
+        />
+      </div>
 
-      {search.tab === 'roles' ? (
-        <>
-          <RolesLibraryToolbar
-            search={search.q}
-            onChange={(q) =>
-              void navigate({ search: { ...search, q, page: 1 } })
-            }
-          />
-          {search.q ? (
-            <div>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  void navigate({ search: { ...search, q: '', page: 1 } })
-                }
-              >
-                Clear search
-              </Button>
-            </div>
-          ) : null}
-          <RolesLibrary
-            builtIns={builtInRoles.data}
-            data={customRoles.data}
-            error={builtInRoles.isError || customRoles.isError}
-            loading={builtInRoles.isLoading || customRoles.isLoading}
-            onPageChange={(page) =>
-              void navigate({ search: { ...search, page } })
-            }
-            onRetry={() => {
-              void builtInRoles.refetch();
-              void customRoles.refetch();
-            }}
-          />
-        </>
-      ) : (
-        <>
-          <AgentsDirectoryToolbar
-            roleOptions={roles.data?.data ?? []}
-            search={search}
-            onChange={(next) =>
-              void navigate({ search: { ...search, ...next } })
-            }
-          />
-          {hasFilters ? (
-            <div>
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  void navigate({
-                    search: {
-                      ...search,
-                      q: '',
-                      status: 'all',
-                      role: 'all',
-                      page: 1,
-                    },
-                  })
-                }
-              >
-                Clear filters
-              </Button>
-            </div>
-          ) : null}
-          {directory.isError ? (
-            <PageState
-              action={
-                <Button onClick={() => void directory.refetch()}>
-                  <RefreshCw size={15} aria-hidden="true" />
-                  Retry
-                </Button>
+      <div className="mt-[18px] grid gap-[14px]">
+        {search.tab === 'roles' ? (
+          <>
+            <RolesLibraryToolbar
+              search={search.q}
+              onChange={(q) =>
+                void navigate({ search: { ...search, q, page: 1 } })
               }
-              description="Your filters were kept. Try loading this directory again."
-              icon={<Bot size={18} aria-hidden="true" />}
-              kind="error"
-              title="Agents could not be loaded"
             />
-          ) : (
-            <>
-              <MobileAgentList
-                agents={directory.data?.data ?? []}
-                emptyMessage={
-                  hasFilters
-                    ? 'No agents match these filters.'
-                    : 'Create an agent to give Gantry a reusable configuration for work.'
+            {search.q ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    void navigate({ search: { ...search, q: '', page: 1 } })
+                  }
+                >
+                  Clear search
+                </Button>
+              </div>
+            ) : null}
+            <RolesLibrary
+              builtIns={builtInRoles.data}
+              data={customRoles.data}
+              error={builtInRoles.isError || customRoles.isError}
+              loading={builtInRoles.isLoading || customRoles.isLoading}
+              onPageChange={(page) =>
+                void navigate({ search: { ...search, page } })
+              }
+              onRetry={() => {
+                void builtInRoles.refetch();
+                void customRoles.refetch();
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <AgentsDirectoryToolbar
+              roleOptions={roles.data?.data ?? []}
+              search={search}
+              onChange={(next) =>
+                void navigate({ search: { ...search, ...next } })
+              }
+            />
+            {hasFilters ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    void navigate({
+                      search: {
+                        ...search,
+                        q: '',
+                        status: 'all',
+                        role: 'all',
+                        page: 1,
+                      },
+                    })
+                  }
+                >
+                  Clear filters
+                </Button>
+              </div>
+            ) : null}
+            {directory.isError ? (
+              <PageState
+                action={
+                  <Button onClick={() => void directory.refetch()}>
+                    <RefreshCw size={15} aria-hidden="true" />
+                    Retry
+                  </Button>
                 }
-                page={search.page}
-                pageCount={
-                  directory.data
-                    ? Math.max(
-                        1,
-                        Math.ceil(
-                          directory.data.total / directory.data.pageSize,
-                        ),
-                      )
-                    : 1
-                }
-                total={directory.data?.total ?? 0}
-                onPageChange={(page) =>
-                  void navigate({ search: { ...search, page } })
-                }
+                description="Your filters were kept. Try loading this directory again."
+                icon={<Bot size={18} aria-hidden="true" />}
+                kind="error"
+                title="Agents could not be loaded"
               />
-              <AgentDirectoryTable
-                agents={directory.data?.data ?? []}
-                emptyMessage={
-                  hasFilters
-                    ? 'No agents match these filters.'
-                    : 'Create an agent to give Gantry a reusable configuration for work.'
-                }
-                page={search.page}
-                pageSize={search.pageSize}
-                total={directory.data?.total ?? 0}
-                onPageChange={(page) =>
-                  void navigate({ search: { ...search, page } })
-                }
-                onPageSizeChange={(pageSize) =>
-                  void navigate({
-                    search: {
-                      ...search,
-                      pageSize: pageSize as typeof search.pageSize,
-                      page: 1,
-                    },
-                  })
-                }
-                onRowClick={(agent) =>
-                  void navigate({
-                    to: '/agents/$agentId',
-                    params: { agentId: agent.id },
-                    search: { tab: 'overview' },
-                  })
-                }
-              />
-            </>
-          )}
-        </>
-      )}
+            ) : (
+              <>
+                <MobileAgentList
+                  agents={directory.data?.data ?? []}
+                  emptyMessage={
+                    hasFilters
+                      ? 'No agents match these filters.'
+                      : 'Create an agent to give Gantry a reusable configuration for work.'
+                  }
+                  page={search.page}
+                  pageCount={
+                    directory.data
+                      ? Math.max(
+                          1,
+                          Math.ceil(
+                            directory.data.total / directory.data.pageSize,
+                          ),
+                        )
+                      : 1
+                  }
+                  total={directory.data?.total ?? 0}
+                  onPageChange={(page) =>
+                    void navigate({ search: { ...search, page } })
+                  }
+                />
+                <AgentDirectoryTable
+                  agents={directory.data?.data ?? []}
+                  emptyMessage={
+                    hasFilters
+                      ? 'No agents match these filters.'
+                      : 'Create an agent to give Gantry a reusable configuration for work.'
+                  }
+                  page={search.page}
+                  pageSize={search.pageSize}
+                  total={directory.data?.total ?? 0}
+                  onPageChange={(page) =>
+                    void navigate({ search: { ...search, page } })
+                  }
+                  onPageSizeChange={(pageSize) =>
+                    void navigate({
+                      search: {
+                        ...search,
+                        pageSize: pageSize as typeof search.pageSize,
+                        page: 1,
+                      },
+                    })
+                  }
+                  onRowClick={(agent) =>
+                    void navigate({
+                      to: '/agents/$agentId',
+                      params: { agentId: agent.id },
+                      search: { tab: 'overview' },
+                    })
+                  }
+                />
+              </>
+            )}
+          </>
+        )}
+      </div>
       {createOpen ? (
         <AgentCreateDialog onClose={() => setCreateOpen(false)} />
       ) : null}

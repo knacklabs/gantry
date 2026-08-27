@@ -29,7 +29,7 @@ export function AgentsDirectoryToolbar({
   }, [onChange, query, search.q]);
 
   return (
-    <div className="grid items-end gap-4 md:grid-cols-[minmax(0,1fr)_236px_260px]">
+    <div className="grid items-end gap-2.5 md:grid-cols-[minmax(200px,1fr)_145px_160px]">
       <TextField
         id="agent-search"
         label="Search agents"

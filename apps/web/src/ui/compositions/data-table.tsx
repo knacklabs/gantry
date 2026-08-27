@@ -78,7 +78,7 @@ export function DataTable<TData>({
         aria-busy={isBusy || undefined}
         className={`overflow-auto ${scrollClassName ?? ''}`}
       >
-        <table className="w-full min-w-[680px] border-collapse text-left text-[13px]">
+        <table className="w-full min-w-[680px] border-collapse text-left text-[12px]">
           <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr
@@ -87,7 +87,7 @@ export function DataTable<TData>({
               >
                 {headerGroup.headers.map((header) => (
                   <th
-                    className="h-10 px-4 font-medium text-text-secondary"
+                    className="h-[39px] px-3 font-semibold text-text-secondary"
                     key={header.id}
                   >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
@@ -131,7 +131,7 @@ export function DataTable<TData>({
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td
-                      className="h-14 px-4 align-middle text-text-secondary"
+                      className="h-[54px] px-3 py-[7px] align-middle text-text-secondary"
                       key={cell.id}
                     >
                       {flexRender(
@@ -145,7 +145,7 @@ export function DataTable<TData>({
             ) : (
               <tr>
                 <td
-                  className="h-28 px-4 text-center text-text-secondary"
+                  className="h-28 px-3 text-center text-text-secondary"
                   colSpan={columns.length}
                 >
                   {emptyMessage}
@@ -155,7 +155,7 @@ export function DataTable<TData>({
           </tbody>
         </table>
       </div>
-      <div className="flex min-h-14 items-center justify-between border-t border-border px-4 text-xs text-text-secondary">
+      <div className="flex min-h-[52px] items-center justify-between border-t border-border px-3 text-[11px] text-text-secondary">
         <span>
           Page {visiblePage} of {pageCount} · {total ?? data.length} records
         </span>
@@ -164,6 +164,7 @@ export function DataTable<TData>({
             size="icon"
             variant="outline"
             aria-label="Previous page"
+            className="size-[29px]"
             disabled={visiblePage <= 1}
             title="Previous page"
             onClick={() => onPageChange(visiblePage - 1)}
@@ -174,6 +175,7 @@ export function DataTable<TData>({
             size="icon"
             variant="outline"
             aria-label="Next page"
+            className="size-[29px]"
             disabled={visiblePage >= pageCount}
             title="Next page"
             onClick={() => onPageChange(visiblePage + 1)}

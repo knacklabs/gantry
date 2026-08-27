@@ -49,35 +49,37 @@ export function CustomRolesTable({
   });
 
   return (
-    <div className="max-h-[calc(100vh-28rem)] overflow-auto p-4">
-      <table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="sticky top-0 bg-surface-muted text-xs text-text-secondary">
-          <tr>
-            <th className="p-3">Role</th>
-            <th className="p-3">Source</th>
-            <th className="p-3">Prompt</th>
-            <th className="p-3">Agents</th>
-            <th className="p-3">Updated</th>
-            <th className="p-3">Actions</th>
+    <div className="max-h-[calc(100dvh-20rem)] min-h-[330px] overflow-auto">
+      <table className="w-full min-w-[760px] border-collapse text-left text-[12px]">
+        <thead className="sticky top-0 z-10 bg-surface-muted text-text-secondary">
+          <tr className="border-b border-border">
+            <th className="h-[39px] px-3 font-semibold">Role</th>
+            <th className="h-[39px] px-3 font-semibold">Source</th>
+            <th className="h-[39px] px-3 font-semibold">Prompt</th>
+            <th className="h-[39px] px-3 font-semibold">Agents</th>
+            <th className="h-[39px] px-3 font-semibold">Updated</th>
+            <th className="h-[39px] px-3 font-semibold">Actions</th>
           </tr>
         </thead>
         <tbody>
           {data?.data.map((role) => (
-            <tr className="border-t border-border" key={role.id}>
-              <td className="p-3 font-medium">{role.name}</td>
-              <td className="p-3 text-text-secondary">
+            <tr className="border-b border-border last:border-0" key={role.id}>
+              <td className="h-[54px] px-3 py-[7px] font-medium">
+                {role.name}
+              </td>
+              <td className="h-[54px] px-3 py-[7px] text-text-secondary">
                 {role.sourceRoleId ?? '—'}
               </td>
-              <td className="max-w-64 truncate p-3 text-text-secondary">
+              <td className="h-[54px] max-w-64 truncate px-3 py-[7px] text-text-secondary">
                 {role.prompt}
               </td>
-              <td className="p-3 text-text-secondary">
+              <td className="h-[54px] px-3 py-[7px] text-text-secondary">
                 {role.retainedAgentCount ?? 0}
               </td>
-              <td className="p-3 text-text-secondary">
+              <td className="h-[54px] px-3 py-[7px] text-text-secondary">
                 {role.updatedAt ?? '—'}
               </td>
-              <td className="p-3">
+              <td className="h-[54px] px-3 py-[7px]">
                 <div className="flex gap-2">
                   <Button
                     size="sm"
@@ -141,7 +143,10 @@ export function CustomRolesTable({
           ))}
           {!loading && !data?.data.length ? (
             <tr>
-              <td className="p-6 text-center text-text-secondary" colSpan={6}>
+              <td
+                className="h-[330px] px-3 text-center text-text-secondary"
+                colSpan={6}
+              >
                 No custom roles yet.
               </td>
             </tr>
