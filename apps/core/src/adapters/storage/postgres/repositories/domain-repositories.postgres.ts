@@ -418,6 +418,7 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
       agentId: row.agentId,
       version: row.version,
       promptProfileRef: row.promptProfileRef,
+      agentNameSnapshot: row.agentNameSnapshot ?? undefined,
       roleSnapshot: row.rolePrompt
         ? {
             displayName: row.roleDisplayName ?? '',
@@ -469,6 +470,7 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
         agentId: version.agentId,
         version: version.version,
         promptProfileRef: version.promptProfileRef,
+        agentNameSnapshot: version.agentNameSnapshot ?? null,
         roleDisplayName: version.roleSnapshot?.displayName ?? null,
         rolePrompt: version.roleSnapshot?.prompt ?? null,
         sourceRoleId: version.roleSnapshot?.sourceRoleId ?? null,

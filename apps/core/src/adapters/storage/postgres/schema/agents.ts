@@ -78,6 +78,7 @@ export const agentConfigVersionsPostgres = pgTable(
       .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
     version: integer('version').notNull(),
     promptProfileRef: text('prompt_profile_ref').notNull(),
+    agentNameSnapshot: text('agent_name_snapshot'),
     roleDisplayName: text('role_display_name'),
     rolePrompt: text('role_prompt'),
     sourceRoleId: text('source_role_id'),

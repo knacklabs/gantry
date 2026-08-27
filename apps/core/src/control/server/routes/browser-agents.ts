@@ -404,6 +404,7 @@ export async function handleBrowserAgentRoutes(
           id: version.id,
           version: version.version,
           createdAt: version.createdAt,
+          agentNameSnapshot: version.agentNameSnapshot,
           roleSnapshot: version.roleSnapshot,
           llmProfileId: version.llmProfileId,
         })),
@@ -489,6 +490,7 @@ export async function handleBrowserAgentRoutes(
         agentId: agent.id,
         version: 1,
         promptProfileRef: 'browser-agent-role-snapshot',
+        agentNameSnapshot: agent.name,
         roleSnapshot: await roleSnapshotFor(storage, appId, roleId),
         // The control graph establishes this default profile for an app before
         // agents are available to configure.
@@ -521,12 +523,18 @@ export async function handleBrowserAgentRoutes(
       const now = nowIso();
       let updated = { ...agent, name: body.name.trim(), updatedAt: now };
       const roleId = typeof body.roleId === 'string' ? body.roleId : undefined;
-      if (roleId) {
-        const currentConfig = agent.currentConfigVersionId
-          ? await storage.repositories.agentConfigs.getConfigVersion(
-              agent.currentConfigVersionId,
-            )
+      const nameChanged = updated.name !== agent.name;
+      const currentConfig =
+        nameChanged || roleId
+          ? agent.currentConfigVersionId
+            ? await storage.repositories.agentConfigs.getConfigVersion(
+                agent.currentConfigVersionId,
+              )
+            : null
           : null;
+      const roleChanged =
+        !!roleId && currentConfig?.roleSnapshot?.sourceRoleId !== roleId;
+      if (nameChanged || roleChanged) {
         if (!currentConfig)
           return (
             sendError(
@@ -537,23 +545,24 @@ export async function handleBrowserAgentRoutes(
             ),
             true
           );
-        if (currentConfig.roleSnapshot?.sourceRoleId !== roleId) {
-          const versions =
-            await storage.repositories.agentConfigs.listConfigVersions({
-              appId,
-              agentId: agent.id,
-            });
-          const nextConfig: AgentConfigVersion = {
-            ...currentConfig,
-            id: `agent-config:${randomUUID()}` as AgentConfigVersionId,
-            version:
-              Math.max(...versions.map((version) => version.version), 0) + 1,
-            roleSnapshot: await roleSnapshotFor(storage, appId, roleId),
-            createdAt: now,
-          };
-          await storage.repositories.agentConfigs.saveConfigVersion(nextConfig);
-          updated = { ...updated, currentConfigVersionId: nextConfig.id };
-        }
+        const versions =
+          await storage.repositories.agentConfigs.listConfigVersions({
+            appId,
+            agentId: agent.id,
+          });
+        const nextConfig: AgentConfigVersion = {
+          ...currentConfig,
+          id: `agent-config:${randomUUID()}` as AgentConfigVersionId,
+          version:
+            Math.max(...versions.map((version) => version.version), 0) + 1,
+          agentNameSnapshot: updated.name,
+          roleSnapshot: roleChanged
+            ? await roleSnapshotFor(storage, appId, roleId!)
+            : currentConfig.roleSnapshot,
+          createdAt: now,
+        };
+        await storage.repositories.agentConfigs.saveConfigVersion(nextConfig);
+        updated = { ...updated, currentConfigVersionId: nextConfig.id };
       }
       await storage.repositories.agents.saveAgent(updated);
       await ctx.syncSettingsFromProjection(appId);

@@ -175,6 +175,7 @@ export type AgentVersion = {
   id: string;
   version: number;
   createdAt: string;
+  agentNameSnapshot?: string;
   roleSnapshot?: { displayName: string; prompt: string; sourceRoleId?: string };
   llmProfileId: string;
 };

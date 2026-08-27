@@ -69,6 +69,7 @@ export interface AgentConfigVersion {
   agentId: AgentId;
   version: number;
   promptProfileRef: string;
+  agentNameSnapshot?: string;
   roleSnapshot?: AgentRoleSnapshot;
   llmProfileId: LlmProfileId;
   toolIds: ToolId[];

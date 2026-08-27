@@ -9,6 +9,7 @@ import {
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import { PostgresOutboundDeliveryRepository } from '@core/adapters/storage/postgres/repositories/outbound-delivery-repository.postgres.js';
 import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
+import { agentConfigVersionsPostgres } from '@core/adapters/storage/postgres/schema/agents.js';
 import {
   conversationInstallsPostgres,
   providerAccountsPostgres,
@@ -51,6 +52,14 @@ describe('provider account schema', () => {
     );
     expect(conversationInstallsPostgres).not.toHaveProperty('triggerPattern');
     expect(conversationInstallsPostgres).not.toHaveProperty('requiresTrigger');
+  });
+});
+
+describe('agent configuration schema', () => {
+  it('stores an immutable agent name with each configuration version', () => {
+    expect(agentConfigVersionsPostgres.agentNameSnapshot.name).toBe(
+      'agent_name_snapshot',
+    );
   });
 });
 

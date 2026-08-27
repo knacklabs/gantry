@@ -13,6 +13,13 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
   const selected =
     versions.data?.versions.find((version) => version.id === selectedId) ??
     versions.data?.versions[0];
+  const selectedIndex = versions.data?.versions.findIndex(
+    (version) => version.id === selected?.id,
+  );
+  const previous =
+    selectedIndex === undefined || selectedIndex < 0
+      ? undefined
+      : versions.data?.versions[selectedIndex + 1];
   const [open, setOpen] = useState(false);
   const count = versions.data?.versions.length;
   return (
@@ -95,6 +102,16 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
                 </p>
               </div>
               <div className="grid gap-2">
+                {selected.agentNameSnapshot ? (
+                  <Change
+                    text={
+                      previous?.agentNameSnapshot &&
+                      previous.agentNameSnapshot !== selected.agentNameSnapshot
+                        ? `Renamed ${previous.agentNameSnapshot} to ${selected.agentNameSnapshot}.`
+                        : `Saved agent name: ${selected.agentNameSnapshot}.`
+                    }
+                  />
+                ) : null}
                 <Change
                   text={`Saved role snapshot: ${selected.roleSnapshot?.displayName ?? 'none'}.`}
                 />
