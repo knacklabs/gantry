@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-27T18:59:02+00:00", "story": "JOBPERM-2", "detail": "JOBPERM-2-T2 exact expired-row copy conflicts: acceptance requires 'Expired \u2014 the run ended...' while approved-plan step 2 specifies 'Expired: the run ended...'; confirm which separator is authoritati"}

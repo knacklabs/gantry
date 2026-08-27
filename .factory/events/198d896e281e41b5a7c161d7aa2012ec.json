@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T18:57:15+00:00", "story": "JOBPERM-2", "detail": "S-0002-5b3e: Orchestrator ran the Postgres lane outside the sandbox (GANTRY_TEST_DATABASE_URL local gantry_test) \u2014 see stage evidence; do not retry it in-sandbox. RESUME WORK: npm run check:architecture now fails "}

@@ -2,31 +2,24 @@
   "generated_by": "griller",
   "gate": "task",
   "verdict": "pass",
-  "questions_asked": 2,
+  "questions_asked": 1,
   "gaps": [
-    "T2 detail: when a 'this run only' row expires because the run ended, should it stay visible on the card (marked Expired) or drop off the card entirely?"
+    "Found while proving T2: the host still proposes per-leaf 'allow for future' rules for PIPED commands (e.g. `npm test | tee file`), even though a saved leaf rule can never authorise a pipe (decision 0134). For a job that means Allow would save useless rules and the job asks again every run; in chat it offers an 'Allow for future' that never works. Fix at the source?"
   ],
   "contradictions": [],
   "resolutions": [
     "Expired once rows stay on the card, non-decisionable, with the AC5 copy; a later run creates a fresh once need (request-id identity).",
-    "Required test leaf: 'settles a once need as expired when its run ended' in jobperm-durability.test.ts; integration proof in permission-decision-chain.postgres.integration.test.ts."
+    "Required test leaf: 'settles a once need as expired when its run ended' in jobperm-durability.test.ts; integration proof in permission-decision-chain.postgres.integration.test.ts.",
+    "Pipes never get leaf rule suggestions (permission-suggestion-synthesis.ts guard on parsed.piped); expired copy = AC5 sentence verbatim after the label."
   ],
   "rounds": [
     {
-      "question": "T2 detail: when a 'this run only' row expires because the run ended, should it stay visible on the card (marked Expired) or drop off the card entirely?",
+      "question": "Found while proving T2: the host still proposes per-leaf 'allow for future' rules for PIPED commands (e.g. `npm test | tee file`), even though a saved leaf rule can never authorise a pipe (decision 0134). For a job that means Allow would save useless rules and the job asks again every run; in chat it offers an 'Allow for future' that never works. Fix at the source?",
       "options": [
-        "Stay visible, marked Expired (Recommended)",
-        "Drop off the card"
+        "Yes \u2014 never propose leaf rules for a piped command (Recommended)",
+        "No \u2014 only classify pipes as 'once' on job cards"
       ],
-      "chosen": "Stay visible, marked Expired (Recommended)"
-    },
-    {
-      "question": "Anything else before T2 starts?",
-      "options": [
-        "No \u2014 go (Recommended)",
-        "Hold"
-      ],
-      "chosen": "No \u2014 go (Recommended)",
+      "chosen": "Yes \u2014 never propose leaf rules for a piped command (Recommended)",
       "frontier_empty": true
     }
   ],
@@ -38,6 +31,10 @@
     {
       "finding": "handoff resolution assumes atoms/rule; must never see a once need",
       "source": "apps/core/src/application/interactions/job-permission-reconciler.ts:323-335; task plan step 1"
+    },
+    {
+      "finding": "suggestion synthesis proposes per-leaf rules for piped commands the matcher never honours (Postgres proof classified `npm test | tee` as grant=rule)",
+      "source": "apps/core/src/application/permissions/permission-suggestion-synthesis.ts:71-84; apps/core/src/shared/tool-rule-matcher.ts:389; task plan step 3b"
     }
   ],
   "task_id": "JOBPERM-2-T2",
@@ -47,7 +44,9 @@
     "apps/core/src/application/interactions/job-permission-card-projection.ts",
     "apps/core/src/domain/ports/job-permission-durability.ts",
     "apps/core/test/unit/application/jobperm-durability.test.ts",
-    "apps/core/test/integration/permission-decision-chain.postgres.integration.test.ts"
+    "apps/core/test/integration/permission-decision-chain.postgres.integration.test.ts",
+    "apps/core/src/application/permissions/permission-suggestion-synthesis.ts",
+    "apps/core/src/shared/tool-rule-matcher.ts"
   ],
   "current_flow": "Reconciler waiter sweep (~:259-306): when every waiter is dead/expired the need goes to handoff_pending and later handed_off so a future run can pick a RULE up; a once need has no rule to hand off, so today it would be parked as a handoff that can never apply. Card copy has no expired state.",
   "criteria_map": {
@@ -59,11 +58,11 @@
     "optional expiredAt on the once need/row record (JSONB, absent = not expired) \u2014 owner choice 2026-08-27"
   ],
   "owner_questions": [],
-  "input_sha256": "0ae71d799e69160e05487f8681275587c3a094ec9d53c58b13de7af282e46116",
-  "task_plan_sha256": "7d6b55b0249aff383397d49e60d9fad873a05c82b1e26fae0d7c01b9cf3bc02a",
-  "recorded_at": "2026-08-27T18:42:18+00:00",
-  "commit": "427e9828a60d2e4611248e7ee292d02fbc7d99d6",
-  "approved_task_plan_sha256": "7d6b55b0249aff383397d49e60d9fad873a05c82b1e26fae0d7c01b9cf3bc02a",
+  "input_sha256": "f60db0eeb164b1cedea341c4ca5a0491945dde189e6ee54c6f9266751f982323",
+  "task_plan_sha256": "7d9851f9a2da89524705827b837f6de5aaf898538f51cb233f466d910daf476e",
+  "recorded_at": "2026-08-27T19:18:55+00:00",
+  "commit": "fcaf547a2d2dce165aecbf81da01b3c35a142e64",
+  "approved_task_plan_sha256": "7d9851f9a2da89524705827b837f6de5aaf898538f51cb233f466d910daf476e",
   "approved_by": "Ravi Kiran Vemula",
-  "approved_at": "2026-08-27T18:42:18+00:00"
+  "approved_at": "2026-08-27T19:18:55+00:00"
 }
