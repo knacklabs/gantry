@@ -535,7 +535,7 @@ export async function handleBrowserAgentRoutes(
       const roleChanged =
         !!roleId && currentConfig?.roleSnapshot?.sourceRoleId !== roleId;
       if (nameChanged || roleChanged) {
-        if (!currentConfig)
+        if (!currentConfig && !roleId)
           return (
             sendError(
               res,
@@ -545,22 +545,40 @@ export async function handleBrowserAgentRoutes(
             ),
             true
           );
-        const versions =
-          await storage.repositories.agentConfigs.listConfigVersions({
-            appId,
-            agentId: agent.id,
-          });
-        const nextConfig: AgentConfigVersion = {
-          ...currentConfig,
-          id: `agent-config:${randomUUID()}` as AgentConfigVersionId,
-          version:
-            Math.max(...versions.map((version) => version.version), 0) + 1,
-          agentNameSnapshot: updated.name,
-          roleSnapshot: roleChanged
-            ? await roleSnapshotFor(storage, appId, roleId!)
-            : currentConfig.roleSnapshot,
-          createdAt: now,
-        };
+        const nextConfig: AgentConfigVersion = currentConfig
+          ? {
+              ...currentConfig,
+              id: `agent-config:${randomUUID()}` as AgentConfigVersionId,
+              version:
+                Math.max(
+                  ...(
+                    await storage.repositories.agentConfigs.listConfigVersions({
+                      appId,
+                      agentId: agent.id,
+                    })
+                  ).map((version) => version.version),
+                  0,
+                ) + 1,
+              agentNameSnapshot: updated.name,
+              roleSnapshot: roleChanged
+                ? await roleSnapshotFor(storage, appId, roleId!)
+                : currentConfig.roleSnapshot,
+              createdAt: now,
+            }
+          : {
+              id: `agent-config:${randomUUID()}` as AgentConfigVersionId,
+              appId,
+              agentId: agent.id,
+              version: 1,
+              promptProfileRef: 'browser-agent-role-snapshot',
+              agentNameSnapshot: updated.name,
+              roleSnapshot: await roleSnapshotFor(storage, appId, roleId!),
+              llmProfileId: 'llm:default' as AgentConfigVersion['llmProfileId'],
+              toolIds: [],
+              skillIds: [],
+              permissionPolicyIds: [],
+              createdAt: now,
+            };
         await storage.repositories.agentConfigs.saveConfigVersion(nextConfig);
         updated = { ...updated, currentConfigVersionId: nextConfig.id };
       }
