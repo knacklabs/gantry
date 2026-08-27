@@ -177,5 +177,10 @@ revision restore, fresh installs seed a personal app, OTLP can export content.
   and as the directory heading.
 - Agent-to-agent channel messaging stays off; in-runtime delegation is fine.
 - Offboarding is administrator-only and irreversible; retired aliases never revive.
+- The loop runs per task (harness c514228, decision 0048): a story decomposes into
+  bounded tasks; each task's plan is authored in plan mode (marker recorded), the
+  task grill asks its rounds through real AskUserQuestion prompts until the
+  frontier is empty, a named human approves, then stage start and delegate.
+  Plans without a marker or grills whose rounds are not in the ledger are refused.
 - Implementer writes and records tests; one autoreview pass; functional check for
   user-facing stories (DIR-UI-1, HITL-1, TEAMS-1, DOCS-1, PKG-1).
