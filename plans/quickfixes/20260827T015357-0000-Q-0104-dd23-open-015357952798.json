@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0104-dd23",
+  "profile": "lite",
+  "reason": "Q-0104: job-permission card rows read 'Run command needs Run Command'; each row must show the actual command being asked about, on every provider",
+  "started_at": "2026-08-27T01:53:57+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "e5bcaa7b833590464dad23e0df05805731d0a36e"
+}
