@@ -33,7 +33,7 @@ export function AgentDrawer({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-0 right-0 left-auto flex h-dvh w-[min(520px,100vw)] max-w-none flex-col translate-x-0 translate-y-0 overflow-hidden rounded-none border-l border-border bg-surface p-0 shadow-popover"
+        className="web-drawer top-0 right-0 left-auto flex h-dvh max-w-none flex-col translate-x-0 translate-y-0 overflow-hidden rounded-none border-l border-border bg-surface p-0 shadow-popover"
       >
         <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border bg-surface px-5 py-[19px]">
           <div className="grid gap-1">

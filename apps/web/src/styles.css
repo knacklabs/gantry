@@ -164,6 +164,10 @@
   transition-duration: 1ms !important;
 }
 
+.web-drawer {
+  width: min(100vw, clamp(30rem, 40vw, 34rem));
+}
+
 .auth-page-shell {
   display: grid;
   min-width: 0;
