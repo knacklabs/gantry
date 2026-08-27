@@ -89,16 +89,7 @@
           "git": "1 .M N... 100644 100644 100644 3da5a61bd787c95a9ae70ae1f7c94d04e6443274 3da5a61bd787c95a9ae70ae1f7c94d04e6443274 plans/roadmap.json\u0000\u0000100644 3da5a61bd787c95a9ae70ae1f7c94d04e6443274 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
         }
       },
-      "task_sha256": "a788e38e3d46229c4f9c1e39b78d2f93bed35556ddeabeba6dbb5b2677d8210c",
-      "local_review_stamp": {
-        "stage_id": "CHAN-1-T1",
-        "task_sha256": "216e95cc6ba7cf4704e0e2c3f0391d4c279908b4a1114922a8c498d187082ec0",
-        "brief_sha256": "9736392ae641ab2688d905256c1d428b2df4aa451d28ec77b1d85ac7f597bc8c",
-        "base_sha": "20db560fe4dfc610791944a7c09a3c68eca6f22d",
-        "product_tree_digest": "6c01cc5f0bbbc9f205930d1fb98aa0cdc6360d65d96a415232f1cc226402d38b",
-        "recorded_at": "2026-08-27T10:02:01+00:00",
-        "generated_by": "autoreview"
-      }
+      "task_sha256": "a788e38e3d46229c4f9c1e39b78d2f93bed35556ddeabeba6dbb5b2677d8210c"
     },
     {
       "id": "CHAN-1-T2",
