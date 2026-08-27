@@ -55,14 +55,6 @@ export class JobPermissionCardDeliverySettlement {
       : undefined;
   }
 
-  /** Message carrying an older revision that this one should edit in place. */
-  previousMessageId(revision: JobPermissionCardRevision): string | undefined {
-    const latest = this.latest.get(revision.callbackKey);
-    return latest && latest.revision < revision.revision
-      ? latest.messageId
-      : undefined;
-  }
-
   /** Lane a later buttonless (retire/replace) edit of this message must join. */
   laneForMessage(messageKey: string): string {
     return this.laneByMessage.get(messageKey) ?? `message:${messageKey}`;

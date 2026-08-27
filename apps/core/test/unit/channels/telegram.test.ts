@@ -3089,11 +3089,8 @@ describe('TelegramChannel', () => {
       expect(duplicate.externalMessageId).toBe('987');
       expect(second.externalMessageId).toBe('987');
       expect(third.externalMessageId).toBe('987');
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
-      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(2);
-      expect(
-        currentBot().api.editMessageText.mock.calls.map((call) => call[1]),
-      ).toEqual([987, 987]);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(3);
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
 
       const [chatId, sentText, sentOptions] =
         currentBot().api.sendMessage.mock.calls[0]!;
@@ -3146,15 +3143,28 @@ describe('TelegramChannel', () => {
       ]);
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
 
-      // A newer revision edits; a delayed older one neither edits nor sends.
+      // A newer revision sends a fresh card; a delayed older one neither edits nor sends.
       await send(3);
       const stale = await send(2);
       expect(stale.externalMessageId).toBe('987');
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+
+      // An explicit edit still replaces its persisted message and retries short-circuit.
+      const edited = await channel.sendMessage('tg:100200300', 'Revision 4', {
+        actionAffordances: actionsFor(4),
+        replaceMessageId: '456',
+      });
+      const retried = await channel.sendMessage('tg:100200300', 'Revision 4', {
+        actionAffordances: actionsFor(4),
+        replaceMessageId: '456',
+      });
+      expect([edited.externalMessageId, retried.externalMessageId]).toEqual([
+        '456',
+        '456',
+      ]);
       expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
-      expect(currentBot().api.editMessageText.mock.calls[0]![2]).toBe(
-        'Revision 3',
-      );
+      expect(currentBot().api.editMessageText.mock.calls[0]![1]).toBe(456);
 
       // Malformed job-permission actions fail closed instead of falling back to plain text.
       await expect(
@@ -3168,7 +3178,7 @@ describe('TelegramChannel', () => {
           ],
         }),
       ).rejects.toThrow('no valid actions');
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
     });
 
     it('a retired job-permission card rejects a delayed older action revision', async () => {
@@ -3207,7 +3217,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
     });
 
-    it('queues a buttonless retire edit behind an in-flight card edit', async () => {
+    it('queues a buttonless retire edit behind an in-flight card send', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect({ inbound: false });
       currentBot().api.sendMessage.mockClear();
@@ -3222,9 +3232,12 @@ describe('TelegramChannel', () => {
       await channel.sendMessage('tg:100200300', 'Revision 1', {
         actionAffordances: actionsFor(1),
       });
-      let releaseFirstEdit!: () => void;
-      currentBot().api.editMessageText.mockImplementationOnce(
-        () => new Promise<void>((resolve) => (releaseFirstEdit = resolve)),
+      let releaseCardSend!: () => void;
+      currentBot().api.sendMessage.mockImplementationOnce(
+        () =>
+          new Promise(
+            (resolve) => (releaseCardSend = () => resolve({ message_id: 988 })),
+          ),
       );
 
       const actionEdit = channel.sendMessage('tg:100200300', 'Revision 2', {
@@ -3235,13 +3248,13 @@ describe('TelegramChannel', () => {
         replaceMessageId: '987',
       });
       await new Promise((resolve) => setImmediate(resolve));
-      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
 
-      releaseFirstEdit();
+      releaseCardSend();
       await Promise.all([actionEdit, retireEdit]);
       expect(
         currentBot().api.editMessageText.mock.calls.map((call) => call[2]),
-      ).toEqual(['Revision 2', 'Settled']);
+      ).toEqual(['Settled']);
     });
 
     it('uploads message files as Telegram documents', async () => {

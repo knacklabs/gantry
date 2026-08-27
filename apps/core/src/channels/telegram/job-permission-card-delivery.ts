@@ -52,10 +52,7 @@ export async function sendTelegramJobPermissionCard({
   return deliveries.serialize(revision.callbackKey, async () => {
     const settled = deliveries.settledMessageId(revision);
     if (settled) return delivered(settled);
-    // The card this instance already sent is authoritative; the caller's
-    // persisted id only recovers a card sent before a restart.
-    const replaceMessageId =
-      deliveries.previousMessageId(revision) ?? options.replaceMessageId;
+    const replaceMessageId = options.replaceMessageId;
     if (replaceMessageId) {
       const messageId = Number.parseInt(replaceMessageId, 10);
       if (!Number.isSafeInteger(messageId)) {

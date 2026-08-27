@@ -68,7 +68,7 @@ export function jobPermissionCardText(
   revision: JobPermissionCardRevision,
 ): string {
   if (revision.operation === 'retire') {
-    return `Permission requests for job ${jobId} are settled.`;
+    return 'All permission requests for this job are settled.';
   }
   const rows = revision.rows.map((row) => {
     const scopes = row.visibleGrantAtoms
