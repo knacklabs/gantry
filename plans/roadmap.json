@@ -2274,7 +2274,7 @@
       "kind": "refactor",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "Codex cyclomatic review of PR #444 (2026-08-27): five repeated-guard hoists and the 188-CC Telegram bot.on callback; owner chose hoists + Telegram dispatcher split for CHAN-2, run-loop giants deferred to CHAN-3."
+      "spec": "docs/specs/channel-dispatchers-flatten-and-split.md"
     }
   ],
   "epics": [
@@ -2382,5 +2382,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-27T12:58:33+00:00"
+  "updated_at": "2026-08-27T15:19:25+00:00"
 }

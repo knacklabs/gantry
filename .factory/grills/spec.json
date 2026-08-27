@@ -4,17 +4,51 @@
   "verdict": "pass",
   "questions_asked": 3,
   "gaps": [
-    "Entry modules discord.ts/teams.ts map to <provider>/index.ts so external importers change one path segment only.",
-    "Architecture-budget and path-keyed config entries must be re-pointed in the same change."
+    "Action kinds in the Telegram callback: user-question answers (other/done), lt:stop, jp: card taps, r: compact retry, perm: classic prompt \u2014 one named handler each.",
+    "Ceilings (handler <= 25, dispatcher <= 15) are measured with an AST counter on the final file."
   ],
   "contradictions": [],
   "resolutions": [
-    "Pure rename + import rewrite; no symbol renames; no behaviour change.",
-    "Tests move with their provider under apps/core/test/unit/channels/<provider>/.",
-    "Complexity work is out of scope (CHAN-2)."
+    "Pure refactor: existing unit tests pass unchanged; additions only.",
+    "runActiveJob/runQuery out of scope (CHAN-3)."
+  ],
+  "rounds": [
+    {
+      "question": "Where should the split Telegram callback handlers live?",
+      "options": [
+        "One sibling module (Recommended)",
+        "One file per action kind",
+        "Keep in channel-connect.ts"
+      ],
+      "chosen": "One sibling module (Recommended)"
+    },
+    {
+      "question": "Complexity ceilings for the split?",
+      "options": [
+        "Handlers \u2264 25, dispatcher \u2264 15 (Recommended)",
+        "Stricter: handlers \u2264 15, dispatcher \u2264 10",
+        "No numeric ceiling"
+      ],
+      "chosen": "Handlers \u2264 25, dispatcher \u2264 15 (Recommended)"
+    },
+    {
+      "question": "Anything else to settle for CHAN-2 before I confirm the spec, save the plan and start the hoists?",
+      "options": [
+        "No \u2014 confirm and start (Recommended)",
+        "Hold \u2014 I want to change something first"
+      ],
+      "chosen": "No \u2014 confirm and start (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "Telegram bot.on callback CC 188; five repeated-guard hoists",
+      "source": "plans/codex-briefs/pr-444-cyclomatic-review.md (Codex Sol xhigh review of PR #444, 2026-08-27)"
+    }
   ],
   "owner_questions": [],
-  "input_sha256": "93e92b93ff2e8a4f75b2557a846653ec1842c8fdc9417f899fcd109047e0d042",
-  "recorded_at": "2026-08-27T08:51:57+00:00",
-  "commit": "20db560fe4dfc610791944a7c09a3c68eca6f22d"
+  "input_sha256": "eff7ef21eb7d757ded27388cd791db5bfe5d0f7a8562c7fda0582d3763798778",
+  "recorded_at": "2026-08-27T15:19:25+00:00",
+  "commit": "a8d35a5f567ea976b69d545c79e1f230a863362a"
 }

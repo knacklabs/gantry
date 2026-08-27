@@ -1,7 +1,7 @@
 ---
 slug: channel-dispatchers-flatten-and-split
 title: Channel dispatchers: flatten repeated guards and split the Telegram callback by action kind
-status: draft
+status: confirmed
 saved: 2026-08-27T12:58:07+00:00
 ---
 
