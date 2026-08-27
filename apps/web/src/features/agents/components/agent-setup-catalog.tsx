@@ -170,11 +170,6 @@ export function AgentSetupCatalog({
                   label="Allowed capabilities"
                   value={`${selected.length} selected`}
                 />
-                <AccessSummary
-                  label="Unavailable"
-                  muted
-                  value="Checked at run time"
-                />
               </div>
             </section>
             <div className="rounded-md border border-status-attention/50 bg-status-attention-soft px-[11px] py-[10px] text-[10.5px] leading-[1.5] text-text">
@@ -377,19 +372,15 @@ function AccessRule({
 
 function AccessSummary({
   label,
-  muted = false,
   value,
 }: {
   label: string;
-  muted?: boolean;
   value: string;
 }) {
   return (
     <div className="flex min-h-7 items-center justify-between gap-3 border-t border-border py-1 text-[10.5px] first:border-t-0 first:pt-0 last:pb-0">
       <span>{label}</span>
-      <strong className={muted ? 'text-text-secondary' : 'text-text'}>
-        {value}
-      </strong>
+      <strong className="text-text">{value}</strong>
     </div>
   );
 }
