@@ -240,6 +240,7 @@ export function agentDirectoryQuery(input: {
 
 export function roleDirectoryQuery(input: {
   page: number;
+  pageSize?: number;
   search: string;
   kind?: 'all' | 'built-in' | 'custom';
 }) {
@@ -248,7 +249,7 @@ export function roleDirectoryQuery(input: {
     queryFn: async (): Promise<BrowserPage<BrowserRole>> => {
       const params = new URLSearchParams({
         page: String(input.page),
-        pageSize: '25',
+        pageSize: String(input.pageSize ?? 25),
       });
       if (input.search) params.set('search', input.search);
       if (input.kind && input.kind !== 'all') params.set('kind', input.kind);

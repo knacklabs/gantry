@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Eye, Pencil, Trash2 } from 'lucide-react';
+import { Copy, Eye, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 
 import {
   browserCsrfHeader,
@@ -16,6 +16,13 @@ import {
   AlertDialogTrigger,
 } from '../../../ui/primitives/alert-dialog';
 import { Button } from '../../../ui/primitives/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../../../ui/primitives/dropdown-menu';
 import type { BrowserPage, BrowserRole } from '../agents-queries';
 
 export function CustomRolesTable({
@@ -57,19 +64,19 @@ export function CustomRolesTable({
               Role
             </th>
             <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
-              Source
+              Based on
             </th>
             <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
-              Prompt
+              Prompt summary
             </th>
             <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
-              Agents
+              Agent copies
             </th>
             <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
               Updated
             </th>
             <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
-              Actions
+              <span className="sr-only">Actions</span>
             </th>
           </tr>
         </thead>
@@ -80,7 +87,7 @@ export function CustomRolesTable({
                 {role.name}
               </td>
               <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] text-text-secondary">
-                {role.sourceRoleId ?? '—'}
+                {formatSourceRole(role.sourceRoleId)}
               </td>
               <td className="h-[var(--table-row-height)] max-w-64 truncate px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] text-text-secondary">
                 {role.prompt}
@@ -92,38 +99,37 @@ export function CustomRolesTable({
                 {role.updatedAt ? formatDate(role.updatedAt) : '—'}
               </td>
               <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)]">
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => onView(role)}
-                  >
-                    <Eye size={15} aria-hidden="true" />
-                    View
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => onEdit(role)}
-                  >
-                    <Pencil size={15} aria-hidden="true" />
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => onDuplicate(role)}
-                  >
-                    <Copy size={15} aria-hidden="true" />
-                    Duplicate
-                  </Button>
+                <div className="flex justify-end">
                   <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button size="sm" variant="destructive">
-                        <Trash2 size={15} aria-hidden="true" />
-                        Delete
-                      </Button>
-                    </AlertDialogTrigger>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          aria-label={`Actions for ${role.name}`}
+                          className="size-[var(--table-control-size)]"
+                          size="icon"
+                          variant="outline"
+                        >
+                          <MoreHorizontal size={16} aria-hidden="true" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => onView(role)}>
+                          <Eye size={15} aria-hidden="true" /> View
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => onEdit(role)}>
+                          <Pencil size={15} aria-hidden="true" /> Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => onDuplicate(role)}>
+                          <Copy size={15} aria-hidden="true" /> Duplicate
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <AlertDialogTrigger asChild>
+                          <DropdownMenuItem variant="destructive">
+                            <Trash2 size={15} aria-hidden="true" /> Delete
+                          </DropdownMenuItem>
+                        </AlertDialogTrigger>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <AlertDialogContent>
                       <AlertDialogHeader>
                         <AlertDialogTitle>Delete {role.name}?</AlertDialogTitle>
@@ -178,4 +184,13 @@ function formatDate(value: string) {
         day: 'numeric',
         year: 'numeric',
       }).format(date);
+}
+
+function formatSourceRole(roleId?: string) {
+  if (!roleId) return '—';
+  return roleId
+    .replace(/^built-in:/, '')
+    .split(/[-_]/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }

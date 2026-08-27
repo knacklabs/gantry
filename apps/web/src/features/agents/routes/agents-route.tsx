@@ -17,19 +17,25 @@ import {
 import { AgentDirectoryTable } from '../components/agent-directory-table';
 import { AgentsDirectoryToolbar } from '../components/agents-directory-toolbar';
 import { RolesLibrary } from '../components/roles-library';
-import { RolesLibraryToolbar } from '../components/roles-library-toolbar';
 import { AgentCreateDialog } from './agent-create-route';
 
 export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
   const [createOpen, setCreateOpen] = useState(false);
-  const roles = useQuery(roleDirectoryQuery({ page: 1, search: '' }));
+  const roles = useQuery(
+    roleDirectoryQuery({ page: 1, pageSize: 25, search: '' }),
+  );
   const builtInRoles = useQuery(
-    roleDirectoryQuery({ page: 1, search: '', kind: 'built-in' }),
+    roleDirectoryQuery({ page: 1, pageSize: 25, search: '', kind: 'built-in' }),
   );
   const customRoles = useQuery(
-    roleDirectoryQuery({ page: search.page, search: search.q, kind: 'custom' }),
+    roleDirectoryQuery({
+      page: search.page,
+      pageSize: search.pageSize,
+      search: search.q,
+      kind: 'custom',
+    }),
   );
   const directory = useQuery(
     agentDirectoryQuery({
@@ -76,31 +82,26 @@ export function AgentsRoute() {
       <div className="mt-[18px] grid gap-[14px]">
         {search.tab === 'roles' ? (
           <>
-            <RolesLibraryToolbar
-              search={search.q}
-              onChange={(q) =>
-                void navigate({ search: { ...search, q, page: 1 } })
-              }
-            />
-            {search.q ? (
-              <div>
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    void navigate({ search: { ...search, q: '', page: 1 } })
-                  }
-                >
-                  Clear search
-                </Button>
-              </div>
-            ) : null}
             <RolesLibrary
               builtIns={builtInRoles.data}
               data={customRoles.data}
               error={builtInRoles.isError || customRoles.isError}
               loading={builtInRoles.isLoading || customRoles.isLoading}
+              search={search.q}
+              onSearchChange={(q) =>
+                void navigate({ search: { ...search, q, page: 1 } })
+              }
               onPageChange={(page) =>
                 void navigate({ search: { ...search, page } })
+              }
+              onPageSizeChange={(pageSize) =>
+                void navigate({
+                  search: {
+                    ...search,
+                    page: 1,
+                    pageSize: pageSize as typeof search.pageSize,
+                  },
+                })
               }
               onRetry={() => {
                 void builtInRoles.refetch();
