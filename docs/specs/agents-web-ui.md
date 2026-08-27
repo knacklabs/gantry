@@ -90,7 +90,7 @@ It does not currently support:
 - server-paginated agent listing;
 - custom reusable roles;
 - role CRUD or a role catalog API;
-- role or model selection in the agent-create request;
+- model selection in the browser agent-create request;
 - an atomic create-and-access-configuration request;
 - hard agent deletion.
 
@@ -391,6 +391,21 @@ Fields:
 
 Harness is omitted. The backend uses Gantry's `auto` harness intent. Harness
 may appear later as read-only diagnostics; it is not a normal creation choice.
+
+### Per-agent model selection
+
+`Use deployment default` is a real inheritance option, not a disabled
+dropdown. The browser receives a compact model catalogue containing only chat
+models whose provider credential is currently ready for the app. Each entry
+shows its display name, alias, and provider label; it never exposes a
+credential or provider configuration.
+
+Selecting an entry stores an agent-level runtime model override. Selecting
+`Use deployment default` clears that override. The server validates the alias,
+current provider readiness, and the selected agent harness before it writes a
+settings revision. A model change creates a new immutable configuration version
+whose snapshot records either the selected alias or explicit deployment-default
+inheritance. Conversation-specific model overrides remain higher precedence.
 
 `Create and continue` creates the agent immediately as active. It stores the
 role snapshot and additional instructions in the versioned agent prompt
