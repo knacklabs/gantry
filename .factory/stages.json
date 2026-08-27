@@ -4,7 +4,20 @@
     {
       "id": "CHAN-2-T1",
       "title": "Five repeated-guard hoists across the provider adapters",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-08-27T16:25:01+00:00",
+      "base_sha": "a630d4af1ad3d3b73a38d22e7ff95c35935ca3a0",
+      "dirty_at_start": {
+        ".factory/stories/CHAN-2/grill-rounds/27a5f75c-0882-4adb-aebe-57d4d43e059c.json": {
+          "digest": "d382c7924e3ea901352ecf1fae5493050eba8358621afbfc0c918f81d07e7a93",
+          "git": "? .factory/stories/CHAN-2/grill-rounds/27a5f75c-0882-4adb-aebe-57d4d43e059c.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/CHAN-2/grills/tasks/CHAN-2-T1.json": {
+          "digest": "969fe94f117bea8e02fa79c0ab48e66e1bf64ba49b5b4b7cd9ba81e1749881aa",
+          "git": "? .factory/stories/CHAN-2/grills/tasks/CHAN-2-T1.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "c4cffdd8fc0f40336ad277c1c2918926a67ac4c56138a967744ab16aa75263a3"
     },
     {
       "id": "CHAN-2-T2",
