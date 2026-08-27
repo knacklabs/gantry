@@ -1,0 +1,151 @@
+{
+  "event": "done",
+  "id": "Q-0106-7e8b",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Q-0106: Telegram card humanizer erases the command text from rows (RunCommand(...) -> 'run command access'); rows must show the command as the shared text does",
+  "base_sha": "95d86d41f68ad39eb7fdd6f757f29b4923376a26",
+  "started_at": "2026-08-27T02:44:27+00:00",
+  "completed_at": "2026-08-27T02:53:42+00:00",
+  "files": [
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "Deletes two rewrites. Lite window Q-0106 (base 95d86d41 -> HEAD ad790c022): Telegram humanizer no longer rewrites RunCommand(...) rows; shared 'Run command: <command>' text reaches the chat. Proof: telegram suite 210/210, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "139c59c35b531320572811004916dffaa7f66da4729f8c42e8c4a3b0f4ed632b",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "1d25fa814b6b9e485a01fa8ce35bb32a7f1dedaaa2a8d86fed9b3ed583c9ef8a",
+      "recorded_at": "2026-08-27T02:48:35+00:00",
+      "commit": "ad790c0227d5cfed11bca2220d8eb680ffdd6c41"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "None. Lite window Q-0106 (base 95d86d41 -> HEAD ad790c022): Telegram humanizer no longer rewrites RunCommand(...) rows; shared 'Run command: <command>' text reaches the chat. Proof: telegram suite 210/210, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "139c59c35b531320572811004916dffaa7f66da4729f8c42e8c4a3b0f4ed632b",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "1d25fa814b6b9e485a01fa8ce35bb32a7f1dedaaa2a8d86fed9b3ed583c9ef8a",
+      "recorded_at": "2026-08-27T02:48:36+00:00",
+      "commit": "ad790c0227d5cfed11bca2220d8eb680ffdd6c41"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/channels/telegram/channel-delivery.ts",
+        "apps/core/test/unit/channels/telegram.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "None"
+      ],
+      "summary": "Escaping unchanged. Lite window Q-0106 (base 95d86d41 -> HEAD ad790c022): Telegram humanizer no longer rewrites RunCommand(...) rows; shared 'Run command: <command>' text reaches the chat. Proof: telegram suite 210/210, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "139c59c35b531320572811004916dffaa7f66da4729f8c42e8c4a3b0f4ed632b",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "1d25fa814b6b9e485a01fa8ce35bb32a7f1dedaaa2a8d86fed9b3ed583c9ef8a",
+      "recorded_at": "2026-08-27T02:48:36+00:00",
+      "commit": "ad790c0227d5cfed11bca2220d8eb680ffdd6c41"
+    }
+  }
+}
