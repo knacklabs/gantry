@@ -92,11 +92,11 @@
       "task_sha256": "a788e38e3d46229c4f9c1e39b78d2f93bed35556ddeabeba6dbb5b2677d8210c",
       "local_review_stamp": {
         "stage_id": "CHAN-1-T1",
-        "task_sha256": "f6e9287b7fba12d24a600d9291de78880fd0a2b56af7c7c1a0448636fe3c67f1",
-        "brief_sha256": "36c3cd3d6e446bb7c9fdb0a18644a473219007a4434abd770c4966afdcd6cfcf",
+        "task_sha256": "216e95cc6ba7cf4704e0e2c3f0391d4c279908b4a1114922a8c498d187082ec0",
+        "brief_sha256": "",
         "base_sha": "20db560fe4dfc610791944a7c09a3c68eca6f22d",
         "product_tree_digest": "6c01cc5f0bbbc9f205930d1fb98aa0cdc6360d65d96a415232f1cc226402d38b",
-        "recorded_at": "2026-08-27T09:49:53+00:00",
+        "recorded_at": "2026-08-27T09:51:54+00:00",
         "generated_by": "autoreview"
       }
     },

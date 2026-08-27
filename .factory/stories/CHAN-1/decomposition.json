@@ -36,8 +36,8 @@
       ],
       "required_tests": [
         {
-          "id": "discord",
-          "path": "apps/core/test/unit/channels/discord",
+          "id": "DiscordChannel",
+          "path": "apps/core/test/unit/channels/discord/discord.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         }
       ],
@@ -90,5 +90,5 @@
   "project": "",
   "plan_file": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md",
   "plan_sha256": "097ae733f3e917f5174c2bb272024d383c4b77c353ff6174176f3af27b148aab",
-  "commit": "533d6ec3e68d61f22c89eee813f4cacea4e25f25"
+  "commit": "55cdaab901c086ed82d9c6ecb573f4a974606cae"
 }
