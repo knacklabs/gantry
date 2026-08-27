@@ -78,7 +78,10 @@ import {
 } from './agent-spawn-mcp-source-records.js';
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
-import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
+import {
+  browserPolicyFromSemanticCapabilities,
+  configureSpawnAsyncCommandSandboxPolicy,
+} from './async-command-sandbox-policy.js';
 import { validateAgentPreSpawnAdmission } from './agent-spawn-admission.js';
 import { resolveSpawnModel } from './agent-spawn-model-resolution.js';
 import { compileSpawnSystemPrompt } from './agent-spawn-prompt.js';
@@ -584,7 +587,15 @@ async function spawnAgentWithContext(
       pickSafeHostEnv,
       pickPreparedExecutionEnv,
     });
-    if (options?.asyncTaskRepositoryAvailable === true) {
+    const websiteRecipeEvaluatorBound = input.semanticCapabilities?.some(
+      (capability) =>
+        capability.capabilityId === 'manipal.website-recipe-evaluator' &&
+        capability.version === '1',
+    );
+    if (
+      options?.asyncTaskRepositoryAvailable === true &&
+      !websiteRecipeEvaluatorBound
+    ) {
       env.GANTRY_ASYNC_TASK_TOOLS_ENABLED = '1';
     } else {
       delete env.GANTRY_ASYNC_TASK_TOOLS_ENABLED;
@@ -714,13 +725,9 @@ async function spawnAgentWithContext(
       gatewayAllowedNetworkHosts:
         sandboxRuntimeNetwork.networkProjection.allowedNetworkHosts,
       fallbackAllowedNetworkHosts: sandboxAllowedNetworkHosts,
-      browserPolicy: input.runtimeAccess?.some(
-        (access) =>
-          access.selectedCapabilityId ===
-          'manipal.website-recipe-evaluator@1',
-      )
-        ? 'recipe_authoring'
-        : undefined,
+      browserPolicy: browserPolicyFromSemanticCapabilities(
+        input.semanticCapabilities,
+      ),
       resourceLimits: runtimeSandbox.resourceLimits,
       callerResolvedTools: input.callerResolvedTools,
     });

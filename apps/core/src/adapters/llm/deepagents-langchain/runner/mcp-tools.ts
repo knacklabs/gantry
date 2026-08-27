@@ -57,6 +57,11 @@ import {
 // cannot connect rather than silently dropping authority.
 
 const GANTRY_SERVER_NAME = 'gantry';
+const HUMAN_INTERACTION_TOOL_NAME = 'website_recipe_request_human';
+const HUMAN_WAIT_CHECKPOINT_TOOL_NAME = 'job_checkpoint_save';
+const LONG_BROWSER_TOOL_NAMES = new Set(['browser_open', 'browser_act']);
+const CAPTCHA_CHALLENGE_TOOL_NAME = 'browser_captcha_challenge';
+const HUMAN_INTERACTION_TOOL_TIMEOUT_MS = 30 * 60_000 + 20_000;
 const CALLABLE_AGENT_MCP_TOOL_TIMEOUT_MS =
   CALLABLE_AGENT_SYNC_WAIT_MAX_MS + 20_000;
 
@@ -77,6 +82,7 @@ export interface ConnectedMcpTools {
 
 export interface ConnectGantryMcpInput {
   configuredAllowedTools: readonly string[];
+  semanticCapabilities?: readonly import('../../../../shared/semantic-capabilities.js').SemanticCapabilityDefinition[];
   toolRules?: readonly DeclarativeToolRule[];
   toolSuccessLedger?: RunScopedToolSuccessLedger;
   onToolRuleDenial?: (
@@ -107,6 +113,9 @@ export async function connectGantryAndThirdPartyMcpTools(
 
   const projection = buildGantryMcpProjection({
     configuredAllowedTools: input.configuredAllowedTools,
+    ...(input.semanticCapabilities
+      ? { semanticCapabilities: input.semanticCapabilities }
+      : {}),
     hideAuthorityTools: input.hideAuthorityTools,
     memoryBlock: input.gate.memoryBlock,
     processEnv: process.env,
@@ -151,13 +160,26 @@ export async function connectGantryAndThirdPartyMcpTools(
   const callableAgentToolNames = new Set(
     (input.callableAgentManifest ?? []).map(callableAgentToolName),
   );
-  const gantryTools = (serverTools[GANTRY_SERVER_NAME] ?? [])
-    .filter((tool) => selectedGantrySet.has(tool.name))
-    .map((tool) =>
-      callableAgentToolNames.has(tool.name)
-        ? withCallableAgentTimeout(tool)
-        : tool,
-    );
+  const gantryTools = dropAtomicHumanInteractionTool(
+    (serverTools[GANTRY_SERVER_NAME] ?? []).filter((tool) =>
+      selectedGantrySet.has(tool.name),
+    ),
+  ).map((tool) => {
+    if (callableAgentToolNames.has(tool.name))
+      return withCallableAgentTimeout(tool);
+    // job_checkpoint_save owns the atomic human-wait flow, so its MCP call
+    // must outlive the ordinary one-minute protocol default.
+    if (tool.name === HUMAN_WAIT_CHECKPOINT_TOOL_NAME) {
+      return withToolTimeout(tool, HUMAN_INTERACTION_TOOL_TIMEOUT_MS);
+    }
+    if (LONG_BROWSER_TOOL_NAMES.has(tool.name)) {
+      return withToolTimeout(tool, 125_000);
+    }
+    if (tool.name === CAPTCHA_CHALLENGE_TOOL_NAME) {
+      return withToolTimeout(tool, 10 * 60_000);
+    }
+    return tool;
+  });
   const delegateTaskTool = gantryTools.find(
     (tool) => tool.name === 'delegate_task',
   );
@@ -171,9 +193,14 @@ export async function connectGantryAndThirdPartyMcpTools(
     lockedAccessPreset: input.gate.lockedAccessPreset,
     asyncTaskToolsEnabled: projection.asyncTaskToolsEnabled,
     delegateTaskTool,
-    filesystemToolsEnabled: shouldProjectGantryFilesystemTools({
-      filesystemEnabledEnv: process.env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED,
-    }),
+    // Website-recipe jobs persist evidence through typed FileArtifacts. Raw
+    // workspace file tools add a second, permission-gated state path that is
+    // neither checkpointed nor usable by the evaluator.
+    filesystemToolsEnabled:
+      !hasWebsiteRecipeEvaluator(input.semanticCapabilities) &&
+      shouldProjectGantryFilesystemTools({
+        filesystemEnabledEnv: process.env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED,
+      }),
     ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
     ...(input.gate.signal ? { signal: input.gate.signal } : {}),
   });
@@ -186,7 +213,13 @@ export async function connectGantryAndThirdPartyMcpTools(
   for (const [name, tools] of Object.entries(serverTools)) {
     if (name === GANTRY_SERVER_NAME) continue;
     const gated = wrapThirdPartyMcpToolsWithGate(
-      dropCollidingThirdPartyTools(name, tools, reservedToolNames),
+      dropAtomicHumanInteractionTool(
+        dropCollidingThirdPartyTools(name, tools, reservedToolNames),
+      ).map((tool) =>
+        tool.name === HUMAN_INTERACTION_TOOL_NAME
+          ? withToolTimeout(tool, HUMAN_INTERACTION_TOOL_TIMEOUT_MS)
+          : tool,
+      ),
       name,
       {
         ...input.gate,
@@ -239,13 +272,32 @@ export async function connectGantryAndThirdPartyMcpTools(
 function withCallableAgentTimeout(
   underlying: StructuredToolInterface,
 ): StructuredToolInterface {
+  return withToolTimeout(underlying, CALLABLE_AGENT_MCP_TOOL_TIMEOUT_MS);
+}
+
+function hasWebsiteRecipeEvaluator(
+  capabilities: ConnectGantryMcpInput['semanticCapabilities'],
+): boolean {
+  return Boolean(
+    capabilities?.some(
+      (capability) =>
+        capability.capabilityId === 'manipal.website-recipe-evaluator' &&
+        capability.version === '1',
+    ),
+  );
+}
+
+function withToolTimeout(
+  underlying: StructuredToolInterface,
+  timeout: number,
+): StructuredToolInterface {
   const invoke = underlying.invoke.bind(underlying);
   underlying.invoke = ((toolInput: unknown, config?: Record<string, unknown>) =>
     invoke(
       toolInput as never,
       {
         ...config,
-        timeout: CALLABLE_AGENT_MCP_TOOL_TIMEOUT_MS,
+        timeout,
       } as never,
     )) as StructuredToolInterface['invoke'];
   return underlying;
@@ -314,6 +366,14 @@ function toolResultIsError(result: unknown): boolean {
     Boolean(value.error) ||
     toolResultIsError(value.content)
   );
+}
+
+// Human recipe interactions are owned atomically by job_checkpoint_save. The
+// external transport tool must never be callable as a second model escape hatch.
+export function dropAtomicHumanInteractionTool(
+  tools: readonly StructuredToolInterface[],
+): StructuredToolInterface[] {
+  return tools.filter((tool) => tool.name !== HUMAN_INTERACTION_TOOL_NAME);
 }
 
 // A third-party server must not be able to shadow a Gantry authority tool

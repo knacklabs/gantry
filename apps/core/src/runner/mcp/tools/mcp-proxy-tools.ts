@@ -3,6 +3,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import { nowIso } from '../../../shared/time/datetime.js';
+import { stableSha256Json } from '../../../shared/stable-hash.js';
 import {
   SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
   UNREVIEWED_DISCOVERY_GUIDANCE,
@@ -28,6 +29,10 @@ import {
   formatMcpListToolsResponse,
   formatMcpSearchToolsResponse,
 } from './service-formatters.js';
+import {
+  formatWebsiteRecipeEvaluatorRejection,
+  modelVisibleExternalCapabilityResult,
+} from './external-capability-result.js';
 
 export function registerMcpProxyTools(server: McpServer): void {
   server.tool(
@@ -250,10 +255,31 @@ export function registerMcpProxyTools(server: McpServer): void {
         .describe('JSON object arguments for the MCP tool'),
     },
     async (args) => {
-      const taskId = makeIpcId('mcp-call-tool');
+      const isWebsiteRecipeEvaluation =
+        args.serverName === 'manipal-website-recipe-evaluator' &&
+        args.toolName === 'evaluation_submit';
+      if (isWebsiteRecipeEvaluation && (!jobId || !jobRunId)) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Website recipe evaluation requires a scheduled job run.',
+            },
+          ],
+          isError: true,
+        };
+      }
+      const taskId = makeIpcId(
+        isWebsiteRecipeEvaluation
+          ? 'external-capability-call'
+          : 'mcp-call-tool',
+      );
       writeIpcFile(TASKS_DIR, {
-        type: 'mcp_call_tool',
+        type: isWebsiteRecipeEvaluation
+          ? 'external_capability_call'
+          : 'mcp_call_tool',
         taskId,
+        ...(isWebsiteRecipeEvaluation && jobId ? { jobId } : {}),
         runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
         ...(jobRunId ? { runId: jobRunId } : {}),
         ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
@@ -263,15 +289,39 @@ export function registerMcpProxyTools(server: McpServer): void {
         targetJid: chatJid,
         chatJid,
         authThreadId: threadId,
-        payload: {
-          serverName: args.serverName,
-          toolName: args.toolName,
-          arguments: args.arguments ?? {},
-        },
+        payload: isWebsiteRecipeEvaluation
+          ? {
+              serverName: args.serverName,
+              toolName: args.toolName,
+              capabilityId: 'manipal.website-recipe-evaluator@1',
+              idempotencyKey: `website-recipe-evaluation:${stableSha256Json(args.arguments ?? {})}`,
+              arguments: args.arguments ?? {},
+              summary: 'Evaluate the compiler-bound website recipe candidate.',
+            }
+          : {
+              serverName: args.serverName,
+              toolName: args.toolName,
+              arguments: args.arguments ?? {},
+            },
         timestamp: nowIso(),
       });
       const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
       if (!response?.ok) {
+        if (isWebsiteRecipeEvaluation) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: [
+                  'Evaluator submission was rejected before execution.',
+                  response?.error ||
+                    'The evaluator did not accept the submission.',
+                  'Treat this as a repair observation: correct the candidate or compiler-bound test plan, save the updated semantic checkpoint, and submit again.',
+                ].join('\n'),
+              },
+            ],
+          };
+        }
         return {
           content: [
             {
@@ -352,7 +402,7 @@ export function registerMcpProxyTools(server: McpServer): void {
 
   server.tool(
     'external_capability_call',
-    'Submit an approved durable external capability operation, checkpoint it, and suspend this scheduled job until the capability completes it.',
+    'Submit an approved durable external capability operation, checkpoint it, and suspend this scheduled job until the capability completes it. For large arguments, write the complete JSON object as a job-scoped FileArtifact and pass argumentsArtifactId instead of arguments.',
     {
       serverName: z.string().describe('Connected MCP server name'),
       toolName: z.string().describe('Raw MCP tool name'),
@@ -361,6 +411,13 @@ export function registerMcpProxyTools(server: McpServer): void {
         .string()
         .describe('Stable idempotency key for this logical invocation'),
       arguments: z.record(z.string(), z.unknown()).optional(),
+      argumentsArtifactId: z
+        .string()
+        .regex(/^file-artifact:[0-9a-f-]{36}$/iu)
+        .optional()
+        .describe(
+          'Immutable job-scoped JSON FileArtifact containing the complete tool arguments. Mutually exclusive with arguments.',
+        ),
       summary: z.string().max(1000).optional(),
     },
     async (args) => {
@@ -395,6 +452,19 @@ export function registerMcpProxyTools(server: McpServer): void {
       });
       const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
       if (!response?.ok) {
+        if (args.capabilityId === 'manipal.website-recipe-evaluator@1') {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: formatWebsiteRecipeEvaluatorRejection(
+                  response?.error ||
+                    'The evaluator did not accept the submission.',
+                ),
+              },
+            ],
+          };
+        }
         return {
           content: [
             {
@@ -405,16 +475,10 @@ export function registerMcpProxyTools(server: McpServer): void {
           isError: true,
         };
       }
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text:
-              response.message ||
-              'External capability accepted; this job is suspending.',
-          },
-        ],
-      };
+      return modelVisibleExternalCapabilityResult(
+        response.message,
+        response.data,
+      );
     },
   );
 }

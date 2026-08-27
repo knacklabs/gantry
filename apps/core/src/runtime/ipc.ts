@@ -60,7 +60,13 @@ let activeRequestWakeups: IpcRequestWakeupRegistry | undefined;
 const MAX_IN_FLIGHT_INTERACTION_IPC = 100;
 const inFlightInteractionIpc = new Set<string>();
 const LATENCY_SENSITIVE_TASK_TYPES = new Set([
+  'attachment_open',
+  'attachment_materialize',
+  'captcha_vision_solve',
   'caller_resolved_tool',
+  'mcp_list_tools',
+  'mcp_search_tools',
+  'mcp_describe_tool',
   'mcp_call_tool',
   'external_capability_call',
   'file_artifact',

@@ -36,6 +36,10 @@ import type { DeepAgentRunnerInput } from './types.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 import { RunScopedToolSuccessLedger } from '../../../../runner/tool-gate-core.js';
 import { CompletionGate } from '../../../../runner/completion-gate.js';
+import {
+  DeepAgentStructuredOutputError,
+  structuredOutputContinuationPrompt,
+} from './structured-output-envelope.js';
 
 function log(message: string): void {
   if (process.env.GANTRY_RUNNER_LOG === '1') {
@@ -119,25 +123,54 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
     const toolSuccessLedger = new RunScopedToolSuccessLedger();
     let turnInput = agentInput;
     for (;;) {
-      const turn = await runDeepAgentTurn({
-        agentInput: turnInput,
-        provider: resolveModelProvider(),
-        modelId: resolveModelId(),
-        ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
-        ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
-        newSessionId: diagnosticSessionId,
-        includeMemoryContext: turnInput === agentInput,
-        toolSuccessLedger,
-        emit,
-        log,
-        onToolStart: (toolName) => heartbeat.recordToolActivity(toolName),
-      });
+      let turn: DeepAgentTurnOutput;
+      try {
+        turn = await runDeepAgentTurn({
+          agentInput: turnInput,
+          provider: resolveModelProvider(),
+          modelId: resolveModelId(),
+          ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+          ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
+          newSessionId: diagnosticSessionId,
+          includeMemoryContext: turnInput === agentInput,
+          toolSuccessLedger,
+          emit,
+          log,
+          onToolStart: (toolName) => heartbeat.recordToolActivity(toolName),
+        });
+      } catch (error) {
+        if (
+          !(error instanceof DeepAgentStructuredOutputError) ||
+          !completionGate
+        ) {
+          throw error;
+        }
+        const decision = await completionGate.check();
+        if (decision.decision !== 'continue') throw error;
+        emit({
+          status: 'success',
+          result: null,
+          newSessionId: diagnosticSessionId,
+          continuedByFollowup: true,
+        });
+        turnInput = {
+          ...agentInput,
+          prompt: structuredOutputContinuationPrompt(error, decision.message),
+        };
+        continue;
+      }
       const decision = await completionGate?.check();
       const continued = decision?.decision === 'continue';
       emit({
         status: 'success',
         result: turn.terminalResult,
         newSessionId: diagnosticSessionId,
+        ...(agentInput.responseSchema && turn.terminalResult
+          ? { structuredResultValidated: true }
+          : {}),
+        ...(completionGate && !continued
+          ? { completionGateAccepted: true }
+          : {}),
         ...(continued ? { continuedByFollowup: true } : {}),
         ...(turn.terminalUsage ? { usage: turn.terminalUsage } : {}),
         ...(turn.terminalContextUsage
@@ -302,6 +335,9 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
           status: 'success',
           result: turn?.terminalResult ?? null,
           newSessionId: sessionId,
+          ...(agentInput.responseSchema && turn?.terminalResult
+            ? { structuredResultValidated: true }
+            : {}),
           continuedByFollowup: true,
           ...(turn?.terminalUsage ? { usage: turn.terminalUsage } : {}),
           ...(turn?.terminalContextUsage
@@ -318,6 +354,9 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
         status: 'success',
         result: turn?.terminalResult ?? null,
         newSessionId: sessionId,
+        ...(agentInput.responseSchema && turn?.terminalResult
+          ? { structuredResultValidated: true }
+          : {}),
         ...(turn?.terminalUsage ? { usage: turn.terminalUsage } : {}),
         ...(turn?.terminalContextUsage
           ? { contextUsage: turn.terminalContextUsage }
@@ -332,12 +371,40 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
       status: 'error',
       result: null,
       newSessionId: sessionId,
-      error: err instanceof Error ? err.message : String(err),
+      error: formatRunnerError(err),
     });
     process.exit(1);
   } finally {
     if (checkpointer) await checkpointer.end().catch(() => {});
   }
+}
+
+function formatRunnerError(error: unknown): string {
+  const root = error instanceof Error ? error.message : String(error);
+  if (!error || typeof error !== 'object') return root;
+  const nested =
+    'errors' in error ? (error as { errors?: unknown }).errors : undefined;
+  const items = nestedErrorItems(nested);
+  const cause =
+    'cause' in error ? (error as { cause?: unknown }).cause : undefined;
+  if (items.length === 0 && cause === undefined) return root;
+  const details = [...items, ...(cause === undefined ? [] : [cause])]
+    .slice(0, 8)
+    .map((item, index) => {
+      const message = item instanceof Error ? item.message : String(item);
+      return `[${index + 1}] ${message.slice(0, 2_000)}`;
+    });
+  return `${root}\nNested errors:\n${details.join('\n')}`.slice(0, 12_000);
+}
+
+function nestedErrorItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (value instanceof Map) return [...value.values()];
+  if (value && typeof value === 'object' && Symbol.iterator in value) {
+    return [...(value as Iterable<unknown>)];
+  }
+  if (value && typeof value === 'object') return Object.values(value);
+  return value === undefined ? [] : [value];
 }
 
 async function main(): Promise<void> {

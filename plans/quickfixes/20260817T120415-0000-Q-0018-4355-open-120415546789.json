@@ -1,0 +1,8 @@
+{
+  "event": "open",
+  "id": "Q-0018-4355",
+  "reason": "Native OpenAI DeepAgents requests must include the /v1 gateway path",
+  "started_at": "2026-08-17T12:04:15+00:00",
+  "max_files": 5,
+  "files": []
+}

@@ -16,7 +16,11 @@ import { GantryChatGemini } from './gantry-chat-gemini.js';
 // modelCredentialEnv. There is now ONE gateway base-url+token per run; the
 // provider string selects the LangChain class, not which env var is set.
 //
-// - openai-compatible providers (`openai` + groq/deepseek/xai/together/
+// - native `openai`: built with `initChatModel("openai:<id>", ...)` and the
+//   Responses API so reasoning and function tools work together. Gantry's
+//   durable graph/checkpoint remains the conversation store; `zdrEnabled`
+//   forces `store: false` at OpenAI.
+// - other openai-compatible providers (groq/deepseek/xai/together/
 //   fireworks/cerebras/perplexity/gemini/bedrock/vertex): built with `initChatModel("openai:
 //   <id>", ...)` regardless of the real upstream provider, because we hit OUR
 //   loopback gateway (not api.openai.com); the gateway routes by pathSegment to
@@ -58,6 +62,10 @@ const INIT_CHAT_MODEL_PROVIDERS = new Set<string>([
 // Keep the runner allowlist exact so raw private/provider URLs remain rejected.
 const SANDBOX_RUNTIME_MODEL_GATEWAY_HOST = 'model-gateway.gantry.internal';
 
+// Provider throttling is transient and must not terminate a durable agent turn.
+// The task's total timeout remains the authoritative outer budget.
+const MODEL_TRANSPORT_MAX_RETRIES = 8;
+
 export interface ResolvedRunnerModel {
   model: BaseChatModel;
   endpointFamily: ModelEndpointFamily;
@@ -85,7 +93,11 @@ export async function buildRunnerModel(input: {
   openRouterProviderRouting?: OpenRouterProviderPreferences;
 }): Promise<ResolvedRunnerModel> {
   const provider = input.provider.trim().toLowerCase();
-  const baseURL = input.gatewayBaseUrl;
+  // Native OpenAI owns the /v1 prefix; compatible providers encode it upstream.
+  const baseURL =
+    provider === 'openai'
+      ? `${trimTrailingSlash(input.gatewayBaseUrl)}/v1`
+      : input.gatewayBaseUrl;
   assertLoopbackGatewayUrl(baseURL, 'gateway base URL');
   const apiKey = requireGatewayToken(input.gatewayToken, 'gateway token');
   const maxInputTokens = resolveMaxInputTokens(input.maxInputTokens);
@@ -109,6 +121,7 @@ export async function buildRunnerModel(input: {
       // openrouter.ai/api/v1/chat/completions.
       baseURL: `${trimTrailingSlash(baseURL)}/v1`,
       streamUsage: true,
+      maxRetries: MODEL_TRANSPORT_MAX_RETRIES,
       ...(maxInputTokens !== undefined
         ? { profileOverride: { maxInputTokens } }
         : {}),
@@ -136,6 +149,7 @@ export async function buildRunnerModel(input: {
       configuration: { baseURL },
       disableStreaming: true,
       streamUsage: false,
+      maxRetries: MODEL_TRANSPORT_MAX_RETRIES,
       ...(maxOutputTokens !== undefined ? { maxTokens: maxOutputTokens } : {}),
       ...(maxInputTokens !== undefined ? { profile: { maxInputTokens } } : {}),
     });
@@ -150,12 +164,24 @@ export async function buildRunnerModel(input: {
     const model = await initChatModel(`openai:${input.modelId}`, {
       apiKey,
       configuration: { baseURL },
+      ...(provider === 'openai'
+        ? { useResponsesApi: true, zdrEnabled: true }
+        : {}),
       ...(input.promptCacheKey
         ? { modelKwargs: { prompt_cache_key: input.promptCacheKey } }
         : {}),
       ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
       ...(maxOutputTokens !== undefined ? { maxTokens: maxOutputTokens } : {}),
+      // Background agents need bounded transport retries more than token
+      // streaming. Put this on the inner ChatOpenAI constructor config: the
+      // ConfigurableModel wrapper overrides stream() and does not consult a
+      // disableStreaming property assigned to the wrapper after construction.
+      // ChatOpenAI then routes stream() through invoke(), whose caller honors
+      // maxRetries for transient provider throttling without ending the run and
+      // closing its browser session.
+      ...(provider === 'openai' ? { disableStreaming: true } : {}),
       streamUsage: true,
+      maxRetries: MODEL_TRANSPORT_MAX_RETRIES,
       // initChatModel stores `profile` on the ConfigurableModel wrapper and its
       // `.profile` getter returns it first, so the curated window reaches both
       // DeepAgents summarization and the stream-normalizer. Omit it when no

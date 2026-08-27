@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { FileArtifactId } from '../../../domain/file-artifacts/file-artifact.js';
 import {
   CreateJobRequestSchema,
   UpdateJobRequestSchema,
@@ -33,6 +34,7 @@ import { resolveRequestedJobModelPatch } from '../../../application/jobs/job-mod
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
+  getRuntimeFileArtifactStore,
   getRuntimeRepositories,
   getRuntimeStorage,
 } from '../../../adapters/storage/postgres/runtime-store.js';
@@ -49,6 +51,7 @@ import {
 import { parseJobRoute, parseTriggerWaitRoute } from '../route-parser.js';
 import { nowMs as currentTimeMs } from '../../../shared/time/datetime.js';
 import { modelPreviewFor, resolveCreateJobModel } from './job-model-preview.js';
+import { jobArtifactScope } from '../../../domain/ports/job-semantic-checkpoints.js';
 
 const JOB_JSON_BODY_MAX_BYTES = 1024 * 1024;
 
@@ -446,6 +449,59 @@ export async function handleJobRoutes(
     return true;
   }
 
+  const jobArtifactRoute = pathname.match(
+    /^\/v1\/jobs\/([^/]+)\/artifacts\/([^/]+)\/content$/,
+  );
+  if (jobArtifactRoute && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
+    if (!auth) return true;
+    const jobId = decodeURIComponent(jobArtifactRoute[1]);
+    const artifactId = decodeURIComponent(jobArtifactRoute[2]);
+    try {
+      const { job } = await ctx.jobManagement.getJob({
+        appId: auth.appId,
+        jobId,
+      });
+      if (!job) {
+        sendError(res, 404, 'NOT_FOUND', 'Job artifact not found');
+        return true;
+      }
+      const metadata = await buildJobVisibilityMetadata({
+        job,
+        ops: getRuntimeRepositories(),
+        toolRepository: getRuntimeToolRepositoryIfReady(),
+        skillRepository: getRuntimeStorage().repositories.skills,
+        appId: auth.appId,
+      });
+      const agentId = metadata.target.agentId;
+      const result = await getRuntimeFileArtifactStore().readFileArtifact({
+        id: artifactId as FileArtifactId,
+        appId: auth.appId,
+        agentId,
+      });
+      if (
+        result.artifact.virtualScope !== jobArtifactScope(jobId) ||
+        !result.artifact.contentType.startsWith('image/')
+      ) {
+        sendError(res, 404, 'NOT_FOUND', 'Job artifact not found');
+        return true;
+      }
+      const content =
+        typeof result.content === 'string'
+          ? Buffer.from(result.content, 'utf8')
+          : Buffer.from(result.content);
+      res.statusCode = 200;
+      res.setHeader('content-type', result.artifact.contentType);
+      res.setHeader('content-length', String(content.byteLength));
+      res.setHeader('cache-control', 'private, no-store');
+      res.setHeader('x-content-type-options', 'nosniff');
+      res.end(content);
+    } catch {
+      sendError(res, 404, 'NOT_FOUND', 'Job artifact not found');
+    }
+    return true;
+  }
+
   const jobRoute = parseJobRoute(pathname);
   if (jobRoute && req.method === 'GET' && jobRoute.action === 'events') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
@@ -565,6 +621,27 @@ export async function handleJobRoutes(
             : {}),
           ...(body.minimumTotalRuntimeMs !== undefined
             ? { minimumTotalRuntimeMs: body.minimumTotalRuntimeMs }
+            : {}),
+          ...(body.minimumRemainingRuntimeMs !== undefined
+            ? { minimumRemainingRuntimeMs: body.minimumRemainingRuntimeMs }
+            : {}),
+          ...(body.addBrowserAllowedNetworkHosts !== undefined
+            ? {
+                addBrowserAllowedNetworkHosts:
+                  body.addBrowserAllowedNetworkHosts,
+              }
+            : {}),
+          ...(body.callerResolvedTools !== undefined
+            ? { callerResolvedTools: body.callerResolvedTools }
+            : {}),
+          ...(body.modelControls !== undefined
+            ? { modelControls: body.modelControls }
+            : {}),
+          ...(body.requiredSkill !== undefined
+            ? { requiredSkill: body.requiredSkill }
+            : {}),
+          ...(body.restoreAgentTaskIfMissing !== undefined
+            ? { restoreAgentTaskIfMissing: body.restoreAgentTaskIfMissing }
             : {}),
         },
       });

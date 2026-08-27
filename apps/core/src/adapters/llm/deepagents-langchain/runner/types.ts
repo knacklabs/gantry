@@ -10,6 +10,7 @@ import type {
 import type { DeepAgentCheckpointerConfig } from './session-store.js';
 import type { DeclarativeToolRule } from '../../../../runner/tool-gate-core.js';
 import type { CallableAgentToolManifestEntry } from '../../../../application/core-tools/callable-agent-tools.js';
+import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 
 // Subset of the host AgentInput JSON that the DeepAgents (LangChain) runner
 // consumes. The runner projects Gantry-owned authority (facade tools and
@@ -30,6 +31,7 @@ export interface DeepAgentRunnerInput {
   // Selected capability tool rules (= host toolPolicyRules). Drives the Gantry
   // facade tool selection and Gantry-owned tool gates.
   allowedTools?: string[];
+  semanticCapabilities?: SemanticCapabilityDefinition[];
   toolRules?: DeclarativeToolRule[];
   // Fixed-image worker mode: hide authority-changing/admin request tools.
   hideAuthorityTools?: boolean;

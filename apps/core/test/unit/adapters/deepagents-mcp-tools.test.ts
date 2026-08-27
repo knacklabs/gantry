@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import {
   connectGantryAndThirdPartyMcpTools,
+  dropAtomicHumanInteractionTool,
   dropCollidingThirdPartyTools,
   rejectExternalThirdPartyMcpServer,
 } from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
@@ -110,6 +111,14 @@ describe('dropCollidingThirdPartyTools', () => {
     expect(kept.map((t) => t.name)).toEqual(['alpha', 'beta']);
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it('hides the direct human interaction tool owned by atomic checkpoints', () => {
+    const kept = dropAtomicHumanInteractionTool([
+      fakeTool('website_recipe_request_human'),
+      fakeTool('evaluation_submit'),
+    ]);
+    expect(kept.map((tool) => tool.name)).toEqual(['evaluation_submit']);
+  });
 });
 
 describe('declarative DeepAgents tool-rule wrapper', () => {
@@ -140,6 +149,83 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     };
 
     expect(config.mcpServers.gantry?.defaultToolTimeout).toBeUndefined();
+    await connected.close();
+  });
+
+  it('extends the atomic human-wait checkpoint beyond the MCP default timeout', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    const invoke = vi.fn(
+      async (_input, config?: { timeout?: number }) => config,
+    );
+    const checkpoint = structuredTool(
+      'job_checkpoint_save',
+      'Save checkpoint.',
+      invoke as never,
+    );
+    const directHuman = structuredTool(
+      'website_recipe_request_human',
+      'Request human input directly.',
+      vi.fn(async () => ({})),
+    );
+    mcpState.serverTools = { gantry: [checkpoint, directHuman] };
+
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: [],
+      semanticCapabilities: [
+        {
+          capabilityId: 'manipal.website-recipe-evaluator',
+          version: '1',
+        },
+      ] as never,
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: false,
+      } as never,
+    });
+
+    await connected.tools
+      .find(({ name }) => name === 'job_checkpoint_save')
+      ?.invoke({} as never);
+    expect(invoke).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ timeout: 30 * 60_000 + 20_000 }),
+    );
+    expect(connected.tools.map(({ name }) => name)).not.toContain(
+      'website_recipe_request_human',
+    );
+    await connected.close();
+  });
+
+  it('does not expose workspace file mutation tools to recipe jobs', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    vi.stubEnv('GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED', '1');
+    mcpState.serverTools = { gantry: [] };
+
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: [],
+      semanticCapabilities: [
+        {
+          capabilityId: 'manipal.website-recipe-evaluator',
+          version: '1',
+        },
+      ] as never,
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: false,
+      } as never,
+    });
+
+    expect(connected.tools.map(({ name }) => name)).not.toEqual(
+      expect.arrayContaining(['FileRead', 'FileEdit', 'FileWrite']),
+    );
     await connected.close();
   });
 

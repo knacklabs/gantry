@@ -44,6 +44,7 @@ export function auditExternalMcpTerminal(input: {
     toolCallId,
     toolInput: hook.tool_input,
     toolResponse: hook.tool_response,
+    failureDetail: hook.error,
     failed: hook.hook_event_name === 'PostToolUseFailure',
     durationMs: hook.duration_ms,
     serverNames: input.serverNames,
@@ -58,6 +59,7 @@ export function auditExternalMcpResult(input: {
   toolCallId: string;
   toolInput: unknown;
   toolResponse: unknown;
+  failureDetail?: unknown;
   failed: boolean;
   durationMs?: number;
   serverNames: readonly string[];
@@ -85,7 +87,9 @@ export function auditExternalMcpResult(input: {
           resultHash: hashMcpAuditValue(input.toolResponse),
           evidenceProjection: projectMcpEvidence(input.toolResponse),
         }
-      : { error: { message: 'MCP tool call failed.' } }),
+      : {
+          error: externalMcpFailure(input.failureDetail ?? input.toolResponse),
+        }),
   };
   (input.write ?? writeOutput)({
     status: 'success',
@@ -115,6 +119,41 @@ export function auditExternalMcpResult(input: {
         auditedToolCallId: input.toolCallId,
       }
     : { auditedToolCallId: input.toolCallId };
+}
+
+function externalMcpFailure(value: unknown): {
+  code?: string;
+  message: string;
+} {
+  const summary = failureText(value);
+  if (
+    /\b402\b|payment\s+required|insufficient\s+(?:account\s+)?credits?|credits?\s+(?:are\s+)?(?:exhausted|depleted)/iu.test(
+      summary,
+    )
+  ) {
+    return {
+      code: 'MCP_PROVIDER_CREDITS_EXHAUSTED',
+      message:
+        'MCP provider returned 402 Payment Required or exhausted credits.',
+    };
+  }
+  if (/\b401\b|invalid\s+(?:api\s+)?key|unauthori[sz]ed/iu.test(summary)) {
+    return {
+      code: 'MCP_PROVIDER_AUTHENTICATION_FAILED',
+      message: 'MCP provider rejected its configured credential.',
+    };
+  }
+  return { message: 'MCP tool call failed.' };
+}
+
+function failureText(value: unknown): string {
+  if (typeof value === 'string') return value.slice(0, 4_096);
+  if (!value) return '';
+  try {
+    return JSON.stringify(value).slice(0, 4_096);
+  } catch {
+    return String(value).slice(0, 4_096);
+  }
 }
 
 export function mcpToolOutputWithProvenance(

@@ -44,8 +44,13 @@ vi.mock('@core/runtime/browser-cdp-targets.js', () => ({
 
 vi.mock('@core/runtime/browser-network-policy.js', async (importOriginal) => {
   const original =
-    await importOriginal<typeof import('@core/runtime/browser-network-policy.js')>();
-  return { ...original, ensureBrowserNetworkPolicy: vi.fn(async () => undefined) };
+    await importOriginal<
+      typeof import('@core/runtime/browser-network-policy.js')
+    >();
+  return {
+    ...original,
+    ensureBrowserNetworkPolicy: vi.fn(async () => undefined),
+  };
 });
 
 import type { BrowserBackendAction } from '../../../src/shared/browser-backend-actions.js';
@@ -107,6 +112,25 @@ describe('ipc-browser-handler', () => {
         payload: { target: '#query', text: 'roads' },
       }),
     ).toThrow('requires a typed recipe_intent');
+  });
+
+  it('allows trusted CAPTCHA tools to inspect and operate their bound controls', () => {
+    expect(
+      enforceBrowserMutationPolicy({
+        action: 'evaluate',
+        publicToolName: 'browser_captcha_challenge',
+        policy: 'recipe_authoring',
+        payload: { target: '#captcha', function: '() => true' },
+      }),
+    ).toEqual({ target: '#captcha', function: '() => true' });
+    expect(
+      enforceBrowserMutationPolicy({
+        action: 'type',
+        publicToolName: 'browser_captcha_settle',
+        policy: 'recipe_authoring',
+        payload: { target: '#captcha-input', text: 'ephemeral-answer' },
+      }),
+    ).toEqual({ target: '#captcha-input', text: 'ephemeral-answer' });
   });
 
   let tempDir: string;
@@ -993,6 +1017,36 @@ describe('ipc-browser-handler', () => {
     ).toBeLessThan(callBrowserTool.mock.invocationCallOrder[1]);
   });
 
+  it('retires a browser session when its action backend times out', async () => {
+    const closeBrowserToolBackends = vi.fn(async () => undefined);
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-backend-timeout',
+        action: 'snapshot',
+        payload: {},
+      },
+      {
+        sourceAgentFolder: 'main',
+        browserProfileName: 'c-main-abc123abc123',
+        browserIpcAuthorized: true,
+        callBrowserTool: vi.fn(async () => {
+          throw new Error('Browser backend timed out while running snapshot.');
+        }),
+        closeBrowserToolBackends,
+        timeoutMs: 2_000,
+      },
+    );
+
+    expect(response).toEqual({
+      ok: false,
+      error: 'Browser backend timed out while running snapshot.',
+    });
+    expect(closeBrowser).toHaveBeenCalledWith('c-main-abc123abc123');
+    expect(closeBrowserToolBackends).toHaveBeenCalledWith(
+      'c-main-abc123abc123',
+    );
+  });
+
   it('keeps other pointer actions covered by foregrounding before dispatch', async () => {
     vi.mocked(ensureBrowserReady).mockResolvedValueOnce({
       profile: 'c-main-abc123abc123',
@@ -1152,6 +1206,46 @@ describe('ipc-browser-handler', () => {
       expect.objectContaining({
         timeoutMs: 4_000,
       }),
+    );
+  });
+
+  it('keeps response-wait grace outside the browser action budget', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    vi.mocked(ensureBrowserReady).mockResolvedValueOnce({
+      profile: 'c-main-abc123abc123',
+      profileName: 'c-main-abc123abc123',
+      running: true,
+      cdpReady: true,
+      port: 9333,
+      targetId: 'stale-target',
+      headless: false,
+    });
+    vi.mocked(ensureBrowserTarget).mockResolvedValueOnce('content-target');
+    const callBrowserTool = vi.fn(async () => ({ content: 'clicked' }));
+
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-response-grace',
+        action: 'click',
+        payload: { target: 'button-ref' },
+      },
+      {
+        sourceAgentFolder: 'main',
+        browserProfileName: 'c-main-abc123abc123',
+        browserIpcAuthorized: true,
+        callBrowserTool,
+        timeoutMs: 10_000,
+        deadlineAtMs: 16_000,
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(ensureBrowserTarget).toHaveBeenCalledWith(9333, {
+      deadlineAtMs: 11_000,
+    });
+    expect(callBrowserTool).toHaveBeenCalledWith(
+      expect.objectContaining({ timeoutMs: 10_000 }),
     );
   });
 

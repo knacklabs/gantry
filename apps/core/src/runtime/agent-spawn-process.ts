@@ -269,7 +269,14 @@ export function executeRunnerProcess(
               const pendingPermissions =
                 heartbeat.pendingPermissionRequests ?? 0;
               const idleForMs = heartbeat.lastActivityAgoMs ?? 0;
-              if (pendingPermissions === 0 && idleForMs >= scheduledJobIdleMs) {
+              const waitingOnAtomicHumanInteraction =
+                (heartbeat.currentTool ?? heartbeat.lastTool) ===
+                'job_checkpoint_save';
+              if (
+                pendingPermissions === 0 &&
+                !waitingOnAtomicHumanInteraction &&
+                idleForMs >= scheduledJobIdleMs
+              ) {
                 timedOut = true;
                 timeoutReason = 'scheduled_job_idle_stall';
                 logger.error(

@@ -1218,6 +1218,35 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_ASYNC_TASK_TOOLS_ENABLED).toBe('1');
   });
 
+  it('does not expose async task polling to website recipe jobs', async () => {
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        semanticCapabilities: [
+          {
+            capabilityId: 'manipal.website-recipe-evaluator',
+            version: '1',
+          } as never,
+        ],
+      },
+      () => {},
+      undefined,
+      { asyncTaskRepositoryAvailable: true },
+    );
+    emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_ASYNC_TASK_TOOLS_ENABLED).toBeUndefined();
+  });
+
   it('projects the fleet deployment mode into the runner env', async () => {
     vi.mocked(getDeploymentMode).mockReturnValueOnce('fleet');
     const resultPromise = spawnTestAgent(testGroup, testInput, () => {});

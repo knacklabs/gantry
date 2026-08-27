@@ -1,0 +1,8 @@
+{
+  "event": "open",
+  "id": "Q-0019-44eb",
+  "reason": "Fix website-recipe checkpoint artifact-scope rejection and prevent false checkpoint advancement observed in CPPP run",
+  "started_at": "2026-08-19T18:25:31+00:00",
+  "max_files": 5,
+  "files": []
+}

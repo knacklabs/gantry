@@ -29,6 +29,7 @@ import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js
 import type { BrowserSessionStatus } from '../runtime/browser-capability-types.js';
 import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
+import type { JobSemanticCheckpointRepository } from '../domain/ports/job-semantic-checkpoints.js';
 
 export interface SchedulerDependencies {
   /** Process role; persisted on the worker_instances row at registration. */
@@ -74,6 +75,9 @@ export interface SchedulerDependencies {
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
+  getJobSemanticCheckpointRepository?: () =>
+    | JobSemanticCheckpointRepository
+    | undefined;
   getBrowserStatus?: (
     profileName: string,
   ) => Promise<JobReadinessBrowserStatus | undefined>;

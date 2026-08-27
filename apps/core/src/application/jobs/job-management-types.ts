@@ -225,6 +225,12 @@ export type JobUpdatePatch = Partial<{
   retryBackoffMs: number;
   maxConsecutiveFailures: number;
   minimumTotalRuntimeMs: number;
+  minimumRemainingRuntimeMs: number;
+  addBrowserAllowedNetworkHosts: string[];
+  callerResolvedTools: NonNullable<Job['agent_task']>['callerResolvedTools'];
+  modelControls: NonNullable<Job['agent_task']>['modelControls'];
+  requiredSkill: { name: string; contentHash: string };
+  restoreAgentTaskIfMissing: NonNullable<Job['agent_task']>;
   status: Extract<Job['status'], 'active' | 'paused'>;
 }>;
 

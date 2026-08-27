@@ -144,6 +144,17 @@ export async function updateManagedJob(
     });
   }
 
+  const runtimeConsumedMs =
+    patch.minimumRemainingRuntimeMs === undefined
+      ? 0
+      : (await deps.ops.listJobRuns(job.id, 1_000)).reduce((total, run) => {
+          if (!run.ended_at) return total;
+          const startedAt = Date.parse(run.started_at);
+          const endedAt = Date.parse(run.ended_at);
+          return Number.isFinite(startedAt) && Number.isFinite(endedAt)
+            ? total + Math.max(0, endedAt - startedAt)
+            : total;
+        }, 0);
   const updates = buildJobUpdates(
     job,
     {
@@ -160,6 +171,7 @@ export async function updateManagedJob(
     },
     deps.schedulePlanner,
     clock,
+    runtimeConsumedMs,
   );
   if (input.access) validateSchedulerUpdate(job, updates, input.access);
   if (Object.keys(updates).length === 0) return { job };

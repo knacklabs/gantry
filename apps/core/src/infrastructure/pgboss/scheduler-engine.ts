@@ -85,11 +85,7 @@ function scheduleSlotForJob(job: Job): string {
 }
 
 function isRunnableScheduledJob(job: Job): boolean {
-  return (
-    job.status === 'active' &&
-    job.schedule_type !== 'manual' &&
-    Boolean(job.next_run)
-  );
+  return job.status === 'active' && Boolean(job.next_run);
 }
 
 function pgBossStartAfter(value: string): Date {
@@ -387,7 +383,6 @@ export class PgBossSchedulerEngine {
       return;
     }
     this.scheduleSignatures.set(job.id, signature);
-    if (job.schedule_type === 'manual') return;
     if (job.schedule_type === 'cron') {
       await boss.schedule(
         SCHEDULER_QUEUE,

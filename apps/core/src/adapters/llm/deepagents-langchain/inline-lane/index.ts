@@ -50,6 +50,10 @@ import { connectRemoteMcpTools } from './remote-mcp-startup.js';
 
 const CHECKPOINT_POOL_MAX_CONNECTIONS = 1;
 const DENY_ALL_FILESYSTEM: FilesystemPermission[] = [
+  {
+    operations: ['read'],
+    paths: ['/large_tool_results', '/large_tool_results/**'],
+  },
   { operations: ['read', 'write'], paths: ['/**'], mode: 'deny' },
 ];
 const READONLY_SKILLS_FILESYSTEM: FilesystemPermission[] = [

@@ -93,6 +93,8 @@ import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
+import { bindWebsiteRecipeTerminalIdentity } from './website-recipe-identity-binding.js';
+import { appendSemanticCheckpointContext } from './execution-semantic-checkpoint-context.js';
 
 export async function runJob(
   job: Job,
@@ -214,8 +216,7 @@ async function runActiveJob(
     scheduledFor,
     startedAt,
     leaseExpiresAt,
-    requireNextRun:
-      currentJob.schedule_type !== 'manual' && !dispatch?.triggerId,
+    requireNextRun: !dispatch?.triggerId,
     getCoordinationRepository: getWorkerCoordinationRepository,
     warn,
   });
@@ -412,6 +413,19 @@ async function runActiveJob(
           });
           const semanticCapabilities =
             resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
+          const semanticCheckpoint = semanticCapabilities.some(
+            (capability) =>
+              capability.capabilityId === 'manipal.website-recipe-evaluator' &&
+              capability.version === '1',
+          )
+            ? ((await deps
+                .getJobSemanticCheckpointRepository?.()
+                ?.getLatestCheckpoint({
+                  appId: executionAppId,
+                  agentId: executionAgentId,
+                  jobId: currentJob.id,
+                })) ?? null)
+            : null;
           toolPolicy = jobToolPolicy.addSemanticJobToolRules(
             toolPolicy,
             semanticCapabilities,
@@ -531,7 +545,11 @@ async function runActiveJob(
                 logger.warn({ jobId: currentJob.id, runId }, message),
               baseInput: {
                 prompt: appendRuntimeBudgetContext(
-                  currentJob.prompt,
+                  appendSemanticCheckpointContext({
+                    prompt: currentJob.prompt,
+                    semanticCapabilities,
+                    checkpoint: semanticCheckpoint,
+                  }),
                   runtimeBudget,
                 ),
                 workspaceFolder: execution.group.folder,
@@ -644,14 +662,19 @@ async function runActiveJob(
                   context: { jobId: currentJob.id, runId },
                 });
                 if (streamedOutput.result) {
+                  const trustedStreamedResult =
+                    bindWebsiteRecipeTerminalIdentity(
+                      streamedOutput.result,
+                      currentJob.prompt,
+                    );
                   hasStreamedResult = true;
                   if (structured) {
                     if (streamedOutput.structuredResultValidated === true) {
-                      structuredResult = streamedOutput.result;
-                      appendResultSummary(streamedOutput.result);
+                      structuredResult = trustedStreamedResult;
+                      appendResultSummary(trustedStreamedResult);
                     }
                   } else {
-                    appendResultSummary(streamedOutput.result);
+                    appendResultSummary(trustedStreamedResult);
                   }
                   const chunkChars = streamedOutput.result.length;
                   diagnostics.latestStreamedOutputChars = chunkChars;
@@ -684,17 +707,18 @@ async function runActiveJob(
                 failure ??= output.failure;
                 await failRun();
               } else if (output.result) {
-                if (
-                  structured &&
-                  output.structuredResultValidated === true
-                ) {
-                  if (structuredResult !== output.result) {
-                    appendResultSummary(output.result);
+                const trustedOutputResult = bindWebsiteRecipeTerminalIdentity(
+                  output.result,
+                  currentJob.prompt,
+                );
+                if (structured && output.structuredResultValidated === true) {
+                  if (structuredResult !== trustedOutputResult) {
+                    appendResultSummary(trustedOutputResult);
                   }
-                  structuredResult = output.result;
+                  structuredResult = trustedOutputResult;
                   structuredResultValidated = true;
                 } else if (!structured && !hasStreamedResult) {
-                  appendResultSummary(output.result);
+                  appendResultSummary(trustedOutputResult);
                 }
               }
               if (output.completionGateAccepted === true) {

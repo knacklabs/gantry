@@ -293,8 +293,16 @@ export function registerTaskLifecycleTools(
       summary: z.string().max(500).optional(),
       items: z.array(todoItemSchema).min(1).max(50),
     },
-    async (args) =>
-      submitTaskLifecycleRequest({
+    async (args) => {
+      // Scheduled jobs have no channel todo surface. Their durable progress is
+      // carried by semantic job checkpoints, so an IPC round trip here adds no
+      // state and can only stall the agent loop.
+      if (jobId) {
+        return {
+          content: [{ type: 'text' as const, text: 'Plan updated.' }],
+        };
+      }
+      return submitTaskLifecycleRequest({
         type: 'todo_update',
         payload: {
           ...(args.summary ? { summary: args.summary } : {}),
@@ -302,6 +310,7 @@ export function registerTaskLifecycleTools(
         },
         timeoutMessage: 'Plan update timed out.',
         fallbackError: 'Plan update failed.',
-      }),
+      });
+    },
   );
 }

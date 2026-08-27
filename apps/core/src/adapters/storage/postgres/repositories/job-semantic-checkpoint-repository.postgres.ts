@@ -21,6 +21,14 @@ const MILESTONES = new Set<string>(JOB_SEMANTIC_CHECKPOINT_MILESTONES);
 const MAX_ARTIFACT_REFS = 64;
 const MAX_SAFE_PHASE_CHARS = 120;
 const MAX_NEXT_ACTION_CHARS = 2_000;
+const REQUIRED_ARTIFACT_KINDS: Partial<
+  Record<JobSemanticCheckpointMilestone, readonly string[]>
+> = {
+  inventory_completed: ['observation_inventory'],
+  candidate_created: ['recipe_candidate'],
+  candidate_repaired: ['recipe_candidate'],
+  test_plan_created: ['observation_inventory', 'recipe_candidate', 'test_plan'],
+};
 
 export class InvalidJobSemanticCheckpointError extends Error {
   constructor(message: string) {
@@ -56,7 +64,7 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
         `Unsupported semantic checkpoint milestone: ${input.milestone}`,
       );
     }
-    const payload = normalizePayload(input.payload);
+    let payload = normalizePayload(input.payload);
     const createdAt = input.now ?? nowIso();
 
     return this.db.transaction(async (tx) => {
@@ -105,6 +113,13 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
         );
       }
 
+      payload = await canonicalizeArtifactRefs(tx, {
+        appId: input.appId,
+        agentId: input.agentId,
+        jobId: input.jobId,
+        payload,
+      });
+
       const existingById = await tx
         .select()
         .from(pgSchema.jobSemanticCheckpointsPostgres)
@@ -144,12 +159,7 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
         return { outcome: 'sequence_conflict', latestSequence };
       }
 
-      await assertArtifactScope(tx, {
-        appId: input.appId,
-        agentId: input.agentId,
-        jobId: input.jobId,
-        payload,
-      });
+      assertMilestoneArtifacts(input.milestone, payload);
 
       const sequence = latestSequence + 1;
       const payloadHash = checkpointHash({
@@ -216,6 +226,22 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
       )
       .limit(1);
     return rows[0] ? toCheckpoint(rows[0]) : null;
+  }
+}
+
+export function assertMilestoneArtifacts(
+  milestone: JobSemanticCheckpointMilestone,
+  payload: JobSemanticCheckpointPayload,
+): void {
+  const requiredKinds = REQUIRED_ARTIFACT_KINDS[milestone] ?? [];
+  const actualKinds = new Set(
+    payload.artifactRefs.map((reference) => reference.kind),
+  );
+  const missingKinds = requiredKinds.filter((kind) => !actualKinds.has(kind));
+  if (missingKinds.length > 0) {
+    throw new InvalidJobSemanticCheckpointError(
+      `${milestone} requires immutable artifact kinds: ${missingKinds.join(', ')}.`,
+    );
   }
 }
 
@@ -308,7 +334,7 @@ function optionalReference(value: string | null | undefined) {
   return value.trim();
 }
 
-async function assertArtifactScope(
+async function canonicalizeArtifactRefs(
   tx: Parameters<Parameters<CanonicalDb['transaction']>[0]>[0],
   input: {
     appId: string;
@@ -316,8 +342,8 @@ async function assertArtifactScope(
     jobId: string;
     payload: JobSemanticCheckpointPayload;
   },
-) {
-  if (input.payload.artifactRefs.length === 0) return;
+): Promise<JobSemanticCheckpointPayload> {
+  if (input.payload.artifactRefs.length === 0) return input.payload;
   const ids = input.payload.artifactRefs.map((ref) => ref.artifactId);
   const rows = await tx
     .select()
@@ -332,14 +358,20 @@ async function assertArtifactScope(
       row.deletedAt !== null ||
       row.appId !== input.appId ||
       row.agentId !== input.agentId ||
-      row.virtualScope !== expectedScope ||
-      row.contentHash !== reference.contentHash
+      row.virtualScope !== expectedScope
     ) {
       throw new InvalidJobSemanticCheckpointError(
         `Artifact ${reference.artifactId} is not an immutable artifact in this job.`,
       );
     }
   }
+  return {
+    ...input.payload,
+    artifactRefs: input.payload.artifactRefs.map((reference) => ({
+      ...reference,
+      contentHash: byId.get(reference.artifactId)!.contentHash,
+    })),
+  };
 }
 
 function checkpointHash(
@@ -354,6 +386,10 @@ function toCheckpoint(row: CheckpointRow): JobSemanticCheckpoint {
   }
   const payload = normalizePayload(
     row.payloadJson as JobSemanticCheckpointPayload,
+  );
+  assertMilestoneArtifacts(
+    row.milestone as JobSemanticCheckpointMilestone,
+    payload,
   );
   const checkpointWithoutHash = {
     id: row.id,

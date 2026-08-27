@@ -19,6 +19,8 @@ import type { SchedulerDependencies } from './types.js';
 import type { AsyncTaskRecord } from '../domain/ports/async-tasks.js';
 
 const MAX_RETRY_BACKOFF_MS = 30 * 24 * 60 * 60 * 1000;
+const MODEL_RATE_LIMIT_BACKOFF_MS = 60_000;
+const WEBSITE_RECIPE_SKILL_NAME = 'manipal-tender-website-recipe';
 
 export type SchedulerRunStatus =
   | 'paused'
@@ -78,6 +80,13 @@ export async function finalizeSchedulerJobRun(input: {
   const safePrimaryErrorSummary = input.error
     ? redactProviderSessionHandlesInText(input.error)
     : null;
+  const retryableWebsiteRecipeRateLimit = Boolean(
+    safePrimaryErrorSummary &&
+    currentJob.agent_task?.requiredSkill?.name === WEBSITE_RECIPE_SKILL_NAME &&
+    /\b429\b|\brate[\s_-]?limit|\btoo many requests\b/i.test(
+      safePrimaryErrorSummary,
+    ),
+  );
   const diagnosticToolDenial = diagnostics.terminalToolDenial
     ? {
         toolName: diagnostics.terminalToolDenial.toolName,
@@ -247,6 +256,26 @@ export async function finalizeSchedulerJobRun(input: {
       if (currentJob.schedule_type === 'manual') {
         deps.onSchedulerChanged?.(currentJob.id);
       }
+    } else if (!pausedForSetupDuringRun && retryableWebsiteRecipeRateLimit) {
+      // Recipe authoring is bounded by total runtime, not a brittle fixed retry
+      // count. A streamed provider 429 occurs outside SDK-internal retries, so
+      // resume the same checkpointed job after the configured backoff.
+      retryCount = currentJob.consecutive_failures;
+      incrementConsecutiveFailures = false;
+      runStatus = 'paused';
+      nextRun = toIso(
+        Date.parse(input.now) +
+          Math.max(MODEL_RATE_LIMIT_BACKOFF_MS, retryBackoffMs(currentJob, 1)),
+      );
+      await updateJob({
+        status: 'active',
+        next_run: nextRun,
+        last_run: input.now,
+        consecutive_failures: retryCount,
+        pause_reason: null,
+        lease_run_id: null,
+        lease_expires_at: null,
+      });
     } else if (
       !pausedForSetupDuringRun &&
       currentJob.schedule_type === 'manual'

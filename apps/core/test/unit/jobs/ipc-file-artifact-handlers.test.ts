@@ -111,6 +111,80 @@ afterEach(() => {
 });
 
 describe('file artifact IPC handlers', () => {
+  it('defaults scheduled job writes to the owning job artifact scope', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-file-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { fileArtifactTaskHandlers, taskData } =
+      await loadFileArtifactHandlers(runtimeHome);
+    const writeFileArtifact = vi.fn(async (input) =>
+      makeArtifact({
+        virtualScope: input.virtualScope,
+        virtualPath: input.virtualPath,
+        content: input.content,
+      }),
+    );
+
+    await fileArtifactTaskHandlers.file_artifact(
+      contextFor({
+        data: taskData('scheduled-default-scope', {
+          appId: 'manipal-tender-copilot',
+          chatJid: 'app:manipal-tender-copilot:conversation-1',
+          jid: 'app:manipal-tender-copilot:conversation-1',
+          sourceRunKind: 'scheduled',
+          sourceJobId: 'job-123',
+          payload: {
+            action: 'write',
+            path: 'inventory.json',
+            content: '{}',
+          },
+        }),
+        writeFileArtifact,
+      }),
+    );
+
+    expect(writeFileArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        virtualScope: expect.stringMatching(/^job-/u),
+        virtualPath: 'inventory.json',
+      }),
+    );
+  });
+
+  it('keeps ordinary writes in the default artifact scope', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-file-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { fileArtifactTaskHandlers, taskData } =
+      await loadFileArtifactHandlers(runtimeHome);
+    const writeFileArtifact = vi.fn(async (input) =>
+      makeArtifact({
+        virtualScope: input.virtualScope,
+        virtualPath: input.virtualPath,
+        content: input.content,
+      }),
+    );
+
+    await fileArtifactTaskHandlers.file_artifact(
+      contextFor({
+        data: taskData('ordinary-default-scope', {
+          payload: {
+            action: 'write',
+            path: 'notes.txt',
+            content: 'notes',
+          },
+        }),
+        writeFileArtifact,
+      }),
+    );
+
+    expect(writeFileArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ virtualScope: 'default' }),
+    );
+  });
+
   it('accepts the signed app conversation for a scheduled job without a chat route', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-file-ipc-'),

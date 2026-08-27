@@ -367,10 +367,14 @@ async function dispatchBrowserToolInner(input: {
       return await runWithActivePage(input, async (page) => {
         const source = requiredString(input.args.function, 'function');
         const target = stringValue(input.args.target);
-        const value = target
-          ? await (
-              await resolveTargetLocator(page, target)
-            ).evaluate((element, fnSource) => {
+        const targetLocator = target
+          ? await resolveTargetLocator(page, target)
+          : undefined;
+        if (target && (await targetLocator!.count()) === 0) {
+          throw new Error(`Browser evaluate target was not found: ${target}`);
+        }
+        const value = targetLocator
+          ? await targetLocator.evaluate((element, fnSource) => {
               const fn = new Function(
                 'element',
                 `return (${fnSource})(element);`,
@@ -565,6 +569,27 @@ async function activePage(browser: Browser, sessionKey: string): Promise<Page> {
   const pages = await allPages(browser);
   const selected = selectedBackendIndexBySession.get(sessionKey);
   const selectedPage = selected !== undefined ? pages[selected] : undefined;
+  if (
+    selectedPage &&
+    !isInternalChromeTarget(
+      selectedPage.url(),
+      await safeTitle(selectedPage),
+    ) &&
+    selectedPage.url() !== 'about:blank'
+  ) {
+    return selectedPage;
+  }
+  // A reconnected persistent profile can expose Chrome's bootstrap blank tab
+  // before the retained website tab. Resume against the real page when one is
+  // available; the blank tab has no durable browser state to continue.
+  for (const page of pages) {
+    if (
+      page.url() !== 'about:blank' &&
+      !isInternalChromeTarget(page.url(), await safeTitle(page))
+    ) {
+      return page;
+    }
+  }
   if (
     selectedPage &&
     !isInternalChromeTarget(selectedPage.url(), await safeTitle(selectedPage))

@@ -403,11 +403,14 @@ describe('runner MCP browser IPC signature verification', () => {
     const requestPath = path.join(requestDir, requestFiles[0]!);
 
     await vi.advanceTimersByTimeAsync(30_100);
+    expect(fs.existsSync(requestPath)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(5_000);
 
     await expect(requestPromise).resolves.toEqual({
       ok: false,
       error:
-        'Browser IPC timeout after 30s waiting for browser service response',
+        'Browser IPC timeout after 35s waiting for browser service response',
     });
     expect(fs.existsSync(requestPath)).toBe(false);
   });
@@ -439,17 +442,20 @@ describe('runner MCP browser IPC signature verification', () => {
       unknown
     >;
 
-    expect(request.expiresAt).toBe('2026-05-06T00:02:00.000Z');
+    expect(request.expiresAt).toBe('2026-05-06T00:02:05.000Z');
 
     await vi.advanceTimersByTimeAsync(30_100);
     expect(fs.existsSync(requestPath)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(90_000);
+    expect(fs.existsSync(requestPath)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(5_000);
 
     await expect(requestPromise).resolves.toEqual({
       ok: false,
       error:
-        'Browser IPC timeout after 2 min waiting for browser service response',
+        'Browser IPC timeout after 2m 05s waiting for browser service response',
     });
     expect(fs.existsSync(requestPath)).toBe(false);
   });

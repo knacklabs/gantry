@@ -97,20 +97,15 @@ maybeDescribe('job semantic checkpoints', () => {
        VALUES ($1, 'default', $2, $3, 'inventory.json', 1,
          'local-filesystem', 'test-only', $4, 15, 'application/json',
          '{}', $2, now())`,
-      [
-        artifact.id,
-        agentId,
-        jobArtifactScope(jobId),
-        artifact.contentHash,
-      ],
+      [artifact.id, agentId, jobArtifactScope(jobId), artifact.contentHash],
     );
     const payload = {
       safePhase: 'inventory_complete',
       artifactRefs: [
         {
           artifactId: artifact.id,
-          contentHash: artifact.contentHash,
-          kind: 'inventory',
+          contentHash: `sha256:${'b'.repeat(64)}`,
+          kind: 'observation_inventory',
         },
       ],
       nextAction: 'Draft the first candidate recipe.',
@@ -137,7 +132,12 @@ maybeDescribe('job semantic checkpoints', () => {
         milestone: 'inventory_completed',
         payload: {
           safePhase: payload.safePhase,
-          artifactRefs: payload.artifactRefs,
+          artifactRefs: [
+            {
+              ...payload.artifactRefs[0],
+              contentHash: artifact.contentHash,
+            },
+          ],
           evaluatorInvocationRef: null,
           pendingInteractionRef: null,
           nextAction: payload.nextAction,
@@ -255,7 +255,14 @@ maybeDescribe('job semantic checkpoints', () => {
       leaseToken: recoveredLease!.leaseToken,
       expectedPreviousSequence: 1,
       milestone: 'candidate_created',
-      payload: { ...payload, nextAction: 'Compile the candidate.' },
+      payload: {
+        ...payload,
+        artifactRefs: payload.artifactRefs.map((reference) => ({
+          ...reference,
+          kind: 'recipe_candidate',
+        })),
+        nextAction: 'Compile the candidate.',
+      },
     });
     expect(second).toMatchObject({
       outcome: 'persisted',

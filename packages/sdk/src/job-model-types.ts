@@ -401,6 +401,7 @@ export interface JobAgentTask {
     maxNoProgressContinuations: number;
   };
   executionPolicy: { totalTimeoutMs: number };
+  browserAllowedNetworkHosts?: string[];
   modelControls?: {
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     thinking?: { mode: 'off' } | { mode: 'on'; budgetTokens?: number };
@@ -419,6 +420,17 @@ export interface UpdateJobInput {
   modelAlias?: string | null;
   /** Monotonic, idempotent extension of an agent job's cumulative runtime budget. */
   minimumTotalRuntimeMs?: number;
+  minimumRemainingRuntimeMs?: number;
+  /** Monotonically add administrator-approved hosts to a retained browser job. */
+  addBrowserAllowedNetworkHosts?: string[];
+  /** Replace the reviewed caller-tool contract when re-pinning a durable skill. */
+  callerResolvedTools?: JobAgentTask['callerResolvedTools'];
+  /** Refresh bounded model controls when resuming a durable agent job. */
+  modelControls?: JobAgentTask['modelControls'];
+  /** Explicitly re-pin a durable agent job to an installed, reviewed skill revision. */
+  requiredSkill?: { name: string; contentHash: string };
+  /** Restore the original reviewed task contract for legacy durable jobs that lost it. */
+  restoreAgentTaskIfMissing?: JobAgentTask;
 }
 
 export interface ListJobsInput {

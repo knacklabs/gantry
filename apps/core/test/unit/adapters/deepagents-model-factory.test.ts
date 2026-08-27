@@ -45,6 +45,10 @@ describe('deepagents model factory', () => {
           constructor: { name: string };
           model: string;
           streamUsage?: boolean;
+          disableStreaming?: boolean | 'tool_calling';
+          caller?: { maxRetries?: number };
+          useResponsesApi?: boolean;
+          zdrEnabled?: boolean;
           clientConfig?: { baseURL?: string };
           apiKey?: string;
         }>;
@@ -52,13 +56,38 @@ describe('deepagents model factory', () => {
     )._getModelInstance();
     expect(underlying.constructor.name).toBe('ChatOpenAI');
     expect(underlying.model).toBe('gpt-5.5');
-    expect(underlying.streamUsage).toBe(true);
-    expect(underlying.clientConfig?.baseURL).toBe(loopbackBaseUrl);
+    // ChatOpenAI disables streaming-usage aggregation when streaming itself is
+    // disabled; usage still comes from the complete non-streaming response.
+    expect(underlying.streamUsage).toBe(false);
+    expect(underlying.disableStreaming).toBe(true);
+    expect(underlying.caller?.maxRetries).toBe(8);
+    expect(underlying.useResponsesApi).toBe(true);
+    expect(underlying.zdrEnabled).toBe(true);
+    // The wrapper itself deliberately has no override: ConfigurableModel owns
+    // stream() and delegates to the inner model, where this flag is effective.
+    expect(resolved.model.disableStreaming).toBe(false);
+    expect(underlying.clientConfig?.baseURL).toBe(`${loopbackBaseUrl}/v1`);
     expect(
       (underlying as { modelKwargs?: Record<string, unknown> }).modelKwargs,
     ).not.toHaveProperty('prompt_cache_key');
     expect(underlying.apiKey).toBe(gatewayToken);
     expect(resolved.modelId).toBe('gpt-5.5');
+  });
+
+  it('keeps compatible providers on chat completions', async () => {
+    const resolved = await buildRunnerModel({
+      provider: 'xai',
+      modelId: 'grok-4.3',
+      gatewayBaseUrl: 'http://127.0.0.1:4567/xai',
+      gatewayToken,
+    });
+    const underlying = await (
+      resolved.model as unknown as {
+        _getModelInstance: () => Promise<{ useResponsesApi?: boolean }>;
+      }
+    )._getModelInstance();
+
+    expect(underlying.useResponsesApi).toBe(false);
   });
 
   it('adds prompt_cache_key to ChatOpenAI modelKwargs only when present', async () => {
@@ -123,8 +152,9 @@ describe('deepagents model factory', () => {
     expect(underlying.reasoning).toEqual({ effort: 'high' });
     expect(underlying.maxTokens).toBe(4096);
     expect(underlying.invocationParams({})).toMatchObject({
-      reasoning_effort: 'high',
-      max_completion_tokens: 4096,
+      reasoning: { effort: 'high' },
+      max_output_tokens: 4096,
+      store: false,
     });
   });
 
@@ -142,14 +172,14 @@ describe('deepagents model factory', () => {
     const underlying = await (
       resolved.model as unknown as {
         _getModelInstance: () => Promise<{
-          invocationParams(
-            options: Record<string, unknown>,
-          ): Record<string, unknown>;
+          invocationParams(options: Record<string, unknown>): {
+            reasoning?: { effort?: string };
+          };
         }>;
       }
     )._getModelInstance();
 
-    expect(underlying.invocationParams({}).reasoning_effort).toBe(effort);
+    expect(underlying.invocationParams({}).reasoning?.effort).toBe(effort);
   });
 
   it('does not inject reasoning or output controls when absent', async () => {
@@ -435,7 +465,9 @@ describe('deepagents model factory', () => {
         }>;
       }
     )._getModelInstance();
-    expect(underlying.clientConfig?.baseURL).toBe(sandboxGatewayBaseUrl);
+    expect(underlying.clientConfig?.baseURL).toBe(
+      `${sandboxGatewayBaseUrl}/v1`,
+    );
   });
 
   it('rejects a non-gateway token', async () => {

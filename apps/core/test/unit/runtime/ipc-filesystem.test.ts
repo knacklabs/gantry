@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const tempDirs: string[] = [];
@@ -17,9 +18,8 @@ afterEach(() => {
 
 describe('IPC root lock recovery', () => {
   it('recovers a persisted lock when a new container reuses the same PID', async () => {
-    const { recoverStaleIpcRootLock } = await import(
-      '@core/runtime/ipc-filesystem.js'
-    );
+    const { recoverStaleIpcRootLock } =
+      await import('@core/runtime/ipc-filesystem.js');
     const lockPath = path.join(makeRoot(), '.lock');
     fs.writeFileSync(
       lockPath,
@@ -37,9 +37,8 @@ describe('IPC root lock recovery', () => {
   });
 
   it('does not recover a lock owned by the current process instance', async () => {
-    const { recoverStaleIpcRootLock } = await import(
-      '@core/runtime/ipc-filesystem.js'
-    );
+    const { recoverStaleIpcRootLock } =
+      await import('@core/runtime/ipc-filesystem.js');
     const lockPath = path.join(makeRoot(), '.lock');
     fs.writeFileSync(
       lockPath,
@@ -52,6 +51,40 @@ describe('IPC root lock recovery', () => {
     });
     expect(fs.existsSync(lockPath)).toBe(true);
   });
+
+  it.runIf(process.platform === 'linux')(
+    'recovers a stale lock when a different live process reused its PID',
+    async () => {
+      const { recoverStaleIpcRootLock } =
+        await import('@core/runtime/ipc-filesystem.js');
+      const lockPath = path.join(makeRoot(), '.lock');
+      const child = spawn(process.execPath, [
+        '-e',
+        'setInterval(() => undefined, 1000)',
+      ]);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          child.once('spawn', resolve);
+          child.once('error', reject);
+        });
+        fs.writeFileSync(
+          lockPath,
+          JSON.stringify({
+            pid: child.pid,
+            startedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+          }),
+        );
+
+        expect(recoverStaleIpcRootLock(lockPath)).toMatchObject({
+          recovered: true,
+          recoveryReason: 'pid_reused',
+        });
+        expect(fs.existsSync(lockPath)).toBe(false);
+      } finally {
+        child.kill();
+      }
+    },
+  );
 });
 
 describe('IPC error archive', () => {

@@ -3,7 +3,7 @@ import type { FileData, FilesystemPermission } from 'deepagents';
 import { HumanMessage } from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
-import { ToolStrategy } from 'langchain';
+import { ProviderStrategy, ToolStrategy } from 'langchain';
 
 import {
   buildRunnerModel,
@@ -15,6 +15,7 @@ import {
 } from './cache-control.js';
 import {
   normalizeDeepAgentStream,
+  textFromChunk,
   type LangGraphStreamEvent,
 } from './stream-normalizer.js';
 import type { NormalizedCacheProvider } from '../../../../shared/model-catalog.js';
@@ -58,11 +59,15 @@ import { envelopeToolsForProvider } from './tool-input-envelope.js';
 // builtin-tool-exclusion.ts). External third-party MCP config is rejected in this
 // lane until Gantry owns a DNS-pinned dispatcher/proxy path.
 const DENY_ALL_FILESYSTEM: FilesystemPermission[] = [
+  {
+    operations: ['read'],
+    paths: ['/large_tool_results', '/large_tool_results/**'],
+  },
   { operations: ['read', 'write'], paths: ['/**'], mode: 'deny' },
 ];
 const READONLY_SKILLS_FILESYSTEM: FilesystemPermission[] = [
   { operations: ['read'], paths: ['/skills', '/skills/**'] },
-  { operations: ['read', 'write'], paths: ['/**'], mode: 'deny' },
+  ...DENY_ALL_FILESYSTEM,
 ];
 
 // Minimal structural view of the compiled DeepAgents graph the runner drives.
@@ -150,10 +155,14 @@ export async function runDeepAgentTurn(input: {
     }),
   );
   logElapsed('Model built');
+  const providerNativeStructuredOutput =
+    input.provider === 'openai' &&
+    input.agentInput.responseSchema !== undefined;
   const systemPrompt = startupTiming.measure('systemPromptMs', () =>
     appendStructuredOutputContract(
       composeDeepAgentSystemPrompt(input.agentInput),
       input.agentInput.responseSchema,
+      providerNativeStructuredOutput ? 'provider' : 'tool',
     ),
   );
   logElapsed('System prompt composed');
@@ -170,6 +179,9 @@ export async function runDeepAgentTurn(input: {
   const connected = await startupTiming.measureAsync('mcpConnectMs', () =>
     connectGantryAndThirdPartyMcpTools({
       configuredAllowedTools,
+      ...(input.agentInput.semanticCapabilities
+        ? { semanticCapabilities: input.agentInput.semanticCapabilities }
+        : {}),
       ...(toolSuccessLedger
         ? {
             toolRules: input.agentInput.toolRules,
@@ -250,9 +262,11 @@ export async function runDeepAgentTurn(input: {
           model: resolved.model,
           ...(input.agentInput.responseSchema
             ? {
-                responseFormat: ToolStrategy.fromSchema(
-                  STRUCTURED_OUTPUT_ENVELOPE_SCHEMA,
-                ),
+                responseFormat: providerNativeStructuredOutput
+                  ? ProviderStrategy.fromSchema(
+                      STRUCTURED_OUTPUT_ENVELOPE_SCHEMA,
+                    )
+                  : ToolStrategy.fromSchema(STRUCTURED_OUTPUT_ENVELOPE_SCHEMA),
               }
             : {}),
           backend: (config) => new StateBackend(config),
@@ -356,7 +370,8 @@ export async function runDeepAgentTurn(input: {
     logElapsed('Stream normalized');
     const terminalResult = input.agentInput.responseSchema
       ? serializeValidatedStructuredOutput(
-          structuredResponse,
+          structuredResponse ??
+            structuredResponseFromFinalText(normalized.text),
           input.agentInput.responseSchema,
         )
       : normalized.terminalResult;
@@ -404,17 +419,109 @@ async function* captureStructuredResponse(
   events: AsyncIterable<LangGraphStreamEvent>,
   capture: (value: unknown) => void,
 ): AsyncIterable<LangGraphStreamEvent> {
+  let currentModelText = '';
   for await (const event of events) {
-    const output = event.data?.output;
-    if (
-      output &&
-      typeof output === 'object' &&
-      'structuredResponse' in output &&
-      output.structuredResponse !== undefined
-    ) {
-      capture(output.structuredResponse);
+    if (event.event === 'on_chat_model_start') currentModelText = '';
+    if (event.event === 'on_chat_model_stream') {
+      currentModelText += textFromChunk(event.data?.chunk);
     }
+    const structuredResponse =
+      structuredResponseFromEventOutput(event.data) ??
+      (event.event === 'on_chat_model_end'
+        ? (structuredResponseFromModelEventOutput(event.data?.output) ??
+          structuredResponseFromFinalText(currentModelText))
+        : undefined);
+    if (structuredResponse !== undefined) capture(structuredResponse);
     yield event;
+  }
+}
+
+export function structuredResponseFromModelEventOutput(
+  output: unknown,
+): { json: string } | undefined {
+  const seen = new Set<object>();
+  const visit = (
+    value: unknown,
+    depth: number,
+  ): { json: string } | undefined => {
+    if (!value || typeof value !== 'object' || depth > 6 || seen.has(value)) {
+      return undefined;
+    }
+    seen.add(value);
+    if (!Array.isArray(value) && 'content' in value) {
+      const content = value.content;
+      if (typeof content === 'string') {
+        const parsed = structuredResponseFromFinalText(content);
+        if (parsed) return parsed;
+      }
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (
+            block &&
+            typeof block === 'object' &&
+            'text' in block &&
+            typeof block.text === 'string'
+          ) {
+            const parsed = structuredResponseFromFinalText(block.text);
+            if (parsed) return parsed;
+          }
+        }
+      }
+    }
+    for (const child of Array.isArray(value) ? value : Object.values(value)) {
+      const found = visit(child, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  return visit(output, 0);
+}
+
+export function structuredResponseFromEventOutput(
+  output: unknown,
+): unknown | undefined {
+  const seen = new Set<object>();
+  const visit = (value: unknown, depth: number): unknown | undefined => {
+    if (!value || typeof value !== 'object' || depth > 6 || seen.has(value)) {
+      return undefined;
+    }
+    seen.add(value);
+    if (
+      !Array.isArray(value) &&
+      'structuredResponse' in value &&
+      value.structuredResponse !== undefined
+    ) {
+      return value.structuredResponse;
+    }
+    for (const child of Array.isArray(value) ? value : Object.values(value)) {
+      const found = visit(child, depth + 1);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  return visit(output, 0);
+}
+
+export function structuredResponseFromFinalText(
+  text: string,
+): { json: string } | undefined {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```$/iu);
+  const candidate = (fenced?.[1] ?? trimmed).trim();
+  if (!candidate) return undefined;
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as Record<string, unknown>).json === 'string'
+    ) {
+      return { json: (parsed as Record<string, string>).json };
+    }
+    return { json: JSON.stringify(parsed) };
+  } catch {
+    return undefined;
   }
 }
 

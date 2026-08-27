@@ -33,6 +33,17 @@ afterEach(() => {
 });
 
 describe('shared core tool handlers', () => {
+  it('projects closed object schemas accepted by strict OpenAI tools', () => {
+    const schemas = createCoreToolSchemas(z);
+
+    expect(
+      z.toJSONSchema(schemas.send_message as z.ZodType).additionalProperties,
+    ).toBe(false);
+    expect(
+      z.toJSONSchema(schemas.task_list as z.ZodType).additionalProperties,
+    ).toBe(false);
+  });
+
   it('uses the same send_message application handler for IPC and direct calls', async () => {
     const sendMessage = vi.fn(async () => undefined);
 

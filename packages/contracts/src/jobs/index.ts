@@ -350,7 +350,24 @@ export const UpdateJobRequestSchema = z
     accessRequirements: z.array(JobAccessRequirementSchema).optional(),
     status: z.enum(['active', 'paused']).optional(),
     modelAlias: z.string().nullable().optional(),
-    minimumTotalRuntimeMs: z.number().int().min(30_000).max(86_400_000).optional(),
+    minimumTotalRuntimeMs: z
+      .number()
+      .int()
+      .min(30_000)
+      .max(86_400_000)
+      .optional(),
+    minimumRemainingRuntimeMs: z
+      .number()
+      .int()
+      .min(30_000)
+      .max(86_400_000)
+      .optional(),
+    addBrowserAllowedNetworkHosts:
+      JobAgentTaskSchema.shape.browserAllowedNetworkHosts,
+    callerResolvedTools: JobAgentTaskSchema.shape.callerResolvedTools,
+    modelControls: JobAgentTaskSchema.shape.modelControls,
+    requiredSkill: JobAgentTaskSchema.shape.requiredSkill,
+    restoreAgentTaskIfMissing: JobAgentTaskSchema.optional(),
   })
   .strict();
 export type UpdateJobRequest = z.infer<typeof UpdateJobRequestSchema>;

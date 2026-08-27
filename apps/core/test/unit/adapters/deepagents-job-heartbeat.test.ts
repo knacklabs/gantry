@@ -131,7 +131,13 @@ describe('startDeepAgentJobHeartbeat', () => {
     fs.mkdirSync(requestsDir, { recursive: true });
     fs.writeFileSync(
       path.join(requestsDir, 'perm-1.json'),
-      JSON.stringify({ payload: { toolName: 'mcp__server__do' } }),
+      JSON.stringify({
+        payload: { runId: 'run-1', toolName: 'mcp__server__do' },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(requestsDir, 'perm-stale.json'),
+      JSON.stringify({ payload: { runId: 'run-old', toolName: 'FileEdit' } }),
     );
 
     const frames: RunnerOutputFrame[] = [];

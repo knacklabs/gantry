@@ -22,14 +22,167 @@ import type {
   JobSemanticCheckpoint,
   JobSemanticCheckpointRepository,
 } from '@core/domain/ports/job-semantic-checkpoints.js';
+import { jobArtifactScope } from '@core/domain/ports/job-semantic-checkpoints.js';
+import type { FileArtifactStore } from '@core/domain/ports/file-artifact-store.js';
 import { AsyncCommandTaskService } from '@core/jobs/async-command-task-service.js';
 import { createAsyncMcpTask } from '@core/jobs/async-mcp-tool-task.js';
 import { readEncryptedAsyncTaskPayload } from '@core/jobs/async-task-execution-payload.js';
-import { createMcpToolHandlers } from '@core/jobs/ipc-mcp-tool-handlers.js';
+import {
+  createMcpToolHandlers,
+  isEvaluationSubmissionReady,
+  isUnchangedSameRunEvaluationSubmission,
+  websiteRecipeCompilationFromMcpResult,
+} from '@core/jobs/ipc-mcp-tool-handlers.js';
 import { registerExternalCapabilitySuspension } from '@core/jobs/external-capability-suspension.js';
 import { registerAsyncCommandSandboxPolicy } from '@core/runtime/async-command-sandbox-policy.js';
 
 const runtimeHomes: string[] = [];
+const evaluationArguments = {
+  candidateHash: 'candidate-hash',
+  observationInventory: {
+    claims: [{ evidenceRefs: ['artifact-browser-evidence'] }],
+  },
+};
+
+describe('same-run recipe evaluation repair gate', () => {
+  const checkpoint = (
+    milestone: JobSemanticCheckpoint['milestone'],
+    runId: string,
+    contentHash: string,
+  ) =>
+    ({
+      runId,
+      milestone,
+      payload: {
+        artifactRefs: [
+          {
+            artifactId: 'file-artifact:00000000-0000-4000-8000-000000000001',
+            contentHash,
+            kind: 'evaluation_submit_args',
+          },
+        ],
+      },
+    }) as JobSemanticCheckpoint;
+
+  it('rejects a new checkpoint that repeats analyzed content in the same run', () => {
+    expect(
+      isUnchangedSameRunEvaluationSubmission(
+        checkpoint('test_plan_created', 'run-1', 'sha256:same'),
+        checkpoint('evaluation_analyzed', 'run-1', 'sha256:same'),
+      ),
+    ).toBe(true);
+  });
+
+  it('allows a material change or an administrator-authorized later run', () => {
+    expect(
+      isUnchangedSameRunEvaluationSubmission(
+        checkpoint('test_plan_created', 'run-1', 'sha256:changed'),
+        checkpoint('evaluation_analyzed', 'run-1', 'sha256:old'),
+      ),
+    ).toBe(false);
+    expect(
+      isUnchangedSameRunEvaluationSubmission(
+        checkpoint('test_plan_created', 'run-2', 'sha256:same'),
+        checkpoint('evaluation_analyzed', 'run-1', 'sha256:same'),
+      ),
+    ).toBe(false);
+  });
+});
+
+it('recovers evaluator submission only from a complete pre-execution failure', () => {
+  const checkpoint = new MemoryJobCheckpointRepository().latest!;
+  const analyzed = {
+    ...checkpoint,
+    milestone: 'evaluation_analyzed' as const,
+    payload: {
+      ...checkpoint.payload,
+      artifactRefs: [
+        ...checkpoint.payload.artifactRefs,
+        {
+          artifactId: 'artifact-evaluation-submit-args',
+          contentHash: 'sha256:evaluation-submit-args',
+          kind: 'evaluation_submit_args',
+        },
+      ],
+    },
+  };
+
+  expect(isEvaluationSubmissionReady(analyzed, 'invocation:retry')).toBe(true);
+  expect(
+    isEvaluationSubmissionReady(
+      {
+        ...analyzed,
+        payload: {
+          ...analyzed.payload,
+          evaluatorInvocationRef: 'invocation:already-ran',
+        },
+      },
+      'invocation:retry',
+    ),
+  ).toBe(false);
+  expect(
+    isEvaluationSubmissionReady(
+      {
+        ...analyzed,
+        payload: {
+          ...analyzed.payload,
+          artifactRefs: analyzed.payload.artifactRefs.filter(
+            (reference) => reference.kind !== 'evaluation_submit_args',
+          ),
+        },
+      },
+      'invocation:retry',
+    ),
+  ).toBe(false);
+});
+
+it('accepts an evaluation-ready checkpoint that retains every compiled artifact', () => {
+  const checkpoint = new MemoryJobCheckpointRepository().latest!;
+  const evaluationReady: JobSemanticCheckpoint = {
+    ...checkpoint,
+    milestone: 'candidate_created',
+    payload: {
+      ...checkpoint.payload,
+      safePhase: 'evaluation_ready',
+      evaluatorInvocationRef: null,
+      artifactRefs: [
+        ...checkpoint.payload.artifactRefs,
+        {
+          artifactId: 'artifact-evaluation-submit-args',
+          contentHash: 'sha256:evaluation-submit-args',
+          kind: 'evaluation_submit_args',
+        },
+      ],
+    },
+  };
+
+  expect(
+    isEvaluationSubmissionReady(evaluationReady, 'invocation:prepared'),
+  ).toBe(true);
+  expect(
+    isEvaluationSubmissionReady(
+      {
+        ...evaluationReady,
+        milestone: 'evaluation_submitted',
+      },
+      'invocation:legacy-prepared',
+    ),
+  ).toBe(true);
+  expect(
+    isEvaluationSubmissionReady(
+      {
+        ...evaluationReady,
+        payload: {
+          ...evaluationReady.payload,
+          artifactRefs: evaluationReady.payload.artifactRefs.filter(
+            (reference) => reference.kind !== 'test_plan',
+          ),
+        },
+      },
+      'invocation:prepared',
+    ),
+  ).toBe(false);
+});
 
 afterEach(() => {
   configurePendingInteractionDurability(null);
@@ -45,17 +198,152 @@ beforeEach(() => {
 
 function asyncRuntimeDeps(
   repository: AsyncTaskRepository,
-  checkpoints: JobSemanticCheckpointRepository =
-    new MemoryJobCheckpointRepository(),
+  checkpoints: JobSemanticCheckpointRepository = new MemoryJobCheckpointRepository(),
+  fileArtifacts?: FileArtifactStore,
 ) {
   return {
     getAsyncTaskRepository: () => repository,
     getJobSemanticCheckpointRepository: () => checkpoints,
+    ...(fileArtifacts ? { getFileArtifactStore: () => fileArtifacts } : {}),
     runnerSandboxProvider: { enforcing: true },
   } as never;
 }
 
 describe('external capability MCP task', () => {
+  it('unwraps and validates canonical recipe compiler structured content', () => {
+    const compilation = {
+      status: 'compiled',
+      binding: { bindingSha256: 'sha256:binding' },
+      recipeSha256: 'sha256:recipe',
+      observationInventorySha256: 'sha256:inventory',
+      coverageManifestSha256: 'sha256:coverage',
+      coverageManifest: { requirements: [] },
+    };
+
+    expect(
+      websiteRecipeCompilationFromMcpResult({
+        content: [{ type: 'text', text: JSON.stringify(compilation) }],
+        structuredContent: compilation,
+        isError: false,
+      }),
+    ).toEqual(compilation);
+    expect(() =>
+      websiteRecipeCompilationFromMcpResult({
+        content: [{ type: 'text', text: 'compiler unavailable' }],
+        isError: true,
+      }),
+    ).toThrow('compiler unavailable');
+    expect(() =>
+      websiteRecipeCompilationFromMcpResult({ content: [] }),
+    ).toThrow('no canonical compiled payload');
+  });
+
+  it('executes recipe compilation synchronously without scheduling an external task', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const compileArguments = {
+      recipe: {},
+      binding: {},
+      observationInventory: {},
+    };
+    const artifactId = 'file-artifact:22222222-2222-4222-8222-222222222222';
+    const fileArtifacts = {
+      readFileArtifact: vi.fn(async () => ({
+        artifact: {
+          id: artifactId,
+          appId: 'app:test',
+          agentId: 'agent:signed',
+          virtualScope: jobArtifactScope('job-1'),
+          virtualPath: 'compile/arguments.json',
+          version: 1,
+          storageType: 'local-filesystem',
+          storageRef: 'test',
+          contentHash: 'sha256:compile',
+          sizeBytes: JSON.stringify(compileArguments).length,
+          contentType: 'application/json',
+          metadata: {},
+          createdAt: '2026-08-26T00:00:00.000Z',
+        },
+        content: JSON.stringify(compileArguments),
+      })),
+    } as unknown as FileArtifactStore;
+    const callTool = vi.fn(async () => ({
+      structuredContent: {
+        status: 'compiled',
+        binding: { bindingSha256: 'sha256:binding' },
+        recipeSha256: 'sha256:recipe',
+        observationInventorySha256: 'sha256:inventory',
+        coverageManifestSha256: 'sha256:coverage',
+        coverageManifest: { requirements: [] },
+      },
+      isError: false,
+    }));
+    const assertToolAllowed = vi.fn(async () => undefined);
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        assertToolAllowed,
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'manipal-website-recipe-evaluator',
+          toolName: 'recipe_compile',
+          capabilityId: 'manipal.website-recipe-evaluator@1',
+          idempotencyKey: 'compile-must-be-direct',
+          argumentsArtifactId: artifactId,
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(
+        repository,
+        new MemoryJobCheckpointRepository(),
+        fileArtifacts,
+      ),
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(assertToolAllowed).toHaveBeenCalledOnce();
+    expect(callTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'manipal-website-recipe-evaluator',
+        toolName: 'recipe_compile',
+        arguments: compileArguments,
+        authorizationArguments: compileArguments,
+      }),
+    );
+    expect(fileArtifacts.readFileArtifact).toHaveBeenCalledWith({
+      id: artifactId,
+      appId: 'app:test',
+      agentId: 'agent:signed',
+    });
+    expect(repository.tasks.size).toBe(0);
+  });
+
   it('accepts the signed app conversation for a scheduled job without a chat route', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
@@ -97,7 +385,7 @@ describe('external capability MCP task', () => {
           toolName: 'evaluation.submit',
           capabilityId: 'manipal.website-recipe-evaluator@1',
           idempotencyKey: 'evaluation-submit-app-conversation',
-          arguments: { candidateHash: 'candidate-hash' },
+          arguments: evaluationArguments,
         },
       },
       sourceAgentFolder: 'main_agent',
@@ -161,7 +449,7 @@ describe('external capability MCP task', () => {
           toolName: 'evaluation.submit',
           capabilityId: 'manipal.website-recipe-evaluator@1',
           idempotencyKey: 'evaluation-submit-1',
-          arguments: { candidateHash: 'candidate-hash' },
+          arguments: evaluationArguments,
         },
       },
       sourceAgentFolder: 'main_agent',
@@ -181,12 +469,12 @@ describe('external capability MCP task', () => {
     });
     expect(assertToolAllowed).toHaveBeenCalledWith(
       expect.objectContaining({
-        arguments: { candidateHash: 'candidate-hash' },
+        arguments: evaluationArguments,
       }),
     );
     expect(callTool).toHaveBeenCalledWith(
       expect.objectContaining({
-        authorizationArguments: { candidateHash: 'candidate-hash' },
+        authorizationArguments: evaluationArguments,
         arguments: expect.objectContaining({
           candidateHash: 'candidate-hash',
           _gantryCapabilityTask: {
@@ -207,6 +495,100 @@ describe('external capability MCP task', () => {
       },
     });
     unregister();
+  });
+
+  it('loads large external capability arguments from an owned job artifact', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const checkpoints = new MemoryJobCheckpointRepository();
+    const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
+    const artifactId = 'file-artifact:11111111-1111-4111-8111-111111111111';
+    const fileArtifacts = {
+      readFileArtifact: vi.fn(async () => ({
+        artifact: {
+          id: artifactId,
+          appId: 'app:test',
+          agentId: 'agent:signed',
+          virtualScope: jobArtifactScope('job-1'),
+          virtualPath: 'evaluation/submission.json',
+          version: 1,
+          storageType: 'local-filesystem',
+          storageRef: 'test',
+          contentHash: 'sha256:test',
+          sizeBytes: JSON.stringify(evaluationArguments).length,
+          contentType: 'application/json',
+          metadata: {},
+          createdAt: '2026-08-21T00:00:00.000Z',
+        },
+        content: JSON.stringify(evaluationArguments),
+      })),
+    } as unknown as FileArtifactStore;
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        assertToolAllowed: vi.fn(async () => undefined),
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'manipal-evaluator',
+          toolName: 'evaluation_submit',
+          capabilityId: 'manipal.website-recipe-evaluator@1',
+          idempotencyKey: 'evaluation-from-artifact',
+          argumentsArtifactId: artifactId,
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(repository, checkpoints, fileArtifacts),
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(fileArtifacts.readFileArtifact).toHaveBeenCalledWith({
+      id: artifactId,
+      appId: 'app:test',
+      agentId: 'agent:signed',
+    });
+    expect(callTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorizationArguments: evaluationArguments,
+        arguments: expect.objectContaining(evaluationArguments),
+      }),
+    );
+    expect(
+      checkpoints.latest?.payload.artifactRefs.filter(
+        (reference) => reference.kind === 'evaluation_submit_args',
+      ),
+    ).toEqual([
+      {
+        artifactId,
+        contentHash: 'sha256:test',
+        kind: 'evaluation_submit_args',
+      },
+    ]);
   });
 
   it('rejects recipe evaluation before the compiler-backed test plan checkpoint', async () => {
@@ -249,7 +631,69 @@ describe('external capability MCP task', () => {
           toolName: 'evaluation_submit',
           capabilityId: 'manipal.website-recipe-evaluator@1',
           idempotencyKey: 'evaluation-without-test-plan',
-          arguments: { candidateHash: 'candidate-hash' },
+          arguments: evaluationArguments,
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(repository, checkpoints),
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(callTool).not.toHaveBeenCalled();
+    expect(repository.tasks.size).toBe(0);
+  });
+
+  it('rejects recipe evaluation when the observation inventory artifact is absent from the checkpoint', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const checkpoints = new MemoryJobCheckpointRepository({
+      ...new MemoryJobCheckpointRepository().latest!,
+      payload: {
+        ...new MemoryJobCheckpointRepository().latest!.payload,
+        artifactRefs:
+          new MemoryJobCheckpointRepository().latest!.payload.artifactRefs.filter(
+            (reference) => reference.kind !== 'observation_inventory',
+          ),
+      },
+    });
+    const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        assertToolAllowed: vi.fn(async () => undefined),
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'manipal-evaluator',
+          toolName: 'evaluation_submit',
+          capabilityId: 'manipal.website-recipe-evaluator@1',
+          idempotencyKey: 'evaluation-with-unretained-evidence',
+          arguments: evaluationArguments,
         },
       },
       sourceAgentFolder: 'main_agent',
@@ -277,7 +721,28 @@ class MemoryJobCheckpointRepository implements JobSemanticCheckpointRepository {
       milestone: 'test_plan_created',
       payload: {
         safePhase: 'test_plan_created',
-        artifactRefs: [],
+        artifactRefs: [
+          {
+            artifactId: 'artifact-observation-inventory',
+            contentHash: 'sha256:observation-inventory',
+            kind: 'observation_inventory',
+          },
+          {
+            artifactId: 'artifact-recipe-candidate',
+            contentHash: 'sha256:recipe-candidate',
+            kind: 'recipe_candidate',
+          },
+          {
+            artifactId: 'artifact-test-plan',
+            contentHash: 'sha256:test-plan',
+            kind: 'test_plan',
+          },
+          {
+            artifactId: 'artifact-browser-evidence',
+            contentHash: 'sha256:browser-evidence',
+            kind: 'browser_evidence',
+          },
+        ],
         evaluatorInvocationRef: null,
         pendingInteractionRef: null,
         nextAction: 'Submit evaluation.',

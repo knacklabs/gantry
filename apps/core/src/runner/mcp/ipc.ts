@@ -23,6 +23,7 @@ import {
   MEMORY_REQUESTS_DIR,
   MEMORY_RESPONSES_DIR,
   TASK_RESPONSES_DIR,
+  TASKS_DIR,
   agentId,
   appId,
   chatJid,
@@ -47,6 +48,8 @@ import {
 } from '../../shared/private-fs.js';
 import { makeIpcId, makeIpcJsonFilename } from './ipc-ids.js';
 import { waitForIpcResponseFile } from '../ipc-response-wait.js';
+
+const BROWSER_IPC_RESPONSE_GRACE_MS = 5_000;
 
 function removeStaleRequestFile(filePath: string): void {
   try {
@@ -215,6 +218,10 @@ export async function requestBrowserAction(
   ensurePrivateDirSync(BROWSER_RESPONSES_DIR);
 
   const timeoutMs = options.timeoutMs ?? 30_000;
+  // The host may need to retire an unhealthy browser after the action budget
+  // expires. Wait for that signed response before the runner issues another
+  // action against the same profile.
+  const responseTimeoutMs = timeoutMs + BROWSER_IPC_RESPONSE_GRACE_MS;
   const requestId = makeIpcId('browser');
   const reqPath = path.join(BROWSER_REQUESTS_DIR, `${requestId}.json`);
   const tmpReqPath = `${reqPath}.tmp`;
@@ -247,7 +254,7 @@ export async function requestBrowserAction(
         : {}),
       ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
     },
-    expiresAt: toIso(currentTimeMs() + timeoutMs),
+    expiresAt: toIso(currentTimeMs() + responseTimeoutMs),
   };
   const requestEnvelope = createSignedIpcRequestEnvelope(
     BROWSER_IPC_AUTH_TOKEN,
@@ -256,7 +263,7 @@ export async function requestBrowserAction(
   writePrivateFileSync(tmpReqPath, JSON.stringify(requestEnvelope, null, 2));
   fs.renameSync(tmpReqPath, reqPath);
 
-  const deadline = nowMs() + timeoutMs;
+  const deadline = nowMs() + responseTimeoutMs;
   const responsePath = path.join(BROWSER_RESPONSES_DIR, `${requestId}.json`);
 
   if (await waitForIpcResponseFile({ responsePath, deadlineMs: deadline })) {
@@ -309,7 +316,7 @@ export async function requestBrowserAction(
   removeStaleRequestFile(reqPath);
   return {
     ok: false,
-    error: `Browser IPC timeout after ${formatDuration(timeoutMs)} waiting for browser service response`,
+    error: `Browser IPC timeout after ${formatDuration(responseTimeoutMs)} waiting for browser service response`,
   };
 }
 
@@ -368,6 +375,28 @@ export async function waitForTaskResponse(
 ): Promise<TaskResponseEnvelope | null> {
   const outcome = await waitForTaskResponseOutcome(taskId, timeoutMs);
   return outcome.status === 'received' ? outcome.response : null;
+}
+
+export async function requestCaptchaVisionAction(
+  payload: { imageBase64: string; mimeType: string; pageUrl: string },
+  timeoutMs: number,
+): Promise<TaskResponseEnvelope | null> {
+  const taskId = makeIpcId('captcha-vision-solve');
+  writeIpcFile(TASKS_DIR, {
+    type: 'captcha_vision_solve',
+    taskId,
+    ...(appId ? { appId } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(providerAccountId ? { providerAccountId } : {}),
+    ...(jobId ? { jobId } : {}),
+    ...(runId ? { runId } : {}),
+    payload,
+    targetJid: chatJid,
+    chatJid,
+    authThreadId: threadId,
+    timestamp: toIso(nowMs()),
+  });
+  return waitForTaskResponse(taskId, timeoutMs);
 }
 
 export async function waitForTaskResponseOutcome(

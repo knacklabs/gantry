@@ -302,6 +302,7 @@ export function buildJobUpdates(
   patch: JobUpdatePatch,
   planner: JobSchedulePlanner,
   clock: Clock,
+  runtimeConsumedMs = 0,
 ): Partial<Job> {
   const updates: Partial<Job> = {};
   if (patch.name !== undefined)
@@ -342,8 +343,16 @@ export function buildJobUpdates(
   if (patch.maxConsecutiveFailures !== undefined) {
     updates.max_consecutive_failures = patch.maxConsecutiveFailures;
   }
+  if (!job.agent_task && patch.restoreAgentTaskIfMissing !== undefined) {
+    updates.agent_task = patch.restoreAgentTaskIfMissing;
+    updates.timeout_ms = Math.max(
+      job.timeout_ms,
+      patch.restoreAgentTaskIfMissing.executionPolicy.totalTimeoutMs,
+    );
+  }
   if (patch.minimumTotalRuntimeMs !== undefined) {
-    if (!job.agent_task) {
+    const agentTask = updates.agent_task ?? job.agent_task;
+    if (!agentTask) {
       throw new ApplicationError(
         'INVALID_REQUEST',
         'Only an agent task can extend a cumulative runtime budget.',
@@ -359,13 +368,132 @@ export function buildJobUpdates(
         'minimumTotalRuntimeMs must be between 30000 and 86400000.',
       );
     }
-    const currentTotal = job.agent_task.executionPolicy.totalTimeoutMs;
+    const currentTotal = agentTask.executionPolicy.totalTimeoutMs;
+    updates.timeout_ms = Math.max(job.timeout_ms, patch.minimumTotalRuntimeMs);
     updates.agent_task = {
-      ...job.agent_task,
+      ...agentTask,
       executionPolicy: {
-        ...job.agent_task.executionPolicy,
+        ...agentTask.executionPolicy,
         totalTimeoutMs: Math.max(currentTotal, patch.minimumTotalRuntimeMs),
       },
+    };
+  }
+  if (patch.minimumRemainingRuntimeMs !== undefined) {
+    const currentAgentTask = updates.agent_task ?? job.agent_task;
+    if (!currentAgentTask) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Only an agent task can extend a cumulative runtime budget.',
+      );
+    }
+    if (
+      !Number.isSafeInteger(patch.minimumRemainingRuntimeMs) ||
+      patch.minimumRemainingRuntimeMs < 30_000 ||
+      patch.minimumRemainingRuntimeMs > 86_400_000
+    ) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'minimumRemainingRuntimeMs must be between 30000 and 86400000.',
+      );
+    }
+    const agentTask = currentAgentTask;
+    const requestedTotalTimeoutMs =
+      runtimeConsumedMs + patch.minimumRemainingRuntimeMs;
+    if (requestedTotalTimeoutMs > 86_400_000) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'minimumRemainingRuntimeMs exceeds the 24-hour cumulative runtime ceiling.',
+      );
+    }
+    updates.timeout_ms = Math.max(
+      updates.timeout_ms ?? job.timeout_ms,
+      patch.minimumRemainingRuntimeMs,
+    );
+    updates.agent_task = {
+      ...agentTask,
+      executionPolicy: {
+        ...agentTask.executionPolicy,
+        totalTimeoutMs: Math.max(
+          agentTask.executionPolicy.totalTimeoutMs,
+          requestedTotalTimeoutMs,
+        ),
+      },
+    };
+  }
+  if (patch.addBrowserAllowedNetworkHosts !== undefined) {
+    const agentTask = updates.agent_task ?? job.agent_task;
+    if (!agentTask) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Only an agent task can extend browser network hosts.',
+      );
+    }
+    const browserAllowedNetworkHosts = [
+      ...new Set(
+        [
+          ...(agentTask.browserAllowedNetworkHosts ?? []),
+          ...patch.addBrowserAllowedNetworkHosts,
+        ].map((host) =>
+          requireNonEmpty(host, 'addBrowserAllowedNetworkHosts').toLowerCase(),
+        ),
+      ),
+    ];
+    if (browserAllowedNetworkHosts.length > 50) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'A browser job cannot allow more than 50 network hosts.',
+      );
+    }
+    updates.agent_task = {
+      ...agentTask,
+      browserAllowedNetworkHosts,
+    };
+  }
+  if (patch.callerResolvedTools !== undefined) {
+    const agentTask = updates.agent_task ?? job.agent_task;
+    if (!agentTask) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Only an agent task can update caller-resolved tools.',
+      );
+    }
+    updates.agent_task = {
+      ...agentTask,
+      callerResolvedTools: patch.callerResolvedTools,
+    };
+  }
+  if (patch.modelControls !== undefined) {
+    const agentTask = updates.agent_task ?? job.agent_task;
+    if (!agentTask) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Only an agent task can update model controls.',
+      );
+    }
+    updates.agent_task = {
+      ...agentTask,
+      modelControls: patch.modelControls,
+    };
+  }
+  if (patch.requiredSkill !== undefined) {
+    const agentTask = updates.agent_task ?? job.agent_task;
+    if (!agentTask) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Only an agent task can pin a required skill.',
+      );
+    }
+    const name = requireNonEmpty(
+      patch.requiredSkill.name,
+      'requiredSkill.name',
+    );
+    const contentHash = requireNonEmpty(
+      patch.requiredSkill.contentHash,
+      'requiredSkill.contentHash',
+    );
+    updates.agent_task = {
+      ...agentTask,
+      requiredSkill: { name, contentHash },
     };
   }
   if (patch.scheduleType !== undefined)

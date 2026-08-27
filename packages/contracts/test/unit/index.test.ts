@@ -1183,6 +1183,10 @@ describe('contracts package', () => {
 
     const sdkUpdatePayload = {
       modelAlias: null,
+      requiredSkill: {
+        name: 'website-recipe',
+        contentHash: 'sha256:reviewed',
+      },
       accessRequirements: [
         {
           target: { kind: 'capability', capabilityId: 'acme.records.append' },
@@ -1194,6 +1198,10 @@ describe('contracts package', () => {
     } satisfies UpdateJobInput;
     expect(UpdateJobRequestSchema.parse(sdkUpdatePayload)).toEqual({
       modelAlias: null,
+      requiredSkill: {
+        name: 'website-recipe',
+        contentHash: 'sha256:reviewed',
+      },
       accessRequirements: [
         {
           target: { kind: 'capability', capabilityId: 'acme.records.append' },
@@ -1805,8 +1813,9 @@ describe('Agent.Tender job task contract', () => {
         executionPolicy: { totalTimeoutMs: 24 * 60 * 60_000 },
       },
     };
-    expect(CreateJobRequestSchema.parse(request).agentTask?.executionPolicy)
-      .toEqual({ totalTimeoutMs: 24 * 60 * 60_000 });
+    expect(
+      CreateJobRequestSchema.parse(request).agentTask?.executionPolicy,
+    ).toEqual({ totalTimeoutMs: 24 * 60 * 60_000 });
     expectInvalid(CreateJobRequestSchema, {
       ...request,
       agentTask: {

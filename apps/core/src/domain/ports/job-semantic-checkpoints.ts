@@ -6,6 +6,7 @@ export const JOB_SEMANTIC_CHECKPOINT_MILESTONES = [
   'evaluation_submitted',
   'evaluation_analyzed',
   'human_wait',
+  'human_interaction_resolved',
   'runtime_boundary',
   'needs_review',
 ] as const;

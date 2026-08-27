@@ -761,6 +761,52 @@ describe('PgBossSchedulerEngine', () => {
     expect(boss.schedule).not.toHaveBeenCalled();
   });
 
+  it('enqueues a manual job when a retry time is explicitly present', async () => {
+    const retryingManualJob = createJob({
+      id: 'manual-retry-job',
+      schedule_type: 'manual',
+      schedule_value: 'manual',
+      next_run: '2026-04-25T09:00:00.000Z',
+    });
+    const boss = {
+      send: vi.fn().mockResolvedValue(undefined),
+      schedule: vi.fn().mockResolvedValue(undefined),
+      unschedule: vi.fn().mockResolvedValue(undefined),
+      deleteJob: vi.fn().mockResolvedValue(undefined),
+    };
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: {
+          releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
+          getAllJobs: vi.fn().mockResolvedValue([retryingManualJob]),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    (engine as unknown as { boss: typeof boss }).boss = boss;
+
+    await (
+      engine as unknown as { syncAllJobs: () => Promise<void> }
+    ).syncAllJobs();
+
+    expect(boss.send).toHaveBeenCalledWith(
+      'gantry.jobs',
+      {
+        jobId: 'manual-retry-job',
+        scheduledFor: '2026-04-25T09:00:00.000Z',
+      },
+      expect.objectContaining({ startAfter: expect.any(Date) }),
+    );
+  });
+
   it('enqueues manual trigger jobs with a pg-boss UUID id and preserves trigger payload', async () => {
     const job = createJob({ schedule_type: 'manual', next_run: null });
     runtimeStore.controlRepository.getTriggerById.mockResolvedValueOnce({

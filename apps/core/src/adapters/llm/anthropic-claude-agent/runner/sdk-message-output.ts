@@ -7,6 +7,7 @@ export const STRUCTURED_OUTPUT_VALIDATION_FAILURE_CODE =
 export const COMPLETION_CONTINUATION_FAILURE_CODE =
   'completion_continuation_failed' as const;
 const STRUCTURED_OUTPUT_REPAIR_CANDIDATE_LIMIT = 4_096;
+const RESPONSE_SCHEMA_INSTRUCTION_LIMIT = 16_384;
 const responseSchemaCompiler = new Ajv({
   addUsedSchema: false,
   allErrors: true,
@@ -197,6 +198,7 @@ export function compileSdkResponseSchema(
 export function sdkStructuredOutputRepairInstruction(
   error: StructuredOutputValidationError,
   message: unknown,
+  responseSchema: Record<string, unknown>,
 ): string {
   let structured =
     message && typeof message === 'object'
@@ -224,9 +226,25 @@ export function sdkStructuredOutputRepairInstruction(
     'Your previous final response failed response_schema validation.',
     error.message,
     'Correct only the final structured response. Do not call tools.',
-    'Return the complete schema object, including every required top-level property. Do not return a flattened recipe/binding/proof object.',
+    sdkResponseSchemaInstruction(responseSchema),
     'Previous structured response:',
     boundedCandidate,
+  ].join('\n');
+}
+
+export function sdkResponseSchemaInstruction(
+  responseSchema?: Record<string, unknown>,
+): string {
+  if (!responseSchema) return '';
+  const serialized = JSON.stringify(responseSchema);
+  if (serialized.length > RESPONSE_SCHEMA_INSTRUCTION_LIMIT) {
+    throw new StructuredOutputValidationError(
+      `response_schema is too large for local validation (${serialized.length} characters).`,
+    );
+  }
+  return [
+    'Return only one JSON object matching this response schema. Do not use Markdown fences or narration.',
+    serialized,
   ].join('\n');
 }
 
@@ -243,16 +261,11 @@ function formatValidationErrors(errors: ValidateFunction['errors']): string {
 }
 
 export function sdkStructuredOutputOptions(
-  responseSchema?: Record<string, unknown>,
+  _responseSchema?: Record<string, unknown>,
 ) {
-  return responseSchema
-    ? {
-        outputFormat: {
-          type: 'json_schema' as const,
-          schema: responseSchema,
-        },
-      }
-    : {};
+  // ponytail: validate the model's JSON locally; the SDK's opaque retry loop
+  // can discard the candidate and return only error_max_structured_output_retries.
+  return {};
 }
 
 export function hasTopLevelAssistantContent(message: unknown): boolean {

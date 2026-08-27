@@ -96,6 +96,7 @@ import {
   buildConfinedUpstreamUrl,
   constantTimeEquals,
   hostForUrl,
+  inferredRetryAfterMs,
   normalizeGatewayBindHost,
   pipeUpstreamBody,
   readBearerToken,
@@ -599,6 +600,10 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       if (!shouldForwardGatewayResponseHeader(key)) return;
       res.setHeader(key, value);
     });
+    const retryAfterMs = await inferredRetryAfterMs(response);
+    if (retryAfterMs !== undefined) {
+      res.setHeader('retry-after-ms', String(retryAfterMs));
+    }
     const tap = resolveGatewayTap(observation, response);
     let pipeError: unknown;
     let streamTermination: ModelTransportFailureMetadata | undefined;

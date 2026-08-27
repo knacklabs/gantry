@@ -72,98 +72,118 @@ export type CoreToolSchemas = {
 } & { callable_agent: CoreToolInputSchema<CallableAgentToolInput> };
 
 export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
-  const taskIdSchema = z.object({ taskId: z.string().min(1).max(160) });
+  const taskIdSchema = z
+    .object({ taskId: z.string().min(1).max(160) })
+    .strict();
   return {
-    send_message: z.object({
-      text: z.string(),
-      files: z
-        .array(
-          z.union([
+    send_message: z
+      .object({
+        text: z.string(),
+        files: z
+          .array(
+            z.union([
+              z
+                .object({
+                  source: z.literal('artifact').optional(),
+                  scope: z.string().optional(),
+                  path: z.string(),
+                  version: z.number().int().positive().optional(),
+                })
+                .strict(),
+              z
+                .object({
+                  source: z.literal('workspace'),
+                  path: z.string(),
+                })
+                .strict(),
+            ]),
+          )
+          .max(5)
+          .optional(),
+        sender: z.string().optional(),
+      })
+      .strict(),
+    ask_user_question: z
+      .object({
+        questions: z
+          .array(
             z
               .object({
-                source: z.literal('artifact').optional(),
-                scope: z.string().optional(),
-                path: z.string(),
-                version: z.number().int().positive().optional(),
+                question: z.string(),
+                header: z.string().max(12),
+                options: z
+                  .array(
+                    z
+                      .object({
+                        label: z.string(),
+                        description: z.string(),
+                      })
+                      .strict(),
+                  )
+                  .min(2)
+                  .max(4),
+                multiSelect: z.boolean().default(false),
               })
               .strict(),
-            z
-              .object({
-                source: z.literal('workspace'),
-                path: z.string(),
-              })
-              .strict(),
-          ]),
-        )
-        .max(5)
-        .optional(),
-      sender: z.string().optional(),
-    }),
-    ask_user_question: z.object({
-      questions: z
-        .array(
-          z.object({
-            question: z.string(),
-            header: z.string().max(12),
-            options: z
-              .array(
-                z.object({
-                  label: z.string(),
-                  description: z.string(),
-                }),
-              )
-              .min(2)
-              .max(4),
-            multiSelect: z.boolean().default(false),
-          }),
-        )
-        .min(1)
-        .max(4),
-    }),
-    memory_search: z.object({
-      query: z.string(),
-      workspace_folder: z.string().optional(),
-      limit: z.number().int().min(1).max(20).optional(),
-    }),
-    memory_save: z.object({
-      scope: z.enum(['user', 'group', 'global']).optional(),
-      workspace_folder: z.string().optional(),
-      kind: z
-        .enum(['preference', 'decision', 'fact', 'correction', 'constraint'])
-        .optional(),
-      key: z.string(),
-      value: z.string(),
-      confidence: z.number().min(0).max(1).optional(),
-      source: z.string().optional(),
-    }),
-    delegate_task: z.object({
-      taskKey: z.string().min(1).max(80).optional(),
-      objective: z.string().min(1).max(10_000),
-      context: z.string().max(20_000).optional(),
-      expectedOutput: z.string().max(2_000).optional(),
-      targetAgentId: z.string().min(1).max(160).optional(),
-      timeoutMs: z
-        .number()
-        .int()
-        .positive()
-        .max(30 * 60_000)
-        .optional(),
-    }),
+          )
+          .min(1)
+          .max(4),
+      })
+      .strict(),
+    memory_search: z
+      .object({
+        query: z.string(),
+        workspace_folder: z.string().optional(),
+        limit: z.number().int().min(1).max(20).optional(),
+      })
+      .strict(),
+    memory_save: z
+      .object({
+        scope: z.enum(['user', 'group', 'global']).optional(),
+        workspace_folder: z.string().optional(),
+        kind: z
+          .enum(['preference', 'decision', 'fact', 'correction', 'constraint'])
+          .optional(),
+        key: z.string(),
+        value: z.string(),
+        confidence: z.number().min(0).max(1).optional(),
+        source: z.string().optional(),
+      })
+      .strict(),
+    delegate_task: z
+      .object({
+        taskKey: z.string().min(1).max(80).optional(),
+        objective: z.string().min(1).max(10_000),
+        context: z.string().max(20_000).optional(),
+        expectedOutput: z.string().max(2_000).optional(),
+        targetAgentId: z.string().min(1).max(160).optional(),
+        timeoutMs: z
+          .number()
+          .int()
+          .positive()
+          .max(30 * 60_000)
+          .optional(),
+      })
+      .strict(),
     callable_agent: createCallableAgentToolSchema(z),
     task_get: taskIdSchema,
-    task_list: z.object({}),
+    task_list: z.object({}).strict(),
     task_cancel: taskIdSchema,
-    task_wait: z.object({
-      taskIds: z.array(z.string().min(1).max(160)).min(1).max(64),
-      timeoutMs: z
-        .number()
-        .int()
-        .positive()
-        .max(30 * 60_000),
-    }),
-    task_message: z.object({
-      taskId: z.string().min(1).max(160),
-      message: z.string().min(1).max(10_000),
-    }),
+    task_wait: z
+      .object({
+        taskIds: z.array(z.string().min(1).max(160)).min(1).max(64),
+        timeoutMs: z
+          .number()
+          .int()
+          .positive()
+          .max(30 * 60_000),
+      })
+      .strict(),
+    task_message: z
+      .object({
+        taskId: z.string().min(1).max(160),
+        message: z.string().min(1).max(10_000),
+      })
+      .strict(),
   };
 }

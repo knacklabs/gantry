@@ -4,6 +4,7 @@ import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
 import { adminTaskHandlers } from './ipc-admin-handlers.js';
 import { agentProfileTaskHandlers } from './ipc-agent-profile-handlers.js';
 import { fileArtifactTaskHandlers } from './ipc-file-artifact-handlers.js';
+import { captchaVisionTaskHandler } from './ipc-captcha-vision-handler.js';
 import { jobCheckpointTaskHandlers } from './ipc-job-checkpoint-handlers.js';
 import { agentTaskLifecycleHandlers } from './ipc-agent-task-lifecycle-handlers.js';
 import { attachmentOpenTaskHandlers } from './ipc-attachment-open-handler.js';
@@ -125,6 +126,7 @@ const taskHandlers: Record<string, TaskHandler> = {
   ...jobCheckpointTaskHandlers,
   ...agentTaskLifecycleHandlers,
   ...attachmentOpenTaskHandlers,
+  captcha_vision_solve: captchaVisionTaskHandler,
   caller_resolved_tool: callerResolvedToolTaskHandler,
   ...canvasTaskHandlers,
 };

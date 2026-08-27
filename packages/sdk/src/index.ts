@@ -89,6 +89,7 @@ export interface GantryError extends Error {
   restartRequired?: boolean;
   nextAction?: string;
 }
+
 function toError(input: unknown): GantryError {
   const fallback = new Error('Gantry request failed') as GantryError;
   fallback.code = 'UNKNOWN_ERROR';
@@ -152,6 +153,56 @@ class Transport {
 
   request<T>(options: RequestOptions): Promise<T> {
     return this.requestWithMetadata<T>(options).then(({ body }) => body);
+  }
+
+  requestBytes(options: RequestOptions): Promise<{
+    content: Uint8Array;
+    contentType: string;
+  }> {
+    const url = new URL(options.path, this.baseUrl);
+    const mod = url.protocol === 'https:' ? https : http;
+    return new Promise((resolve, reject) => {
+      const req = mod.request(
+        {
+          protocol: url.protocol,
+          hostname: this.socketPath ? undefined : url.hostname,
+          port: this.socketPath ? undefined : url.port,
+          path: `${url.pathname}${url.search}`,
+          socketPath: this.socketPath,
+          method: options.method,
+          headers: {
+            authorization: `Bearer ${this.apiKey}`,
+            accept: options.accept || 'application/octet-stream',
+          },
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+          res.on('end', () => {
+            const content = Buffer.concat(chunks);
+            if ((res.statusCode || 500) >= 400) {
+              try {
+                reject(toError(parseJsonBody(content.toString('utf8'))));
+              } catch (error) {
+                reject(error);
+              }
+              return;
+            }
+            resolve({
+              content,
+              contentType: String(
+                res.headers['content-type'] || 'application/octet-stream',
+              ),
+            });
+          });
+        },
+      );
+      req.setTimeout(this.timeoutMs, () =>
+        req.destroy(new Error('Gantry request timed out')),
+      );
+      req.on('error', reject);
+      req.end();
+    });
   }
 
   requestWithMetadata<T>(
@@ -301,7 +352,6 @@ export class GantryClient {
   readonly identity: ReturnType<typeof createIdentityClient>;
   readonly people: ReturnType<typeof createPeopleClient>;
   readonly llm: ReturnType<GantryClient['createLlmClient']>;
-
   constructor(options: ClientOptions) {
     this.transport = new Transport(options);
     this.ingresses = createIngressesClient(this.transport);
@@ -396,6 +446,12 @@ export class GantryClient {
         path: '/v1/jobs',
         body: input,
         ...(options?.traceparent ? { traceparent: options.traceparent } : {}),
+      }),
+    readImageArtifact: (jobId: string, artifactId: string) =>
+      this.transport.requestBytes({
+        method: 'GET',
+        path: `/v1/jobs/${encodeURIComponent(jobId)}/artifacts/${encodeURIComponent(artifactId)}/content`,
+        accept: 'image/*',
       }),
     list: (input?: ListJobsInput) =>
       this.transport.request<OpenApi.ListJobsResponse>({

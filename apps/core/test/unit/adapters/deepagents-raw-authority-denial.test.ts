@@ -332,6 +332,9 @@ describe('DeepAgents raw authority denial', () => {
     expect(text).toContain('DENY_ALL_FILESYSTEM');
     expect(text).toContain('READONLY_SKILLS_FILESYSTEM');
     expect(text).toContain("paths: ['/skills', '/skills/**']");
+    expect(text).toContain(
+      "paths: ['/large_tool_results', '/large_tool_results/**']",
+    );
   });
 
   it('reads no .mcp.json anywhere in the DeepAgents adapter directory', () => {

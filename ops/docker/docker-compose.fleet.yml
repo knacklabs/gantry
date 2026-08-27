@@ -45,6 +45,9 @@ x-worker-base: &worker-base
     dockerfile: ops/docker/Dockerfile
   image: gantry-runtime:fleet-rehearsal
   restart: unless-stopped
+  # Reap orphaned browser, sandbox, and runner children during long-lived use.
+  # Production ECS has the equivalent linuxParameters.initProcessEnabled=true.
+  init: true
   # sandbox_runtime uses Linux namespaces through bubblewrap inside the
   # container; Docker's default seccomp profile may block namespace creation.
   security_opt:

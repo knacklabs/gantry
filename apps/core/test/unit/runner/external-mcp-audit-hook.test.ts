@@ -80,4 +80,42 @@ describe('external MCP audit hook', () => {
     ).toEqual({});
     expect(write).not.toHaveBeenCalled();
   });
+
+  it('preserves a safe provider-wide Firecrawl credit classification', () => {
+    const write = vi.fn();
+    auditExternalMcpTerminal({
+      hookInput: {
+        hook_event_name: 'PostToolUseFailure',
+        tool_name: 'mcp__firecrawl__firecrawl_search',
+        tool_input: { query: 'tenders' },
+        tool_use_id: 'toolu_credits',
+        error: 'Firecrawl search failed with HTTP 402 Payment Required.',
+      } as never,
+      serverNames: ['gantry', 'firecrawl'],
+      agentInput: {
+        appId: 'app:test',
+        agentId: 'agent:test',
+        chatJid: 'app:test:source-discovery',
+        runId: 'run:test',
+      } as never,
+      write,
+    });
+
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeEvents: [
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              resultClass: 'failure',
+              error: {
+                code: 'MCP_PROVIDER_CREDITS_EXHAUSTED',
+                message:
+                  'MCP provider returned 402 Payment Required or exhausted credits.',
+              },
+            }),
+          }),
+        ],
+      }),
+    );
+  });
 });

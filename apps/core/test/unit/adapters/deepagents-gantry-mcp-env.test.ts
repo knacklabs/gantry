@@ -160,6 +160,52 @@ describe('buildGantryMcpProjection', () => {
     expect(projection.env.GANTRY_BROWSER_IPC_AUTH_TOKEN).toBeUndefined();
   });
 
+  it('projects the recipe evaluator facade from the reviewed semantic capability', () => {
+    const projection = buildGantryMcpProjection({
+      configuredAllowedTools: ['Browser'],
+      hideAuthorityTools: true,
+      semanticCapabilities: [
+        {
+          capabilityId: 'manipal.website-recipe-evaluator',
+          version: '1',
+          displayName: 'Manipal Website Recipe Evaluator',
+          category: 'website_recipe',
+          risk: 'write',
+          can: 'Evaluate recipes.',
+          cannot: 'Access unrelated interfaces.',
+          credentialSource: 'configured_access',
+          implementationBindings: [
+            { kind: 'adapter', adapterRef: 'website-recipe-evaluator' },
+          ],
+        },
+      ],
+      processEnv: {
+        ...BASE_ENV,
+        GANTRY_AGENT_ACCESS_PRESET: 'locked',
+      },
+    });
+
+    expect(projection.selectedToolNames).toEqual(
+      expect.arrayContaining([
+        'file',
+        'job_checkpoint_status',
+        'job_checkpoint_save',
+        'external_capability_call',
+      ]),
+    );
+    expect(projection.selectedToolNames).not.toContain('request_access');
+    expect(
+      JSON.parse(projection.env.GANTRY_SEMANTIC_CAPABILITIES_JSON),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capabilityId: 'manipal.website-recipe-evaluator',
+          version: '1',
+        }),
+      ]),
+    );
+  });
+
   it('drops authority-changing request tools when hideAuthorityTools is set', () => {
     const open = buildGantryMcpProjection({
       configuredAllowedTools: [],

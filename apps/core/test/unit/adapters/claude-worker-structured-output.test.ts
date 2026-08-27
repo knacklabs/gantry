@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CompletionContinuationError,
   sdkResultFailureMetadata,
+  sdkResponseSchemaInstruction,
   sdkResultText,
   sdkStructuredOutputRepairInstruction,
   sdkStructuredOutputOptions,
@@ -16,10 +17,8 @@ describe('Claude worker structured output', () => {
     required: ['recipeVersion'],
   };
 
-  it('projects the schema into the SDK and returns only structured output', () => {
-    expect(sdkStructuredOutputOptions(schema)).toEqual({
-      outputFormat: { type: 'json_schema', schema },
-    });
+  it('validates structured output locally without the SDK retry loop', () => {
+    expect(sdkStructuredOutputOptions(schema)).toEqual({});
     expect(
       sdkResultText(
         {
@@ -50,16 +49,10 @@ describe('Claude worker structured output', () => {
     };
 
     expect(
-      sdkResultText(
-        { subtype: 'success', result: '{"version":2}' },
-        schema,
-      ),
+      sdkResultText({ subtype: 'success', result: '{"version":2}' }, schema),
     ).toBe('{"version":2}');
     expect(() =>
-      sdkResultText(
-        { subtype: 'success', result: '{"version":1}' },
-        schema,
-      ),
+      sdkResultText({ subtype: 'success', result: '{"version":1}' }, schema),
     ).toThrow('failed response_schema validation');
   });
 
@@ -67,9 +60,18 @@ describe('Claude worker structured output', () => {
     const instruction = sdkStructuredOutputRepairInstruction(
       new StructuredOutputValidationError('/version must be equal to constant'),
       { result: '{"version":1}' },
+      { type: 'object', properties: { version: { const: 2 } } },
     );
-    expect(instruction).toContain('complete schema object');
-    expect(instruction).toContain('Previous structured response:\n{"version":1}');
+    expect(instruction).toContain('"version":{"const":2}');
+    expect(instruction).toContain(
+      'Previous structured response:\n{"version":1}',
+    );
+  });
+
+  it('shows the exact response contract before local validation', () => {
+    expect(sdkResponseSchemaInstruction(schema)).toContain(
+      JSON.stringify(schema),
+    );
   });
 
   it('validates SDK structured output with AJV instead of trusting the provider flag', () => {

@@ -93,6 +93,8 @@ const ALLOWED_REQUEST_HEADERS = new Set([
 const ALLOWED_RESPONSE_HEADERS = new Set([
   'cache-control',
   'content-type',
+  'retry-after',
+  'retry-after-ms',
   'x-amzn-requestid',
   'x-amz-request-id',
   'x-goog-request-id',
@@ -188,6 +190,33 @@ export function assertRawGatewayPathIsConfined(rawUrl: string): void {
 
 export function shouldForwardGatewayResponseHeader(key: string): boolean {
   return ALLOWED_RESPONSE_HEADERS.has(key.toLowerCase());
+}
+
+export async function inferredRetryAfterMs(
+  response: Response,
+): Promise<number | undefined> {
+  if (
+    response.status !== 429 ||
+    response.headers.has('retry-after') ||
+    response.headers.has('retry-after-ms')
+  ) {
+    return undefined;
+  }
+  try {
+    const body = await response.clone().text();
+    const match = body.match(
+      /(?:please\s+)?try\s+again\s+in\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|seconds?)/iu,
+    );
+    if (!match) return undefined;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value) || value < 0) return undefined;
+    const milliseconds = /^ms|millisecond/iu.test(match[2] ?? '')
+      ? value
+      : value * 1_000;
+    return Math.min(60_000, Math.max(1, Math.ceil(milliseconds)));
+  } catch {
+    return undefined;
+  }
 }
 
 export async function pipeUpstreamBody(

@@ -191,11 +191,23 @@ function createBrowserIpcDeadline(
   timeoutMs: number | undefined,
   deadlineAtMs: number | undefined,
 ): BrowserIpcDeadline {
-  if (typeof deadlineAtMs === 'number' && Number.isFinite(deadlineAtMs)) {
-    return { deadlineAtMs: Math.trunc(deadlineAtMs) };
-  }
-  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs)) return {};
-  return { deadlineAtMs: nowMs() + Math.max(1, Math.trunc(timeoutMs)) };
+  const signedDeadline =
+    typeof deadlineAtMs === 'number' && Number.isFinite(deadlineAtMs)
+      ? Math.trunc(deadlineAtMs)
+      : undefined;
+  const actionDeadline =
+    typeof timeoutMs === 'number' && Number.isFinite(timeoutMs)
+      ? nowMs() + Math.max(1, Math.trunc(timeoutMs))
+      : undefined;
+  if (signedDeadline === undefined && actionDeadline === undefined) return {};
+  return {
+    deadlineAtMs:
+      signedDeadline === undefined
+        ? actionDeadline
+        : actionDeadline === undefined
+          ? signedDeadline
+          : Math.min(signedDeadline, actionDeadline),
+  };
 }
 
 function browserIpcRemainingMs(
@@ -413,14 +425,33 @@ async function handleBrowserToolActionInner(
     policy: context.browserPolicy,
   });
   markProfileTouched?.();
-  const result = await context.callBrowserTool({
-    toolName: request.action,
-    arguments: guardedPayload,
-    session,
-    fileAccessRoot,
-    timeoutMs: backendTimeoutMs,
-  });
+  let result: unknown;
+  try {
+    result = await context.callBrowserTool({
+      toolName: request.action,
+      arguments: guardedPayload,
+      session,
+      fileAccessRoot,
+      timeoutMs: backendTimeoutMs,
+    });
+  } catch (err) {
+    if (browserBackendTimedOut(err)) {
+      await closeBrowser(profileName);
+      await context.closeBrowserToolBackends?.(profileName);
+    }
+    throw err;
+  }
   return { ok: true, data: result };
+}
+
+function browserBackendTimedOut(err: unknown): boolean {
+  for (let current: unknown = err; current instanceof Error; ) {
+    if (current.message.includes('Browser backend timed out while running')) {
+      return true;
+    }
+    current = current.cause;
+  }
+  return false;
 }
 
 const RECIPE_BROWSER_INTENTS = new Set([
@@ -458,16 +489,16 @@ export function enforceBrowserMutationPolicy(input: {
 }): Record<string, unknown> {
   const { recipe_intent: rawIntent, ...payload } = input.payload;
   if (input.policy !== 'recipe_authoring') return payload;
-  if (RECIPE_FORBIDDEN_ACTIONS.has(input.action)) {
-    throw new Error(
-      `${input.action} is prohibited during website recipe authoring.`,
-    );
-  }
   if (
     input.publicToolName === 'browser_captcha_challenge' ||
     input.publicToolName === 'browser_captcha_settle'
   ) {
     return payload;
+  }
+  if (RECIPE_FORBIDDEN_ACTIONS.has(input.action)) {
+    throw new Error(
+      `${input.action} is prohibited during website recipe authoring.`,
+    );
   }
   const intent = typeof rawIntent === 'string' ? rawIntent.trim() : '';
   if (

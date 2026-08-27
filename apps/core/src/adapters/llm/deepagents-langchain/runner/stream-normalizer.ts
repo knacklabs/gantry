@@ -286,7 +286,7 @@ function numberField(
     : undefined;
 }
 
-function textFromChunk(chunk: unknown): string {
+export function textFromChunk(chunk: unknown): string {
   if (!chunk || typeof chunk !== 'object') return '';
   const record = chunk as {
     content?: unknown;

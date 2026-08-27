@@ -22,7 +22,10 @@ import {
   sanitizeBrowserTabsResult,
 } from '@core/adapters/browser/browser-direct-driver.js';
 import { normalizeBrowserToolResult } from '@core/adapters/browser/browser-result-hygiene.js';
-import { snapshotPage } from '@core/adapters/browser/browser-direct-page-actions.js';
+import {
+  resolveTargetLocator,
+  snapshotPage,
+} from '@core/adapters/browser/browser-direct-page-actions.js';
 
 const tempRoots: string[] = [];
 
@@ -186,6 +189,62 @@ afterEach(async () => {
 });
 
 describe('browser direct driver', () => {
+  it('resolves CSS targets inside child frames without falling back to text', async () => {
+    const frameLocator = {
+      count: vi.fn(async () => 1),
+      first: vi.fn(),
+    } as any;
+    frameLocator.first.mockReturnValue(frameLocator);
+    const frame = { locator: vi.fn(() => frameLocator) };
+    const { page } = createPage({});
+    page.frames = vi.fn(() => [frame]);
+
+    const result = await resolveTargetLocator(
+      page as never,
+      'img[src*="captcha" i]',
+    );
+
+    expect(result).toBe(frameLocator);
+    expect(frame.locator).toHaveBeenCalledWith('img[src*="captcha" i]');
+    expect(page.getByText).not.toHaveBeenCalled();
+  });
+
+  it('does not reinterpret a missing CSS selector as text', async () => {
+    const { page, locator } = createPage({});
+    locator.count.mockResolvedValue(0);
+    page.frames = vi.fn(() => []);
+
+    const result = await resolveTargetLocator(page as never, '#captcha-image');
+
+    expect(result).toBe(locator);
+    expect(page.getByText).not.toHaveBeenCalled();
+  });
+
+  it('fails targeted evaluation immediately when the target is absent', async () => {
+    const root = tempRoot();
+    const { page, locator } = createPage({
+      url: 'https://93.184.216.34/',
+    });
+    locator.count.mockResolvedValue(0);
+    const { browser } = createBrowser([page]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    await expect(
+      callBrowserTool({
+        toolName: 'evaluate',
+        arguments: {
+          target: '#protected-results',
+          function: '() => true',
+        },
+        session: session(),
+        fileAccessRoot: root,
+      }),
+    ).rejects.toThrow(
+      'Browser evaluate target was not found: #protected-results',
+    );
+    expect(locator.evaluate).not.toHaveBeenCalled();
+  });
+
   it('reuses one Playwright CDP connection across browser actions', async () => {
     const root = tempRoot();
     const { page } = createPage({ url: 'https://93.184.216.34/' });
@@ -214,6 +273,28 @@ describe('browser direct driver', () => {
     );
   });
 
+  it('resumes against a retained website tab instead of a bootstrap blank tab', async () => {
+    const root = tempRoot();
+    const { page: blank } = createPage({ url: 'about:blank', title: '' });
+    const { page: retained } = createPage({
+      url: 'https://93.184.216.34/protected',
+      title: 'Protected results',
+    });
+    const { browser } = createBrowser([blank, retained]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    const result = await callBrowserTool({
+      toolName: 'snapshot',
+      arguments: {},
+      session: session(),
+      fileAccessRoot: root,
+    });
+
+    expect(retained.evaluate).toHaveBeenCalled();
+    expect(blank.evaluate).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).toContain('https://93.184.216.34/protected');
+  });
+
   it('clears stale element refs before assigning refs for a new snapshot', async () => {
     const oldHidden = createDomElement({
       tagName: 'BUTTON',
@@ -225,6 +306,10 @@ describe('browser direct driver', () => {
       tagName: 'BUTTON',
       text: 'New visible button',
     });
+    const captchaImage = createDomElement({
+      tagName: 'IMG',
+      attributes: { alt: 'CAPTCHA challenge' },
+    });
     const originalDocument = (globalThis as any).document;
     const originalLocation = (globalThis as any).location;
     const page = {
@@ -235,7 +320,7 @@ describe('browser direct driver', () => {
           querySelectorAll: vi.fn((selector: string) =>
             selector === '[data-gantry-ref]'
               ? [oldHidden]
-              : [oldHidden, newVisible],
+              : [oldHidden, newVisible, captchaImage],
           ),
         };
         (globalThis as any).location = {
@@ -259,6 +344,7 @@ describe('browser direct driver', () => {
       'e1',
     );
     expect(output).toContain('- e1: button "New visible button"');
+    expect(output).toContain('- e2: img "CAPTCHA challenge"');
   });
 
   it('keeps a pending CDP connection shared after one caller times out', async () => {
@@ -299,6 +385,29 @@ describe('browser direct driver', () => {
       content: [{ type: 'text' }],
     });
     expect(browserMocks.connectOverCDP).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds CDP connection startup independently of the browser action timeout', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const pending = deferred<any>();
+    browserMocks.connectOverCDP.mockReturnValue(pending.promise);
+
+    const result = callBrowserTool({
+      toolName: 'snapshot',
+      arguments: {},
+      session: session(),
+      fileAccessRoot: tempRoot(),
+      timeoutMs: 120_000,
+    }).catch((err) => err);
+
+    await vi.advanceTimersByTimeAsync(10_001);
+
+    expect(await result).toMatchObject({
+      message: 'Browser connection startup timed out.',
+    });
+    pending.reject(new Error('CDP startup abandoned'));
+    await Promise.resolve();
   });
 
   it('only closes cached and pending direct connections for the requested profile', async () => {

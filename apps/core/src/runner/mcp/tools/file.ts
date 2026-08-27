@@ -18,7 +18,9 @@ const fileToolSchema = {
   scope: z
     .string()
     .optional()
-    .describe('Virtual file scope. Defaults to "default".'),
+    .describe(
+      'Virtual file scope. Defaults to the owning job scope for scheduled jobs, otherwise "default".',
+    ),
   path: z
     .string()
     .optional()
@@ -46,7 +48,9 @@ const fileToolSchema = {
   targetScope: z
     .string()
     .optional()
-    .describe('Target virtual scope for promote_scratch. Defaults to default.'),
+    .describe(
+      'Target virtual scope for promote_scratch. Defaults to the owning job scope for scheduled jobs, otherwise default.',
+    ),
   targetPath: z
     .string()
     .optional()

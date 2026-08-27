@@ -417,6 +417,8 @@ export async function startRuntimeServices(
       getSkillArtifactStore: resolved.getSkillArtifactStore,
       getToolRepository: resolved.getToolRepository,
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
+      getJobSemanticCheckpointRepository:
+        resolved.getJobSemanticCheckpointRepository,
       getBrowserStatus,
       openBrowserSession: (profileName) => ensureBrowserReady({ profileName }),
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,

@@ -123,11 +123,21 @@ function callerResolvedToolGuidance(agentInput: AgentInput): string {
     .filter((name) => /^[A-Za-z0-9_.-]+$/u.test(name));
   const allowSelectedMcpToolCalls =
     agentInput.callerResolvedTools?.allowSelectedMcpToolCalls === true;
+  const hasWebsiteRecipeEvaluator = agentInput.semanticCapabilities?.some(
+    (capability) =>
+      capability.capabilityId === 'manipal.website-recipe-evaluator' &&
+      capability.version === '1',
+  );
   if (toolNames.length === 0 && !allowSelectedMcpToolCalls) return '';
   return [
     '# Caller-resolved job tools',
     'The following exact names are direct Gantry host tools mounted for this job. Call them directly. Never pass them to mcp_call_tool, and never use MCP inventory or search tools to find them.',
     ...toolNames.map((name) => `- mcp__gantry__${name}`),
+    ...(hasWebsiteRecipeEvaluator
+      ? [
+          '- mcp__gantry__external_capability_call — submit the compiler-bound evaluator payload and suspend this job; call it directly, never through mcp_call_tool.',
+        ]
+      : []),
     ...(allowSelectedMcpToolCalls
       ? [
           '# Selected remote MCP call',

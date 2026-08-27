@@ -80,10 +80,14 @@ export function browserBackendActionSatisfiesGatewayActivity(input: {
     return BROWSER_ACT_BACKEND_ACTIONS.has(input.action);
   }
   if (input.publicToolName === 'browser_captcha_challenge') {
-    return input.action === 'snapshot' || input.action === 'screenshot';
+    return (
+      input.action === 'snapshot' ||
+      input.action === 'screenshot' ||
+      input.action === 'evaluate'
+    );
   }
   if (input.publicToolName === 'browser_captcha_settle') {
-    return ['snapshot', 'type', 'click'].includes(input.action);
+    return ['snapshot', 'type', 'click', 'evaluate'].includes(input.action);
   }
   return false;
 }

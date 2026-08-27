@@ -162,6 +162,30 @@ describe('compileSpawnSystemPrompt', () => {
     expect(prompt).not.toContain('mcp_describe_tool');
   });
 
+  it('names the durable evaluator handoff for recipe jobs', async () => {
+    const prompt = await compile({
+      agentInput: {
+        isScheduledJob: true,
+        semanticCapabilities: [
+          {
+            capabilityId: 'manipal.website-recipe-evaluator',
+            version: '1',
+          } as never,
+        ],
+        callerResolvedTools: {
+          sessionId: 'session-1',
+          tools: [],
+          maxInteractions: 20,
+          interactionTimeoutMs: 30_000,
+          allowSelectedMcpToolCalls: true,
+        },
+      },
+    });
+
+    expect(prompt).toContain('mcp__gantry__external_capability_call');
+    expect(prompt).toContain('call it directly, never through mcp_call_tool');
+  });
+
   it('threads the resolved capability catalog into the compiled profile', async () => {
     // Model behavioral-corpus coverage is intentionally deferred to the
     // separate evaluation; this unit test pins only prompt projection.

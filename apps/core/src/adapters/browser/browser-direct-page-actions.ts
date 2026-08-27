@@ -33,7 +33,7 @@ export async function snapshotPage(
     }
     const candidates = Array.from(
       doc.querySelectorAll(
-        'a,button,input,textarea,select,[role],[tabindex],[onclick]',
+        'a,button,input,textarea,select,img,canvas,svg,iframe,[role],[tabindex],[onclick]',
       ),
     ).filter((element: any) => {
       const rect = element.getBoundingClientRect();
@@ -49,6 +49,8 @@ export async function snapshotPage(
           element.innerText ||
           element.value ||
           element.getAttribute('title') ||
+          element.getAttribute('alt') ||
+          element.getAttribute('src') ||
           element.getAttribute('href') ||
           element.tagName.toLowerCase();
         return {
@@ -112,13 +114,23 @@ export async function resolveTargetLocator(
   page: Page,
   target: string,
 ): Promise<Locator> {
-  if (/^e\d+$/.test(target)) {
-    return page.locator(`[data-gantry-ref="${target}"]`).first();
+  const selector = /^e\d+$/.test(target)
+    ? `[data-gantry-ref="${target}"]`
+    : target;
+  const frames = typeof page.frames === 'function' ? page.frames() : [];
+  for (const frame of frames) {
+    const locator = frame.locator(selector).first();
+    if ((await locator.count().catch(() => 0)) > 0) return locator;
   }
-  const locator = page.locator(target).first();
-  const count = await locator.count().catch(() => 0);
-  if (count > 0) return locator;
+  const locator = page.locator(selector).first();
+  if ((await locator.count().catch(() => 0)) > 0 || looksLikeSelector(target)) {
+    return locator;
+  }
   return page.getByText(target).first();
+}
+
+function looksLikeSelector(target: string): boolean {
+  return /^e\d+$/.test(target) || /[#[\].,:>+~*=]/.test(target);
 }
 
 async function normalizedScreenshot(

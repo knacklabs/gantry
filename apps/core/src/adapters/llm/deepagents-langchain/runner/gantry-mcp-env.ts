@@ -8,10 +8,17 @@ import {
   callableAgentToolName,
   type CallableAgentToolManifestEntry,
 } from '../../../../application/core-tools/callable-agent-tools.js';
+import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 
 const BROWSER_GATEWAY_TOOL_NAME_SET = new Set<string>(
   GATED_GANTRY_MCP_TOOL_NAMES,
 );
+const RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES = [
+  'file',
+  'job_checkpoint_status',
+  'job_checkpoint_save',
+  'external_capability_call',
+] as const;
 
 // Builds the environment block the DeepAgents runner passes to the Gantry facade
 // MCP stdio server (apps/core/src/runner/mcp/stdio.js) when it spawns it through
@@ -28,6 +35,7 @@ export interface GantryMcpEnvInput {
   memoryBlock?: string;
   processEnv: NodeJS.ProcessEnv;
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
+  semanticCapabilities?: readonly SemanticCapabilityDefinition[];
 }
 
 export interface GantryMcpProjection {
@@ -85,14 +93,32 @@ export function buildGantryMcpProjection(
   const callerToolNames = callerResolvedToolNames(
     env.GANTRY_CALLER_RESOLVED_TOOLS_JSON,
   );
+  const semanticCapabilities =
+    input.semanticCapabilities ??
+    parseSemanticCapabilities(env.GANTRY_SEMANTIC_CAPABILITIES_JSON);
+  const recipeAuthoringToolNames = hasRecipeAuthoringCapability(
+    semanticCapabilities,
+  )
+    ? RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES
+    : [];
   const selectedToolNames = browserIpcEnabled
-    ? [...selectedToolNamesBase, ...callableAgentToolNames, ...callerToolNames]
+    ? [
+        ...new Set([
+          ...selectedToolNamesBase,
+          ...recipeAuthoringToolNames,
+          ...callableAgentToolNames,
+          ...callerToolNames,
+        ]),
+      ]
     : [
-        ...selectedToolNamesBase.filter(
-          (toolName) => !BROWSER_GATEWAY_TOOL_NAME_SET.has(toolName),
-        ),
-        ...callableAgentToolNames,
-        ...callerToolNames,
+        ...new Set([
+          ...selectedToolNamesBase.filter(
+            (toolName) => !BROWSER_GATEWAY_TOOL_NAME_SET.has(toolName),
+          ),
+          ...recipeAuthoringToolNames,
+          ...callableAgentToolNames,
+          ...callerToolNames,
+        ]),
       ];
 
   const memoryIpcActions = selectedMemoryIpcActions(
@@ -158,8 +184,7 @@ export function buildGantryMcpProjection(
       env.GANTRY_SELECTED_SKILL_DISPLAYS_JSON ?? '[]',
     GANTRY_SELECTED_MCP_SERVERS_JSON:
       env.GANTRY_SELECTED_MCP_SERVERS_JSON ?? '[]',
-    GANTRY_SEMANTIC_CAPABILITIES_JSON:
-      env.GANTRY_SEMANTIC_CAPABILITIES_JSON ?? '[]',
+    GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify(semanticCapabilities),
     GANTRY_ADMIN_MCP_TOOLS_JSON: env.GANTRY_ADMIN_MCP_TOOLS_JSON ?? '[]',
   };
 
@@ -189,6 +214,30 @@ function callerResolvedToolNames(raw: string | undefined): string[] {
   } catch {
     return [];
   }
+}
+
+function parseSemanticCapabilities(
+  raw: string | undefined,
+): SemanticCapabilityDefinition[] {
+  if (!raw?.trim()) return [];
+  try {
+    const capabilities = JSON.parse(raw) as unknown;
+    return Array.isArray(capabilities)
+      ? (capabilities as SemanticCapabilityDefinition[])
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function hasRecipeAuthoringCapability(
+  capabilities: readonly SemanticCapabilityDefinition[],
+): boolean {
+  return capabilities.some(
+    (capability) =>
+      capability.capabilityId === 'manipal.website-recipe-evaluator' &&
+      capability.version === '1',
+  );
 }
 
 function passthrough(

@@ -135,12 +135,13 @@ function readPendingPermissionRequests(
   let count = 0;
   for (const base of jsonFileBaseNames(requestsDir)) {
     if (respondedIds.has(base)) continue;
-    count += 1;
-    const toolName = readRequestToolName(
+    const request = readPermissionRequest(
       path.join(requestsDir, `${base}.json`),
       callableAgentToolNames,
     );
-    if (toolName) toolNames.add(toolName);
+    if (!request || request.runId !== agentInput.runId) continue;
+    count += 1;
+    if (request.toolName) toolNames.add(request.toolName);
   }
   return { count, toolNames: Array.from(toolNames) };
 }
@@ -156,10 +157,10 @@ function jsonFileBaseNames(dir: string): string[] {
   }
 }
 
-function readRequestToolName(
+function readPermissionRequest(
   file: string,
   callableAgentToolNames: ReadonlySet<string>,
-): string | undefined {
+): { runId?: string; toolName?: string } | undefined {
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     const payload =
@@ -167,10 +168,18 @@ function readRequestToolName(
         ? (raw as { payload?: unknown }).payload
         : raw;
     if (!payload || typeof payload !== 'object') return undefined;
-    const toolName = (payload as { toolName?: unknown }).toolName;
-    return typeof toolName === 'string'
-      ? canonicalCallableAgentToolName(toolName, callableAgentToolNames)
-      : undefined;
+    const value = payload as { runId?: unknown; toolName?: unknown };
+    return {
+      ...(typeof value.runId === 'string' ? { runId: value.runId } : {}),
+      ...(typeof value.toolName === 'string'
+        ? {
+            toolName: canonicalCallableAgentToolName(
+              value.toolName,
+              callableAgentToolNames,
+            ),
+          }
+        : {}),
+    };
   } catch {
     return undefined;
   }

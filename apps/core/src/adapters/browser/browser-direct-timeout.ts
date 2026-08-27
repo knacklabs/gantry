@@ -1,6 +1,6 @@
 import { nowMs } from '../../shared/time/datetime.js';
 
-export const BROWSER_ACTION_TIMEOUT_MS = 30_000;
+export const BROWSER_ACTION_TIMEOUT_MS = 120_000;
 
 const MIN_BROWSER_ACTION_TIMEOUT_MS = 1_000;
 const MAX_BROWSER_ACTION_TIMEOUT_MS = 120_000;

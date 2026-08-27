@@ -376,6 +376,10 @@ description: Use this skill for release notes.
         skills: ['/skills/'],
         permissions: [
           { operations: ['read'], paths: ['/skills', '/skills/**'] },
+          {
+            operations: ['read'],
+            paths: ['/large_tool_results', '/large_tool_results/**'],
+          },
           { operations: ['read', 'write'], paths: ['/**'], mode: 'deny' },
         ],
       }),

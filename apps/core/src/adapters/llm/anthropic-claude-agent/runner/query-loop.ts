@@ -65,6 +65,7 @@ import {
   isSdkStructuredOutputValidationFailure,
   sdkResultFailureMessage,
   sdkResultText,
+  sdkResponseSchemaInstruction,
   sdkStructuredOutputRepairInstruction,
   StructuredOutputValidationError,
   sdkStructuredOutputOptions,
@@ -190,7 +191,12 @@ export async function runQuery(
         };
       }
     : undefined;
-  stream.pushInitialPrompt(prompt, memoryBlock);
+  stream.pushInitialPrompt(
+    [prompt, sdkResponseSchemaInstruction(agentInput.responseSchema)]
+      .filter(Boolean)
+      .join('\n\n'),
+    memoryBlock,
+  );
   const boundedScheduledFollowups =
     agentInput.isScheduledJob === true &&
     Boolean(agentInput.completionGate || agentInput.responseSchema);
@@ -905,7 +911,11 @@ export async function runQuery(
               structuredResultValidated = false;
               continuedBySchemaRepair = true;
               steeringGate.accept(
-                sdkStructuredOutputRepairInstruction(error, message),
+                sdkStructuredOutputRepairInstruction(
+                  error,
+                  message,
+                  agentInput.responseSchema,
+                ),
               );
             } else {
               throw error;

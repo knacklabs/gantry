@@ -439,6 +439,12 @@ function asyncTaskFilterWhere(filter: Omit<AsyncTaskListFilter, 'limit'>) {
           filter.parentRunId,
         )
       : undefined,
+    filter.parentJobId !== undefined
+      ? nullableEq(
+          pgSchema.agentAsyncTasksPostgres.parentJobId,
+          filter.parentJobId,
+        )
+      : undefined,
     filter.parentTaskId !== undefined
       ? sql`${pgSchema.agentAsyncTasksPostgres.privateCorrelationJson}->>'parentTaskId' = ${filter.parentTaskId}`
       : undefined,

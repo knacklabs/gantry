@@ -1,5 +1,9 @@
 import type { RunnerSandboxResourceLimits } from '../shared/runner-sandbox-provider.js';
 import type { CallerResolvedToolsConfig } from '../domain/types.js';
+import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
+
+const WEBSITE_RECIPE_EVALUATOR_CAPABILITY_ID =
+  'manipal.website-recipe-evaluator';
 
 export interface AsyncCommandSandboxPolicy {
   appId: string;
@@ -19,6 +23,18 @@ export interface AsyncCommandSandboxPolicy {
 }
 
 const policies = new Map<string, AsyncCommandSandboxPolicy>();
+
+export function browserPolicyFromSemanticCapabilities(
+  semanticCapabilities: readonly SemanticCapabilityDefinition[] | undefined,
+): 'recipe_authoring' | undefined {
+  return semanticCapabilities?.some(
+    (capability) =>
+      capability.capabilityId === WEBSITE_RECIPE_EVALUATOR_CAPABILITY_ID &&
+      capability.version === '1',
+  )
+    ? 'recipe_authoring'
+    : undefined;
+}
 
 export function registerAsyncCommandSandboxPolicy(input: {
   sourceAgentFolder: string;

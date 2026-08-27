@@ -288,3 +288,45 @@ describe('finalizeSchedulerJobRun — transient permission approvals', () => {
     );
   });
 });
+
+describe('finalizeSchedulerJobRun — website recipe provider throttling', () => {
+  it('reschedules the same manual recipe job without consuming a fixed retry', async () => {
+    const { deps, updateJob } = makeDeps();
+    const state = await finalizeSchedulerJobRun({
+      currentJob: makeJob({
+        consecutive_failures: 7,
+        max_retries: 3,
+        retry_backoff_ms: 5_000,
+        agent_task: {
+          requiredSkill: {
+            name: 'manipal-tender-website-recipe',
+            contentHash: `sha256:${'a'.repeat(64)}`,
+          },
+        } as Job['agent_task'],
+      }),
+      deps,
+      scheduledFor: '2024-01-01T00:00:00.000Z',
+      now: '2024-01-01T00:00:01.000Z',
+      error: 'Rate limit reached for gpt-5.6-luna. Please try again shortly.',
+      diagnostics: createJobRunDiagnostics(),
+      pausedForSetupDuringRun: false,
+      deletedDuringRun: false,
+      runtimeAppId: 'default',
+      runId: 'run-rate-limited-recipe',
+      publishRuntimeEvent: vi.fn(async () => undefined),
+    });
+
+    expect(state.runStatus).toBe('paused');
+    expect(state.nextRun).toBe('2024-01-01T00:01:01.000Z');
+    expect(state.retryCount).toBe(7);
+    expect(state.incrementConsecutiveFailures).toBe(false);
+    expect(updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'active',
+        next_run: '2024-01-01T00:01:01.000Z',
+        consecutive_failures: 7,
+      }),
+    );
+  });
+});

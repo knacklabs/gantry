@@ -159,6 +159,7 @@ export interface AsyncTaskListFilter {
   providerAccountId?: string | null;
   threadId?: string | null;
   parentRunId?: string | null;
+  parentJobId?: string | null;
   parentTaskId?: string | null;
   statuses?: AsyncTaskStatus[];
   limit?: number;

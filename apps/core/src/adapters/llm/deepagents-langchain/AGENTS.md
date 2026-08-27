@@ -22,7 +22,12 @@ Model construction is **library-driven**, not env-sniffing. The host
 modelCredentialEnv). `runner/model-factory.ts` selects the LangChain class from the
 provider string:
 
-- OpenAI-compatible providers (`openai` + `groq`/`deepseek`/`xai`/`together`/
+- Native OpenAI uses the same `ChatOpenAI` construction with
+  `useResponsesApi: true` and `zdrEnabled: true`. It posts to
+  `<gateway>/v1/responses`, allowing reasoning and tools together while
+  forcing `store: false`; Gantry checkpoints, not provider response IDs, own
+  durable context.
+- Other OpenAI-compatible providers (`groq`/`deepseek`/`xai`/`together`/
   `fireworks`/`cerebras`/`perplexity`/`gemini`/`bedrock`/`vertex`):
   `await initChatModel("openai:<id>", { apiKey, configuration: { baseURL }, streamUsage: true })`.
   The class prefix is **always** `openai:` (ChatOpenAI) — these hit OUR loopback

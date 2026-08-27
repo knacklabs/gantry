@@ -10,6 +10,7 @@ import {
   normalizeFileArtifactPath,
   normalizeFileArtifactScope,
 } from '../domain/file-artifacts/virtual-path.js';
+import { jobArtifactScope } from '../domain/ports/job-semantic-checkpoints.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { readWorkspaceMessageAttachment } from '../platform/workspace-message-attachment.js';
 import { sourceAgentHasAdminToolCapability } from './ipc-admin-authorization.js';
@@ -163,7 +164,7 @@ const fileArtifactHandler: TaskHandler = async (context) => {
     if (action === 'write') {
       const virtualPath = normalizeFileArtifactPath(String(payload.path || ''));
       const virtualScope = normalizeFileArtifactScope(
-        String(payload.scope || 'default'),
+        String(payload.scope || defaultFileArtifactScope(context)),
       );
       if (
         !(await authorizeProtectedPromptMutation(
@@ -203,7 +204,7 @@ const fileArtifactHandler: TaskHandler = async (context) => {
       String(payload.targetPath || ''),
     );
     const targetScope = normalizeFileArtifactScope(
-      String(payload.targetScope || 'default'),
+      String(payload.targetScope || defaultFileArtifactScope(context)),
     );
     if (
       !(await authorizeProtectedPromptMutation(
@@ -237,6 +238,12 @@ const fileArtifactHandler: TaskHandler = async (context) => {
 export const fileArtifactTaskHandlers: Record<string, TaskHandler> = {
   file_artifact: fileArtifactHandler,
 };
+
+function defaultFileArtifactScope(context: TaskContext): string {
+  return context.data.sourceRunKind === 'scheduled' && context.data.sourceJobId
+    ? jobArtifactScope(context.data.sourceJobId)
+    : 'default';
+}
 
 function validateSameChannelTarget(input: {
   context: TaskContext;

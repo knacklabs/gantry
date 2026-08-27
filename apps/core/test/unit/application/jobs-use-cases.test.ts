@@ -132,14 +132,177 @@ describe('job application use cases', () => {
       runtimeJobSchedulePlanner,
       clock,
     );
-    expect(extended.agent_task?.executionPolicy.totalTimeoutMs).toBe(14_400_000);
+    expect(extended.agent_task?.executionPolicy.totalTimeoutMs).toBe(
+      14_400_000,
+    );
     const replayed = buildJobUpdates(
       { ...job, ...extended },
       { minimumTotalRuntimeMs: 14_400_000 },
       runtimeJobSchedulePlanner,
       clock,
     );
-    expect(replayed.agent_task?.executionPolicy.totalTimeoutMs).toBe(14_400_000);
+    expect(replayed.agent_task?.executionPolicy.totalTimeoutMs).toBe(
+      14_400_000,
+    );
+  });
+
+  it('grants a minimum remaining runtime window when resuming a durable job', () => {
+    const job = makeJob({
+      timeout_ms: 7_200_000,
+      agent_task: {
+        executionPolicy: { totalTimeoutMs: 7_200_000 },
+      },
+    });
+    const updates = buildJobUpdates(
+      job,
+      { minimumRemainingRuntimeMs: 7_200_000 },
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+      7_100_000,
+    );
+
+    expect(updates.timeout_ms).toBe(7_200_000);
+    expect(updates.agent_task?.executionPolicy.totalTimeoutMs).toBe(14_300_000);
+  });
+
+  it('rejects a remaining-runtime extension beyond the cumulative ceiling', () => {
+    const job = makeJob({
+      timeout_ms: 86_400_000,
+      agent_task: { executionPolicy: { totalTimeoutMs: 86_400_000 } },
+    });
+    expect(() =>
+      buildJobUpdates(
+        job,
+        { minimumRemainingRuntimeMs: 86_400_000 },
+        runtimeJobSchedulePlanner,
+        { now: () => '2026-05-15T00:00:00.000Z' },
+        1,
+      ),
+    ).toThrow('24-hour cumulative runtime ceiling');
+  });
+
+  it('restores a missing legacy agent task before applying resume extensions', () => {
+    const restoredTask = {
+      responseSchema: { type: 'object' as const },
+      executionPolicy: { totalTimeoutMs: 7_200_000 },
+      browserAllowedNetworkHosts: ['eprocure.gov.in'],
+    };
+    const updates = buildJobUpdates(
+      makeJob({ agent_task: undefined, timeout_ms: 300_000 }),
+      {
+        restoreAgentTaskIfMissing: restoredTask,
+        minimumRemainingRuntimeMs: 7_200_000,
+        addBrowserAllowedNetworkHosts: ['www.eprocure.gov.in'],
+      },
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+      90_000,
+    );
+
+    expect(updates.timeout_ms).toBe(7_200_000);
+    expect(updates.agent_task).toMatchObject({
+      responseSchema: { type: 'object' },
+      executionPolicy: { totalTimeoutMs: 7_290_000 },
+      browserAllowedNetworkHosts: ['eprocure.gov.in', 'www.eprocure.gov.in'],
+    });
+  });
+
+  it('does not replace an existing agent task during legacy recovery', () => {
+    const updates = buildJobUpdates(
+      makeJob({
+        agent_task: {
+          responseSchema: { type: 'string' },
+          executionPolicy: { totalTimeoutMs: 7_200_000 },
+        },
+      }),
+      {
+        restoreAgentTaskIfMissing: {
+          responseSchema: { type: 'object' },
+          executionPolicy: { totalTimeoutMs: 30_000 },
+        },
+      },
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+    );
+
+    expect(updates.agent_task).toBeUndefined();
+  });
+
+  it('re-pins a durable agent job while preserving its execution policy', () => {
+    const job = makeJob({
+      agent_task: {
+        executionPolicy: { totalTimeoutMs: 7_200_000 },
+        requiredSkill: { name: 'website-recipe', contentHash: 'sha256:old' },
+      },
+    });
+    const updates = buildJobUpdates(
+      job,
+      {
+        minimumTotalRuntimeMs: 14_400_000,
+        requiredSkill: {
+          name: 'website-recipe',
+          contentHash: 'sha256:reviewed',
+        },
+      },
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+    );
+
+    expect(updates.agent_task).toEqual({
+      executionPolicy: { totalTimeoutMs: 14_400_000 },
+      requiredSkill: {
+        name: 'website-recipe',
+        contentHash: 'sha256:reviewed',
+      },
+    });
+  });
+
+  it('monotonically adds approved browser hosts while preserving the agent task', () => {
+    const job = makeJob({
+      agent_task: {
+        executionPolicy: { totalTimeoutMs: 7_200_000 },
+        browserAllowedNetworkHosts: ['www.meghalaya.gov.in'],
+      },
+    });
+    const updates = buildJobUpdates(
+      job,
+      {
+        addBrowserAllowedNetworkHosts: ['megsports.gov.in', 'MEGSPORTS.GOV.IN'],
+      },
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+    );
+    expect(updates.agent_task?.browserAllowedNetworkHosts).toEqual([
+      'www.meghalaya.gov.in',
+      'megsports.gov.in',
+    ]);
+  });
+
+  it('refreshes the reviewed caller-tool schema without replacing other agent policy', () => {
+    const callerResolvedTools = {
+      tools: [
+        {
+          name: 'request_human',
+          description: 'Request reviewed input.',
+          inputSchema: { type: 'object' },
+        },
+      ],
+      maxInteractions: 8,
+      interactionTimeoutMs: 60_000,
+    };
+    const job = makeJob({
+      agent_task: { executionPolicy: { totalTimeoutMs: 7_200_000 } },
+    });
+    const updates = buildJobUpdates(
+      job,
+      { callerResolvedTools },
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+    );
+    expect(updates.agent_task).toEqual({
+      executionPolicy: { totalTimeoutMs: 7_200_000 },
+      callerResolvedTools,
+    });
   });
 
   it('persists managed app jobs with their canonical app session id', async () => {

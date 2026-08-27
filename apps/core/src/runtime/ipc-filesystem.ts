@@ -14,6 +14,8 @@ import { IPC_WORKSPACE_SUBDIRS } from './agent-spawn-layout.js';
 const IPC_ERROR_ARCHIVE_TTL_MS = 30 * 24 * 60 * 60_000;
 const IPC_ERROR_ARCHIVE_SWEEP_INTERVAL_MS = 60_000;
 const IPC_ERROR_ARCHIVE_MAX_ENTRIES = 500;
+// Keep the complete path below legacy Windows MAX_PATH in ordinary temp/data
+// roots while remaining comfortably below POSIX NAME_MAX.
 const IPC_ERROR_ARCHIVE_NAME_MAX_BYTES = 255;
 const IPC_ERROR_ARCHIVE_NAME_PATTERN =
   /^(\d+)-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}-.+$/i;
@@ -119,9 +121,11 @@ export function archiveIpcErrorFile(
 
 function pruneExpiredIpcErrorArchives(errorDir: string): void {
   const sweptAt = nowMs();
+  const elapsedSinceSweep = sweptAt - lastIpcErrorArchiveSweepAt;
   if (
     ipcErrorArchivesSinceLastCompletedSweep < IPC_ERROR_ARCHIVE_MAX_ENTRIES &&
-    sweptAt - lastIpcErrorArchiveSweepAt < IPC_ERROR_ARCHIVE_SWEEP_INTERVAL_MS
+    elapsedSinceSweep >= 0 &&
+    elapsedSinceSweep < IPC_ERROR_ARCHIVE_SWEEP_INTERVAL_MS
   ) {
     return;
   }
@@ -156,7 +160,7 @@ function pruneExpiredIpcErrorArchives(errorDir: string): void {
 
   function removeArchive(name: string): void {
     try {
-      fs.rmSync(path.join(errorDir, name));
+      fs.unlinkSync(path.join(errorDir, name));
     } catch (err) {
       const code =
         err && typeof err === 'object' && 'code' in err
@@ -203,6 +207,16 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+function linuxProcessStartedAtMs(pid: number): number | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    // procfs directory ctime is the kernel-observed process creation time.
+    return fs.statSync(`/proc/${pid}`).ctimeMs;
+  } catch {
+    return null;
+  }
+}
+
 export function recoverStaleIpcRootLock(
   lockPath: string,
 ): IpcRootLockDetails & { recovered: boolean; recoveryReason?: string } {
@@ -228,6 +242,17 @@ export function recoverStaleIpcRootLock(
     return removeStaleIpcRootLock(lockPath, details, 'pid_reused');
   }
   if (isProcessAlive(details.pid)) {
+    const lockStartedAt = details.startedAt
+      ? Date.parse(details.startedAt)
+      : Number.NaN;
+    const holderStartedAt = linuxProcessStartedAtMs(details.pid);
+    if (
+      Number.isFinite(lockStartedAt) &&
+      holderStartedAt !== null &&
+      lockStartedAt < holderStartedAt - 1_000
+    ) {
+      return removeStaleIpcRootLock(lockPath, details, 'pid_reused');
+    }
     return { ...details, recovered: false, recoveryReason: 'pid_alive' };
   }
   return removeStaleIpcRootLock(lockPath, details, 'pid_not_running');

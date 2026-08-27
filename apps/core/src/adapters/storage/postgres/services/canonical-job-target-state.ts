@@ -86,6 +86,7 @@ function normalizeRequirementType(
   return value === 'tool' ||
     value === 'semantic_capability' ||
     value === 'browser' ||
+    value === 'skill' ||
     value === 'mcp_server' ||
     value === 'credential' ||
     value === 'local_cli'

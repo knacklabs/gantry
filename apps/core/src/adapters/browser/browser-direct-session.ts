@@ -9,6 +9,7 @@ import {
 import { nowMs, toIso } from '../../shared/time/datetime.js';
 
 const BROWSER_CONNECTION_IDLE_MS = 120_000;
+const BROWSER_CONNECTION_STARTUP_TIMEOUT_MS = 10_000;
 
 interface BrowserConsoleEntry {
   type: string;
@@ -73,7 +74,10 @@ export async function getBrowserConnection(input: {
   if (pending) {
     return await input.withTimeout(
       pending.promise,
-      input.remainingMs(input.deadline),
+      Math.min(
+        BROWSER_CONNECTION_STARTUP_TIMEOUT_MS,
+        input.remainingMs(input.deadline),
+      ),
       'Browser connection startup timed out.',
     );
   }
@@ -103,7 +107,10 @@ export async function getBrowserConnection(input: {
   pendingConnections.set(input.key, pendingEntry);
   return await input.withTimeout(
     pendingEntry.promise,
-    input.remainingMs(input.deadline),
+    Math.min(
+      BROWSER_CONNECTION_STARTUP_TIMEOUT_MS,
+      input.remainingMs(input.deadline),
+    ),
     'Browser connection startup timed out.',
   );
 }

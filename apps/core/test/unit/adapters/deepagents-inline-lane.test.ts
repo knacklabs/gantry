@@ -502,6 +502,10 @@ Always mention the migration impact.
       expect.objectContaining({
         permissions: [
           { operations: ['read'], paths: ['/skills', '/skills/**'] },
+          {
+            operations: ['read'],
+            paths: ['/large_tool_results', '/large_tool_results/**'],
+          },
           { operations: ['read', 'write'], paths: ['/**'], mode: 'deny' },
         ],
         middleware: expect.arrayContaining([
