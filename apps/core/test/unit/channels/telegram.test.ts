@@ -3062,25 +3062,26 @@ describe('TelegramChannel', () => {
           actionToken: `jp:abcdef012345abcdef012345:${revision.toString(36)}:0:d`,
         },
       ];
+      const curlRow = 'Run command: curl -s https://api.ashbyhq.com/*';
 
       const first = await channel.sendMessage(
         'tg:100200300',
-        'Permissions needed for this job\nLead maintenance needs RunCommand(task *)',
+        `Permissions needed for this job\n${curlRow}`,
         { actionAffordances: actionsFor(1) },
       );
       const duplicate = await channel.sendMessage(
         'tg:100200300',
-        'Permissions needed for this job\nLead maintenance needs RunCommand(task *)',
+        `Permissions needed for this job\n${curlRow}`,
         { actionAffordances: actionsFor(1) },
       );
       const second = await channel.sendMessage(
         'tg:100200300',
-        'Permissions needed for this job\nLead maintenance and reporting need RunCommand(task *)',
+        `Permissions needed for this job\n${curlRow}\nRun command: true`,
         { actionAffordances: actionsFor(2) },
       );
       const third = await channel.sendMessage(
         'tg:100200300',
-        'Permissions needed for this job\nLead maintenance, reporting, and cleanup need RunCommand(task *)',
+        `Permissions needed for this job\n${curlRow}\nRun command: true\nRun command: pwd`,
         { actionAffordances: actionsFor(3) },
       );
 
@@ -3098,8 +3099,7 @@ describe('TelegramChannel', () => {
         currentBot().api.sendMessage.mock.calls[0]!;
       expect(chatId).toBe('100200300');
       expect(sentText).toContain('This job needs your approval.');
-      expect(sentText).toContain('run command access');
-      expect(sentText).not.toContain('RunCommand(');
+      expect(sentText).toContain(curlRow);
       expect(sentOptions).toEqual(
         expect.objectContaining({
           reply_markup: {

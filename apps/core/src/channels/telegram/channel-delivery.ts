@@ -776,12 +776,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
 
 function humanizeJobPermissionCardText(text: string): string {
   return escapeTelegramHtml(
-    text
-      .replace(
-        /^Permissions needed for this job\s*$/im,
-        'This job needs your approval.',
-      )
-      .replace(/\bRunCommand\([^\n)]*\)/g, 'run command access')
-      .replace(/\bRunCommand\b/g, 'Run command'),
+    text.replace(
+      /^Permissions needed for this job\s*$/im,
+      'This job needs your approval.',
+    ),
   );
 }
