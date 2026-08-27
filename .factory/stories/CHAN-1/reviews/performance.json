@@ -3,15 +3,16 @@
   "score": 10,
   "recommendation": "approve",
   "reviewed_scope": [
+    "apps/core/src/channels/discord/",
     "apps/core/src/channels/teams/",
-    "apps/core/test/unit/channels/teams/",
     "apps/core/src/channels/",
+    "apps/core/test/unit/channels/",
     "scripts/architecture-map.json",
     "docs/architecture/"
   ],
-  "summary": "No runtime change. CHAN-1-T2 at abae435cf: 22 Teams src files + 2 tests moved to channels/teams/ (24 renames), 18 import/doc edits; no symbol renames, no logic change. Story-level proof: zero old-prefix imports for Discord or Teams; unit lane 679/9050; Postgres integration lane 62 files / 377 passed; tsc; check:architecture; autoreview 2 chunks, 1 finding rejected on evidence (helper path resolves; suite passes).",
+  "summary": "No runtime change. CHAN-1 story at 375ca5e99 vs origin/main: 63 renames (Discord 39, Teams 24) plus import/map/doc path edits; no symbol renames, no logic change. Proof: unit lane 679/9050, Postgres lane 62/377, tsc, check:architecture, zero old-prefix imports; verify.py passed; branch autoreview clean across 5 chunks (2.0 MB bundle).",
   "residual_risks": [
-    "None"
+    "None \u2014 layout only"
   ],
   "blocking_findings": [],
   "non_blocking_findings": [],
@@ -46,6 +47,6 @@
   "review_run_id": "64180f03dd468e9616832cfa5b30f5fb3f6620de5b7b364ea85e917a48ada995",
   "brief_sha256": "64769ce06b54cd7621940eebccedeaecbaa3d4ef6e2af0fdd486faf1b14d8001",
   "branch_diff_digest": "d57f352e6dd2cc6d08b9cf97ed7040ad00a151adb327f540ab67cca208be394b",
-  "recorded_at": "2026-08-27T10:56:22+00:00",
-  "commit": "5ba66770874c8eb0127600e15a54274742d86a66"
+  "recorded_at": "2026-08-27T11:07:26+00:00",
+  "commit": "375ca5e99f89bcb2777bbfc00ea66cb12604799f"
 }

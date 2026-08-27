@@ -1,0 +1,39 @@
+{
+  "commit": "375ca5e99f89bcb2777bbfc00ea66cb12604799f",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "At HEAD 375ca5e99: CHAN-1 T1 (Discord, 39 renames) and T2 (Teams, 24 renames) complete. Full unit lane 679 files / 9,050 tests; Postgres integration lane 62 files / 377 passed, 1 skipped; npx tsc --noEmit clean; npm run check:architecture passed; zero old-prefix imports (channels/discord-, channels/teams-, './discord-', './teams-') across apps/core/src, apps/core/test, scripts. Required tests ran under stage done for both tasks.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npx vitest run -c vitest.unit.config.ts",
+      "npm run test:integration:postgres",
+      "npx tsc --noEmit",
+      "npm run check:architecture",
+      "grep -rn old-prefix patterns (0 hits)"
+    ],
+    "pass_fail_summary": "unit 9050/9050; postgres integration 377/377 (1 skipped); tsc 0; architecture pass",
+    "tests_added_or_updated": [
+      "apps/core/test/unit/channels/discord/ (5 files moved)",
+      "apps/core/test/unit/channels/teams/ (2 files moved)",
+      "apps/core/test/unit/channels/*.test.ts importers updated"
+    ],
+    "remaining_gaps": [],
+    "reviewed_scope": [
+      "apps/core/src/channels/discord/",
+      "apps/core/src/channels/teams/",
+      "apps/core/test/unit/channels/",
+      "scripts/architecture-map.json",
+      "docs/architecture/"
+    ],
+    "skills_used": [],
+    "non_blocking_findings": [],
+    "residual_risks": [
+      "None \u2014 layout only"
+    ],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-27T10:57:33+00:00",
+    "commit": "375ca5e99f89bcb2777bbfc00ea66cb12604799f"
+  },
+  "updated_at": "2026-08-27T10:57:33+00:00"
+}
