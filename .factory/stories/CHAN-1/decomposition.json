@@ -13,6 +13,21 @@
       "id": "CHAN-1-AC4",
       "statement": "Lands after PR #444 (JOBPERM-1) merges; branch rebased on main at that point",
       "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-1-AC1-T",
+      "statement": "apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts (prefix dropped; teams.ts becomes teams/index.ts) \u2014 the Teams half of story AC1",
+      "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-1-AC2",
+      "statement": "All imports rewritten; no file left at the channels root for Discord or Teams; unit tests for both providers moved under their provider folder or updated in place",
+      "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-1-AC3",
+      "statement": "No behaviour change: tsc, architecture budgets (paths updated), unit + Postgres integration lanes green; diff consists of renames and import-path edits only",
+      "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
     }
   ],
   "tasks": [
@@ -76,19 +91,66 @@
       "title": "Teams adapter moves to channels/teams/",
       "objective": "git mv every apps/core/src/channels/teams-*.ts (22 files) to apps/core/src/channels/teams/<name>.ts with the prefix dropped (teams.ts becomes teams/index.ts); rewrite sibling and parent relative imports inside the folder, the 14 importers elsewhere in apps/core/src, and the teams unit tests, which move to apps/core/test/unit/channels/teams/; re-point architecture-budget paths. No symbol renames, no behaviour change.",
       "acceptance_criteria": [
-        "No apps/core/src/channels/teams-*.ts remains; grep for 'channels/teams-' and \"'./teams-\" returns 0 hits",
-        "tsc --noEmit and npm run check:architecture pass",
-        "teams unit tests pass from their new folder; full unit lane green",
-        "git diff -M shows renames (>=90% similarity) plus import-path-only edits"
+        "apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts (prefix dropped; teams.ts becomes teams/index.ts) \u2014 the Teams half of story AC1",
+        "All imports rewritten; no file left at the channels root for Discord or Teams; unit tests for both providers moved under their provider folder or updated in place",
+        "No behaviour change: tsc, architecture budgets (paths updated), unit + Postgres integration lanes green; diff consists of renames and import-path edits only"
       ],
       "user_facing": false,
       "depends_on": [
         "CHAN-1-T1"
-      ]
+      ],
+      "write_scope": [
+        "apps/core/src/channels/teams/",
+        "apps/core/src/channels/",
+        "apps/core/src/",
+        "apps/core/test/unit/channels/",
+        "apps/core/test/",
+        "scripts/architecture-map.json",
+        "docs/"
+      ],
+      "required_tests": [
+        {
+          "id": "stubs all attachment lines when files are present",
+          "path": "apps/core/test/unit/channels/teams/teams.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "plan_contracts": [
+        {
+          "id": "CHAN-1-AC1-T",
+          "statement": "apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts (prefix dropped; teams.ts becomes teams/index.ts) \u2014 the Teams half of story AC1",
+          "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+        },
+        {
+          "id": "CHAN-1-AC2",
+          "statement": "All imports rewritten; no file left at the channels root for Discord or Teams; unit tests for both providers moved under their provider folder or updated in place",
+          "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+        },
+        {
+          "id": "CHAN-1-AC3",
+          "statement": "No behaviour change: tsc, architecture budgets (paths updated), unit + Postgres integration lanes green; diff consists of renames and import-path edits only",
+          "source": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md#acceptance-criteria"
+        }
+      ],
+      "reviewer_focus": [
+        "renames only (git diff -M)",
+        "every import resolves (tsc) and the old-prefix grep is zero",
+        "architecture-map path entries re-pointed, none dropped",
+        "no exported symbol renamed, no behaviour change"
+      ],
+      "review_budget": {
+        "max_changed_files": 80,
+        "max_changed_lines": 1200,
+        "reason": "Mechanical folder move; the harness counts each git rename as two files (22 src + ~2 tests = ~48) plus ~15 import/doc/map edits. Renames and import-path edits only."
+      }
     }
   ],
   "project": "",
   "plan_file": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md",
   "plan_sha256": "097ae733f3e917f5174c2bb272024d383c4b77c353ff6174176f3af27b148aab",
-  "commit": "7e8b2494db5c6af3df0810307623c7603379ad0e"
+  "commit": "891a55591aadec6bbad9eec583a8ce61d63303ed"
 }

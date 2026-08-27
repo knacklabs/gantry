@@ -1,0 +1,76 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "CHAN-1-T2",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "inspected_refs": [
+    "apps/core/src/channels/teams.ts",
+    "apps/core/src/channels/teams-delivery.ts",
+    "apps/core/src/channels/teams-cards.ts",
+    "apps/core/src/channels/slack",
+    "apps/core/src/channels/telegram",
+    "apps/core/test/unit/channels/teams.test.ts",
+    "scripts/architecture-map.json"
+  ],
+  "current_flow": "Teams adapter modules are flat prefix-named files at the channels root importing each other via ./teams-<x>.js and shared channel modules via ./<shared>.js; the provider entry is channels/teams.ts; external code imports channels/teams-<x>.js.",
+  "criteria_map": {
+    "apps/core/src/channels/teams-*.ts moved to apps/core/src/channels/teams/*.ts (prefix dropped; teams.ts becomes teams/index.ts) \u2014 the Teams half of story AC1": "steps 1-3, 5 (git mv, in-folder + external import rewrite, architecture-map paths)",
+    "All imports rewritten; no file left at the channels root for Discord or Teams; unit tests for both providers moved under their provider folder or updated in place": "steps 2-4 for Teams plus the T1 Discord result already on the branch; step 6 zero-hit grep covers both providers",
+    "No behaviour change: tsc, architecture budgets (paths updated), unit + Postgres integration lanes green; diff consists of renames and import-path edits only": "step 6: tsc, check:architecture, unit lane, Postgres integration lane; diff reviewed with git diff -M"
+  },
+  "decision": "keep",
+  "new_abstractions": [],
+  "rounds": [
+    {
+      "question": "Entry module naming?",
+      "options": [
+        "teams/teams.ts",
+        "teams/index.ts"
+      ],
+      "chosen": "teams/index.ts"
+    },
+    {
+      "question": "Tests move or stay?",
+      "options": [
+        "stay flat, fix imports",
+        "move under test/unit/channels/teams/"
+      ],
+      "chosen": "move under test/unit/channels/teams/"
+    },
+    {
+      "question": "How are path strings tsc cannot see caught?",
+      "options": [
+        "trust tsc only",
+        "zero-hit grep for old prefixes in src and test"
+      ],
+      "chosen": "zero-hit grep for old prefixes in src and test"
+    },
+    {
+      "question": "Any behaviour change allowed?",
+      "options": [
+        "opportunistic cleanups",
+        "none"
+      ],
+      "chosen": "none"
+    }
+  ],
+  "gaps": [
+    "vi.mock path strings and dynamic import() paths are invisible to tsc \u2014 covered by the zero-hit grep in verify."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Renames via git mv so history and review (-M) stay intact.",
+    "Story-level AC2/AC3 close on T2 because it is the last move."
+  ],
+  "citations": [
+    {
+      "finding": "vi.mock path strings and dynamic import() paths are invisible to tsc \u2014 covered by the zero-hit grep in verify.",
+      "source": "apps/core/test/unit/channels/teams.test.ts (vi.mock by module path); verify step 6 in /tmp/chan1/T2.md"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "8dd113d4718f007dd2593766dbe6719ae8520afce17d11331f2df7e3d5fe3e08",
+  "recorded_at": "2026-08-27T10:25:52+00:00",
+  "commit": "891a55591aadec6bbad9eec583a8ce61d63303ed"
+}
