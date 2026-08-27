@@ -51,7 +51,6 @@ import type {
   ControlRouteContext,
   ControlServerState,
 } from './handler-context.js';
-import { sendError } from './http.js';
 import {
   apiRequestHasSessionCookie,
   browserRequestHasBearer,
@@ -110,61 +109,15 @@ import { nowIso } from '../../shared/time/datetime.js';
 import { subscribeWebhookDeliveryReady } from '../../application/runtime-events/webhook-delivery-wakeup.js';
 import { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
 import { adaptSessionControlPort } from './session-control-port.js';
+import {
+  isControlClientDisconnectError,
+  logControlStreamError,
+  sendControlError,
+  applyControlSocketMode,
+} from './control-server-errors.js';
 
 export interface ControlServerHandle {
   close: () => Promise<void>;
-}
-
-function applyControlSocketMode(
-  socketPath: string,
-  server: Pick<http.Server, 'close'>,
-): boolean {
-  try {
-    fs.chmodSync(socketPath, 0o600);
-    return true;
-  } catch (error) {
-    logger.error(
-      { err: error, socketPath },
-      'Failed to set control socket mode to 0600; closing control server',
-    );
-    server.close();
-    return false;
-  }
-}
-
-function getErrorCode(error: unknown): string | undefined {
-  if (!error || typeof error !== 'object' || !('code' in error)) {
-    return undefined;
-  }
-  const code = error.code;
-  return typeof code === 'string' ? code : undefined;
-}
-
-function isControlClientDisconnectError(error: unknown): boolean {
-  const code = getErrorCode(error);
-  return (
-    code === 'ECONNRESET' ||
-    code === 'EPIPE' ||
-    code === 'ERR_STREAM_PREMATURE_CLOSE'
-  );
-}
-
-function logControlStreamError(error: unknown, path: string): void {
-  if (isControlClientDisconnectError(error)) {
-    logger.debug({ err: error, path }, 'Control client disconnected');
-    return;
-  }
-  logger.warn({ err: error, path }, 'Control request stream error');
-}
-
-function sendControlError(
-  res: http.ServerResponse,
-  status: number,
-  code: string,
-  message: string,
-): void {
-  if (res.destroyed || res.writableEnded) return;
-  sendError(res, status, code, message);
 }
 
 function createControlRequestHandler(

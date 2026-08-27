@@ -11,57 +11,79 @@ const source = fs.readFileSync(
   path.join(repoRoot, 'apps/core/src/control/server/routes/browser-agents.ts'),
   'utf8',
 );
+const helpers = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'apps/core/src/control/server/routes/browser-agents-helpers.ts',
+  ),
+  'utf8',
+);
+const agentRouteSource = `${source}\n${helpers}`;
 
 it('paginates app-scoped directory results and rejects cross-app access', () => {
   expect(isBrowserAgentsPath('/ui/api/agents')).toBe(true);
   expect(isBrowserAgentsPath('/ui/api/roles/custom-role:one')).toBe(true);
   expect(isBrowserAgentsPath('/ui/api/agent-models')).toBe(true);
-  expect(source).toContain('function page<T>');
-  expect(source).toContain('Math.min(\n    100,');
-  expect(source).toContain('listAgents(appId)');
-  expect(source).toContain('listCustomRoles(appId)');
-  expect(source).toContain('retainedAgentCounts(');
-  expect(source).toContain("kind === 'built-in'");
-  expect(source).toContain('retainedAgentCount: counts.get(role.id) ?? 0');
-  expect(source).toContain('data: items.slice');
-  expect(source).toContain('hasNext: end < total');
-  expect(source).toContain("builtInRolePrompt(persona, 'full')");
-  expect(source).toContain('listConversationInstalls(');
-  expect(source).toContain(
+  expect(agentRouteSource).toContain('function page<T>');
+  expect(agentRouteSource).toContain('Math.min(\n    100,');
+  expect(agentRouteSource).toContain('listAgents(appId)');
+  expect(agentRouteSource).toContain('listCustomRoles(appId)');
+  expect(agentRouteSource).toContain('retainedAgentCounts(');
+  expect(agentRouteSource).toContain("kind === 'built-in'");
+  expect(agentRouteSource).toContain(
+    'retainedAgentCount: counts.get(role.id) ?? 0',
+  );
+  expect(agentRouteSource).toContain('data: items.slice');
+  expect(agentRouteSource).toContain('hasNext: end < total');
+  expect(agentRouteSource).toContain("builtInRolePrompt(persona, 'full')");
+  expect(agentRouteSource).toContain('listConversationInstalls(');
+  expect(agentRouteSource).toContain(
     'roleId: config?.roleSnapshot?.sourceRoleId ?? null',
   );
-  expect(source).toContain('roleSnapshotFor(');
-  expect(source).toContain('requestedModelAlias(');
-  expect(source).toContain('validateModelAlias(');
-  expect(source).toContain('writeAgentModelSetting({');
-  expect(source).toContain('modelAliasSnapshot');
-  expect(source).toContain('assertAvailableAgentName(');
-  expect(source).toContain("roleId =\n        typeof body.roleId === 'string'");
-  expect(source).toContain("const roleId = typeof body.roleId === 'string'");
-  expect(source).toContain('const nameChanged = updated.name !== agent.name');
-  expect(source).toContain('if (!currentConfig && !roleId)');
-  expect(source).toContain('const nextConfigVersion =');
-  expect(source).toContain('version: nextConfigVersion,');
-  expect(source).toContain('agentNameSnapshot: updated.name');
-  expect(source).toContain('currentConfigVersionId: nextConfig.id');
-  expect(source).toContain('agent.appId !== appId');
-  expect(source).toContain('role.appId !== appId');
-  expect(source).toContain('const AGENT_SOURCES_PATH');
-  expect(source).toContain('const AGENT_CAPABILITIES_PATH');
-  expect(source).toContain('const AGENT_VERSIONS_PATH');
-  expect(source).toContain('replaceSources({');
-  expect(source).toContain('replaceCapabilities(');
-  expect(source).toContain('getSources({');
-  expect(source).toContain('getCapabilities({');
-  expect(source).toContain('sendJson(res, 200, { sources });');
-  expect(source).toContain(
+  expect(agentRouteSource).toContain('roleSnapshotFor(');
+  expect(agentRouteSource).toContain('requestedModelAlias(');
+  expect(agentRouteSource).toContain('validateModelAlias(');
+  expect(agentRouteSource).toContain('writeAgentModelSetting({');
+  expect(agentRouteSource).toContain('modelAliasSnapshot');
+  expect(agentRouteSource).toContain('assertAvailableAgentName(');
+  expect(agentRouteSource).toContain(
+    "roleId =\n        typeof body.roleId === 'string'",
+  );
+  expect(agentRouteSource).toContain(
+    "const roleId = typeof body.roleId === 'string'",
+  );
+  expect(agentRouteSource).toContain(
+    'const nameChanged = updated.name !== agent.name',
+  );
+  expect(agentRouteSource).toContain('if (!currentConfig && !roleId)');
+  expect(agentRouteSource).toContain('const nextConfigVersion =');
+  expect(agentRouteSource).toContain('version: nextConfigVersion,');
+  expect(agentRouteSource).toContain('agentNameSnapshot: updated.name');
+  expect(agentRouteSource).toContain('currentConfigVersionId: nextConfig.id');
+  expect(agentRouteSource).toContain('agent.appId !== appId');
+  expect(agentRouteSource).toContain('role.appId !== appId');
+  expect(agentRouteSource).toContain('const AGENT_SOURCES_PATH');
+  expect(agentRouteSource).toContain('const AGENT_CAPABILITIES_PATH');
+  expect(agentRouteSource).toContain('const AGENT_VERSIONS_PATH');
+  expect(agentRouteSource).toContain('replaceSources({');
+  expect(agentRouteSource).toContain('replaceCapabilities(');
+  expect(agentRouteSource).toContain('getSources({');
+  expect(agentRouteSource).toContain('getCapabilities({');
+  expect(agentRouteSource).toContain('sendJson(res, 200, { sources });');
+  expect(agentRouteSource).toContain(
     'capabilities: { capabilities: capabilities.capabilities },',
   );
-  expect(source).not.toContain('catalog: { skills: [], mcpServers: [] }');
-  expect(source).toContain("catalogKind === 'skills' || catalogKind === 'mcp'");
-  expect(source).toContain("catalogKind === 'capabilities'");
-  expect(source).toContain('listConfigVersions({');
-  expect(source).toContain('sendJson(res, 200, { retainedAgentCount:');
+  expect(agentRouteSource).not.toContain(
+    'catalog: { skills: [], mcpServers: [] }',
+  );
+  expect(agentRouteSource).toContain(
+    "catalogKind === 'skills' || catalogKind === 'mcp'",
+  );
+  expect(agentRouteSource).toContain("catalogKind === 'capabilities'");
+  expect(agentRouteSource).toContain('listConfigVersions({');
+  expect(agentRouteSource).toContain(
+    'sendJson(res, 200, { retainedAgentCount:',
+  );
 });
 
 it('requires Administrator, Origin, CSRF, and reauthentication for mutations', () => {
