@@ -513,13 +513,13 @@ function Access({ agent }: { agent: AgentDirectoryItem }) {
           id: `skill:${item.id}`,
           label: item.name ?? item.id,
           kind: 'Skill',
-          status: item.status ?? 'unavailable',
+          status: item.status ?? 'disabled',
         })),
         ...sourceItems.mcpServers.map((item) => ({
           id: `mcp:${item.id}`,
           label: item.name ?? item.id,
           kind: 'MCP server',
-          status: item.status ?? 'unavailable',
+          status: item.status ?? 'disabled',
         })),
       ]
     : [];
@@ -557,9 +557,15 @@ function Access({ agent }: { agent: AgentDirectoryItem }) {
                 </div>
                 <Badge
                   className="h-6 text-[10px]"
-                  variant={source.status === 'ready' ? 'success' : 'attention'}
+                  variant={
+                    source.status === 'disabled' ? 'attention' : 'success'
+                  }
                 >
-                  {source.status === 'ready' ? 'Ready' : 'Unavailable'}
+                  {source.status === 'installed'
+                    ? 'Installed'
+                    : source.status === 'active'
+                      ? 'Active'
+                      : 'Disabled'}
                 </Badge>
               </li>
             ))}
@@ -640,7 +646,11 @@ function AgentAccessEditorDialog({
             </DialogDescription>
           </div>
           <DialogClose asChild>
-            <Button aria-label="Close access editor" size="icon-sm" variant="ghost">
+            <Button
+              aria-label="Close access editor"
+              size="icon-sm"
+              variant="ghost"
+            >
               <X size={16} aria-hidden="true" />
             </Button>
           </DialogClose>
@@ -669,7 +679,9 @@ function AgentAccessEditorDialog({
               </Button>
             </DialogClose>
             <Button disabled={saving} form={formId} type="submit">
-              {saving ? 'Saving…' : `Save ${isSources ? 'sources' : 'capabilities'}`}
+              {saving
+                ? 'Saving…'
+                : `Save ${isSources ? 'sources' : 'capabilities'}`}
             </Button>
           </div>
         </footer>

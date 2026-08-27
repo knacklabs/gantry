@@ -116,7 +116,7 @@ describe('AgentCapabilityAdministrationService', () => {
       }),
     ).resolves.toMatchObject({
       sources: {
-        mcpServers: [{ id: 'mcp:one', name: 'one', status: 'ready' }],
+        mcpServers: [{ id: 'mcp:one', name: 'one', status: 'active' }],
       },
     });
 
@@ -127,7 +127,7 @@ describe('AgentCapabilityAdministrationService', () => {
         agentId: 'agent:one' as never,
       }),
     ).resolves.toMatchObject({
-      sources: { mcpServers: [{ id: 'mcp:one', status: 'unavailable' }] },
+      sources: { mcpServers: [{ id: 'mcp:one', status: 'disabled' }] },
     });
   });
 
@@ -153,7 +153,7 @@ describe('AgentCapabilityAdministrationService', () => {
     });
 
     expect(response.sources.skills).toEqual([
-      { id: 'skill:one', name: 'One', status: 'ready' },
+      { id: 'skill:one', name: 'One', status: 'installed' },
     ]);
     expect(response.capabilities).toEqual([
       { id: 'skill.one.publish', version: 'catalog' },

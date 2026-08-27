@@ -7,7 +7,7 @@ import type { AgentToolSource } from '../../domain/tools/tools.js';
 export interface ReadableSkillSource {
   name?: string;
   id: string;
-  status?: 'ready' | 'unavailable';
+  status?: 'installed';
 }
 
 export interface ReadableToolSource {
@@ -29,7 +29,7 @@ export async function readableSkillSources(input: {
   return activeBindings.flatMap((binding, index) => {
     const skill = skills[index];
     return skill && isSkillMaterializableLocally(skill)
-      ? [{ name: skill.name, id: String(binding.skillId), status: 'ready' }]
+      ? [{ name: skill.name, id: String(binding.skillId), status: 'installed' }]
       : [];
   });
 }
@@ -53,7 +53,7 @@ export interface AgentSourcesProjection {
   mcpServers: Array<{
     id: string;
     name?: string;
-    status?: 'ready' | 'unavailable';
+    status?: 'active' | 'disabled';
     tools?: string[];
   }>;
   tools: ReadableToolSource[];

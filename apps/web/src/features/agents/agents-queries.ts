@@ -56,6 +56,8 @@ export type BrowserRole = {
   updatedAt?: string;
 };
 
+type SourceStatus = 'installed' | 'active' | 'disabled';
+
 export type AgentSource = {
   skills: Array<{ id: string; name?: string; status?: SourceStatus }>;
   mcpServers: Array<{
@@ -67,8 +69,6 @@ export type AgentSource = {
   tools: Array<{ id: string; kind: string; version?: string }>;
 };
 
-type SourceStatus = 'ready' | 'unavailable';
-
 export type CapabilityCatalog = {
   capabilities?: Array<{
     id: string;
@@ -77,12 +77,18 @@ export type CapabilityCatalog = {
     description?: string;
     risk: 'low' | 'medium' | 'high';
   }>;
-  skills?: Array<{ id: string; name: string; description?: string }>;
+  skills?: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    status: 'installed';
+  }>;
   mcpServers?: Array<{
     id: string;
     name: string;
     displayName?: string;
     description?: string;
+    status: 'active' | 'disabled';
   }>;
 };
 

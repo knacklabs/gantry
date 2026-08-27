@@ -305,7 +305,15 @@ export async function handleBrowserAgentRoutes(
       if (catalogKind === 'skills' || catalogKind === 'mcp') {
         const catalog = await capabilityService(storage).listCatalog(appId);
         const items = (
-          catalogKind === 'skills' ? catalog.skills : catalog.mcpServers
+          catalogKind === 'skills'
+            ? catalog.skills.map((skill) => ({
+                ...skill,
+                status: 'installed' as const,
+              }))
+            : catalog.mcpServers.map((server) => ({
+                ...server,
+                status: server.status,
+              }))
         )
           .filter(
             (item) =>

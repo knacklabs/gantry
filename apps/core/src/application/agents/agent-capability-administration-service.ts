@@ -82,7 +82,7 @@ export interface AgentCapabilitiesView {
     mcpServers: Array<{
       id: string;
       name?: string;
-      status?: 'ready' | 'unavailable';
+      status?: 'active' | 'disabled';
       tools?: string[];
     }>;
     tools: ReadableToolSource[];
@@ -387,10 +387,7 @@ export class AgentCapabilityAdministrationService {
         return {
           ...source,
           ...(server ? { name: server.displayName ?? server.name } : {}),
-          status:
-            server?.status === 'active'
-              ? ('ready' as const)
-              : ('unavailable' as const),
+          status: server?.status ?? 'disabled',
         };
       }),
     );

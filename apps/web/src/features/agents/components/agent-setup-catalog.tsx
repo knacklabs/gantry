@@ -11,6 +11,7 @@ export type SetupCatalogItem = {
   label: string;
   description?: string;
   group: string;
+  status?: 'installed' | 'active' | 'disabled';
 };
 
 export function AgentSetupCatalog({
@@ -247,8 +248,18 @@ export function AgentSetupCatalog({
                 </span>
               ) : null}
               {kind === 'sources' ? (
-                <span className="rounded-full border border-status-success/40 bg-status-success-soft px-2 py-1 text-center text-[11px] font-semibold text-status-success">
-                  Ready
+                <span
+                  className={
+                    item.status === 'disabled'
+                      ? 'rounded-full border border-status-attention/40 bg-status-attention-soft px-2 py-1 text-center text-[11px] font-semibold text-status-attention'
+                      : 'rounded-full border border-status-success/40 bg-status-success-soft px-2 py-1 text-center text-[11px] font-semibold text-status-success'
+                  }
+                >
+                  {item.status === 'installed'
+                    ? 'Installed'
+                    : item.status === 'active'
+                      ? 'Active'
+                      : 'Disabled'}
                 </span>
               ) : null}
             </label>
@@ -338,7 +349,9 @@ function AccessStage({
 }) {
   return (
     <div className="min-w-0 rounded-md border border-border bg-surface-muted px-[9px] py-[11px]">
-      <strong className="mb-[5px] block text-[11.5px] text-text">{title}</strong>
+      <strong className="mb-[5px] block text-[11.5px] text-text">
+        {title}
+      </strong>
       <span className="block text-[10px] leading-[1.4] text-text-secondary">
         {description}
       </span>
@@ -361,7 +374,9 @@ function AccessRule({
         {mark}
       </span>
       <div>
-        <strong className="mb-[3px] block text-[12px] text-text">{title}</strong>
+        <strong className="mb-[3px] block text-[12px] text-text">
+          {title}
+        </strong>
         <p className="m-0 text-[11px] leading-[1.5] text-text-secondary">
           {description}
         </p>
@@ -370,13 +385,7 @@ function AccessRule({
   );
 }
 
-function AccessSummary({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function AccessSummary({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-h-7 items-center justify-between gap-3 border-t border-border py-1 text-[10.5px] first:border-t-0 first:pt-0 last:pb-0">
       <span>{label}</span>

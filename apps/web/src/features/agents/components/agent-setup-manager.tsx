@@ -140,6 +140,7 @@ export function AgentSetupManager({
             label: item.name,
             description: item.description,
             group: 'Skills',
+            status: item.status,
           }))
         : (
             (catalog.data?.catalog.data ?? []) as NonNullable<
@@ -150,6 +151,7 @@ export function AgentSetupManager({
             label: item.displayName ?? item.name,
             description: item.description,
             group: 'MCP servers',
+            status: item.status,
           }))
       : (
           (catalog.data?.catalog.data ?? []) as NonNullable<
