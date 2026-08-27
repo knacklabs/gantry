@@ -64,7 +64,7 @@ export function AgentSetupCatalog({
             size="sm"
             className={`min-w-36 justify-between ${
               sourceTab === 'skills'
-                ? 'border-text bg-surface text-text hover:bg-surface'
+                ? 'border-text bg-surface-strong text-text hover:bg-surface-strong'
                 : ''
             }`}
             variant="outline"
@@ -79,7 +79,7 @@ export function AgentSetupCatalog({
             size="sm"
             className={`min-w-36 justify-between ${
               sourceTab === 'mcp'
-                ? 'border-text bg-surface text-text hover:bg-surface'
+                ? 'border-text bg-surface-strong text-text hover:bg-surface-strong'
                 : ''
             }`}
             variant="outline"
