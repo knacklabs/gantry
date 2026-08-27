@@ -60,7 +60,8 @@ export function AgentSetupCatalog({
             aria-selected={sourceTab === 'skills'}
             role="tab"
             size="sm"
-            variant={sourceTab === 'skills' ? 'secondary' : 'ghost'}
+            className="min-w-36 justify-between"
+            variant={sourceTab === 'skills' ? 'secondary' : 'outline'}
             onClick={() => onSourceTabChange('skills')}
           >
             Skills ({selected.filter((id) => id.startsWith('skill:')).length})
@@ -69,7 +70,8 @@ export function AgentSetupCatalog({
             aria-selected={sourceTab === 'mcp'}
             role="tab"
             size="sm"
-            variant={sourceTab === 'mcp' ? 'secondary' : 'ghost'}
+            className="min-w-36 justify-between"
+            variant={sourceTab === 'mcp' ? 'secondary' : 'outline'}
             onClick={() => onSourceTabChange('mcp')}
           >
             MCP servers ({selected.filter((id) => id.startsWith('mcp:')).length}
@@ -78,14 +80,6 @@ export function AgentSetupCatalog({
         </div>
       ) : (
         <>
-          <Button
-            className="w-fit"
-            size="sm"
-            variant="secondary"
-            onClick={() => setAccessOpen(true)}
-          >
-            How access works
-          </Button>
           <AgentDrawer
             description="Connected sources → Allowed capabilities → Runtime checks"
             eyebrow="Step 3 help"
@@ -134,10 +128,30 @@ export function AgentSetupCatalog({
         </div>
       ) : null}
       {items.length ? (
-        <div className="grid max-h-80 gap-2 overflow-y-auto rounded-md border border-border p-3">
+        <div
+          className={
+            kind === 'sources'
+              ? 'overflow-hidden rounded-lg border border-border'
+              : 'grid gap-3 md:grid-cols-2'
+          }
+        >
+          {kind === 'sources' ? (
+            <div className="grid grid-cols-[32px_1.2fr_1.4fr_.8fr] gap-3 border-b border-border bg-surface-muted px-3 py-2 font-mono text-[10px] font-semibold tracking-wide text-text-secondary uppercase">
+              <span />
+              <span>{sourceTab === 'skills' ? 'Skill' : 'MCP server'}</span>
+              <span>
+                {sourceTab === 'skills' ? 'Purpose' : 'Visible operations'}
+              </span>
+              <span>Status</span>
+            </div>
+          ) : null}
           {items.map((item) => (
             <label
-              className="flex cursor-pointer items-start gap-3 rounded p-2 hover:bg-surface-muted"
+              className={
+                kind === 'sources'
+                  ? 'grid min-h-[54px] cursor-pointer grid-cols-[32px_1.2fr_1.4fr_.8fr] items-center gap-3 border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-muted'
+                  : 'grid min-h-28 cursor-pointer grid-cols-[20px_minmax(0,1fr)] content-start gap-3 rounded-lg border border-border p-4 hover:bg-surface-muted'
+              }
               key={item.id}
             >
               <Checkbox
@@ -145,12 +159,24 @@ export function AgentSetupCatalog({
                 disabled={disabled}
                 onCheckedChange={() => onToggle(item.id)}
               />
-              <span className="grid gap-0.5 text-sm">
-                <strong>{item.label}</strong>
+              <span
+                className={kind === 'sources' ? 'grid gap-0.5' : 'grid gap-1'}
+              >
+                <strong className="text-sm">{item.label}</strong>
                 <span className="text-xs text-text-secondary">
-                  {item.description ?? item.group}
+                  {item.group.toLowerCase()} · reviewed inventory
                 </span>
               </span>
+              {kind === 'sources' ? (
+                <span className="text-sm text-text-secondary">
+                  {item.description ?? item.group}
+                </span>
+              ) : null}
+              {kind === 'sources' ? (
+                <span className="rounded-full border border-status-success/40 bg-status-success-soft px-2 py-1 text-center text-[11px] font-semibold text-status-success">
+                  Ready
+                </span>
+              ) : null}
             </label>
           ))}
         </div>
@@ -159,6 +185,38 @@ export function AgentSetupCatalog({
           No available {kind === 'sources' ? 'sources' : 'capabilities'} match
           this search.
         </p>
+      ) : null}
+      {kind === 'sources' ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-status-attention/40 bg-status-attention-soft p-3 text-sm">
+          <span>
+            <strong>
+              {selected.filter((id) => id.startsWith('skill:')).length} skills ·{' '}
+              {selected.filter((id) => id.startsWith('mcp:')).length} MCP
+              servers selected
+            </strong>
+            <span className="mt-0.5 block text-text-secondary">
+              Selections are saved independently and become available next run.
+            </span>
+          </span>
+        </div>
+      ) : null}
+      {kind === 'capabilities' ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-status-attention/40 bg-status-attention-soft p-3 text-sm">
+          <span>
+            <strong>{selected.length} capabilities selected</strong>
+            <span className="mt-0.5 block text-text-secondary">
+              Connected sources provide tools. Allowed capabilities authorize
+              actions.
+            </span>
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setAccessOpen(true)}
+          >
+            How access works
+          </Button>
+        </div>
       ) : null}
       {page ? (
         <div className="flex justify-end gap-2">

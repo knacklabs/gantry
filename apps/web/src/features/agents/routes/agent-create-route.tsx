@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowRight, Bot, X } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 
 import {
@@ -61,6 +61,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [selectedRole, setSelectedRole] = useState<BrowserRole>();
+  const [instructions, setInstructions] = useState('');
   const [roleEditor, setRoleEditor] = useState<RoleEditorTarget>();
   const [agentId, setAgentId] = useState<string>();
   const [step, setStep] = useState<
@@ -104,7 +105,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="max-h-[calc(100dvh-2rem)] max-w-[min(100%-2rem,960px)] overflow-hidden p-0 sm:max-w-[960px]"
+        className="h-[calc(100dvh-46px)] max-h-[900px] w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-w-none"
       >
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="grid gap-1">
@@ -152,54 +153,61 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
             ),
           )}
         </ol>
-        <div className="min-h-[430px] overflow-y-auto p-5">
+        <div className="min-h-0 overflow-y-auto p-5">
           {step === 'sources' && agentId ? (
-            <section className="rounded-lg border border-border bg-surface">
-              <div className="border-b border-border p-5">
-                <h2 className="font-semibold">Sources</h2>
-                <p className="mt-1 text-sm text-text-secondary">
-                  Save this independently, then select authority.
-                </p>
-              </div>
-              <AgentSetupManager
-                agentId={agentId}
-                kind="sources"
-                onSaved={() => setStep('capabilities')}
-              />
-              <div className="flex justify-between border-t border-border p-4">
-                <Button variant="secondary" onClick={() => setStep('base')}>
-                  Back
-                </Button>
+            <section className="grid gap-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="m-0 text-lg font-semibold">
+                    Connect existing sources
+                  </h2>
+                  <p className="mt-1 mb-0 text-sm text-text-secondary">
+                    Sources expose reviewed inventory. They do not grant
+                    actions.
+                  </p>
+                </div>
                 <Button
-                  variant="secondary"
+                  size="sm"
+                  variant="ghost"
                   onClick={() => setStep('capabilities')}
                 >
                   Skip for now
                 </Button>
               </div>
+              <AgentSetupManager
+                agentId={agentId}
+                kind="sources"
+                onBack={() => setStep('base')}
+                onSaved={() => setStep('capabilities')}
+              />
             </section>
           ) : null}
           {step === 'capabilities' && agentId ? (
-            <section className="rounded-lg border border-border bg-surface">
-              <div className="border-b border-border p-5">
-                <h2 className="font-semibold">Capabilities</h2>
-                <p className="mt-1 text-sm text-text-secondary">
-                  This is the agent’s saved tool authority.
-                </p>
+            <section className="grid gap-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="m-0 text-lg font-semibold">
+                    Allow capabilities
+                  </h2>
+                  <p className="mt-1 mb-0 text-sm text-text-secondary">
+                    Choose durable actions for this agent. Risky use may still
+                    ask for approval.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setStep('review')}
+                >
+                  Skip for now
+                </Button>
               </div>
               <AgentSetupManager
                 agentId={agentId}
                 kind="capabilities"
+                onBack={() => setStep('sources')}
                 onSaved={() => setStep('review')}
               />
-              <div className="flex justify-between border-t border-border p-4">
-                <Button variant="secondary" onClick={() => setStep('sources')}>
-                  Back
-                </Button>
-                <Button variant="secondary" onClick={() => setStep('review')}>
-                  Skip for now
-                </Button>
-              </div>
             </section>
           ) : null}
           {step === 'review' && agentId ? (
@@ -246,48 +254,49 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
             </section>
           ) : null}
           {step === 'base' ? (
-            <form
-              className="grid gap-6 rounded-lg border border-border bg-surface p-6"
-              onSubmit={submit}
-            >
-              <div className="flex items-start gap-3 rounded-md bg-surface-muted p-4 text-sm text-text-secondary">
-                <Bot className="mt-0.5 shrink-0" size={18} aria-hidden="true" />
-                <span>
-                  An agent is a reusable configuration, not an always-running
-                  bot. It becomes available for new work as soon as its base
-                  configuration is saved.
-                </span>
+            <form className="grid gap-4" onSubmit={submit}>
+              <div className="grid gap-3 md:grid-cols-[1.2fr_.8fr]">
+                <TextField
+                  id="agent-name"
+                  label="Agent name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  error={create.isError ? create.error.message : undefined}
+                  placeholder="Customer research"
+                  autoFocus
+                />
+                <label className="grid gap-1.5 text-xs font-semibold text-text">
+                  Model
+                  <select
+                    className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text"
+                    disabled
+                    value="default"
+                  >
+                    <option value="default">Use deployment default</option>
+                  </select>
+                </label>
               </div>
-              <TextField
-                id="agent-name"
-                label="Agent name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                error={create.isError ? create.error.message : undefined}
-                placeholder="Customer research"
-                autoFocus
-              />
               <AgentRoleSelector
                 value={selectedRole}
                 onChange={setSelectedRole}
                 onCreateCustom={() => setRoleEditor({ mode: 'create' })}
               />
-              {selectedRole ? (
-                <section className="grid gap-2 rounded-md bg-surface-muted p-4">
-                  <span className="text-xs font-semibold text-text">
-                    {selectedRole.name} prompt
-                  </span>
-                  <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap text-xs leading-5 text-text-secondary">
-                    {selectedRole.prompt}
-                  </pre>
-                </section>
-              ) : null}
-              <p className="m-0 text-xs text-text-secondary">
-                This agent uses the deployment default model. Agent-specific
-                instructions are not available until Gantry can save them as a
-                versioned runtime configuration.
-              </p>
-              <div className="flex justify-end">
+              <label className="grid gap-1.5 text-xs font-semibold text-text">
+                Additional instructions{' '}
+                <span className="font-normal text-text-secondary">
+                  Optional · applies only to this agent
+                </span>
+                <textarea
+                  className="min-h-24 rounded-md border border-border-strong bg-surface p-3 text-[13px] text-text"
+                  placeholder="Example: Keep every report under two pages and finish with three recommended actions…"
+                  value={instructions}
+                  onChange={(event) => setInstructions(event.target.value)}
+                />
+              </label>
+              <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-between gap-3 border-t border-border bg-surface-muted px-5 py-3">
+                <span className="text-xs text-text-secondary">
+                  Step 1 of 4 · Create the reusable identity first.
+                </span>
                 <Button
                   disabled={!name.trim() || !selectedRole || create.isPending}
                   type="submit"
@@ -318,10 +327,8 @@ function ReviewSummary({
   capabilities: { capabilities: AgentCapabilities; catalog: CapabilityCatalog };
   sources: { sources: { sources: AgentSource }; catalog: CapabilityCatalog };
 }) {
-  const selectedSources = [
-    ...sources.sources.sources.skills.map((source) => source.id),
-    ...sources.sources.sources.mcpServers.map((source) => source.id),
-  ];
+  const skills = sources.sources.sources.skills;
+  const mcpServers = sources.sources.sources.mcpServers;
   const selectedCapabilities = capabilities.capabilities.capabilities;
   const sourceLabels = new Map<string, string>([
     ...(sources.catalog.skills ?? []).map(
@@ -338,53 +345,102 @@ function ReviewSummary({
     ),
   );
   return (
-    <dl className="grid gap-3 rounded-md bg-surface-muted p-4 text-sm">
-      <div>
-        <dt className="text-xs font-semibold text-text-secondary">Agent</dt>
-        <dd className="m-0 text-text">{agent.name}</dd>
-      </div>
-      <div>
-        <dt className="text-xs font-semibold text-text-secondary">Role</dt>
-        <dd className="m-0 text-text">
-          {agent.roleName ?? 'No role selected'}
-        </dd>
-        {agent.rolePrompt ? (
-          <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap text-xs leading-5 text-text-secondary">
-            {agent.rolePrompt}
-          </pre>
-        ) : null}
-      </div>
-      <div>
-        <dt className="text-xs font-semibold text-text-secondary">Model</dt>
-        <dd className="m-0 text-text">Deployment default</dd>
-      </div>
-      <div>
-        <dt className="text-xs font-semibold text-text-secondary">Sources</dt>
-        <dd className="m-0 text-text">
-          {selectedSources.length
-            ? selectedSources
-                .map((source) => sourceLabels.get(source) ?? source)
-                .join(', ')
-            : 'Skipped'}
-        </dd>
-      </div>
-      <div>
-        <dt className="text-xs font-semibold text-text-secondary">
-          Allowed capabilities
-        </dt>
-        <dd className="m-0 text-text">
-          {selectedCapabilities.length
-            ? selectedCapabilities
-                .map(
-                  (capability) =>
-                    capabilityLabels.get(
-                      `${capability.id}:${capability.version}`,
-                    ) ?? capability.id,
-                )
-                .join(', ')
-            : 'Skipped'}
-        </dd>
-      </div>
-    </dl>
+    <div className="grid gap-3 md:grid-cols-2">
+      <ReviewCard
+        title="Identity & behavior"
+        lines={[
+          ['Name', agent.name],
+          ['Role snapshot', agent.roleName ?? 'No role selected'],
+          ['Model', 'Deployment default'],
+          ['Instructions', 'Not configured'],
+        ]}
+      />
+      <ReviewCard
+        title="Sources"
+        lines={[
+          [
+            'Skills',
+            skills.length
+              ? skills
+                  .map((item) => sourceLabels.get(item.id) ?? item.id)
+                  .join(', ')
+              : 'None selected',
+          ],
+          [
+            'MCP servers',
+            mcpServers.length
+              ? mcpServers
+                  .map((item) => sourceLabels.get(item.id) ?? item.id)
+                  .join(', ')
+              : 'None selected',
+          ],
+        ]}
+      />
+      <ReviewCard
+        title="Allowed capabilities"
+        lines={
+          selectedCapabilities.length
+            ? selectedCapabilities.map((capability) => [
+                capabilityLabels.get(
+                  `${capability.id}:${capability.version}`,
+                ) ?? capability.id,
+                capability.id.includes('write') ? 'Write' : 'Read',
+              ])
+            : [['Access', 'None selected']]
+        }
+      />
+      <section className="rounded-lg border border-border p-4">
+        <h3 className="m-0 text-sm font-semibold">Activation</h3>
+        <p className="mt-3 mb-0 rounded-lg border border-status-attention/40 bg-status-attention-soft p-3 text-sm">
+          Source and capability changes are <strong>available next run</strong>.
+          No conversations or scheduled jobs use this agent yet.
+        </p>
+        <div className="mt-3 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2 rounded-lg border border-border bg-surface-muted p-3 text-center text-xs">
+          <span>
+            <strong className="block">{agent.roleName ?? 'None'}</strong>
+            <small className="text-text-secondary">Role snapshot</small>
+          </span>
+          <span>→</span>
+          <span>
+            <strong className="block">
+              {skills.length + mcpServers.length} selected
+            </strong>
+            <small className="text-text-secondary">Sources</small>
+          </span>
+          <span>→</span>
+          <span>
+            <strong className="block">
+              {selectedCapabilities.length} allowed
+            </strong>
+            <small className="text-text-secondary">Capabilities</small>
+          </span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ReviewCard({
+  title,
+  lines,
+}: {
+  title: string;
+  lines: [string, string][];
+}) {
+  return (
+    <section className="rounded-lg border border-border p-4">
+      <h3 className="m-0 text-sm font-semibold">{title}</h3>
+      <dl className="mt-3">
+        {lines.map(([label, value]) => (
+          <div
+            className="flex min-h-8 items-center justify-between gap-4 border-t border-border py-2 text-sm first:border-t-0 first:pt-0"
+            key={label}
+          >
+            <dt>{label}</dt>
+            <dd className="m-0 text-right font-semibold">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }

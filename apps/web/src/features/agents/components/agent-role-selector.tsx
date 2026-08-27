@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Plus, RefreshCw } from 'lucide-react';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '../../../ui/primitives/button';
 import { Input } from '../../../ui/primitives/input';
@@ -15,164 +15,123 @@ export function AgentRoleSelector({
   onChange: (role: BrowserRole) => void;
   onCreateCustom: () => void;
 }) {
-  const listId = useId();
-  const [open, setOpen] = useState(false);
-  const [input, setInput] = useState(value?.name ?? '');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [customPage, setCustomPage] = useState(1);
-  const [activeIndex, setActiveIndex] = useState(0);
   const builtIns = useQuery(
     roleDirectoryQuery({ page: 1, search: '', kind: 'built-in' }),
   );
   const customRoles = useQuery(
-    roleDirectoryQuery({ page: customPage, search, kind: 'custom' }),
+    roleDirectoryQuery({
+      page: customPage,
+      search: debouncedSearch,
+      kind: 'custom',
+    }),
   );
   const builtInMatches = useMemo(
     () =>
       (builtIns.data?.data ?? []).filter((role) =>
-        role.name.toLowerCase().includes(input.trim().toLowerCase()),
+        role.name.toLowerCase().includes(search.trim().toLowerCase()),
       ),
-    [builtIns.data?.data, input],
+    [builtIns.data?.data, search],
   );
-  const options = [...builtInMatches, ...(customRoles.data?.data ?? [])];
 
-  useEffect(() => setInput(value?.name ?? ''), [value?.id, value?.name]);
   useEffect(() => {
-    const timeout = window.setTimeout(() => setSearch(input.trim()), 350);
+    const timeout = window.setTimeout(
+      () => setDebouncedSearch(search.trim()),
+      350,
+    );
     return () => window.clearTimeout(timeout);
-  }, [input]);
-  useEffect(() => {
-    setActiveIndex(0);
-    setCustomPage(1);
   }, [search]);
-
-  function select(role: BrowserRole) {
-    onChange(role);
-    setInput(role.name);
-    setOpen(false);
-  }
+  useEffect(() => setCustomPage(1), [debouncedSearch]);
 
   return (
-    <div className="grid gap-1.5">
-      <label className="text-xs font-semibold text-text" htmlFor="agent-role">
-        Role
-      </label>
-      <div className="relative">
-        <Input
-          aria-autocomplete="list"
-          aria-controls={listId}
-          aria-expanded={open}
-          aria-label="Role"
-          className="h-9 rounded-md bg-surface px-3 text-[13px] text-text"
-          id="agent-role"
-          placeholder="Search roles"
-          role="combobox"
-          value={input}
-          onBlur={() => window.setTimeout(() => setOpen(false), 100)}
-          onChange={(event) => {
-            setInput(event.target.value);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowDown') {
-              event.preventDefault();
-              setOpen(true);
-              setActiveIndex((index) =>
-                Math.min(index + 1, options.length - 1),
-              );
-            }
-            if (event.key === 'ArrowUp') {
-              event.preventDefault();
-              setActiveIndex((index) => Math.max(index - 1, 0));
-            }
-            if (event.key === 'Enter' && open && options[activeIndex]) {
-              event.preventDefault();
-              select(options[activeIndex]);
-            }
-            if (event.key === 'Escape') setOpen(false);
-          }}
-        />
-        {open ? (
-          <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-surface shadow-lg">
-            <div
-              className="max-h-72 overflow-y-auto p-1"
-              id={listId}
-              role="listbox"
+    <div className="grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <section className="grid min-h-0 overflow-hidden rounded-lg border border-border bg-surface">
+        <div className="border-b border-border p-3">
+          <label
+            className="grid gap-1.5 text-xs font-semibold text-text"
+            htmlFor="agent-role"
+          >
+            Role
+            <Input
+              className="h-9 rounded-md bg-surface px-3 text-[13px] text-text"
+              id="agent-role"
+              placeholder="Search roles…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+        </div>
+        <div className="max-h-[250px] overflow-y-auto">
+          <RoleGroup
+            label="Built-in roles"
+            roles={builtInMatches}
+            value={value}
+            onChange={onChange}
+          />
+          <RoleGroup
+            label="Custom roles"
+            roles={customRoles.data?.data ?? []}
+            value={value}
+            onChange={onChange}
+          />
+          {builtIns.isLoading || customRoles.isLoading ? (
+            <p className="p-3 text-xs text-text-secondary">Loading roles…</p>
+          ) : null}
+          {builtIns.isError || customRoles.isError ? (
+            <Button
+              className="m-2"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void builtIns.refetch();
+                void customRoles.refetch();
+              }}
             >
-              <RoleGroup
-                label="Built-in roles"
-                roles={builtInMatches}
-                activeIndex={activeIndex}
-                offset={0}
-                onSelect={select}
-              />
-              <RoleGroup
-                label="Custom roles"
-                roles={customRoles.data?.data ?? []}
-                activeIndex={activeIndex}
-                offset={builtInMatches.length}
-                onSelect={select}
-              />
-              {customRoles.isLoading || builtIns.isLoading ? (
-                <p className="p-3 text-xs text-text-secondary">
-                  Loading roles…
+              <RefreshCw size={14} aria-hidden="true" /> Retry
+            </Button>
+          ) : null}
+        </div>
+        <div className="border-t border-border p-2">
+          <Button
+            className="w-full"
+            size="sm"
+            variant="outline"
+            onClick={onCreateCustom}
+          >
+            <Plus size={14} aria-hidden="true" /> Create custom role
+          </Button>
+        </div>
+      </section>
+      <section className="min-h-[300px] rounded-lg border border-border bg-surface-muted p-4">
+        {value ? (
+          <>
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="m-0 text-lg font-semibold">{value.name}</h3>
+                <p className="mt-0.5 mb-0 text-xs text-text-secondary">
+                  Complete role behavior layer
                 </p>
-              ) : null}
-              {customRoles.isError || builtIns.isError ? (
-                <Button
-                  className="m-2"
-                  size="sm"
-                  variant="secondary"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    void builtIns.refetch();
-                    void customRoles.refetch();
-                  }}
-                >
-                  <RefreshCw size={14} aria-hidden="true" />
-                  Retry
-                </Button>
-              ) : null}
-              {!customRoles.isLoading &&
-              !builtIns.isLoading &&
-              !customRoles.isError &&
-              !builtIns.isError &&
-              !options.length ? (
-                <p className="p-3 text-xs text-text-secondary">
-                  No roles match this search.
-                </p>
-              ) : null}
-              {customRoles.data?.hasNext ? (
-                <Button
-                  className="mx-2"
-                  size="sm"
-                  variant="secondary"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => setCustomPage((page) => page + 1)}
-                >
-                  More custom roles
-                </Button>
-              ) : null}
-            </div>
-            <div className="border-t border-border p-1">
-              <Button
-                className="w-full justify-start"
-                size="sm"
-                variant="ghost"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={onCreateCustom}
-              >
-                <Plus size={14} aria-hidden="true" />
-                Create custom role
+              </div>
+              <Button size="sm" variant="outline" onClick={onCreateCustom}>
+                Duplicate and customize
               </Button>
             </div>
-          </div>
-        ) : null}
-      </div>
-      <p className="text-xs text-text-secondary">
-        Role prompts exclude Gantry’s protected runtime and safety rules.
-      </p>
+            <pre className="m-0 max-h-[190px] overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-[1.55] text-text-secondary">
+              {value.prompt}
+            </pre>
+            <p className="mt-3 mb-0 rounded-lg border border-status-attention/40 bg-status-attention-soft p-3 text-xs leading-5 text-text">
+              Gantry’s runtime, safety, capability, and session context remain
+              separate from this visible role prompt.
+            </p>
+          </>
+        ) : (
+          <p className="m-0 text-sm text-text-secondary">
+            Select a role to review its visible behavior prompt.
+          </p>
+        )}
+      </section>
     </div>
   );
 }
@@ -180,40 +139,47 @@ export function AgentRoleSelector({
 function RoleGroup({
   label,
   roles,
-  activeIndex,
-  offset,
-  onSelect,
+  value,
+  onChange,
 }: {
   label: string;
   roles: BrowserRole[];
-  activeIndex: number;
-  offset: number;
-  onSelect: (role: BrowserRole) => void;
+  value?: BrowserRole;
+  onChange: (role: BrowserRole) => void;
 }) {
   if (!roles.length) return null;
   return (
-    <div className="grid gap-1 py-1">
-      <p className="px-2 py-1 text-xs font-semibold text-text-secondary">
+    <section>
+      <p className="px-3 py-2 font-mono text-[10px] font-semibold tracking-wider text-text-secondary uppercase">
         {label}
       </p>
-      {roles.map((role, index) => (
+      {roles.map((role) => (
         <button
-          aria-selected={activeIndex === offset + index}
-          className="grid w-full gap-0.5 rounded px-2 py-2 text-left hover:bg-surface-muted aria-selected:bg-surface-muted"
+          className="flex w-full items-start justify-between gap-3 border-t border-border px-3 py-2.5 text-left hover:bg-status-attention-soft data-[selected=true]:bg-status-attention-soft"
+          data-selected={value?.id === role.id}
           key={role.id}
-          role="option"
           type="button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => onSelect(role)}
+          onClick={() => onChange(role)}
         >
-          <span className="text-sm font-medium text-text">{role.name}</span>
-          <span className="text-xs text-text-secondary">
-            {role.kind === 'built-in'
-              ? 'Built-in Gantry role'
-              : 'Custom prompt template'}
+          <span>
+            <strong className="block text-[13px]">{role.name}</strong>
+            <span className="mt-0.5 block text-xs text-text-secondary">
+              {role.kind === 'built-in'
+                ? 'Built-in Gantry role'
+                : 'Custom prompt template'}
+            </span>
+          </span>
+          <span
+            className={
+              role.kind === 'built-in'
+                ? 'rounded-full border border-border bg-surface px-2 py-1 text-[10px] font-semibold text-text-secondary'
+                : 'rounded-full border border-status-attention/40 bg-status-attention-soft px-2 py-1 text-[10px] font-semibold text-status-attention'
+            }
+          >
+            {role.kind === 'built-in' ? 'Built-in' : 'Custom'}
           </span>
         </button>
       ))}
-    </div>
+    </section>
   );
 }

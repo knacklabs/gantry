@@ -23,11 +23,13 @@ export function AgentSetupManager({
   agentId,
   kind,
   onSaved,
+  onBack,
   disabled = false,
 }: {
   agentId: string;
   kind: SetupKind;
   onSaved?: () => void;
+  onBack?: () => void;
   disabled?: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -152,12 +154,7 @@ export function AgentSetupManager({
       <p className="p-5 text-sm text-destructive">Setup could not be loaded.</p>
     );
   return (
-    <div className="grid gap-5 p-5">
-      <p className="text-sm text-text-secondary">
-        {kind === 'sources'
-          ? 'Attach installed skills or active MCP servers. This does not grant tool authority.'
-          : 'Choose the tool capabilities this agent may use. Source attachment alone does not grant these.'}
-      </p>
+    <div className="grid gap-4">
       <AgentSetupCatalog
         disabled={disabled}
         failed={catalog.isError}
@@ -187,13 +184,20 @@ export function AgentSetupManager({
       {save.isError ? (
         <p className="text-sm text-destructive">{save.error.message}</p>
       ) : null}
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between border-t border-border pt-4">
+        {onBack ? (
+          <Button variant="secondary" onClick={onBack}>
+            Back
+          </Button>
+        ) : (
+          <span />
+        )}
         <Button
           disabled={disabled || save.isPending}
           onClick={() => save.mutate()}
         >
           <Save size={15} aria-hidden="true" />
-          {save.isPending ? 'Saving…' : 'Save changes'}
+          {save.isPending ? 'Saving…' : 'Continue'}
         </Button>
       </div>
     </div>
