@@ -47,6 +47,6 @@
   "review_run_id": "64180f03dd468e9616832cfa5b30f5fb3f6620de5b7b364ea85e917a48ada995",
   "brief_sha256": "64769ce06b54cd7621940eebccedeaecbaa3d4ef6e2af0fdd486faf1b14d8001",
   "branch_diff_digest": "d57f352e6dd2cc6d08b9cf97ed7040ad00a151adb327f540ab67cca208be394b",
-  "recorded_at": "2026-08-27T11:07:26+00:00",
-  "commit": "375ca5e99f89bcb2777bbfc00ea66cb12604799f"
+  "recorded_at": "2026-08-27T11:13:21+00:00",
+  "commit": "43a58e6a4c0015796d39f02927ca2fc82eab83a2"
 }

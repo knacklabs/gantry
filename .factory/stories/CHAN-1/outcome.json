@@ -2,6 +2,6 @@
   "generated_by": "implementer",
   "outcome": "Every channel provider now lives in its own folder under apps/core/src/channels/: discord/ and teams/ join slack/ and telegram/. Discord's 34 flat files and Teams' 22 flat files moved with the provider prefix dropped, their unit tests moved with them, and every import, the architecture map and doc path references were re-pointed. Nothing behaves differently; reviewers can now find a provider's code in one place.",
   "issue": "CHAN-1",
-  "commit": "375ca5e99f89bcb2777bbfc00ea66cb12604799f",
-  "recorded_at": "2026-08-27T11:07:18+00:00"
+  "commit": "43a58e6a4c0015796d39f02927ca2fc82eab83a2",
+  "recorded_at": "2026-08-27T11:13:21+00:00"
 }
