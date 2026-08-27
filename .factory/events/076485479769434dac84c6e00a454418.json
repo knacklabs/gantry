@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T09:00:36+00:00", "story": "CHAN-1", "detail": "S-0026-1566: Scope is as the objective and approved task plan say: CHAN-1-T1 moves Discord only (34 discord-*.ts files, their tests, importers, budget paths). Contract CHAN-1-AC1 is the story-level criterion; T1 s"}
