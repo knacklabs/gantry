@@ -1,0 +1,38 @@
+{
+  "generated_by": "autoreview",
+  "score": 10,
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/channels/discord/",
+    "apps/core/test/unit/channels/discord/",
+    "apps/core/src/channels/control-provider-catalog.ts",
+    "apps/core/src/channels/register-builtins.ts",
+    "apps/core/src/cli/discord.ts",
+    "scripts/architecture-map.json",
+    "docs/architecture/"
+  ],
+  "summary": "No runtime change. CHAN-1-T1 at 77f5f6a3b: 34 Discord src files + 5 tests moved to per-provider folders (39 renames), 16 import/doc/map edits; no symbol renames, no logic change. Proof: full unit lane 679 files / 9,050 tests, tsc, check:architecture, zero old-prefix imports; autoreview clean across 3 chunks (1.1 MB bundle).",
+  "residual_risks": [
+    "None"
+  ],
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "CHAN-1-AC1-D",
+      "verdict": "implemented",
+      "evidence": "git diff -M at 77f5f6a3b: 34 R entries channels/discord-*.ts -> channels/discord/*.ts incl. discord.ts -> discord/index.ts; grep for old prefixes in apps/core/src, apps/core/test, scripts = 0"
+    },
+    {
+      "contract_id": "CHAN-1-AC4",
+      "verdict": "implemented",
+      "evidence": "branch contains origin/main post-#444 (merge commit 20db560fe); #444 merged 2026-08-27"
+    }
+  ],
+  "aspect": "performance",
+  "review_run_id": "c086cb1780b8422a57006cbecf6a0373c0d2ebe01b36125fe461b4c475f9eb44",
+  "brief_sha256": "e8dbc6e7ff676cc711bbe625a45b327081dd1e5bce35489da1641bdd642eee1a",
+  "branch_diff_digest": "3c449dea8fd5437f5decbf42bece8a37402cbcaa6c94bf2ef1ffef01bd4dc3cf",
+  "recorded_at": "2026-08-27T09:49:10+00:00",
+  "commit": "533d6ec3e68d61f22c89eee813f4cacea4e25f25"
+}

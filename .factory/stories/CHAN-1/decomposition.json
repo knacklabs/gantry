@@ -65,9 +65,9 @@
         "no exported symbol renamed, no behaviour change"
       ],
       "review_budget": {
-        "max_changed_files": 62,
+        "max_changed_files": 100,
         "max_changed_lines": 1600,
-        "reason": "Mechanical folder move of every discord adapter file plus its tests and importers; the diff is renames (git mv) and import-path edits only \u2014 the file count is the move itself, not code creep."
+        "reason": "Mechanical folder move: the harness counts each git rename as two files (old path deleted + new path added), so 39 renames alone measure 78; plus 16 import/doc/map edits. The diff is renames and import-path edits only \u2014 measured 449 lines, no logic change."
       },
       "user_facing": false
     },
@@ -90,5 +90,5 @@
   "project": "",
   "plan_file": "plans/active/CHAN-1-channel-adapters-live-in-one-folder-per-provider.md",
   "plan_sha256": "097ae733f3e917f5174c2bb272024d383c4b77c353ff6174176f3af27b148aab",
-  "commit": "7e3373d9bbd1905dc2b15643a3cb2f0360c6a9ae"
+  "commit": "533d6ec3e68d61f22c89eee813f4cacea4e25f25"
 }
