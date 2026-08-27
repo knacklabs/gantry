@@ -37,7 +37,7 @@ durability are on this branch; T3 completes the story.
 # CONTRACT POINTERS (read on demand, do not re-validate)
 Full binding text: plans/review-briefs/scheduled-job-permission-parity-design.md
 (committed) — sections B (browser naming), C (request_access/catalog/
-unprojected), D (truthful statuses), physics limits. Decision 0135 accepted.
+unprojected), D (truthful statuses), physics limits. Decision 0135 (renumbered 0144 at merge) accepted.
 Parameters already ruled: 24h wait from confirmed delivery; 10 rows/page,
 20-atom composite gate; host reconciler owns slots via existing lease; provider
 edit semantics per 0124. START CODING at item 1; the test file already exists.

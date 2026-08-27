@@ -7,6 +7,8 @@ stories: [JOBPERM-1]
 
 # Autonomous runs ask-and-wait (chat parity)
 
+> Renumbered 0135 → 0144 when merging main (0135 was taken in parallel by the browser model-provider credential facade decision). Earlier records cite it as 0135.
+
 ## Context
 
 Scheduled runs' tool calls that matched no grant were cancelled instantly by the
