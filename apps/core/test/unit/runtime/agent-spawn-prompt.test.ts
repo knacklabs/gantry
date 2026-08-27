@@ -114,6 +114,24 @@ describe('compileSpawnSystemPrompt', () => {
     expect(prompt).not.toContain('New user messages may arrive mid-run');
   });
 
+  it('adds the no-reply contract only to ambient interactive routes', async () => {
+    const ambient = await compile({ group: { requiresTrigger: false } });
+    const triggered = await compile({ group: { requiresTrigger: true } });
+    const scheduled = await compile({
+      group: { requiresTrigger: false },
+      agentInput: { isScheduledJob: true },
+    });
+
+    expect(ambient).toContain('<internal>GANTRY_NO_REPLY</internal>');
+    expect(ambient).toContain(
+      'A plain-language greeting or vocative that uses your name or persona',
+    );
+    expect(ambient).toContain('Always reply to such a message.');
+    expect(ambient).toContain('Never explain that you are staying silent.');
+    expect(triggered).not.toContain('GANTRY_NO_REPLY');
+    expect(scheduled).not.toContain('GANTRY_NO_REPLY');
+  });
+
   it('threads the resolved capability catalog into the compiled profile', async () => {
     // Model behavioral-corpus coverage is intentionally deferred to the
     // separate evaluation; this unit test pins only prompt projection.

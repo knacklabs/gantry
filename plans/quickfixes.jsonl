@@ -47,3 +47,5 @@
 {"event": "done", "id": "Q-0024-9506", "reason": "Hydrate scheduled safety hook from host-exported reviewed skill actions; reproduce live ATS denial", "started_at": "2026-08-12T08:51:37+00:00", "completed_at": "2026-08-12T08:53:02+00:00", "files": []}
 {"event": "open", "id": "Q-0025-5104", "reason": "Persist the proven ATS reviewed-skill runtime projection fixes validated in dev ECS", "started_at": "2026-08-13T09:33:33+00:00", "max_files": 5, "files": []}
 {"event": "done", "id": "Q-0025-5104", "reason": "Persist the proven ATS reviewed-skill runtime projection fixes validated in dev ECS", "started_at": "2026-08-13T09:33:33+00:00", "completed_at": "2026-08-13T09:43:04+00:00", "files": []}
+{"event": "open", "id": "Q-0026-01e7", "reason": "Port reviewed ambient no-reply fix onto ATS dev deployed base", "started_at": "2026-08-27T11:22:21+00:00", "max_files": 5, "files": []}
+{"event": "done", "id": "Q-0026-01e7", "reason": "Port reviewed ambient no-reply fix onto ATS dev deployed base", "started_at": "2026-08-27T11:22:21+00:00", "completed_at": "2026-08-27T11:27:12+00:00", "files": []}
