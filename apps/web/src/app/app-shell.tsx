@@ -1,14 +1,29 @@
 import { Outlet } from '@tanstack/react-router';
 import { Moon, Sun } from 'lucide-react';
 
-import { ConnectionState } from '../ui/compositions/connection-state';
+import {
+  ConnectionState,
+  useRuntimeConnection,
+  type RuntimeConnectionState,
+} from '../ui/compositions/connection-state';
 import { Button } from '../ui/primitives/button';
 import { usePreferences } from '../features/preferences/preferences-provider';
 import { AppNavigation } from './app-navigation';
 
 export function AppShell() {
   const { effectiveTheme, setTheme } = usePreferences();
+  const runtime = useRuntimeConnection();
   const nextTheme = effectiveTheme === 'dark' ? 'light' : 'dark';
+  const runtimeState: RuntimeConnectionState = runtime.isPending
+    ? 'checking'
+    : runtime.isError
+      ? 'unavailable'
+      : runtime.data.status;
+  const runtimeAccent = {
+    checking: 'after:bg-status-idle',
+    connected: 'after:bg-status-success',
+    unavailable: 'after:bg-danger',
+  }[runtimeState];
 
   return (
     <>
@@ -36,9 +51,11 @@ export function AppShell() {
           <AppNavigation />
         </aside>
         <div className="grid min-w-0 grid-rows-[64px_minmax(0,1fr)]">
-          <header className="relative flex min-w-0 items-center justify-between border-b border-border bg-canvas/90 px-4 after:absolute after:right-0 after:bottom-[-1px] after:left-0 after:h-[3px] after:bg-status-idle sm:px-6">
+          <header
+            className={`relative flex min-w-0 items-center justify-between border-b border-border bg-canvas/90 px-4 after:absolute after:right-0 after:bottom-[-1px] after:left-0 after:h-[3px] sm:px-6 ${runtimeAccent}`}
+          >
             <div className="flex min-w-0 items-center gap-3">
-              <ConnectionState />
+              <ConnectionState state={runtimeState} />
             </div>
             <Button
               size="icon"

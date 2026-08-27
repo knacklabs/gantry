@@ -63,6 +63,10 @@ import { handleAgentRoutes } from './routes/agents.js';
 import { handleBrainRoutes } from './routes/brain.js';
 import { handleBrowserAuthRoutes } from './routes/browser-auth.js';
 import {
+  handleBrowserRuntimeStatus,
+  isBrowserRuntimeStatusPath,
+} from './routes/browser-runtime-status.js';
+import {
   handleBrowserAgentRoutes,
   isBrowserAgentsPath,
 } from './routes/browser-agents.js';
@@ -195,6 +199,7 @@ function createControlRequestHandler(
       if (
         pathname.startsWith('/auth/') ||
         pathname.startsWith('/ui/api/auth/') ||
+        isBrowserRuntimeStatusPath(pathname) ||
         isBrowserAgentsPath(pathname) ||
         pathname.startsWith('/ui/api/model-providers') ||
         isBrowserMcpServerPath(pathname)
@@ -210,6 +215,17 @@ function createControlRequestHandler(
           return;
         }
       }
+      if (
+        isBrowserRuntimeStatusPath(pathname) &&
+        (await handleBrowserRuntimeStatus(
+          req,
+          res,
+          ctx,
+          pathname,
+          getRuntimeSettingsForConfig(),
+        ))
+      )
+        return;
       if (
         isBrowserAgentsPath(pathname) &&
         (await handleBrowserAgentRoutes(
