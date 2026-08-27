@@ -46,6 +46,7 @@ import {
   type AgentDirectoryItem,
   type BrowserRole,
 } from '../agents-queries';
+import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
 import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentSetupManager } from '../components/agent-setup-manager';
 import { AgentSettings } from '../components/agent-settings';
@@ -75,7 +76,12 @@ export function AgentDetailRoute() {
       if (!response.ok) throw new Error(`Agent could not be ${action}d.`);
     },
     onSuccess: () =>
-      void queryClient.invalidateQueries({ queryKey: agentQueryKeys.all }),
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: agentQueryKeys.all }),
+        queryClient.invalidateQueries({
+          queryKey: navigationSummaryQuery.queryKey,
+        }),
+      ]),
   });
   if (detail.isError)
     return (
@@ -432,6 +438,9 @@ function RoleAssignmentDialog({
       await queryClient.invalidateQueries({
         queryKey: agentQueryKeys.all,
         refetchType: 'active',
+      });
+      await queryClient.invalidateQueries({
+        queryKey: navigationSummaryQuery.queryKey,
       });
       onOpenChange(false);
     },

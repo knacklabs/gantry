@@ -110,6 +110,12 @@ export interface AppRepository {
 export interface AgentRepository {
   getAgent(id: AgentId): Promise<Agent | null>;
   listAgents(appId: AppId): Promise<Agent[]>;
+  summarizeNavigation?(appId: AppId): Promise<{
+    total: number;
+    active: number;
+    disabled: number;
+    withoutRole: number;
+  }>;
   listAgentsPage?(input: {
     appId: AppId;
     page: number;
@@ -617,6 +623,10 @@ export interface McpServerRepository {
     limit?: number;
     cursor?: string;
   }): Promise<McpServerDefinition[]>;
+  summarizeNavigation?(appId: AppId): Promise<{
+    active: number;
+    disabled: number;
+  }>;
   saveServer(definition: McpServerDefinition): Promise<void>;
   transitionServerStatus(input: {
     appId: AppId;

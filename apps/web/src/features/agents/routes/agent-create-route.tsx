@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { ArrowRight, X } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
@@ -26,6 +26,7 @@ import {
   type BrowserRole,
   type CapabilityCatalog,
 } from '../agents-queries';
+import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
 import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentSetupManager } from '../components/agent-setup-manager';
 import {
@@ -59,6 +60,7 @@ export function AgentCreateRoute() {
 
 export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [selectedRole, setSelectedRole] = useState<BrowserRole>();
   const [baseErrors, setBaseErrors] = useState<{
@@ -108,6 +110,9 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
       return response.json() as Promise<{ agent: { id: string } }>;
     },
     onSuccess: ({ agent }) => {
+      void queryClient.invalidateQueries({
+        queryKey: navigationSummaryQuery.queryKey,
+      });
       setAgentId(agent.id);
       setStep('sources');
     },

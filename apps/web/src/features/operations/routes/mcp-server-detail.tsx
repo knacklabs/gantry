@@ -23,6 +23,7 @@ import {
   type McpInventory,
   type McpServer,
 } from '../operations-queries';
+import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
 
 const splitLines = (value: string) =>
   value
@@ -60,7 +61,10 @@ export function McpServerDetail({
   const reconnectTriggerRef = useRef<HTMLButtonElement>(null);
   const reconnectCancelRef = useRef<HTMLButtonElement>(null);
   const refresh = () =>
-    client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
+    Promise.all([
+      client.invalidateQueries({ queryKey: mcpServerQuery.queryKey }),
+      client.invalidateQueries({ queryKey: navigationSummaryQuery.queryKey }),
+    ]);
   async function request(
     path: string,
     method: string,

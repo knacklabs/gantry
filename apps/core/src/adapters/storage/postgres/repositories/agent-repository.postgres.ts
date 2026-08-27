@@ -48,6 +48,31 @@ export class PostgresAgentRepository implements AgentRepository {
     return rows as Agent[];
   }
 
+  async summarizeNavigation(appId: App['id']) {
+    const [row] = await this.db
+      .select({
+        total: count(),
+        active: sql<number>`count(*) filter (where ${pgSchema.agentsPostgres.status} = 'active')`,
+        disabled: sql<number>`count(*) filter (where ${pgSchema.agentsPostgres.status} = 'disabled')`,
+        withoutRole: sql<number>`count(*) filter (where ${pgSchema.agentConfigVersionsPostgres.sourceRoleId} is null)`,
+      })
+      .from(pgSchema.agentsPostgres)
+      .leftJoin(
+        pgSchema.agentConfigVersionsPostgres,
+        eq(
+          pgSchema.agentsPostgres.currentConfigVersionId,
+          pgSchema.agentConfigVersionsPostgres.id,
+        ),
+      )
+      .where(eq(pgSchema.agentsPostgres.appId, appId));
+    return {
+      total: Number(row?.total ?? 0),
+      active: Number(row?.active ?? 0),
+      disabled: Number(row?.disabled ?? 0),
+      withoutRole: Number(row?.withoutRole ?? 0),
+    };
+  }
+
   async listAgentsPage(input: {
     appId: App['id'];
     page: number;

@@ -19,6 +19,7 @@ import {
 import { Input } from '../../../ui/primitives/input';
 import { Textarea } from '../../../ui/primitives/textarea';
 import { mcpServerQuery, type McpServer } from '../operations-queries';
+import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
 
 const splitLines = (value: string) =>
   value
@@ -99,7 +100,10 @@ export function ConnectMcpServerDialog({
         setError(data?.error?.message ?? 'MCP server could not be connected.');
         return;
       }
-      await client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: mcpServerQuery.queryKey }),
+        client.invalidateQueries({ queryKey: navigationSummaryQuery.queryKey }),
+      ]);
       onConnected(data.server);
       onOpenChange(false);
     } catch (error) {

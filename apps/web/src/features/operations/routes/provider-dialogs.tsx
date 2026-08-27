@@ -23,6 +23,7 @@ import {
   TooltipTrigger,
 } from '../../../ui/primitives/tooltip';
 import { type ModelProvider, modelProviderQuery } from '../operations-queries';
+import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
 
 type ProviderStatus = {
   description: string;
@@ -183,6 +184,9 @@ export function ProviderDialog({
     await queryClient.invalidateQueries({
       queryKey: modelProviderQuery.queryKey,
     });
+    await queryClient.invalidateQueries({
+      queryKey: navigationSummaryQuery.queryKey,
+    });
     onOpenChange(false);
   }
 
@@ -236,6 +240,9 @@ export function ProviderDialog({
     await queryClient.invalidateQueries({
       queryKey: modelProviderQuery.queryKey,
     });
+    await queryClient.invalidateQueries({
+      queryKey: navigationSummaryQuery.queryKey,
+    });
     onOpenChange(false);
   }
 
@@ -258,6 +265,9 @@ export function ProviderDialog({
     }
     await queryClient.invalidateQueries({
       queryKey: modelProviderQuery.queryKey,
+    });
+    await queryClient.invalidateQueries({
+      queryKey: navigationSummaryQuery.queryKey,
     });
     setRemovalConfirmation('');
     setRemovalOpen(false);

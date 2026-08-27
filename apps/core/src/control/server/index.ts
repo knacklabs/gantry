@@ -67,6 +67,10 @@ import {
   isBrowserRuntimeStatusPath,
 } from './routes/browser-runtime-status.js';
 import {
+  handleBrowserNavigationSummary,
+  isBrowserNavigationSummaryPath,
+} from './routes/browser-navigation-summary.js';
+import {
   handleBrowserAgentRoutes,
   isBrowserAgentsPath,
 } from './routes/browser-agents.js';
@@ -200,6 +204,7 @@ function createControlRequestHandler(
         pathname.startsWith('/auth/') ||
         pathname.startsWith('/ui/api/auth/') ||
         isBrowserRuntimeStatusPath(pathname) ||
+        isBrowserNavigationSummaryPath(pathname) ||
         isBrowserAgentsPath(pathname) ||
         pathname.startsWith('/ui/api/model-providers') ||
         isBrowserMcpServerPath(pathname)
@@ -218,6 +223,17 @@ function createControlRequestHandler(
       if (
         isBrowserRuntimeStatusPath(pathname) &&
         (await handleBrowserRuntimeStatus(
+          req,
+          res,
+          ctx,
+          pathname,
+          getRuntimeSettingsForConfig(),
+        ))
+      )
+        return;
+      if (
+        isBrowserNavigationSummaryPath(pathname) &&
+        (await handleBrowserNavigationSummary(
           req,
           res,
           ctx,

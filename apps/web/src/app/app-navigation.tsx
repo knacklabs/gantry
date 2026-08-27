@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   Bot,
@@ -20,6 +21,15 @@ import {
 } from 'lucide-react';
 
 import { GantryLogo } from '../ui/compositions/gantry-logo';
+import {
+  navigationSummaryQuery,
+  type NavigationSummary,
+} from '../features/navigation/navigation-summary-query';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '../ui/primitives/tooltip';
 
 const navigation = [
   {
@@ -82,6 +92,7 @@ const NAV_ITEM_ACTIVE_CLASS_NAME =
   'border-border-strong bg-surface-strong text-text';
 
 export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
+  const summary = useQuery(navigationSummaryQuery);
   return (
     <div className="flex h-full flex-col">
       <Link
@@ -114,6 +125,11 @@ export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
               >
                 <Icon size={17} aria-hidden="true" />
                 <span>{label}</span>
+                <NavigationCount
+                  item={to}
+                  summary={summary.data}
+                  pending={summary.isPending}
+                />
               </Link>
             ))}
           </nav>
@@ -145,4 +161,83 @@ export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
     </div>
   );
+}
+
+function NavigationCount({
+  item,
+  summary,
+  pending,
+}: {
+  item: string;
+  summary?: NavigationSummary;
+  pending: boolean;
+}) {
+  const details = navigationCountDetails(item, summary);
+  if (!details) {
+    return pending &&
+      (item === '/agents' ||
+        item === '/mcp-servers' ||
+        item === '/providers') ? (
+      <span
+        aria-hidden="true"
+        className="ml-auto h-4 w-5 animate-pulse rounded-full bg-surface-muted"
+      />
+    ) : null;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          aria-label={details.lines.join(', ')}
+          className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full border border-border bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] leading-none text-text-secondary"
+        >
+          {details.count}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8}>
+        <span className="grid gap-0.5 whitespace-nowrap">
+          {details.lines.map((line) => (
+            <span key={line}>{line}</span>
+          ))}
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function navigationCountDetails(item: string, summary?: NavigationSummary) {
+  if (!summary) return null;
+  if (item === '/agents') {
+    return {
+      count: summary.agents.total,
+      lines: [
+        `${summary.agents.total} configured`,
+        `${summary.agents.active} active`,
+        `${summary.agents.disabled} disabled`,
+        ...(summary.agents.withoutRole
+          ? [`${summary.agents.withoutRole} without role`]
+          : []),
+      ],
+    };
+  }
+  if (item === '/mcp-servers') {
+    return {
+      count: summary.mcpServers.active,
+      lines: [
+        `${summary.mcpServers.active} active MCP servers`,
+        `${summary.mcpServers.disabled} disabled`,
+      ],
+    };
+  }
+  if (item === '/providers') {
+    return {
+      count: summary.modelProviders.ready,
+      lines: [
+        `${summary.modelProviders.ready} ready`,
+        `${summary.modelProviders.missing} need credentials`,
+        `${summary.modelProviders.disabled} disabled`,
+      ],
+    };
+  }
+  return null;
 }

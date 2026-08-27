@@ -19,6 +19,7 @@ import {
 } from '../../../ui/primitives/alert-dialog';
 import { Button } from '../../../ui/primitives/button';
 import { mcpServerQuery, type McpServer } from '../operations-queries';
+import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
 import { ConnectMcpServerDialog } from './mcp-connect-server-dialog';
 import { McpServerDetail } from './mcp-server-detail';
 
@@ -80,7 +81,10 @@ export function McpServersRoute() {
         );
         return;
       }
-      await client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: mcpServerQuery.queryKey }),
+        client.invalidateQueries({ queryKey: navigationSummaryQuery.queryKey }),
+      ]);
       setDisableReplacementOpen(false);
       setReceipt({
         message: 'Old source disabled. The replacement remains connected.',
@@ -274,6 +278,9 @@ export function McpServersRoute() {
                 setReceipt({ message });
                 void client.invalidateQueries({
                   queryKey: mcpServerQuery.queryKey,
+                });
+                void client.invalidateQueries({
+                  queryKey: navigationSummaryQuery.queryKey,
                 });
                 window.requestAnimationFrame(() => receiptRef.current?.focus());
               }}

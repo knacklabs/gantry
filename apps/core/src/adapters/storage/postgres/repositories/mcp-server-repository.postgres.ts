@@ -203,6 +203,20 @@ export class PostgresMcpServerRepository implements McpServerRepository {
     return rows.map((row) => this.mapServer(row));
   }
 
+  async summarizeNavigation(appId: McpServerDefinition['appId']) {
+    const [row] = await this.db
+      .select({
+        active: sql<number>`count(*) filter (where ${pgSchema.mcpServersPostgres.status} = 'active')`,
+        disabled: sql<number>`count(*) filter (where ${pgSchema.mcpServersPostgres.status} = 'disabled')`,
+      })
+      .from(pgSchema.mcpServersPostgres)
+      .where(eq(pgSchema.mcpServersPostgres.appId, appId));
+    return {
+      active: Number(row?.active ?? 0),
+      disabled: Number(row?.disabled ?? 0),
+    };
+  }
+
   async saveServer(definition: McpServerDefinition): Promise<void> {
     await this.db
       .insert(pgSchema.mcpServersPostgres)
