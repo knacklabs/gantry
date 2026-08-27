@@ -7,7 +7,7 @@ type TextFieldProps = Omit<ComponentPropsWithRef<'input'>, 'id'> & {
   error?: string;
   hint?: ReactNode;
   id: string;
-  label: string;
+  label: ReactNode;
 };
 
 export function TextField({

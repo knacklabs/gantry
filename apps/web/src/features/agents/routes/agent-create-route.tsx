@@ -62,6 +62,10 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [selectedRole, setSelectedRole] = useState<BrowserRole>();
   const [instructions, setInstructions] = useState('');
+  const [baseErrors, setBaseErrors] = useState<{
+    name?: string;
+    role?: string;
+  }>({});
   const [roleEditor, setRoleEditor] = useState<RoleEditorTarget>();
   const [agentId, setAgentId] = useState<string>();
   const [step, setStep] = useState<
@@ -98,7 +102,12 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (name.trim() && selectedRole) create.mutate();
+    const errors = {
+      name: name.trim() ? undefined : 'Enter an agent name.',
+      role: selectedRole ? undefined : 'Select a role.',
+    };
+    setBaseErrors(errors);
+    if (!errors.name && !errors.role) create.mutate();
   }
 
   return (
@@ -258,10 +267,24 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
               <div className="grid gap-3 md:grid-cols-[1.2fr_.8fr]">
                 <TextField
                   id="agent-name"
-                  label="Agent name"
+                  aria-required="true"
+                  label={
+                    <>
+                      Agent name{' '}
+                      <span className="text-danger" aria-hidden="true">
+                        *
+                      </span>
+                    </>
+                  }
                   value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  error={create.isError ? create.error.message : undefined}
+                  onChange={(event) => {
+                    setName(event.target.value);
+                    setBaseErrors((errors) => ({ ...errors, name: undefined }));
+                  }}
+                  error={
+                    baseErrors.name ??
+                    (create.isError ? create.error.message : undefined)
+                  }
                   placeholder="Customer research"
                   autoFocus
                 />
@@ -277,8 +300,12 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                 </label>
               </div>
               <AgentRoleSelector
+                error={baseErrors.role}
                 value={selectedRole}
-                onChange={setSelectedRole}
+                onChange={(role) => {
+                  setSelectedRole(role);
+                  setBaseErrors((errors) => ({ ...errors, role: undefined }));
+                }}
                 onCreateCustom={() => setRoleEditor({ mode: 'create' })}
               />
               <label className="grid gap-1.5 text-xs font-semibold text-text">
@@ -322,7 +349,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
           </span>
           {step === 'base' ? (
             <Button
-              disabled={!name.trim() || !selectedRole || create.isPending}
+              disabled={create.isPending}
               form="agent-base-form"
               type="submit"
             >
