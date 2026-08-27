@@ -28,6 +28,7 @@ export function AgentSetupCatalog({
   onRetry,
   onSourceTabChange,
   onToggle,
+  onClearSelections,
 }: {
   kind: 'sources' | 'capabilities';
   sourceTab: 'skills' | 'mcp';
@@ -44,6 +45,7 @@ export function AgentSetupCatalog({
   onRetry: () => void;
   onSourceTabChange: (tab: 'skills' | 'mcp') => void;
   onToggle: (id: string) => void;
+  onClearSelections?: () => void;
 }) {
   const [accessOpen, setAccessOpen] = useState(false);
   const noun =
@@ -62,6 +64,7 @@ export function AgentSetupCatalog({
             size="sm"
             className="min-w-36 justify-between"
             variant={sourceTab === 'skills' ? 'secondary' : 'outline'}
+            type="button"
             onClick={() => onSourceTabChange('skills')}
           >
             Skills ({selected.filter((id) => id.startsWith('skill:')).length})
@@ -72,6 +75,7 @@ export function AgentSetupCatalog({
             size="sm"
             className="min-w-36 justify-between"
             variant={sourceTab === 'mcp' ? 'secondary' : 'outline'}
+            type="button"
             onClick={() => onSourceTabChange('mcp')}
           >
             MCP servers ({selected.filter((id) => id.startsWith('mcp:')).length}
@@ -83,7 +87,11 @@ export function AgentSetupCatalog({
           <AgentDrawer
             description="Connected sources → Allowed capabilities → Runtime checks"
             eyebrow="Step 3 help"
-            footer={<Button onClick={() => setAccessOpen(false)}>Done</Button>}
+            footer={
+              <Button type="button" onClick={() => setAccessOpen(false)}>
+                Done
+              </Button>
+            }
             open={accessOpen}
             title="How agent access works"
             onOpenChange={setAccessOpen}
@@ -122,7 +130,7 @@ export function AgentSetupCatalog({
       {failed ? (
         <div className="flex items-center gap-2 text-sm text-destructive">
           Available options could not be loaded.
-          <Button size="sm" variant="secondary" onClick={onRetry}>
+          <Button size="sm" type="button" variant="secondary" onClick={onRetry}>
             Retry
           </Button>
         </div>
@@ -131,12 +139,12 @@ export function AgentSetupCatalog({
         <div
           className={
             kind === 'sources'
-              ? 'overflow-hidden rounded-lg border border-border'
+              ? 'max-h-[360px] overflow-y-auto rounded-lg border border-border'
               : 'grid gap-3 md:grid-cols-2'
           }
         >
           {kind === 'sources' ? (
-            <div className="grid grid-cols-[32px_1.2fr_1.4fr_.8fr] gap-3 border-b border-border bg-surface-muted px-3 py-2 font-mono text-[10px] font-semibold tracking-wide text-text-secondary uppercase">
+            <div className="sticky top-0 z-10 grid grid-cols-[32px_1.2fr_1.4fr_.8fr] gap-3 border-b border-border bg-surface-muted px-3 py-2 font-mono text-[10px] font-semibold tracking-wide text-text-secondary uppercase">
               <span />
               <span>{sourceTab === 'skills' ? 'Skill' : 'MCP server'}</span>
               <span>
@@ -198,6 +206,16 @@ export function AgentSetupCatalog({
               Selections are saved independently and become available next run.
             </span>
           </span>
+          {onClearSelections ? (
+            <Button
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={onClearSelections}
+            >
+              Clear selections
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {kind === 'capabilities' ? (
@@ -211,6 +229,7 @@ export function AgentSetupCatalog({
           </span>
           <Button
             size="sm"
+            type="button"
             variant="outline"
             onClick={() => setAccessOpen(true)}
           >
@@ -223,6 +242,7 @@ export function AgentSetupCatalog({
           <Button
             disabled={page <= 1}
             size="sm"
+            type="button"
             variant="secondary"
             onClick={() => onPageChange(page - 1)}
           >
@@ -231,6 +251,7 @@ export function AgentSetupCatalog({
           <Button
             disabled={!hasNext}
             size="sm"
+            type="button"
             variant="secondary"
             onClick={() => onPageChange(page + 1)}
           >

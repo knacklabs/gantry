@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Save } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 
 import {
   browserCsrfHeader,
@@ -25,12 +25,16 @@ export function AgentSetupManager({
   onSaved,
   onBack,
   disabled = false,
+  formId,
+  onSavingChange,
 }: {
   agentId: string;
   kind: SetupKind;
   onSaved?: () => void;
   onBack?: () => void;
   disabled?: boolean;
+  formId?: string;
+  onSavingChange?: (saving: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const sources = useQuery({
@@ -107,6 +111,10 @@ export function AgentSetupManager({
       onSaved?.();
     },
   });
+  useEffect(() => {
+    onSavingChange?.(save.isPending);
+    return () => onSavingChange?.(false);
+  }, [onSavingChange, save.isPending]);
   const allItems =
     kind === 'sources'
       ? sourceTab === 'skills'
@@ -153,8 +161,12 @@ export function AgentSetupManager({
     return (
       <p className="p-5 text-sm text-destructive">Setup could not be loaded.</p>
     );
-  return (
-    <div className="grid gap-4">
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    save.mutate();
+  }
+  const content = (
+    <>
       <AgentSetupCatalog
         disabled={disabled}
         failed={catalog.isError}
@@ -169,6 +181,7 @@ export function AgentSetupManager({
         onPageChange={setCatalogPage}
         onRetry={() => void catalog.refetch()}
         onSearchChange={setCatalogInput}
+        onClearSelections={() => setSelected([])}
         onSourceTabChange={(tab) => {
           setSourceTab(tab);
           setCatalogPage(1);
@@ -184,9 +197,20 @@ export function AgentSetupManager({
       {save.isError ? (
         <p className="text-sm text-destructive">{save.error.message}</p>
       ) : null}
+    </>
+  );
+  if (formId)
+    return (
+      <form id={formId} className="grid min-h-0 gap-4" onSubmit={submit}>
+        {content}
+      </form>
+    );
+  return (
+    <div className="grid gap-4">
+      {content}
       <div className="flex items-center justify-between border-t border-border pt-4">
         {onBack ? (
-          <Button variant="secondary" onClick={onBack}>
+          <Button type="button" variant="secondary" onClick={onBack}>
             Back
           </Button>
         ) : (
@@ -194,6 +218,7 @@ export function AgentSetupManager({
         )}
         <Button
           disabled={disabled || save.isPending}
+          type="button"
           onClick={() => save.mutate()}
         >
           <Save size={15} aria-hidden="true" />

@@ -67,6 +67,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
   }>({});
   const [roleEditor, setRoleEditor] = useState<RoleEditorTarget>();
   const [agentId, setAgentId] = useState<string>();
+  const [setupPending, setSetupPending] = useState(false);
   const [step, setStep] = useState<
     'base' | 'sources' | 'capabilities' | 'review'
   >('base');
@@ -180,19 +181,20 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
         </ol>
         <div className="min-h-0 overflow-y-auto p-5">
           {step === 'sources' && agentId ? (
-            <section className="grid gap-4">
+            <section className="grid min-h-0 gap-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="m-0 text-lg font-semibold">
                     Connect existing sources
                   </h2>
                   <p className="mt-1 mb-0 text-sm text-text-secondary">
-                    Sources expose reviewed inventory. They do not grant
-                    actions.
+                    Optional · select reviewed skills and MCP servers. Sources
+                    expose inventory; they do not grant actions.
                   </p>
                 </div>
                 <Button
                   size="sm"
+                  type="button"
                   variant="ghost"
                   onClick={() => setStep('capabilities')}
                 >
@@ -201,9 +203,10 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
               </div>
               <AgentSetupManager
                 agentId={agentId}
+                formId="agent-sources-form"
                 kind="sources"
-                onBack={() => setStep('base')}
                 onSaved={() => setStep('capabilities')}
+                onSavingChange={setSetupPending}
               />
             </section>
           ) : null}
@@ -368,6 +371,24 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                   : 'Save agent and continue'}{' '}
               <ArrowRight size={16} aria-hidden="true" />
             </Button>
+          ) : null}
+          {step === 'sources' ? (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setStep('base')}
+              >
+                Back
+              </Button>
+              <Button
+                disabled={setupPending}
+                form="agent-sources-form"
+                type="submit"
+              >
+                {setupPending ? 'Saving…' : 'Continue'}
+              </Button>
+            </div>
           ) : null}
         </footer>
       </DialogContent>
