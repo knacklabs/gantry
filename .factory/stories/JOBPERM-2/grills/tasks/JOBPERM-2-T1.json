@@ -2,31 +2,24 @@
   "generated_by": "griller",
   "gate": "task",
   "verdict": "pass",
-  "questions_asked": 2,
+  "questions_asked": 1,
   "gaps": [
-    "Which Codex model/effort should implement T1?"
+    "T1 amendment: the 'this run only' row shows the command itself. How long should that label be allowed to get on the card?"
   ],
   "contradictions": [],
   "resolutions": [
     "Required test leaf: 'attaches a job request with no persistable rule as a once need' in apps/core/test/unit/application/jobperm-durability.test.ts.",
-    "Expiry copy/settlement and the Postgres integration proof are T2."
+    "Expiry copy/settlement and the Postgres integration proof are T2.",
+    "Once label: redactSensitiveText + whitespace collapse + 160-char cap, built once in the wiring; test 'bounds and redacts the once need label'."
   ],
   "rounds": [
     {
-      "question": "Which Codex model/effort should implement T1?",
+      "question": "T1 amendment: the 'this run only' row shows the command itself. How long should that label be allowed to get on the card?",
       "options": [
-        "gpt-5.6-sol @ high (Recommended)",
-        "gpt-5.6-sol @ xhigh"
+        "160 characters, secrets redacted (Recommended)",
+        "Full command, secrets redacted"
       ],
-      "chosen": "gpt-5.6-sol @ high (Recommended)"
-    },
-    {
-      "question": "Anything else before T1 starts?",
-      "options": [
-        "No \u2014 go (Recommended)",
-        "Hold"
-      ],
-      "chosen": "No \u2014 go (Recommended)",
+      "chosen": "160 characters, secrets redacted (Recommended)",
       "frontier_empty": true
     }
   ],
@@ -68,11 +61,11 @@
     "grant: 'rule' | 'once' on the job-permission need/revision record (optional JSONB field; absent reads as rule) \u2014 owner choice 2026-08-27; no new table, no migration (A-0065)"
   ],
   "owner_questions": [],
-  "input_sha256": "6ff34284a616b1cfa70726a6e06837256439f5528fbc73bfd8005b959b0c780c",
-  "task_plan_sha256": "ad19b343df1f42e05f985a72735060df573a9c1e2c5c726fbfdbe109ade6f7fd",
-  "recorded_at": "2026-08-27T17:29:37+00:00",
-  "commit": "83e9947af4297d5d5049af3a3f28b0a5fabf7636",
-  "approved_task_plan_sha256": "ad19b343df1f42e05f985a72735060df573a9c1e2c5c726fbfdbe109ade6f7fd",
+  "input_sha256": "70f43def4e63d04f0c3fed19444eefb3422f39256dbb8af6f178216593403209",
+  "task_plan_sha256": "7a46588b51ead49e0b4e7a07228aeab1f976236a15135d27588fbbbd07bc94c7",
+  "recorded_at": "2026-08-27T17:57:21+00:00",
+  "commit": "80057e7c158a43ffe82c52cd1f732e560eed3c09",
+  "approved_task_plan_sha256": "7a46588b51ead49e0b4e7a07228aeab1f976236a15135d27588fbbbd07bc94c7",
   "approved_by": "Ravi Kiran Vemula",
-  "approved_at": "2026-08-27T17:29:37+00:00"
+  "approved_at": "2026-08-27T17:57:21+00:00"
 }
