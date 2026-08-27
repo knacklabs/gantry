@@ -1,9 +1,11 @@
 import type {
   JobPermissionActorContext,
   JobPermissionDurabilityRepository,
+  JobPermissionGrantMode,
   JobPermissionWaiter,
 } from '../../domain/ports/job-permission-durability.js';
 import type { PermissionApprovalRequest } from '../../domain/types.js';
+import { redactSensitiveText } from '../../shared/sensitive-material.js';
 import {
   initialCard,
   reviseLivingCard,
@@ -66,6 +68,7 @@ export interface JobPermissionDurabilityEffects {
     jobId: string;
     needId: string;
     askingEpoch: number;
+    grant: JobPermissionGrantMode;
     renderedGrantAtoms: readonly string[];
   }): Promise<JobPermissionRevalidationResult>;
   persistGrant(input: {
@@ -83,7 +86,11 @@ export interface JobPermissionDurabilityEffects {
     sourceAgentFolder: string;
     waiter: JobPermissionWaiter;
     response:
-      | { kind: 'approved'; grantAtoms: readonly string[] }
+      | {
+          kind: 'approved';
+          grant: JobPermissionGrantMode;
+          grantAtoms: readonly string[];
+        }
       | { kind: 'denied'; reason: string }
       | { kind: 'policy_changed'; reason: string }
       | { kind: 'setup_required'; reason: string };
@@ -125,6 +132,49 @@ export type AttachJobPermissionNeedOutcome =
   | { status: 'applied'; needId: string }
   | { status: 'denied'; needId: string; reason: string }
   | { status: 'handoff'; needId: string; reason: string };
+
+export async function attachJobPermissionRequestOrDeny(input: {
+  request: PermissionApprovalRequest & { jobId: string };
+  sourceAgentFolder: string;
+  durability?: {
+    attachRequest(input: {
+      request: PermissionApprovalRequest;
+      sourceAgentFolder: string;
+    }): Promise<boolean>;
+  };
+  logger: Pick<JobPermissionDurabilityLogger, 'warn'>;
+}): Promise<{ status: 'attached' } | { status: 'denied'; reason: string }> {
+  let cause: string;
+  try {
+    if (!input.durability) {
+      cause = 'job permission durability is unavailable';
+    } else if (
+      await input.durability.attachRequest({
+        request: input.request,
+        sourceAgentFolder: input.sourceAgentFolder,
+      })
+    ) {
+      return { status: 'attached' };
+    } else {
+      cause = 'the request could not be attached';
+    }
+  } catch (error) {
+    cause =
+      error instanceof Error
+        ? redactSensitiveText(error.message)
+        : 'attachment failed';
+  }
+  const reason = `Could not raise the job permission card: ${cause}`;
+  input.logger.warn(
+    {
+      jobId: input.request.jobId,
+      requestId: input.request.requestId,
+      reason,
+    },
+    'Job permission card attachment failed',
+  );
+  return { status: 'denied', reason };
+}
 
 export type JobPermissionCardDecisionOutcome =
   | { status: 'accepted'; needIds: string[] }
@@ -182,6 +232,7 @@ export class JobPermissionDurabilityService {
     agentId?: string | null;
     canonicalIdentity: string;
     displayLabel: string;
+    grant?: JobPermissionGrantMode;
     renderedGrantAtoms: string[];
     requestSnapshot?: PermissionApprovalRequest;
     waiter: {
@@ -193,8 +244,12 @@ export class JobPermissionDurabilityService {
     };
   }): Promise<AttachJobPermissionNeedOutcome> {
     const canonicalIdentity = input.canonicalIdentity.trim();
+    const grant = input.grant ?? 'rule';
     const renderedGrantAtoms = canonicalAtoms(input.renderedGrantAtoms);
-    if (!canonicalIdentity || renderedGrantAtoms.length === 0) {
+    if (
+      !canonicalIdentity ||
+      (grant === 'rule' && renderedGrantAtoms.length === 0)
+    ) {
       throw new Error('A job permission need requires canonical grant scope.');
     }
     const now = this.clock.now();
@@ -235,6 +290,7 @@ export class JobPermissionDurabilityService {
               sourceAgentFolder: input.sourceAgentFolder,
               canonicalIdentity,
               displayLabel: input.displayLabel,
+              grant,
               askingEpoch: 1,
               state: 'asking',
               renderedGrantAtoms,

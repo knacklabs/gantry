@@ -11,8 +11,10 @@ import {
   createIpcResponseSigningKeyPair,
   signIpcResponsePayload,
 } from '@core/infrastructure/ipc/response-signing.js';
+import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { requestPermissionApprovalViaIpc } from '@core/runner/permission-ipc-client.js';
 import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-permission-run-restriction.js';
+import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import { unregisterPermissionRunRestriction } from '@core/runtime/permission-decision-coordinator.js';
 import { ipcInteractionAuthValidationOptions } from '@core/shared/ipc-interaction-lifetime.js';
@@ -108,7 +110,7 @@ it('jobperm-1-t1-card-not-cancel', async () => {
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(requestPermissionApproval.mock.calls[0]![0]).toMatchObject({
       jobId: 'job-1',
-      decisionOptions: ['allow_persistent_rule', 'cancel'],
+      decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
       suggestions: [PERSISTENT_RUN_COMMAND_UPDATE],
     });
     expect(classifierConsult).not.toHaveBeenCalled();
@@ -222,6 +224,96 @@ it('jobperm-1-t1-card-not-cancel', async () => {
       sourceAgentFolder: 'main_agent',
       responseKeyId,
     });
+  }
+});
+
+it('denies a job request when its permission card cannot be attached', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobperm-attach-'));
+  const claimedPath = path.join(tempDir, 'claimed-permission.json');
+  fs.writeFileSync(claimedPath, '{}');
+  const auth = createIpcAuthEnvelope('main_agent');
+  const requestPermissionApproval = vi.fn();
+  const attachRequest = vi.fn(async () => {
+    throw new Error('card delivery route is unavailable');
+  });
+  const warn = vi.fn();
+  registerWorkerPermissionRunRestriction({
+    sourceAgentFolder: 'main_agent',
+    responseKeyId: auth.responseKeyId,
+    hideAuthorityTools: false,
+    runKind: 'scheduled',
+    jobId: 'job-1',
+    runId: 'run-1',
+  });
+  try {
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'jobperm-attach-failure',
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        responseNonce: 'nonce-1',
+        responseKeyId: auth.responseKeyId,
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:job',
+        jobId: 'job-1',
+        unattended: true,
+        toolName: 'RunCommand',
+        toolInput: { command: 'npm test | tee report.txt' },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        conversationRoutes: permissionRoute,
+        requestPermissionApproval,
+        jobPermissionDurability: { attachRequest },
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        getPermissionRuntimeSettings: () => ({
+          agents: { main_agent: { permissionMode: 'ask' as const } },
+          permissions: { autoMode: {}, trustedRoots: [] },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+      } as never,
+      ipcBaseDir: tempDir,
+      file: 'claimed-permission.json',
+      claimedPath,
+      logger: { warn, error: vi.fn() },
+    });
+
+    expect(attachRequest).toHaveBeenCalledOnce();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-1',
+        requestId: 'jobperm-attach-failure',
+        reason:
+          'Could not raise the job permission card: card delivery route is unavailable',
+      }),
+      'Job permission card attachment failed',
+    );
+    const response = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          tempDir,
+          'main_agent',
+          'permission-responses',
+          'jobperm-attach-failure.json',
+        ),
+        'utf8',
+      ),
+    );
+    expect(response).toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'job_permission_durability',
+      reason:
+        'Could not raise the job permission card: card delivery route is unavailable',
+    });
+  } finally {
+    unregisterPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId: auth.responseKeyId,
+    });
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
@@ -405,6 +497,9 @@ it('jobperm-1-t1-deletions-asserted', () => {
   );
   expect(hostDecisionSource).not.toContain(
     'Autonomous runs decide deterministically:',
+  );
+  expect(hostDecisionSource).not.toMatch(
+    /if \(input\.hostJobId\) \{\s*input\.request\.decisionOptions/,
   );
 
   const permissionTimeout = source(

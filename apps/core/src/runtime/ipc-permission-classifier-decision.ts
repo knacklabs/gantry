@@ -433,11 +433,7 @@ async function resolvePermissionIpcDecisionTail(input: {
     : firstPersistentRule(input.request)
       ? ['allow_once', 'allow_persistent_rule', 'cancel']
       : ['allow_once', 'cancel'];
-  if (input.hostJobId) {
-    input.request.decisionOptions = firstPersistentRule(input.request)
-      ? ['allow_persistent_rule', 'cancel']
-      : ['cancel'];
-  } else if (
+  if (
     input.request.promotionHintCount &&
     effectiveDecisionOptions.includes('allow_persistent_rule')
   ) {

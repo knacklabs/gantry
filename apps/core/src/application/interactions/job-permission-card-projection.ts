@@ -118,6 +118,7 @@ export function reviseLivingCard(
       needId: need.id,
       askingEpoch: need.askingEpoch,
       displayLabel: need.displayLabel,
+      grant: need.grant ?? 'rule',
       renderedGrantAtoms: [...need.renderedGrantAtoms],
       visibleGrantAtoms,
       scopePageStart,

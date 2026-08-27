@@ -71,6 +71,9 @@ export function jobPermissionCardText(
     return 'All permission requests for this job are settled.';
   }
   const rows = revision.rows.map((row) => {
+    if ((row.grant ?? 'rule') === 'once') {
+      return `${row.displayLabel} (this run only)`;
+    }
     const scopes = row.visibleGrantAtoms
       .map((atom) => /\((.*)\)$/.exec(atom)?.[1] ?? atom)
       .join('; ');

@@ -16,6 +16,7 @@ import {
 import { persistentRules } from '../../domain/permission-decision.js';
 import type {
   JobPermissionDurabilityRepository,
+  JobPermissionGrantMode,
   JobPermissionNeedRecord,
   JobPermissionWaiter,
 } from '../../domain/ports/job-permission-durability.js';
@@ -152,6 +153,7 @@ export function createJobPermissionDurabilityWiring(
         }
         return revalidateJobPermissionCurrentPolicy({
           request,
+          grant: input.grant,
           renderedGrantAtoms: input.renderedGrantAtoms,
           settings: deps.getPermissionRuntimeSettings(),
           toolRepository: deps.getToolRepository(),
@@ -220,7 +222,8 @@ export function createJobPermissionDurabilityWiring(
       return false;
     }
     const grantAtoms = persistentRules(request);
-    if (grantAtoms.length === 0) return false;
+    const grant: JobPermissionGrantMode =
+      grantAtoms.length > 0 ? 'rule' : 'once';
     const target = deps.resolveCardTarget(request);
     const outcome = await service.attachNeed({
       appId: target.appId,
@@ -229,11 +232,17 @@ export function createJobPermissionDurabilityWiring(
       conversationId: target.conversationId,
       threadId: target.threadId,
       agentId: target.agentId,
-      canonicalIdentity: canonicalJobPermissionNeedIdentity(grantAtoms),
+      canonicalIdentity:
+        grant === 'rule'
+          ? canonicalJobPermissionNeedIdentity(grantAtoms)
+          : request.requestId,
       displayLabel:
-        request.displayName?.trim() ||
-        request.title?.trim() ||
-        request.toolName,
+        grant === 'once'
+          ? onceRequestSummary(request)
+          : request.displayName?.trim() ||
+            request.title?.trim() ||
+            request.toolName,
+      grant,
       renderedGrantAtoms: grantAtoms,
       requestSnapshot: durableGrantRequestSnapshot(request),
       waiter: {
@@ -264,7 +273,7 @@ export function createJobPermissionDurabilityWiring(
         },
         response:
           outcome.status === 'applied'
-            ? { kind: 'approved', grantAtoms }
+            ? { kind: 'approved', grant, grantAtoms }
             : outcome.status === 'denied'
               ? { kind: 'denied', reason: outcome.reason }
               : { kind: 'setup_required', reason: outcome.reason },
@@ -277,6 +286,7 @@ export function createJobPermissionDurabilityWiring(
 
 export async function revalidateJobPermissionCurrentPolicy(input: {
   request: PermissionApprovalRequest;
+  grant?: JobPermissionGrantMode;
   renderedGrantAtoms: readonly string[];
   settings: ReturnType<
     JobPermissionDurabilityWiringDeps['getPermissionRuntimeSettings']
@@ -380,6 +390,9 @@ export async function revalidateJobPermissionCurrentPolicy(input: {
     );
   }
   const grantAtoms = persistentRules(currentRequest);
+  if ((input.grant ?? 'rule') === 'once') {
+    return { kind: 'approved', grantAtoms: [] };
+  }
   if (grantAtoms.length === 0) {
     return cancelled('The approved scope is no longer grantable.');
   }
@@ -511,7 +524,11 @@ async function deliverWaiterResponse(
     sourceAgentFolder: string;
     waiter: JobPermissionWaiter;
     response:
-      | { kind: 'approved'; grantAtoms: readonly string[] }
+      | {
+          kind: 'approved';
+          grant: JobPermissionGrantMode;
+          grantAtoms: readonly string[];
+        }
       | { kind: 'denied'; reason: string }
       | { kind: 'policy_changed'; reason: string }
       | { kind: 'setup_required'; reason: string };
@@ -536,11 +553,22 @@ async function deliverWaiterResponse(
     responseKind: input.response.kind,
   });
   const decision = approved
-    ? {
-        ...persistentDecision(request, 'job_permission_reconciler'),
-        reason: null,
-        updatedPermissions: request.suggestions ?? null,
-      }
+    ? input.response.kind === 'approved' && input.response.grant === 'once'
+      ? {
+          approved: true,
+          mode: 'allow_once' as const,
+          decidedBy: 'human_once',
+          source: 'human_once' as const,
+          repeatableForFutureRuns: false,
+          reason: null,
+          updatedPermissions: null,
+          decisionClassification: 'user_temporary' as const,
+        }
+      : {
+          ...persistentDecision(request, 'job_permission_reconciler'),
+          reason: null,
+          updatedPermissions: request.suggestions ?? null,
+        }
     : {
         approved: false,
         mode: 'cancel' as const,
@@ -605,6 +633,16 @@ function permissionRequest(value: unknown): PermissionApprovalRequest | null {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function onceRequestSummary(request: PermissionApprovalRequest): string {
+  const command = request.toolInput?.command ?? request.toolInput?.cmd;
+  const summary =
+    (typeof command === 'string' && command.trim()) ||
+    request.displayName?.trim() ||
+    request.title?.trim() ||
+    request.toolName;
+  return `${request.toolName.replace(/([a-z])([A-Z])/g, '$1 $2')}: ${summary}`;
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]) {

@@ -206,17 +206,22 @@ function createJobPermEdgeHarness() {
 
 async function attachJobPermEdgeNeed(
   service: JobPermissionDurabilityService,
-  input: { suffix: string; label?: string },
+  input: { suffix: string; label?: string; grant?: 'rule' | 'once' },
 ) {
-  const atoms = [`RunCommand(task-${input.suffix} *)`];
+  const grant = input.grant ?? 'rule';
+  const atoms = grant === 'once' ? [] : [`RunCommand(task-${input.suffix} *)`];
   return service.attachNeed({
     appId: 'default',
     jobId: 'job-provider-contract',
     sourceAgentFolder: 'main_agent',
     conversationId: 'conversation-provider-contract',
     agentId: 'agent-main',
-    canonicalIdentity: canonicalJobPermissionNeedIdentity(atoms),
+    canonicalIdentity:
+      grant === 'once'
+        ? `request-${input.suffix}`
+        : canonicalJobPermissionNeedIdentity(atoms),
     displayLabel: input.label ?? `Task ${input.suffix}`,
+    grant,
     renderedGrantAtoms: atoms,
     waiter: {
       id: `waiter-${input.suffix}`,
@@ -227,6 +232,29 @@ async function attachJobPermEdgeNeed(
     },
   });
 }
+
+it('renders a once job permission row with only Allow and Deny', async () => {
+  const { repository, service } = createJobPermEdgeHarness();
+  await attachJobPermEdgeNeed(service, {
+    suffix: 'piped-command',
+    label: 'Run Command: npm test | tee report.txt',
+    grant: 'once',
+  });
+  const state = await repository.getJobPermissionState({
+    appId: 'default',
+    jobId: 'job-provider-contract',
+  });
+  const revision = state!.card.revisions.at(-1)!;
+
+  expect(jobPermissionCardText(state!.card.jobId, revision)).toBe(
+    'Permissions needed for this job\nRun Command: npm test | tee report.txt (this run only)',
+  );
+  expect(
+    jobPermissionCardActions(state!.card.callbackKey, revision).map(
+      (action) => action.label,
+    ),
+  ).toEqual(['Allow', 'Deny']);
+});
 
 function jobPermissionAffordances(
   callbackKey: string,

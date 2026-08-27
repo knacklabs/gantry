@@ -327,11 +327,12 @@ export class JobPermissionReconciler {
       ) {
         return false;
       }
-      need.state = need.approvedGrantAtoms?.length
-        ? 'approved_pending_apply'
-        : need.decidedBy
-          ? 'denied_pending_delivery'
-          : 'handed_off';
+      need.state =
+        (need.grant ?? 'rule') === 'once' || need.approvedGrantAtoms?.length
+          ? 'approved_pending_apply'
+          : need.decidedBy
+            ? 'denied_pending_delivery'
+            : 'handed_off';
       need.updatedAt = now;
       reviseLivingCard(state, this.capacity, now);
       return true;
@@ -339,8 +340,9 @@ export class JobPermissionReconciler {
   }
 
   private async applyApprovedNeed(candidate: JobPermissionNeedRecord) {
+    const grant = candidate.grant ?? 'rule';
     const displayed = candidate.approvedGrantAtoms ?? [];
-    if (displayed.length === 0) return false;
+    if (grant === 'rule' && displayed.length === 0) return false;
     if (candidate.policyChangedReason) {
       await this.deliverNeedResponses(candidate, {
         kind: 'policy_changed',
@@ -369,9 +371,11 @@ export class JobPermissionReconciler {
         jobId: candidate.jobId,
         needId: candidate.id,
         askingEpoch: candidate.askingEpoch,
+        grant,
         renderedGrantAtoms: displayed,
       });
-      const grantAtoms = canonicalAtoms(revalidated.grantAtoms ?? []);
+      const grantAtoms =
+        grant === 'once' ? [] : canonicalAtoms(revalidated.grantAtoms ?? []);
       if (
         revalidated.kind !== 'approved' ||
         grantAtoms.some((atom) => !displayed.includes(atom))
@@ -428,15 +432,17 @@ export class JobPermissionReconciler {
         });
         return true;
       }
-      await this.effects.persistGrant({
-        idempotencyKey: `job-permission-grant:${candidate.id}:${candidate.askingEpoch}`,
-        appId: candidate.appId,
-        jobId: candidate.jobId,
-        needId: candidate.id,
-        askingEpoch: candidate.askingEpoch,
-        grantAtoms,
-        decidedBy: candidate.decidedBy ?? 'unknown',
-      });
+      if (grant === 'rule') {
+        await this.effects.persistGrant({
+          idempotencyKey: `job-permission-grant:${candidate.id}:${candidate.askingEpoch}`,
+          appId: candidate.appId,
+          jobId: candidate.jobId,
+          needId: candidate.id,
+          askingEpoch: candidate.askingEpoch,
+          grantAtoms,
+          decidedBy: candidate.decidedBy ?? 'unknown',
+        });
+      }
       const now = this.clock.now();
       await this.mutateExisting(candidate, (_state, need) => {
         if (need.state !== 'approved_pending_apply') return false;
@@ -451,6 +457,7 @@ export class JobPermissionReconciler {
     if (!current || current.state !== 'approved_pending_apply') return true;
     await this.deliverNeedResponses(current, {
       kind: 'approved',
+      grant: current.grant ?? 'rule',
       grantAtoms: current.approvedGrantAtoms ?? displayed,
     });
     await this.reconcileRerunBarriers(current);
@@ -551,7 +558,11 @@ export class JobPermissionReconciler {
   private async deliverNeedResponses(
     candidate: JobPermissionNeedRecord,
     response:
-      | { kind: 'approved'; grantAtoms: readonly string[] }
+      | {
+          kind: 'approved';
+          grant: 'rule' | 'once';
+          grantAtoms: readonly string[];
+        }
       | { kind: 'denied'; reason: string }
       | { kind: 'policy_changed'; reason: string }
       | { kind: 'setup_required'; reason: string },
