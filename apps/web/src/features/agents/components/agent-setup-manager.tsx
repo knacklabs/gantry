@@ -251,11 +251,11 @@ function nextSources(selected: string[], current: AgentSource): AgentSource {
     mcpServers: selected
       .filter((id) => id.startsWith('mcp:'))
       .map((id) => {
-        return (
-          current.mcpServers.find((source) => source.id === id) ?? {
-            id,
-          }
-        );
+        const source = current.mcpServers.find((item) => item.id === id);
+        return {
+          id,
+          ...(source?.tools?.length ? { tools: source.tools } : {}),
+        };
       }),
     tools: current?.tools ?? [],
   };

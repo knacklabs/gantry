@@ -57,10 +57,17 @@ export type BrowserRole = {
 };
 
 export type AgentSource = {
-  skills: Array<{ id: string; name?: string }>;
-  mcpServers: Array<{ id: string; tools?: string[] }>;
+  skills: Array<{ id: string; name?: string; status?: SourceStatus }>;
+  mcpServers: Array<{
+    id: string;
+    name?: string;
+    status?: SourceStatus;
+    tools?: string[];
+  }>;
   tools: Array<{ id: string; kind: string; version?: string }>;
 };
+
+type SourceStatus = 'ready' | 'unavailable';
 
 export type CapabilityCatalog = {
   capabilities?: Array<{

@@ -79,7 +79,12 @@ export interface AgentCapabilitiesView {
   agentId: AgentId;
   sources: {
     skills: ReadableSkillSource[];
-    mcpServers: Array<{ id: string; tools?: string[] }>;
+    mcpServers: Array<{
+      id: string;
+      name?: string;
+      status?: 'ready' | 'unavailable';
+      tools?: string[];
+    }>;
     tools: ReadableToolSource[];
   };
   capabilities: Array<{ id: string; version: string }>;
@@ -369,13 +374,29 @@ export class AgentCapabilityAdministrationService {
       skillBindings,
       repository: this.repositories.skills,
     });
+    const sources = buildAgentSources({
+      configuredSkillSources,
+      mcpBindings,
+      toolSources,
+    });
+    const mcpServers = await Promise.all(
+      sources.mcpServers.map(async (source) => {
+        const server = await this.repositories.mcpServers.getServer(
+          source.id as McpServerId,
+        );
+        return {
+          ...source,
+          ...(server ? { name: server.displayName ?? server.name } : {}),
+          status:
+            server?.status === 'active'
+              ? ('ready' as const)
+              : ('unavailable' as const),
+        };
+      }),
+    );
     return {
       agentId: input.agentId,
-      sources: buildAgentSources({
-        configuredSkillSources,
-        mcpBindings,
-        toolSources,
-      }),
+      sources: { ...sources, mcpServers },
       updatedAt: this.clock.now(),
     };
   }

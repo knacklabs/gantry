@@ -507,20 +507,68 @@ function Access({ agent }: { agent: AgentDirectoryItem }) {
   const sources = useQuery(agentSourcesQuery(agent.id));
   const capabilities = useQuery(agentCapabilitiesQuery(agent.id));
   const sourceItems = sources.data?.sources.sources;
+  const sourceRows = sourceItems
+    ? [
+        ...sourceItems.skills.map((item) => ({
+          id: `skill:${item.id}`,
+          label: item.name ?? item.id,
+          kind: 'Skill',
+          status: item.status ?? 'unavailable',
+        })),
+        ...sourceItems.mcpServers.map((item) => ({
+          id: `mcp:${item.id}`,
+          label: item.name ?? item.id,
+          kind: 'MCP server',
+          status: item.status ?? 'unavailable',
+        })),
+      ]
+    : [];
   const allowed = capabilities.data?.capabilities.capabilities ?? [];
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-2">
-      <InfoCard
-        title="Sources"
-        description="Installed skills and active MCP servers connected to this agent."
-      >
-        <SummaryList
-          empty="No sources connected."
-          items={[
-            ...(sourceItems?.skills.map((item) => item.name ?? item.id) ?? []),
-            ...(sourceItems?.mcpServers.map((item) => item.id) ?? []),
-          ]}
-        />
+      <section className="rounded-lg border border-border bg-surface p-4">
+        <h2 className="m-0 text-base font-semibold">Connected</h2>
+        <p className="mt-1 mb-4 text-sm text-text-secondary">
+          Reviewed sources make tools visible. They do not grant authority by
+          themselves.
+        </p>
+        {sources.isLoading ? (
+          <p className="m-0 text-sm text-text-secondary">
+            Loading connected sources…
+          </p>
+        ) : sources.isError ? (
+          <p className="m-0 text-sm text-destructive">
+            Connected sources could not be loaded.
+          </p>
+        ) : sourceRows.length ? (
+          <ul className="m-0 max-h-52 list-none divide-y divide-border overflow-y-auto p-0">
+            {sourceRows.map((source) => (
+              <li
+                className="flex min-h-10 items-center justify-between gap-3 py-2 first:pt-0 last:pb-0"
+                key={source.id}
+              >
+                <div className="min-w-0">
+                  <p className="m-0 truncate text-sm font-semibold">
+                    {source.label}
+                  </p>
+                  <p className="m-0 text-xs text-text-secondary">
+                    {source.kind}
+                  </p>
+                </div>
+                <Badge
+                  className="h-6 text-[10px]"
+                  variant={source.status === 'ready' ? 'success' : 'attention'}
+                >
+                  {source.status === 'ready' ? 'Ready' : 'Unavailable'}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="m-0 text-sm text-text-secondary">
+            No sources connected.
+          </p>
+        )}
         <Button
           className="mt-4"
           disabled={agent.status !== 'active'}
@@ -529,7 +577,7 @@ function Access({ agent }: { agent: AgentDirectoryItem }) {
         >
           Edit sources
         </Button>
-      </InfoCard>
+      </section>
       <InfoCard
         title="Capabilities"
         description="Tool capabilities this agent is allowed to use."

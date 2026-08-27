@@ -408,14 +408,6 @@ function ReviewSummary({
   const skills = sources.sources.sources.skills;
   const mcpServers = sources.sources.sources.mcpServers;
   const selectedCapabilities = capabilities.capabilities.capabilities;
-  const sourceLabels = new Map<string, string>([
-    ...(sources.catalog.skills ?? []).map(
-      (source) => [source.id, source.name] as const,
-    ),
-    ...(sources.catalog.mcpServers ?? []).map(
-      (source) => [source.id, source.displayName ?? source.name] as const,
-    ),
-  ]);
   const capabilityLabels = new Map<string, string>(
     (capabilities.catalog.capabilities ?? []).map(
       (capability) =>
@@ -440,7 +432,7 @@ function ReviewSummary({
             'Skills',
             skills.length
               ? skills
-                  .map((item) => sourceLabels.get(item.id) ?? item.id)
+                  .map((item) => item.name ?? item.id)
                   .join(', ')
               : 'None selected',
           ],
@@ -448,7 +440,7 @@ function ReviewSummary({
             'MCP servers',
             mcpServers.length
               ? mcpServers
-                  .map((item) => sourceLabels.get(item.id) ?? item.id)
+                  .map((item) => item.name ?? item.id)
                   .join(', ')
               : 'None selected',
           ],

@@ -300,13 +300,10 @@ export async function handleBrowserAgentRoutes(
       const agent = await storage.repositories.agents.getAgent(agentId);
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
-      const [sources, catalog] = await Promise.all([
-        capabilityService(storage).getSources({ appId, agentId }),
-        capabilityService(storage).listCatalog(appId),
-      ]);
       const catalogKind = url.searchParams.get('catalog');
       const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
       if (catalogKind === 'skills' || catalogKind === 'mcp') {
+        const catalog = await capabilityService(storage).listCatalog(appId);
         const items = (
           catalogKind === 'skills' ? catalog.skills : catalog.mcpServers
         )
@@ -321,16 +318,13 @@ export async function handleBrowserAgentRoutes(
         sendJson(res, 200, { catalog: page(items, pageNumber, pageSize) });
         return true;
       }
+      const sources = await capabilityService(storage).getSources({
+        appId,
+        agentId,
+      });
       sendJson(res, 200, {
         sources,
-        catalog: {
-          skills: catalog.skills.filter((item) =>
-            sources.sources.skills.some((source) => source.id === item.id),
-          ),
-          mcpServers: catalog.mcpServers.filter((item) =>
-            sources.sources.mcpServers.some((source) => source.id === item.id),
-          ),
-        },
+        catalog: { skills: [], mcpServers: [] },
       });
       return true;
     }

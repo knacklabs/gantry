@@ -102,6 +102,35 @@ describe('AgentCapabilityAdministrationService', () => {
     ).not.toContain('skill:missing-storage');
   });
 
+  it('projects the live readiness of connected MCP sources', async () => {
+    const state = createState();
+    state.mcpBindings[0] = { ...state.mcpBindings[0], serverId: 'mcp:one' };
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+    );
+
+    await expect(
+      service.getSources({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+      }),
+    ).resolves.toMatchObject({
+      sources: {
+        mcpServers: [{ id: 'mcp:one', name: 'one', status: 'ready' }],
+      },
+    });
+
+    state.mcpServers.get('mcp:one').status = 'disabled';
+    await expect(
+      service.getSources({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+      }),
+    ).resolves.toMatchObject({
+      sources: { mcpServers: [{ id: 'mcp:one', status: 'unavailable' }] },
+    });
+  });
+
   it('replaces a full access document and validates selections against requested sources', async () => {
     const state = createState();
     const service = new AgentCapabilityAdministrationService(
@@ -123,7 +152,9 @@ describe('AgentCapabilityAdministrationService', () => {
       ],
     });
 
-    expect(response.sources.skills).toEqual([{ id: 'skill:one', name: 'One' }]);
+    expect(response.sources.skills).toEqual([
+      { id: 'skill:one', name: 'One', status: 'ready' },
+    ]);
     expect(response.capabilities).toEqual([
       { id: 'skill.one.publish', version: 'catalog' },
       { id: 'browser.use', version: 'builtin' },
@@ -787,6 +818,7 @@ function createState() {
   return {
     tools,
     skills,
+    mcpServers,
     toolBindings,
     toolSources,
     skillBindings,
