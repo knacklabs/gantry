@@ -1,0 +1,31 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Requirements for CHAN-2 \u2014 anything to add or change before I record them?",
+      "options": [
+        "No \u2014 record as written (Recommended)",
+        "Hold \u2014 change something"
+      ],
+      "chosen": "No \u2014 record as written (Recommended)"
+    },
+    {
+      "question": "Should the hoists (T1) and the Telegram split (T2) ship as one PR or two?",
+      "options": [
+        "One PR, two commits (Recommended)",
+        "Two PRs"
+      ],
+      "chosen": "One PR, two commits (Recommended)"
+    },
+    {
+      "question": "Plan for CHAN-2 \u2014 anything else to settle before I save and approve it?",
+      "options": [
+        "No \u2014 save and approve (Recommended)",
+        "Hold \u2014 change something"
+      ],
+      "chosen": "No \u2014 save and approve (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T15:20:45.828115+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

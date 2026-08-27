@@ -1,0 +1,45 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "T1 hoists land first as their own reviewable diff; T2 reuses T1's hoisted context in channel-connect.ts."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Split moves call sites; it does not re-implement parseJobPermissionCardAction / decideJobPermission / lt:stop / perm: helpers.",
+    "CC measured with an AST counter, baseline 1.",
+    "Owner: one PR, two commits (T1 hoists, T2 split)."
+  ],
+  "citations": [
+    {
+      "finding": "Telegram bot.on callback CC 188; five repeated-guard hoists",
+      "source": "plans/codex-briefs/pr-444-cyclomatic-review.md (Codex Sol xhigh review of PR #444, 2026-08-27)"
+    }
+  ],
+  "owner_questions": [],
+  "rounds": [
+    {
+      "question": "Should the hoists (T1) and the Telegram split (T2) ship as one PR or two?",
+      "options": [
+        "One PR, two commits (Recommended)",
+        "Two PRs"
+      ],
+      "chosen": "One PR, two commits (Recommended)"
+    },
+    {
+      "question": "Plan for CHAN-2 \u2014 anything else to settle before I save and approve it?",
+      "options": [
+        "No \u2014 save and approve (Recommended)",
+        "Hold \u2014 change something"
+      ],
+      "chosen": "No \u2014 save and approve (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "3d374152617e157d885db2888cfc6577de2cb5492f04fb3d28709c365e126f6e",
+  "issue": "CHAN-2",
+  "recorded_at": "2026-08-27T15:21:02+00:00",
+  "commit": "1691291142fdf37cab328941e63c66cc1cf09b22"
+}
