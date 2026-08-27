@@ -233,31 +233,65 @@ export async function handleBrowserAgentRoutes(
       const role = url.searchParams.get('role')?.trim().toLowerCase() ?? '';
       const sort = url.searchParams.get('sort') ?? 'name';
       const direction = url.searchParams.get('direction') === 'desc' ? -1 : 1;
+      const pageInput = {
+        appId,
+        page: pageNumber,
+        pageSize,
+        search: search || undefined,
+        status:
+          status === 'active' || status === 'disabled'
+            ? (status as 'active' | 'disabled')
+            : undefined,
+        role: role || undefined,
+        sort:
+          sort === 'status' || sort === 'updatedAt'
+            ? (sort as 'status' | 'updatedAt')
+            : ('name' as const),
+        direction: direction === -1 ? ('desc' as const) : ('asc' as const),
+      };
+      const paged =
+        await storage.repositories.agents.listAgentsPage?.(pageInput);
       const agents = await Promise.all(
-        (await storage.repositories.agents.listAgents(appId)).map((agent) =>
-          agentView(storage, agent),
-        ),
+        (
+          paged?.data ?? (await storage.repositories.agents.listAgents(appId))
+        ).map((agent) => agentView(storage, agent)),
       );
-      const filtered = agents
-        .filter((agent) => !search || agent.name.toLowerCase().includes(search))
-        .filter((agent) => !status || agent.status === status)
-        .filter((agent) => !role || agent.roleName?.toLowerCase() === role)
-        .sort((a, b) => {
-          const left =
-            sort === 'status'
-              ? a.status
-              : sort === 'updatedAt'
-                ? a.updatedAt
-                : a.name;
-          const right =
-            sort === 'status'
-              ? b.status
-              : sort === 'updatedAt'
-                ? b.updatedAt
-                : b.name;
-          return left.localeCompare(right) * direction;
-        });
-      sendJson(res, 200, page(filtered, pageNumber, pageSize));
+      const filtered = paged
+        ? agents
+        : agents
+            .filter(
+              (agent) => !search || agent.name.toLowerCase().includes(search),
+            )
+            .filter((agent) => !status || agent.status === status)
+            .filter((agent) => !role || agent.roleName?.toLowerCase() === role)
+            .sort((a, b) => {
+              const left =
+                sort === 'status'
+                  ? a.status
+                  : sort === 'updatedAt'
+                    ? a.updatedAt
+                    : a.name;
+              const right =
+                sort === 'status'
+                  ? b.status
+                  : sort === 'updatedAt'
+                    ? b.updatedAt
+                    : b.name;
+              return left.localeCompare(right) * direction;
+            });
+      sendJson(
+        res,
+        200,
+        paged
+          ? {
+              data: filtered,
+              page: pageNumber,
+              pageSize,
+              total: paged.total,
+              hasNext: pageNumber * pageSize < paged.total,
+            }
+          : page(filtered, pageNumber, pageSize),
+      );
       return true;
     }
     if (pathname === '/ui/api/roles') {

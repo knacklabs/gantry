@@ -110,6 +110,16 @@ export interface AppRepository {
 export interface AgentRepository {
   getAgent(id: AgentId): Promise<Agent | null>;
   listAgents(appId: AppId): Promise<Agent[]>;
+  listAgentsPage?(input: {
+    appId: AppId;
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: Agent['status'];
+    role?: string;
+    sort: 'name' | 'status' | 'updatedAt';
+    direction: 'asc' | 'desc';
+  }): Promise<{ data: Agent[]; total: number }>;
   saveAgent(agent: Agent): Promise<void>;
   assertMcpBindingAuthorityPreconditions?(input: {
     appId: AppId;
