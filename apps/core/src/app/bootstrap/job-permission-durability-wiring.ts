@@ -36,6 +36,7 @@ import { writeResolvedInteractionResponse } from '../../runtime/interaction-reso
 import { canonicalJson } from '../../shared/canonical-json.js';
 import { jobPermissionOutcomeForResponse } from '../../shared/unprojected-access.js';
 import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
+import { redactSensitiveText } from '../../shared/sensitive-material.js';
 import { evaluateProtectedCapabilityToolUse } from '../../shared/tool-execution-policy-service.js';
 import {
   evaluateYoloModeDenylist,
@@ -642,7 +643,14 @@ function onceRequestSummary(request: PermissionApprovalRequest): string {
     request.displayName?.trim() ||
     request.title?.trim() ||
     request.toolName;
-  return `${request.toolName.replace(/([a-z])([A-Z])/g, '$1 $2')}: ${summary}`;
+  const singleLine = redactSensitiveText(
+    `${request.toolName.replace(/([a-z])([A-Z])/g, '$1 $2')}: ${summary}`,
+  )
+    .replace(/\s+/g, ' ')
+    .trim();
+  return singleLine.length > 160
+    ? `${singleLine.slice(0, 159).trimEnd()}…`
+    : singleLine;
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]) {

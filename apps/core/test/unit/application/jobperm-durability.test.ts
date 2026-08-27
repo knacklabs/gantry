@@ -25,7 +25,10 @@ import type {
   JobPermissionDurabilityState,
   JobPermissionNeedRecord,
 } from '@core/domain/ports/job-permission-durability.js';
-import { jobPermissionCardActions } from '@core/domain/job-permission-card-actions.js';
+import {
+  jobPermissionCardActions,
+  jobPermissionCardText,
+} from '@core/domain/job-permission-card-actions.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { requestPermissionApprovalViaIpc } from '@core/runner/permission-ipc-client.js';
@@ -408,6 +411,59 @@ it('attaches a job request with no persistable rule as a once need', async () =>
       state!.card.revisions.at(-1)!,
     ).map((action) => action.label),
   ).toEqual(['Allow', 'Deny']);
+});
+
+it('bounds and redacts the once need label', async () => {
+  const repository = new MemoryJobPermissionRepository();
+  const service = createJobPermissionDurabilityWiring({
+    repository: repository as never,
+    opsRepository: {} as never,
+    channelWiring: {} as never,
+    getPermissionRuntimeSettings: () => ({
+      agents: {},
+      permissions: {},
+    }),
+    getToolRepository: () => undefined,
+    getSkillRepository: () => undefined,
+    resolveCardTarget: () => ({
+      appId: 'default',
+      conversationId: 'tg:job',
+      threadId: null,
+      agentId: 'agent:main_agent',
+    }),
+    enqueueRunAgain: async () => undefined,
+  });
+  const secret = 'supersecretpassword';
+
+  await service.attachRequest({
+    request: {
+      requestId: 'once-request-bounded',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      jobId: 'job-once-bounded',
+      runId: 'run-once-bounded',
+      runLeaseToken: 'lease-once-bounded',
+      runLeaseFencingVersion: 1,
+      targetJid: 'tg:job',
+      toolName: 'RunCommand',
+      toolInput: {
+        command: `printf "password=${secret}"\n  | tee ${'report'.repeat(40)}`,
+      },
+    },
+    sourceAgentFolder: 'main_agent',
+  });
+
+  const state = await readState(repository, 'job-once-bounded');
+  const label = state!.needs[0]!.displayLabel;
+  expect(label).toHaveLength(160);
+  expect(label).toContain('password=[REDACTED_SECRET]');
+  expect(label).not.toContain(secret);
+  expect(label).not.toMatch(/\s{2,}|[\r\n]/);
+  expect(label.endsWith('…')).toBe(true);
+  expect(state!.card.revisions.at(-1)!.rows[0]!.displayLabel).toBe(label);
+  expect(
+    jobPermissionCardText('job-once-bounded', state!.card.revisions.at(-1)!),
+  ).toContain(`${label} (this run only)`);
 });
 
 it('replays a signed allow_once for a once need without writing a rule', async () => {
