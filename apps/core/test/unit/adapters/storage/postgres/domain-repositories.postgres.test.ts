@@ -61,6 +61,12 @@ describe('agent configuration schema', () => {
       'agent_name_snapshot',
     );
   });
+
+  it('stores the model alias snapshot independently from the LLM profile', () => {
+    expect(agentConfigVersionsPostgres.modelAliasSnapshot.name).toBe(
+      'model_alias_snapshot',
+    );
+  });
 });
 
 describe('PostgresConversationRepository', () => {

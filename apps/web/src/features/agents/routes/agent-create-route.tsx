@@ -19,6 +19,7 @@ import {
 import {
   agentCapabilitiesQuery,
   agentDetailQuery,
+  agentModelsQuery,
   agentSourcesQuery,
   type AgentCapabilities,
   type AgentDirectoryItem,
@@ -62,6 +63,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
+  const [modelAlias, setModelAlias] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<BrowserRole>();
   const [baseErrors, setBaseErrors] = useState<{
     name?: string;
@@ -77,6 +79,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
     ...agentDetailQuery(agentId ?? ''),
     enabled: step === 'review' && !!agentId,
   });
+  const models = useQuery(agentModelsQuery);
   const savedSources = useQuery({
     ...agentSourcesQuery(agentId ?? ''),
     enabled: step === 'review' && !!agentId,
@@ -98,7 +101,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
             'content-type': 'application/json',
             ...browserCsrfHeader(),
           },
-          body: JSON.stringify({ name, roleId: selectedRole?.id }),
+          body: JSON.stringify({ name, roleId: selectedRole?.id, modelAlias }),
         },
       );
       if (!response.ok)
@@ -298,10 +301,17 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                   Model
                   <select
                     className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text"
-                    disabled
-                    value="default"
+                    value={modelAlias ?? ''}
+                    onChange={(event) =>
+                      setModelAlias(event.target.value || null)
+                    }
                   >
-                    <option value="default">Use deployment default</option>
+                    <option value="">Use deployment default</option>
+                    {(models.data?.models ?? []).map((model) => (
+                      <option key={model.alias} value={model.alias}>
+                        {model.displayName} ({model.providerLabel})
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>
@@ -448,7 +458,7 @@ function ReviewSummary({
         lines={[
           ['Name', agent.name],
           ['Role snapshot', agent.roleName ?? 'No role selected'],
-          ['Model', 'Deployment default'],
+          ['Model', agent.modelAlias ?? 'Deployment default'],
           ['Instructions', 'Not configured'],
         ]}
       />

@@ -31,6 +31,24 @@ export type BrowserPage<T> = {
 
 export type AgentDirectoryPage = BrowserPage<AgentDirectoryItem>;
 
+export type AgentModel = {
+  alias: string;
+  displayName: string;
+  providerId: string;
+  providerLabel: string;
+};
+
+export const agentModelsQuery = queryOptions({
+  queryKey: [...agentQueryKeys.all, 'models'] as const,
+  queryFn: async (): Promise<{ models: AgentModel[] }> => {
+    const response = await browserFetch('/ui/api/agent-models', {
+      credentials: 'same-origin',
+    });
+    if (!response.ok) throw new Error('Models could not be loaded.');
+    return response.json() as Promise<{ models: AgentModel[] }>;
+  },
+});
+
 export function agentDetailQuery(agentId: string) {
   return queryOptions({
     queryKey: [...agentQueryKeys.all, 'detail', agentId] as const,
@@ -191,6 +209,7 @@ export type AgentVersion = {
   createdAt: string;
   agentNameSnapshot?: string;
   roleSnapshot?: { displayName: string; prompt: string; sourceRoleId?: string };
+  modelAliasSnapshot?: string | null;
   llmProfileId: string;
 };
 

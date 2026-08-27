@@ -71,6 +71,8 @@ export interface AgentConfigVersion {
   promptProfileRef: string;
   agentNameSnapshot?: string;
   roleSnapshot?: AgentRoleSnapshot;
+  /** Explicit alias, absent when this version inherits the deployment default. */
+  modelAliasSnapshot?: string;
   llmProfileId: LlmProfileId;
   toolIds: ToolId[];
   skillIds: SkillId[];

@@ -115,7 +115,9 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
                 <Change
                   text={`Saved role snapshot: ${selected.roleSnapshot?.displayName ?? 'none'}.`}
                 />
-                <Change text={`Configured model: ${selected.llmProfileId}.`} />
+                <Change
+                  text={`Configured model: ${selected.modelAliasSnapshot ?? 'Deployment default'}.`}
+                />
               </div>
               <section>
                 <h4 className="m-0 text-[12px] font-semibold">Snapshot</h4>
@@ -126,7 +128,10 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
                       selected.roleSnapshot?.displayName ?? 'No role snapshot'
                     }
                   />
-                  <Row label="Model" value={selected.llmProfileId} />
+                  <Row
+                    label="Model"
+                    value={selected.modelAliasSnapshot ?? 'Deployment default'}
+                  />
                 </dl>
               </section>
             </article>

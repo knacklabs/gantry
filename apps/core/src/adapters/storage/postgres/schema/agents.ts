@@ -82,6 +82,7 @@ export const agentConfigVersionsPostgres = pgTable(
     roleDisplayName: text('role_display_name'),
     rolePrompt: text('role_prompt'),
     sourceRoleId: text('source_role_id'),
+    modelAliasSnapshot: text('model_alias_snapshot'),
     llmProfileId: text('llm_profile_id')
       .notNull()
       .references(() => llmProfilesPostgres.id),

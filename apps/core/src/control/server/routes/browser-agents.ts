@@ -17,6 +17,11 @@ import type {
 import type { AppId } from '../../../domain/app/app.js';
 import { nowIso } from '../../../shared/time/datetime.js';
 import { AGENT_PERSONAS } from '../../../shared/agent-persona.js';
+import {
+  listModelCatalogEntries,
+  resolveModelSelectionForWorkload,
+} from '../../../shared/model-catalog.js';
+import { resolveExecutionRoute } from '../../../shared/model-execution-route.js';
 import { semanticCapabilityFromToolCatalogItem } from '../../../shared/semantic-capabilities.js';
 import { isCanonicalBrowserOrigin } from '../browser-auth-boundary.js';
 import { browserRoleAllowsScope } from '../browser-scope-policy.js';
@@ -37,11 +42,13 @@ const AGENT_SOURCES_PATH = /^\/ui\/api\/agents\/([^/]+)\/sources$/;
 const AGENT_CAPABILITIES_PATH = /^\/ui\/api\/agents\/([^/]+)\/capabilities$/;
 const AGENT_VERSIONS_PATH = /^\/ui\/api\/agents\/([^/]+)\/versions$/;
 const ROLE_PATH = /^\/ui\/api\/roles\/([^/]+)$/;
+const AGENT_MODELS_PATH = '/ui/api/agent-models';
 
 export function isBrowserAgentsPath(pathname: string): boolean {
   return (
     pathname.startsWith('/ui/api/agents') ||
-    pathname.startsWith('/ui/api/roles')
+    pathname.startsWith('/ui/api/roles') ||
+    pathname === AGENT_MODELS_PATH
   );
 }
 
@@ -88,7 +95,7 @@ async function agentView(
     roleName: config?.roleSnapshot?.displayName ?? null,
     rolePrompt: config?.roleSnapshot?.prompt ?? null,
     configVersion: config?.version ?? null,
-    modelAlias: null,
+    modelAlias: config?.modelAliasSnapshot ?? null,
     conversationCount: installs.filter((install) => install.status === 'active')
       .length,
     createdAt: agent.createdAt,
@@ -191,6 +198,40 @@ function object(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+function requestedModelAlias(
+  body: Record<string, unknown>,
+): string | null | undefined {
+  if (!Object.hasOwn(body, 'modelAlias')) return undefined;
+  if (body.modelAlias === null) return null;
+  if (typeof body.modelAlias !== 'string')
+    throw new Error('Model must be a configured model or deployment default.');
+  const value = body.modelAlias.trim();
+  return value || null;
+}
+
+async function validateModelAlias(
+  ctx: ControlRouteContext,
+  appId: AppId,
+  agentId: AgentId,
+  modelAlias: string | null,
+) {
+  if (!modelAlias) return;
+  const selection = resolveModelSelectionForWorkload(modelAlias, 'chat');
+  if (!selection.ok) throw new Error(selection.message);
+  const configured = new Set(
+    await ctx.getActiveModelCredentialProviderIds(appId),
+  );
+  if (!configured.has(selection.entry.modelRoute.id))
+    throw new Error(
+      `${selection.entry.modelRoute.label} is not configured for this deployment.`,
+    );
+  const route = resolveExecutionRoute({
+    entry: selection.entry,
+    agentHarness: ctx.getSelectedAgentHarness(agentId.replace(/^agent:/, '')),
+  });
+  if (!route.ok) throw new Error(route.message);
+}
+
 function capabilityService(storage: ReturnType<typeof getRuntimeStorage>) {
   const { repositories } = storage;
   return new AgentCapabilityAdministrationService({
@@ -227,6 +268,25 @@ export async function handleBrowserAgentRoutes(
     const storage = getRuntimeStorage();
     const appId = appIdFor(session);
     const { page: pageNumber, pageSize } = pageParams(url);
+    if (pathname === AGENT_MODELS_PATH) {
+      const configured = new Set(
+        await ctx.getActiveModelCredentialProviderIds(appId),
+      );
+      const models = listModelCatalogEntries()
+        .filter(
+          (entry) =>
+            entry.supportedWorkloads.includes('chat') &&
+            configured.has(entry.modelRoute.id),
+        )
+        .map((entry) => ({
+          alias: entry.recommendedAlias,
+          displayName: entry.displayName,
+          providerId: entry.modelRoute.id,
+          providerLabel: entry.modelRoute.label,
+        }));
+      sendJson(res, 200, { models });
+      return true;
+    }
     if (pathname === '/ui/api/agents') {
       const search = url.searchParams.get('search')?.trim().toLowerCase() ?? '';
       const status = url.searchParams.get('status');
@@ -443,6 +503,7 @@ export async function handleBrowserAgentRoutes(
           createdAt: version.createdAt,
           agentNameSnapshot: version.agentNameSnapshot,
           roleSnapshot: version.roleSnapshot,
+          modelAliasSnapshot: version.modelAliasSnapshot ?? null,
           llmProfileId: version.llmProfileId,
         })),
       });
@@ -511,6 +572,7 @@ export async function handleBrowserAgentRoutes(
       await assertAvailableAgentName(storage, appId, body.name);
       const roleId =
         typeof body.roleId === 'string' ? body.roleId : 'built-in:developer';
+      const modelAlias = requestedModelAlias(body);
       const configId = `agent-config:${randomUUID()}` as AgentConfigVersionId;
       const agent: Agent = {
         id: `agent:${randomUUID()}` as AgentId,
@@ -521,6 +583,8 @@ export async function handleBrowserAgentRoutes(
         createdAt: now,
         updatedAt: now,
       };
+      if (modelAlias !== undefined)
+        await validateModelAlias(ctx, appId, agent.id, modelAlias);
       const config: AgentConfigVersion = {
         id: configId,
         appId,
@@ -529,6 +593,7 @@ export async function handleBrowserAgentRoutes(
         promptProfileRef: 'browser-agent-role-snapshot',
         agentNameSnapshot: agent.name,
         roleSnapshot: await roleSnapshotFor(storage, appId, roleId),
+        modelAliasSnapshot: modelAlias ?? undefined,
         // The control graph establishes this default profile for an app before
         // agents are available to configure.
         llmProfileId: 'llm:default' as AgentConfigVersion['llmProfileId'],
@@ -539,6 +604,15 @@ export async function handleBrowserAgentRoutes(
       };
       await storage.repositories.agents.saveAgent(agent);
       await storage.repositories.agentConfigs.saveConfigVersion(config);
+      if (modelAlias !== undefined) {
+        await ctx.agentSettings.writeAgentModelSetting({
+          runtimeHome: ctx.runtimeHome,
+          appId,
+          folder: agent.id.replace(/^agent:/, ''),
+          name: agent.name,
+          modelAlias,
+        });
+      }
       await ctx.syncSettingsFromProjection(appId);
       sendJson(res, 201, { agent: await agentView(storage, agent) });
       return true;
@@ -560,9 +634,10 @@ export async function handleBrowserAgentRoutes(
       const now = nowIso();
       let updated = { ...agent, name: body.name.trim(), updatedAt: now };
       const roleId = typeof body.roleId === 'string' ? body.roleId : undefined;
+      const modelAlias = requestedModelAlias(body);
       const nameChanged = updated.name !== agent.name;
       const currentConfig =
-        nameChanged || roleId
+        nameChanged || roleId || modelAlias !== undefined
           ? agent.currentConfigVersionId
             ? await storage.repositories.agentConfigs.getConfigVersion(
                 agent.currentConfigVersionId,
@@ -571,7 +646,12 @@ export async function handleBrowserAgentRoutes(
           : null;
       const roleChanged =
         !!roleId && currentConfig?.roleSnapshot?.sourceRoleId !== roleId;
-      if (nameChanged || roleChanged) {
+      const modelChanged =
+        modelAlias !== undefined &&
+        (currentConfig?.modelAliasSnapshot ?? null) !== modelAlias;
+      if (modelChanged)
+        await validateModelAlias(ctx, appId, agent.id, modelAlias ?? null);
+      if (nameChanged || roleChanged || modelChanged) {
         if (!currentConfig && !roleId)
           return (
             sendError(
@@ -598,6 +678,9 @@ export async function handleBrowserAgentRoutes(
               roleSnapshot: roleChanged
                 ? await roleSnapshotFor(storage, appId, roleId!)
                 : currentConfig.roleSnapshot,
+              modelAliasSnapshot: modelChanged
+                ? (modelAlias ?? undefined)
+                : currentConfig.modelAliasSnapshot,
               createdAt: now,
             }
           : {
@@ -608,6 +691,7 @@ export async function handleBrowserAgentRoutes(
               promptProfileRef: 'browser-agent-role-snapshot',
               agentNameSnapshot: updated.name,
               roleSnapshot: await roleSnapshotFor(storage, appId, roleId!),
+              modelAliasSnapshot: modelAlias ?? undefined,
               llmProfileId: 'llm:default' as AgentConfigVersion['llmProfileId'],
               toolIds: [],
               skillIds: [],
@@ -618,6 +702,15 @@ export async function handleBrowserAgentRoutes(
         updated = { ...updated, currentConfigVersionId: nextConfig.id };
       }
       await storage.repositories.agents.saveAgent(updated);
+      if (modelChanged) {
+        await ctx.agentSettings.writeAgentModelSetting({
+          runtimeHome: ctx.runtimeHome,
+          appId,
+          folder: agent.id.replace(/^agent:/, ''),
+          name: updated.name,
+          modelAlias: modelAlias ?? null,
+        });
+      }
       await ctx.syncSettingsFromProjection(appId);
       sendJson(res, 200, { agent: await agentView(storage, updated) });
       return true;

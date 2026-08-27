@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useEffect, useState } from 'react';
 
 import {
@@ -7,7 +7,11 @@ import {
 } from '../../../lib/auth/browser-auth';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
-import { agentQueryKeys, type AgentDirectoryItem } from '../agents-queries';
+import {
+  agentModelsQuery,
+  agentQueryKeys,
+  type AgentDirectoryItem,
+} from '../agents-queries';
 
 export function AgentSettings({
   agent,
@@ -18,7 +22,10 @@ export function AgentSettings({
 }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(agent.name);
+  const [modelAlias, setModelAlias] = useState<string | null>(agent.modelAlias);
   useEffect(() => setName(agent.name), [agent.name]);
+  useEffect(() => setModelAlias(agent.modelAlias), [agent.modelAlias]);
+  const models = useQuery(agentModelsQuery);
   const rename = useMutation({
     mutationFn: async () => {
       const response = await browserFetch(
@@ -30,7 +37,7 @@ export function AgentSettings({
             'content-type': 'application/json',
             ...browserCsrfHeader(),
           },
-          body: JSON.stringify({ name }),
+          body: JSON.stringify({ name, modelAlias }),
         },
       );
       if (!response.ok) throw new Error('Agent name could not be saved.');
@@ -41,7 +48,11 @@ export function AgentSettings({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (name.trim() && name.trim() !== agent.name) rename.mutate();
+    if (
+      name.trim() &&
+      (name.trim() !== agent.name || modelAlias !== agent.modelAlias)
+    )
+      rename.mutate();
   }
 
   return (
@@ -59,10 +70,28 @@ export function AgentSettings({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
+          <label className="grid gap-1.5 text-xs font-semibold text-text">
+            Model
+            <select
+              className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text"
+              value={modelAlias ?? ''}
+              onChange={(event) => setModelAlias(event.target.value || null)}
+            >
+              <option value="">Use deployment default</option>
+              {(models.data?.models ?? []).map((model) => (
+                <option key={model.alias} value={model.alias}>
+                  {model.displayName} ({model.providerLabel})
+                </option>
+              ))}
+            </select>
+          </label>
           <div>
             <Button
               disabled={
-                !name.trim() || name.trim() === agent.name || rename.isPending
+                !name.trim() ||
+                (name.trim() === agent.name &&
+                  modelAlias === agent.modelAlias) ||
+                rename.isPending
               }
               type="submit"
             >
@@ -70,17 +99,6 @@ export function AgentSettings({
             </Button>
           </div>
         </form>
-        <div className="mt-4 rounded-md border border-border bg-surface-muted p-3 text-sm">
-          <span className="block font-mono text-[10px] font-semibold tracking-wide text-text-secondary uppercase">
-            Model
-          </span>
-          <strong className="mt-1 block">
-            {agent.modelAlias ?? 'Deployment default'}
-          </strong>
-          <span className="mt-1 block text-xs text-text-secondary">
-            Model changes are not available in the current browser API.
-          </span>
-        </div>
       </section>
       <aside className="rounded-lg border border-border bg-surface p-4">
         <h2 className="m-0 text-base font-semibold">Availability</h2>

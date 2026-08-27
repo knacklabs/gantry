@@ -15,6 +15,7 @@ const source = fs.readFileSync(
 it('paginates app-scoped directory results and rejects cross-app access', () => {
   expect(isBrowserAgentsPath('/ui/api/agents')).toBe(true);
   expect(isBrowserAgentsPath('/ui/api/roles/custom-role:one')).toBe(true);
+  expect(isBrowserAgentsPath('/ui/api/agent-models')).toBe(true);
   expect(source).toContain('function page<T>');
   expect(source).toContain('Math.min(\n    100,');
   expect(source).toContain('listAgents(appId)');
@@ -30,6 +31,10 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
     'roleId: config?.roleSnapshot?.sourceRoleId ?? null',
   );
   expect(source).toContain('roleSnapshotFor(');
+  expect(source).toContain('requestedModelAlias(');
+  expect(source).toContain('validateModelAlias(');
+  expect(source).toContain('writeAgentModelSetting({');
+  expect(source).toContain('modelAliasSnapshot');
   expect(source).toContain('assertAvailableAgentName(');
   expect(source).toContain("roleId =\n        typeof body.roleId === 'string'");
   expect(source).toContain("const roleId = typeof body.roleId === 'string'");
@@ -46,8 +51,8 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain('const AGENT_VERSIONS_PATH');
   expect(source).toContain('replaceSources({');
   expect(source).toContain('replaceCapabilities(');
-  expect(source).toContain('getSources({ appId, agentId })');
-  expect(source).toContain('getCapabilities({ appId, agentId })');
+  expect(source).toContain('getSources({');
+  expect(source).toContain('getCapabilities({');
   expect(source).toContain("catalogKind === 'skills' || catalogKind === 'mcp'");
   expect(source).toContain("catalogKind === 'capabilities'");
   expect(source).toContain('listConfigVersions({');

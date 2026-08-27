@@ -426,6 +426,7 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
             sourceRoleId: row.sourceRoleId ?? undefined,
           }
         : undefined,
+      modelAliasSnapshot: row.modelAliasSnapshot ?? undefined,
       llmProfileId: row.llmProfileId as LlmProfileId,
       toolIds: parseJsonArray(row.toolIdsJson),
       skillIds: parseJsonArray(row.skillIdsJson),
@@ -474,6 +475,7 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
         roleDisplayName: version.roleSnapshot?.displayName ?? null,
         rolePrompt: version.roleSnapshot?.prompt ?? null,
         sourceRoleId: version.roleSnapshot?.sourceRoleId ?? null,
+        modelAliasSnapshot: version.modelAliasSnapshot ?? null,
         llmProfileId: version.llmProfileId,
         toolIdsJson: encodeJson(version.toolIds),
         skillIdsJson: encodeJson(version.skillIds),
