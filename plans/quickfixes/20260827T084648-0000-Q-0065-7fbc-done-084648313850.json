@@ -1,0 +1,62 @@
+{
+  "event": "done",
+  "id": "Q-0065-7fbc",
+  "profile": "lite",
+  "by": "Yash Khurana",
+  "reason": "Prevent disabled provider accounts owned by removed agents from breaking desired-state validation and agent skill updates.",
+  "base_sha": "260c3bfe1e9c2f7fab38e4b0633a13b12ab71566",
+  "started_at": "2026-08-27T08:25:53+00:00",
+  "completed_at": "2026-08-27T08:46:48+00:00",
+  "files": [
+    "apps/core/src/config/settings/desired-state-current-export.ts",
+    "apps/core/test/unit/config/desired-state-current-export.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "summary": "Clean external Codex review: the patch narrowly excludes disabled provider accounts whose owning agent is absent while preserving disabled accounts for existing agents and all historical database rows.",
+      "blocking_findings": [],
+      "non_blocking_findings": [],
+      "residual_risks": [],
+      "recommendation": "ship",
+      "reviewed_scope": [
+        "apps/core/src/config/settings/desired-state-current-export.ts",
+        "apps/core/test/unit/config/desired-state-current-export.test.ts"
+      ],
+      "aspect": "quality",
+      "recorded_at": "2026-08-27T08:46:47+00:00",
+      "commit": "3614d8d5d4ca9f22d40e7395f1f47e0734851a1d"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "summary": "The change adds a constant-time Set membership check during settings export and no new database queries or hot-path work.",
+      "blocking_findings": [],
+      "non_blocking_findings": [],
+      "residual_risks": [],
+      "recommendation": "ship",
+      "reviewed_scope": [
+        "apps/core/src/config/settings/desired-state-current-export.ts"
+      ],
+      "aspect": "performance",
+      "recorded_at": "2026-08-27T08:46:47+00:00",
+      "commit": "3614d8d5d4ca9f22d40e7395f1f47e0734851a1d"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "summary": "The patch preserves stored history and changes only runtime projection of already-disabled orphaned accounts; no credentials, authorization, or trust boundaries are weakened.",
+      "blocking_findings": [],
+      "non_blocking_findings": [],
+      "residual_risks": [],
+      "recommendation": "ship",
+      "reviewed_scope": [
+        "apps/core/src/config/settings/desired-state-current-export.ts"
+      ],
+      "aspect": "security",
+      "recorded_at": "2026-08-27T08:46:47+00:00",
+      "commit": "3614d8d5d4ca9f22d40e7395f1f47e0734851a1d"
+    }
+  }
+}
