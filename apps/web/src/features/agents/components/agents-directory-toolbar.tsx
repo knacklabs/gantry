@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { SelectField } from '../../../ui/compositions/select-field';
 import { TextField } from '../../../ui/compositions/text-field';
@@ -28,21 +28,13 @@ export function AgentsDirectoryToolbar({
     return () => window.clearTimeout(timeout);
   }, [onChange, query, search.q]);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    onChange({ q: query, page: 1 });
-  }
-
   return (
-    <form
-      className="grid items-end gap-3 md:grid-cols-[minmax(0,1fr)_170px_200px_120px]"
-      onSubmit={submit}
-    >
+    <div className="grid items-end gap-4 md:grid-cols-[minmax(0,1fr)_236px_260px]">
       <TextField
         id="agent-search"
         label="Search agents"
         name="q"
-        placeholder="Name"
+        placeholder="Name or purpose…"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
@@ -68,21 +60,6 @@ export function AgentsDirectoryToolbar({
         ]}
         onValueChange={(role) => onChange({ role, page: 1 })}
       />
-      <SelectField
-        label="Rows per page"
-        value={String(search.pageSize)}
-        options={[
-          { value: '25', label: '25 rows' },
-          { value: '50', label: '50 rows' },
-          { value: '100', label: '100 rows' },
-        ]}
-        onValueChange={(pageSize) =>
-          onChange({
-            pageSize: Number(pageSize) as DirectorySearch['pageSize'],
-            page: 1,
-          })
-        }
-      />
-    </form>
+    </div>
   );
 }
