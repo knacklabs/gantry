@@ -82,5 +82,8 @@
   "owner_questions": [],
   "input_sha256": "9b6546fc455f9dc7481297963da6ac77b3531691d3d052d7f73bc5c19481bf5f",
   "recorded_at": "2026-08-27T08:57:27+00:00",
-  "commit": "0d1ca2a1af6c396fbcf2142c54e355166bd3aaeb"
+  "commit": "0d1ca2a1af6c396fbcf2142c54e355166bd3aaeb",
+  "approved_task_plan_sha256": "21ea0c6bd6ddb573dce248a963fcac84ea566cbe5fc4964756789219f4e0fb97",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-27T08:58:16+00:00"
 }
