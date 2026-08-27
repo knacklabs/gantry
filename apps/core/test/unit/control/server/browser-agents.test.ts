@@ -53,6 +53,11 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(source).toContain('replaceCapabilities(');
   expect(source).toContain('getSources({');
   expect(source).toContain('getCapabilities({');
+  expect(source).toContain('sendJson(res, 200, { sources });');
+  expect(source).toContain(
+    'capabilities: { capabilities: capabilities.capabilities },',
+  );
+  expect(source).not.toContain('catalog: { skills: [], mcpServers: [] }');
   expect(source).toContain("catalogKind === 'skills' || catalogKind === 'mcp'");
   expect(source).toContain("catalogKind === 'capabilities'");
   expect(source).toContain('listConfigVersions({');

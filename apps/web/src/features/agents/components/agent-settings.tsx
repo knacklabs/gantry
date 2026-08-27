@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useEffect, useState } from 'react';
 
 import {
@@ -7,20 +7,8 @@ import {
 } from '../../../lib/auth/browser-auth';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../ui/primitives/select';
-import {
-  agentModelsQuery,
-  agentQueryKeys,
-  type AgentDirectoryItem,
-} from '../agents-queries';
-
-const DEPLOYMENT_DEFAULT_MODEL = '__deployment_default__';
+import { agentQueryKeys, type AgentDirectoryItem } from '../agents-queries';
+import { AgentModelSelect } from './agent-model-select';
 
 export function AgentSettings({
   agent,
@@ -34,7 +22,6 @@ export function AgentSettings({
   const [modelAlias, setModelAlias] = useState<string | null>(agent.modelAlias);
   useEffect(() => setName(agent.name), [agent.name]);
   useEffect(() => setModelAlias(agent.modelAlias), [agent.modelAlias]);
-  const models = useQuery(agentModelsQuery);
   const rename = useMutation({
     mutationFn: async () => {
       const response = await browserFetch(
@@ -79,32 +66,7 @@ export function AgentSettings({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-          <label className="grid gap-1.5 text-xs font-semibold text-text">
-            Model
-            <Select
-              value={modelAlias ?? DEPLOYMENT_DEFAULT_MODEL}
-              onValueChange={(value) =>
-                setModelAlias(value === DEPLOYMENT_DEFAULT_MODEL ? null : value)
-              }
-            >
-              <SelectTrigger
-                aria-label="Model"
-                className="h-9 w-full rounded-md border-border-strong bg-surface px-3 text-[13px] text-text"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                <SelectItem value={DEPLOYMENT_DEFAULT_MODEL}>
-                  Use deployment default
-                </SelectItem>
-                {(models.data?.models ?? []).map((model) => (
-                  <SelectItem key={model.alias} value={model.alias}>
-                    {model.displayName} ({model.providerLabel})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
+          <AgentModelSelect value={modelAlias} onValueChange={setModelAlias} />
           <div>
             <Button
               disabled={

@@ -636,7 +636,7 @@ function AgentAccessEditorDialog({
 }) {
   const [saving, setSaving] = useState(false);
   const isSources = kind === 'sources';
-  const formId = kind ? `agent-${kind}-edit-form` : undefined;
+  const formId = `agent-${kind ?? 'sources'}-edit-form`;
   const title = isSources ? 'Connect existing sources' : 'Allow capabilities';
   const description = isSources
     ? 'Optional · select reviewed skills and MCP servers. Sources expose inventory; they do not grant actions.'

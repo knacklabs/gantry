@@ -111,27 +111,19 @@ export type CapabilityCatalog = {
 };
 
 export type AgentCapabilities = {
-  sources: AgentSource;
   capabilities: Array<{ id: string; version: string }>;
-  summary: { capabilities: number; [key: string]: unknown };
 };
 
 export function agentSourcesQuery(agentId: string) {
   return queryOptions({
     queryKey: [...agentQueryKeys.all, 'sources', agentId] as const,
-    queryFn: async (): Promise<{
-      sources: { sources: AgentSource };
-      catalog: CapabilityCatalog;
-    }> => {
+    queryFn: async (): Promise<{ sources: { sources: AgentSource } }> => {
       const response = await browserFetch(
         `/ui/api/agents/${encodeURIComponent(agentId)}/sources`,
         { credentials: 'same-origin' },
       );
       if (!response.ok) throw new Error('Agent sources could not be loaded.');
-      return response.json() as Promise<{
-        sources: { sources: AgentSource };
-        catalog: CapabilityCatalog;
-      }>;
+      return response.json() as Promise<{ sources: { sources: AgentSource } }>;
     },
   });
 }

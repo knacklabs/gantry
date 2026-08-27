@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 
 import {
@@ -23,18 +22,14 @@ export function AgentSetupManager({
   agentId,
   kind,
   onSaved,
-  onBack,
-  disabled = false,
   formId,
   onSavingChange,
 }: {
   agentId: string;
   kind: SetupKind;
-  onSaved?: () => void;
-  onBack?: () => void;
-  disabled?: boolean;
-  formId?: string;
-  onSavingChange?: (saving: boolean) => void;
+  onSaved: () => void;
+  formId: string;
+  onSavingChange: (saving: boolean) => void;
 }) {
   const queryClient = useQueryClient();
   const sources = useQuery({
@@ -121,12 +116,12 @@ export function AgentSetupManager({
           refetchType: 'active',
         }),
       ]);
-      onSaved?.();
+      onSaved();
     },
   });
   useEffect(() => {
-    onSavingChange?.(save.isPending);
-    return () => onSavingChange?.(false);
+    onSavingChange(save.isPending);
+    return () => onSavingChange(false);
   }, [onSavingChange, save.isPending]);
   const allItems =
     kind === 'sources'
@@ -183,7 +178,6 @@ export function AgentSetupManager({
   const content = (
     <>
       <AgentSetupCatalog
-        disabled={disabled}
         failed={catalog.isError}
         hasNext={catalog.data?.catalog.hasNext}
         items={items}
@@ -215,33 +209,10 @@ export function AgentSetupManager({
       ) : null}
     </>
   );
-  if (formId)
-    return (
-      <form id={formId} className="grid min-h-0 gap-4" onSubmit={submit}>
-        {content}
-      </form>
-    );
   return (
-    <div className="grid gap-4">
+    <form id={formId} className="grid min-h-0 gap-4" onSubmit={submit}>
       {content}
-      <div className="flex items-center justify-between border-t border-border pt-4">
-        {onBack ? (
-          <Button type="button" variant="secondary" onClick={onBack}>
-            Back
-          </Button>
-        ) : (
-          <span />
-        )}
-        <Button
-          disabled={disabled || save.isPending}
-          type="button"
-          onClick={() => save.mutate()}
-        >
-          <Save size={15} aria-hidden="true" />
-          {save.isPending ? 'Saving…' : 'Continue'}
-        </Button>
-      </div>
-    </div>
+    </form>
   );
 }
 

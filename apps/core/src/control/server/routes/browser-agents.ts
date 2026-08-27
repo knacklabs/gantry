@@ -424,10 +424,7 @@ export async function handleBrowserAgentRoutes(
         appId,
         agentId,
       });
-      sendJson(res, 200, {
-        sources,
-        catalog: { skills: [], mcpServers: [] },
-      });
+      sendJson(res, 200, { sources });
       return true;
     }
     const capabilitiesMatch = pathname.match(AGENT_CAPABILITIES_PATH);
@@ -473,7 +470,7 @@ export async function handleBrowserAgentRoutes(
         return true;
       }
       sendJson(res, 200, {
-        capabilities,
+        capabilities: { capabilities: capabilities.capabilities },
         catalog: {
           capabilities: catalogItems.filter((item) =>
             capabilities.capabilities.some(

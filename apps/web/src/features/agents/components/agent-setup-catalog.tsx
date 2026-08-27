@@ -25,7 +25,6 @@ export function AgentSetupCatalog({
   hasNext,
   loading,
   failed,
-  disabled,
   onSearchChange,
   onPageChange,
   onRetry,
@@ -43,7 +42,6 @@ export function AgentSetupCatalog({
   hasNext?: boolean;
   loading: boolean;
   failed: boolean;
-  disabled: boolean;
   onSearchChange: (value: string) => void;
   onPageChange: (page: number) => void;
   onRetry: () => void;
@@ -231,7 +229,6 @@ export function AgentSetupCatalog({
             >
               <Checkbox
                 checked={selected.includes(item.id)}
-                disabled={disabled}
                 onCheckedChange={() => onToggle(item.id)}
               />
               <span

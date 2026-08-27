@@ -10,13 +10,6 @@ import {
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../ui/primitives/select';
-import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -26,7 +19,6 @@ import {
 import {
   agentCapabilitiesQuery,
   agentDetailQuery,
-  agentModelsQuery,
   agentSourcesQuery,
   type AgentCapabilities,
   type AgentDirectoryItem,
@@ -36,13 +28,12 @@ import {
 } from '../agents-queries';
 import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
 import { AgentRoleSelector } from '../components/agent-role-selector';
+import { AgentModelSelect } from '../components/agent-model-select';
 import { AgentSetupManager } from '../components/agent-setup-manager';
 import {
   RoleEditorDialog,
   type RoleEditorTarget,
 } from '../components/role-editor-dialog';
-
-const DEPLOYMENT_DEFAULT_MODEL = '__deployment_default__';
 
 export function AgentCreateRoute() {
   const navigate = useNavigate({ from: '/agents/new' });
@@ -88,7 +79,6 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
     ...agentDetailQuery(agentId ?? ''),
     enabled: step === 'review' && !!agentId,
   });
-  const models = useQuery(agentModelsQuery);
   const savedSources = useQuery({
     ...agentSourcesQuery(agentId ?? ''),
     enabled: step === 'review' && !!agentId,
@@ -306,34 +296,10 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                   placeholder="Customer research"
                   autoFocus
                 />
-                <label className="grid gap-1.5 text-xs font-semibold text-text">
-                  Model
-                  <Select
-                    value={modelAlias ?? DEPLOYMENT_DEFAULT_MODEL}
-                    onValueChange={(value) =>
-                      setModelAlias(
-                        value === DEPLOYMENT_DEFAULT_MODEL ? null : value,
-                      )
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label="Model"
-                      className="h-9 w-full rounded-md border-border-strong bg-surface px-3 text-[13px] text-text"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      <SelectItem value={DEPLOYMENT_DEFAULT_MODEL}>
-                        Use deployment default
-                      </SelectItem>
-                      {(models.data?.models ?? []).map((model) => (
-                        <SelectItem key={model.alias} value={model.alias}>
-                          {model.displayName} ({model.providerLabel})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </label>
+                <AgentModelSelect
+                  value={modelAlias}
+                  onValueChange={setModelAlias}
+                />
               </div>
               <AgentRoleSelector
                 error={baseErrors.role}
@@ -460,7 +426,7 @@ function ReviewSummary({
 }: {
   agent: AgentDirectoryItem;
   capabilities: { capabilities: AgentCapabilities; catalog: CapabilityCatalog };
-  sources: { sources: { sources: AgentSource }; catalog: CapabilityCatalog };
+  sources: { sources: { sources: AgentSource } };
 }) {
   const skills = sources.sources.sources.skills;
   const mcpServers = sources.sources.sources.mcpServers;

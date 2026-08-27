@@ -1,1 +1,0 @@
-ALTER TABLE "agent_config_versions" ADD COLUMN "model_alias_snapshot" text;
