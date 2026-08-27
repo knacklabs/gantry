@@ -67,8 +67,8 @@ export function AgentSetupManager({
   useEffect(() => {
     if (kind === 'sources' && sourceCurrent)
       setSelected([
-        ...sourceCurrent.skills.map((item) => `skill:${item.id}`),
-        ...sourceCurrent.mcpServers.map((item) => `mcp:${item.id}`),
+        ...sourceCurrent.skills.map((item) => item.id),
+        ...sourceCurrent.mcpServers.map((item) => item.id),
       ]);
     if (kind === 'capabilities' && capabilityCurrent)
       setSelected(
@@ -136,7 +136,7 @@ export function AgentSetupManager({
               CapabilityCatalog['skills']
             >
           ).map((item) => ({
-            id: `skill:${item.id}`,
+            id: item.id,
             label: item.name,
             description: item.description,
             group: 'Skills',
@@ -146,7 +146,7 @@ export function AgentSetupManager({
               CapabilityCatalog['mcpServers']
             >
           ).map((item) => ({
-            id: `mcp:${item.id}`,
+            id: item.id,
             label: item.displayName ?? item.name,
             description: item.description,
             group: 'MCP servers',
@@ -247,14 +247,13 @@ function nextSources(selected: string[], current: AgentSource): AgentSource {
   return {
     skills: selected
       .filter((id) => id.startsWith('skill:'))
-      .map((id) => ({ id: id.slice(6) })),
+      .map((id) => ({ id })),
     mcpServers: selected
       .filter((id) => id.startsWith('mcp:'))
       .map((id) => {
-        const serverId = id.slice(4);
         return (
-          current.mcpServers.find((source) => source.id === serverId) ?? {
-            id: serverId,
+          current.mcpServers.find((source) => source.id === id) ?? {
+            id,
           }
         );
       }),

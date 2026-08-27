@@ -73,6 +73,35 @@ describe('AgentCapabilityAdministrationService', () => {
     );
   });
 
+  it('does not expose or bind installed skills without artifact storage', async () => {
+    const state = createState();
+    state.skills.set('skill:missing-storage', {
+      ...state.skills.get('skill:one'),
+      id: 'skill:missing-storage',
+      storage: undefined,
+    });
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+    );
+
+    await expect(
+      service.replaceSources({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        sources: {
+          skills: [{ id: 'skill:missing-storage' }],
+          mcpServers: [],
+          tools: [],
+        },
+      }),
+    ).rejects.toThrow('Skill has no artifact storage: skill:missing-storage');
+    expect(
+      (await service.listCatalog('app:one' as never)).skills.map(
+        (skill) => skill.id,
+      ),
+    ).not.toContain('skill:missing-storage');
+  });
+
   it('replaces a full access document and validates selections against requested sources', async () => {
     const state = createState();
     const service = new AgentCapabilityAdministrationService(
@@ -623,6 +652,12 @@ function createState() {
             commandTemplates: ['skills/one/publish.py *'],
           },
         ],
+        storage: {
+          storageType: 'local-filesystem',
+          storageRef: 'skills/one',
+          contentHash: 'one',
+          sizeBytes: 1,
+        },
         createdAt: now,
         updatedAt: now,
       },

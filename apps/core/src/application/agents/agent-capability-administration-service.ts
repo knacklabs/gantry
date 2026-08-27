@@ -18,7 +18,10 @@ import type {
   SkillCatalogItem,
   SkillId,
 } from '../../domain/skills/skills.js';
-import { isSkillUsableForBinding } from '../../domain/skills/skills.js';
+import {
+  isSkillMaterializableLocally,
+  isSkillUsableForBinding,
+} from '../../domain/skills/skills.js';
 import {
   formatSkillMaterializationCollision,
   skillMaterializationCollisions,
@@ -116,7 +119,7 @@ export class AgentCapabilityAdministrationService {
     ]);
     return {
       tools: tools.filter((tool) => tool.selectable),
-      skills,
+      skills: skills.filter(isSkillMaterializableLocally),
       mcpServers,
     };
   }
@@ -564,6 +567,12 @@ export class AgentCapabilityAdministrationService {
           throw new ApplicationError(
             'INVALID_REQUEST',
             `Skill is not installed: ${skillId}`,
+          );
+        }
+        if (!isSkillMaterializableLocally(skill)) {
+          throw new ApplicationError(
+            'INVALID_REQUEST',
+            `Skill has no artifact storage: ${skillId}`,
           );
         }
         skills.set(skillId, skill);
