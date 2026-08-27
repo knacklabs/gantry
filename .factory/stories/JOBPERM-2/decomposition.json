@@ -83,7 +83,48 @@
       "user_facing": false,
       "depends_on": [
         "JOBPERM-2-T1"
-      ]
+      ],
+      "plan_contracts": [
+        {
+          "id": "JOBPERM-2-AC5",
+          "statement": "a `once` row whose run ended before a decision settles as expired with copy \"Expired \u2014 the run ended before a decision; it will ask again next run\" and never becomes durable authority.",
+          "source": "plans/active/JOBPERM-2-job-permissions-one-card-path-with-rule-once-grants.md#acceptance-criteria"
+        },
+        {
+          "id": "JOBPERM-2-AC2-INT",
+          "statement": "Postgres integration proof: a signed scheduled once-card attach \u2192 Allow \u2192 `allow_once` replay with no rule written (permission-decision-chain suite).",
+          "source": "plans/active/JOBPERM-2-job-permissions-one-card-path-with-rule-once-grants.md#verify-plan"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/app/bootstrap/job-permission-durability-wiring.ts",
+        "apps/core/src/application/interactions/",
+        "apps/core/src/domain/job-permission-card-actions.ts",
+        "apps/core/src/domain/ports/job-permission-durability.ts",
+        "apps/core/test/unit/application/",
+        "apps/core/test/integration/"
+      ],
+      "required_tests": [
+        {
+          "id": "settles a once need as expired when its run ended",
+          "path": "apps/core/test/unit/application/jobperm-durability.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "reviewer_focus": [
+        "an expired once row never replays and never persists a rule",
+        "expired copy renders on the card; rule rows untouched",
+        "integration test drives attach \u2192 Allow \u2192 signed allow_once replay with no rule row written"
+      ],
+      "review_budget": {
+        "max_changed_files": 8,
+        "max_changed_lines": 450,
+        "reason": "Reconciler/wiring expiry branch + card copy (~60 lines) and one Postgres integration test (~120 lines) plus unit coverage."
+      }
     }
   ],
   "plan_contracts": [
@@ -121,5 +162,5 @@
   "project": "",
   "plan_file": "plans/active/JOBPERM-2-job-permissions-one-card-path-with-rule-once-grants.md",
   "plan_sha256": "2590bf08eee86a07f48d003236a077560a61b06645498b880bcd2711aa679b68",
-  "commit": "67daf0edce1615c67384284aefba02d17c7030fb"
+  "commit": "427e9828a60d2e4611248e7ee292d02fbc7d99d6"
 }

@@ -1,0 +1,69 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "T2 detail: when a 'this run only' row expires because the run ended, should it stay visible on the card (marked Expired) or drop off the card entirely?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Expired once rows stay on the card, non-decisionable, with the AC5 copy; a later run creates a fresh once need (request-id identity).",
+    "Required test leaf: 'settles a once need as expired when its run ended' in jobperm-durability.test.ts; integration proof in permission-decision-chain.postgres.integration.test.ts."
+  ],
+  "rounds": [
+    {
+      "question": "T2 detail: when a 'this run only' row expires because the run ended, should it stay visible on the card (marked Expired) or drop off the card entirely?",
+      "options": [
+        "Stay visible, marked Expired (Recommended)",
+        "Drop off the card"
+      ],
+      "chosen": "Stay visible, marked Expired (Recommended)"
+    },
+    {
+      "question": "Anything else before T2 starts?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "waiter sweep moves a need with no live waiters to handoff_pending; a once need must instead settle as expired",
+      "source": "apps/core/src/application/interactions/job-permission-reconciler.ts:259-306; task plan step 1"
+    },
+    {
+      "finding": "handoff resolution assumes atoms/rule; must never see a once need",
+      "source": "apps/core/src/application/interactions/job-permission-reconciler.ts:323-335; task plan step 1"
+    }
+  ],
+  "task_id": "JOBPERM-2-T2",
+  "inspected_refs": [
+    "apps/core/src/application/interactions/job-permission-reconciler.ts",
+    "apps/core/src/domain/job-permission-card-actions.ts",
+    "apps/core/src/application/interactions/job-permission-card-projection.ts",
+    "apps/core/src/domain/ports/job-permission-durability.ts",
+    "apps/core/test/unit/application/jobperm-durability.test.ts",
+    "apps/core/test/integration/permission-decision-chain.postgres.integration.test.ts"
+  ],
+  "current_flow": "Reconciler waiter sweep (~:259-306): when every waiter is dead/expired the need goes to handoff_pending and later handed_off so a future run can pick a RULE up; a once need has no rule to hand off, so today it would be parked as a handoff that can never apply. Card copy has no expired state.",
+  "criteria_map": {
+    "a `once` row whose run ended before a decision settles as expired with copy \"Expired \u2014 the run ended before a decision; it will ask again next run\" and never becomes durable authority.": "steps 1-3: once need with all waiters dead/expired \u2192 cancelled + expiredAt; never handoff/rerun barriers/persistGrant; card renders the expired copy, non-decisionable; fresh once need next run; required test 'settles a once need as expired when its run ended'",
+    "Postgres integration proof: a signed scheduled once-card attach \u2192 Allow \u2192 `allow_once` replay with no rule written (permission-decision-chain suite).": "step 4: integration test 'completes the signed once-card chain for a job request with no persistable rule without writing a rule' in the Postgres lane"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "optional expiredAt on the once need/row record (JSONB, absent = not expired) \u2014 owner choice 2026-08-27"
+  ],
+  "owner_questions": [],
+  "input_sha256": "0ae71d799e69160e05487f8681275587c3a094ec9d53c58b13de7af282e46116",
+  "task_plan_sha256": "7d6b55b0249aff383397d49e60d9fad873a05c82b1e26fae0d7c01b9cf3bc02a",
+  "recorded_at": "2026-08-27T18:42:18+00:00",
+  "commit": "427e9828a60d2e4611248e7ee292d02fbc7d99d6",
+  "approved_task_plan_sha256": "7d6b55b0249aff383397d49e60d9fad873a05c82b1e26fae0d7c01b9cf3bc02a",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-27T18:42:18+00:00"
+}
