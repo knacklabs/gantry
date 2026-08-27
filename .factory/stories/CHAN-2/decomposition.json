@@ -1,0 +1,89 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": false,
+  "story": "CHAN-2",
+  "epic": "harness-hygiene",
+  "tasks": [
+    {
+      "id": "CHAN-2-T1",
+      "title": "Five repeated-guard hoists across the provider adapters",
+      "objective": "Apply the five hoists from the PR #444 cyclomatic review, one per file, no signature or behaviour change: dead early-returns removed in telegram/message-action-affordances.ts; callback context computed once in telegram/channel-connect.ts; channelId/userId hoisted in slack/channel-message-action-handler.ts; component user id computed once in discord/interactions.ts; thread fragment computed once in teams/cards.ts. Existing unit tests pass unchanged.",
+      "acceptance_criteria": [
+        "The five review hoists are applied: telegram/message-action-affordances.ts dead early-returns removed; telegram/channel-connect.ts callback context computed once; slack/channel-message-action-handler.ts channelId/userId hoisted; discord/interactions.ts component user id hoisted; teams/cards.ts thread fragment computed once",
+        "Lands after PR #446 merged (CHAN-1 folder layout); branch based on main after it"
+      ],
+      "user_facing": false,
+      "depends_on": [],
+      "write_scope": [
+        "apps/core/src/channels/telegram/",
+        "apps/core/src/channels/slack/",
+        "apps/core/src/channels/discord/",
+        "apps/core/src/channels/teams/",
+        "apps/core/test/unit/channels/",
+        "scripts/architecture-map.json"
+      ],
+      "required_tests": [
+        {
+          "id": "adds Telegram reactions idempotently",
+          "path": "apps/core/test/unit/channels/telegram.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "plan_contracts": [
+        {
+          "id": "CHAN-2-AC1",
+          "statement": "The five review hoists are applied: telegram/message-action-affordances.ts dead early-returns removed; telegram/channel-connect.ts callback context computed once; slack/channel-message-action-handler.ts channelId/userId hoisted; discord/interactions.ts component user id hoisted; teams/cards.ts thread fragment computed once",
+          "source": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria"
+        },
+        {
+          "id": "CHAN-2-AC4",
+          "statement": "Lands after PR #446 merged (CHAN-1 folder layout); branch based on main after it",
+          "source": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria"
+        }
+      ],
+      "reviewer_focus": [
+        "each hoist is behaviour-preserving (same guards, evaluated once)",
+        "no existing test edited",
+        "no signature change"
+      ],
+      "review_budget": {
+        "max_changed_files": 8,
+        "max_changed_lines": 200,
+        "reason": "Five one-block hoists in five files; no test edits expected."
+      }
+    },
+    {
+      "id": "CHAN-2-T2",
+      "title": "Split the Telegram callback by action kind",
+      "objective": "Extract a TelegramCallbackContext built once at the top of the bot.on('callback_query:data') callback in telegram/channel-connect.ts and move each action-kind branch (user-question answers, lt:stop, jp:, r:, perm:) into a named function in one sibling module telegram/callback-handlers.ts; the callback becomes parse -> context -> dispatch by prefix -> existing default. Handler CC <= 25, dispatcher CC <= 15; existing telegram tests pass unchanged.",
+      "acceptance_criteria": [
+        "The Telegram bot.on callback in telegram/channel-connect.ts is split by action kind into named handlers, each with cyclomatic complexity <= 25, dispatched from a callback whose own complexity is <= 15; no behaviour change",
+        "No behaviour change: existing unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green"
+      ],
+      "user_facing": false,
+      "depends_on": [
+        "CHAN-2-T1"
+      ]
+    }
+  ],
+  "plan_contracts": [
+    {
+      "id": "CHAN-2-AC1",
+      "statement": "The five review hoists are applied: telegram/message-action-affordances.ts dead early-returns removed; telegram/channel-connect.ts callback context computed once; slack/channel-message-action-handler.ts channelId/userId hoisted; discord/interactions.ts component user id hoisted; teams/cards.ts thread fragment computed once",
+      "source": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-2-AC4",
+      "statement": "Lands after PR #446 merged (CHAN-1 folder layout); branch based on main after it",
+      "source": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria"
+    }
+  ],
+  "project": "",
+  "plan_file": "plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md",
+  "plan_sha256": "b649108af41702a707a0f56dc80a18fc1e56dbf6d55bb32ae235c624ee66706f",
+  "commit": "3f6790cba6ab84af068e6985bfac50ab7c8881a4"
+}
