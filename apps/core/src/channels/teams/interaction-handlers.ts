@@ -5,7 +5,7 @@ import type {
   UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
-} from '../domain/types.js';
+} from '../../domain/types.js';
 import {
   claimPermissionInteractionCallback,
   DurableInteractionPersistenceError,
@@ -13,31 +13,31 @@ import {
   recordDurableQuestionAnswerProgress,
   releasePermissionInteractionCallback,
   samePermissionCallbackLocator,
-} from '../application/interactions/pending-interaction-durability.js';
-import { logger } from '../infrastructure/logging/logger.js';
+} from '../../application/interactions/pending-interaction-durability.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 import {
   decisionForMode,
   formatPermissionReceiptText,
   normalizePermissionAction,
   permissionDecisionOptions,
-} from './permission-interaction.js';
+} from '../permission-interaction.js';
 import {
   buildTeamsMessageCard,
   buildTeamsUserQuestionReceiptCard,
-} from './teams-cards.js';
+} from './cards.js';
 import {
   formatTeamsUserQuestionReceipt,
   mapTeamsUserQuestionAnswers,
   readTeamsUserQuestionSubmit,
   type TeamsUserQuestionSubmit,
-} from './teams-user-question.js';
-import { readTeamsPermissionDecision } from './teams-permission-submit.js';
+} from './user-question.js';
+import { readTeamsPermissionDecision } from './permission-submit.js';
 import {
   matchesQuestionCancellation,
   RUNNER_CANCELLED_QUESTION_REASON,
   settlePendingQuestionCancellation,
   type InteractionCancellationResult,
-} from './interaction-settlement.js';
+} from '../interaction-settlement.js';
 import {
   teamsConversationIdFromJid,
   type PendingTeamsPermissionPrompt,
@@ -45,7 +45,7 @@ import {
   type TeamsChannelOpts,
   type TeamsInboundMessage,
   type TeamsSdkClient,
-} from './teams-types.js';
+} from './types.js';
 
 type TeamsInteractionContext = {
   opts: TeamsChannelOpts;

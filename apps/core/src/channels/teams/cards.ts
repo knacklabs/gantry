@@ -4,23 +4,23 @@ import type {
   PermissionApprovalRequest,
   PermissionCallbackScope,
   UserQuestionRequest,
-} from '../domain/types.js';
+} from '../../domain/types.js';
 import type {
   BrainDreamReviewActionDecision,
   ObserverFeedbackAction,
-} from '../domain/message-actions.js';
-import type { BrainReviewCardView } from '../domain/brain-review-card.js';
+} from '../../domain/message-actions.js';
+import type { BrainReviewCardView } from '../../domain/brain-review-card.js';
 import type {
   ObserverDigestInsightView,
   ObserverDigestMessageView,
-} from '../domain/observer-digest-view.js';
+} from '../../domain/observer-digest-view.js';
 import {
   morePendingReviewsLabel,
   type ReviewMessageView,
-} from '../domain/review-message-view.js';
-import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
-import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
+} from '../../domain/review-message-view.js';
+import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
+import type { DurableQuestionCallback } from '../../application/interactions/pending-interaction-durability.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 import {
   agentTodoLines,
   agentTodoStopActions,
@@ -28,15 +28,15 @@ import {
   formatAgentProgressLine,
   formatAgentTodoHeader,
   hasAgentTodoCardHeader,
-} from './agent-todo-render.js';
+} from '../agent-todo-render.js';
 
-export { agentTodoLines } from './agent-todo-render.js';
+export { agentTodoLines } from '../agent-todo-render.js';
 import {
   formatPermissionPromptText,
   permissionButtonLabel,
   permissionDecisionOptions,
-} from './permission-interaction.js';
-import { escapeTeamsCardText, teamsSideFact } from './teams-cards-helpers.js';
+} from '../permission-interaction.js';
+import { escapeTeamsCardText, teamsSideFact } from './cards-helpers.js';
 
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =
   'application/vnd.microsoft.card.adaptive';

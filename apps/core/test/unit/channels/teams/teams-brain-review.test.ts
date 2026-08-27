@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { renderBrainReviewCard } from '@core/domain/brain-review-card.js';
-import { teamsBrainReviewCard } from '@core/channels/teams-cards.js';
-import { readTeamsMessageAction } from '@core/channels/teams-message-actions.js';
+import { teamsBrainReviewCard } from '@core/channels/teams/cards.js';
+import { readTeamsMessageAction } from '@core/channels/teams/message-actions.js';
 
 const TARGET_JID = 'teams:19:abc@thread.v2';
 

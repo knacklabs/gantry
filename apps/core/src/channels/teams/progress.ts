@@ -2,16 +2,16 @@ import type {
   MessageDeliveryResult,
   MessageSendOptions,
   ProgressUpdateOptions,
-} from '../domain/types.js';
+} from '../../domain/types.js';
 import {
   buildTeamsMessageCard,
   teamsObserverDigestCard,
   teamsReviewCard,
   teamsBrainReviewCard,
-} from './teams-cards.js';
-import { sendTeamsTextMessage } from './teams-delivery.js';
-import type { TeamsSdkClient } from './teams-types.js';
-import { teamsConversationIdFromJid } from './teams-types.js';
+} from './cards.js';
+import { sendTeamsTextMessage } from './delivery.js';
+import type { TeamsSdkClient } from './types.js';
+import { teamsConversationIdFromJid } from './types.js';
 
 export type TeamsProgressMessages = Map<
   string,

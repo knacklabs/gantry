@@ -1,29 +1,29 @@
 import {
   bindPendingPermissionInteractionMessage,
   DurableInteractionPersistenceError,
-} from '../application/interactions/pending-interaction-durability.js';
+} from '../../application/interactions/pending-interaction-durability.js';
 import type {
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalResult,
-} from '../domain/types.js';
-import type { PreparedPermissionCardSend } from '../domain/permission-card.js';
-import { logger } from '../infrastructure/logging/logger.js';
-import { incrementOperationalError } from '../shared/operational-error-counters.js';
-import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
-import { buildTeamsApprovalAdaptiveCard } from './teams-cards.js';
-import { permissionDecisionOptions } from './permission-interaction.js';
-import { bindTeamsPermissionPromptMessage } from './teams-prompt-binding.js';
+} from '../../domain/types.js';
+import type { PreparedPermissionCardSend } from '../../domain/permission-card.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+import { incrementOperationalError } from '../../shared/operational-error-counters.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
+import { buildTeamsApprovalAdaptiveCard } from './cards.js';
+import { permissionDecisionOptions } from '../permission-interaction.js';
+import { bindTeamsPermissionPromptMessage } from './prompt-binding.js';
 import {
   teamsConversationIdFromJid,
   type PendingTeamsPermissionPrompt,
   type TeamsSdkClient,
-} from './teams-types.js';
+} from './types.js';
 import {
   buildBoundedPermissionCard,
   permissionCardCallback,
-} from './permission-card.js';
+} from '../permission-card.js';
 
 export function prepareTeamsPermissionCardSend(input: {
   connected: boolean;

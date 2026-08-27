@@ -1,11 +1,11 @@
-import { logger } from '../infrastructure/logging/logger.js';
-import type { ChannelOpts } from './channel-provider.js';
-import { TeamsChannel } from './teams.js';
-import { createMicrosoftTeamsSdkClient } from './teams-sdk-client.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+import type { ChannelOpts } from '../channel-provider.js';
+import { TeamsChannel } from './index.js';
+import { createMicrosoftTeamsSdkClient } from './sdk-client.js';
 import {
   readTeamsCredentials,
   type TeamsChannelDependencies,
-} from './teams-types.js';
+} from './types.js';
 
 export async function createTeamsChannel(
   opts: ChannelOpts,

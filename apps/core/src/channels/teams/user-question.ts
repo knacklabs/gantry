@@ -1,8 +1,8 @@
 import type {
   UserQuestionRequest,
   UserQuestionResponse,
-} from '../domain/types.js';
-import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
+} from '../../domain/types.js';
+import type { DurableQuestionCallback } from '../../application/interactions/pending-interaction-durability.js';
 
 export interface TeamsUserQuestionSubmit {
   callback: DurableQuestionCallback;

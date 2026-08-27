@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { sendSlackMessage } from '@core/channels/slack/channel-delivery-helpers.js';
-import { sendTeamsTextOrActionMessage } from '@core/channels/teams-progress.js';
+import { sendTeamsTextOrActionMessage } from '@core/channels/teams/progress.js';
 import type { ReviewMessageView } from '@core/memory/review-message-view.js';
 
 function makeReviewView(

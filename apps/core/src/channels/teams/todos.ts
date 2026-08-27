@@ -1,13 +1,13 @@
-import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
-import { logger } from '../infrastructure/logging/logger.js';
-import { agentTodoLines, buildTeamsAgentTodoCard } from './teams-cards.js';
+import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+import { agentTodoLines, buildTeamsAgentTodoCard } from './cards.js';
 import {
   formatAgentTodoHeader,
   hasAgentTodoCardHeader,
-} from './agent-todo-render.js';
-import { sendTeamsTextMessage } from './teams-delivery.js';
-import type { TeamsSdkClient } from './teams-types.js';
-import { teamsConversationIdFromJid } from './teams-types.js';
+} from '../agent-todo-render.js';
+import { sendTeamsTextMessage } from './delivery.js';
+import type { TeamsSdkClient } from './types.js';
+import { teamsConversationIdFromJid } from './types.js';
 
 export type TeamsTodoMessages = Map<
   string,

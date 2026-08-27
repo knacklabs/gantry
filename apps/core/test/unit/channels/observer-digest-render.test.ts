@@ -18,12 +18,12 @@ import {
   OBSERVER_FEEDBACK_BY_CODE,
   truncateTelegramCallbackAnswer,
 } from '@core/channels/telegram/observer-digest-message.js';
-import { teamsObserverDigestCard } from '@core/channels/teams-cards.js';
+import { teamsObserverDigestCard } from '@core/channels/teams/cards.js';
 import {
   readTeamsMessageAction,
   handleTeamsMessageAction,
-} from '@core/channels/teams-message-actions.js';
-import { sendTeamsTextOrActionMessage } from '@core/channels/teams-progress.js';
+} from '@core/channels/teams/message-actions.js';
+import { sendTeamsTextOrActionMessage } from '@core/channels/teams/progress.js';
 import type { MessageActionOutcome } from '@core/domain/types.js';
 
 const ACTIONS = ['resolve', 'dismiss', 'snooze', 'less_like_this'] as const;

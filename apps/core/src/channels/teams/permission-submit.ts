@@ -1,5 +1,5 @@
-import { normalizePermissionAction } from './permission-interaction.js';
-import type { TeamsPermissionCallback } from './teams-types.js';
+import { normalizePermissionAction } from '../permission-interaction.js';
+import type { TeamsPermissionCallback } from './types.js';
 
 export function readTeamsPermissionDecision(value: unknown): {
   callback: TeamsPermissionCallback;

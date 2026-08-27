@@ -1,4 +1,4 @@
-import { normalizeTeamsJid } from './teams.js';
+import { normalizeTeamsJid } from './index.js';
 
 export interface TeamsSetupCredentials {
   clientId: string;

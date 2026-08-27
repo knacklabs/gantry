@@ -1,15 +1,15 @@
-import type { ChannelOpts } from './channel-provider.js';
-import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
-import { getProviderRuntimeSecret } from './provider-runtime-secrets.js';
+import type { ChannelOpts } from '../channel-provider.js';
+import type { RuntimeSecretProvider } from '../../domain/ports/runtime-secret-provider.js';
+import { getProviderRuntimeSecret } from '../provider-runtime-secrets.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionCallbackScope,
   UserQuestionRequest,
   UserQuestionResponse,
-} from '../domain/types.js';
-import type { TeamsAdaptiveCardPayload } from './teams-cards.js';
-import type { DurableQuestionCallback } from '../application/interactions/pending-interaction-durability.js';
+} from '../../domain/types.js';
+import type { TeamsAdaptiveCardPayload } from './cards.js';
+import type { DurableQuestionCallback } from '../../application/interactions/pending-interaction-durability.js';
 
 export const TEAMS_JID_PREFIX = 'teams:';
 

@@ -2,17 +2,17 @@ import type {
   MemoryReviewActionDecision,
   MessageActionOutcome,
   OnMessageAction,
-} from '../domain/types.js';
+} from '../../domain/types.js';
 import type {
   BrainDreamReviewActionDecision,
   ObserverFeedbackAction,
-} from '../domain/message-actions.js';
-import type { TeamsAdaptiveCardPayload } from './teams-cards.js';
-import { withObserverDigestEditLock } from './observer-digest-edit-lock.js';
+} from '../../domain/message-actions.js';
+import type { TeamsAdaptiveCardPayload } from './cards.js';
+import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
 import {
   buildTeamsReviewReceiptCard,
   teamsObserverDigestCard,
-} from './teams-cards.js';
+} from './cards.js';
 
 const OBSERVER_FEEDBACK_ACTIONS = new Set<ObserverFeedbackAction>([
   'resolve',
@@ -20,9 +20,9 @@ const OBSERVER_FEEDBACK_ACTIONS = new Set<ObserverFeedbackAction>([
   'snooze',
   'less_like_this',
 ]);
-import type { TeamsInboundMessage, TeamsSdkClient } from './teams-types.js';
-import { teamsConversationIdFromJid } from './teams-types.js';
-import { logger } from '../infrastructure/logging/logger.js';
+import type { TeamsInboundMessage, TeamsSdkClient } from './types.js';
+import { teamsConversationIdFromJid } from './types.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 
 export function readTeamsMessageAction(value: unknown):
   | {

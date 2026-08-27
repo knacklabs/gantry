@@ -1,13 +1,13 @@
-import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from './channel-provider.js';
+import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
 import {
   TEAMS_HARD_MESSAGE_BYTES,
   sendTeamsTextMessage,
   splitTeamsTextByByteBudget,
-} from './teams-delivery.js';
-import { buildTeamsMessageCard } from './teams-cards.js';
-import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
-import type { StreamingChunkOptions } from '../domain/types.js';
-import type { TeamsSdkClient } from './teams-types.js';
+} from './delivery.js';
+import { buildTeamsMessageCard } from './cards.js';
+import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import type { StreamingChunkOptions } from '../../domain/types.js';
+import type { TeamsSdkClient } from './types.js';
 
 export interface TeamsStreamingState {
   conversationId: string;

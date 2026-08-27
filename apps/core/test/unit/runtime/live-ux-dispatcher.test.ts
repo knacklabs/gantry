@@ -5,7 +5,7 @@ import { createAppChannel } from '@core/channels/app.js';
 import type { ChannelAdapter } from '@core/channels/channel-provider.js';
 import { DiscordChannel } from '@core/channels/discord/index.js';
 import { SlackChannel } from '@core/channels/slack/channel-adapter.js';
-import { TeamsChannel } from '@core/channels/teams.js';
+import { TeamsChannel } from '@core/channels/teams/index.js';
 import { TelegramChannel } from '@core/channels/telegram/channel-adapter.js';
 import {
   LiveUxRateLimitError,

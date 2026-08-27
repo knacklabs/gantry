@@ -11,7 +11,7 @@ import { SLACK_FALLBACK_CHUNK_MAX_LENGTH } from '@core/channels/slack/text-limit
 import {
   TEAMS_HARD_MESSAGE_BYTES,
   TEAMS_SOFT_MESSAGE_BYTES,
-} from '@core/channels/teams-limits.js';
+} from '@core/channels/teams/limits.js';
 import { TELEGRAM_MESSAGE_MAX_LENGTH } from '@core/channels/telegram/text-limits.js';
 import '@core/channels/register-builtins.js';
 

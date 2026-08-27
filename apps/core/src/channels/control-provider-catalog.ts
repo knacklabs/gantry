@@ -16,7 +16,7 @@ import { listTelegramRecentChats } from '../cli/telegram-chat-discovery.js';
 import {
   GraphTeamsSetupDiscoveryClient,
   type TeamsSetupDiscoveryClient,
-} from './teams-setup-discovery.js';
+} from './teams/setup-discovery.js';
 import {
   RestDiscordSetupDiscoveryClient,
   type DiscordSetupDiscoveryClient,

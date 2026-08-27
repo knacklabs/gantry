@@ -14,7 +14,7 @@ import {
   TEAMS_413_RETRY_MAX_BYTES,
   TEAMS_HARD_MESSAGE_BYTES,
   TEAMS_SOFT_MESSAGE_BYTES,
-} from './teams-limits.js';
+} from './teams/limits.js';
 import { TELEGRAM_MESSAGE_MAX_LENGTH } from './telegram/text-limits.js';
 
 const questionGuidance =
@@ -39,7 +39,7 @@ async function createSlackBuiltInChannel(
 async function createTeamsBuiltInChannel(
   opts: ChannelOpts,
 ): Promise<ChannelAdapter | null> {
-  const mod = await import('./teams.js');
+  const mod = await import('./teams/index.js');
   return await mod.createTeamsChannel(opts);
 }
 

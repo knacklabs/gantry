@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildPermissionPromptParts } from '@core/channels/permission-interaction.js';
-import { buildTeamsApprovalAdaptiveCard } from '@core/channels/teams-cards.js';
+import { buildTeamsApprovalAdaptiveCard } from '@core/channels/teams/cards.js';
 import { semanticCapabilityInteraction } from '@core/jobs/ipc-semantic-capability-interaction.js';
 
 describe('semantic MCP capability review interaction', () => {

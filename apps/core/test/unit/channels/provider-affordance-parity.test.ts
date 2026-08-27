@@ -11,9 +11,9 @@ import { slackPermissionDecisionActionId } from '@core/channels/slack/permission
 import {
   buildTeamsApprovalAdaptiveCard,
   buildTeamsMessageCard,
-} from '@core/channels/teams-cards.js';
-import { readTeamsMessageAction } from '@core/channels/teams-message-actions.js';
-import { readTeamsPermissionDecision } from '@core/channels/teams-permission-submit.js';
+} from '@core/channels/teams/cards.js';
+import { readTeamsMessageAction } from '@core/channels/teams/message-actions.js';
+import { readTeamsPermissionDecision } from '@core/channels/teams/permission-submit.js';
 import {
   parseTelegramPermissionCallbackData,
   telegramPermissionCallbackData,

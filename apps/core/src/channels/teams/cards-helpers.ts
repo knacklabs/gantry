@@ -1,4 +1,4 @@
-import type { ReviewMessageSide } from '../domain/review-message-view.js';
+import type { ReviewMessageSide } from '../../domain/review-message-view.js';
 
 /**
  * Neutralize dynamic snapshot text before embedding it in an Adaptive Card

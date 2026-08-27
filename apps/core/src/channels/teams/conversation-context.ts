@@ -1,18 +1,18 @@
-import type { NewMessage } from '../domain/types.js';
-import type { ChannelOpts } from './channel-provider.js';
-import { applyInboundConversationIdentity } from './inbound-conversation-identity.js';
-import { logger } from '../infrastructure/logging/logger.js';
+import type { NewMessage } from '../../domain/types.js';
+import type { ChannelOpts } from '../channel-provider.js';
+import { applyInboundConversationIdentity } from '../inbound-conversation-identity.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
   HydrationRequestObservation,
-} from './channel-provider.js';
-import { nowIso } from '../shared/time/datetime.js';
+} from '../channel-provider.js';
+import { nowIso } from '../../shared/time/datetime.js';
 import {
   teamsConversationIdFromJid,
   type TeamsContextMessage,
   type TeamsSdkClient,
-} from './teams-types.js';
+} from './types.js';
 
 export async function hydrateTeamsConversationContext(
   request: ConversationContextHydrationRequest,

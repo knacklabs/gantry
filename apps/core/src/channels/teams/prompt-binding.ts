@@ -1,6 +1,6 @@
-import { bindPendingPermissionInteractionMessage } from '../application/interactions/pending-interaction-durability.js';
-import type { PermissionApprovalRequest } from '../domain/types.js';
-import { permissionDecisionOptions } from './permission-interaction.js';
+import { bindPendingPermissionInteractionMessage } from '../../application/interactions/pending-interaction-durability.js';
+import type { PermissionApprovalRequest } from '../../domain/types.js';
+import { permissionDecisionOptions } from '../permission-interaction.js';
 
 export async function bindTeamsPermissionPromptMessage(
   request: PermissionApprovalRequest,

@@ -1,4 +1,4 @@
-import type { TeamsChannelCredentials, TeamsSdkClient } from './teams-types.js';
+import type { TeamsChannelCredentials, TeamsSdkClient } from './types.js';
 
 export function createMicrosoftTeamsSdkClient(
   _credentials: TeamsChannelCredentials,

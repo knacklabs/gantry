@@ -1,10 +1,10 @@
-import type { RichInteractionRequest } from '../domain/types.js';
-import { logger } from '../infrastructure/logging/logger.js';
-import { TEAMS_ADAPTIVE_CARD_CONTENT_TYPE } from './teams-cards.js';
+import type { RichInteractionRequest } from '../../domain/types.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+import { TEAMS_ADAPTIVE_CARD_CONTENT_TYPE } from './cards.js';
 import {
   teamsConversationIdFromJid,
   type TeamsSdkClient,
-} from './teams-types.js';
+} from './types.js';
 import {
   richDescriptor,
   RICH_INTERACTION_FALLBACK_COPY,
@@ -12,7 +12,7 @@ import {
   richFallbackText,
   richFormFields,
   richTextLines,
-} from './rich-interaction.js';
+} from '../rich-interaction.js';
 
 export function buildTeamsRichInteractionPayload(
   input: RichInteractionRequest,

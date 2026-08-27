@@ -1,16 +1,16 @@
 import type {
   MessageDeliveryResult,
   MessageSendOptions,
-} from '../domain/types.js';
-import { PartialMessageDeliveryError } from '../domain/messages/partial-delivery.js';
-import type { TeamsSdkClient } from './teams.js';
+} from '../../domain/types.js';
+import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
+import type { TeamsSdkClient } from './index.js';
 import {
   TEAMS_413_RETRY_MAX_BYTES,
   TEAMS_HARD_MESSAGE_BYTES,
   TEAMS_SOFT_MESSAGE_BYTES,
-} from './teams-limits.js';
+} from './limits.js';
 
-export { TEAMS_HARD_MESSAGE_BYTES } from './teams-limits.js';
+export { TEAMS_HARD_MESSAGE_BYTES } from './limits.js';
 
 function splitTeamsTextByCodeUnits(
   text: string,

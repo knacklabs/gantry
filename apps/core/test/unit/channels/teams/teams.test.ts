@@ -5,7 +5,7 @@ import {
   providerForJid,
 } from '@core/channels/provider-registry.js';
 import '@core/channels/register-builtins.js';
-import { TEAMS_HARD_MESSAGE_BYTES } from '@core/channels/teams-delivery.js';
+import { TEAMS_HARD_MESSAGE_BYTES } from '@core/channels/teams/delivery.js';
 import {
   TEAMS_ADAPTIVE_CARD_CONTENT_TYPE,
   TeamsChannel,
@@ -15,12 +15,12 @@ import {
   createTeamsChannel,
   normalizeTeamsJid,
   teamsConversationIdFromJid,
-} from '@core/channels/teams.js';
+} from '@core/channels/teams/index.js';
 import {
   sendTeamsProgressUpdate,
   type TeamsProgressMessages,
-} from '@core/channels/teams-progress.js';
-import { formatTeamsAttachmentUnavailableCopy } from '@core/channels/teams-cards.js';
+} from '@core/channels/teams/progress.js';
+import { formatTeamsAttachmentUnavailableCopy } from '@core/channels/teams/cards.js';
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
 import {
@@ -39,7 +39,7 @@ import type {
   PermissionCallbackScope,
   UserQuestionRequest,
 } from '@core/domain/types.js';
-import { requirePermissionDecision } from './permission-approval-result-helpers.js';
+import { requirePermissionDecision } from '../permission-approval-result-helpers.js';
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: {

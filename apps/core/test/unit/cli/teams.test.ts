@@ -95,7 +95,7 @@ describe('cli teams helpers', () => {
     vi.stubGlobal('fetch', fetchSpy);
 
     const { validateTeamsAppCredentials } =
-      await import('@core/channels/teams-setup-discovery.js');
+      await import('@core/channels/teams/setup-discovery.js');
     const result = await validateTeamsAppCredentials({
       clientId: 'client-id',
       clientSecret: 'client-secret',
@@ -169,7 +169,7 @@ describe('cli teams helpers', () => {
     vi.stubGlobal('fetch', fetchSpy);
 
     const { listTeamsChannels } =
-      await import('@core/channels/teams-setup-discovery.js');
+      await import('@core/channels/teams/setup-discovery.js');
     const result = await listTeamsChannels({
       credentials: {
         clientId: 'client-id',
@@ -229,7 +229,7 @@ describe('cli teams helpers', () => {
     vi.stubGlobal('fetch', fetchSpy);
 
     const { verifyTeamsChannelAccess } =
-      await import('@core/channels/teams-setup-discovery.js');
+      await import('@core/channels/teams/setup-discovery.js');
     const result = await verifyTeamsChannelAccess({
       credentials: {
         clientId: 'client-id',
@@ -258,7 +258,7 @@ describe('cli teams helpers', () => {
     vi.stubGlobal('fetch', fetchSpy);
 
     const { validateTeamsAppCredentials } =
-      await import('@core/channels/teams-setup-discovery.js');
+      await import('@core/channels/teams/setup-discovery.js');
     const result = await validateTeamsAppCredentials({
       clientId: 'client-id',
       clientSecret: 'client-secret-value',

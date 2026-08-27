@@ -1,7 +1,7 @@
 import {
   type ChannelAdapter,
   type ConversationContextHydrationRequest,
-} from './channel-provider.js';
+} from '../channel-provider.js';
 import type {
   MessageDeliveryResult,
   MessageSendOptions,
@@ -16,32 +16,32 @@ import type {
   UserQuestionCancellation,
   UserQuestionRequest,
   UserQuestionResponse,
-} from '../domain/types.js';
-import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
-import { logger } from '../infrastructure/logging/logger.js';
-import { nowIso } from '../shared/time/datetime.js';
-import { resolveTeamsInboundIdentity } from './teams-conversation-context.js';
+} from '../../domain/types.js';
+import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+import { nowIso } from '../../shared/time/datetime.js';
+import { resolveTeamsInboundIdentity } from './conversation-context.js';
 import {
   buildTeamsUserQuestionCard,
   formatTeamsAttachmentUnavailableCopy as teamsTextWithAttachmentNotice,
-} from './teams-cards.js';
+} from './cards.js';
 import {
   handleTeamsMessageAction,
   teamsMessageActionCardSinks,
-} from './teams-message-actions.js';
+} from './message-actions.js';
 import {
   sendTeamsProgressUpdate,
   sendTeamsTextOrActionMessage,
   type TeamsProgressMessages,
-} from './teams-progress.js';
+} from './progress.js';
 import {
   prepareTeamsPermissionCardSend,
   requestTeamsPermissionApproval,
-} from './teams-permission-approval.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
-import { resolveInteractionSettlementDelayMs } from './interaction-settlement.js';
-import { cancelPendingTeamsPermission } from './teams-permission-cancellation.js';
-import { renderTeamsAgentTodo, type TeamsTodoMessages } from './teams-todos.js';
+} from './permission-approval.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.js';
+import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
+import { cancelPendingTeamsPermission } from './permission-cancellation.js';
+import { renderTeamsAgentTodo, type TeamsTodoMessages } from './todos.js';
 import {
   isTeamsJid,
   normalizeTeamsJid,
@@ -52,18 +52,18 @@ import {
   type TeamsChannelOpts,
   type TeamsInboundMessage,
   type TeamsSdkClient,
-} from './teams-types.js';
+} from './types.js';
 import {
   hydrateTeamsConversationContext,
   teamsMessageAttachments as teamsInboundMessageAttachments,
-} from './teams-conversation-context.js';
-import { renderTeamsRichInteraction } from './teams-rich-interaction.js';
-import { teamsDeliveredQuestionIndexes } from './teams-user-question.js';
-import { buildTeamsQuestionTimeoutAnswers } from './teams-user-question-timeout.js';
+} from './conversation-context.js';
+import { renderTeamsRichInteraction } from './rich-interaction.js';
+import { teamsDeliveredQuestionIndexes } from './user-question.js';
+import { buildTeamsQuestionTimeoutAnswers } from './user-question-timeout.js';
 import {
   applyTeamsStreamingChunk,
   type TeamsStreamingState,
-} from './teams-streaming.js';
+} from './streaming.js';
 import {
   cancelPendingTeamsQuestion,
   dropPendingTeamsInteraction,
@@ -71,13 +71,13 @@ import {
   handleTeamsUserQuestionSubmit,
   resolvePendingTeamsUserQuestion,
   settlePendingTeamsPermission,
-} from './teams-interaction-handlers.js';
-import { StreamResetEpochs } from './stream-reset-epochs.js';
+} from './interaction-handlers.js';
+import { StreamResetEpochs } from '../stream-reset-epochs.js';
 import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
   type DurableQuestionCallback,
-} from '../application/interactions/pending-interaction-durability.js';
+} from '../../application/interactions/pending-interaction-durability.js';
 
 export {
   TEAMS_ADAPTIVE_CARD_CONTENT_TYPE,
@@ -90,7 +90,7 @@ export {
   type TeamsAdaptiveCardDescriptorPayload,
   type TeamsAdaptiveCardPayload,
   type TeamsAdaptiveCardSubmitAction,
-} from './teams-cards.js';
+} from './cards.js';
 export {
   TEAMS_JID_PREFIX,
   isTeamsJid,
@@ -100,8 +100,8 @@ export {
   type TeamsChannelDependencies,
   type TeamsInboundMessage,
   type TeamsSdkClient,
-} from './teams-types.js';
-export { createTeamsChannel } from './teams-factory.js';
+} from './types.js';
+export { createTeamsChannel } from './factory.js';
 
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';

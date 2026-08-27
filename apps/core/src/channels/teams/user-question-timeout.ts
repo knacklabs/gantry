@@ -1,7 +1,7 @@
 import type {
   UserQuestionRequest,
   UserQuestionResponse,
-} from '../domain/types.js';
+} from '../../domain/types.js';
 
 export function buildTeamsQuestionTimeoutAnswers(
   request: UserQuestionRequest,

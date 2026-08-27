@@ -8,7 +8,7 @@ import {
   buildDiscordRichInteractionPayload,
 } from '@core/channels/discord/rich-interaction.js';
 import { buildSlackRichInteractionBlocks } from '@core/channels/slack/rich-interaction.js';
-import { buildTeamsRichInteractionPayload } from '@core/channels/teams-rich-interaction.js';
+import { buildTeamsRichInteractionPayload } from '@core/channels/teams/rich-interaction.js';
 import { renderTelegramRichInteractionHtml } from '@core/channels/telegram/rich-interaction.js';
 import { RICH_INTERACTION_NATIVE_FALLBACK_TEXT } from '@core/domain/types.js';
 import type { RichInteractionRequest } from '@core/domain/types.js';

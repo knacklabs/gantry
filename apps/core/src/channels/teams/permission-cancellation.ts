@@ -1,11 +1,11 @@
 import type {
   PermissionApprovalCancellation,
   PermissionApprovalRequest,
-} from '../domain/types.js';
+} from '../../domain/types.js';
 import {
   pendingPermissionAliasesForCancellation,
   RUNNER_CANCELLED_PERMISSION_REASON,
-} from './interaction-settlement.js';
+} from '../interaction-settlement.js';
 
 type PendingPermission = {
   request: Pick<
