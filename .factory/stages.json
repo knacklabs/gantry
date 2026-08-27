@@ -95,7 +95,7 @@
     {
       "id": "CHAN-1-T2",
       "title": "Teams adapter moves to channels/teams/",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-27T10:26:21+00:00",
       "base_sha": "b09f0a8ba5ba1a01c9635963aabf99a2a6d6e54a",
       "dirty_at_start": {
@@ -114,10 +114,11 @@
         "task_sha256": "54c235be1eb797140738285f6e82f312cfab7e16fbecfbc657bd1996ad0aa41a",
         "brief_sha256": "93769ca617219ace797a5c016609387f11b7b748af3eb80d68536590971c37c3",
         "base_sha": "b09f0a8ba5ba1a01c9635963aabf99a2a6d6e54a",
-        "product_tree_digest": "0b3b8ebdf873e16ce9b0c78a8096e0aa53551167c7c401c625df2ce8400acbe8",
-        "recorded_at": "2026-08-27T10:55:14+00:00",
+        "product_tree_digest": "02f423c980f697d4599666f1939ad18fc2435bff74cc645e816a7fcd1e060196",
+        "recorded_at": "2026-08-27T10:56:22+00:00",
         "generated_by": "autoreview"
-      }
+      },
+      "completed_at": "2026-08-27T10:56:57+00:00"
     }
   ]
 }

@@ -30,12 +30,22 @@
       "contract_id": "CHAN-1-AC3",
       "verdict": "implemented",
       "evidence": "tsc --noEmit, npm run check:architecture, unit lane 679/9050, Postgres lane 62/377 green; git diff -M shows renames plus import-path edits only"
+    },
+    {
+      "contract_id": "CHAN-1-AC1-D",
+      "verdict": "implemented",
+      "evidence": "closed in T1 (stage done at 77f5f6a3b..): 34 Discord renames incl. discord.ts -> discord/index.ts"
+    },
+    {
+      "contract_id": "CHAN-1-AC4",
+      "verdict": "implemented",
+      "evidence": "branch carries origin/main after #444 merged (merge commit 20db560fe)"
     }
   ],
   "aspect": "performance",
-  "review_run_id": "4a18b5518c040ded9b2887b902415c1fd9ad67880942a2361764a50887f45188",
+  "review_run_id": "64180f03dd468e9616832cfa5b30f5fb3f6620de5b7b364ea85e917a48ada995",
   "brief_sha256": "64769ce06b54cd7621940eebccedeaecbaa3d4ef6e2af0fdd486faf1b14d8001",
-  "branch_diff_digest": "2784a9dc5ed97e311057b7ccc0cece4bb887ae712c6651cab1cb78fbb9733e22",
-  "recorded_at": "2026-08-27T10:55:14+00:00",
-  "commit": "abae435cff528ac33a0b368de0b086d67f02f9e2"
+  "branch_diff_digest": "d57f352e6dd2cc6d08b9cf97ed7040ad00a151adb327f540ab67cca208be394b",
+  "recorded_at": "2026-08-27T10:56:22+00:00",
+  "commit": "5ba66770874c8eb0127600e15a54274742d86a66"
 }
