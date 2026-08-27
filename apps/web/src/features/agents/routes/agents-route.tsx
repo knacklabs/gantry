@@ -47,7 +47,7 @@ export function AgentsRoute() {
   );
 
   return (
-    <div className="grid w-full gap-6">
+    <div className="mx-auto grid w-full max-w-[1240px] gap-6">
       <PageHeader
         eyebrow="Administration"
         title="Agents"
