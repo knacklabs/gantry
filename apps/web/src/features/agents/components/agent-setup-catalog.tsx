@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { TextField } from '../../../ui/compositions/text-field';
+import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import { Checkbox } from '../../../ui/primitives/checkbox';
 import { AgentDrawer } from './agent-drawer';
@@ -57,12 +58,11 @@ export function AgentSetupCatalog({
   return (
     <>
       {kind === 'sources' ? (
-        <div className="flex gap-2" role="tablist" aria-label="Source type">
+        <div className="flex gap-[5px]" role="tablist" aria-label="Source type">
           <Button
             aria-selected={sourceTab === 'skills'}
             role="tab"
-            size="sm"
-            className={`min-w-36 justify-between ${
+            className={`h-[34px] min-w-[140px] justify-between gap-[7px] rounded-md px-3 text-[12.5px] ${
               sourceTab === 'skills'
                 ? 'border-text bg-surface-strong text-text hover:bg-surface-strong'
                 : ''
@@ -71,13 +71,15 @@ export function AgentSetupCatalog({
             type="button"
             onClick={() => onSourceTabChange('skills')}
           >
-            Skills ({selected.filter((id) => id.startsWith('skill:')).length})
+            <span>Skills</span>
+            <Badge className="h-[22px] border-border-strong bg-surface-muted px-2 font-mono text-[9.5px] font-semibold text-text-secondary">
+              {selected.filter((id) => id.startsWith('skill:')).length} selected
+            </Badge>
           </Button>
           <Button
             aria-selected={sourceTab === 'mcp'}
             role="tab"
-            size="sm"
-            className={`min-w-36 justify-between ${
+            className={`h-[34px] min-w-[140px] justify-between gap-[7px] rounded-md px-3 text-[12.5px] ${
               sourceTab === 'mcp'
                 ? 'border-text bg-surface-strong text-text hover:bg-surface-strong'
                 : ''
@@ -86,8 +88,10 @@ export function AgentSetupCatalog({
             type="button"
             onClick={() => onSourceTabChange('mcp')}
           >
-            MCP servers ({selected.filter((id) => id.startsWith('mcp:')).length}
-            )
+            <span>MCP servers</span>
+            <Badge className="h-[22px] border-border-strong bg-surface-muted px-2 font-mono text-[9.5px] font-semibold text-text-secondary">
+              {selected.filter((id) => id.startsWith('mcp:')).length} selected
+            </Badge>
           </Button>
         </div>
       ) : (
