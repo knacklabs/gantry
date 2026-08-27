@@ -1,0 +1,43 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "SELF-1 \u2014 when an AI employee proposes a change to itself, what is the default for a new agent?",
+      "options": [
+        "Review-only by default; owner opts specific classes into auto-apply (Recommended)",
+        "Auto-apply persona and intro text by default; review for routines and model",
+        "Review-only, no auto-apply at all in V1.0.x"
+      ],
+      "chosen": "Review-only by default; owner opts specific classes into auto-apply (Recommended)"
+    },
+    {
+      "question": "INCIDENT-1 \u2014 what does `freeze` do to work already in flight?",
+      "options": [
+        "Soft by default: no new runs or tool calls, in-flight turns finish; `--hard` cancels immediately (Recommended)",
+        "Hard only: cancel everything immediately",
+        "Soft only"
+      ],
+      "chosen": "Soft by default: no new runs or tool calls, in-flight turns finish; `--hard` cancels immediately (Recommended)"
+    },
+    {
+      "question": "ADMIN-ALERT-1 \u2014 where do admin alerts go in V1.0?",
+      "options": [
+        "One Teams/Slack conversation only (Recommended)",
+        "Teams/Slack plus email",
+        "Teams/Slack plus a webhook sink"
+      ],
+      "chosen": "One Teams/Slack conversation only (Recommended)"
+    },
+    {
+      "question": "OPS-DR-1 \u2014 where do backups go?",
+      "options": [
+        "S3-compatible bucket or local path, operator's choice (Recommended)",
+        "Local path only in V1.0",
+        "S3-compatible only"
+      ],
+      "chosen": "S3-compatible bucket or local path, operator's choice (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T07:47:47.958221+00:00",
+  "session_id": "6a103c87-a8c9-4ad2-8499-b9794c3dcc64"
+}

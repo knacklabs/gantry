@@ -2,8 +2,9 @@
 slug: model-governance
 title: Model governance: per-agent model allowlist and pre-model guardrails
 status: confirmed
-saved: 2026-08-26T12:04:33+00:00
+saved: 2026-08-27T07:38:53+00:00
 ---
+
 
 # Model governance: per-agent model allowlist and pre-model guardrails
 
@@ -59,6 +60,7 @@ general gateway. Rate limits live with the hard cost cap (COST-2).
   - One pre-model hook point on every model-call path with a stable interface; hooks can redact, block, or annotate; every trigger audited with agent, conversation, rule, and outcome (never the redacted content)
   - One in-repo guardrail ships: PII patterns (email, phone, national ids configurable per deployment) and secret patterns (keys, tokens) redacted before the request; reversible mapping kept in-process for the turn only
   - External guardrails (LiteLLM, Lakera, Presidio) attach through the same hook; prompt-injection classification is explicitly not built in-repo
+  - Indian PII patterns (Aadhaar, PAN, IN phone) default-on for deployments in India; per-deployment pattern set configurable
 
 ## Source
 

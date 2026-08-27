@@ -1081,11 +1081,25 @@ def _run_required_tests(base: Path, stage_id: str, task: dict) -> None:
                             else {"start_new_session": True,
                                   "preexec_fn": unblock_termination_signals_in_child}
                         )
-                        proc = subprocess.Popen(
-                            tokens, cwd=base, stdout=stdout_log,
-                            stderr=stderr_log, text=True, env=env,
-                            **spawn_options,
-                        )
+                        if os.name == "nt":
+                            # Windows CreateProcess cannot launch npm-style .cmd
+                            # shims (npx, tsc, vitest, ...) directly with
+                            # shell=False, so a bare `npx ...` required-test
+                            # command fails with WinError 2. Run the command line
+                            # through the shell so PATHEXT resolves the shim. The
+                            # reaper works off a process-table snapshot, so the
+                            # extra cmd.exe layer is still terminated.
+                            proc = subprocess.Popen(
+                                subprocess.list2cmdline(tokens), cwd=base,
+                                stdout=stdout_log, stderr=stderr_log, text=True,
+                                env=env, shell=True, **spawn_options,
+                            )
+                        else:
+                            proc = subprocess.Popen(
+                                tokens, cwd=base, stdout=stdout_log,
+                                stderr=stderr_log, text=True, env=env,
+                                **spawn_options,
+                            )
                         process_identity = _capture_spawn_identity(proc)
                     if not _wait_and_reap(
                             proc, process_token, process_baseline,

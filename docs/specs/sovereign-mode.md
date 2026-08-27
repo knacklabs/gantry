@@ -2,8 +2,9 @@
 slug: sovereign-mode
 title: Sovereign mode
 status: confirmed
-saved: 2026-08-26T11:22:27+00:00
+saved: 2026-08-27T07:38:53+00:00
 ---
+
 
 
 # Sovereign mode
@@ -35,6 +36,8 @@ any model" is enforced, not advised.
   allowlist. Enforcement covers the model gateway, embeddings, browser backend, remote
   MCP proxy, provider SDK telemetry, and both sandboxed and direct runner modes. The
   existing denylist remains for non-sovereign deployments.
+- OTLP/tracing export is covered and never carries message content off-box;
+  SECURITY states plainly that Gantry never phones home.
 - Boot fails with a named violation when any component cannot be constrained to the
   allowlist; there is no advisory mode in sovereign configuration. A doctor probe
   reports the effective policy but is not the enforcement.
@@ -46,6 +49,7 @@ any model" is enforced, not advised.
   - Enforcement covers model gateway, embeddings, browser backend, remote MCP proxy, telemetry, and both sandbox and direct runner modes
   - Boot fails with a named violation when any component cannot be constrained
   - Read-only effective egress policy surface: /ui/api/runtime/egress-policy (viewer) showing default-deny state, allowlist, protected components, named violations; replaces the preview Diagnostics/Guardrails cards for egress
+  - OTLP/tracing export is covered by the allowlist and never carries message content off-box; SECURITY states plainly that Gantry never phones home
 - **SOV-1** — Sovereign mode: generic OpenAI-compatible provider and no-egress check
   - ADR 0135 amended: constrained openai_compatible provider id with URL validation, credential mode via secret ref, catalog/route behaviour, gateway tests
   - No-egress boot check is EGRESS-1 enforcement, not a doctor probe

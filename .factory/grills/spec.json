@@ -2,82 +2,99 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "decision": "keep",
-  "gaps": [],
+  "summary": "self-serve-install-and-docs: grilled 2026-08-27 (roadmap review; day-two operations; self-improvement by proposal) \u2014 two AskUserQuestion rounds, eight questions.",
+  "questions_asked": 8,
+  "gaps": [
+    "Security packet thin; CLI role after console undefined; Day-0 undocumented"
+  ],
   "contradictions": [],
-  "new_abstractions": [
-    "Durable need row + one reconciler + card-revision outbox \u2014 REPLACE ad-hoc terminal-denial/setup-card handoff code (net deletion per v9 Deletions); no new card kind, no classifier for autonomous (0121)."
+  "resolutions": [
+    "DOCS-1 SECURITY additions, Day-0 page, CLI as break-glass/automation/agent surface (0145); PKG-1 SBOM/licence/NOTICE (0149)"
   ],
-  "inspected_refs": [
-    "plans/review-briefs/scheduled-job-permission-parity-design.md (v9 FROZEN, 7 Codex xhigh rounds, 57 findings)",
-    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts:162-431 (hard-return + poll loop)",
-    "apps/core/src/runtime/ipc-permission-classifier-decision.ts:184-210,447 (cancel branch; interactive tail)",
-    "apps/core/src/shared/tool-rule-matcher.ts:286-291 (Browser mapping)",
-    "apps/core/src/jobs/execution-lease.ts:316-339 + execution.ts:147-208 (lease deadline)",
-    "apps/core/src/application/jobs/setup-pause-permission-prompt.ts (persistence + card precedent)"
-  ],
-  "current_flow": "Autonomous tool call -> worker policy miss -> host round-trip -> hostJobId branch cancels ('no declared grant') -> terminal denial -> job pauses -> setup card -> approve -> RERUN from scratch. Browser/request_access/unlisted tools all die on the same hard-return.",
-  "criteria_map": {
-    "ask-and-resume": "Soften the hostJobId cancel (ipc-permission-classifier-decision.ts:184-210) to fall through to requestPermissionApproval (:447); worker polls like interactive (permission-callback.ts:265-276 deleted); resume in place; persist via the need reconciler.",
-    "browser-no-card": "Worker awaits the host verdict; tool-rule-matcher.ts:286-291 already maps Browser to the five mcp__gantry__browser_* names; no projection change.",
-    "living-card": "Need rows keyed by job; card-revision outbox; revision+epoch-bound batch; provider contract tests on all three channels.",
-    "deny-and-handoff": "denied_pending_delivery->denied per-need terminal + Reconsider epoch; waiter-scoped handoff card [Approve & run again]+[Deny].",
-    "honest-edges": "Hard-boundary equivalence class -> typed reformulation; unprojected -> Completed with limits + human rerun; truthful denial texts.",
-    "single-cut": "v9 Deletions section is normative: old autonomous lane paths removed, asserted in tests."
-  },
+  "open_items": [],
   "rounds": [
     {
-      "question": "Allow-once on job cards?",
+      "question": "SELF-1 \u2014 when an AI employee proposes a change to itself, what is the default for a new agent?",
       "options": [
-        "keep",
-        "remove"
+        "Review-only by default; owner opts specific classes into auto-apply (Recommended)",
+        "Auto-apply persona and intro text by default; review for routines and model",
+        "Review-only, no auto-apply at all in V1.0.x"
       ],
-      "chosen": "remove \u2014 owner ruling: a job recurs, approvals are permanent"
+      "chosen": "Review-only by default; owner opts specific classes into auto-apply (Recommended)"
     },
     {
-      "question": "Permanent pins for pipes?",
+      "question": "INCIDENT-1 \u2014 what does `freeze` do to work already in flight?",
       "options": [
-        "exact-byte pin",
-        "reformulation-only"
+        "Soft by default: no new runs or tool calls, in-flight turns finish; `--hard` cancels immediately (Recommended)",
+        "Hard only: cancel everything immediately",
+        "Soft only"
       ],
-      "chosen": "reformulation-only \u2014 identical bytes execute different remote content (owner-accepted physics limit)"
+      "chosen": "Soft by default: no new runs or tool calls, in-flight turns finish; `--hard` cancels immediately (Recommended)"
     },
     {
-      "question": "Auto-rerun for unprojected grants?",
+      "question": "ADMIN-ALERT-1 \u2014 where do admin alerts go in V1.0?",
       "options": [
-        "auto-rerun",
-        "human Run-again"
+        "One Teams/Slack conversation only (Recommended)",
+        "Teams/Slack plus email",
+        "Teams/Slack plus a webhook sink"
       ],
-      "chosen": "human Run-again \u2014 auto-rerun duplicates side effects"
+      "chosen": "One Teams/Slack conversation only (Recommended)"
     },
     {
-      "question": "New lane or single-cut?",
+      "question": "OPS-DR-1 \u2014 where do backups go?",
       "options": [
-        "parallel lane",
-        "delete old lane"
+        "S3-compatible bucket or local path, operator's choice (Recommended)",
+        "Local path only in V1.0",
+        "S3-compatible only"
       ],
-      "chosen": "delete old lane (owner directive; v9 Deletions normative)"
+      "chosen": "S3-compatible bucket or local path, operator's choice (Recommended)"
+    },
+    {
+      "question": "LIFECYCLE-1 \u2014 default retention when the operator sets nothing?",
+      "options": [
+        "Messages 90 days, memory until offboarding, audit 400 days minimum (Recommended)",
+        "Keep everything until explicitly purged",
+        "Messages 30 days, memory 90 days, audit 1 year"
+      ],
+      "chosen": "Messages 90 days, memory until offboarding, audit 400 days minimum (Recommended)"
+    },
+    {
+      "question": "INTRO-1 \u2014 when does the intro card post in a channel?",
+      "options": [
+        "Once, on install, plus on first @mention by any new person (Recommended)",
+        "Only on install",
+        "On install and pinned; DM everyone in the channel"
+      ],
+      "chosen": "Once, on install, plus on first @mention by any new person (Recommended)"
+    },
+    {
+      "question": "REVISION-1 \u2014 who can restore a prior persona/access revision?",
+      "options": [
+        "Owner for persona; administrator for access (Recommended)",
+        "Administrator only for both",
+        "Owner or administrator for both"
+      ],
+      "chosen": "Owner for persona; administrator for access (Recommended)"
+    },
+    {
+      "question": "Anything else to settle before I confirm these eleven specs and open the PR?",
+      "options": [
+        "No \u2014 confirm and open the PR (Recommended)",
+        "Hold \u2014 I want to change something first"
+      ],
+      "chosen": "No \u2014 confirm and open the PR (Recommended)",
+      "frontier_empty": true
     }
+  ],
+  "inspected_refs": [
+    "docs/architecture/ai-employee-v1-gap-analysis.md",
+    "docs/architecture/ai-employee-v1-handover.md",
+    "docs/product/BRIEF.md"
   ],
   "citations": [
-    {
-      "finding": "single date allowed, compound cancelled; 6 days of dead-ends; browser prelaunched but unused; request_access denied",
-      "source": "~/gantry/logs/gantry.log 2026-08-08..23 sweeps"
-    },
-    {
-      "finding": "wait/resume plumbing exists and is interactive-only by construction",
-      "source": "permission-callback.ts:171-172,280-431"
-    }
+    "docs/specs/self-serve-install-and-docs.md"
   ],
-  "resolutions": [
-    "Soften the hostJobId cancel (ipc-permission-classifier-decision.ts:184-210) to fall through to requestPermissionApproval (:447); worker polls like interactive (permission-callback.ts:265-276 deleted); resume in place; persist via the need reconciler.",
-    "Worker awaits the host verdict; tool-rule-matcher.ts:286-291 already maps Browser to the five mcp__gantry__browser_* names; no projection change.",
-    "Need rows keyed by job; card-revision outbox; revision+epoch-bound batch; provider contract tests on all three channels.",
-    "denied_pending_delivery->denied per-need terminal + Reconsider epoch; waiter-scoped handoff card [Approve & run again]+[Deny].",
-    "Hard-boundary equivalence class -> typed reformulation; unprojected -> Completed with limits + human rerun; truthful denial texts.",
-    "v9 Deletions section is normative: old autonomous lane paths removed, asserted in tests."
-  ],
-  "input_sha256": "26afaf37fffc530b2930d9337c3c8c70726d376a1ed27b9e66ca771b12043fcd",
-  "recorded_at": "2026-08-23T11:15:41+00:00",
-  "commit": "0faa7b1d3b0704a6de2584b7fa7837cc090c9156"
+  "input_sha256": "424d795c4f798cd85f5ed7eb73c59ff9a3269d55879abb8e8e7ea9edeed920d0",
+  "recorded_at": "2026-08-27T08:49:59+00:00",
+  "commit": "96a6eaa032fa4aa3f5af7b44c651b773e97bfbe9"
 }

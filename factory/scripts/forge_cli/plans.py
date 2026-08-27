@@ -11,7 +11,7 @@ import factory_lib
 from factory_lib import (
     client_signoff, dump_json, evidence_path, load_json, now_iso,
     plan_digest_without_assumptions, repo_root, require_grill,
-    requirements_digest, run_state_path, slugify,
+    require_plan_mode_marker, requirements_digest, run_state_path, slugify,
 )
 
 from .common import fail
@@ -205,6 +205,7 @@ def cmd_save(args: argparse.Namespace) -> None:
     ]
     if missing_sections:
         fail("the plan is missing required sections: " + ", ".join(missing_sections))
+    require_plan_mode_marker(base, source)
     plan_digest = plan_digest_without_assumptions(source)
     marker_path = evidence_path(base, story, "plan-approval.json", for_write=True)
     marker = load_json(marker_path, default={})
@@ -282,6 +283,7 @@ def cmd_approve(args: argparse.Namespace) -> None:
              "re-grill that awaiting version, then approve it")
     issue = fields.get("issue") or state.get("issue_key")
     _require_matching_plan_grill(base, plan, issue, awaiting=True)
+    require_plan_mode_marker(base, plan)
     # The approval is for THIS plan in THIS context: bind issue and story so a
     # matching body cannot be replayed under a different story.
     marker = {

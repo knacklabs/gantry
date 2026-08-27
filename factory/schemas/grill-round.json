@@ -1,0 +1,12 @@
+{
+  "artifact": "grill-round",
+  "phase": "AskUserQuestion provenance",
+  "recorded_by": "post_tool_use.py",
+  "generated_by": ["claude-code:plan-mode"],
+  "required": {
+    "generated_by": "str",
+    "questions": "list",
+    "at": "str",
+    "session_id": "str"
+  }
+}

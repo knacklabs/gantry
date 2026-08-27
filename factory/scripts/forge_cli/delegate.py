@@ -921,6 +921,30 @@ def _section(title: str, body: str) -> str:
     return f"\n## {title}\n\n{body.rstrip()}\n" if body.strip() else ""
 
 
+CONSTITUTION_BRIEF = (
+    "The KnackLabs Engineering Constitution in `constitution/` is BINDING — it is "
+    "law for HOW code is written, not just how you behave. Before you write a line, "
+    "open `constitution/README.md` (its index maps the work at hand to the "
+    "authoritative reference) and READ + FOLLOW every matching doc: coding "
+    "standards (`pnp-coding-standards-modular-monolith.md` — file suffixes, DTOs, "
+    "mappers, interfaces, providers, module layout), API + Swagger "
+    "(`pnp-api-standards.md`, `pnp-swagger-api-documentation-standards.md` — every "
+    "endpoint has typed request AND response DTOs), logging/observability "
+    "(`05`/`06`), exception handling (`07`), notification port (`08`), database "
+    "(`pnp-database-standards.md`), provider pattern "
+    "(`pnp-provider-pattern-for-integration.md`), modular-monolith structure "
+    "(`03`). The constitution wins over habit and over anything this brief forgot "
+    "to restate; a task never re-derives a standard the constitution already sets. "
+    "Deviate only deliberately and in writing, with a reason (\"Context is King\") "
+    "— never silently.\n\n"
+    "This is UNCONDITIONAL and ENVIRONMENT-INDEPENDENT: `constitution/` is vendored "
+    "into this repo, so it is on disk and readable even in a sandbox or worktree "
+    "with no network. If you spawn or delegate to ANY subagent, you MUST pass it "
+    "this same instruction — every agent that touches code follows the "
+    "constitution, everywhere."
+)
+
+
 def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
                   story: str) -> str:
     scope = task.get("write_scope") or []
@@ -949,6 +973,7 @@ def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
         "always in full, process chatter never (conduct §8).",
     ]
     body = "\n".join(lines) + "\n"
+    body += _section("Constitution — coding standards (BINDING)", CONSTITUTION_BRIEF)
     body += _section("Objective", task.get("objective", ""))
     body += _section("Acceptance criteria", "\n".join(
         f"- {c}" for c in task.get("acceptance_criteria") or []))
