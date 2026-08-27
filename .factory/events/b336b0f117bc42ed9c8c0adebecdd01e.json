@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-27T09:26:30+00:00", "story": "CHAN-1", "detail": "npx tsc --noEmit cannot resolve @gantry/contracts because packages/contracts/dist is absent; generating it would write outside CHAN-1-T1 scope"}
