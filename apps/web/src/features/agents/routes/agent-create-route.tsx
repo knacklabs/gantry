@@ -232,9 +232,10 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
               </div>
               <AgentSetupManager
                 agentId={agentId}
+                formId="agent-capabilities-form"
                 kind="capabilities"
-                onBack={() => setStep('sources')}
                 onSaved={() => setStep('review')}
+                onSavingChange={setSetupPending}
               />
             </section>
           ) : null}
@@ -260,25 +261,6 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                   Loading saved setup…
                 </p>
               )}
-              <div className="flex justify-between">
-                <Button
-                  variant="secondary"
-                  onClick={() => setStep('capabilities')}
-                >
-                  Back
-                </Button>
-                <Button
-                  onClick={() =>
-                    void navigate({
-                      to: '/agents/$agentId',
-                      params: { agentId },
-                      search: { tab: 'overview' },
-                    })
-                  }
-                >
-                  Finish setup <ArrowRight size={16} aria-hidden="true" />
-                </Button>
-              </div>
             </section>
           ) : null}
           {step === 'base' ? (
@@ -390,6 +372,46 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
               </Button>
             </div>
           ) : null}
+          {step === 'capabilities' ? (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setStep('sources')}
+              >
+                Back
+              </Button>
+              <Button
+                disabled={setupPending}
+                form="agent-capabilities-form"
+                type="submit"
+              >
+                {setupPending ? 'Saving…' : 'Continue'}
+              </Button>
+            </div>
+          ) : null}
+          {step === 'review' && agentId ? (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setStep('capabilities')}
+              >
+                Back
+              </Button>
+              <Button
+                onClick={() =>
+                  void navigate({
+                    to: '/agents/$agentId',
+                    params: { agentId },
+                    search: { tab: 'overview' },
+                  })
+                }
+              >
+                Finish setup <ArrowRight size={16} aria-hidden="true" />
+              </Button>
+            </div>
+          ) : null}
         </footer>
       </DialogContent>
     </Dialog>
@@ -431,17 +453,13 @@ function ReviewSummary({
           [
             'Skills',
             skills.length
-              ? skills
-                  .map((item) => item.name ?? item.id)
-                  .join(', ')
+              ? skills.map((item) => item.name ?? item.id).join(', ')
               : 'None selected',
           ],
           [
             'MCP servers',
             mcpServers.length
-              ? mcpServers
-                  .map((item) => item.name ?? item.id)
-                  .join(', ')
+              ? mcpServers.map((item) => item.name ?? item.id).join(', ')
               : 'None selected',
           ],
         ]}

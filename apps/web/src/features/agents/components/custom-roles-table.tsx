@@ -89,7 +89,7 @@ export function CustomRolesTable({
                 {role.retainedAgentCount ?? 0}
               </td>
               <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] text-text-secondary">
-                {role.updatedAt ?? '—'}
+                {role.updatedAt ? formatDate(role.updatedAt) : '—'}
               </td>
               <td className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)]">
                 <div className="flex gap-2">
@@ -167,4 +167,15 @@ export function CustomRolesTable({
       </table>
     </div>
   );
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf())
+    ? value
+    : new Intl.DateTimeFormat(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }).format(date);
 }
