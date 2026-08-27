@@ -5,14 +5,15 @@
   "verdict": "pass",
   "questions_asked": 4,
   "inspected_refs": [
-    "apps/core/src/channels/discord.ts",
-    "apps/core/src/channels/discord-delivery.ts",
-    "apps/core/src/channels/discord-interactions.ts",
+    "apps/core/src/channels/discord/index.ts",
+    "apps/core/src/channels/discord/delivery.ts",
+    "apps/core/src/channels/discord/interactions.ts",
     "apps/core/src/channels/slack",
     "apps/core/src/channels/telegram",
-    "apps/core/test/unit/channels/discord.test.ts",
+    "apps/core/test/unit/channels/discord",
     "apps/core/src/channels/interaction-settlement.ts",
-    "scripts/architecture-map.json"
+    "scripts/architecture-map.json",
+    "docs/architecture"
   ],
   "current_flow": "Discord adapter modules are flat prefix-named files at the channels root importing each other via ./discord-<x>.js and shared channel modules via ./<shared>.js; the provider entry is channels/discord.ts; external code imports channels/discord-<x>.js.",
   "criteria_map": {
@@ -81,10 +82,10 @@
     }
   ],
   "owner_questions": [],
-  "input_sha256": "3a586abf080e0fe39af0d89993fd1d18c8e03ce76736de79a5ad7e75f9219cf7",
-  "recorded_at": "2026-08-27T09:07:58+00:00",
-  "commit": "3abc61b3dce7deaa76c6b44608978fe33eb49dfc",
+  "input_sha256": "1d147c7a396235be7efa7e8e2ea148f30627741bddc143222ab35a62004c57eb",
+  "recorded_at": "2026-08-27T09:20:19+00:00",
+  "commit": "a66b22855afb7377604b5e994e772b085c3e2691",
   "approved_task_plan_sha256": "3909e42b2a826c8cbca612f8d714d720e0bddb59277c84e73ea8bb2edfa69bd0",
   "approved_by": "Ravi Kiran Vemula",
-  "approved_at": "2026-08-27T09:07:58+00:00"
+  "approved_at": "2026-08-27T09:20:19+00:00"
 }
