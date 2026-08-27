@@ -549,6 +549,17 @@ export function websiteRecipeCompilationFromMcpResult(
     objectRecord(envelope?.structuredContent) ??
     parsedMcpResultText(envelope) ??
     envelope;
+  if (compilation?.status === 'rejected') {
+    const code =
+      typeof compilation.code === 'string'
+        ? compilation.code
+        : 'RECIPE_SCHEMA_INVALID';
+    const message =
+      typeof compilation.message === 'string'
+        ? compilation.message
+        : 'Recipe compilation rejected the candidate.';
+    throw new Error(`${code}: ${message}`);
+  }
   if (
     compilation?.status !== 'compiled' ||
     !objectRecord(compilation.binding) ||

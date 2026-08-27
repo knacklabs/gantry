@@ -137,9 +137,10 @@ describe('caller-resolved tool run correlation', () => {
         1,
         'needs_review_dsl_capability_gap',
       ),
-    ).toEqual({
-      decision: 'accept',
+    ).toMatchObject({
+      decision: 'continue',
       progressToken: 'checkpoint:1:needs_review',
+      message: expect.stringContaining('does not prove a DSL capability gap'),
     });
     expect(
       websiteRecipeCompletionDecision(

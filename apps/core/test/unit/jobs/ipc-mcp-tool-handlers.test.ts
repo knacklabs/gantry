@@ -236,6 +236,17 @@ describe('external capability MCP task', () => {
     expect(() =>
       websiteRecipeCompilationFromMcpResult({ content: [] }),
     ).toThrow('no canonical compiled payload');
+    expect(() =>
+      websiteRecipeCompilationFromMcpResult({
+        structuredContent: {
+          status: 'rejected',
+          code: 'RECIPE_SCHEMA_INVALID',
+          message: 'Unsupported field(s) at site: siteId',
+        },
+      }),
+    ).toThrow(
+      'RECIPE_SCHEMA_INVALID: Unsupported field(s) at site: siteId',
+    );
   });
 
   it('executes recipe compilation synchronously without scheduling an external task', async () => {

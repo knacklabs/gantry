@@ -24,7 +24,6 @@ const WEBSITE_RECIPE_COMPLETION_GATE = 'validate_website_recipe_completion';
 const WEBSITE_RECIPE_HUMAN_TIMEOUT_MS = 30 * 60_000;
 const REQUIRED_AUTOMATIC_CAPTCHA_ATTEMPTS = 4;
 const TERMINAL_WEBSITE_RECIPE_REVIEW_SAFE_PHASES = new Set([
-  'needs_review_dsl_capability_gap',
   'needs_review_authentication_required',
   'needs_review_policy_blocked',
   'needs_review_administrator_decision_required',
@@ -405,6 +404,17 @@ export function websiteRecipeCompletionDecision(
   | { decision: 'accept'; progressToken: string }
   | { decision: 'continue'; progressToken: string; message: string } {
   const progressToken = `checkpoint:${sequence ?? 0}:${milestone ?? 'none'}`;
+  if (
+    milestone === 'needs_review' &&
+    safePhase === 'needs_review_dsl_capability_gap'
+  ) {
+    return {
+      decision: 'continue',
+      progressToken,
+      message:
+        'A compiler schema rejection proves only that the candidate shape is invalid; it does not prove a DSL capability gap. Repair the candidate from the typed recipe_compile diagnostic and continue. If no supported candidate can be produced before the cumulative runtime expires, checkpoint needs_review_runtime_exhausted with the retained evidence and exact compiler diagnostics.',
+    };
+  }
   if (
     milestone === 'needs_review' &&
     safePhase === 'human_interaction_retry_required'
