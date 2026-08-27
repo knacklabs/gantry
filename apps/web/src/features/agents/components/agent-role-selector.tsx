@@ -10,11 +10,13 @@ export function AgentRoleSelector({
   value,
   onChange,
   onCreateCustom,
+  currentRoleId,
   error,
 }: {
   value?: BrowserRole;
   onChange: (role: BrowserRole) => void;
   onCreateCustom: () => void;
+  currentRoleId?: string | null;
   error?: string;
 }) {
   const [search, setSearch] = useState('');
@@ -78,12 +80,14 @@ export function AgentRoleSelector({
               label="Built-in roles"
               roles={builtInMatches}
               value={value}
+              currentRoleId={currentRoleId}
               onChange={onChange}
             />
             <RoleGroup
               label="Custom roles"
               roles={customRoles.data?.data ?? []}
               value={value}
+              currentRoleId={currentRoleId}
               onChange={onChange}
             />
             {builtIns.isLoading || customRoles.isLoading ? (
@@ -163,11 +167,13 @@ function RoleGroup({
   label,
   roles,
   value,
+  currentRoleId,
   onChange,
 }: {
   label: string;
   roles: BrowserRole[];
   value?: BrowserRole;
+  currentRoleId?: string | null;
   onChange: (role: BrowserRole) => void;
 }) {
   if (!roles.length) return null;
@@ -192,14 +198,21 @@ function RoleGroup({
                 : 'Custom prompt template'}
             </span>
           </span>
-          <span
-            className={
-              role.kind === 'built-in'
-                ? 'rounded-full border border-border bg-surface px-2 py-1 text-[10px] font-semibold text-text-secondary'
-                : 'rounded-full border border-status-attention/40 bg-status-attention-soft px-2 py-1 text-[10px] font-semibold text-status-attention'
-            }
-          >
-            {role.kind === 'built-in' ? 'Built-in' : 'Custom'}
+          <span className="flex shrink-0 items-center gap-1.5">
+            {role.id === currentRoleId ? (
+              <span className="rounded-full border border-status-success/40 bg-status-success-soft px-2 py-1 text-[10px] font-semibold text-status-success">
+                Current
+              </span>
+            ) : null}
+            <span
+              className={
+                role.kind === 'built-in'
+                  ? 'rounded-full border border-border bg-surface px-2 py-1 text-[10px] font-semibold text-text-secondary'
+                  : 'rounded-full border border-status-attention/40 bg-status-attention-soft px-2 py-1 text-[10px] font-semibold text-status-attention'
+              }
+            >
+              {role.kind === 'built-in' ? 'Built-in' : 'Custom'}
+            </span>
           </span>
         </button>
       ))}

@@ -84,6 +84,7 @@ async function agentView(
     id: agent.id,
     name: agent.name,
     status: agent.status,
+    roleId: config?.roleSnapshot?.sourceRoleId ?? null,
     roleName: config?.roleSnapshot?.displayName ?? null,
     rolePrompt: config?.roleSnapshot?.prompt ?? null,
     configVersion: config?.version ?? null,

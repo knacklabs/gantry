@@ -13,7 +13,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
 import {
   browserCsrfHeader,
@@ -398,6 +398,15 @@ function RoleAssignmentDialog({
   const [selectedRole, setSelectedRole] = useState<BrowserRole>();
   const [roleEditor, setRoleEditor] = useState<RoleEditorTarget>();
   const hasRole = Boolean(agent.roleName && agent.rolePrompt);
+  useEffect(() => {
+    if (!open || !agent.roleId || !agent.roleName || !agent.rolePrompt) return;
+    setSelectedRole({
+      id: agent.roleId,
+      name: agent.roleName,
+      prompt: agent.rolePrompt,
+      kind: agent.roleId.startsWith('built-in:') ? 'built-in' : 'custom',
+    });
+  }, [agent.roleId, agent.roleName, agent.rolePrompt, open]);
   const saveRole = useMutation({
     mutationFn: async () => {
       if (!selectedRole) throw new Error('Select a role.');
@@ -455,6 +464,7 @@ function RoleAssignmentDialog({
         </header>
         <div className="min-h-0 overflow-y-auto p-5">
           <AgentRoleSelector
+            currentRoleId={agent.roleId}
             error={saveRole.isError ? saveRole.error.message : undefined}
             value={selectedRole}
             onChange={setSelectedRole}
@@ -493,9 +503,7 @@ function RoleAssignmentDialog({
 }
 
 function Access({ agent }: { agent: AgentDirectoryItem }) {
-  const [editing, setEditing] = useState<'sources' | 'capabilities' | null>(
-    null,
-  );
+  const [editor, setEditor] = useState<'sources' | 'capabilities' | null>(null);
   const sources = useQuery(agentSourcesQuery(agent.id));
   const capabilities = useQuery(agentCapabilitiesQuery(agent.id));
   const sourceItems = sources.data?.sources.sources;
@@ -517,17 +525,10 @@ function Access({ agent }: { agent: AgentDirectoryItem }) {
           className="mt-4"
           disabled={agent.status !== 'active'}
           variant="secondary"
-          onClick={() => setEditing(editing === 'sources' ? null : 'sources')}
+          onClick={() => setEditor('sources')}
         >
-          {editing === 'sources' ? 'Done editing sources' : 'Edit sources'}
+          Edit sources
         </Button>
-        {editing === 'sources' ? (
-          <AgentSetupManager
-            agentId={agent.id}
-            kind="sources"
-            onSaved={() => setEditing(null)}
-          />
-        ) : null}
       </InfoCard>
       <InfoCard
         title="Capabilities"
@@ -541,23 +542,91 @@ function Access({ agent }: { agent: AgentDirectoryItem }) {
           className="mt-4"
           disabled={agent.status !== 'active'}
           variant="secondary"
-          onClick={() =>
-            setEditing(editing === 'capabilities' ? null : 'capabilities')
-          }
+          onClick={() => setEditor('capabilities')}
         >
-          {editing === 'capabilities'
-            ? 'Done editing capabilities'
-            : 'Edit capabilities'}
+          Edit capabilities
         </Button>
-        {editing === 'capabilities' ? (
-          <AgentSetupManager
-            agentId={agent.id}
-            kind="capabilities"
-            onSaved={() => setEditing(null)}
-          />
-        ) : null}
       </InfoCard>
+      <AgentAccessEditorDialog
+        agent={agent}
+        kind={editor}
+        onOpenChange={(open) => !open && setEditor(null)}
+        onSaved={async () => {
+          await Promise.all([sources.refetch(), capabilities.refetch()]);
+          setEditor(null);
+        }}
+      />
     </div>
+  );
+}
+
+function AgentAccessEditorDialog({
+  agent,
+  kind,
+  onOpenChange,
+  onSaved,
+}: {
+  agent: AgentDirectoryItem;
+  kind: 'sources' | 'capabilities' | null;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const isSources = kind === 'sources';
+  const formId = kind ? `agent-${kind}-edit-form` : undefined;
+  const title = isSources ? 'Connect existing sources' : 'Allow capabilities';
+  const description = isSources
+    ? 'Optional · select reviewed skills and MCP servers. Sources expose inventory; they do not grant actions.'
+    : 'Optional · choose durable actions for this agent. Risky use may still ask for approval.';
+  return (
+    <Dialog open={kind !== null} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="grid h-[calc(100dvh-46px)] max-h-[900px] w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-none"
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div className="grid gap-1">
+            <DialogTitle className="text-lg font-semibold">{title}</DialogTitle>
+            <DialogDescription className="text-xs text-text-secondary">
+              {description}
+            </DialogDescription>
+          </div>
+          <DialogClose asChild>
+            <Button aria-label="Close access editor" size="icon-sm" variant="ghost">
+              <X size={16} aria-hidden="true" />
+            </Button>
+          </DialogClose>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-5">
+          {kind ? (
+            <AgentSetupManager
+              agentId={agent.id}
+              formId={formId}
+              kind={kind}
+              onSaved={() => void onSaved()}
+              onSavingChange={setSaving}
+            />
+          ) : null}
+        </div>
+        <footer className="flex items-center justify-between gap-3 border-t border-border bg-surface-muted px-5 py-3">
+          <p className="m-0 text-xs text-text-secondary">
+            {isSources
+              ? 'Sources become available on the next run.'
+              : 'Saved capabilities are durable agent authority.'}
+          </p>
+          <div className="flex items-center gap-3">
+            <DialogClose asChild>
+              <Button disabled={saving} variant="secondary">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button disabled={saving} form={formId} type="submit">
+              {saving ? 'Saving…' : `Save ${isSources ? 'sources' : 'capabilities'}`}
+            </Button>
+          </div>
+        </footer>
+      </DialogContent>
+    </Dialog>
   );
 }
 

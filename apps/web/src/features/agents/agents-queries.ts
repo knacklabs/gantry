@@ -11,6 +11,7 @@ export type AgentDirectoryItem = {
   id: string;
   name: string;
   status: 'active' | 'disabled';
+  roleId: string | null;
   roleName: string | null;
   rolePrompt: string | null;
   configVersion: number | null;

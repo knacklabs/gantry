@@ -106,8 +106,21 @@ export function AgentSetupManager({
       });
       if (!response.ok) throw new Error(`Agent ${kind} could not be saved.`);
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: agentQueryKeys.all });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.refetchQueries({
+          queryKey: agentSourcesQuery(agentId).queryKey,
+          type: 'active',
+        }),
+        queryClient.refetchQueries({
+          queryKey: agentCapabilitiesQuery(agentId).queryKey,
+          type: 'active',
+        }),
+        queryClient.invalidateQueries({
+          queryKey: agentQueryKeys.all,
+          refetchType: 'active',
+        }),
+      ]);
       onSaved?.();
     },
   });
