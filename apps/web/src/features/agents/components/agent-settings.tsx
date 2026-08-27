@@ -8,10 +8,19 @@ import {
 import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../ui/primitives/select';
+import {
   agentModelsQuery,
   agentQueryKeys,
   type AgentDirectoryItem,
 } from '../agents-queries';
+
+const DEPLOYMENT_DEFAULT_MODEL = '__deployment_default__';
 
 export function AgentSettings({
   agent,
@@ -72,18 +81,29 @@ export function AgentSettings({
           />
           <label className="grid gap-1.5 text-xs font-semibold text-text">
             Model
-            <select
-              className="h-9 rounded-md border border-border-strong bg-surface px-3 text-[13px] text-text"
-              value={modelAlias ?? ''}
-              onChange={(event) => setModelAlias(event.target.value || null)}
+            <Select
+              value={modelAlias ?? DEPLOYMENT_DEFAULT_MODEL}
+              onValueChange={(value) =>
+                setModelAlias(value === DEPLOYMENT_DEFAULT_MODEL ? null : value)
+              }
             >
-              <option value="">Use deployment default</option>
-              {(models.data?.models ?? []).map((model) => (
-                <option key={model.alias} value={model.alias}>
-                  {model.displayName} ({model.providerLabel})
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                aria-label="Model"
+                className="h-9 w-full rounded-md border-border-strong bg-surface px-3 text-[13px] text-text"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                <SelectItem value={DEPLOYMENT_DEFAULT_MODEL}>
+                  Use deployment default
+                </SelectItem>
+                {(models.data?.models ?? []).map((model) => (
+                  <SelectItem key={model.alias} value={model.alias}>
+                    {model.displayName} ({model.providerLabel})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
           <div>
             <Button
