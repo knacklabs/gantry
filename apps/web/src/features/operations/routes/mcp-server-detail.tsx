@@ -1,12 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useRef, useState } from 'react';
+import { Link } from '@tanstack/react-router';
+import { useRef, useState } from 'react';
 
 import {
   browserCsrfHeader,
   browserFetch,
 } from '../../../lib/auth/browser-auth';
 import { Panel } from '../../../ui/compositions/panel';
-import { SelectField } from '../../../ui/compositions/select-field';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -16,39 +16,29 @@ import {
   AlertDialogTitle,
 } from '../../../ui/primitives/alert-dialog';
 import { Button } from '../../../ui/primitives/button';
-import { Input } from '../../../ui/primitives/input';
-import { Textarea } from '../../../ui/primitives/textarea';
-import {
-  mcpServerQuery,
-  type McpInventory,
-  type McpServer,
-} from '../operations-queries';
-
-const splitLines = (value: string) =>
-  value
-    .split(/[\n,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+import { mcpServerQuery, type McpServer } from '../operations-queries';
+import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
+import { McpAgentAttachmentsDialog } from './mcp-agent-attachments-dialog';
 
 type BrowserResponse = { error?: { message?: string }; message?: string };
 
 export function McpServerDetail({
   canManage,
-  inventory,
   onReplace,
   onStatusChanged,
   server,
 }: {
   canManage: boolean;
-  inventory: McpInventory;
   onReplace: () => void;
   onStatusChanged: (server: McpServer, message: string) => void;
   server: McpServer;
 }) {
   const client = useQueryClient();
-  const [agentId, setAgentId] = useState('');
-  const [patterns, setPatterns] = useState('');
-  const [required, setRequired] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [detachTarget, setDetachTarget] = useState<{
+    id: string;
+    name: string;
+  }>();
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [disableOpen, setDisableOpen] = useState(false);
@@ -60,7 +50,10 @@ export function McpServerDetail({
   const reconnectTriggerRef = useRef<HTMLButtonElement>(null);
   const reconnectCancelRef = useRef<HTMLButtonElement>(null);
   const refresh = () =>
-    client.invalidateQueries({ queryKey: mcpServerQuery.queryKey });
+    Promise.all([
+      client.invalidateQueries({ queryKey: mcpServerQuery.queryKey }),
+      client.invalidateQueries({ queryKey: navigationSummaryQuery.queryKey }),
+    ]);
   async function request(
     path: string,
     method: string,
@@ -145,34 +138,16 @@ export function McpServerDetail({
       setReconnecting(false);
     }
   }
-  async function bind(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!agentId) return;
-    const result = await request(
-      `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/agents/${encodeURIComponent(agentId)}`,
-      'PUT',
-      { required, allowedToolPatterns: splitLines(patterns) },
-    );
-    if (result !== false) {
-      setNotice('Agent binding saved.');
-      setPatterns('');
-    }
-  }
   async function detach(id: string) {
     const result = await request(
       `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/agents/${encodeURIComponent(id)}`,
       'DELETE',
     );
     if (result !== false) {
-      setAgentId('');
-      setPatterns('');
-      setRequired(false);
-      setNotice('Agent detached.');
+      setDetachTarget(undefined);
+      setNotice('MCP source detached.');
     }
   }
-  const unboundAgents = inventory.agents.filter(
-    (agent) => !server.bindings.some((binding) => binding.agentId === agent.id),
-  );
   return (
     <div className="grid gap-4">
       <Panel
@@ -346,11 +321,18 @@ export function McpServerDetail({
       </AlertDialog>
       <Panel
         title="Attached agents"
-        description="Bindings narrow source visibility; they never grant tool execution authority."
+        description="Connected sources make MCP tools visible. They do not grant authority to act."
+        action={
+          canManage && server.status === 'active' ? (
+            <Button onClick={() => setAttachOpen(true)} size="sm">
+              Attach agents
+            </Button>
+          ) : null
+        }
       >
-        <div className="grid divide-y divide-border">
-          <ul className="m-0 grid list-none p-0">
-            {server.bindings.map(({ agentId: id, name, binding }) => (
+        <div className="grid">
+          <ul className="m-0 grid max-h-64 list-none divide-y divide-border overflow-y-auto p-0">
+            {server.bindings.map(({ agentId: id, name }) => (
               <li
                 className="flex items-center justify-between gap-3 p-4"
                 key={id}
@@ -358,71 +340,80 @@ export function McpServerDetail({
                 <div>
                   <p className="m-0 font-medium">{name}</p>
                   <p className="m-0 text-xs text-text-secondary">
-                    {binding.required ? 'Required at startup' : 'Optional'} ·{' '}
-                    {binding.allowedToolPatterns.join(', ') ||
-                      'Inherits source scope'}
+                    Source attached
                   </p>
                 </div>
-                {canManage ? (
-                  <Button
-                    onClick={() => void detach(id)}
-                    size="sm"
-                    variant="ghost"
+                <div className="flex items-center gap-2">
+                  <Link
+                    className="text-xs font-medium text-text underline-offset-4 hover:underline"
+                    params={{ agentId: id }}
+                    search={{ tab: 'access' }}
+                    to="/agents/$agentId"
                   >
-                    Detach
-                  </Button>
-                ) : null}
+                    Open agent
+                  </Link>
+                  {canManage ? (
+                    <Button
+                      onClick={() => setDetachTarget({ id, name })}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      Detach
+                    </Button>
+                  ) : null}
+                </div>
               </li>
             ))}
             {server.bindings.length === 0 ? (
               <li className="p-4 text-sm text-text-secondary">
-                No agents are attached.
+                No agents are attached to this MCP server.
               </li>
             ) : null}
           </ul>
-          {canManage && server.status === 'active' && unboundAgents.length ? (
-            <form
-              className="grid gap-3 border-t border-border p-4"
-              onSubmit={bind}
-            >
-              <SelectField
-                label="Attach agent"
-                value={agentId}
-                onValueChange={setAgentId}
-                options={[
-                  { value: '', label: 'Choose an agent' },
-                  ...unboundAgents.map((agent) => ({
-                    value: agent.id,
-                    label: agent.name,
-                  })),
-                ]}
-              />
-              <label className="grid gap-1.5 text-xs font-semibold">
-                Narrow allowed tool names (optional)
-                <Textarea
-                  value={patterns}
-                  onChange={(event) => setPatterns(event.target.value)}
-                  placeholder="read_*"
-                />
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <Input
-                  checked={required}
-                  className="size-4"
-                  onChange={(event) => setRequired(event.target.checked)}
-                  type="checkbox"
-                />
-                Required at startup
-              </label>
-              <div>
-                <Button disabled={!agentId} size="sm" type="submit">
-                  Attach agent
-                </Button>
-              </div>
-            </form>
-          ) : null}
         </div>
       </Panel>
+      <McpAgentAttachmentsDialog
+        open={attachOpen}
+        onOpenChange={setAttachOpen}
+        serverId={server.id}
+        onAttached={async (count) => {
+          await refresh();
+          setNotice(
+            `MCP source attached to ${count} agent${count === 1 ? '' : 's'}. It becomes available on each agent’s next run.`,
+          );
+        }}
+      />
+      <AlertDialog
+        onOpenChange={(open) => !open && setDetachTarget(undefined)}
+        open={Boolean(detachTarget)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Detach {server.displayName ?? server.name} from{' '}
+              {detachTarget?.name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the source from future runs. Existing capability
+              policy is unchanged.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              onClick={() => setDetachTarget(undefined)}
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => detachTarget && void detach(detachTarget.id)}
+              variant="destructive"
+            >
+              Detach source
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -48,11 +48,13 @@ import {
 import { resolveSpawnModel } from './agent-spawn-model-resolution.js';
 import {
   compileSpawnSystemPrompt,
+  resolveCurrentAgentRoleSnapshot,
   resolveSpawnPromptAccessPreset,
 } from './agent-spawn-prompt.js';
 import {
   getConfiguredModelProvidersForApp,
   getRuntimeFileArtifactStore,
+  getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { inlineCoreToolsMountMcpInventory } from './core-tools/registry.js';
 
@@ -185,6 +187,11 @@ export async function prepareInlineAgentHostContext(
           modelId: resolvedModel.value.runnerModel,
           provider: resolvedModel.value.modelEntry.modelRoute.label,
         },
+        resolveRoleSnapshot: (agentId) =>
+          resolveCurrentAgentRoleSnapshot(
+            agentId,
+            getRuntimeStorage().repositories,
+          ),
         fileArtifactStore: () => getRuntimeFileArtifactStore(),
         measureAsync: async (_name, fn) => fn(),
       })

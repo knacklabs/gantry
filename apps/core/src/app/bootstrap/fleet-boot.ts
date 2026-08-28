@@ -99,6 +99,41 @@ export function createControlAgentSettingsPort(
         settings,
       );
     },
+    writeAgentModelSetting: async (input) => {
+      const storage = getRuntimeStorage();
+      const settings = loadRuntimeSettings(input.runtimeHome);
+      const previousSettings = structuredClone(settings);
+      const existing = settings.agents[input.folder];
+      settings.agents[input.folder] = {
+        ...existing,
+        name: input.name,
+        folder: input.folder,
+        bindings: existing?.bindings ?? {},
+        sources: existing?.sources ?? { skills: [], mcpServers: [], tools: [] },
+        capabilities: existing?.capabilities ?? [],
+        accessPreset: existing?.accessPreset ?? 'full',
+        ...(input.modelAlias
+          ? { model: input.modelAlias }
+          : { model: undefined }),
+      };
+      await importWorkstationSettings(
+        {
+          runtimeHome: input.runtimeHome,
+          ops: storage.ops,
+          repositories: storage.repositories,
+          appId: input.appId,
+          previousSettings,
+          revisionMirror: {
+            settingsRevisions: storage.repositories.settingsRevisions,
+            pool: storage.service.pool,
+            createdBy: 'control-api:agent-model',
+          },
+          revisionMirrorRequired: true,
+          leases,
+        },
+        settings,
+      );
+    },
   };
 }
 

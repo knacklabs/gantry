@@ -3,6 +3,34 @@ import { describe, expect, it, vi } from 'vitest';
 import { PostgresAgentRepository } from '@core/adapters/storage/postgres/repositories/agent-repository.postgres.js';
 import { assertExpectedMcpBindingsUnchanged } from '@core/adapters/storage/postgres/repositories/mcp-binding-authority-fence.postgres.js';
 
+describe('PostgresAgentRepository config pointer', () => {
+  it('preserves the existing config version when a projection save has none', async () => {
+    const onConflictDoUpdate = vi.fn();
+    const values = vi.fn(() => ({ onConflictDoUpdate }));
+    const db = { insert: vi.fn(() => ({ values })) };
+    const repository = new PostgresAgentRepository(db as never);
+
+    await repository.saveAgent({
+      id: 'agent:test' as never,
+      appId: 'app:test' as never,
+      name: 'Test',
+      status: 'active',
+      createdAt: '2026-08-27T00:00:00.000Z' as never,
+      updatedAt: '2026-08-27T00:00:00.000Z' as never,
+    });
+
+    expect(onConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        set: expect.objectContaining({
+          currentConfigVersionId: expect.objectContaining({
+            queryChunks: expect.any(Array),
+          }),
+        }),
+      }),
+    );
+  });
+});
+
 describe('PostgresAgentRepository MCP binding fence', () => {
   it('matches semantic authority without depending on Postgres timestamp text', async () => {
     let selectCall = 0;

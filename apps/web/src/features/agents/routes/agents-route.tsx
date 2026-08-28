@@ -1,191 +1,305 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import type { ColumnDef } from '@tanstack/react-table';
-import { Bot, Plus } from 'lucide-react';
-import { type FormEvent, useMemo } from 'react';
+import { Bot, ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 
-import { useConnectionGate } from '../../../ui/compositions/connection-gate';
-import { DataTable } from '../../../ui/compositions/data-table';
 import { PageHeader } from '../../../ui/compositions/page-header';
+import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
+import { RouteTabs } from '../../../ui/compositions/route-tabs';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
-import { SelectField } from '../../../ui/compositions/select-field';
-import { TextField } from '../../../ui/compositions/text-field';
 import { Button } from '../../../ui/primitives/button';
-import type { AgentPreview } from '../agents-preview';
-import { agentPreviewQuery } from '../agents-queries';
+import {
+  agentDirectoryQuery,
+  roleDirectoryQuery,
+  type AgentDirectoryItem,
+} from '../agents-queries';
+import { AgentDirectoryTable } from '../components/agent-directory-table';
+import { AgentsDirectoryToolbar } from '../components/agents-directory-toolbar';
+import { RolesLibrary } from '../components/roles-library';
+import { AgentCreateDialog } from './agent-create-route';
 
 export function AgentsRoute() {
   const search = useSearch({ from: '/agents' });
   const navigate = useNavigate({ from: '/agents' });
-  const { data } = useQuery(agentPreviewQuery);
-  const { requestConnection } = useConnectionGate();
-  const query = search.q.toLowerCase();
-  const visible = data.filter(
-    (agent) =>
-      (search.status === 'all' || agent.status === search.status) &&
-      (search.model === 'all' || agent.modelAlias === search.model) &&
-      (!query ||
-        `${agent.name} ${agent.description}`.toLowerCase().includes(query)),
+  const [createOpen, setCreateOpen] = useState(false);
+  const roles = useQuery(
+    roleDirectoryQuery({ page: 1, pageSize: 25, search: '' }),
   );
-
-  function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    void navigate({
-      search: { ...search, q: String(form.get('q') ?? ''), page: 1 },
-    });
-  }
-
-  const columns = useMemo<ColumnDef<AgentPreview>[]>(
-    () => [
-      {
-        accessorKey: 'name',
-        header: 'Agent',
-        cell: ({ row }) => (
-          <Link
-            className="grid min-h-9 content-center text-text no-underline hover:underline"
-            params={{ agentId: row.original.id }}
-            search={{ tab: 'identity' }}
-            to="/agents/$agentId"
-          >
-            <span className="font-semibold">{row.original.name}</span>
-            <span className="max-w-[280px] truncate text-xs font-normal text-text-muted">
-              {row.original.description}
-            </span>
-          </Link>
-        ),
-      },
-      {
-        accessorKey: 'status',
-        header: 'Status',
-        cell: ({ getValue }) => <StatusBadge status={String(getValue())} />,
-      },
-      {
-        accessorKey: 'modelAlias',
-        header: 'Model',
-        cell: ({ row }) => (
-          <span>
-            <span className="block font-medium text-text">
-              {row.original.modelAlias}
-            </span>
-            <span className="font-mono text-[10px] text-text-muted">
-              {row.original.agentHarness}
-            </span>
-          </span>
-        ),
-      },
-      {
-        accessorKey: 'conversations',
-        header: 'Assignments',
-        enableSorting: false,
-        cell: ({ row }) => `${row.original.conversations.length} conversations`,
-      },
-      { accessorKey: 'lastRun', header: 'Last run' },
-    ],
-    [],
+  const builtInRoles = useQuery(
+    roleDirectoryQuery({ page: 1, pageSize: 25, search: '', kind: 'built-in' }),
+  );
+  const customRoles = useQuery(
+    roleDirectoryQuery({
+      page: search.page,
+      pageSize: search.pageSize,
+      search: search.q,
+      kind: 'custom',
+    }),
+  );
+  const directory = useQuery(
+    agentDirectoryQuery({
+      page: search.page,
+      pageSize: search.pageSize,
+      search: search.q,
+      status: search.status,
+      role: search.role,
+      sort: search.sort,
+      direction: search.desc ? 'desc' : 'asc',
+    }),
+  );
+  const hasFilters = Boolean(
+    search.q || search.status !== 'all' || search.role !== 'all',
   );
 
   return (
-    <div className="mx-auto grid w-full max-w-[1240px] gap-6">
+    <div className="mx-auto w-full max-w-[1240px]">
       <PageHeader
         eyebrow="Administration"
         title="Agents"
-        description="Identity, model defaults, attached sources, and conversation installations."
+        description="Reusable identities, instructions, models, and access for work Gantry runs."
         action={
-          <Button onClick={() => requestConnection('Create agent')}>
+          <Button onClick={() => setCreateOpen(true)}>
             <Plus size={16} aria-hidden="true" />
-            Create agent
+            New agent
           </Button>
         }
       />
+      <div className="mt-5">
+        <RouteTabs
+          label="Agents administration"
+          tabs={[
+            { value: 'agents', label: 'Agents' },
+            { value: 'roles', label: 'Roles' },
+          ]}
+          value={search.tab}
+          onValueChange={(tab) =>
+            void navigate({ search: { ...search, tab, page: 1 } })
+          }
+        />
+      </div>
 
-      <form
-        className="grid items-end gap-3 md:grid-cols-[minmax(0,1fr)_170px_150px_auto]"
-        onSubmit={submitSearch}
-      >
-        <TextField
-          defaultValue={search.q}
-          id="agent-search"
-          label="Search agents"
-          name="q"
-          placeholder="Name or purpose"
-        />
-        <FilterSelect
-          label="Status"
-          value={search.status}
-          options={['all', 'deployed', 'draft', 'paused', 'blocked']}
-          onChange={(status) =>
-            void navigate({ search: { ...search, status, page: 1 } })
-          }
-        />
-        <FilterSelect
-          label="Model"
-          value={search.model}
-          options={['all', 'sonnet', 'opus', 'gpt-5']}
-          onChange={(model) =>
-            void navigate({ search: { ...search, model, page: 1 } })
-          }
-        />
-        <Button variant="secondary" type="submit">
-          Search
-        </Button>
-      </form>
-
-      <Panel
-        title="Agent directory"
-        description={`${visible.length} of ${data.length} agents shown`}
-        action={<Bot size={16} aria-hidden="true" />}
-      >
-        <DataTable
-          columns={columns}
-          data={visible}
-          emptyMessage="No agents match these filters."
-          page={search.page}
-          sort={search.sort}
-          descending={search.desc}
-          onPageChange={(page) =>
-            void navigate({ search: { ...search, page } })
-          }
-          onSortChange={(sort, desc) =>
-            void navigate({
-              search: {
-                ...search,
-                sort: sort as typeof search.sort,
-                desc,
-                page: 1,
-              },
-            })
-          }
-        />
-      </Panel>
+      <div className="mt-[18px] grid gap-[14px]">
+        {search.tab === 'roles' ? (
+          <>
+            <RolesLibrary
+              builtIns={builtInRoles.data}
+              data={customRoles.data}
+              error={builtInRoles.isError || customRoles.isError}
+              loading={builtInRoles.isLoading || customRoles.isLoading}
+              search={search.q}
+              onSearchChange={(q) =>
+                void navigate({ search: { ...search, q, page: 1 } })
+              }
+              onPageChange={(page) =>
+                void navigate({ search: { ...search, page } })
+              }
+              onPageSizeChange={(pageSize) =>
+                void navigate({
+                  search: {
+                    ...search,
+                    page: 1,
+                    pageSize: pageSize as typeof search.pageSize,
+                  },
+                })
+              }
+              onRetry={() => {
+                void builtInRoles.refetch();
+                void customRoles.refetch();
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <AgentsDirectoryToolbar
+              roleOptions={roles.data?.data ?? []}
+              search={search}
+              onChange={(next) =>
+                void navigate({ search: { ...search, ...next } })
+              }
+            />
+            {hasFilters ? (
+              <div>
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    void navigate({
+                      search: {
+                        ...search,
+                        q: '',
+                        status: 'all',
+                        role: 'all',
+                        page: 1,
+                      },
+                    })
+                  }
+                >
+                  Clear filters
+                </Button>
+              </div>
+            ) : null}
+            {directory.isLoading && !directory.data ? (
+              <PageState
+                description="Loading the agent directory."
+                icon={<Bot size={18} aria-hidden="true" />}
+                kind="loading"
+                title="Loading agents"
+              />
+            ) : directory.isError ? (
+              <PageState
+                action={
+                  <Button onClick={() => void directory.refetch()}>
+                    <RefreshCw size={15} aria-hidden="true" />
+                    Retry
+                  </Button>
+                }
+                description="Your filters were kept. Try loading this directory again."
+                icon={<Bot size={18} aria-hidden="true" />}
+                kind="error"
+                title="Agents could not be loaded"
+              />
+            ) : (
+              <>
+                <MobileAgentList
+                  agents={directory.data?.data ?? []}
+                  emptyMessage={
+                    hasFilters
+                      ? 'No agents match these filters.'
+                      : 'Create an agent to give Gantry a reusable configuration for work.'
+                  }
+                  page={search.page}
+                  pageCount={
+                    directory.data
+                      ? Math.max(
+                          1,
+                          Math.ceil(
+                            directory.data.total / directory.data.pageSize,
+                          ),
+                        )
+                      : 1
+                  }
+                  total={directory.data?.total ?? 0}
+                  onPageChange={(page) =>
+                    void navigate({ search: { ...search, page } })
+                  }
+                />
+                <AgentDirectoryTable
+                  agents={directory.data?.data ?? []}
+                  emptyMessage={
+                    hasFilters
+                      ? 'No agents match these filters.'
+                      : 'Create an agent to give Gantry a reusable configuration for work.'
+                  }
+                  page={search.page}
+                  pageSize={search.pageSize}
+                  total={directory.data?.total ?? 0}
+                  onPageChange={(page) =>
+                    void navigate({ search: { ...search, page } })
+                  }
+                  onPageSizeChange={(pageSize) =>
+                    void navigate({
+                      search: {
+                        ...search,
+                        pageSize: pageSize as typeof search.pageSize,
+                        page: 1,
+                      },
+                    })
+                  }
+                  onRowClick={(agent) =>
+                    void navigate({
+                      to: '/agents/$agentId',
+                      params: { agentId: agent.id },
+                      search: { tab: 'overview' },
+                    })
+                  }
+                />
+              </>
+            )}
+          </>
+        )}
+      </div>
+      {createOpen ? (
+        <AgentCreateDialog onClose={() => setCreateOpen(false)} />
+      ) : null}
     </div>
   );
 }
 
-function FilterSelect<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
+function MobileAgentList({
+  agents,
+  emptyMessage,
+  page,
+  pageCount,
+  total,
+  onPageChange,
 }: {
-  label: string;
-  value: T;
-  options: readonly T[];
-  onChange: (value: T) => void;
+  agents: AgentDirectoryItem[];
+  emptyMessage: string;
+  page: number;
+  pageCount: number;
+  total: number;
+  onPageChange: (page: number) => void;
 }) {
   return (
-    <SelectField
-      label={label}
-      onValueChange={onChange}
-      options={options.map((value) => ({
-        label:
-          value === 'all'
-            ? `All ${label.toLowerCase()}s`
-            : value.replaceAll('-', ' '),
-        value,
-      }))}
-      value={value}
-    />
+    <Panel
+      className="md:hidden"
+      title="Agent directory"
+      description={`${total} agents`}
+    >
+      <div className="grid max-h-[calc(100vh-25rem)] min-h-56 overflow-y-auto">
+        {agents.length ? (
+          agents.map((agent) => (
+            <Link
+              className="grid gap-1 border-b border-border p-4 text-sm text-text no-underline last:border-0 hover:bg-surface-muted"
+              key={agent.id}
+              params={{ agentId: agent.id }}
+              search={{ tab: 'overview' }}
+              to="/agents/$agentId"
+            >
+              <span className="font-semibold">{agent.name}</span>
+              <span className="flex items-center gap-2 text-xs text-text-secondary">
+                <StatusBadge status={agent.status} />
+                {agent.roleName ?? 'No role selected'}
+              </span>
+              <span className="text-xs text-text-secondary">
+                {agent.conversationCount} connected ·{' '}
+                {agent.modelAlias ?? 'Deployment default'}
+              </span>
+            </Link>
+          ))
+        ) : (
+          <p className="m-0 p-4 text-center text-sm text-text-secondary">
+            {emptyMessage}
+          </p>
+        )}
+      </div>
+      <div className="flex min-h-14 items-center justify-between border-t border-border px-4 text-xs text-text-secondary">
+        <span>
+          Page {page} of {pageCount}
+        </span>
+        <div className="flex gap-1">
+          <Button
+            aria-label="Previous page"
+            disabled={page <= 1}
+            size="icon"
+            title="Previous page"
+            variant="outline"
+            onClick={() => onPageChange(page - 1)}
+          >
+            <ChevronLeft size={16} aria-hidden="true" />
+          </Button>
+          <Button
+            aria-label="Next page"
+            disabled={page >= pageCount}
+            size="icon"
+            title="Next page"
+            variant="outline"
+            onClick={() => onPageChange(page + 1)}
+          >
+            <ChevronRight size={16} aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
+    </Panel>
   );
 }

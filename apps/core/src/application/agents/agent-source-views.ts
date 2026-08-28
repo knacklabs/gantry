@@ -1,11 +1,13 @@
 import type { SkillCatalogRepository } from '../../domain/ports/repositories.js';
 import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
 import type { AgentSkillBinding } from '../../domain/skills/skills.js';
+import { isSkillMaterializableLocally } from '../../domain/skills/skills.js';
 import type { AgentToolSource } from '../../domain/tools/tools.js';
 
 export interface ReadableSkillSource {
   name?: string;
   id: string;
+  status?: 'installed';
 }
 
 export interface ReadableToolSource {
@@ -24,12 +26,11 @@ export async function readableSkillSources(input: {
   const skills = await Promise.all(
     activeBindings.map((binding) => input.repository.getSkill(binding.skillId)),
   );
-  return activeBindings.map((binding, index) => {
+  return activeBindings.flatMap((binding, index) => {
     const skill = skills[index];
-    return {
-      ...(skill ? { name: skill.name } : {}),
-      id: String(binding.skillId),
-    };
+    return skill && isSkillMaterializableLocally(skill)
+      ? [{ name: skill.name, id: String(binding.skillId), status: 'installed' }]
+      : [];
   });
 }
 
@@ -49,7 +50,12 @@ export function readableToolSources(
 
 export interface AgentSourcesProjection {
   skills: ReadableSkillSource[];
-  mcpServers: Array<{ id: string; tools?: string[] }>;
+  mcpServers: Array<{
+    id: string;
+    name?: string;
+    status?: 'active' | 'disabled';
+    tools?: string[];
+  }>;
   tools: ReadableToolSource[];
 }
 

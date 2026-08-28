@@ -66,6 +66,13 @@ export interface ControlAgentSettingsPort {
     name: string;
     agentHarness: AgentHarness;
   }): Promise<void>;
+  writeAgentModelSetting(input: {
+    runtimeHome: string;
+    appId: AppId;
+    folder: string;
+    name: string;
+    modelAlias: string | null;
+  }): Promise<void>;
 }
 
 export interface ControlSettingsImportPort {

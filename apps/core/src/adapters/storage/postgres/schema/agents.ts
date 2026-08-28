@@ -41,6 +41,31 @@ export const agentsPostgres = pgTable('agents', {
     .defaultNow(),
 });
 
+export const customRolesPostgres = pgTable(
+  'custom_roles',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    prompt: text('prompt').notNull(),
+    sourceRoleId: text('source_role_id'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    appName: unique('custom_roles_app_id_name_unique').on(
+      table.appId,
+      table.name,
+    ),
+  }),
+);
+
 export const agentConfigVersionsPostgres = pgTable(
   'agent_config_versions',
   {
@@ -53,6 +78,11 @@ export const agentConfigVersionsPostgres = pgTable(
       .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
     version: integer('version').notNull(),
     promptProfileRef: text('prompt_profile_ref').notNull(),
+    agentNameSnapshot: text('agent_name_snapshot'),
+    roleDisplayName: text('role_display_name'),
+    rolePrompt: text('role_prompt'),
+    sourceRoleId: text('source_role_id'),
+    modelAliasSnapshot: text('model_alias_snapshot'),
     llmProfileId: text('llm_profile_id')
       .notNull()
       .references(() => llmProfilesPostgres.id),

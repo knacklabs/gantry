@@ -17,6 +17,7 @@ import type {
   LlmProfileId,
 } from '../../../../domain/agent/agent.js';
 import type { App } from '../../../../domain/app/app.js';
+import type { AppId } from '../../../../domain/app/app.js';
 import type {
   ConversationInstall,
   ConversationApprover,
@@ -42,6 +43,7 @@ import type {
 import type {
   AgentConfigRepository,
   AgentRepository,
+  CustomRoleRepository,
   AgentRunRepository,
   AgentSessionDigestRepository,
   AgentSessionRepository,
@@ -99,6 +101,7 @@ import { PostgresSkillCatalogRepository } from './skill-repository.postgres.js';
 import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
 import { PostgresToolCatalogRepository } from './tool-repository.postgres.js';
 import { PostgresAgentRepository } from './agent-repository.postgres.js';
+import { PostgresCustomRoleRepository } from './custom-role-repository.postgres.js';
 import { PostgresOutboundDeliveryRepository } from './outbound-delivery-repository.postgres.js';
 import { PostgresSetupPermissionPromptRepository } from './setup-permission-prompt-repository.postgres.js';
 import type { SetupPermissionPromptRepository } from '../../../../domain/ports/setup-permission-prompts.js';
@@ -148,6 +151,7 @@ export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
   agentConfigs: AgentConfigRepository;
+  customRoles: CustomRoleRepository;
   providerAccounts: ProviderAccountRepository;
   conversations: ConversationRepository;
   messages: MessageRepository;
@@ -414,6 +418,15 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
       agentId: row.agentId,
       version: row.version,
       promptProfileRef: row.promptProfileRef,
+      agentNameSnapshot: row.agentNameSnapshot ?? undefined,
+      roleSnapshot: row.rolePrompt
+        ? {
+            displayName: row.roleDisplayName ?? '',
+            prompt: row.rolePrompt,
+            sourceRoleId: row.sourceRoleId ?? undefined,
+          }
+        : undefined,
+      modelAliasSnapshot: row.modelAliasSnapshot ?? undefined,
       llmProfileId: row.llmProfileId as LlmProfileId,
       toolIds: parseJsonArray(row.toolIdsJson),
       skillIds: parseJsonArray(row.skillIdsJson),
@@ -427,6 +440,28 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
       createdAt: row.createdAt,
     } as AgentConfigVersion;
   }
+  async listConfigVersions(input: {
+    appId: AppId;
+    agentId: AgentConfigVersion['agentId'];
+  }): Promise<AgentConfigVersion[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentConfigVersionsPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentConfigVersionsPostgres.appId, input.appId),
+          eq(pgSchema.agentConfigVersionsPostgres.agentId, input.agentId),
+        ),
+      )
+      .orderBy(desc(pgSchema.agentConfigVersionsPostgres.version));
+    return Promise.all(
+      rows.map((row) =>
+        this.getConfigVersion(row.id as AgentConfigVersion['id']),
+      ),
+    ).then((versions) =>
+      versions.filter((version): version is AgentConfigVersion => !!version),
+    );
+  }
   async saveConfigVersion(version: AgentConfigVersion): Promise<void> {
     await this.db
       .insert(pgSchema.agentConfigVersionsPostgres)
@@ -436,6 +471,11 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
         agentId: version.agentId,
         version: version.version,
         promptProfileRef: version.promptProfileRef,
+        agentNameSnapshot: version.agentNameSnapshot ?? null,
+        roleDisplayName: version.roleSnapshot?.displayName ?? null,
+        rolePrompt: version.roleSnapshot?.prompt ?? null,
+        sourceRoleId: version.roleSnapshot?.sourceRoleId ?? null,
+        modelAliasSnapshot: version.modelAliasSnapshot ?? null,
         llmProfileId: version.llmProfileId,
         toolIdsJson: encodeJson(version.toolIds),
         skillIdsJson: encodeJson(version.skillIds),
@@ -1945,6 +1985,7 @@ export function createPostgresDomainRepositories(
     apps: new PostgresAppRepository(db),
     agents: new PostgresAgentRepository(db),
     agentConfigs: new PostgresAgentConfigRepository(db),
+    customRoles: new PostgresCustomRoleRepository(db),
     providerAccounts: new PostgresProviderAccountRepository(db),
     conversations: new PostgresConversationRepository(db),
     messages: new PostgresMessageRepository(

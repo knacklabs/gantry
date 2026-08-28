@@ -23,10 +23,15 @@ type DataTableProps<TData> = {
   emptyMessage: string;
   page: number;
   pageSize?: number;
+  pageCount?: number;
+  total?: number;
+  isBusy?: boolean;
+  scrollClassName?: string;
   sort?: string;
   descending?: boolean;
   onPageChange: (page: number) => void;
   onSortChange: (column: string, descending: boolean) => void;
+  onRowClick?: (row: TData) => void;
 };
 
 export function DataTable<TData>({
@@ -35,13 +40,19 @@ export function DataTable<TData>({
   emptyMessage,
   page,
   pageSize = 6,
+  pageCount: serverPageCount,
+  total,
+  isBusy = false,
+  scrollClassName,
   sort,
   descending = false,
   onPageChange,
   onSortChange,
+  onRowClick,
 }: DataTableProps<TData>) {
   const sorting: SortingState = sort ? [{ id: sort, desc: descending }] : [];
-  const pageCount = Math.max(1, Math.ceil(data.length / pageSize));
+  const pageCount =
+    serverPageCount ?? Math.max(1, Math.ceil(data.length / pageSize));
   const pageIndex = Math.min(Math.max(0, page - 1), pageCount - 1);
   const table = useReactTable({
     columns,
@@ -63,9 +74,12 @@ export function DataTable<TData>({
 
   return (
     <div className="min-w-0">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[680px] border-collapse text-left text-[13px]">
-          <thead>
+      <div
+        aria-busy={isBusy || undefined}
+        className={`overflow-auto ${scrollClassName ?? ''}`}
+      >
+        <table className="w-full min-w-[680px] border-collapse text-left text-[length:var(--table-font-size)]">
+          <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr
                 className="border-b border-border bg-surface-muted"
@@ -73,7 +87,7 @@ export function DataTable<TData>({
               >
                 {headerGroup.headers.map((header) => (
                   <th
-                    className="h-10 px-4 font-medium text-text-secondary"
+                    className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold text-text-secondary"
                     key={header.id}
                   >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
@@ -103,12 +117,21 @@ export function DataTable<TData>({
             {table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
                 <tr
-                  className="border-b border-border last:border-0 hover:bg-surface-muted"
+                  className={`border-b border-border last:border-0 hover:bg-surface-muted ${onRowClick ? 'cursor-pointer' : ''}`}
                   key={row.id}
+                  onClick={(event) => {
+                    if (
+                      (event.target as HTMLElement).closest(
+                        'a,button,input,select,textarea,[role="checkbox"]',
+                      )
+                    )
+                      return;
+                    onRowClick?.(row.original);
+                  }}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td
-                      className="h-14 px-4 align-middle text-text-secondary"
+                      className="h-[var(--table-row-height)] px-[var(--table-cell-padding-inline)] py-[var(--table-cell-padding-block)] align-middle text-text-secondary"
                       key={cell.id}
                     >
                       {flexRender(
@@ -122,7 +145,7 @@ export function DataTable<TData>({
             ) : (
               <tr>
                 <td
-                  className="h-28 px-4 text-center text-text-secondary"
+                  className="h-28 px-[var(--table-cell-padding-inline)] text-center text-text-secondary"
                   colSpan={columns.length}
                 >
                   {emptyMessage}
@@ -132,15 +155,16 @@ export function DataTable<TData>({
           </tbody>
         </table>
       </div>
-      <div className="flex min-h-14 items-center justify-between border-t border-border px-4 text-xs text-text-secondary">
+      <div className="flex min-h-[var(--table-pager-height)] items-center justify-between border-t border-border px-[var(--table-cell-padding-inline)] text-[length:var(--table-meta-font-size)] text-text-secondary">
         <span>
-          Page {visiblePage} of {pageCount} · {data.length} records
+          Page {visiblePage} of {pageCount} · {total ?? data.length} records
         </span>
         <div className="flex gap-1">
           <Button
             size="icon"
             variant="outline"
             aria-label="Previous page"
+            className="size-[var(--table-control-size)]"
             disabled={visiblePage <= 1}
             title="Previous page"
             onClick={() => onPageChange(visiblePage - 1)}
@@ -151,6 +175,7 @@ export function DataTable<TData>({
             size="icon"
             variant="outline"
             aria-label="Next page"
+            className="size-[var(--table-control-size)]"
             disabled={visiblePage >= pageCount}
             title="Next page"
             onClick={() => onPageChange(visiblePage + 1)}

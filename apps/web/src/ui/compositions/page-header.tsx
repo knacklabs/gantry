@@ -14,7 +14,7 @@ export function PageHeader({
   title: ReactNode;
 }) {
   return (
-    <header className="flex min-w-0 flex-wrap items-end justify-between gap-4">
+    <header className="flex min-w-0 flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
         {eyebrow ? (
           <span className="font-mono text-[10px] font-semibold tracking-[0.08em] text-text-muted uppercase">
@@ -28,7 +28,7 @@ export function PageHeader({
           {title}
         </h1>
         {description ? (
-          <p className="mt-1 mb-0 max-w-3xl text-[13px] text-text-secondary">
+          <p className="mt-[7px] mb-0 max-w-3xl text-[13px] text-text-secondary">
             {description}
           </p>
         ) : null}

@@ -80,7 +80,10 @@ import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-en
 import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
 import { validateAgentPreSpawnAdmission } from './agent-spawn-admission.js';
 import { resolveSpawnModel } from './agent-spawn-model-resolution.js';
-import { compileSpawnSystemPrompt } from './agent-spawn-prompt.js';
+import {
+  compileSpawnSystemPrompt,
+  resolveCurrentAgentRoleSnapshot,
+} from './agent-spawn-prompt.js';
 import {
   cleanupRunnerMcpConfigFile,
   cleanupRunnerTempDir,
@@ -224,6 +227,11 @@ async function spawnAgentWithContext(
       modelId: resolvedModel.value.runnerModel,
       provider: resolvedModel.value.modelEntry.modelRoute.label,
     },
+    resolveRoleSnapshot: (agentId) =>
+      resolveCurrentAgentRoleSnapshot(
+        agentId,
+        getRuntimeStorage().repositories,
+      ),
     fileArtifactStore: () => getRuntimeFileArtifactStore(),
     measureAsync: (name, fn) => hostStartup.measureAsync(name, fn),
   });

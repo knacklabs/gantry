@@ -1,4 +1,5 @@
 import { FileArtifactNotFoundError } from '../../domain/file-artifacts/file-artifact.js';
+import type { AgentRoleSnapshot } from '../../domain/agent/agent.js';
 import { PROMPT_PROFILE_VIRTUAL_SCOPE } from '../../domain/file-artifacts/protected-virtual-path.js';
 import type { FileArtifactStore } from '../../domain/ports/file-artifact-store.js';
 import {
@@ -84,7 +85,7 @@ const LOCKED_RUNTIME_RULES_BLOCK = [
   '- Work only with the tools available in this session; never install dependencies or edit configuration directly.',
 ].join('\n');
 
-function personaPrompt(
+export function builtInRolePrompt(
   persona: AgentPersona,
   accessPreset: PromptAccessPreset,
 ): string {
@@ -299,6 +300,7 @@ export function renderChannelPromptPresentationLine(
 export interface CompilePromptProfileOptions {
   agentFolder: string;
   persona?: AgentPersona;
+  roleSnapshot?: AgentRoleSnapshot;
   appId?: string;
   agentId?: string;
   // Resolved agent access preset (config/profiles). Locked agents receive the
@@ -507,7 +509,8 @@ export class PromptProfileService {
     const personaSection = makeSection(
       'PERSONA',
       PERSONA_SOURCE,
-      personaPrompt(resolveAgentPersona(options.persona), accessPreset),
+      options.roleSnapshot?.prompt ??
+        builtInRolePrompt(resolveAgentPersona(options.persona), accessPreset),
       this.sectionBudgets.PERSONA,
     );
     if (personaSection) sections.push(personaSection);

@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
+  BulkAttachAgentsToMcpServerRequestSchema,
   ConnectMcpServerRequestSchema,
   DisableMcpServerRequestSchema,
   ReconnectMcpServerRequestSchema,
@@ -114,6 +115,74 @@ export async function handleBrowserMcpServerRoutes(
     });
     return true;
   }
+  const eligibleAgents = pathname.match(
+    /^\/ui\/api\/mcp-servers\/([^/]+)\/eligible-agents$/,
+  );
+  if (eligibleAgents && req.method === 'GET') {
+    const session = await activeSession(req, mode);
+    if (!session)
+      return sendBrowserError(res, 401, 'UNAUTHORIZED', 'Sign in is required.');
+    if (!browserRoleAllowsScope(session.role as ConsoleRole, 'mcp:read'))
+      return sendBrowserError(
+        res,
+        403,
+        'FORBIDDEN',
+        'Viewer access is required.',
+      );
+    const appId = appIdFor(session);
+    const storage = getRuntimeStorage();
+    const serverId = decodeURIComponent(eligibleAgents[1]) as McpServerId;
+    const server = await storage.repositories.mcpServers.getServer(serverId);
+    if (!server || server.appId !== appId)
+      return sendBrowserError(res, 404, 'NOT_FOUND', 'MCP server not found.');
+    const search = new URL(req.url ?? '/', 'http://localhost').searchParams;
+    const page = Math.max(
+      1,
+      Number.parseInt(search.get('page') ?? '1', 10) || 1,
+    );
+    const pageSize = Math.min(
+      100,
+      Math.max(1, Number.parseInt(search.get('pageSize') ?? '25', 10) || 25),
+    );
+    const q = search.get('q')?.trim() || undefined;
+    const result = storage.repositories.agents.listAgentsPage
+      ? await storage.repositories.agents.listAgentsPage({
+          appId,
+          page,
+          pageSize,
+          search: q,
+          sort: 'name',
+          direction: 'asc',
+        })
+      : (() => {
+          throw new Error('Paginated agent listing is unavailable.');
+        })();
+    const bindings =
+      await storage.repositories.mcpServers.listAgentBindingsForAgents({
+        appId,
+        agentIds: result.data.map((agent) => agent.id),
+      });
+    const attached = new Set(
+      bindings
+        .filter(
+          (binding) =>
+            binding.serverId === serverId && binding.status === 'active',
+        )
+        .map((binding) => binding.agentId),
+    );
+    sendJson(res, 200, {
+      agents: result.data.map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        status: agent.status,
+        attachment: attached.has(agent.id) ? 'attached' : 'eligible',
+      })),
+      page,
+      pageSize,
+      total: result.total,
+    });
+    return true;
+  }
   const session = await requireBrowserMutationSession({
     req,
     res,
@@ -170,6 +239,29 @@ export async function handleBrowserMcpServerRoutes(
         riskClass: parsed.data.riskClass,
       });
       sendJson(res, 201, { server: browserServer(server, []) });
+      return true;
+    }
+    const bulkBinding = pathname.match(
+      /^\/ui\/api\/mcp-servers\/([^/]+)\/agents$/,
+    );
+    if (bulkBinding && req.method === 'PUT') {
+      const parsed = BulkAttachAgentsToMcpServerRequestSchema.safeParse(
+        await readJson(req),
+      );
+      if (!parsed.success)
+        return sendBrowserError(
+          res,
+          400,
+          'INVALID_REQUEST',
+          'Choose one or more agents to attach.',
+        );
+      const bindings = await service().bindToAgents({
+        appId,
+        agentIds: parsed.data.agentIds as AgentId[],
+        serverId: decodeURIComponent(bulkBinding[1]) as McpServerId,
+      });
+      await ctx.syncSettingsFromProjection(appId);
+      sendJson(res, 200, { attached: bindings.length });
       return true;
     }
     const action = pathname.match(

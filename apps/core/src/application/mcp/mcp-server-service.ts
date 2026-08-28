@@ -40,6 +40,7 @@ import {
   type MaterializedMcpCapability,
 } from './mcp-server-materialization.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { bindAgentsToMcpServer } from './mcp-server-bulk-binding.js';
 
 export type { MaterializedMcpCapability } from './mcp-server-materialization.js';
 
@@ -404,6 +405,20 @@ export class McpServerService {
       },
     });
     return binding;
+  }
+
+  async bindToAgents(input: {
+    appId: AppId;
+    agentIds: AgentId[];
+    serverId: McpServerId;
+  }): Promise<AgentMcpServerBinding[]> {
+    return bindAgentsToMcpServer({
+      ...input,
+      agents: this.agents,
+      audit: (event) => this.audit(event),
+      mcpServers: this.mcpServers,
+      requireServer: (appId, serverId) => this.requireServer(appId, serverId),
+    });
   }
 
   async unbindFromAgent(input: {

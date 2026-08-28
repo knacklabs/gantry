@@ -28,6 +28,7 @@ afterEach(async () => {
   vi.doUnmock('@core/runtime/agent-spawn-host.js');
   vi.doUnmock('@core/runtime/agent-spawn-layout.js');
   vi.doUnmock('@core/application/agents/prompt-profile-service.js');
+  vi.doUnmock('@core/adapters/storage/postgres/runtime-store.js');
   vi.doUnmock('@core/platform/workspace-folder.js');
   vi.resetModules();
 
@@ -180,6 +181,16 @@ describe('host child-process runtime smoke', () => {
         promptProfileAgentIdForFolder: (folder: string) => `agent:${folder}`,
       };
     });
+    vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
+      getRuntimeFileArtifactStore: vi.fn(() => ({})),
+      getRuntimeStorage: vi.fn(() => ({
+        repositories: {
+          agents: { getAgent: vi.fn(async () => null) },
+          agentConfigs: { getConfigVersion: vi.fn(async () => null) },
+        },
+      })),
+    }));
     vi.doMock('@core/platform/workspace-folder.js', () => ({
       resolveWorkspaceFolderPath: () => groupDir,
     }));

@@ -1009,6 +1009,13 @@
       "when": 1787050652203,
       "tag": "20260818105732_authentication_access",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1787852479130,
+      "tag": "20260827174119_agents_web_ui_foundation",
+      "breakpoints": true
     }
   ]
 }

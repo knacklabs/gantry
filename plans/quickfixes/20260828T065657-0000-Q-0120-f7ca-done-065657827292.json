@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0120-f7ca",
+  "profile": "quickfix",
+  "reason": "Repair Agents recovery PR CI lint and duplicate decision-number failures",
+  "started_at": "2026-08-28T06:56:57+00:00",
+  "completed_at": "2026-08-28T06:56:57+00:00",
+  "files": [
+    "apps/web/src/features/agents/components/agent-setup-manager.tsx",
+    "apps/web/src/features/operations/routes/mcp-server-detail.tsx",
+    "docs/decisions/0151-browser-navigation-summary.md"
+  ]
+}

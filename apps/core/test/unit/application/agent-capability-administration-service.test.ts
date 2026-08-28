@@ -73,6 +73,64 @@ describe('AgentCapabilityAdministrationService', () => {
     );
   });
 
+  it('does not expose or bind installed skills without artifact storage', async () => {
+    const state = createState();
+    state.skills.set('skill:missing-storage', {
+      ...state.skills.get('skill:one'),
+      id: 'skill:missing-storage',
+      storage: undefined,
+    });
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+    );
+
+    await expect(
+      service.replaceSources({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        sources: {
+          skills: [{ id: 'skill:missing-storage' }],
+          mcpServers: [],
+          tools: [],
+        },
+      }),
+    ).rejects.toThrow('Skill has no artifact storage: skill:missing-storage');
+    expect(
+      (await service.listCatalog('app:one' as never)).skills.map(
+        (skill) => skill.id,
+      ),
+    ).not.toContain('skill:missing-storage');
+  });
+
+  it('projects the live readiness of connected MCP sources', async () => {
+    const state = createState();
+    state.mcpBindings[0] = { ...state.mcpBindings[0], serverId: 'mcp:one' };
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+    );
+
+    await expect(
+      service.getSources({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+      }),
+    ).resolves.toMatchObject({
+      sources: {
+        mcpServers: [{ id: 'mcp:one', name: 'one', status: 'active' }],
+      },
+    });
+
+    state.mcpServers.get('mcp:one').status = 'disabled';
+    await expect(
+      service.getSources({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+      }),
+    ).resolves.toMatchObject({
+      sources: { mcpServers: [{ id: 'mcp:one', status: 'disabled' }] },
+    });
+  });
+
   it('replaces a full access document and validates selections against requested sources', async () => {
     const state = createState();
     const service = new AgentCapabilityAdministrationService(
@@ -94,7 +152,9 @@ describe('AgentCapabilityAdministrationService', () => {
       ],
     });
 
-    expect(response.sources.skills).toEqual([{ id: 'skill:one', name: 'One' }]);
+    expect(response.sources.skills).toEqual([
+      { id: 'skill:one', name: 'One', status: 'installed' },
+    ]);
     expect(response.capabilities).toEqual([
       { id: 'skill.one.publish', version: 'catalog' },
       { id: 'browser.use', version: 'builtin' },
@@ -623,6 +683,12 @@ function createState() {
             commandTemplates: ['skills/one/publish.py *'],
           },
         ],
+        storage: {
+          storageType: 'local-filesystem',
+          storageRef: 'skills/one',
+          contentHash: 'one',
+          sizeBytes: 1,
+        },
         createdAt: now,
         updatedAt: now,
       },
@@ -752,6 +818,7 @@ function createState() {
   return {
     tools,
     skills,
+    mcpServers,
     toolBindings,
     toolSources,
     skillBindings,

@@ -50,6 +50,7 @@ maybeDescribe('application services with Postgres repositories', () => {
       agentId,
       version: 1,
       promptProfileRef: 'prompt-profile:default',
+      agentNameSnapshot: 'Integration Agent',
       llmProfileId: DEFAULT_LLM_PROFILE_ID as never,
       toolIds: ['tool:search' as never],
       skillIds: ['skill:approved' as never],
@@ -71,6 +72,7 @@ maybeDescribe('application services with Postgres repositories', () => {
       runtime.repositories.agentConfigs.getConfigVersion(configVersionId),
     ).resolves.toMatchObject({
       id: configVersionId,
+      agentNameSnapshot: 'Integration Agent',
       permissionPolicyIds: ['permission-policy:review'],
       skillIds: ['skill:approved'],
     });

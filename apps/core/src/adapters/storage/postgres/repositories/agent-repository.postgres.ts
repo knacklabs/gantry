@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, isNull, sql } from 'drizzle-orm';
 
 import type { Agent } from '../../../../domain/agent/agent.js';
 import type { App } from '../../../../domain/app/app.js';
@@ -48,6 +48,88 @@ export class PostgresAgentRepository implements AgentRepository {
     return rows as Agent[];
   }
 
+  async summarizeNavigation(appId: App['id']) {
+    const [row] = await this.db
+      .select({
+        total: count(),
+        active: sql<number>`count(*) filter (where ${pgSchema.agentsPostgres.status} = 'active')`,
+        disabled: sql<number>`count(*) filter (where ${pgSchema.agentsPostgres.status} = 'disabled')`,
+        withoutRole: sql<number>`count(*) filter (where ${pgSchema.agentConfigVersionsPostgres.sourceRoleId} is null)`,
+      })
+      .from(pgSchema.agentsPostgres)
+      .leftJoin(
+        pgSchema.agentConfigVersionsPostgres,
+        eq(
+          pgSchema.agentsPostgres.currentConfigVersionId,
+          pgSchema.agentConfigVersionsPostgres.id,
+        ),
+      )
+      .where(eq(pgSchema.agentsPostgres.appId, appId));
+    return {
+      total: Number(row?.total ?? 0),
+      active: Number(row?.active ?? 0),
+      disabled: Number(row?.disabled ?? 0),
+      withoutRole: Number(row?.withoutRole ?? 0),
+    };
+  }
+
+  async listAgentsPage(input: {
+    appId: App['id'];
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: Agent['status'];
+    role?: string;
+    sort: 'name' | 'status' | 'updatedAt';
+    direction: 'asc' | 'desc';
+  }): Promise<{ data: Agent[]; total: number }> {
+    const conditions = [eq(pgSchema.agentsPostgres.appId, input.appId)];
+    if (input.search)
+      conditions.push(ilike(pgSchema.agentsPostgres.name, `%${input.search}%`));
+    if (input.status)
+      conditions.push(eq(pgSchema.agentsPostgres.status, input.status));
+    if (input.role)
+      conditions.push(
+        sql`lower(${pgSchema.agentConfigVersionsPostgres.roleDisplayName}) = ${input.role.toLowerCase()}`,
+      );
+    const where = and(...conditions);
+    const column =
+      input.sort === 'status'
+        ? pgSchema.agentsPostgres.status
+        : input.sort === 'updatedAt'
+          ? pgSchema.agentsPostgres.updatedAt
+          : pgSchema.agentsPostgres.name;
+    const order = input.direction === 'desc' ? desc(column) : asc(column);
+    const [rows, [{ total }]] = await Promise.all([
+      this.db
+        .select({ agent: pgSchema.agentsPostgres })
+        .from(pgSchema.agentsPostgres)
+        .leftJoin(
+          pgSchema.agentConfigVersionsPostgres,
+          eq(
+            pgSchema.agentsPostgres.currentConfigVersionId,
+            pgSchema.agentConfigVersionsPostgres.id,
+          ),
+        )
+        .where(where)
+        .orderBy(order, asc(pgSchema.agentsPostgres.id))
+        .limit(input.pageSize)
+        .offset((input.page - 1) * input.pageSize),
+      this.db
+        .select({ total: count() })
+        .from(pgSchema.agentsPostgres)
+        .leftJoin(
+          pgSchema.agentConfigVersionsPostgres,
+          eq(
+            pgSchema.agentsPostgres.currentConfigVersionId,
+            pgSchema.agentConfigVersionsPostgres.id,
+          ),
+        )
+        .where(where),
+    ]);
+    return { data: rows.map(({ agent }) => agent as Agent), total };
+  }
+
   async saveAgent(agent: Agent): Promise<void> {
     await this.saveAgentWithDb(this.db, agent);
   }
@@ -67,7 +149,7 @@ export class PostgresAgentRepository implements AgentRepository {
         set: {
           name: agent.name,
           status: agent.status,
-          currentConfigVersionId: agent.currentConfigVersionId ?? null,
+          currentConfigVersionId: sql`coalesce(excluded.current_config_version_id, ${pgSchema.agentsPostgres.currentConfigVersionId})`,
           updatedAt: agent.updatedAt,
         },
       });

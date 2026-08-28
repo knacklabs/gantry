@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0120-f7ca",
+  "profile": "quickfix",
+  "reason": "Repair Agents recovery PR CI lint and duplicate decision-number failures",
+  "started_at": "2026-08-28T06:56:57+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

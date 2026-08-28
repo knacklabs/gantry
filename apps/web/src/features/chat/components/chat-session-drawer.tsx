@@ -28,8 +28,9 @@ export function ChatSessionDrawer({
         </Button>
       </DialogTrigger>
       <DialogContent
+        drawer
         showCloseButton={false}
-        className="top-0 right-0 left-auto h-dvh w-[min(340px,calc(100vw-24px))] max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none border-l border-border bg-surface p-4 shadow-popover lg:hidden"
+        className="web-drawer top-0 right-0 left-auto h-dvh translate-x-0 translate-y-0 overflow-y-auto rounded-none border-l border-border bg-surface p-4 shadow-popover lg:hidden"
       >
         <DialogTitle className="m-0 text-base font-semibold text-text">
           Chat sessions

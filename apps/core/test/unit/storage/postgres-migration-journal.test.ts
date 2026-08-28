@@ -82,6 +82,18 @@ describe('Postgres migration journal', () => {
     }
   });
 
+  it('keeps the agents web UI migration schema-agnostic at runtime', () => {
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260827174119_agents_web_ui_foundation.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('REFERENCES "apps"("id")');
+    expect(migration).not.toContain('"public".');
+  });
+
   it('registers the job coordination column cutover', () => {
     const migration = fs.readFileSync(
       path.resolve(
