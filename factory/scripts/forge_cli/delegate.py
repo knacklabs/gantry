@@ -1003,15 +1003,6 @@ def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
     lessons = relevant_lessons(base, scope)
     body += _section("Lessons recorded against these paths", "\n".join(
         f"- {le.get('lesson', '')}" for le in lessons))
-    # The APPROVED TASK PLAN is the task's authored contract detail; without it
-    # workers see only the skeletal fields and raise "definitions omitted"
-    # confusion signals for anything the plan specifies.
-    tid = str(task.get("id") or "")
-    candidates = list((base / ".factory" / "stories").glob(f"*/task-plans/{tid}.md")) if tid else []
-    plan_file = candidates[0] if candidates else (base / ".factory" / "task-plans" / f"{tid}.md")
-    if plan_file.is_file():
-        body += _section("Approved task plan — follow it exactly",
-                         plan_file.read_text(encoding="utf-8"))
     prompt = base / "factory" / "prompts" / "implementer.md"
     if prompt.is_file():
         body += _section("Implementer contract", prompt.read_text(encoding="utf-8"))

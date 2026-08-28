@@ -20,6 +20,19 @@ independent of the authoring context, and sidesteps the write-lock that gates th
 Codex companion. Interrogate as an adversary trying to break the handover, never
 as its author defending it.
 
+For the two gates whose rounds are recorded from the AskUserQuestion ledger
+(`--gate plan` and `--gate task`, decision 0048), independence is a COLD READ,
+not necessarily a separate process. The recorder accepts ONLY rounds that match a
+logged AskUserQuestion record (`record_grill_from_json.py`), and only the
+top-level Claude session in plan mode produces those log entries — a subagent or
+read-only Codex pass cannot. So for plan/task grills the top-level session drives
+the rounds through AskUserQuestion itself; a fresh subagent or Codex pass is still
+a legitimate way to gather independent findings first, but you must carry those
+findings back into your own AskUserQuestion rounds rather than hand the recorder a
+subagent's findings JSON (it will reject rounds that are not in the ledger). Read
+the artifact cold, as an adversary who did not write it. (The spec, signoff, and
+epics gates do not ledger-match, so a subagent grill records directly there.)
+
 Five gates, five scopes:
 
 - `--gate spec` (prototype → confirmed capability) — interrogate the exact
@@ -134,7 +147,13 @@ Method:
    would only confirm what a document already states; stop the grill only when
    no gap or contradiction remains unasked. In Claude Code, deliver each
    round's frontier through the AskUserQuestion tool (recommended answer
-   first), not prose.
+   first), not prose. For `--gate plan` and `--gate task` the recorder requires
+   the FINAL round in the payload to carry `"frontier_empty": true` — that flag
+   is how it confirms you stopped because the frontier closed, not because you
+   ran out of patience; it is set by hand on the last `rounds` entry, never by
+   the ledger. A zero-gap contract still needs at least one such round (floors:
+   spec 2, plan 2, requirements 1, task 1), so ask a genuine closing question
+   (e.g. "any remaining gap before we hand off?") and mark it `frontier_empty`.
 3. Every finding lands somewhere real before the verdict: a doc edit, a
    `./forge decision new <slug>` record, or an explicit non-blocking entry
    in `open_items`. An `open_items` entry that PARKS scope also gets a
@@ -159,7 +178,7 @@ Method:
   "criteria_map": {"criterion": "proof"},
   "decision": "keep",
   "new_abstractions": ["None"],
-  "rounds": [{"question": "Finding or choice", "options": ["Recommended", "Alternative"], "chosen": "Recommended"}],
+  "rounds": [{"question": "Finding or choice", "options": ["Recommended", "Alternative"], "chosen": "Recommended", "frontier_empty": true}],
   "citations": [{"finding": "Repo-answerable finding", "source": "path:symbol"}],
   "open_items": []
 }
@@ -168,8 +187,19 @@ Method:
    Each `rounds` entry has a non-empty `question`, two to four non-empty
    string `options`, and a `chosen` value equal to one option. Each citation
    is `{finding, source}`. Every string in `gaps` must be covered by an equal
-   `rounds[].question` or `citations[].finding`; a zero-gap grill may therefore
-   have zero rounds.
+   `rounds[].question` or `citations[].finding`.
+
+   For `--gate plan` and `--gate task`, extra recorder rules bind (this is what
+   makes an otherwise well-formed payload fail):
+   - Rounds must match the AskUserQuestion ledger and meet the gate floor
+     (plan 2, task 1); the final round carries `"frontier_empty": true`. A
+     zero-gap grill still records its floor of real rounds — never zero.
+   - `--gate task` only: `criteria_map` is a THREE-WAY equality — its KEYS must
+     equal the frontier task's `acceptance_criteria` set AND the set of its
+     `plan_contracts[].statement` values, exactly (no extra key, none missing);
+     each value is the non-empty proof for that criterion. Author the task's
+     `acceptance_criteria` and its `plan_contracts` statements as the SAME
+     strings so there is one coherent key set to satisfy.
 
 ```bash
 python3 factory/scripts/record_grill_from_json.py --gate <spec|signoff|epics|plan|task> --input <json> [--input-digest <artifact>] [--task <id>]
@@ -181,14 +211,19 @@ python3 factory/scripts/record_grill_from_json.py --gate <spec|signoff|epics|pla
    grill (even uncommitted) stales it. (The sign-off / epics-approved decision
    records themselves are expected afterwards and don't stale it.) The task
    gate instead binds directly to the re-recorded task contract digest; the JIT
-   sequence does not require a commit between re-recording and grilling.
+   sequence does not require a commit between re-recording and grilling. But that
+   digest still folds in the product tree, so record the task grill LAST — after
+   any docs/ or factory/scripts commits: a tracked change outside .factory/ and
+   plans/ that lands between grilling and `task approve`/`stage start` re-stales
+   it and forces a re-grill.
 6. `--input-digest` is REQUIRED for the spec, epics, and plan gates: pass the
    exact spec / roadmap input / plan draft you interrogated. The gate verifies the
    digest — grilling version A never approves an edited version B; if the
-   artifact changes, re-grill it. For `--gate task`, pass `--task <id>` and
-   `--task-digest <contract-hash>` instead; the recorder stores the result at
-   `.factory/grills/tasks/<id>.json`; its grounding digest is derived by the
-   recorder rather than accepted from the caller.
+   artifact changes, re-grill it. For `--gate task`, pass `--task <id>` and NO
+   `--task-digest` — that flag was removed and the recorder rejects it; the
+   recorder derives the grounding digest itself from the protected contract,
+   approved plan, and product tree, and stores the result at
+   `.factory/grills/tasks/<id>.json`.
 
 A `pass` with unresolved findings is refused by the recorder. Grill hard;
 downstream implementation inherits whatever you let through.
