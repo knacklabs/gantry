@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T17:56:23+00:00", "story": "JOBPERM-1", "detail": "S-0019-9f80: Decision 0135 (accepted, committed) supersedes the cancel consequence of 0121 and scopes 0115/0126 terminal-denial to explicit denials + the degraded handoff. Reconciled; implement per the brief's tas"}

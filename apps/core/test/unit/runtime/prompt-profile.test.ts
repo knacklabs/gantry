@@ -617,9 +617,14 @@ describe('PromptProfileService', () => {
       '- Channel: Slack group conversation. Slack renders mrkdwn; keep single messages under 4000 characters; outbound workspace file attachments are capped at 25MB.',
     );
     expect(prompt).toContain(
-      '- This run executes scheduled job "Daily digest" (job-1). Job runs are quiet until terminal: deliver one final outcome report; do not send interim progress messages.',
+      '- This run executes scheduled job "Daily digest" (job-1). Job runs are quiet until terminal: deliver one final outcome report beginning `Outcome: <one sentence stating what changed or was found, with counts and names>` (say so if nothing changed), then details; do not send interim progress messages.',
     );
     expect(prompt).not.toContain('New user messages may arrive mid-run');
+
+    const interactive = await service.compileSystemPrompt({
+      agentFolder: 'team',
+    });
+    expect(interactive).not.toContain('Outcome:');
   });
 
   it('keeps the base channel presentation intact when tool guidance is appended', () => {

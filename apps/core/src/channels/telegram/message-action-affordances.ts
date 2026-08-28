@@ -16,8 +16,10 @@ import {
 import { escapeTelegramHtml } from './html-render.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
+  TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
   telegramThreadOptionsFromString,
   TELEGRAM_MESSAGE_MAX_LENGTH,
+  truncateUtf8ToByteLimit,
 } from './channel-shared.js';
 
 const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
@@ -27,6 +29,7 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   scheduler_run_now: 'retry',
   scheduler_pause_job: 'pause',
   live_turn_stop: '',
+  job_permission_decision: '',
   // ponytail: memory_review_decision rendering lands in Task 6 (Telegram codec).
   memory_review_decision: '',
   // ponytail: observer_feedback rendering lands in a later OBS-RESOLVE task.
@@ -63,6 +66,19 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
       if (action.kind === 'memory_review_decision') return null;
       if (action.kind === 'observer_feedback') return null;
       if (action.kind === 'brain_dream_review_decision') return null;
+      if (action.kind === 'job_permission_decision') {
+        return action.label.trim() &&
+          Buffer.byteLength(action.actionToken, 'utf8') <=
+            TELEGRAM_CALLBACK_DATA_MAX_BYTES
+          ? {
+              text: truncateUtf8ToByteLimit(
+                action.label.trim(),
+                TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
+              ),
+              callback_data: action.actionToken,
+            }
+          : null;
+      }
       const code = TELEGRAM_ACTION_CALLBACK_BY_KIND[action.kind];
       if (!code || !action.label.trim()) return null;
       const callbackData = telegramSchedulerActionCallback(action);
@@ -319,6 +335,9 @@ export function telegramJobNotificationMessage(view: JobNotificationView): {
   const lines = [
     `<b>${status.emoji} ${status.label}</b> · ${escapeTelegramHtml(view.jobName)}${duration}`,
   ];
+  if (view.result?.headline) {
+    lines.push(`<b>${escapeTelegramHtml(view.result.headline)}</b>`);
+  }
   if (view.stats) {
     lines.push(
       `${view.stats.toolCount} tool${view.stats.toolCount === 1 ? '' : 's'}, ${view.stats.browserUsed ? 'browser used' : 'browser not used'}, last ${escapeTelegramHtml(view.stats.lastAction ?? 'none')}`,
@@ -326,9 +345,6 @@ export function telegramJobNotificationMessage(view: JobNotificationView): {
   }
   const body = view.result
     ? [
-        ...(view.result.headline
-          ? [escapeTelegramHtml(view.result.headline)]
-          : []),
         ...view.result.items.map((item) =>
           [
             TELEGRAM_JOB_OUTCOME_MARKER[item.outcome],

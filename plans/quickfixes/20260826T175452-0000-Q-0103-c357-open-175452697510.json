@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0103-c357",
+  "profile": "lite",
+  "reason": "Q-0103: Telegram job card hides the outcome headline inside the collapsed quote; it must be on the card face like Slack/Discord",
+  "started_at": "2026-08-26T17:54:52+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "c789c852da56459352efc65716879cd5ab6ae753"
+}

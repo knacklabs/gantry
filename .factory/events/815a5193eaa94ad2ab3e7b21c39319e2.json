@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-27T09:04:45+00:00", "story": "CHAN-1", "detail": "CHAN-1-T1 requires re-pointing scripts/architecture-map.json, the only existing Discord architecture-budget entry, but that root scripts path is outside the task write scope and apps/core/architecture"}

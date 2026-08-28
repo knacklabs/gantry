@@ -41,6 +41,17 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook post_tool_use || exit 0' || exit 0"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

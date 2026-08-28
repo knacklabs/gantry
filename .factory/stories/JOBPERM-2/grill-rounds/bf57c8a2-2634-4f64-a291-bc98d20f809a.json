@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Wording on the card for a request that can't be remembered?",
+      "options": [
+        "\"<command> (this run only)\" (Recommended)",
+        "\"<command> \u2014 can't be saved as a rule, allow for this run?\""
+      ],
+      "chosen": "\"<command> (this run only)\" (Recommended)"
+    },
+    {
+      "question": "Anything else before I approve this version of the plan?",
+      "options": [
+        "No \u2014 approve (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 approve (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T17:21:09.996221+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

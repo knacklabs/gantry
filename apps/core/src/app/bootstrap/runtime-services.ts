@@ -30,7 +30,7 @@ import {
   type MessageLoopDeps,
 } from '../../runtime/message-loop.js';
 // prettier-ignore
-import { markRoleHasNoJobExecution, requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
+import { enqueueJobTrigger, markRoleHasNoJobExecution, requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
 import { registerWorkerInstance } from '../../jobs/worker-identity.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
@@ -74,7 +74,6 @@ import { brainReviewOutboundProfile, brainReviewNotifyGatewayFor } from './brain
 // prettier-ignore
 import {
   closeBrowser,
-  ensureBrowserReady,
   getBrowserStatus,
 } from '../../runtime/browser-capability.js';
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
@@ -91,7 +90,6 @@ import {
   sendActiveControlReceipt,
   sendActiveCompactionQueuedReceipt,
 } from './runtime-services-active-compact.js';
-import { registerRuntimeLiveStopMessageAction } from './runtime-live-stop-message-action.js';
 import { registerRuntimeMemoryReviewMessageAction } from './runtime-memory-review-message-action.js';
 import { registerRuntimeObserverFeedbackMessageAction } from './runtime-observer-feedback-wiring.js';
 import { registerRuntimeBrainDreamReviewMessageAction } from './runtime-brain-review-wiring.js';
@@ -117,6 +115,13 @@ import { createAttachmentOpen } from './attachment-resolver-wiring.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
 import { createSchedulerLifecycleNotificationUpdater } from './scheduler-lifecycle-notification.js';
+import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
+import {
+  sendJobPermCard,
+  setupJobPermissionDurability,
+  startJobPermCards,
+  wireJobPermissionActions,
+} from './job-permission-wiring-setup.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
   return createProviderAttachmentMaterializer({
@@ -128,6 +133,7 @@ export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
   });
 }
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
+
 // prettier-ignore
 type LiveTurnCommandWakeupSourceFactory = () => LiveTurnCommandWakeupSource | undefined;
 // prettier-ignore
@@ -351,6 +357,16 @@ export async function startRuntimeServices(
     asyncTaskRecoveryDeps,
   );
   const onSchedulerChanged = (jobId?: string) => requestSchedulerSync(jobId);
+  const jobPermissionDurability = setupJobPermissionDurability({
+    workerCoordination,
+    opsRepository: resolved.opsRepository,
+    channelWiring,
+    getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
+    getToolRepository: () => resolved.getToolRepository?.(),
+    getSkillRepository: () => resolved.getSkillRepository?.(),
+    createJobTrigger: (request) =>
+      getRuntimeControlRepository().createJobTrigger(request),
+  });
   const schedulerMessageOptions = (
     jid: string,
     options?: MessageSendOptions,
@@ -407,7 +423,6 @@ export async function startRuntimeServices(
       getToolRepository: resolved.getToolRepository,
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
       getBrowserStatus,
-      openBrowserSession: (profileName) => ensureBrowserReady({ profileName }),
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
       runnerSandboxProvider:
@@ -448,6 +463,7 @@ export async function startRuntimeServices(
       writeGroupsSnapshot: (folder, availableGroups, registeredJids) =>
         resolved.writeGroupsSnapshot(folder, availableGroups, registeredJids),
       onSchedulerChanged,
+      jobPermissionDurability,
       opsRepository: resolved.opsRepository,
       getToolRepository: resolved.getToolRepository,
       getAgentRepository: resolved.getAgentRepository,
@@ -617,7 +633,12 @@ export async function startRuntimeServices(
       });
     },
   };
-  registerRuntimeLiveStopMessageAction(channelWiring, app, liveMessageQueue);
+  wireJobPermissionActions(
+    channelWiring,
+    app,
+    liveMessageQueue,
+    jobPermissionDurability,
+  );
   registerRuntimeMemoryReviewMessageAction(channelWiring, app);
   registerRuntimeObserverFeedbackMessageAction(channelWiring);
   registerRuntimeBrainDreamReviewMessageAction(channelWiring);
@@ -916,8 +937,11 @@ export async function startRuntimeServices(
         },
       });
     });
-    // prettier-ignore
-    startRuntimePermissionCardReconciliation(outboundDeliveryRepository, resolved.opsRepository);
+    startJobPermCards(
+      outboundDeliveryRepository,
+      resolved.opsRepository,
+      jobPermissionDurability,
+    );
     resolved.startOutboundDeliveryRecoveryLoop({
       service: outboundDeliveryService,
       claimerId: `runtime-recovery:${process.pid}`,
@@ -1042,33 +1066,8 @@ export async function startRuntimeServices(
             : (await dispatchRuntimePermissionCard({ service: outboundDeliveryService, claimed, channelWiring, destinationJid, destinationThreadId, providerAccountId: destinationAccount.providerAccountId, permit: recoveryPermit })) ?? { status: 'failed', error: 'Permission-card dispatch returned no result.' } as const;
         }
         try {
-          const observerDigestView = payload?.observerDigestView as
-            | MessageSendOptions['observerDigestView']
-            | undefined;
-          const brainReviewView = payload?.brainReviewView as
-            | MessageSendOptions['brainReviewView']
-            | undefined;
-          const deliveryResult = await channelWiring.sendProviderMessage(
-            destinationJid,
-            claimed.item.canonicalText,
-            {
-              permit: recoveryPermit,
-              throwOnMissing: true,
-              messageOptions: {
-                ...destinationAccount,
-                ...(destinationThreadId
-                  ? { threadId: destinationThreadId }
-                  : {}),
-                ...(observerDigestView ? { observerDigestView } : {}),
-                ...(brainReviewView ? { brainReviewView } : {}),
-              },
-            },
-          );
-          return {
-            status: 'sent',
-            providerMessageId: deliveryResult?.externalMessageId,
-            providerPayload: deliveryResult,
-          } as const;
+          // prettier-ignore
+          return await sendJobPermCard(payload, claimed, channelWiring.createRecoveryDispatchPermit, channelWiring.sendProviderMessage, destinationJid, destinationThreadId, destinationAccount, recoveryPermit);
         } catch (err) {
           if (isPartialMessageDeliveryError(err)) {
             const partialMetadata = getPartialMessageDeliveryMetadata(err);

@@ -1,0 +1,12 @@
+{
+  "event": "abandoned",
+  "id": "Q-0061-a378",
+  "profile": "lite",
+  "reason": "Superseded: landing the compound-RunCommand fix via the full roadmap-story pipeline instead of a lite window (chosen to get a proper done-flip work record without the 5-file bound).",
+  "opened_reason": "Part A of the compound-RunCommand fix: route RunCommand through the generic per-leaf Bash matcher and block pipes (window 1 of 2, split for the 5-file bound).",
+  "started_at": "2026-08-22T18:48:57+00:00",
+  "completed_at": "2026-08-23T03:20:39+00:00",
+  "files": [],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "7aad4ad784fec3aa3bf39e81b6d8cae784aa98f0"
+}

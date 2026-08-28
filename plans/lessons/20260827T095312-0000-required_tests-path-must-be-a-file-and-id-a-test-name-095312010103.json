@@ -1,0 +1,12 @@
+{
+  "topic": "required_tests path must be a file and id a test name",
+  "lesson": "forge stage done RUNS each required test with the recorded command, substituting {path} and {id}: path must be an existing test FILE (not a directory) and id must match a real describe/test name passed to -t; a directory path fails as 'required test is missing'.",
+  "source": "CHAN-1-T1 stage done refusal 2026-08-27",
+  "applies_to": [
+    "factory/scripts/forge_cli/stages.py",
+    ".factory/"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-08-27T09:53:12+00:00"
+}

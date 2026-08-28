@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-23T16:47:13+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T2 already spans 34 scoped files and 4,851 changed lines from the frozen-v9 baseline, exceeding the 4,800-line review budget by 51; split or re-scope before further work."}

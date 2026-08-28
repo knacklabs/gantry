@@ -409,7 +409,9 @@ export async function* query({ prompt, options }) {
   }
 
   if (process.env.TEST_AUTONOMOUS_PERMISSION_REQUEST) {
-    call.permissionDecision = await options.canUseTool(
+    call.permissionDecision = await canUseToolThroughHost(
+      call,
+      options,
       process.env.TEST_PERMISSION_TOOL_NAME || 'Bash',
       { cmd: 'npm test', apiToken: 'secret-token' },
       {
@@ -667,6 +669,31 @@ export async function* query({ prompt, options }) {
       return;
     }
 
+    if (process.env.TEST_SCHEDULED_OUTCOME_NUDGE === '1') {
+      yield { type: 'result', subtype: 'success', result: 'Still working.' };
+      const followup = await nextWithTimeout(iterator, 1500);
+      if (followup && !followup.done) {
+        call.streamMessages.push(followup.value.message.content);
+      }
+      yield { type: 'result', subtype: 'success', result: 'Not finished yet.' };
+      const closed = await nextWithTimeout(iterator, 1500);
+      call.streamEnded = Boolean(closed?.done);
+      appendRecord(call);
+      return;
+    }
+
+    if (process.env.TEST_SCHEDULED_OUTCOME_RESULT_STREAM_END === '1') {
+      yield {
+        type: 'result',
+        subtype: 'success',
+        result: 'Outcome: Lead 1 was written.',
+      };
+      const closed = await nextWithTimeout(iterator, 1500);
+      call.streamEnded = Boolean(closed?.done);
+      appendRecord(call);
+      return;
+    }
+
     if (process.env.TEST_INTERACTION_BOUNDARY_FILE === '1') {
       const boundaryDir = path.join(process.env.GANTRY_IPC_DIR, 'interaction-boundaries');
       fs.mkdirSync(boundaryDir, { recursive: true });
@@ -711,6 +738,14 @@ export async function* query({ prompt, options }) {
         fs.writeFileSync(path.join(process.env.GANTRY_IPC_INPUT_DIR, '_close'), '');
       }, 20);
     }
+    return;
+  }
+  if (process.env.TEST_OUTCOME_RESULT === '1') {
+    yield {
+      type: 'result',
+      subtype: 'success',
+      result: 'Outcome: Lead 1 was written.',
+    };
     return;
   }
   if (process.env.TEST_STRUCTURED_THEN_STREAM_CREDENTIAL_RESULT === '1') {
@@ -2601,6 +2636,50 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
+    'nudges a scheduled result without Outcome once, then ends after the second result',
+    async () => {
+      const fixture = createRunnerFixture();
+      const result = await runRunner(
+        fixture,
+        baseInput({ isScheduledJob: true, jobId: 'job-1' }),
+        { TEST_SCHEDULED_OUTCOME_NUDGE: '1' },
+      );
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.streamMessages).toContain(
+        'You stopped before finishing. Continue the task now. When you are finished, your final message must begin with a line "Outcome: <one sentence>".',
+      );
+      expect(call?.streamMessages).toHaveLength(2);
+      expect(call?.streamEnded).toBe(true);
+      expect(
+        readRunnerOutputs(result.stdout).filter(
+          (output) => output.continuedByFollowup === true,
+        ),
+      ).toHaveLength(1);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'ends a scheduled run with an Outcome after its first result',
+    async () => {
+      const fixture = createRunnerFixture();
+      const result = await runRunner(
+        fixture,
+        baseInput({ isScheduledJob: true, jobId: 'job-1' }),
+        { TEST_SCHEDULED_OUTCOME_RESULT_STREAM_END: '1' },
+      );
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.streamMessages).toHaveLength(1);
+      expect(call?.streamEnded).toBe(true);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'scheduled jobs route matching scoped RunCommand through authenticated permission IPC',
     async () => {
       const fixture = createRunnerFixture();
@@ -2630,30 +2709,6 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionRequests).toEqual([
         expect.objectContaining({ toolName: 'RunCommand' }),
       ]);
-    },
-    RUNNER_IPC_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    'closes the SDK prompt stream for one-shot scheduled jobs',
-    async () => {
-      const fixture = createRunnerFixture();
-
-      const result = await runRunner(
-        fixture,
-        baseInput({
-          isScheduledJob: true,
-          jobId: 'job-1',
-        }),
-        {
-          TEST_CHECK_STREAM_ENDED: '1',
-        },
-      );
-
-      expect(result.exitCode).toBe(0);
-      const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.streamMessages).toHaveLength(1);
-      expect(call?.streamEnded).toBe(true);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -2787,7 +2842,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs do not treat typed local CLI runtime access as worker-local network authority',
+    'scheduled jobs ask the host for typed local CLI network authority',
     async () => {
       const fixture = createRunnerFixture();
       const credentialDir = path.join(fixture.root, 'credentials', 'acme');
@@ -2822,7 +2877,7 @@ describe('agent-runner IPC lifecycle', () => {
         {
           GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS: '5000',
           TEST_HOST_PERMISSION_DECISION: 'approve',
-          TEST_HOST_PERMISSION_RESPONSE_COUNT: '1',
+          TEST_HOST_PERMISSION_RESPONSE_COUNT: '2',
           TEST_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_SDK_NETWORK_HOST: 'oauth2.googleapis.com',
@@ -2841,26 +2896,24 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.additionalDirectories).toEqual(
         expect.arrayContaining([expectedCredentialDir]),
       );
-      // The pre-COORD worker-local runtime binding no longer grants network
-      // authority. This scheduled network prompt is denied unless the host
-      // coordinator gains a durable semantic-capability decision path.
+      // The pre-COORD worker-local runtime binding does not grant network
+      // authority. The second prompt waits for the host and resumes only after
+      // that explicit approval.
       expect(call?.permissionDecisions?.network).toEqual(
         expect.objectContaining({
-          behavior: 'deny',
-          message: expect.stringContaining(
-            'Tool not on autonomous run allowlist: SandboxNetworkAccess',
-          ),
+          behavior: 'allow',
         }),
       );
       expect(call?.permissionRequests).toEqual([
         expect.objectContaining({ toolName: 'RunCommand' }),
+        expect.objectContaining({ toolName: 'SandboxNetworkAccess' }),
       ]);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
-    'denies parentless scheduled SDK network prompts without host capability authority',
+    'asks the host for parentless scheduled SDK network prompts',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2874,7 +2927,7 @@ describe('agent-runner IPC lifecycle', () => {
         {
           GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS: '5000',
           TEST_HOST_PERMISSION_DECISION: 'approve',
-          TEST_HOST_PERMISSION_RESPONSE_COUNT: '1',
+          TEST_HOST_PERMISSION_RESPONSE_COUNT: '2',
           TEST_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_TOOL_USE_CMD:
@@ -2892,17 +2945,14 @@ describe('agent-runner IPC lifecycle', () => {
       );
       expect(call?.permissionDecisions?.network).toEqual(
         expect.objectContaining({
-          behavior: 'deny',
-          message: expect.stringContaining(
-            'Tool not on autonomous run allowlist: SandboxNetworkAccess',
-          ),
+          behavior: 'allow',
         }),
       );
-      // The pre-COORD worker-local "without host binding" allow was dropped.
-      // The authenticated host approved the command, while the unprovisioned
-      // network request remains denied instead of being allowed in the worker.
+      // The worker cannot auto-allow this network request; the second host
+      // approval is what resumes it.
       expect(call?.permissionRequests).toEqual([
         expect.objectContaining({ toolName: 'RunCommand' }),
+        expect.objectContaining({ toolName: 'SandboxNetworkAccess' }),
       ]);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
@@ -3004,7 +3054,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs consult the host then terminate an ungranted (but grantable) facade tool',
+    'scheduled jobs request approval and resume an ungranted grantable facade tool',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -3017,6 +3067,7 @@ describe('agent-runner IPC lifecycle', () => {
         }),
         {
           TEST_AUTONOMOUS_PERMISSION_REQUEST: '1',
+          TEST_HOST_PERMISSION_DECISION: 'approve',
           TEST_PERMISSION_TOOL_NAME: 'WebSearch',
           TEST_EXIT_AFTER_QUERY: '1',
         },
@@ -3026,21 +3077,15 @@ describe('agent-runner IPC lifecycle', () => {
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.permissionDecision).toEqual(
         expect.objectContaining({
-          behavior: 'deny',
-          interrupt: true,
+          behavior: 'allow',
         }),
       );
-      // PREFLIGHT-1 Part A: WebSearch is a builtin facade tool, so its recovery is
-      // now a grantable request_access (kind:tool) rather than the non-grantable
-      // "exact tool grants are not accepted" fallback. The fixture doesn't grant
-      // it, so the host still denies and the scheduled run still terminates — but
-      // the owner now gets a one-tap grant on the setup card.
-      expect(String(call?.permissionDecision?.message)).toContain('WebSearch');
-      expect(String(call?.permissionDecision?.message)).toContain(
-        'request_access',
-      );
-      // The scheduled worker-local miss consults the host reviewed-rule decision
-      // before the deny becomes terminal, so a permission request is written.
+      // An autonomous grant miss follows the normal approval wait. The fixture
+      // supplies the host approval so the runner proves it resumes instead of
+      // treating the miss as a terminal denial.
+      expect(call?.permissionRequests).toEqual([
+        expect.objectContaining({ toolName: 'WebSearch' }),
+      ]);
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
       ).toBe(true);
@@ -3053,9 +3098,8 @@ describe('agent-runner IPC lifecycle', () => {
           expect.objectContaining({
             eventType: 'tool.activity',
             payload: expect.objectContaining({
-              phase: 'permission_denied',
+              phase: 'permission_allowed',
               tool: 'WebSearch',
-              action: expect.objectContaining({ kind: 'approve_grant' }),
             }),
           }),
         ]),

@@ -1,8 +1,6 @@
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-// prettier-ignore
-import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalDecision, PermissionApprovalRequest, PermissionApprovalResult, ProgressUpdateOptions, RichInteractionRequest, StreamingChunkOptions, UserQuestionRequest, UserQuestionResponse } from '../../domain/types.js';
-import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
+import type * as DomainTypes from '../../domain/types.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { TelegramChannelReactions } from './channel-reactions.js';
 import {
@@ -25,16 +23,19 @@ import {
   sendTelegramBrainReviewMessage,
 } from './message-action-affordances.js';
 import { sendTelegramObserverDigestMessage } from './observer-digest-message.js';
+import { escapeTelegramHtml } from './html-render.js';
+import {
+  editTelegramProgressMessage,
+  sendTelegramProgressReplacementMessage,
+  terminalTelegramProgressMessage,
+} from './progress-terminal-render.js';
 import {
   clearProgressActions,
   prepareTelegramProgressHandle,
   progressActionOptions,
   sendNewProgressMessage,
 } from './progress-message-actions.js';
-import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
-import { appendTelegramDocumentMessageIds as appendDocIds } from './file-delivery.js';
 import { renderTelegramChannelAgentTodo } from './agent-todo-delivery.js';
-import { unescapeTelegramEscapedMarkdownV2 } from './markdown-v2-unescape.js';
 import { sendTelegramTyping } from './typing-indicator.js';
 import { renderTelegramRichInteraction } from './rich-interaction.js';
 import { disconnectTelegramDelivery } from './disconnect.js';
@@ -43,10 +44,15 @@ import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
 } from '../../application/interactions/pending-interaction-durability.js';
+import { JobPermissionCardDeliverySettlement } from '../interaction-settlement.js';
+import { sendTelegramJobPermissionCard } from './job-permission-card-delivery.js';
 import { retainTelegramProgressHandleAfterEditFailure } from './progress-edit-failure.js';
 import { createTelegramPermissionCardPreparer } from './prepared-permission-card.js';
+import { sendTelegramDeliveryChunks } from './extracted-helpers.js';
 
 export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
+  private readonly jobPermissionCardDeliveries =
+    new JobPermissionCardDeliverySettlement();
   preparePermissionCardSend(
     ...args: Parameters<ReturnType<typeof createTelegramPermissionCardPreparer>>
   ) {
@@ -59,8 +65,8 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   async sendMessage(
     jid: string,
     text: string,
-    options: MessageSendOptions = {},
-  ): Promise<MessageDeliveryResult> {
+    options: DomainTypes.MessageSendOptions = {},
+  ): Promise<DomainTypes.MessageDeliveryResult> {
     if (!this.bot) {
       logger.warn('Telegram bot not initialized');
       throw new Error('Telegram bot not initialized');
@@ -105,112 +111,90 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     try {
       const numericId = jid.replace(/^tg:/, '');
       const sendOptions = telegramThreadOptionsFromString(options.threadId);
-
-      // Split after escaping so each outbound envelope already matches the
-      // exact payload Telegram receives.
-      const escapedText = escapeTelegramMarkdownV2(text, {
-        preserveStyleMarkers: true,
-      });
-      const escapedChunks = splitTelegramDeliveryText(
-        escapedText,
-        TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
-        TELEGRAM_MESSAGE_MAX_LENGTH,
-      );
-      const chunks = escapedChunks.map((escapedChunk) => ({
-        escapedText: escapedChunk,
-        canonicalText: unescapeTelegramEscapedMarkdownV2(escapedChunk),
-      }));
-      if (chunks.length === 0) return {};
-
-      const warnings: string[] = [];
-      if (chunks.length > 1) {
-        warnings.push(
-          `telegram.message.chunked:${chunks.length}:${TELEGRAM_STREAM_CHUNK_MAX_LENGTH}`,
+      // Zero-action affordances are the retire/replace revisions: they edit
+      // the existing card into a buttonless notice via the generic path.
+      if (
+        options.actionAffordances?.some(
+          (action) => action.kind === 'job_permission_decision',
+        )
+      ) {
+        return sendTelegramJobPermissionCard({
+          api: this.bot.api,
+          chatId: numericId,
+          text: humanizeJobPermissionCardText(text),
+          options,
+          threadOptions: sendOptions,
+          deliveries: this.jobPermissionCardDeliveries,
+        });
+      }
+      if (options.replaceMessageId) {
+        const replaceMessageId = options.replaceMessageId;
+        const messageId = Number.parseInt(replaceMessageId, 10);
+        if (!Number.isSafeInteger(messageId)) {
+          throw new Error('Telegram replacement message id is invalid.');
+        }
+        // Edits of a job-permission card message queue behind that card's
+        // in-flight mutations so a retire notice cannot be overwritten.
+        const deliveries = this.jobPermissionCardDeliveries;
+        const cardRevision = options.jobPermissionCardRevision;
+        const revision = cardRevision && {
+          ...cardRevision,
+          callbackKey: `${numericId}:${cardRevision.callbackKey}`,
+        };
+        const delivered = (externalMessageId: string) => ({
+          externalMessageId,
+          externalMessageIds: [externalMessageId],
+          deliveredParts: 1,
+          totalParts: 1,
+        });
+        if (revision) {
+          const settled = deliveries.settledMessageId(revision);
+          if (settled) return delivered(settled);
+          deliveries.bindMessage(
+            `${numericId}:${replaceMessageId}`,
+            revision.callbackKey,
+          );
+          return await deliveries.serialize(revision.callbackKey, async () => {
+            const settled = deliveries.settledMessageId(revision);
+            if (settled) return delivered(settled);
+            await this.bot!.api.editMessageText(numericId, messageId, text, {
+              reply_markup: telegramActionReplyMarkup(
+                options.actionAffordances,
+              ) ?? {
+                inline_keyboard: [],
+              },
+            });
+            deliveries.record(
+              revision,
+              replaceMessageId,
+              `${numericId}:${replaceMessageId}`,
+            );
+            return delivered(replaceMessageId);
+          });
+        }
+        return await deliveries.serialize(
+          deliveries.laneForMessage(`${numericId}:${replaceMessageId}`),
+          async () => {
+            await this.bot!.api.editMessageText(numericId, messageId, text, {
+              reply_markup: telegramActionReplyMarkup(
+                options.actionAffordances,
+              ) ?? {
+                inline_keyboard: [],
+              },
+            });
+            return delivered(replaceMessageId);
+          },
         );
       }
 
-      const externalMessageIds: string[] = [];
-      let deliveredChunks = 0;
-      let usePlainText = false;
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-        const chunk = chunks[chunkIndex];
-        const replyMarkup =
-          chunkIndex === chunks.length - 1
-            ? telegramActionReplyMarkup(options.actionAffordances)
-            : undefined;
-        try {
-          const sent = await sendTelegramPlannedChunk(
-            this.bot.api,
-            numericId,
-            chunk.escapedText,
-            {
-              sendOptions: replyMarkup
-                ? { ...sendOptions, reply_markup: replyMarkup }
-                : sendOptions,
-              plainText: chunk.canonicalText,
-              allowPlainTextFallback: !usePlainText,
-              forcePlainText: usePlainText,
-            },
-          );
-          usePlainText = sent.usedPlainText || usePlainText;
-          const messageId = sent.messageId;
-          if (messageId !== undefined) {
-            externalMessageIds.push(String(messageId));
-          }
-          deliveredChunks += 1;
-        } catch (err) {
-          if (deliveredChunks > 0) {
-            const unsentCanonicalTail = chunks
-              .slice(deliveredChunks)
-              .map((planned) => planned.canonicalText)
-              .join('');
-            const partial = new PartialMessageDeliveryError({
-              cause: err,
-              deliveredChunks,
-              name: 'PartialTelegramDeliveryError',
-              message: `Telegram message partially delivered (${deliveredChunks}/${chunks.length} chunks)`,
-              totalChunks: chunks.length,
-            });
-            Object.assign(partial, {
-              provider: 'telegram',
-              deliveredParts: deliveredChunks,
-              totalParts: chunks.length,
-              externalMessageIds,
-              ...(unsentCanonicalTail.trim()
-                ? {
-                    retryTail: {
-                      canonicalText: unsentCanonicalTail,
-                      providerPayload: {
-                        provider: 'telegram',
-                        chatId: numericId,
-                        ...(options.threadId
-                          ? { threadId: options.threadId }
-                          : {}),
-                      },
-                    },
-                  }
-                : {}),
-              ...(warnings.length > 0 ? { warnings } : {}),
-            });
-            throw partial;
-          }
-          throw err;
-        }
-      }
-      await appendDocIds(externalMessageIds, this.bot.api, numericId, options);
-      logger.info(
-        { jid, length: text.length, threadId: options.threadId },
-        'Telegram message sent',
-      );
-      return {
-        ...(externalMessageIds[0]
-          ? { externalMessageId: externalMessageIds[0] }
-          : {}),
-        ...(externalMessageIds.length > 0 ? { externalMessageIds } : {}),
-        deliveredParts: deliveredChunks,
-        totalParts: chunks.length,
-        ...(warnings.length > 0 ? { warnings } : {}),
-      };
+      return await sendTelegramDeliveryChunks({
+        api: this.bot.api,
+        chatId: numericId,
+        jid,
+        options,
+        sendOptions,
+        text,
+      });
     } catch (err) {
       logger.error(
         { jid, error: this.sanitizeErrorMessage(err) },
@@ -219,10 +203,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       throw err;
     }
   }
-
   async renderRichInteraction(
     jid: string,
-    render: RichInteractionRequest,
+    render: DomainTypes.RichInteractionRequest,
   ): Promise<boolean> {
     if (!this.bot) return false;
     return renderTelegramRichInteraction({
@@ -236,7 +219,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   async sendStreamingChunk(
     jid: string,
     text: string,
-    options: StreamingChunkOptions = {},
+    options: DomainTypes.StreamingChunkOptions = {},
   ): Promise<boolean> {
     if (!this.bot) return false;
     if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
@@ -354,7 +337,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
   async sendProgressUpdate(
     jid: string,
     text: string,
-    options: ProgressUpdateOptions = {},
+    options: DomainTypes.ProgressUpdateOptions = {},
   ): Promise<boolean> {
     if (!this.bot) {
       logger.info(
@@ -373,7 +356,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       ? Boolean(telegramActionReplyMarkup(options.actionAffordances))
       : false;
     const actionOnly = Boolean(options.actionOnly && hasActionMarkup);
-    const nextText = actionOnly ? String.fromCharCode(8288) : text.trim();
+    const fallbackText = actionOnly ? String.fromCharCode(8288) : text.trim();
+    const terminalMessage = terminalTelegramProgressMessage(options);
+    const nextText = terminalMessage?.text ?? fallbackText;
     if (options.done) {
       this.markProgressGenerationDone(key, options.generation);
     } else if (
@@ -444,6 +429,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
         options,
         sendOptions,
         threadId: Number.isFinite(parsedThreadId) ? parsedThreadId : undefined,
+        ...(terminalMessage ? { html: { text: nextText, fallbackText } } : {}),
       });
       return true;
     }
@@ -495,42 +481,44 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       }
       return true;
     }
-
     if (existing.messageId) {
       try {
-        await editTelegramMessage(
-          this.bot.api,
-          numericId,
-          existing.messageId,
-          nextText,
-          {},
-          actionOptions.editReplyMarkup,
-        );
+        await editTelegramProgressMessage({
+          api: this.bot.api,
+          chatId: numericId,
+          messageId: existing.messageId,
+          text: nextText,
+          ...(terminalMessage ? { terminalFallbackText: fallbackText } : {}),
+          editReplyMarkup: actionOptions.editReplyMarkup,
+        });
       } catch (err) {
         if (options.replaceOnly) {
           retainTelegramProgressHandleAfterEditFailure({ jid, err });
           return false;
+        } else {
+          logger.debug(
+            { jid, err },
+            'Failed to edit progress message, creating a fresh one',
+          );
+          existing.messageId = await sendTelegramProgressReplacementMessage({
+            api: this.bot.api,
+            chatId: numericId,
+            text: nextText,
+            fallbackText,
+            sendOptions,
+            terminal: Boolean(terminalMessage),
+          });
+          logger.info(
+            {
+              jid,
+              key,
+              progressText: nextText,
+              generation: options.generation,
+              messageId: existing.messageId,
+            },
+            'Progress lifecycle telegram fallback sent new message',
+          );
         }
-        logger.debug(
-          { jid, err },
-          'Failed to edit progress message, creating a fresh one',
-        );
-        existing.messageId = await sendTelegramMessageWithResult(
-          this.bot.api,
-          numericId,
-          nextText,
-          sendOptions,
-        );
-        logger.info(
-          {
-            jid,
-            key,
-            progressText: nextText,
-            generation: options.generation,
-            messageId: existing.messageId,
-          },
-          'Progress lifecycle telegram fallback sent new message',
-        );
       }
     } else {
       existing.messageId = await sendTelegramMessageWithResult(
@@ -572,12 +560,11 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     );
     return true;
   }
-
   async requestPermissionApproval(
     jid: string,
-    request: PermissionApprovalRequest,
+    request: DomainTypes.PermissionApprovalRequest,
     onPromptDelivered?: (messageId: string) => void,
-  ): Promise<PermissionApprovalResult> {
+  ): Promise<DomainTypes.PermissionApprovalResult> {
     return requestTelegramPermissionApproval({
       interactionCallbacksEnabled: this.interactionCallbacksEnabled,
       botConnected: this.bot !== null,
@@ -600,9 +587,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
 
   async requestUserAnswer(
     jid: string,
-    request: UserQuestionRequest,
+    request: DomainTypes.UserQuestionRequest,
     onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
-  ): Promise<UserQuestionResponse> {
+  ): Promise<DomainTypes.UserQuestionResponse> {
     if (!this.interactionCallbacksEnabled) {
       return {
         requestId: request.requestId,
@@ -785,4 +772,13 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       signal: options.signal,
     });
   };
+}
+
+function humanizeJobPermissionCardText(text: string): string {
+  return escapeTelegramHtml(
+    text.replace(
+      /^Permissions needed for this job\s*$/im,
+      'This job needs your approval.',
+    ),
+  );
 }

@@ -1,5 +1,11 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
+import type {
+  JobPermissionCardDeliveryOutcome,
+  JobPermissionCardRecord,
+  JobPermissionDurabilityState,
+  JobPermissionNeedRecord,
+} from '../../../../domain/ports/job-permission-durability.js';
 import type {
   LiveTurnCommandAppendInput,
   LiveTurnCommandNotifier,
@@ -18,6 +24,7 @@ import type {
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import { JobPermissionNeedRepositoryPostgres } from './job-permission-need-repository.postgres.js';
 import {
   cancelPendingQuestionInteractionIfRunLeaseInactiveRow,
   createPendingInteractionRow,
@@ -42,7 +49,11 @@ export abstract class PostgresInteractionRepositoryMethods {
   protected constructor(
     protected readonly db: CanonicalDb,
     private readonly commandNotifier?: LiveTurnCommandNotifier,
-  ) {}
+  ) {
+    this.jobPermissionRepository = new JobPermissionNeedRepositoryPostgres(db);
+  }
+
+  private readonly jobPermissionRepository: JobPermissionNeedRepositoryPostgres;
 
   async createPendingInteraction(input: {
     id: string;
@@ -246,6 +257,7 @@ export abstract class PostgresInteractionRepositoryMethods {
         and(
           eq(table.appId, input.appId),
           eq(table.status, 'pending'),
+          inArray(table.kind, ['permission', 'question']),
           sql`${table.expiresAt} > ${now}`,
           input.runId ? eq(table.runId, input.runId) : undefined,
         ),
@@ -253,4 +265,108 @@ export abstract class PostgresInteractionRepositoryMethods {
       .orderBy(asc(table.createdAt));
     return rows.map(toPendingInteraction);
   }
+
+  async mutateJobPermissionState<T>(input: {
+    appId: string;
+    jobId: string;
+    initialCard: JobPermissionCardRecord;
+    mutate: (state: JobPermissionDurabilityState) => {
+      state: JobPermissionDurabilityState;
+      result: T;
+    };
+  }): Promise<T> {
+    return this.jobPermissionRepository.mutateJobPermissionState(input);
+  }
+
+  async listJobPermissionNeedsForReconciliation(
+    input: {
+      limit?: number;
+    } = {},
+  ): Promise<JobPermissionNeedRecord[]> {
+    return this.jobPermissionRepository.listJobPermissionNeedsForReconciliation(
+      input,
+    );
+  }
+
+  async listJobPermissionCardsForReconciliation(
+    input: { limit?: number } = {},
+  ): Promise<JobPermissionCardRecord[]> {
+    return this.jobPermissionRepository.listJobPermissionCardsForReconciliation(
+      input,
+    );
+  }
+
+  async getJobPermissionState(input: {
+    appId: string;
+    jobId: string;
+  }): Promise<JobPermissionDurabilityState | null> {
+    return this.jobPermissionRepository.getJobPermissionState(input);
+  }
+
+  async findJobPermissionStateByCallbackKey(input: {
+    callbackKey: string;
+  }): Promise<JobPermissionDurabilityState | null> {
+    return this.jobPermissionRepository.findJobPermissionStateByCallbackKey(
+      input,
+    );
+  }
+
+  async getJobPermissionCardDeliveryOutcome(input: {
+    appId: string;
+    deliveryId: string;
+  }): Promise<JobPermissionCardDeliveryOutcome | null> {
+    return this.jobPermissionRepository.getJobPermissionCardDeliveryOutcome(
+      input,
+    );
+  }
+}
+
+export function readJobPermissionCard(
+  value: unknown,
+): JobPermissionCardRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Partial<JobPermissionCardRecord>;
+  return record.schemaVersion === 1 &&
+    record.recordType === 'job_permission_card' &&
+    typeof record.id === 'string' &&
+    typeof record.appId === 'string' &&
+    typeof record.jobId === 'string' &&
+    typeof record.callbackKey === 'string' &&
+    typeof record.conversationId === 'string' &&
+    (typeof record.threadId === 'string' || record.threadId === null) &&
+    (typeof record.agentId === 'string' || record.agentId === null) &&
+    typeof record.currentProviderRevision === 'number' &&
+    typeof record.pageOffset === 'number' &&
+    (typeof record.fullScopeNeedId === 'string' ||
+      record.fullScopeNeedId === null) &&
+    (typeof record.fullScopeAskingEpoch === 'number' ||
+      record.fullScopeAskingEpoch === null) &&
+    typeof record.fullScopePageOffset === 'number' &&
+    Array.isArray(record.revisions) &&
+    Array.isArray(record.revisionDeliveries) &&
+    Array.isArray(record.pendingBudgets) &&
+    Array.isArray(record.rerunBarriers)
+    ? (structuredClone(record) as JobPermissionCardRecord)
+    : null;
+}
+
+export function readJobPermissionNeed(value: unknown): JobPermissionNeedRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Stored job permission need is malformed.');
+  }
+  const record = value as Partial<JobPermissionNeedRecord>;
+  if (
+    record.schemaVersion !== 1 ||
+    record.recordType !== 'job_permission_need' ||
+    typeof record.id !== 'string' ||
+    typeof record.appId !== 'string' ||
+    typeof record.jobId !== 'string' ||
+    typeof record.askingEpoch !== 'number' ||
+    !Array.isArray(record.renderedGrantAtoms) ||
+    !Array.isArray(record.requestSnapshots) ||
+    !Array.isArray(record.waiters)
+  ) {
+    throw new Error('Stored job permission need is malformed.');
+  }
+  return structuredClone(record) as JobPermissionNeedRecord;
 }

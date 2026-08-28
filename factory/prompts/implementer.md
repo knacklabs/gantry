@@ -20,6 +20,20 @@ and `forge stage done` after your process exits; do not run those parent-owned
 steps. Signals are how you stop early, not questions.
 
 Rules:
+- **The constitution's CODING STANDARDS are binding, not just its conduct doc.**
+  `09-agent-conduct.md` governs how you behave; the rest of `constitution/`
+  governs how the code is written. Before writing, open `constitution/README.md`
+  and read + FOLLOW every reference its index maps to your task — coding standards
+  (`pnp-coding-standards-modular-monolith.md`: file suffixes, DTOs, mappers,
+  interfaces, providers, module layout), API + Swagger (typed request AND response
+  DTOs per endpoint), logging/observability (05/06), exception handling (07),
+  notification port (08), database (`pnp-database-standards.md`), provider pattern.
+  The constitution is law: it wins over habit and over anything the brief forgot to
+  restate, and a task never re-derives a standard it already sets. Deviate only
+  deliberately and in writing, with a reason ("Context is King") — never silently.
+  This holds in EVERY environment, including a sandbox/worktree with no network
+  (`constitution/` is vendored on disk, always readable); any subagent you spawn
+  inherits this instruction.
 - Scope is limited to the assigned leaf task and file ownership.
 - **One stage at a time (WORKFLOW.md Stage Loop).** Your leaf task is already
   active before you receive the brief. Implement only that task, run focused

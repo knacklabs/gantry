@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildPermissionPromptParts,
+  formatPermissionPromptText,
+  formatPermissionPromptPartsText,
   PERMISSION_GLYPH,
 } from '@core/channels/permission-interaction.js';
 import {
@@ -36,6 +38,7 @@ describe('buildPermissionPromptParts', () => {
       'The agent cannot approve this itself.',
     );
     expect(parts.replyInMinutes).toBe(1);
+    expect(parts.waitsForDecision).toBe(false);
     expect(parts.fullView).toMatchObject({
       label: 'View full command',
       content: 'npm test',
@@ -385,6 +388,41 @@ describe('Telegram HTML rendering', () => {
     expect(html).not.toContain('<pre>npm test</pre>');
     expect(html).not.toContain('```');
     expect(html).toContain('<i>Reply in 1m</i>');
+  });
+
+  it('shows an open decision wait for scheduled jobs in text parts and Telegram HTML', () => {
+    const parts = buildPermissionPromptParts(
+      { ...commandRequest, jobId: 'job-1' },
+      60_000,
+    );
+
+    expect(parts.waitsForDecision).toBe(true);
+    expect(formatPermissionPromptPartsText(parts)).toContain(
+      'This request stays open until you decide.',
+    );
+    expect(formatPermissionPromptPartsText(parts)).not.toContain('Reply in');
+    expect(renderPermissionPromptHtml(parts)).toContain(
+      '<i>This request stays open until you decide.</i>',
+    );
+    expect(renderPermissionPromptHtml(parts)).not.toContain('Reply in');
+  });
+
+  it('shows an open decision wait for scheduled-job batch prompts', () => {
+    const request = {
+      ...commandRequest,
+      jobId: 'job-1',
+      permissionBatch: {
+        requestIds: ['permission_1', 'permission_2'],
+        rows: ['1. Read notes.md', '2. Run npm test'],
+      },
+    };
+
+    expect(formatPermissionPromptText(request, 60_000)).toContain(
+      'This request stays open until you decide.',
+    );
+    expect(formatPermissionPromptText(request, 60_000)).not.toContain(
+      'Reply in',
+    );
   });
 
   it('hides secrets and keeps shell metacharacters HTML-safe', () => {

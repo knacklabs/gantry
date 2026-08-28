@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-27T09:00:07+00:00", "story": "CHAN-1", "detail": "CHAN-1-T1 acceptance requires moving Teams, but its objective and approved plan explicitly exclude Teams as T2; clarify the authoritative scope before implementation."}

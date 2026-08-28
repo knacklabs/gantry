@@ -11,6 +11,7 @@ export interface CapabilityCatalogRenderDiagnostics {
 
 interface CatalogSectionCounts {
   readyActions: number;
+  requestableActions?: number;
   installedSkills: number;
   connectedMcpSources: number;
 }
@@ -24,6 +25,10 @@ export function renderCapabilityGuidancePrompt(input: {
   budget: number;
 }): { prompt: string; diagnostics: CapabilityCatalogRenderDiagnostics } {
   const readyActions = sortedCatalogEntries(input.catalog?.readyActions);
+  const requestableActions =
+    input.accessPreset === 'locked'
+      ? []
+      : sortedCatalogEntries(input.catalog?.requestableActions);
   const installedSkills = sortedCatalogEntries(input.catalog?.installedSkills);
   const connectedMcpSources = sortedCatalogEntries(
     input.catalog?.connectedMcpSources,
@@ -33,6 +38,9 @@ export function renderCapabilityGuidancePrompt(input: {
     'This is a read-only snapshot for this agent; execution policy still applies.',
     'Use a matching ready action or installed skill without waiting for the user to name it.',
   ];
+  const renderedRequestable = requestableActions.map(
+    renderRequestableCatalogEntry,
+  );
   const discovery = !input.mcpInventoryToolsMounted
     ? []
     : input.accessPreset === 'locked'
@@ -55,6 +63,9 @@ export function renderCapabilityGuidancePrompt(input: {
       '',
       'Ready actions',
       ...ready,
+      '',
+      'Requestable next-run actions',
+      ...(renderedRequestable.length > 0 ? renderedRequestable : ['- none']),
       '',
       'Installed skills',
       ...skills,
@@ -122,6 +133,9 @@ export function renderCapabilityGuidancePrompt(input: {
   });
   const renderedCounts = {
     readyActions: renderedEntryCount(renderedReady),
+    ...(requestableActions.length > 0
+      ? { requestableActions: requestableActions.length }
+      : {}),
     installedSkills: renderedEntryCount(renderedSkills),
     connectedMcpSources: renderedEntryCount(renderedSources),
   };
@@ -131,6 +145,7 @@ export function renderCapabilityGuidancePrompt(input: {
       rendered: renderedCounts,
       omitted: {
         readyActions: readyActions.length - renderedCounts.readyActions,
+        ...(requestableActions.length > 0 ? { requestableActions: 0 } : {}),
         installedSkills:
           installedSkills.length - renderedCounts.installedSkills,
         connectedMcpSources:
@@ -138,6 +153,17 @@ export function renderCapabilityGuidancePrompt(input: {
       },
     },
   };
+}
+
+function renderRequestableCatalogEntry(entry: CatalogEntry): string {
+  const identity = oneLine(entry.stableRef);
+  const displayName = oneLine(entry.displayName);
+  const description = oneLine(entry.description);
+  const target =
+    entry.kind === 'requestable_tool'
+      ? `target.kind=tool target.name="${identity}"`
+      : `target.kind=capability target.id="${identity}"`;
+  return `- ${identity} · ${displayName} — ${description} (${target})`;
 }
 
 function reserveConnectedSourcePresence(input: {

@@ -17,6 +17,7 @@ import {
   DEFAULT_AGENT_ENGINE,
   DEEPAGENTS_ENGINE,
 } from '../shared/agent-engine.js';
+import { unprojectedAccessIdentityFromActivityDetail } from '../shared/unprojected-access.js';
 
 export const FORWARDED_RUNNER_EVENT_TYPES = new Set<RuntimeEventType>([
   RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
@@ -50,6 +51,7 @@ export interface JobRunDiagnostics {
     recoveryAction?: string;
     allowedRule?: string;
   }>;
+  unprojectedPermissionGrants?: string[];
   startupDiagnostics: Record<string, unknown>[];
   latestStreamedOutputChars: number;
   totalStreamedOutputChars: number;
@@ -141,6 +143,7 @@ export function createJobRunDiagnostics(): JobRunDiagnostics {
     totalToolCalls: 0,
     browserActivityCount: 0,
     transientPermissionApprovals: [],
+    unprojectedPermissionGrants: [],
     startupDiagnostics: [],
     latestStreamedOutputChars: 0,
     totalStreamedOutputChars: 0,
@@ -185,6 +188,16 @@ export function updateDiagnosticsFromRuntimeEvent(
   }
   if (isBrowserToolActivity(payload)) {
     diagnostics.browserActivityCount += 1;
+  }
+  const unprojectedIdentity =
+    tool === 'request_access' && payload.family === 'capability'
+      ? unprojectedAccessIdentityFromActivityDetail(payload.detail)
+      : undefined;
+  if (
+    unprojectedIdentity &&
+    !diagnostics.unprojectedPermissionGrants?.includes(unprojectedIdentity)
+  ) {
+    (diagnostics.unprojectedPermissionGrants ??= []).push(unprojectedIdentity);
   }
   const mode = stringValue(payload.mode);
   const phase = stringValue(payload.phase);
@@ -358,6 +371,8 @@ export function terminalDiagnosticsPayload(
     pending_permission_count: diagnostics.pendingPermissionRequests,
     pending_permission_tools: diagnostics.pendingPermissionToolNames,
     transient_permission_approvals: diagnostics.transientPermissionApprovals,
+    unprojected_permission_grants:
+      diagnostics.unprojectedPermissionGrants ?? [],
     startup_diagnostics: diagnostics.startupDiagnostics,
     total_tool_calls: diagnostics.totalToolCalls,
     browser_activity_count: diagnostics.browserActivityCount,
@@ -507,59 +522,13 @@ function summarizeStartupDiagnosticValue(
   return undefined;
 }
 
+// Diagnostics only receive runner-forwarded activity; the gateway's
+// authoritative browser events bypass them, so the runner wrapper is the
+// sole browser signal here (no double count is possible).
 function isBrowserToolActivity(payload: Record<string, unknown>): boolean {
-  if (payload.ok !== true) return false;
-  const phase = stringValue(payload.phase);
-  if (phase !== 'browser_action') return false;
-  const publicTool = stringValue(payload.public_tool);
-  const action = stringValue(payload.action);
-  return isBrowserGatewayActivity(publicTool, action);
+  return payload.ok === true && payload.family === 'browser';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-const BROWSER_INSPECT_BACKEND_ACTIONS = new Set([
-  'tabs',
-  'snapshot',
-  'screenshot',
-  'console_messages',
-  'network_requests',
-]);
-
-const BROWSER_ACT_BACKEND_ACTIONS = new Set([
-  'navigate',
-  'back',
-  'tabs',
-  'click',
-  'type',
-  'wait_for',
-  'screenshot',
-  'evaluate',
-  'press_key',
-  'hover',
-  'drag',
-  'drop',
-  'select_option',
-  'fill_form',
-  'file_upload',
-  'file_attach',
-  'handle_dialog',
-  'resize',
-]);
-
-function isBrowserGatewayActivity(
-  publicTool: string | undefined,
-  action: string | undefined,
-): boolean {
-  if (publicTool === 'browser_open')
-    return action === 'open' || action === 'navigate';
-  if (publicTool === 'browser_inspect') {
-    return action ? BROWSER_INSPECT_BACKEND_ACTIONS.has(action) : false;
-  }
-  if (publicTool === 'browser_act') {
-    return action ? BROWSER_ACT_BACKEND_ACTIONS.has(action) : false;
-  }
-  return false;
 }

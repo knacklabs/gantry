@@ -49,11 +49,9 @@ import { renderSlackRichInteraction } from './rich-interaction.js';
 import { addSlackReaction, removeSlackReaction } from './reactions.js';
 import { requestSlackUserAnswer } from './user-question-delivery.js';
 import { historyCoverageInboundCallbacks } from '../conversation-history-coverage-lifecycle.js';
-import {
-  uploadSlackTextFallback,
-  type SlackSnippetFallbackInput,
-  type SlackSnippetFallbackResult,
-} from './file-delivery.js';
+import { slackMessageActionBlocks } from './message-action-affordances.js';
+import { sendSlackSnippetFallback } from './extracted-helpers.js';
+import type { SlackSnippetFallbackInput } from './file-delivery.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
@@ -61,30 +59,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   protected interactionCallbacksEnabled = true;
   private deactivateHistoryCoverageInbound: (() => void) | null = null;
   private readonly reactionKeys = new Set<string>();
-  protected async sendSnippetFallback(
-    input: SlackSnippetFallbackInput,
-  ): Promise<SlackSnippetFallbackResult | null> {
-    if (!this.app) return null;
-    try {
-      const uploaded = await uploadSlackTextFallback({
-        app: this.app,
-        channelId: input.channelId,
-        text: input.text,
-        threadTs: input.threadId,
-      });
-      return {
-        fallbackArtifactId: uploaded.fileId,
-        ...(uploaded.externalMessageId
-          ? { externalMessageId: uploaded.externalMessageId }
-          : {}),
-      };
-    } catch (error) {
-      logger.warn(
-        { channelId: input.channelId, reason: input.reason, error },
-        'Slack snippet fallback upload failed; using split text delivery',
-      );
-      return null;
-    }
+  protected sendSnippetFallback(input: SlackSnippetFallbackInput) {
+    return sendSlackSnippetFallback({ app: this.app, ...input });
   }
   async connect(
     options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
@@ -124,12 +100,36 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
+    const formattedText = formatOutboundForChannel(text, 'slack');
+    if (options.replaceMessageId) {
+      const blocks = slackMessageActionBlocks(
+        formattedText,
+        options.actionAffordances,
+        {
+          providerAccountId:
+            options.providerAccountId ?? this.opts.providerAccountId,
+        },
+      );
+      const updated = (await this.app.client.chat.update({
+        channel: parsed.channelId,
+        ts: options.replaceMessageId,
+        text: formattedText,
+        blocks: (blocks ?? []) as any,
+      })) as { ts?: string };
+      const messageId = updated.ts ?? options.replaceMessageId;
+      return {
+        externalMessageId: messageId,
+        externalMessageIds: [messageId],
+        deliveredParts: 1,
+        totalParts: 1,
+      };
+    }
 
     return sendSlackMessage({
       app: this.app,
       jid,
       channelId: parsed.channelId,
-      formattedText: formatOutboundForChannel(text, 'slack'),
+      formattedText,
       options: {
         ...options,
         providerAccountId:

@@ -18,24 +18,68 @@ FORGE_SCRIPT="$HERE/factory/scripts/forge.py"
   exit 1
 }
 
-if command -v py >/dev/null 2>&1 &&
-   py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
-     >/dev/null 2>&1; then
-  exec py -3 "$FORGE_SCRIPT" "$@"
+# Pick a Python >= 3.10, skipping Windows Store "App Execution Alias" stubs
+# under .../Microsoft/WindowsApps/. Launched through such a stub, Python (and
+# its whole child-process tree) runs inside an MSIX sandbox whose view of
+# %APPDATA%\npm is a stale snapshot, so npm-global CLIs installed later (codex,
+# ...) become invisible to forge and everything it spawns. This filter only
+# ever matches on Windows; on Linux/macOS no path contains WindowsApps and the
+# behaviour is identical to a plain command lookup.
+FORGE_PY=""
+FORGE_PY_ARG=""
+
+_forge_py_ge_310() {  # $1 = interpreter, $2 = optional first arg (e.g. -3)
+  if [ -n "${2:-}" ]; then
+    "$1" "$2" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+  else
+    "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+  fi
+}
+
+# First choice: the usual names, as long as they do not resolve to a Store alias.
+for _forge_spec in "py|-3" "python3|" "python|"; do
+  _forge_name=${_forge_spec%%|*}
+  _forge_arg=${_forge_spec#*|}
+  _forge_path=$(command -v "$_forge_name" 2>/dev/null) || continue
+  case "$_forge_path" in */WindowsApps/*|*/windowsapps/*) continue ;; esac
+  if _forge_py_ge_310 "$_forge_name" "$_forge_arg"; then
+    FORGE_PY=$_forge_name
+    FORGE_PY_ARG=$_forge_arg
+    break
+  fi
+done
+
+# Fallback: a Store alias shadows the real interpreter on PATH. Scan PATH for a
+# non-aliased python that satisfies the version floor.
+if [ -z "$FORGE_PY" ]; then
+  _forge_oldIFS=$IFS
+  IFS=:
+  for _forge_dir in $PATH; do
+    [ -n "$_forge_dir" ] || continue
+    case "$_forge_dir" in */WindowsApps|*/windowsapps) continue ;; esac
+    for _forge_leaf in python3 python python3.exe python.exe; do
+      _forge_cand="$_forge_dir/$_forge_leaf"
+      case "$_forge_cand" in */WindowsApps/*|*/windowsapps/*) continue ;; esac
+      [ -f "$_forge_cand" ] || continue
+      if _forge_py_ge_310 "$_forge_cand" ""; then
+        FORGE_PY=$_forge_cand
+        FORGE_PY_ARG=""
+        break
+      fi
+    done
+    [ -n "$FORGE_PY" ] && break
+  done
+  IFS=$_forge_oldIFS
 fi
 
-if command -v python3 >/dev/null 2>&1 &&
-   python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
-     >/dev/null 2>&1; then
-  exec python3 "$FORGE_SCRIPT" "$@"
-fi
-
-if command -v python >/dev/null 2>&1 &&
-   python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' \
-     >/dev/null 2>&1; then
-  exec python "$FORGE_SCRIPT" "$@"
+if [ -n "$FORGE_PY" ]; then
+  if [ -n "$FORGE_PY_ARG" ]; then
+    exec "$FORGE_PY" "$FORGE_PY_ARG" "$FORGE_SCRIPT" "$@"
+  fi
+  exec "$FORGE_PY" "$FORGE_SCRIPT" "$@"
 fi
 
 echo "[FAIL] Python 3.10 or newer was not found." >&2
-echo "Install Python 3 and ensure py -3, python3, or python is available." >&2
+echo "Install Python 3 and ensure py -3, python3, or python is available" >&2
+echo "(not the Microsoft Store App Execution Alias stubs)." >&2
 exit 2

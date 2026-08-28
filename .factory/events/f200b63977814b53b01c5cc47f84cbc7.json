@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T15:51:25+00:00", "story": "JOBPERM-1", "detail": "S-0012-3dd9: Proofs 3/3 (orchestrator-run). BUT the stage CANNOT close: inspection shows the four REVIEW FIXES REQUIRED in the task plan are largely unimplemented \u2014 no revision-bound paging action (fix 2), no dura"}

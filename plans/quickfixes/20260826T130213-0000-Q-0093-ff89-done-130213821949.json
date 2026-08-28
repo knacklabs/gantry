@@ -1,0 +1,159 @@
+{
+  "event": "done",
+  "id": "Q-0093-ff89",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Make the Outcome contract stick: append one trailing paragraph to every scheduled run's prompt (system jobs excluded, idempotent) so the final message begins with 'Outcome: <one sentence>' and the notice headline renders; the profile-guidance bullet alone was ignored on the first live run. Scope: new jobs/job-run-prompt.ts, execution.ts call site, tests.",
+  "base_sha": "72765aea79352a9003ea35ed2bf804c167ce33f1",
+  "started_at": "2026-08-26T12:42:29+00:00",
+  "completed_at": "2026-08-26T13:02:13+00:00",
+  "files": [
+    "apps/core/src/jobs/execution.ts",
+    "apps/core/src/jobs/job-run-prompt.ts",
+    "apps/core/test/unit/jobs/execution.test.ts",
+    "apps/core/test/unit/jobs/job-run-prompt.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/job-run-prompt.ts",
+        "apps/core/src/jobs/execution.ts",
+        "apps/core/test/unit/jobs/job-run-prompt.test.ts",
+        "apps/core/test/unit/jobs/execution.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Headline still depends on the model honoring the trailing contract; first live run pending"
+      ],
+      "summary": "Outcome contract placed where the model reliably reads it. Lite window Q-0093 (base 72765aea -> HEAD): every scheduled run's prompt ends with the Outcome contract (additive, idempotent by ends-with, system jobs excluded) so the notice headline renders; the profile bullet alone was ignored on live run 4e1f2de0. Proof: jobs suite 66/719 green, tsc, architecture, verify.py passed; autoreview 2 rounds (2 findings fixed: ends-with idempotency, no trimming), final clean.",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "e068c33fcb57f4cceb9e1d8292b0a921278b8597073d918edcb525dfdcb49324",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "3f4588121c0252aa50ff94e8b9a824eb070eb2c25fc93ee38eceb37b716e9b5a",
+      "recorded_at": "2026-08-26T13:02:13+00:00",
+      "commit": "2c5d33addd9eca471aa426018d30ecb42997302e"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/job-run-prompt.ts",
+        "apps/core/src/jobs/execution.ts",
+        "apps/core/test/unit/jobs/job-run-prompt.test.ts",
+        "apps/core/test/unit/jobs/execution.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Headline still depends on the model honoring the trailing contract; first live run pending"
+      ],
+      "summary": "One short paragraph added to the run prompt. Lite window Q-0093 (base 72765aea -> HEAD): every scheduled run's prompt ends with the Outcome contract (additive, idempotent by ends-with, system jobs excluded) so the notice headline renders; the profile bullet alone was ignored on live run 4e1f2de0. Proof: jobs suite 66/719 green, tsc, architecture, verify.py passed; autoreview 2 rounds (2 findings fixed: ends-with idempotency, no trimming), final clean.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "e068c33fcb57f4cceb9e1d8292b0a921278b8597073d918edcb525dfdcb49324",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "3f4588121c0252aa50ff94e8b9a824eb070eb2c25fc93ee38eceb37b716e9b5a",
+      "recorded_at": "2026-08-26T13:02:13+00:00",
+      "commit": "2c5d33addd9eca471aa426018d30ecb42997302e"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 8,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/job-run-prompt.ts",
+        "apps/core/src/jobs/execution.ts",
+        "apps/core/test/unit/jobs/job-run-prompt.test.ts",
+        "apps/core/test/unit/jobs/execution.test.ts"
+      ],
+      "recommendation": "approve-with-caveats",
+      "residual_risks": [
+        "Headline still depends on the model honoring the trailing contract; first live run pending"
+      ],
+      "summary": "Additive plain text at the end of the prompt; original instructions untouched. Lite window Q-0093 (base 72765aea -> HEAD): every scheduled run's prompt ends with the Outcome contract (additive, idempotent by ends-with, system jobs excluded) so the notice headline renders; the profile bullet alone was ignored on live run 4e1f2de0. Proof: jobs suite 66/719 green, tsc, architecture, verify.py passed; autoreview 2 rounds (2 findings fixed: ends-with idempotency, no trimming), final clean.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "e068c33fcb57f4cceb9e1d8292b0a921278b8597073d918edcb525dfdcb49324",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "3f4588121c0252aa50ff94e8b9a824eb070eb2c25fc93ee38eceb37b716e9b5a",
+      "recorded_at": "2026-08-26T13:02:13+00:00",
+      "commit": "2c5d33addd9eca471aa426018d30ecb42997302e"
+    }
+  }
+}

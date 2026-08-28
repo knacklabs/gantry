@@ -2,26 +2,44 @@
 
 For each contract, emit a verdict — implemented | partial | missing — with file:line evidence, recorded as contract_verdicts in the quality artifact. Then review the diff normally; the contract check does not replace the quality/performance/security lenses.
 
-## Task WEB-BRAND-1-1
+## Task JOBPERM-2-T1
 
 ### Plan contracts
 
-- **auth-mark**
-  - Source: plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria
-  - Statement: Auth pages use a 28px bronze #C0985F canonical mark beside the existing uppercase GANTRY wordmark, with no bordered G badge.
-- **sidebar-mark**
-  - Source: plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria
-  - Statement: The sidebar uses a 24px --ink canonical mark beside the existing Gantry label and remains legible in both themes.
-- **browser-assets**
-  - Source: plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria
-  - Statement: Browser icons use a dark #1B1A18 tile with an off-white #F7F6F4 mark: an SVG favicon and one 180 by 180 touch icon served under /ui/.
-- **preserve-ui**
-  - Source: plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria
-  - Statement: Existing auth copy, routes, navigation labels, page title, layout, and Google sign-in treatment do not change.
-- **no-extra-surface**
-  - Source: plans/active/WEB-BRAND-1-gantry-web-console-logo-assets.md#Acceptance Criteria
-  - Statement: No PWA manifest, unused icon sizes, external image request, duplicate wordmark image, new dependency, API, schema, persistence, configuration, or runtime behavior is added.
+- **JOBPERM-2-AC1**
+  - Source: plans/active/JOBPERM-2-job-permissions-one-card-path-with-rule-once-grants.md#acceptance-criteria
+  - Statement: a job-run request with no persistable rule creates a `once` need row and a card revision with Allow / Deny; no classic prompt is sent and the job-only cancel-only option rewrite no longer exists.
+- **JOBPERM-2-AC2**
+  - Source: plans/active/JOBPERM-2-job-permissions-one-card-path-with-rule-once-grants.md#acceptance-criteria
+  - Statement: Allow on a `once` row replays a signed `allow_once` to the runner, writes no rule, and the held tool call resumes; Deny denies; the card settles and logs delivery as today.
+- **JOBPERM-2-AC3**
+  - Source: plans/active/JOBPERM-2-job-permissions-one-card-path-with-rule-once-grants.md#acceptance-criteria
+  - Statement: `rule` rows behave exactly as before (rule write + replay); existing rows without a mode read as `rule`.
+- **JOBPERM-2-AC4**
+  - Source: plans/active/JOBPERM-2-job-permissions-one-card-path-with-rule-once-grants.md#acceptance-criteria
+  - Statement: a job attach failure denies the tool call with a logged plain reason instead of falling through to the chat prompt.
 
 ### Reviewer focus
 
-Verify the mark geometry and colors match the approved concept, auth/sidebar text and Google sign-in behavior are unchanged, assets resolve below the /ui/ Vite base without external requests, and no runtime/API/schema/config/PWA surface or new dependency is introduced.
+- a once Allow never writes a rule (0134) and replays a signed allow_once the runner accepts
+- reconciler apply/handoff guards no longer treat an empty atom set as nothing-to-apply
+- absent grant reads as rule; existing rule rows unchanged
+- IPC job branch never reaches the classic requester; failure denies with a reason and a log line
+- buttons remain exactly Allow / Deny; provider renderers untouched
+
+## Task JOBPERM-2-T2
+
+### Plan contracts
+
+- **JOBPERM-2-AC5**
+  - Source: plans/active/JOBPERM-2-job-permissions-one-card-path-with-rule-once-grants.md#acceptance-criteria
+  - Statement: a `once` row whose run ended before a decision settles as expired with copy "Expired — the run ended before a decision; it will ask again next run" and never becomes durable authority.
+- **JOBPERM-2-AC2-INT**
+  - Source: plans/active/JOBPERM-2-job-permissions-one-card-path-with-rule-once-grants.md#verify-plan
+  - Statement: Postgres integration proof: a signed scheduled once-card attach → Allow → `allow_once` replay with no rule written (permission-decision-chain suite).
+
+### Reviewer focus
+
+- an expired once row never replays and never persists a rule
+- expired copy renders on the card; rule rows untouched
+- integration test drives attach → Allow → signed allow_once replay with no rule row written

@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-27T18:36:55+00:00", "story": "JOBPERM-2", "detail": "JOBPERM-2-T1 stage proof is blocked: the exact required VITEST_JUNIT command is policy-refused before launch, while the direct leaf test passes; the full unit lane also remained silent without a summa"}

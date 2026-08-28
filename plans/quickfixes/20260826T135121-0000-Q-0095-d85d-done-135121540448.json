@@ -1,0 +1,151 @@
+{
+  "event": "done",
+  "id": "Q-0095-d85d",
+  "profile": "lite",
+  "by": "Ravi Kiran Vemula",
+  "reason": "Q-0095: rollup label for surplus wrapper browser failures says the call never reached the browser; live run 7f3ec256 proves it is the runner timing out",
+  "base_sha": "c2496d92d55d6057c8114e727363b40b7877f04f",
+  "started_at": "2026-08-26T13:43:17+00:00",
+  "completed_at": "2026-08-26T13:51:21+00:00",
+  "files": [
+    "apps/core/src/jobs/job-notification-tool-rollup.ts",
+    "apps/core/test/unit/jobs/status-formatting.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/job-notification-tool-rollup.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "Wrapper transport failures other than timeout share the label"
+      ],
+      "summary": "Label now matches the only real producer; logic untouched. Lite window Q-0095 (base c2496d92 -> HEAD 47f55af5f): rollup label for surplus wrapper browser failures renamed to 'Browser: no reply in time' (run 7f3ec256 proved the surplus is the runner's 120 s timeout, not a pre-dispatch failure). Proof: status-formatting suite 27/27, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "contract_verdicts": [
+        {
+          "contract_id": "JP1-T1-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T1-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T2-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C1",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C2",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C3",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C4",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        },
+        {
+          "contract_id": "JP1-T3-C5",
+          "verdict": "implemented",
+          "evidence": "branch-level closeout evidence at 4f841f769 (PR_READY); Q-0093 is run-prompt composition only; verify.py Verification passed at HEAD"
+        }
+      ],
+      "aspect": "quality",
+      "review_run_id": "35b2dcd61ccd80281037f35879f4c4af15ae7017974c1ad90fde34e83b8d2eea",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "bb37bbce175227f508a2d8e0e3875e443077b11f60656e2632f37b395d0a423e",
+      "recorded_at": "2026-08-26T13:46:34+00:00",
+      "commit": "47f55af5f93fc60ca9a135c6178884599766d095"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/job-notification-tool-rollup.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "Wrapper transport failures other than timeout share the label"
+      ],
+      "summary": "String constant change only. Lite window Q-0095 (base c2496d92 -> HEAD 47f55af5f): rollup label for surplus wrapper browser failures renamed to 'Browser: no reply in time' (run 7f3ec256 proved the surplus is the runner's 120 s timeout, not a pre-dispatch failure). Proof: status-formatting suite 27/27, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "performance",
+      "review_run_id": "35b2dcd61ccd80281037f35879f4c4af15ae7017974c1ad90fde34e83b8d2eea",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "bb37bbce175227f508a2d8e0e3875e443077b11f60656e2632f37b395d0a423e",
+      "recorded_at": "2026-08-26T13:46:35+00:00",
+      "commit": "47f55af5f93fc60ca9a135c6178884599766d095"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 10,
+      "blocking_findings": [],
+      "reviewed_scope": [
+        "apps/core/src/jobs/job-notification-tool-rollup.ts",
+        "apps/core/test/unit/jobs/status-formatting.test.ts"
+      ],
+      "recommendation": "approve",
+      "residual_risks": [
+        "Wrapper transport failures other than timeout share the label"
+      ],
+      "summary": "No trust-boundary or IO change. Lite window Q-0095 (base c2496d92 -> HEAD 47f55af5f): rollup label for surplus wrapper browser failures renamed to 'Browser: no reply in time' (run 7f3ec256 proved the surplus is the runner's 120 s timeout, not a pre-dispatch failure). Proof: status-formatting suite 27/27, tsc; autoreview clean first pass.",
+      "non_blocking_findings": [],
+      "aspect": "security",
+      "review_run_id": "35b2dcd61ccd80281037f35879f4c4af15ae7017974c1ad90fde34e83b8d2eea",
+      "brief_sha256": "e44a12984743d31619e9c5d6f4321f612e3753762edce40ac52a1106c75079c9",
+      "branch_diff_digest": "bb37bbce175227f508a2d8e0e3875e443077b11f60656e2632f37b395d0a423e",
+      "recorded_at": "2026-08-26T13:46:35+00:00",
+      "commit": "47f55af5f93fc60ca9a135c6178884599766d095"
+    }
+  }
+}

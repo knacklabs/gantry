@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { buildReviewMessageView } from '@core/memory/review-message-view.js';
 import { slackReviewMessageBlocks } from '@core/channels/slack/message-action-affordances.js';
 import { telegramReviewMessage } from '@core/channels/telegram/message-action-affordances.js';
-import { teamsReviewCard } from '@core/channels/teams-cards.js';
+import { teamsReviewCard } from '@core/channels/teams/cards.js';
 import type {
   MemoryLifecycleProposal,
   MemoryReviewRecord,

@@ -181,6 +181,18 @@ async function resolvePermissionIpcDecisionTail(input: {
   railApprovalReason?: string;
   hostJobId?: string;
 }): Promise<PermissionApprovalDecision> {
+  const route = input.request.targetJid
+    ? findConversationRouteForQueue(
+        input.deps.conversationRoutes?.() ?? {},
+        makeAgentThreadQueueKey(
+          input.request.targetJid,
+          agentIdForFolder(input.sourceAgentFolder),
+          input.request.threadId,
+          input.request.providerAccountId,
+        ),
+        (candidate) => agentIdForFolder(candidate.folder),
+      )
+    : undefined;
   if (input.hostJobId) {
     // Only trusted host-derived rail risk may ride an autonomous denial into
     // the decision/audit path; without one, strip the worker-supplied fields
@@ -196,30 +208,15 @@ async function resolvePermissionIpcDecisionTail(input: {
       delete input.request.risk_level;
       delete input.request.risk_category;
     }
-    const reason = `Autonomous runs decide deterministically: ${input.request.toolName} has no declared grant.`;
-    input.request.decisionReason = reason;
-    return withRequestRisk(input.request, {
-      ...decisionForMode(
-        input.request,
-        'cancel',
-        'deterministic_rails',
-        'machine',
-      ),
-      reason,
-    });
+    if (!route) {
+      const reason = `Autonomous permission approval is unavailable: ${input.request.toolName} has no deliverable approver route.`;
+      input.request.decisionReason = reason;
+      return withRequestRisk(input.request, {
+        ...decisionForMode(input.request, 'cancel', 'runtime', 'machine'),
+        reason,
+      });
+    }
   }
-  const route = input.request.targetJid
-    ? findConversationRouteForQueue(
-        input.deps.conversationRoutes?.() ?? {},
-        makeAgentThreadQueueKey(
-          input.request.targetJid,
-          agentIdForFolder(input.sourceAgentFolder),
-          input.request.threadId,
-          input.request.providerAccountId,
-        ),
-        (candidate) => agentIdForFolder(candidate.folder),
-      )
-    : undefined;
   const settings = input.deps.getPermissionRuntimeSettings?.();
   const approvedCapabilityIds =
     (
@@ -249,6 +246,7 @@ async function resolvePermissionIpcDecisionTail(input: {
     ? { repository: promotionRepository }
     : undefined;
   const shouldConsultClassifier =
+    !input.hostJobId &&
     input.deps.publishRuntimeEvent &&
     classifierConfig &&
     (permissionMode === 'auto' || permissionMode === 'auto_strict');
@@ -383,6 +381,7 @@ async function resolvePermissionIpcDecisionTail(input: {
     );
   }
   if (
+    !input.hostJobId &&
     (permissionMode === 'auto' || permissionMode === 'auto_strict') &&
     input.request.unattended
   ) {
@@ -430,7 +429,7 @@ async function resolvePermissionIpcDecisionTail(input: {
   input.request.promotionHintCount = promotionHint?.promotionHintCount;
   input.request.firstAskedAt = promotionHint?.firstAskedAt;
   const effectiveDecisionOptions = input.request.decisionOptions?.length
-    ? input.request.decisionOptions
+    ? [...input.request.decisionOptions]
     : firstPersistentRule(input.request)
       ? ['allow_once', 'allow_persistent_rule', 'cancel']
       : ['allow_once', 'cancel'];

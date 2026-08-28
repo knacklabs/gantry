@@ -50,7 +50,7 @@ permission *decision* simplification in `permission-simplification-goal-prompt.m
 The "recover a permission decision after channel restart" protocol is
 byte-duplicated per provider, including a decision-reconstruction fn and a
 claim-equality fn, and re-implements the shared `samePermissionClaim`:
-- `apps/core/src/channels/discord-permission-callback.ts:100-219` (+ `recoveredDiscordPermissionDecision:205-219`)
+- `apps/core/src/channels/discord/permission-callback.ts:100-219` (+ `recoveredDiscordPermissionDecision:205-219`)
 - `apps/core/src/channels/telegram/permission-callback.ts:62-187` (+ `recoveredTelegramPermissionDecision:243-257`)
 - `apps/core/src/channels/slack/channel-interactions.ts:~310-389` (+ `recoveredSlackPermissionDecision:636-654`, `samePermissionCallback:623-634`)
 - `apps/core/src/channels/teams-interaction-handlers.ts:~250-291` (+ `recoveredTeamsPermissionDecision:546-564`, `sameTeamsPermissionCallback:533-544`)

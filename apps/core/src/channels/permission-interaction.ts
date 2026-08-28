@@ -50,6 +50,7 @@ import {
   sanitizePermissionText,
   sanitizeReceiptDetail,
 } from './permission-text-sanitizer.js';
+import { permissionPromptWaitLine } from './permission-prompt-wait-line.js';
 import {
   decisionForPermissionInteraction,
   buildPermissionBatchPromptParts,
@@ -124,7 +125,7 @@ export function formatPermissionPromptText(
       `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
     );
   lines.push('', ...formatPermissionContextLines(request));
-  lines.push(`Reply in ${timeoutMinutes}m`);
+  lines.push(permissionPromptWaitLine(Boolean(request.jobId), timeoutMinutes));
   return limitPermissionMessage(lines.join('\n'));
 }
 
@@ -182,6 +183,7 @@ export interface PermissionPromptParts {
   bodyLines: string[];
   contextLines: string[];
   replyInMinutes: number;
+  waitsForDecision: boolean;
   fullView?: PermissionPromptFullView;
 }
 
@@ -190,7 +192,8 @@ export function buildPermissionPromptParts(
   timeoutMs: number,
 ): PermissionPromptParts {
   const batchParts = buildPermissionBatchPromptParts(request, timeoutMs);
-  if (batchParts) return batchParts;
+  const waitsForDecision = Boolean(request.jobId);
+  if (batchParts) return { ...batchParts, waitsForDecision };
   const replyInMinutes = Math.max(1, Math.round(timeoutMs / 60000));
   const contextLines = formatPermissionContextLines(request);
   const fullView = buildPermissionPromptFullView(request);
@@ -200,7 +203,12 @@ export function buildPermissionPromptParts(
     fullView,
     sanitize: sanitizePermissionText,
   });
-  if (amendmentParts) return amendmentParts as PermissionPromptParts;
+  if (amendmentParts) {
+    return {
+      ...(amendmentParts as Omit<PermissionPromptParts, 'waitsForDecision'>),
+      waitsForDecision,
+    };
+  }
   if (request.interaction) {
     const interaction = request.interaction;
     const rule = firstPersistentRule(request);
@@ -244,6 +252,7 @@ export function buildPermissionPromptParts(
       bodyLines: fullView ? stripFullPayloadBodyLines(bodyLines) : bodyLines,
       contextLines,
       replyInMinutes,
+      waitsForDecision,
       fullView,
     };
   }
@@ -271,6 +280,7 @@ export function buildPermissionPromptParts(
       bodyLines,
       contextLines,
       replyInMinutes,
+      waitsForDecision,
       fullView,
     };
   }
@@ -291,6 +301,7 @@ export function buildPermissionPromptParts(
     bodyLines: fullView ? stripFullPayloadBodyLines(bodyLines) : bodyLines,
     contextLines,
     replyInMinutes,
+    waitsForDecision,
     fullView,
   };
 }
@@ -301,7 +312,9 @@ export function formatPermissionPromptPartsText(
   const lines = [`${PERMISSION_GLYPH} ${parts.title}`];
   if (parts.bodyLines.length > 0) lines.push('', ...parts.bodyLines);
   if (parts.contextLines.length > 0) lines.push('', ...parts.contextLines);
-  lines.push(`Reply in ${parts.replyInMinutes}m`);
+  lines.push(
+    permissionPromptWaitLine(parts.waitsForDecision, parts.replyInMinutes),
+  );
   return limitPermissionMessage(lines.join('\n'));
 }
 
@@ -426,7 +439,7 @@ function formatInteractionPermissionPrompt(
     );
   }
   lines.push('', ...formatPermissionContextLines(request));
-  lines.push(`Reply in ${timeoutMinutes}m`);
+  lines.push(permissionPromptWaitLine(Boolean(request.jobId), timeoutMinutes));
   return limitPermissionMessage(
     lines.join('\n'),
     budget ??
@@ -462,7 +475,7 @@ function formatSemanticPermissionPrompt(
   const networkLine = semanticCapabilityNetworkLine(definition);
   if (networkLine) lines.push(networkLine);
   lines.push('', ...formatPermissionContextLines(request));
-  lines.push(`Reply in ${timeoutMinutes}m`);
+  lines.push(permissionPromptWaitLine(Boolean(request.jobId), timeoutMinutes));
   return limitPermissionMessage(lines.join('\n'));
 }
 

@@ -1,0 +1,11 @@
+{
+  "topic": "vitest-emfile-watcher",
+  "lesson": "A focused Vitest selector can complete its test but still exit 1 when the macOS watcher hits EMFILE; treat this as blocked verification and rerun with the canonical wrapper or a watcher-safe environment.",
+  "source": "JOBPERM-1-T1 test run",
+  "applies_to": [
+    "apps/core/test/**/*.test.ts"
+  ],
+  "severity": "medium",
+  "generated_by": "implementer",
+  "added_at": "2026-08-23T12:00:14+00:00"
+}

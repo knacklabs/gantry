@@ -19,8 +19,8 @@ import type { ChannelWiringDeps } from '@core/app/bootstrap/channel-wiring-types
 import type { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
 import { ingestSlackMessage } from '@core/channels/slack/channel-message-ingest.js';
-import { TeamsChannel } from '@core/channels/teams.js';
-import type { TeamsSdkClient } from '@core/channels/teams-types.js';
+import { TeamsChannel } from '@core/channels/teams/index.js';
+import type { TeamsSdkClient } from '@core/channels/teams/types.js';
 import { handleTelegramTextMessage } from '@core/channels/telegram/text-message-handler.js';
 import type { ConversationRoute } from '@core/domain/types.js';
 import {

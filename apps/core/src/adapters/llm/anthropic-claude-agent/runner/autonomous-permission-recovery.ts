@@ -27,7 +27,11 @@ export function denyNonPromptableAutonomousRecovery(input: {
     instruction: input.recoveryAction ?? input.toolPolicyReason,
   });
   if (action.kind === 'approve_grant') return undefined;
-  const message = `Tool not on autonomous run allowlist: ${input.toolName}. ${input.recoveryMessage}`;
+  const detail = truthfulAutonomousDenialDetail({
+    denialReason: input.toolPolicyReason,
+    recoveryMessage: input.recoveryMessage,
+  });
+  const message = `Tool not on autonomous run allowlist: ${input.toolName}. ${detail}`;
   log(`Autonomous run denied tool ${input.toolName}: ${message}`);
   emitToolActivity(
     input.agentInput,
@@ -46,6 +50,21 @@ export function denyNonPromptableAutonomousRecovery(input: {
     },
   );
   return { behavior: 'deny', message, interrupt: true };
+}
+
+export function truthfulAutonomousDenialDetail(input: {
+  denialReason: string;
+  recoveryMessage: string;
+}): string {
+  const denialReason = input.denialReason.trim();
+  const recoveryMessage = input.recoveryMessage.trim();
+  if (!recoveryMessage || /^Allowed by\b/.test(recoveryMessage)) {
+    return denialReason;
+  }
+  if (!denialReason || recoveryMessage.includes(denialReason)) {
+    return recoveryMessage;
+  }
+  return `${denialReason} ${recoveryMessage}`;
 }
 
 export function autonomousDenialSetupAction(input: {

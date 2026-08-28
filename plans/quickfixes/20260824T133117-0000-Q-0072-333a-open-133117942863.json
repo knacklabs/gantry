@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0072-333a",
+  "profile": "lite",
+  "reason": "Live-incident fix round: telegram job-permission card sent plain text with no buttons in a re-send loop (3 defects, quarantined branch).",
+  "started_at": "2026-08-24T13:31:17+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "e06dcbe4c7a4904adda16ff4a464b651eef470a8"
+}

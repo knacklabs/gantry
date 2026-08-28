@@ -14,6 +14,7 @@ import {
   parseBashCommand,
   wildcardSensitiveBashLeafReason,
 } from './bash-command-parser.js';
+import { isRemoteContentExecutionBashCommand } from './remote-content-execution.js';
 import {
   BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON,
   isCanonicalBrowserCapabilityRule,
@@ -71,6 +72,26 @@ export const DURABLE_GRANT_EXCLUDED_DISPATCHER_REJECTION_REASON =
 
 export const DELEGATION_DISPATCHER_REJECTION_REASON =
   "Gantry delegation dispatchers cannot be granted persistent access because an exact grant cannot bound the tools or commands used by another agent's delegated work; review each delegation or steering request explicitly.";
+
+export const REMOTE_CONTENT_EXECUTION_REFORMULATION_MESSAGE =
+  'Remote-content execution cannot be permanently approved because piped, inline, redirected, mutable, or unreviewed bytes can change between runs. Reformulate the work into separately grantable operations, or use a reviewed capability bound to an artifact digest.';
+
+export interface DurableAccessReformulationResult {
+  kind: 'reformulation_required';
+  code: 'remote_content_execution';
+  message: typeof REMOTE_CONTENT_EXECUTION_REFORMULATION_MESSAGE;
+}
+
+export function remoteContentExecutionReformulation(
+  command: string,
+): DurableAccessReformulationResult | undefined {
+  if (!isRemoteContentExecutionBashCommand(command)) return undefined;
+  return {
+    kind: 'reformulation_required',
+    code: 'remote_content_execution',
+    message: REMOTE_CONTENT_EXECUTION_REFORMULATION_MESSAGE,
+  };
+}
 
 export interface DurableAccessRuleOptions {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
@@ -146,6 +167,10 @@ export function validateDurableAccessRule(
           'Persistent RunCommand rules cannot reference generated runtime paths; use a reviewed stable capability or let Gantry-owned runtime scratch reads stay internal.',
       };
     }
+    const reformulation = remoteContentExecutionReformulation(scoped.scope);
+    if (reformulation && !parseBashCommand(scoped.scope).ok) {
+      return { ok: false, reason: reformulation.message };
+    }
   }
 
   const readableValidation = validateReadableAgentToolRule(trimmed);
@@ -181,6 +206,10 @@ export function validateDurableAccessRule(
       .map(nonDurableBashLeafReason)
       .find((reason): reason is string => Boolean(reason));
     if (nonDurableReason) return { ok: false, reason: nonDurableReason };
+    const reformulation = remoteContentExecutionReformulation(scoped.scope);
+    if (reformulation) {
+      return { ok: false, reason: reformulation.message };
+    }
     const wildcardSensitiveReason = parsed.leaves
       .map((leaf) => wildcardSensitiveBashLeafReason(leaf, scoped.scope))
       .find((reason): reason is string => Boolean(reason));

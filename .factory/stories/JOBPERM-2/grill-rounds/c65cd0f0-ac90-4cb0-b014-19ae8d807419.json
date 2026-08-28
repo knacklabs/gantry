@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "T2 detail: when a 'this run only' row expires because the run ended, should it stay visible on the card (marked Expired) or drop off the card entirely?",
+      "options": [
+        "Stay visible, marked Expired (Recommended)",
+        "Drop off the card"
+      ],
+      "chosen": "Stay visible, marked Expired (Recommended)"
+    },
+    {
+      "question": "Anything else before T2 starts?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T18:41:54.119925+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

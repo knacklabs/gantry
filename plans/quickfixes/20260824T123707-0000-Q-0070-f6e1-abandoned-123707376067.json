@@ -1,0 +1,19 @@
+{
+  "event": "abandoned",
+  "id": "Q-0070-f6e1",
+  "profile": "lite",
+  "reason": "Cycle: repair needs interaction-settlement in scope; reopening with the full file set.",
+  "opened_reason": "Telegram suite regressions (9 tests) from the channel trims/card work \u2014 reconcile code or tests per the contract; plus enumerate-and-fix any remaining full-suite failures.",
+  "started_at": "2026-08-24T11:46:03+00:00",
+  "completed_at": "2026-08-24T12:37:07+00:00",
+  "files": [
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/test/unit/channels/interaction-settlement.test.ts",
+    "apps/core/test/unit/channels/teams.test.ts",
+    "apps/core/test/unit/channels/discord.test.ts",
+    "apps/core/test/unit/channels/slack.test.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "833bacbd4ca315d752f8da100720cb0cefac28c8"
+}

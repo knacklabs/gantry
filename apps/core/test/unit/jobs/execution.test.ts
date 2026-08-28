@@ -5,6 +5,7 @@ import type { ConversationRoute, Job } from '@core/domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { currentLogContext } from '@core/infrastructure/logging/logger.js';
 import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
+import { scheduledJobRunPrompt } from '@core/jobs/job-run-prompt.js';
 
 const runtimeStoreMock = vi.hoisted(() => ({
   publish: vi.fn(async () => undefined),
@@ -1317,7 +1318,7 @@ describe('jobs/execution', () => {
     expect(runAgent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        prompt: noisyPrompt,
+        prompt: scheduledJobRunPrompt(job),
         memoryContextBlock:
           '<gantry_memory_context trust="untrusted_data_only">job memory</gantry_memory_context>',
       }),
@@ -2605,12 +2606,6 @@ describe('jobs/execution', () => {
     });
     const opsRepository = makeOpsRepository(job);
     const toolRepository = makeToolRepository(['Browser']);
-    const openBrowserSession = vi.fn(async (profileName: string) => ({
-      profile: profileName,
-      profileName,
-      running: true,
-      cdpReady: true,
-    }));
     const runAgent = vi.fn(async (_group, input) => {
       await runtimeStoreMock.publish({
         appId: 'default',
@@ -2619,11 +2614,12 @@ describe('jobs/execution', () => {
         jobId: 'job-1',
         runId: input.runId,
         payload: {
-          phase: 'browser_action',
-          tool: 'Browser',
-          public_tool: 'browser_open',
-          action: 'navigate',
+          phase: 'success',
+          tool: 'browser_open',
+          family: 'browser',
           ok: true,
+          invocationId: 'browser-open-1',
+          authoritative: true,
         },
       });
       return {
@@ -2642,7 +2638,6 @@ describe('jobs/execution', () => {
         opsRepository: opsRepository as never,
         getToolRepository: () => toolRepository as never,
         getBrowserStatus: vi.fn(async () => ({ hasState: true })),
-        openBrowserSession,
         runAgent: runAgent as never,
       },
       'tg:scheduler',
@@ -2719,158 +2714,6 @@ describe('jobs/execution', () => {
     );
   });
 
-  it('prelaunches the dedicated browser profile before a Browser job starts the runner', async () => {
-    const job = makeJob({
-      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
-    });
-    const opsRepository = makeOpsRepository(job);
-    const toolRepository = makeToolRepository(['Browser']);
-    const order: string[] = [];
-    const openBrowserSession = vi.fn(async (profileName: string) => {
-      order.push('browser');
-      return {
-        profile: profileName,
-        profileName,
-        running: true,
-        cdpReady: true,
-        pid: 123,
-        port: 456,
-      };
-    });
-    const runAgent = vi.fn(async () => {
-      order.push('runner');
-      return {
-        status: 'success',
-        result: 'browser done',
-      };
-    });
-
-    await runJob(
-      job,
-      {
-        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
-        queue: {} as never,
-        onProcess: () => {},
-        sendMessage: vi.fn(async () => undefined) as never,
-        opsRepository: opsRepository as never,
-        getToolRepository: () => toolRepository as never,
-        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
-        openBrowserSession,
-        runAgent: runAgent as never,
-      },
-      'tg:scheduler',
-    );
-
-    expect(order).toEqual(['browser', 'runner']);
-    expect(openBrowserSession).toHaveBeenCalledWith(
-      expect.stringMatching(/^c-scheduler_agent-/),
-    );
-    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'tool.activity',
-        payload: expect.objectContaining({
-          phase: 'browser_prelaunch',
-          tool: 'Browser',
-          public_tool: 'browser_open',
-          action: 'open',
-          ok: true,
-        }),
-      }),
-    );
-    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'job.completed',
-        payload: expect.objectContaining({
-          diagnostics: expect.objectContaining({
-            browser_activity_count: 0,
-          }),
-        }),
-      }),
-    );
-  });
-
-  it('pauses a Browser job for setup when browser prelaunch fails', async () => {
-    const job = makeJob({
-      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
-    });
-    const opsRepository = makeOpsRepository(job);
-    const toolRepository = makeToolRepository(['Browser']);
-    const openBrowserSession = vi.fn(async () => {
-      throw new Error('Chrome launch failed');
-    });
-    const runAgent = vi.fn(async () => ({
-      status: 'success',
-      result: 'should not run',
-    }));
-
-    await runJob(
-      job,
-      {
-        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
-        queue: {} as never,
-        onProcess: () => {},
-        sendMessage: vi.fn(async () => undefined) as never,
-        opsRepository: opsRepository as never,
-        getToolRepository: () => toolRepository as never,
-        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
-        openBrowserSession,
-        runAgent: runAgent as never,
-      },
-      'tg:scheduler',
-    );
-
-    expect(runAgent).not.toHaveBeenCalled();
-    expect(opsRepository.updateJob).toHaveBeenCalledWith(
-      job.id,
-      expect.objectContaining({
-        status: 'paused',
-        next_run: null,
-        pause_reason: 'Setup required',
-        setup_state: expect.objectContaining({
-          state: 'browser_login_may_be_required',
-          blockers: expect.arrayContaining([
-            expect.objectContaining({
-              type: 'browser',
-              id: 'Browser',
-              action: expect.objectContaining({
-                kind: 'instruction',
-                text: expect.stringContaining('gantry browser status'),
-              }),
-            }),
-          ]),
-        }),
-      }),
-    );
-    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
-      expect.any(String),
-      'failed',
-      null,
-      expect.stringContaining('Setup required: Browser launch failed'),
-    );
-    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'job.failed',
-        payload: expect.objectContaining({
-          pause_reason: 'Setup required',
-        }),
-      }),
-    );
-    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'job.setup_required',
-        payload: expect.objectContaining({
-          blocker_fingerprint: expect.any(String),
-          blockers: expect.arrayContaining([
-            expect.objectContaining({
-              type: 'browser',
-              id: 'Browser',
-            }),
-          ]),
-        }),
-      }),
-    );
-  });
-
   it('keeps Browser activity diagnostics when a required-Browser run fails later', async () => {
     const job = makeJob({
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
@@ -2885,21 +2728,23 @@ describe('jobs/execution', () => {
           {
             eventType: 'tool.activity',
             payload: {
-              phase: 'browser_action',
-              tool: 'Browser',
-              public_tool: 'browser_open',
-              action: 'navigate',
+              phase: 'success',
+              tool: 'browser_open',
+              family: 'browser',
               ok: true,
+              invocationId: 'browser-open-1',
+              authoritative: true,
             },
           },
           {
             eventType: 'tool.activity',
             payload: {
-              phase: 'browser_action',
-              tool: 'Browser',
-              public_tool: 'browser_inspect',
-              action: 'snapshot',
+              phase: 'success',
+              tool: 'browser_inspect',
+              family: 'browser',
               ok: true,
+              invocationId: 'browser-inspect-1',
+              authoritative: true,
             },
           },
         ],

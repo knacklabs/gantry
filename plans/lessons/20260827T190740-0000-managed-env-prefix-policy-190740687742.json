@@ -1,0 +1,11 @@
+{
+  "topic": "managed-env-prefix-policy",
+  "lesson": "Managed execution can reject a required test when an inline environment assignment is the command prefix, reporting that the shell wrapper hides prefix inspection; invoke the same command through env so the executable prefix is visible, and report any remaining refusal separately.",
+  "source": "JOBPERM-2-T2 required-test retry",
+  "applies_to": [
+    "apps/core/test/**/*.test.ts"
+  ],
+  "severity": "low",
+  "generated_by": "implementer",
+  "added_at": "2026-08-27T19:07:40+00:00"
+}

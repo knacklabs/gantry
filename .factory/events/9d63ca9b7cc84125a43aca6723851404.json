@@ -1,0 +1,1 @@
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-08-23T13:56:51+00:00", "story": "JOBPERM-1", "detail": "JOBPERM-1-T2 requires a provider living card and authorized click dispatch, but the brief omits the v9 A2/A4/A5/A6/A7 contract and the current outbound recovery path ignores jobPermissionCard payloads"}

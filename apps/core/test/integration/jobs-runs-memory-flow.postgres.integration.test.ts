@@ -142,8 +142,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     );
 
     expect(harness.runner.calls).toHaveLength(1);
-    expect(harness.runner.calls[0]?.input).toMatchObject({
-      prompt: job.prompt,
+    const runnerInput = harness.runner.calls[0]?.input;
+    expect(String(runnerInput?.prompt).startsWith(job.prompt)).toBe(true);
+    expect(String(runnerInput?.prompt)).toMatch(
+      /Outcome: <one sentence stating what changed or was found, with counts and names>` \(say so if nothing changed\), followed by any details\.$/,
+    );
+    expect(runnerInput).toMatchObject({
       workspaceFolder: job.workspace_key,
       chatJid: 'tg:scheduler',
       threadId: job.thread_id,

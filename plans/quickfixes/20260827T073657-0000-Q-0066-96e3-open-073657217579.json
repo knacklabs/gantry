@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0066-96e3",
+  "profile": "quickfix",
+  "reason": "Record roadmap review outcomes: day-two operations, self-improvement by proposal, decisions",
+  "started_at": "2026-08-27T07:36:57+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

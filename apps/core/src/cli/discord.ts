@@ -4,11 +4,11 @@ import type {
   DiscordDiscoveredChannel,
   DiscordSetupCredentials,
   DiscordSetupDiscoveryClient,
-} from '../channels/discord-setup-discovery.js';
+} from '../channels/discord/setup-discovery.js';
 import {
   RestDiscordSetupDiscoveryClient,
   trimDiscordSetupCredentials,
-} from '../channels/discord-setup-discovery.js';
+} from '../channels/discord/setup-discovery.js';
 import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
 import {
   ensureConfiguredAgent,

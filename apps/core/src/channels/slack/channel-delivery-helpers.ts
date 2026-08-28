@@ -22,13 +22,13 @@ import {
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { slackActionBlocks } from './message-action-affordances.js';
+export { slackActionBlocks } from './message-action-affordances.js';
 import {
-  slackJobNotificationBlocks,
-  slackMessageActionBlocks,
-  slackReviewMessageBlocks,
-} from './message-action-affordances.js';
-import { slackObserverDigestBlocks } from './observer-digest-affordances.js';
-import { slackBrainReviewBlocks } from './brain-review-affordances.js';
+  postSlackProgressWithStructuredFallback,
+  slackProgressPresentation,
+  updateSlackProgressWithStructuredFallback,
+} from './progress-terminal-render.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import {
   handleSlackThreadProgressStatus,
@@ -60,45 +60,6 @@ type SlackPostMessagePayload = {
 export type SlackDeliveryLogger = {
   warn(metadata: Record<string, unknown>, message: string): void;
 };
-export function slackActionBlocks(text: string, options: MessageSendOptions) {
-  if (options.observerDigestView) {
-    return slackObserverDigestBlocks(options.observerDigestView, {
-      ...(options.providerAccountId
-        ? { providerAccountId: options.providerAccountId }
-        : {}),
-    });
-  }
-  if (options.reviewMessageView) {
-    return slackReviewMessageBlocks(options.reviewMessageView, {
-      ...(options.providerAccountId
-        ? { providerAccountId: options.providerAccountId }
-        : {}),
-    });
-  }
-  if (options.jobNotificationView) {
-    return slackJobNotificationBlocks(
-      options.jobNotificationView,
-      options.actionAffordances,
-      {
-        ...(options.providerAccountId
-          ? { providerAccountId: options.providerAccountId }
-          : {}),
-      },
-    );
-  }
-  if (options.brainReviewView) {
-    return slackBrainReviewBlocks(options.brainReviewView, {
-      ...(options.providerAccountId
-        ? { providerAccountId: options.providerAccountId }
-        : {}),
-    });
-  }
-  return options.actionAffordances
-    ? slackMessageActionBlocks(text, options.actionAffordances, {
-        providerAccountId: options.providerAccountId,
-      })
-    : undefined;
-}
 async function waitForPostMessageRetry(delayMs: number): Promise<void> {
   await new Promise<void>((resolve) =>
     setTimeout(resolve, clampSlackRetryDelayMs(delayMs)),
@@ -447,8 +408,16 @@ export async function sendSlackProgressUpdate(input: {
     input.options.actionOnly && input.options.actionAffordances?.length,
   );
   const trimmed = actionOnly ? '' : input.text.trim();
+  const presentation = slackProgressPresentation(
+    trimmed,
+    input.options,
+    input.options.done && input.options.jobNotificationView
+      ? undefined
+      : slackActionBlocks(trimmed, input.options),
+  );
   if (
-    await handleSlackThreadProgressStatus({
+    !presentation.structuredTerminal &&
+    (await handleSlackThreadProgressStatus({
       app: input.app,
       channelId: input.channelId,
       key: input.key,
@@ -458,7 +427,7 @@ export async function sendSlackProgressUpdate(input: {
         input.activeProgress.delete(input.key);
         input.persistProgress();
       },
-    })
+    }))
   )
     return true;
   if (actionOnly) return false;
@@ -539,25 +508,30 @@ export async function sendSlackProgressUpdate(input: {
     );
     return false;
   }
-  if (!existing && input.options.done && isSlackTerminalSuccessText(trimmed)) {
+  if (
+    !existing &&
+    !presentation.structuredTerminal &&
+    input.options.done &&
+    isSlackTerminalSuccessText(trimmed)
+  ) {
     input.activeProgress.delete(input.key);
     input.persistProgress();
     return true;
   }
   if (!existing) {
-    const blocks = slackActionBlocks(trimmed, input.options);
-    const sent = (await input.app.client.chat.postMessage({
-      channel: input.channelId,
+    const sent = await postSlackProgressWithStructuredFallback({
+      app: input.app,
+      channelId: input.channelId,
       text: trimmed,
-      ...(threadTs ? { thread_ts: threadTs } : {}),
-      ...(blocks ? { blocks } : {}),
-    })) as { ts?: string };
+      ...(threadTs ? { threadTs } : {}),
+      ...presentation,
+    });
     if (!input.options.done) {
       input.activeProgress.set(input.key, {
         channelId: input.channelId,
         threadId: threadTs,
         messageTs: sent.ts,
-        lastText: trimmed,
+        lastText: presentation.contentKey,
         ownerBootNonce: slackProgressBootNonce,
         ...(input.options.generation !== undefined
           ? { generation: input.options.generation }
@@ -579,14 +553,15 @@ export async function sendSlackProgressUpdate(input: {
     );
     return true;
   }
-  if (existing.lastText === trimmed) {
+  if (existing.lastText === presentation.contentKey) {
     if (input.options.done) {
       if (existing.messageTs) {
-        await input.app.client.chat.update({
-          channel: existing.channelId,
-          ts: existing.messageTs,
+        await updateSlackProgressWithStructuredFallback({
+          app: input.app,
+          channelId: existing.channelId,
+          messageTs: existing.messageTs,
           text: trimmed,
-          blocks: [],
+          ...presentation,
         });
       }
       input.activeProgress.delete(input.key);
@@ -618,26 +593,26 @@ export async function sendSlackProgressUpdate(input: {
   }
 
   if (existing.messageTs) {
-    const blocks = slackActionBlocks(trimmed, input.options);
-    await input.app.client.chat.update({
-      channel: existing.channelId,
-      ts: existing.messageTs,
+    await updateSlackProgressWithStructuredFallback({
+      app: input.app,
+      channelId: existing.channelId,
+      messageTs: existing.messageTs,
       text: trimmed,
-      ...(blocks ? { blocks } : { blocks: [] }),
+      ...presentation,
     });
   } else {
     const existingThreadTs = slackThreadTsFromThreadId(existing.threadId);
-    const blocks = slackActionBlocks(trimmed, input.options);
-    const sent = (await input.app.client.chat.postMessage({
-      channel: existing.channelId,
+    const sent = await postSlackProgressWithStructuredFallback({
+      app: input.app,
+      channelId: existing.channelId,
       text: trimmed,
-      ...(existingThreadTs ? { thread_ts: existingThreadTs } : {}),
-      ...(blocks ? { blocks } : {}),
-    })) as { ts?: string };
+      ...(existingThreadTs ? { threadTs: existingThreadTs } : {}),
+      ...presentation,
+    });
     existing.messageTs = sent.ts;
   }
 
-  existing.lastText = trimmed;
+  existing.lastText = presentation.contentKey;
   if (input.options.generation !== undefined)
     existing.generation = input.options.generation;
   if (input.options.done) {

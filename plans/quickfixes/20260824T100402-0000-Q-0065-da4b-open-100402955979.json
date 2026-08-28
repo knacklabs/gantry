@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0065-da4b",
+  "profile": "lite",
+  "reason": "Trim two Telegram channel files 5-7 lines over their 800-line budgets: apps/core/src/channels/telegram/channel-connect.ts, apps/core/src/channels/telegram/channel-delivery.ts, extracting helpers into apps/core/src/channels/telegram/extracted-helpers.ts.",
+  "started_at": "2026-08-24T10:04:02+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "4b917b713b2788e2822c55647642164d517e85d0"
+}

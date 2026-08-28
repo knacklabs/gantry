@@ -1,7 +1,10 @@
 # Gantry Product Brief
 
-Gantry is a provider-neutral and channel-neutral agent runtime for teams that
-need AI agents to run safely inside product and operations workflows.
+Gantry lets organisations onboard AI employees like real ones: a seat in Teams
+or Slack, only the access they need, a full audit trail, and offboarding in one
+command. Self-hosted, any model. Under the hood it is a provider-neutral and
+channel-neutral agent runtime for teams that need AI agents to run safely inside
+product and operations workflows.
 
 ## Product Intent
 
@@ -9,6 +12,29 @@ need AI agents to run safely inside product and operations workflows.
 - Let deployments choose channels and model providers without rewriting core runtime behavior.
 - Keep customization explicit through prompts, model aliases, capabilities, and conversation installs.
 - Make risky actions visible and reviewable through permission, sandbox, and audit flows.
+
+## Positioning Rules (grill, 2026-08-26)
+
+- Governance is the headline; learning is a reviewable record (memory review
+  flows), never autonomous drift.
+- One central, IT-owned install per organisation. Departments get agents
+  inside it; workspace scoping inside the install is the stated path.
+- "Agent" in code, CLI, and API; "AI employee" on the landing page and as the
+  directory heading only.
+- First deployments are KnackLabs engagements (next: a Teams-first
+  BFSI/enterprise client); self-serve install serves the organisations after.
+- Proof artifact for V1.0: a three-minute real-product video, onboard ->
+  scope -> approve via Adaptive Card -> offboard.
+- One API, three clients: console, CLI, and the AI employee itself. Humans use
+  the console; the CLI is break-glass, automation, and the agent's own surface.
+  An agent may propose improvements to itself; a person reviews, or auto-applies
+  low-risk classes with an alert and one-action restore. Never its own access.
+- Product plus the operation of it: V1.0 includes bootstrap, freeze, admin
+  alerts, backup/upgrade/rollback, and first contact — the questions a client
+  asks in week one.
+- Second proof (V1.0.x): the customer support assistant — a WhatsApp seat plus
+  human handoff into Teams/Slack. Same governed agent, same audit; the human
+  takes over the thread, the agent pauses, every switch is on the record.
 
 ## Current Scope
 

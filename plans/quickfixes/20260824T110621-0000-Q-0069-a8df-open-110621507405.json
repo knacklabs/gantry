@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0069-a8df",
+  "profile": "lite",
+  "reason": "Reconcile 28 failing tests in 4 files with the JOBPERM-1 contract: runner tests assert the deleted terminal-denial lane; runtime session tests may reflect a real polish-commit regression \u2014 fix whichever side the contract says.",
+  "started_at": "2026-08-24T11:06:21+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "7e424e1eecd8894e8c95593eb235558944ca0df4"
+}

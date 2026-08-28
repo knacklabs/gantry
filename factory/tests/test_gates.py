@@ -30,9 +30,28 @@ import pytest
 
 HARNESS = Path(__file__).resolve().parents[2]
 FORGE_INIT_FIXTURE = HARNESS / ".factory" / "history" / "FORGE-INIT-1"
+UPGRADE_PROJECT_SKILL_FIXTURE = (
+    HARNESS / "install" / "claude" / "knacklabs-upgrade-project" / "SKILL.md"
+)
+SANITISE_PROJECT_SKILL_FIXTURE = (
+    HARNESS / "install" / "claude" / "knacklabs-sanitise-project" / "SKILL.md"
+)
+SETUP_FIXTURE = HARNESS / "setup"
+HARNESS_SOURCE_MARKER_FIXTURE = HARNESS / ".factory" / "harness-source.json"
+PR_LINK_WORKFLOW_FIXTURE = HARNESS / ".github" / "workflows" / "pr-link.yml"
+BOARD_INVARIANT_WORKFLOW_FIXTURE = (
+    HARNESS / ".github" / "workflows" / "board-invariant.yml"
+)
+PLANNING_LOCK_DECISION_FIXTURE = (
+    HARNESS / "docs" / "decisions" / "0013-always-armed-planning-lock.md"
+)
+PLAN_MODE_DECISION_FIXTURE = (
+    HARNESS / "docs" / "decisions" / "0048-plan-mode-and-grill-provenance.md"
+)
 sys.path.insert(0, str(HARNESS / "factory" / "scripts"))
 from factory_lib import (
-    branch_diff_digest, grounding_digest, plan_digest_without_assumptions,
+    branch_diff_digest, grounding_digest, plan_body_digest,
+    plan_digest_without_assumptions,
     product_tree_digest, require_task_grill,
     task_frontier_state, task_rows,
 )
@@ -74,12 +93,14 @@ def fake_psutil(processes, *, current_user="owner"):
     )
 
 
+@pytest.mark.skipif(
+    not (UPGRADE_PROJECT_SKILL_FIXTURE.is_file() and SETUP_FIXTURE.is_file()),
+    reason="requires the upgrade-project harness-source fixtures",
+)
 def test_upgrade_project_skill_structure_and_registration():
-    skill_path = (
-        HARNESS / "install" / "claude" / "knacklabs-upgrade-project" / "SKILL.md"
-    )
+    skill_path = UPGRADE_PROJECT_SKILL_FIXTURE
     skill = skill_path.read_text()
-    setup = (HARNESS / "setup").read_text()
+    setup = SETUP_FIXTURE.read_text()
 
     assert skill_path.is_file()
     assert "name: knacklabs-upgrade-project" in skill
@@ -124,10 +145,12 @@ def test_upgrade_project_skill_structure_and_registration():
     assert "knacklabs-upgrade-project" in bootstrap_loop.group(1).split()
 
 
+@pytest.mark.skipif(
+    not UPGRADE_PROJECT_SKILL_FIXTURE.is_file(),
+    reason="requires the upgrade-project harness-source fixture",
+)
 def test_upgrade_project_skill_uses_fill_not_import():
-    skill = (
-        HARNESS / "install" / "claude" / "knacklabs-upgrade-project" / "SKILL.md"
-    ).read_text()
+    skill = UPGRADE_PROJECT_SKILL_FIXTURE.read_text()
 
     assert '"$TARGET/forge" roadmap fill "$KEY"' in skill
     assert '--repo "$TARGET"' in skill
@@ -136,12 +159,14 @@ def test_upgrade_project_skill_uses_fill_not_import():
     assert "Never select or rewrite a completed" in skill
 
 
+@pytest.mark.skipif(
+    not (SANITISE_PROJECT_SKILL_FIXTURE.is_file() and SETUP_FIXTURE.is_file()),
+    reason="requires the sanitise-project harness-source fixtures",
+)
 def test_sanitise_skill_structure_and_registration():
-    skill_path = (
-        HARNESS / "install" / "claude" / "knacklabs-sanitise-project" / "SKILL.md"
-    )
+    skill_path = SANITISE_PROJECT_SKILL_FIXTURE
     skill = skill_path.read_text()
-    setup = (HARNESS / "setup").read_text()
+    setup = SETUP_FIXTURE.read_text()
 
     assert skill_path.is_file()
     assert "name: knacklabs-sanitise-project" in skill
@@ -278,16 +303,31 @@ def repo(tmp_path: Path) -> Path:
 
 def record_grill(repo: Path, gate: str, verdict: str = "pass",
                  digest_of: Path | None = None, *,
-                 seed_requirements: bool = True, **over) -> tuple[int, str]:
+                 seed_requirements: bool = True,
+                 plan_mode: bool = True, **over) -> tuple[int, str]:
     if gate == "plan" and seed_requirements:
         code, out = record_grill(repo, "requirements")
+        if code != 0:
+            return code, out
+    floors = {"spec": 2, "requirements": 1, "plan": 2, "task": 1}
+    rounds = over.get("rounds")
+    if gate in floors and rounds is None:
+        rounds = grill_rounds(gate, floors[gate])
+        over["rounds"] = rounds
+    if rounds is not None:
+        code, out = log_grill_rounds(repo, rounds)
         if code != 0:
             return code, out
     payload = {"generated_by": "griller", "gate": gate, "verdict": verdict,
                "gaps": [], "contradictions": [], "resolutions": [], **over}
     extra = ["--input-digest", str(digest_of)] if digest_of else []
-    return run(repo, "record_grill_from_json.py", "--gate", gate, *extra,
-               stdin=json.dumps(payload))
+    result = run(repo, "record_grill_from_json.py", "--gate", gate, *extra,
+                 stdin=json.dumps(payload))
+    if result[0] == 0 and gate == "plan" and digest_of and plan_mode:
+        marker = post_hook(repo, plan_hook_payload(digest_of))
+        if marker[0] != 0:
+            return marker
+    return result
 
 
 def task_grill_payload(task: dict, verdict: str = "pass", **over) -> dict:
@@ -300,7 +340,8 @@ def task_grill_payload(task: dict, verdict: str = "pass", **over) -> dict:
                    for criterion in task["acceptance_criteria"]
                },
                "decision": "keep" if verdict == "pass" else "block",
-               "new_abstractions": [], "rounds": [], "citations": []}
+               "new_abstractions": [], "rounds": grill_rounds("task", 1),
+               "citations": []}
     if verdict == "blocked":
         payload["escalation_packet"] = {
             "issue": "The task cannot proceed as written.",
@@ -330,31 +371,69 @@ def seed_task_grill_frontier(repo: Path, task: dict) -> None:
         "plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
         "tasks": [task],
     }))
+    task_plan = repo / ".factory" / "task-plans" / f"{task['id']}.md"
+    task_plan.parent.mkdir(parents=True, exist_ok=True)
+    task_plan.write_text(f"# Task plan — {task['id']}\n")
+    code, out = log_grill_rounds(repo, grill_rounds("task", 1))
+    assert code == 0, out
 
 
 def record_task_grill(repo: Path, task: dict, verdict: str = "pass",
                       *, approve: bool = True) -> tuple[int, str]:
-    payload = task_grill_payload(task, verdict)
-    code, out = run(
-        repo, "record_grill_from_json.py", "--gate", "task",
-        "--task", task["id"],
-        stdin=json.dumps(payload),
-    )
-    if code != 0 or verdict != "pass" or not approve:
-        return code, out
     source = repo / ".factory" / "task-plan-drafts" / f"{task['id']}.md"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(f"# Task plan — {task['id']}\n\nImplement the recorded contract.\n", encoding="utf-8")
+    code, marker_out = post_hook(repo, plan_hook_payload(source))
+    if code != 0:
+        return code, marker_out
     code, plan_out = run(
         repo, "forge.py", "task", "plan", "save", task["id"],
         "--from", str(source),
     )
     if code != 0:
-        return code, out + plan_out
+        return code, plan_out
+    payload = task_grill_payload(task, verdict)
+    code, round_out = log_grill_rounds(repo, payload["rounds"])
+    if code != 0:
+        return code, plan_out + round_out
+    code, out = run(
+        repo, "record_grill_from_json.py", "--gate", "task",
+        "--task", task["id"], stdin=json.dumps(payload),
+    )
+    if code != 0 or verdict != "pass" or not approve:
+        return code, plan_out + out
     code, approve_out = run(
         repo, "forge.py", "task", "approve", task["id"], "--by", "Test Human",
     )
     return code, out + plan_out + approve_out
+
+
+def grill_rounds(gate: str, count: int) -> list[dict]:
+    rounds = [{
+        "question": f"{gate} provenance round {index + 1}?",
+        "options": ["Keep", "Revise"],
+        "chosen": "Keep",
+    } for index in range(count)]
+    rounds[-1]["frontier_empty"] = True
+    return rounds
+
+
+def log_grill_rounds(repo: Path, rounds: list[dict]) -> tuple[int, str]:
+    output = ""
+    for entry in rounds:
+        question = entry["question"]
+        code, out = post_hook(repo, {
+            "tool_name": "AskUserQuestion",
+            "tool_input": {"questions": [{
+                "question": question,
+                "options": [{"label": option} for option in entry["options"]],
+            }]},
+            "tool_response": {"answers": {question: entry["chosen"]}},
+        })
+        output += out
+        if code != 0:
+            return code, output
+    return 0, output
 
 
 def delegate_task_grill_test(test):
@@ -2381,7 +2460,11 @@ def test_decomposition_not_frozen_by_previous_story_authority(repo, tmp_path):
     assert "Cleared stale protected authority" in out
     assert json.loads(protected.read_text())["story"] == "ENG-2"
 
-    # Same-story re-record keeps the freeze: a NON-prefix rewrite still fails.
+    # Same-story freeze still applies to STARTED work: once T2-1 is done, a
+    # non-prefix rewrite is frozen. (An unstarted rewrite would instead be an
+    # amendment — allowed but human-gated — which is covered elsewhere.)
+    write_stages(repo, {"issue": "ENG-2", "stages": [
+        {"id": "T2-1", "title": "receipts slice", "status": "done"}]})
     rogue = [{**DECOMP["tasks"][0], "id": "T2-ROGUE", "title": "rewrite"}]
     code, out = run(repo, "record_decomposition_from_json.py",
                     stdin=json.dumps({**DECOMP, "tasks": [
@@ -2567,6 +2650,10 @@ def test_upgrade_names_diverged_doc_contracts_and_writes_no_backup(repo):
     assert not list(repo.rglob("*.orig"))
 
 
+@pytest.mark.skipif(
+    not HARNESS_SOURCE_MARKER_FIXTURE.is_file(),
+    reason="requires the harness-source marker fixture",
+)
 def test_upgrade_does_not_vendor_the_harness_source_marker(repo):
     # `forge upgrade` runs FROM the harness source, which carries the repo-kind
     # marker. It must never copy that marker into the upgraded client, or the
@@ -3168,7 +3255,7 @@ def test_doctor_hook_health_green_on_healthy_repo(repo):
     bytecode_before = set(repo.rglob("__pycache__"))
     checks = hook_health_checks(repo)
 
-    assert len(checks) == 8
+    assert len(checks) == 9
     assert all(check["ok"] for check in checks), checks
     assert git(repo, "status", "--porcelain", "-uall") == before
     assert set(repo.rglob("__pycache__")) == bytecode_before
@@ -3265,8 +3352,8 @@ def test_doctor_hook_health_reds_unresolvable_hook(repo, tmp_path):
     checks = hook_health_checks(repo, env={"PATH": str(fake_bin)})
     failures = [check for check in checks if not check["ok"]]
 
-    assert len(failures) == 8
-    assert len({check["name"] for check in failures}) == 8
+    assert len(failures) == 9
+    assert len({check["name"] for check in failures}) == 9
     registered = json.loads((repo / ".claude" / "settings.json").read_text())
     command = registered["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     assert any(command in check["detail"] for check in failures)
@@ -3457,7 +3544,7 @@ def test_doctor_hook_health_missing_sh_names_git_bash_fix(repo, monkeypatch):
     failures = [check for check in doctor.hook_health_checks(repo)
                 if not check["ok"]]
 
-    assert len(failures) == 8
+    assert len(failures) == 9
     assert all(check["fix"] == doctor.HOOK_SHELL_FIX for check in failures)
     assert all("Git for Windows" in check["fix"] for check in failures)
 
@@ -3471,7 +3558,7 @@ def test_doctor_hook_health_broken_launcher_does_not_blame_git_bash(repo):
     failures = [check for check in doctor.hook_health_checks(repo)
                 if not check["ok"]]
 
-    assert len(failures) == 8
+    assert len(failures) == 9
     assert all("hook launcher probe failed" in check["detail"] for check in failures)
     assert all(check["fix"] == doctor.HOOK_HEALTH_FIX for check in failures)
 
@@ -3488,6 +3575,12 @@ def test_init_and_upgrade_ship_portable_hook_commands(tmp_path):
             for hook in registration["hooks"]
         ]
 
+    def portable(command: str) -> bool:
+        expected_exit = " || exit 0' || exit 0" \
+            if "hook post_tool_use" in command else " || exit 2' || exit 2"
+        return (command.startswith("sh -c ") and command.endswith(expected_exit)
+                and bool(hook_script_paths(command)))
+
     repo = tmp_path / "portable-hooks-client"
     initialized = subprocess.run(
         [sys.executable, str(HARNESS / "factory" / "scripts" / "forge.py"),
@@ -3495,7 +3588,7 @@ def test_init_and_upgrade_ship_portable_hook_commands(tmp_path):
         cwd=HARNESS, capture_output=True, text=True,
     )
     assert initialized.returncode == 0, initialized.stdout + initialized.stderr
-    assert len(commands(repo, ".claude/settings.json")) == 5
+    assert len(commands(repo, ".claude/settings.json")) == 6
     assert len(commands(repo, ".codex/hooks.json")) == 3
     config = repo / ".codex" / "config.toml"
     assert 'sandbox_mode = "workspace-write"' in config.read_text().splitlines()
@@ -3503,9 +3596,7 @@ def test_init_and_upgrade_ship_portable_hook_commands(tmp_path):
     attributes = repo / ".gitattributes"
     assert "forge text eol=lf" in attributes.read_text().splitlines()
     assert all(
-        command.startswith("sh -c ")
-        and command.endswith(" || exit 2' || exit 2")
-        and hook_script_paths(command)
+        portable(command)
         for relative in (".claude/settings.json", ".codex/hooks.json")
         for command in commands(repo, relative)
     )
@@ -3529,15 +3620,13 @@ def test_init_and_upgrade_ship_portable_hook_commands(tmp_path):
 
     upgraded = upgrade_into(repo)
     assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
-    assert len(commands(repo, ".claude/settings.json")) == 5
+    assert len(commands(repo, ".claude/settings.json")) == 6
     assert len(commands(repo, ".codex/hooks.json")) == 3
     assert 'sandbox_mode = "workspace-write"' in config.read_text().splitlines()
     assert (repo / "forge.cmd").is_file()
     assert "forge text eol=lf" in attributes.read_text().splitlines()
     assert all(
-        command.startswith("sh -c ")
-        and command.endswith(" || exit 2' || exit 2")
-        and hook_script_paths(command)
+        portable(command)
         for relative in (".claude/settings.json", ".codex/hooks.json")
         for command in commands(repo, relative)
     )
@@ -3560,7 +3649,9 @@ def test_hook_registration_extracts_every_registered_script():
                     scripts = hook_script_paths(hook["command"])
                     assert scripts, f"{relative}:{event} did not expose a script path"
                     assert all((HARNESS / script).is_file() for script in scripts)
-                    assert hook["command"].endswith(" || exit 2' || exit 2")
+                    expected_exit = " || exit 0' || exit 0" \
+                        if event == "PostToolUse" else " || exit 2' || exit 2"
+                    assert hook["command"].endswith(expected_exit)
 
 
 def test_forge_cmd_routes_git_bash_then_python_fallbacks(tmp_path):
@@ -4136,7 +4227,7 @@ def test_doctor_hook_health_uses_git_bash_outside_path(repo, tmp_path):
         "ProgramFiles": str(program_files),
     })
 
-    assert len(checks) == 8
+    assert len(checks) == 9
     assert all(check["ok"] for check in checks), checks
 
 
@@ -5655,10 +5746,14 @@ def test_adopt_refuses_a_symlinked_ancestor_and_leaves_the_target_clean(
 
 # ------------------------------------------------------- project-local gstack
 
+@pytest.mark.skipif(
+    not PR_LINK_WORKFLOW_FIXTURE.is_file(),
+    reason="requires the pr-link workflow harness-source fixture",
+)
 def test_pr_link_commit_skips_ci():
     # D-0017: without [skip ci], the bot-attributed synchronize wave is held
     # action_required and strands the PR's checks behind a manual re-trigger.
-    workflow = (HARNESS / ".github" / "workflows" / "pr-link.yml").read_text()
+    workflow = PR_LINK_WORKFLOW_FIXTURE.read_text()
     assert "workflow_run:\n    workflows: [factory-scaffold]\n    types: [completed]" in workflow
     assert "github.event.workflow_run.conclusion == 'success'" in workflow
     assert "statuses: write" in workflow
@@ -5867,6 +5962,123 @@ def test_next_tags_steps_with_roles(repo):
 
 # ------------------------------------------------------------ handover grills
 
+def _record_spec_rounds(repo: Path, rounds: list[dict]) -> tuple[int, str]:
+    spec = repo / "docs" / "specs" / "base.md"
+    spec.parent.mkdir(parents=True, exist_ok=True)
+    spec.write_text("# Base spec\n")
+    return run(
+        repo, "record_grill_from_json.py", "--gate", "spec",
+        "--input-digest", str(spec),
+        stdin=json.dumps({
+            "generated_by": "griller", "gate": "spec", "verdict": "pass",
+            "gaps": [], "contradictions": [], "resolutions": [],
+            "rounds": rounds,
+        }),
+    )
+
+
+def test_grill_refuses_round_not_in_ledger(repo):
+    rounds = grill_rounds("spec", 2)
+    code, out = log_grill_rounds(repo, rounds)
+    assert code == 0, out
+    rounds[0]["chosen"] = "Revise"
+    code, out = _record_spec_rounds(repo, rounds)
+    assert code != 0 and "does not match an AskUserQuestion ledger record" in out
+
+
+def test_grill_refuses_below_gate_floor(repo):
+    rounds = grill_rounds("spec", 1)
+    code, out = log_grill_rounds(repo, rounds)
+    assert code == 0, out
+    code, out = _record_spec_rounds(repo, rounds)
+    assert code != 0 and "requires at least 2 logged round(s)" in out
+
+
+def test_grill_refuses_missing_frontier_empty(repo):
+    rounds = grill_rounds("spec", 2)
+    rounds[-1].pop("frontier_empty")
+    code, out = log_grill_rounds(repo, rounds)
+    assert code == 0, out
+    code, out = _record_spec_rounds(repo, rounds)
+    assert code != 0 and "final round requires frontier_empty true" in out
+
+
+def test_grill_accepts_ledger_matched_rounds_happy_path(repo):
+    rounds = grill_rounds("spec", 2)
+    code, out = log_grill_rounds(repo, rounds)
+    assert code == 0, out
+    code, out = _record_spec_rounds(repo, rounds)
+    assert code == 0, out
+    code, out = _record_spec_rounds(repo, rounds)
+    assert code == 0, out  # byte-identical re-record may reuse its own rounds
+
+
+def test_task_grill_requires_saved_task_plan_with_tolerance(repo):
+    task = STAGE_TASK
+    seed_task_grill_frontier(repo, task)
+    plan = repo / ".factory" / "task-plans" / "T1.md"
+    plan.unlink()
+    payload = task_grill_payload(task)
+    command = ("record_grill_from_json.py", "--gate", "task", "--task", "T1")
+    code, out = run(repo, *command, stdin=json.dumps(payload))
+    assert code != 0 and "requires a saved task plan first" in out
+
+    source = repo / "plans" / "T1-draft.md"
+    source.write_text("# T1 plan\n")
+    code, out = post_hook(repo, plan_hook_payload(source))
+    assert code == 0, out
+    code, out = run(
+        repo, "forge.py", "task", "plan", "save", "T1", "--from", str(source),
+    )
+    assert code == 0, out
+    code, out = run(repo, *command, stdin=json.dumps(payload))
+    assert code == 0, out
+
+    grill_path = repo / ".factory" / "grills" / "tasks" / "T1.json"
+    legacy = json.loads(grill_path.read_text())
+    legacy.pop("task_plan_sha256")
+    legacy["recorded_at"] = "2000-01-01T00:00:00+00:00"
+    grill_path.write_text(json.dumps(legacy))
+    plan.unlink()
+    code, out = run(
+        repo, "forge.py", "task", "plan", "save", "T1", "--from", str(source),
+    )
+    assert code == 0, out
+    migrated = json.loads(grill_path.read_text())
+    assert migrated["task_plan_sha256"] == plan_digest_without_assumptions(plan)
+
+
+def test_frontier_orders_task_plan_before_grill(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    record_skeleton_then_frontier(repo, [STAGE_TASK])
+    assert task_frontier_state(repo)[0] == "author-task-plan"
+    code, out = run(repo, "forge.py", "next")
+    assert code == 0 and "Before grilling" in out
+
+    source = tmp_path / "T1.md"
+    source.write_text("# T1 plan\n")
+    code, out = post_hook(repo, plan_hook_payload(source))
+    assert code == 0, out
+    code, out = run(
+        repo, "forge.py", "task", "plan", "save", "T1", "--from", str(source),
+    )
+    assert code == 0, out
+    assert task_frontier_state(repo)[0] == "grill"
+    code, out = run(repo, "forge.py", "next")
+    assert code == 0 and "With the saved T1 task plan in place" in out
+
+    payload = task_grill_payload(STAGE_TASK)
+    code, out = log_grill_rounds(repo, payload["rounds"])
+    assert code == 0, out
+    code, out = run(
+        repo, "record_grill_from_json.py", "--gate", "task", "--task", "T1",
+        stdin=json.dumps(payload),
+    )
+    assert code == 0, out
+    assert task_frontier_state(repo)[0] == "await-approval"
+
 def test_record_task_grill_writes_per_id_file(repo):
     task_id = "FORGE-BOARD-2.1"
     task = {**STAGE_TASK, "id": task_id}
@@ -6031,8 +6243,11 @@ def test_task_grill_requires_proofs_and_rounds(repo):
             "question": gap,
             "options": ["Keep", "Split", "Block", "Revise"],
             "chosen": "Revise",
+            "frontier_empty": True,
         }],
     }
+    code, out = log_grill_rounds(repo, four_option_round["rounds"])
+    assert code == 0, out
     code, out = record(four_option_round)
     assert code == 0, out
     code, out = record({**uncovered, "citations": [{"finding": gap, "source": ""}]})
@@ -6045,9 +6260,11 @@ def test_task_grill_requires_proofs_and_rounds(repo):
         "resolutions": ["The operator chose to keep the bounded task.",
                         "The declared test command remains binding."],
         "rounds": [{"question": gap, "options": ["Keep", "Split"],
-                    "chosen": "Keep"}],
+                    "chosen": "Keep", "frontier_empty": True}],
         "citations": [{"finding": cited_gap, "source": "docs/QUALITY.md"}],
     }
+    code, out = log_grill_rounds(repo, proved["rounds"])
+    assert code == 0, out
     code, out = record(proved)
     assert code == 0, out
 
@@ -6588,6 +6805,181 @@ def test_assumptions_archive_compacts_resolved_rows(repo, tmp_path):
 
 def hook(repo: Path, payload: dict) -> tuple[int, str]:
     return run(repo, "pre_tool_use.py", stdin=json.dumps(payload))
+
+
+def post_hook(repo: Path, payload: dict) -> tuple[int, str]:
+    return run(repo, "forge.py", "hook", "post_tool_use", stdin=json.dumps(payload))
+
+
+def plan_hook_payload(path: Path, *, tool="Write", mode="plan", session_id=None):
+    payload = {
+        "tool_name": tool, "permission_mode": mode,
+        "tool_input": {"file_path": str(path)},
+    }
+    if session_id is not None:
+        payload["session_id"] = session_id
+    return payload
+
+
+def test_post_tool_use_records_plan_mode_marker(repo):
+    root_plan = repo / "plans" / "root-draft.md"
+    root_plan.write_text("# Root draft\n", encoding="utf-8")
+    code, out = post_hook(repo, plan_hook_payload(root_plan, session_id="session-root"))
+    assert code == 0, out
+    root_records = list((repo / ".factory" / "plan-mode").glob("*.json"))
+    assert len(root_records) == 1
+
+    code, out = intake(repo, "PLAN-1", "Plan provenance")
+    assert code == 0, out
+    plan = repo / "plans" / "draft.md"
+    plan.write_text("# Draft\n\nBody\n\n## Implementation Assumptions\n- ignored\n")
+    records_dir = story_state(repo, "PLAN-1") / "plan-mode"
+    for tool in ("Write", "Edit", "MultiEdit"):
+        payload = plan_hook_payload(plan, tool=tool, session_id=f"session-{tool}")
+        before = set(records_dir.glob("*.json"))
+        code, out = post_hook(repo, payload)
+        assert code == 0, out
+        records = set(records_dir.glob("*.json"))
+        assert len(records) == len(before) + 1
+        marker = json.loads((records - before).pop().read_text())
+        assert marker == {
+            "generated_by": "claude-code:plan-mode",
+            "path": str(plan),
+            "sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
+            "sha256_body": plan_digest_without_assumptions(plan),
+            "at": marker["at"],
+            "session_id": f"session-{tool}",
+        }
+
+    code, out = post_hook(repo, {**payload, "permission_mode": "default"})
+    assert code == 0, out
+    assert len(list(records_dir.glob("*.json"))) == 3
+
+
+def test_post_tool_use_records_ask_user_question_round(repo):
+    root_payload = {
+        "tool_name": "AskUserQuestion",
+        "session_id": "session-root",
+        "tool_input": {"questions": [{
+            "question": "Start the grill?",
+            "options": [{"label": "Start"}],
+        }]},
+        "tool_response": {"answers": {"Start the grill?": "Start"}},
+    }
+    code, out = post_hook(repo, root_payload)
+    assert code == 0, out
+    assert len(list((repo / ".factory" / "grill-rounds").glob("*.json"))) == 1
+
+    code, out = intake(repo, "GRILL-1", "Grill provenance")
+    assert code == 0, out
+    payload = {
+        "tool_name": "AskUserQuestion",
+        "permission_mode": "default",
+        "session_id": "session-2",
+        "tool_input": {"questions": [{
+            "question": "Keep this boundary?",
+            "options": [
+                {"label": "Keep", "description": "Keep the task bounded."},
+                {"label": "Split", "description": "Split the task."},
+            ],
+        }]},
+        "tool_response": {
+            "answers": {"Keep this boundary?": "Keep"},
+            "notes": "private free text must not be persisted",
+        },
+    }
+
+    code, out = post_hook(repo, payload)
+    assert code == 0, out
+    records = list((story_state(repo, "GRILL-1") / "grill-rounds").glob("*.json"))
+    assert len(records) == 1
+    assert json.loads(records[0].read_text()) == {
+        "generated_by": "claude-code:plan-mode",
+        "questions": [{
+            "question": "Keep this boundary?",
+            "options": ["Keep", "Split"],
+            "chosen": "Keep",
+        }],
+        "at": json.loads(records[0].read_text())["at"],
+        "session_id": "session-2",
+    }
+    assert "private free text" not in records[0].read_text()
+
+
+def test_post_tool_use_is_fail_open(repo):
+    code, out = run(repo, "post_tool_use.py", stdin="not json")
+    assert code == 0 and out == ""
+    code, out = post_hook(repo, {
+        "tool_name": "AskUserQuestion",
+        "tool_input": {"questions": "not a list"},
+        "tool_response": {"notes": "do not record me"},
+    })
+    assert code == 0 and out == ""
+    assert not (repo / ".factory" / "grill-rounds").exists()
+
+    schema = repo / "factory" / "schemas" / "plan-mode-marker.json"
+    schema.write_text(json.dumps({"required": {"missing": "str"}}))
+    plan = repo / "plans" / "draft.md"
+    plan.write_text("# Draft\n")
+    code, out = post_hook(repo, plan_hook_payload(plan, session_id="session-3"))
+    assert code == 0 and out == ""
+    assert not (repo / ".factory" / "plan-mode").exists()
+
+
+def test_vendor_integrity_covers_post_tool_use(repo):
+    files = json.loads(
+        (repo / "constitution" / "VENDOR_MANIFEST.json").read_text()
+    )["files"]
+    assert "factory/scripts/post_tool_use.py" in files
+    assert "factory/schemas/plan-mode-marker.json" in files
+    assert "factory/schemas/grill-round.json" in files
+    code, out = run(repo, "check_vendor_integrity.py")
+    assert code == 0 and "OK" in out, out
+
+
+def test_post_tool_use_marks_plan_outside_repo_with_raw_and_body_digests(
+        repo, tmp_path):
+    plan = tmp_path / "outside-plan.md"
+    plan.write_bytes(b"# Draft\n\nBody\n\n## Implementation Assumptions\n- ignored\n")
+    code, out = post_hook(repo, plan_hook_payload(plan))
+    assert code == 0, out
+    records = list((repo / ".factory" / "plan-mode").glob("*.json"))
+    assert len(records) == 1
+    marker = json.loads(records[0].read_text())
+    assert marker["path"] == str(plan.resolve())
+    assert marker["sha256"] == hashlib.sha256(plan.read_bytes()).hexdigest()
+    assert marker["sha256_body"] == plan_digest_without_assumptions(plan)
+    assert marker["session_id"] == ""
+
+
+def test_post_tool_use_round_without_response_records_chosen_null(repo):
+    payload = {
+        "tool_name": "AskUserQuestion",
+        "tool_input": {"questions": [{
+            "question": "Keep this boundary?",
+            "options": [{"label": "Keep"}, {"label": "Split"}],
+        }]},
+    }
+    records_dir = repo / ".factory" / "grill-rounds"
+    for response in (None, {"answers": {"Keep this boundary?": "free text"}}):
+        before = set(records_dir.glob("*.json"))
+        call = payload if response is None else {**payload, "tool_response": response}
+        code, out = post_hook(repo, call)
+        assert code == 0, out
+        added = set(records_dir.glob("*.json")) - before
+        assert len(added) == 1
+        record = json.loads(added.pop().read_text())
+        assert record["questions"][0]["chosen"] is None
+        assert record["session_id"] == ""
+
+
+def test_post_tool_use_records_without_session_id(repo):
+    plan = repo / "plans" / "draft.md"
+    plan.write_text("# Draft\n", encoding="utf-8")
+    code, out = post_hook(repo, plan_hook_payload(plan, tool="Edit"))
+    assert code == 0, out
+    marker = next((repo / ".factory" / "plan-mode").glob("*.json"))
+    assert json.loads(marker.read_text())["session_id"] == ""
 
 
 def make_unmerged(repo: Path, rel: str = "src/conflict.ts") -> None:
@@ -7848,7 +8240,10 @@ def test_forge_fix_records_terra_high_write_delegation(repo, tmp_path):
     assert code == 0, out
     window = json.loads((repo / ".factory" / "quickfix.json").read_text())
     before = head(repo)
-    companion_env = fake_companion_env(tmp_path)
+    companion_env = {
+        **fake_companion_env(tmp_path),
+        "PYTHONPATH": str(_fake_psutil_module(tmp_path)),
+    }
     companion_cache = (Path(companion_env["HOME"]) / ".claude" / "plugins" /
                        "cache" / "openai-codex" / "codex")
     companion = next(companion_cache.glob("*/scripts/codex-companion.mjs"))
@@ -7932,11 +8327,12 @@ def test_mode_list_shows_open_lite_window(repo):
     assert "one review is required" in context and "./forge mode done" in context
 
 
+@pytest.mark.skipif(
+    not PLANNING_LOCK_DECISION_FIXTURE.is_file(),
+    reason="requires the planning-lock decision harness-source fixture",
+)
 def test_docs_describe_three_planning_lock_exits():
-    decision = (
-        HARNESS / "docs" / "decisions" /
-        "0013-always-armed-planning-lock.md"
-    ).read_text().lower()
+    decision = PLANNING_LOCK_DECISION_FIXTURE.read_text().lower()
     entry_contract = (
         HARNESS / "docs" / "memory" / "factory-entry-contract.md"
     ).read_text().lower()
@@ -8094,6 +8490,140 @@ def test_plan_save_refuses_approved_without_a_matching_marker(repo, tmp_path):
     assert run_state(repo)["plan_status"] == "awaiting-approval"
     code, out = run(repo, "update_run.py", "--phase", "implementing")
     assert code != 0 and "requires an approved, saved plan" in out
+
+
+def test_plan_save_refuses_plan_without_plan_mode_marker(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    plan = tmp_path / "normal-mode-plan.md"
+    plan.write_text(plan_draft(repo))
+    code, out = record_grill(repo, "plan", digest_of=plan, plan_mode=False)
+    assert code == 0, out
+
+    code, out = run(repo, "forge.py", "plan", "save", "--from", str(plan),
+                    "--story", "ENG-1")
+
+    assert code != 0 and "plan-mode marker required" in out
+    assert "enter plan mode" in out and "this exact plan file" in out
+    assert not list((repo / "plans" / "active").glob("ENG-1-*.md"))
+
+
+def test_plan_save_and_approve_accept_plan_with_plan_mode_marker(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    plan = tmp_path / "plan-mode-plan.md"
+    plan.write_text(plan_draft(repo))
+    code, out = record_grill(repo, "plan", digest_of=plan, plan_mode=False)
+    assert code == 0, out
+    code, out = post_hook(repo, plan_hook_payload(plan))
+    assert code == 0, out
+
+    code, out = run(repo, "forge.py", "plan", "save", "--from", str(plan),
+                    "--story", "ENG-1")
+    assert code != 0 and "awaiting-approval" in out, out
+    active = next((repo / "plans" / "active").glob("ENG-1-*.md"))
+    code, out = record_grill(repo, "plan", digest_of=active, plan_mode=False)
+    assert code == 0, out
+    code, out = post_hook(repo, plan_hook_payload(active))
+    assert code == 0, out
+    code, out = run(repo, "forge.py", "plan", "approve", "--by", "Client PM")
+    assert code == 0, out
+    code, out = run(repo, "forge.py", "plan", "save", "--from", str(active),
+                    "--story", "ENG-1")
+    assert code == 0 and run_state(repo)["plan_status"] == "approved", out
+
+
+def test_task_plan_save_and_approve_require_plan_mode_marker(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    record_skeleton_then_frontier(repo, [STAGE_TASK])
+    code, out = record_task_grill(repo, STAGE_TASK, approve=False)
+    assert code == 0, out
+    source = tmp_path / "T1.md"
+    source.write_text("# T1 plan\n\nImplement the bounded task.\n")
+
+    code, out = run(repo, "forge.py", "task", "plan", "save", "T1",
+                    "--from", str(source))
+    assert code != 0 and "plan-mode marker required" in out
+    code, out = post_hook(repo, plan_hook_payload(source))
+    assert code == 0, out
+    code, out = run(repo, "forge.py", "task", "plan", "save", "T1",
+                    "--from", str(source))
+    assert code == 0, out
+
+    records = story_state(repo) / "plan-mode"
+    for marker in records.glob("*.json"):
+        marker.unlink()
+    code, out = run(repo, "forge.py", "task", "approve", "T1",
+                    "--by", "Test Human")
+    assert code != 0 and "plan-mode marker required" in out
+    saved = story_state(repo) / "task-plans" / "T1.md"
+    code, out = post_hook(repo, plan_hook_payload(saved))
+    assert code == 0, out
+    code, out = run(repo, "forge.py", "task", "approve", "T1",
+                    "--by", "Test Human")
+    assert code == 0 and "Approved task plan" in out, out
+
+
+def test_plan_mode_marker_matches_body_not_assumptions(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    plan = tmp_path / "assumptions-plan.md"
+    plan.write_text(plan_draft(repo))
+    code, out = post_hook(repo, plan_hook_payload(plan))
+    assert code == 0, out
+    plan.write_text(plan.read_text() + "\n## Implementation Assumptions\n- Later detail.\n")
+    code, out = record_grill(repo, "plan", digest_of=plan, plan_mode=False)
+    assert code == 0, out
+
+    code, out = run(repo, "forge.py", "plan", "save", "--from", str(plan),
+                    "--story", "ENG-1")
+
+    assert code != 0 and "awaiting-approval" in out, out
+    assert "plan-mode marker required" not in out
+
+
+def test_plan_mode_marker_in_root_scope_counts_for_active_story(repo, tmp_path):
+    sign_off(repo)
+    plan = tmp_path / "root-scope-plan.md"
+    plan.write_text(plan_draft(repo))
+    code, out = post_hook(repo, plan_hook_payload(plan))
+    assert code == 0, out
+    assert list((repo / ".factory" / "plan-mode").glob("*.json"))
+
+    intake(repo)
+    code, out = record_grill(repo, "plan", digest_of=plan, plan_mode=False)
+    assert code == 0, out
+    code, out = run(repo, "forge.py", "plan", "save", "--from", str(plan),
+                    "--story", "ENG-1")
+
+    assert code != 0 and "awaiting-approval" in out, out
+    assert "plan-mode marker required" not in out
+
+
+def test_plan_save_restamp_does_not_invalidate_marker(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    plan = tmp_path / "restamped-plan.md"
+    plan.write_text(plan_draft(repo))
+    code, out = record_grill(repo, "plan", digest_of=plan, plan_mode=False)
+    assert code == 0, out
+    code, out = post_hook(repo, plan_hook_payload(plan))
+    assert code == 0, out
+
+    code, out = run(repo, "forge.py", "plan", "save", "--from", str(plan),
+                    "--story", "ENG-1")
+    assert code != 0 and "awaiting-approval" in out, out
+    active = next((repo / "plans" / "active").glob("ENG-1-*.md"))
+    code, out = record_grill(repo, "plan", digest_of=active, plan_mode=False)
+    assert code == 0, out
+    code, out = run(repo, "forge.py", "plan", "approve", "--by", "Client PM")
+    assert code == 0, out
+    code, out = run(repo, "forge.py", "plan", "save", "--from", str(active),
+                    "--story", "ENG-1")
+
+    assert code == 0 and run_state(repo)["plan_status"] == "approved", out
 
 
 def test_plan_approve_refuses_without_a_fresh_plan_grill(repo, tmp_path):
@@ -8891,9 +9421,14 @@ def test_check_board_complete_predates_ok(repo):
     assert code == 0 and "Board completeness check OK" in out, out
 
 
+@pytest.mark.skipif(
+    not (PR_LINK_WORKFLOW_FIXTURE.is_file() and
+         BOARD_INVARIANT_WORKFLOW_FIXTURE.is_file()),
+    reason="requires the Gate B workflow harness-source fixtures",
+)
 def test_gate_b_workflows_link_the_branch_and_check_main():
-    link = (HARNESS / ".github" / "workflows" / "pr-link.yml").read_text()
-    invariant = (HARNESS / ".github" / "workflows" / "board-invariant.yml").read_text()
+    link = PR_LINK_WORKFLOW_FIXTURE.read_text()
+    invariant = BOARD_INVARIANT_WORKFLOW_FIXTURE.read_text()
 
     assert "workflow_run:" in link
     assert "workflows: [factory-scaffold]" in link
@@ -10277,6 +10812,8 @@ def test_adhoc_capture_is_visible_debt_not_a_build_bypass(repo, tmp_path):
 def test_append_event_writes_new_file_no_shared_ledger(repo):
     attrs = (repo / ".gitattributes").read_text()
     ledger = repo / ".factory" / "events.jsonl"
+    event_dir = repo / ".factory" / "events"
+    before_event_files = set(event_dir.glob("*.json"))
     ledger.parent.mkdir(exist_ok=True)
     ledger.write_text('{"event": "legacy"}\n')
     before = ledger.read_bytes()
@@ -10284,7 +10821,9 @@ def test_append_event_writes_new_file_no_shared_ledger(repo):
     code, out = run(repo, "forge.py", "pr-link", "ENG-1", "acme/widgets#42")
     assert code == 0, out
 
-    event_files = list((repo / ".factory" / "events").glob("*.json"))
+    event_files = [
+        path for path in event_dir.glob("*.json") if path not in before_event_files
+    ]
     assert len(event_files) == 1
     written = json.loads(event_files[0].read_text())
     assert written["event"] == "pr-linked"
@@ -10883,6 +11422,26 @@ def fake_companion_env(tmp_path: Path) -> dict[str, str]:
     return {"HOME": str(fake_companion_home(tmp_path))}
 
 
+def _fake_psutil_module(tmp_path: Path) -> Path:
+    """Provide the minimal process-discovery contract for CLI fixture runs."""
+    module = tmp_path / "psutil.py"
+    module.write_text(
+        "class Error(Exception): pass\n"
+        "class AccessDenied(Exception): pass\n"
+        "class NoSuchProcess(Exception): pass\n"
+        "STATUS_ZOMBIE = 'zombie'\n"
+        "class Process:\n"
+        "    def __init__(self, _pid=None): pass\n"
+        "    def create_time(self): return 1.0\n"
+        "    def children(self, recursive=False): return []\n"
+        "    def username(self): return 'fixture-user'\n"
+        "    def is_running(self): return False\n"
+        "    def status(self): return STATUS_ZOMBIE\n"
+        "def process_iter(_attrs=None): return iter(())\n"
+    )
+    return tmp_path
+
+
 def launch_fake(repo: Path, tmp_path: Path, stage_id: str) -> None:
     # The write delegation gate (decision 0032) refuses without a fresh per-task
     # grill; record one bound to the recorded contract before launching.
@@ -11231,8 +11790,12 @@ def test_task_pr_ready_refuses_unsealed_then_writes_marker_and_opens_pr(
     )
     assert git(repo, "cat-file", "-e", f"origin/{git(repo, 'symbolic-ref', '--short', 'HEAD')}:{marker.relative_to(repo).as_posix()}") == ""
     argv = argv_path.read_text().splitlines()
-    assert argv[:4] == ["pr", "create", "--base", "main"]
-    assert "--head" not in argv
+    # The task PR targets origin's DEFAULT branch (here main) and names an
+    # explicit --head so gh never guesses the source branch from local tracking.
+    assert argv[:6] == [
+        "pr", "create", "--base", "main",
+        "--head", git(repo, "symbolic-ref", "--short", "HEAD"),
+    ]
     assert "--title" in argv and "ENG-1 T1: core slice" in argv
     assert "--body" in argv
     assert marker.relative_to(repo).as_posix() in argv_path.read_text()
@@ -11418,6 +11981,9 @@ def test_initial_recording_is_fully_skeletal_and_graph_freezes(repo, tmp_path):
     )
     assert code == 0, out
 
+    # Nothing has STARTED yet: the pending graph may be reshaped, but every such
+    # change is an APPROVED-PLAN AMENDMENT (it prints the amendment NOTE and marks
+    # the approval/grills stale), never a silent reshuffle.
     graph_edits = [
         [{**first, "id": "RENAMED"},
          {**second, "dependencies": ["RENAMED"]}],
@@ -11430,7 +11996,38 @@ def test_initial_recording_is_fully_skeletal_and_graph_freezes(repo, tmp_path):
             repo, "record_decomposition_from_json.py",
             stdin=json.dumps({**DECOMP, "tasks": tasks}),
         )
-        assert code != 0 and "task graph is frozen" in out
+        assert code == 0 and "AMENDED" in out, out
+    # Restore the original skeleton for the checks that follow.
+    run(repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [first, second]}))
+
+    # Once T1 has STARTED (here: done) its graph position — id, order,
+    # dependencies — is HARD frozen; only `forge task reopen` can move started
+    # work, a plain re-record cannot.
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": first["title"], "status": "done"},
+            {"id": "T2", "title": second["title"], "status": "pending"},
+        ],
+    })
+    for tasks in (
+        [{**first, "id": "RENAMED"}, {**second, "dependencies": ["RENAMED"]}],
+        [{**second, "dependencies": []}, {**first, "dependencies": ["T2"]}],
+    ):
+        code, out = run(
+            repo, "record_decomposition_from_json.py",
+            stdin=json.dumps({**DECOMP, "tasks": tasks}),
+        )
+        assert code != 0 and "frozen for work that has started" in out, out
+    # Back to pending so the append + frontier-detail checks below are unaffected.
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": first["title"], "status": "pending"},
+            {"id": "T2", "title": second["title"], "status": "pending"},
+        ],
+    })
 
     appended = {**skeletal_stage_task("T3", "split-out slice"),
                 "dependencies": ["T2"]}
@@ -11439,13 +12036,13 @@ def test_initial_recording_is_fully_skeletal_and_graph_freezes(repo, tmp_path):
         repo, "record_decomposition_from_json.py",
         stdin=json.dumps({**DECOMP, "tasks": [first, second, detailed_append]}),
     )
-    assert code != 0 and "appended task must be skeletal" in out
+    assert code != 0 and "pending non-frontier task must not declare" in out, out
     empty_detail_append = {**appended, "write_scope": []}
     code, out = run(
         repo, "record_decomposition_from_json.py",
         stdin=json.dumps({**DECOMP, "tasks": [first, second, empty_detail_append]}),
     )
-    assert code != 0 and "appended task must be skeletal" in out
+    assert code != 0 and "pending non-frontier task must not declare" in out, out
     code, out = run(
         repo, "record_decomposition_from_json.py",
         stdin=json.dumps({**DECOMP, "tasks": [first, second, appended]}),
@@ -11472,6 +12069,37 @@ def test_initial_recording_is_fully_skeletal_and_graph_freezes(repo, tmp_path):
         stdin=json.dumps({**DECOMP, "tasks": [repaired, second, appended]}),
     )
     assert code == 0, out
+
+
+def test_task_reopen_moves_frontier_back_and_ripples_the_done_tail(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    record_skeleton_then_frontier(
+        repo, [skeletal_stage_task("T1"), skeletal_stage_task("T2")])
+    # T1 and the tail built on it (T2) are both done but unshipped.
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": "first", "status": "done", "task_sha256": "abc",
+             "local_review_stamp": {"score": 9}},
+            {"id": "T2", "title": "second", "status": "done", "task_sha256": "def"},
+        ],
+    })
+    code, out = run(repo, "forge.py", "task", "reopen", "T1")
+    assert code == 0 and "Reopened" in out and "T1" in out and "T2" in out, out
+    # T1 is now the pending frontier again; reopening a pending task refuses.
+    code, out = run(repo, "forge.py", "task", "reopen", "T1")
+    assert code != 0 and "not done" in out, out
+
+
+def test_task_reopen_refuses_a_task_not_in_the_decomposition(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    record_skeleton_then_frontier(repo, [skeletal_stage_task("T1")])
+    code, out = run(repo, "forge.py", "task", "reopen", "NOPE")
+    assert code != 0 and "not in the current decomposition" in out, out
 
 
 def test_done_contracts_immutable_and_criteria_map_binds_plan_contracts(
@@ -13394,8 +14022,8 @@ def test_stage_start_refuses_unready_or_ungrilled_contract(repo, tmp_path):
     assert code == 0, out
     before = (authority.read_bytes(), mirror.read_bytes())
     code, out = run(repo, "forge.py", "stage", "start", "T1")
-    assert code != 0 and "Task grill required" in out
-    assert "record_grill_from_json.py --gate task --task T1" in out
+    assert code != 0 and "Task plan required first" in out
+    assert "./forge task plan save T1 --from <path>" in out
     assert (authority.read_bytes(), mirror.read_bytes()) == before
 
     code, out = record_task_grill(repo, STAGE_TASK)
@@ -15178,6 +15806,22 @@ def test_forge_next_routes_the_jit_frontier_states(repo, tmp_path):
     )
     assert code == 0, out
     action = next_action()
+    assert "enter plan mode" in action
+    assert "task plan save" in action
+    assert "stage start" not in action and "forge delegate" not in action
+
+    source = tmp_path / "T1.md"
+    source.write_text(
+        "# Task plan — T1\n\nImplement the recorded contract.\n",
+        encoding="utf-8",
+    )
+    code, out = post_hook(repo, plan_hook_payload(source))
+    assert code == 0, out
+    code, out = run(
+        repo, "forge.py", "task", "plan", "save", "T1", "--from", str(source),
+    )
+    assert code == 0, out
+    action = next_action()
     assert "factory/prompts/griller.md --gate task" in action
     assert "stage start" not in action and "forge delegate" not in action
 
@@ -15235,7 +15879,7 @@ def test_board_task_rows_match_frontier_states(repo, tmp_path):
         stdin=json.dumps({**DECOMP, "tasks": [STAGE_TASK]}),
     )
     assert code == 0, out
-    assert_state("grill", "ready")
+    assert_state("author-task-plan", "author-task-plan")
 
     code, out = record_task_grill(repo, STAGE_TASK)
     assert code == 0, out
@@ -15262,17 +15906,9 @@ def test_stage_start_and_delegate_refuse_without_approved_task_plan(repo, tmp_pa
     intake(repo)
     save_plan(repo, tmp_path)
     record_skeleton_then_frontier(repo, [STAGE_TASK])
-    code, out = record_task_grill(repo, STAGE_TASK, approve=False)
-    assert code == 0, out
-
     code, out = run(repo, "forge.py", "stage", "start", "T1")
     assert code != 0 and "Task plan required first" in out
-
-    source = tmp_path / "T1.md"
-    source.write_text("# T1 plan\n\nImplement the bounded task.\n")
-    code, out = run(
-        repo, "forge.py", "task", "plan", "save", "T1", "--from", str(source),
-    )
+    code, out = record_task_grill(repo, STAGE_TASK, approve=False)
     assert code == 0, out
     code, out = run(repo, "forge.py", "stage", "start", "T1")
     assert code != 0 and "Task plan approval required" in out
@@ -15298,9 +15934,6 @@ def test_forge_next_and_board_route_author_task_plan_and_await_approval(
     intake(repo)
     save_plan(repo, tmp_path)
     record_skeleton_then_frontier(repo, [STAGE_TASK])
-    code, out = record_task_grill(repo, STAGE_TASK, approve=False)
-    assert code == 0, out
-
     from forge_cli.board import next_actions
 
     def assert_route(frontier: str, row_state: str, command: str) -> None:
@@ -15318,8 +15951,19 @@ def test_forge_next_and_board_route_author_task_plan_and_await_approval(
     assert_route("author-task-plan", "author-task-plan", "task plan save T1")
     source = tmp_path / "T1.md"
     source.write_text("# T1 plan\n\nImplement the bounded task.\n")
+    code, out = post_hook(repo, plan_hook_payload(source))
+    assert code == 0, out
     code, out = run(
         repo, "forge.py", "task", "plan", "save", "T1", "--from", str(source),
+    )
+    assert code == 0, out
+    assert_route("grill", "ready", "saved T1 task plan")
+    payload = task_grill_payload(STAGE_TASK)
+    code, out = log_grill_rounds(repo, payload["rounds"])
+    assert code == 0, out
+    code, out = run(
+        repo, "record_grill_from_json.py", "--gate", "task", "--task", "T1",
+        stdin=json.dumps(payload),
     )
     assert code == 0, out
     assert_route("await-approval", "await-approval", "task approve T1")
@@ -15421,6 +16065,51 @@ def test_docs_state_the_enforced_jit_contract():
     assert "task griller" in implementing_route
     assert "stage start" in implementing_route and "delegate" in implementing_route
     assert "findings and refusals always in full" in agents
+
+
+@pytest.mark.skipif(
+    not PLAN_MODE_DECISION_FIXTURE.is_file(),
+    reason="requires the plan-mode decision harness-source fixture",
+)
+def test_docs_state_enforced_order():
+    decision = PLAN_MODE_DECISION_FIXTURE.read_text()
+    loop_spec = (
+        HARNESS / "docs" / "specs" / "accountable-engineering-loop.md"
+    ).read_text()
+    approval_spec = (
+        HARNESS / "docs" / "specs" / "plan-approval.md"
+    ).read_text()
+    workflow = (HARNESS / "WORKFLOW.md").read_text()
+
+    assert "status: accepted" in decision
+    assert 'confirmed_by: "Ravi Kiran Vemula"' in decision
+    assert "status: confirmed" in loop_spec
+    assert "status: confirmed" in approval_spec
+
+    assert "zero-gap grill may validly have" not in loop_spec
+    assert "plan mode cannot be the enforcement signal" not in approval_spec
+    assert "recommended review step" not in approval_spec
+    assert "marker the agent cannot mint" not in approval_spec
+    for text in (decision, loop_spec, approval_spec):
+        unwrapped = " ".join(text.split())
+        assert "GATE_ROUND_FLOORS" in text or "floors spec 2" in unwrapped
+        assert "frontier_empty: true" in text
+        assert "ledger-matched" in text or "match a logged record" in unwrapped
+    for text in (decision, approval_spec):
+        assert "plan_body_digest" in text
+
+    task_loop = workflow.split("## Task Planning", 1)[1].split(
+        "During implementation", 1
+    )[0]
+    enforced_order = (
+        "task plan is authored in plan mode",
+        "task grill delivers its rounds",
+        "human approves",
+        "stage start",
+        "delegate",
+    )
+    positions = [task_loop.index(step) for step in enforced_order]
+    assert positions == sorted(positions)
 
 
 def test_plan_save_refuses_a_plan_missing_any_required_section(repo, tmp_path):
@@ -16272,24 +16961,36 @@ def test_pr_ready_refuses_out_of_order_or_dirty_or_unstamped_closeout(repo, tmp_
 
 def test_mode_start_refuses_while_a_stage_is_active(repo, tmp_path):
     start_stage(repo, tmp_path, STAGE_TASK, launch=False)
-    attempts = (
+    # quickfix and lite are out-of-band windows and must refuse mid-stage.
+    refused = (
         ("forge.py", "quickfix", "start", "blocked repair"),
         ("forge.py", "mode", "lite", "--by", "Ada", "--reason", "blocked repair"),
-        ("forge.py", "mode", "degraded", "start", "--reason", "blocked repair"),
     )
-    for command in attempts:
+    for command in refused:
         code, out = run(repo, *command)
         assert code != 0 and "T1" in out and "stage done" in out, out
         assert not (repo / ".factory" / "quickfix.json").exists()
+
+    # A DEGRADED window is the host-exception valve: it IS allowed mid-stage
+    # (bounded + ledgered) so a fix that provably cannot be verified in the
+    # companion sandbox can be made without tearing down the active stage.
+    code, out = run(repo, "forge.py", "mode", "degraded", "start", "--reason", "host exception")
+    assert code == 0, out
+    assert (repo / ".factory" / "quickfix.json").exists()
+    code, out = run(repo, "forge.py", "mode", "abandon", "--reason", "test cleanup")
+    assert code == 0, out
 
     write_stages(repo, {
         "issue": "ENG-1",
         "stages": [{"id": "T1", "title": "core slice", "status": "done"}],
     })
-    for index, command in enumerate(attempts):
+    all_windows = refused + (
+        ("forge.py", "mode", "degraded", "start", "--reason", "blocked repair"),
+    )
+    for command in all_windows:
         code, out = run(repo, *command)
         assert code == 0, out
-        if index == 0:
+        if command[1] == "quickfix":
             code, out = run(repo, "forge.py", "quickfix", "done")
         else:
             code, out = run(repo, "forge.py", "mode", "abandon", "--reason", "test cleanup")
@@ -16505,7 +17206,15 @@ def test_fixture_bound_tests_skip_in_a_fixture_free_client_scaffold(
          "-p", "no:cacheprovider", "-q", "-k",
          "historical_decomposition_artifacts_still_parse or "
          "precontract_stories_are_marked_without_synthesized_outcomes or "
-         "shipped_roadmap_satisfies_the_story_contract"],
+         "shipped_roadmap_satisfies_the_story_contract or "
+         "upgrade_project_skill_structure_and_registration or "
+         "upgrade_project_skill_uses_fill_not_import or "
+         "sanitise_skill_structure_and_registration or "
+         "upgrade_does_not_vendor_the_harness_source_marker or "
+         "pr_link_commit_skips_ci or "
+         "docs_describe_three_planning_lock_exits or "
+         "gate_b_workflows_link_the_branch_and_check_main or "
+         "docs_state_enforced_order"],
         cwd=target, capture_output=True, text=True,
         env={**os.environ, "PYTEST_ADDOPTS": "-o tmp_path_retention_policy=none"},
     )
@@ -17577,3 +18286,79 @@ def test_junit_case_attributed_file_or_classname_suffix():
     assert _junit_case_attributed(vitest, rel)
     assert _junit_case_attributed(withfile, rel)
     assert not _junit_case_attributed(wrong, rel)
+
+
+def test_plan_body_digest_is_line_ending_agnostic(tmp_path):
+    """The plan-mode marker digest must be stable across platforms and Git
+    autocrlf. plan_body_digest is computed once from the plan-mode source (marker
+    create) and again from the saved/committed task plan (marker check); if a
+    write_text() on Windows or a core.autocrlf checkout turned LF into CRLF, an
+    unnormalised digest would never match and `task approve` would demand a
+    spurious re-grill. So LF, CRLF, and CR renderings of the same body must hash
+    identically."""
+    body = "---\ntitle: T\nkey: value\n---\n\n# Plan\n\nline one\nline two\n"
+    lf = tmp_path / "lf.md"
+    lf.write_bytes(body.encode("utf-8"))
+    crlf = tmp_path / "crlf.md"
+    crlf.write_bytes(body.replace("\n", "\r\n").encode("utf-8"))
+    cr = tmp_path / "cr.md"
+    cr.write_bytes(body.replace("\n", "\r").encode("utf-8"))
+    assert plan_body_digest(lf) == plan_body_digest(crlf) == plan_body_digest(cr)
+
+    # The Implementation Assumptions appendix is excluded regardless of newline
+    # style, so appending it (in any rendering) does not change the digest.
+    with_appendix = body + "\n## Implementation Assumptions\n\n- later\n"
+    appended = tmp_path / "appended.md"
+    appended.write_bytes(with_appendix.replace("\n", "\r\n").encode("utf-8"))
+    assert plan_body_digest(appended) == plan_body_digest(lf)
+
+
+def test_default_trunk_branch_derives_from_origin_head(tmp_path):
+    """The trunk (task markers, task-start base, review diff) is whatever
+    origin/HEAD points at — main, develop, trunk — not a hardcoded 'main', so the
+    harness works on any repo. Falls back to 'main' when unresolved, preserving
+    main-trunk behaviour."""
+    from factory_lib import default_trunk_branch
+    repo = tmp_path / "r"
+    repo.mkdir()
+    def git(*a):
+        subprocess.run(["git", *GIT_ID, *a], cwd=repo, check=True,
+                       capture_output=True, text=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True,
+                   capture_output=True, text=True)
+    (repo / "f").write_text("x", encoding="utf-8")
+    git("add", "."); git("commit", "-qm", "c")
+    # No origin/HEAD and no 'origin' remote -> fall back to 'main'.
+    assert default_trunk_branch(repo) == "main"
+    # A develop-trunk remote: origin/HEAD -> origin/develop resolves to 'develop'.
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
+                         capture_output=True, text=True).stdout.strip()
+    git("update-ref", "refs/remotes/origin/develop", sha)
+    git("symbolic-ref", "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/develop")
+    assert default_trunk_branch(repo) == "develop"
+
+
+def test_forge_deps_lock_detects_manager_and_guards(tmp_path):
+    """`forge deps lock` infers the package manager from the lockfile present
+    (generic across pnpm/npm/yarn) and fails clearly with no package.json or no
+    lockfile, so it never silently no-ops."""
+    from forge_cli.deps import detect_locker, cmd_lock
+    root = tmp_path / "app"
+    root.mkdir()
+    assert detect_locker(root) is None
+    (root / "package-lock.json").write_text("{}", encoding="utf-8")
+    assert detect_locker(root)[1] == "npm"
+    (root / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+    assert detect_locker(root)[1] == "pnpm"  # first-match precedence
+    # Guard: no package.json -> refuse.
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    with pytest.raises(SystemExit):
+        cmd_lock(argparse.Namespace(repo=str(bare)))
+    # Guard: package.json but no lockfile -> refuse.
+    only_pkg = tmp_path / "pkg"
+    only_pkg.mkdir()
+    (only_pkg / "package.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        cmd_lock(argparse.Namespace(repo=str(only_pkg)))

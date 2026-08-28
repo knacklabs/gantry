@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
 import { createGantryShellTool } from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
+import { createJobPermissionDurabilityWiring } from '@core/app/bootstrap/job-permission-durability-wiring.js';
 import {
   bindPendingPermissionInteractionMessage,
   claimPermissionInteractionCallback,
@@ -26,6 +27,8 @@ import {
 import { AGENT_CREDENTIAL_ENV_KEYS } from '@core/config/source-classification.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { decisionForMode } from '@core/domain/permission-decision.js';
+import { jobPermissionCardActions } from '@core/domain/job-permission-card-actions.js';
+import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalResult,
@@ -325,6 +328,7 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
 
   async function processNextSignedPermission(input: {
     requestPermissionApproval: IpcDeps['requestPermissionApproval'];
+    jobPermissionDurability?: IpcDeps['jobPermissionDurability'];
     sendMessage?: IpcDeps['sendMessage'];
     classifierConsult?: IpcDeps['classifierConsult'];
     getPermissionRuntimeSettings?: IpcDeps['getPermissionRuntimeSettings'];
@@ -359,6 +363,9 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       writeGroupsSnapshot: async () => undefined,
       onSchedulerChanged: () => undefined,
       requestPermissionApproval: input.requestPermissionApproval,
+      ...(input.jobPermissionDurability
+        ? { jobPermissionDurability: input.jobPermissionDurability }
+        : {}),
       requestUserAnswer: async () => ({ answers: {} }),
       opsRepository: runtime.ops,
       getToolRepository: () => runtime.repositories.tools,
@@ -485,6 +492,162 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     });
     expect(durableEvidence).not.toContain(modelCredentialMarker);
     expect(durableEvidence).not.toContain(capabilitySecretMarker);
+  }, 60_000);
+
+  it('completes the signed once-card chain for a job request with no persistable rule without writing a rule', async () => {
+    const jobId = 'job-permission-once-chain';
+    const runId = 'run-permission-once-chain';
+    const workerId = 'worker-permission-once-chain';
+    const now = new Date().toISOString();
+    await runtime.ops.upsertJob({
+      id: jobId,
+      name: 'Permission once chain',
+      prompt: 'Exercise the once permission chain',
+      schedule_type: 'manual',
+      schedule_value: '',
+      status: 'active',
+      session_id: null,
+      thread_id: null,
+      execution_context: {
+        conversationJid: TARGET_JID,
+        threadId: null,
+        workspaceKey: AGENT_FOLDER,
+        sessionId: null,
+      },
+      workspace_key: AGENT_FOLDER,
+      created_by: APPROVER,
+      created_at: now,
+      updated_at: now,
+      next_run: null,
+      silent: true,
+      timeout_ms: 30_000,
+      max_retries: 0,
+      retry_backoff_ms: 1,
+    } satisfies JobUpsertInput);
+    await runtime.repositories.workerCoordination.registerWorker({
+      id: workerId,
+      bootNonce: 'permission-once-chain',
+    });
+    const lease = await runtime.ops.claimDueJobRunStart({
+      jobId,
+      runId,
+      executionProviderId: 'anthropic:claude-agent-sdk' as never,
+      workerInstanceId: workerId,
+      scheduledFor: now,
+      startedAt: now,
+      retryCount: 0,
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      requireNextRun: false,
+    });
+    expect(lease).not.toBeNull();
+
+    const durability = createJobPermissionDurabilityWiring({
+      repository: runtime.repositories.workerCoordination,
+      opsRepository: runtime.ops,
+      channelWiring: {
+        isControlApproverAllowed: async () => true,
+      },
+      getPermissionRuntimeSettings: () => ({
+        agents: { [AGENT_FOLDER]: { accessPreset: 'full' as const } },
+        permissions: {},
+      }),
+      getToolRepository: () => runtime.repositories.tools,
+      getSkillRepository: () => runtime.repositories.skills,
+      resolveCardTarget: () => ({
+        appId: APP_ID,
+        conversationId: CONVERSATION_ID,
+        threadId: null,
+        agentId: AGENT_ID,
+      }),
+      enqueueRunAgain: async () => undefined,
+    });
+    const requestPermissionApproval = vi.fn(async () => {
+      throw new Error('job permission request must use the durable card');
+    });
+    const ruleIdsBefore = (
+      await runtime.service.db
+        .select({ id: pgSchema.permissionRulesPostgres.id })
+        .from(pgSchema.permissionRulesPostgres)
+    )
+      .map(({ id }) => id)
+      .sort();
+    const runnerDecision = requestPermissionApprovalViaIpc(
+      clientEnv({
+        jobId,
+        jobName: 'Permission once chain',
+        jobRunId: runId,
+        jobRunLeaseToken: lease!.leaseToken,
+        jobRunLeaseFencingVersion: String(lease!.fencingVersion),
+        permissionLane: 'autonomous',
+        permissionMode: 'ask',
+        permissionRequestTimeoutMs: 5_000,
+      }),
+      {
+        agentFolder: AGENT_FOLDER,
+        toolName: 'RunCommand',
+        toolInput: { command: 'npm test | tee permission-report.txt' },
+      },
+    );
+    const processed = await processNextSignedPermission({
+      requestPermissionApproval,
+      jobPermissionDurability: durability,
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+
+    let state =
+      await runtime.repositories.workerCoordination.getJobPermissionState({
+        appId: APP_ID,
+        jobId,
+      });
+    expect(state!.needs).toEqual([
+      expect.objectContaining({
+        canonicalIdentity: processed.request.requestId,
+        grant: 'once',
+        renderedGrantAtoms: [],
+        state: 'asking',
+      }),
+    ]);
+    const revision = state!.card.revisions.at(-1)!;
+    const allow = jobPermissionCardActions(
+      state!.card.callbackKey,
+      revision,
+    ).find((action) => action.label === 'Allow');
+    expect(allow).toBeDefined();
+    await expect(
+      durability.decideCardAction({
+        actor: {
+          actorRef: APPROVER,
+          conversationJid: TARGET_JID,
+          providerAccountId: PROVIDER_ACCOUNT_ID,
+        },
+        token: allow!.token,
+      }),
+    ).resolves.toMatchObject({ status: 'accepted' });
+    await durability.reconcile();
+
+    const decision = await runnerDecision;
+    expect(decision).toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'human_once',
+    });
+    expect(decision.updatedPermissions ?? null).toBeNull();
+    state = await runtime.repositories.workerCoordination.getJobPermissionState(
+      { appId: APP_ID, jobId },
+    );
+    expect(state!.needs[0]).toMatchObject({
+      state: 'applied',
+      grant: 'once',
+      approvedGrantAtoms: [],
+    });
+    const ruleIdsAfter = (
+      await runtime.service.db
+        .select({ id: pgSchema.permissionRulesPostgres.id })
+        .from(pgSchema.permissionRulesPostgres)
+    )
+      .map(({ id }) => id)
+      .sort();
+    expect(ruleIdsAfter).toEqual(ruleIdsBefore);
   }, 60_000);
 
   it('persists allow-for-future through the signed chain without an outbound chat receipt', async () => {

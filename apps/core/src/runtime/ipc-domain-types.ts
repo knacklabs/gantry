@@ -51,6 +51,12 @@ import type { PermissionDecisionMemoryRepository } from '../domain/ports/permiss
 import type { AttachmentOpenResult } from '../application/attachments/attachment-resolver.js';
 
 export interface IpcDeps {
+  jobPermissionDurability?: {
+    attachRequest(input: {
+      request: PermissionApprovalRequest;
+      sourceAgentFolder: string;
+    }): Promise<boolean>;
+  };
   sendMessage: (
     jid: string,
     text: string,

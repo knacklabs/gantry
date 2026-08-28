@@ -1,0 +1,11 @@
+{
+  "topic": "managed-shell-direct-invocations",
+  "lesson": "The managed shell rejected a batched read-only probe twice when it included an absolute memory path. Use separate directly inspectable commands for workspace and memory reads.",
+  "source": "JOBPERM-1-T3",
+  "applies_to": [
+    "factory/**"
+  ],
+  "severity": "low",
+  "generated_by": "implementer",
+  "added_at": "2026-08-24T00:06:06+00:00"
+}

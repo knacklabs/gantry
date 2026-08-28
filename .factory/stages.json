@@ -1,95 +1,85 @@
 {
-  "issue": "AGENTS-WEB-1",
+  "issue": "JOBPERM-2",
   "stages": [
     {
-      "id": "AGENTS-WEB-1-1",
-      "title": "Create custom role and agent snapshot foundations",
+      "id": "JOBPERM-2-T1",
+      "title": "Once grants end to end: every job-run request gets the card; once Allow replays allow_once; fail-closed attach; cancel-only rewrite deleted",
       "status": "done",
-      "started_at": "2026-08-26T17:57:44+00:00",
-      "base_sha": "6047a3dc890922968e8e8b4785af171825d65bfd",
+      "started_at": "2026-08-27T17:29:37+00:00",
+      "base_sha": "83e9947af4297d5d5049af3a3f28b0a5fabf7636",
       "dirty_at_start": {
-        ".factory/events/02ec7eceeda94d2593482a65ad379826.json": {
-          "digest": "8aeccde94263d13b927a0f11b80f96a5c8485958e43b5cfb405a6fce354fa8d6",
-          "git": "? .factory/events/02ec7eceeda94d2593482a65ad379826.json\u0000\u0000\u0000"
-        },
-        ".factory/events/fa6142e5ac4544a1896aa972c330397a.json": {
-          "digest": "665414eca4c86f11ea11d428caa449d2d2d3e61a67ac784fc67121933088ff5c",
-          "git": "? .factory/events/fa6142e5ac4544a1896aa972c330397a.json\u0000\u0000\u0000"
-        },
-        ".factory/stories/AGENTS-WEB-1/decomposition.json": {
-          "digest": "da6f7e4dc9874e9fcb1aaa0c5bd47bb2c3f9f84401aa4e93ee61c11758493a07",
-          "git": "1 .M N... 100644 100644 100644 d7d9e996cb18123c64149bb6ee864f7db3192bcd d7d9e996cb18123c64149bb6ee864f7db3192bcd .factory/stories/AGENTS-WEB-1/decomposition.json\u0000\u0000100644 d7d9e996cb18123c64149bb6ee864f7db3192bcd 0\t.factory/stories/AGENTS-WEB-1/decomposition.json\u0000\u0000H .factory/stories/AGENTS-WEB-1/decomposition.json\u0000"
-        },
-        ".factory/stories/AGENTS-WEB-1/grills/tasks/AGENTS-WEB-1-1.json": {
-          "digest": "3fe8e20715dc8c7fc32147a5848fe412cb46f321c35418ebfd3646667d034abf",
-          "git": "? .factory/stories/AGENTS-WEB-1/grills/tasks/AGENTS-WEB-1-1.json\u0000\u0000\u0000"
-        },
-        ".factory/stories/AGENTS-WEB-1/task-plans/AGENTS-WEB-1-1.md": {
-          "digest": "c100feca26e18582a618e666b983de1eb33cd5ac4f86239fa2eb3974aa2d2d31",
-          "git": "? .factory/stories/AGENTS-WEB-1/task-plans/AGENTS-WEB-1-1.md\u0000\u0000\u0000"
+        ".factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T1.json": {
+          "digest": "49dde08a3879934316dc51615bc8213fa6c156e4b1d701aee11649f58186aa50",
+          "git": "? .factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T1.json\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "9cc9f0d961a16e1de7d12e67996dd8d99b10a383aa05a242bc364f7473a2733d",
-      "completed_at": "2026-08-26T18:13:36+00:00"
+      "task_sha256": "87789d58f918cf06f13396de263df30692d6b0ba3e0fa9983d4bda884766030a",
+      "completed_at": "2026-08-27T18:38:32+00:00"
     },
     {
-      "id": "AGENTS-WEB-1-2",
-      "title": "Expose truthful agent and role browser projections",
-      "status": "active",
-      "started_at": "2026-08-26T18:15:53+00:00",
-      "base_sha": "1786e91a7f9798339c956541e464de2576a80222",
+      "id": "JOBPERM-2-T2",
+      "title": "Once expiry settlement + Postgres integration proof of the once chain",
+      "status": "done",
+      "started_at": "2026-08-27T18:42:18+00:00",
+      "base_sha": "427e9828a60d2e4611248e7ee292d02fbc7d99d6",
       "dirty_at_start": {
-        ".factory/events/3bd483e92d9340c9bf90a626592ce621.json": {
-          "digest": "63beb8bccabe5549ec909130968b49b3018e4a5de061c4065d4d5a29ca172586",
-          "git": "? .factory/events/3bd483e92d9340c9bf90a626592ce621.json\u0000\u0000\u0000"
+        ".factory/events/09d123085524420ba7c317801aac1154.json": {
+          "digest": "deba9259d33cb9ebc459669d13cdf51b5fc8d83fc975126eae7f94cdf514b237",
+          "git": "? .factory/events/09d123085524420ba7c317801aac1154.json\u0000\u0000\u0000"
+        },
+        ".factory/events/9aa811b552cc4e69b975ec8ce8f3c3b1.json": {
+          "digest": "6929e75ce7c122f09a84023ce9374e5c8f688739acda0913794f43aee42a22cf",
+          "git": "? .factory/events/9aa811b552cc4e69b975ec8ce8f3c3b1.json\u0000\u0000\u0000"
+        },
+        ".factory/events/f9960aa600744732aae1fe96b0b53d79.json": {
+          "digest": "a798c58d7fee340f3f916e120618415991e43238d9a1a9e73a70528e3d0f805f",
+          "git": "? .factory/events/f9960aa600744732aae1fe96b0b53d79.json\u0000\u0000\u0000"
+        },
+        ".factory/signals.jsonl": {
+          "digest": "772a954703245cdc17f6dcfdeb9709a32db4784f380738a5901a7614f99550fc",
+          "git": "1 .M N... 100644 100644 100644 21135f0c222fe5b8fef8e39bae34119445270e11 21135f0c222fe5b8fef8e39bae34119445270e11 .factory/signals.jsonl\u0000\u0000100644 21135f0c222fe5b8fef8e39bae34119445270e11 0\t.factory/signals.jsonl\u0000\u0000H .factory/signals.jsonl\u0000"
         },
         ".factory/stages.json": {
-          "digest": "0cc8a8402225cea1e77109cab5cbadea80aab6ce736995223f3fa700947d818a",
-          "git": "1 .M N... 100644 100644 100644 9295aa2f9812f7412c1d11412f026971110d5147 9295aa2f9812f7412c1d11412f026971110d5147 .factory/stages.json\u0000\u0000100644 9295aa2f9812f7412c1d11412f026971110d5147 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+          "digest": "f222cc00d6a752ba98ae880b41bf7a07783bb2430da3c33f9ca38fcb739ebbd9",
+          "git": "1 .M N... 100644 100644 100644 ca6a95e86ee4cafa691fc42ca3896c656c69e9ad ca6a95e86ee4cafa691fc42ca3896c656c69e9ad .factory/stages.json\u0000\u0000100644 ca6a95e86ee4cafa691fc42ca3896c656c69e9ad 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
         },
-        ".factory/stories/AGENTS-WEB-1/decomposition.json": {
-          "digest": "993bd9a485989483f3c511c8c920ebfb04fdbb710a9e8d5e9c57dd1cc3c8928e",
-          "git": "1 .M N... 100644 100644 100644 ca46e1583b7e4bed81baaef97f35b92a61829ce4 ca46e1583b7e4bed81baaef97f35b92a61829ce4 .factory/stories/AGENTS-WEB-1/decomposition.json\u0000\u0000100644 ca46e1583b7e4bed81baaef97f35b92a61829ce4 0\t.factory/stories/AGENTS-WEB-1/decomposition.json\u0000\u0000H .factory/stories/AGENTS-WEB-1/decomposition.json\u0000"
+        ".factory/stories/JOBPERM-2/decomposition.json": {
+          "digest": "48b07c9c8a99780e9b511a58dc33e0d0b3ce433bc0fbe8dc20292e40fb7cc0ff",
+          "git": "1 .M N... 100644 100644 100644 f9011701941a16249689e2627e57e934b02d4c47 f9011701941a16249689e2627e57e934b02d4c47 .factory/stories/JOBPERM-2/decomposition.json\u0000\u0000100644 f9011701941a16249689e2627e57e934b02d4c47 0\t.factory/stories/JOBPERM-2/decomposition.json\u0000\u0000H .factory/stories/JOBPERM-2/decomposition.json\u0000"
         },
-        ".factory/stories/AGENTS-WEB-1/grills/tasks/AGENTS-WEB-1-2.json": {
-          "digest": "67324964908614e1be018057d720bcf872784e7d577885ec34698949518348c1",
-          "git": "? .factory/stories/AGENTS-WEB-1/grills/tasks/AGENTS-WEB-1-2.json\u0000\u0000\u0000"
+        ".factory/stories/JOBPERM-2/grill-rounds/c65cd0f0-ac90-4cb0-b014-19ae8d807419.json": {
+          "digest": "c3755aa137c1d40dbd90cacee474bba2598cd17c30b95e359543f599b68998f5",
+          "git": "? .factory/stories/JOBPERM-2/grill-rounds/c65cd0f0-ac90-4cb0-b014-19ae8d807419.json\u0000\u0000\u0000"
         },
-        ".factory/stories/AGENTS-WEB-1/task-plans/AGENTS-WEB-1-2.md": {
-          "digest": "109f652c2125ebf9c0c72ffd9cc82f5dc5e3ec3afa660f5c721ed827a0cea798",
-          "git": "? .factory/stories/AGENTS-WEB-1/task-plans/AGENTS-WEB-1-2.md\u0000\u0000\u0000"
+        ".factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T2.json": {
+          "digest": "ba8b32bf2717412f82205bc2e329e02386941fa020b0511e1249b49ed1c21dc1",
+          "git": "? .factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T2.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-2/plan-mode/e8ed3375-2846-4542-bc41-5742fc079e9e.json": {
+          "digest": "25b490443d6b79c5255420cbfb8d03470374b3f2df24afd83bef0bb420b24d9a",
+          "git": "? .factory/stories/JOBPERM-2/plan-mode/e8ed3375-2846-4542-bc41-5742fc079e9e.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-2/task-plans/JOBPERM-2-T2.md": {
+          "digest": "24f0a2cf65a5ef8844b81c8121205790f53b5b305af50899cf6581a4d0e4e3aa",
+          "git": "? .factory/stories/JOBPERM-2/task-plans/JOBPERM-2-T2.md\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "c70235646d66dca5f46ea78043e30399778b911a14bf330e5f59a05408fb62aa",
+      "task_sha256": "33f5cc533e38f0eb741a18b05e68f211918af0c1978a53739d1aa31117caf96a",
       "local_review_stamp": {
-        "stage_id": "AGENTS-WEB-1-2",
-        "task_sha256": "c70235646d66dca5f46ea78043e30399778b911a14bf330e5f59a05408fb62aa",
-        "brief_sha256": "",
-        "base_sha": "1786e91a7f9798339c956541e464de2576a80222",
-        "product_tree_digest": "a368ceff68854567cc319c0d67f5c0615d68db51c3e806a91fa5109d109cf367",
-        "recorded_at": "2026-08-26T18:21:55+00:00",
+        "stage_id": "JOBPERM-2-T2",
+        "task_sha256": "33f5cc533e38f0eb741a18b05e68f211918af0c1978a53739d1aa31117caf96a",
+        "brief_sha256": "8cdc7ee70ea119e5a6d9fd3ef4be38a1d71f758f32e518c21c6315db248c06e3",
+        "base_sha": "427e9828a60d2e4611248e7ee292d02fbc7d99d6",
+        "product_tree_digest": "60c76ce2486f12ede7964f66a4b3657b18e33494758d044ef61fce32aa84ce62",
+        "recorded_at": "2026-08-27T19:50:34+00:00",
         "generated_by": "autoreview"
+      },
+      "completed_at": "2026-08-27T19:51:12+00:00",
+      "contract_changed": {
+        "at": "2026-08-27T19:51:12+00:00",
+        "from": "6974c1f85f7dfcb018026fe4261c1f07424dcdee736ba7ba5f3076078cf43066",
+        "to": "33f5cc533e38f0eb741a18b05e68f211918af0c1978a53739d1aa31117caf96a"
       }
-    },
-    {
-      "id": "AGENTS-WEB-1-3",
-      "title": "Build Agents directory and Roles library",
-      "status": "pending"
-    },
-    {
-      "id": "AGENTS-WEB-1-4",
-      "title": "Build staged agent creation",
-      "status": "pending"
-    },
-    {
-      "id": "AGENTS-WEB-1-5",
-      "title": "Build truthful routed agent detail",
-      "status": "pending"
-    },
-    {
-      "id": "AGENTS-WEB-1-6",
-      "title": "Verify the complete Agents management workflow",
-      "status": "pending"
     }
   ]
 }

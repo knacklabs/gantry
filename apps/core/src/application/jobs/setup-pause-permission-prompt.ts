@@ -371,6 +371,24 @@ export function setupPauseRequirementForApprovedSuggestions(input: {
   return { matched: true, requirements: matchedRequirements };
 }
 
+export function jobRequirementsForApprovedRules(input: {
+  job: Job;
+  suggestions: readonly PermissionApprovalUpdate[];
+}): { matched: boolean; requirements?: JobAccessRequirement[] } {
+  const approvedRules = permissionUpdateAllowedToolRules(input.suggestions);
+  if (approvedRules.length === 0) return { matched: false };
+  const requirements = approvedRules.flatMap((approvedRule) => {
+    const parsed = splitToolRule(approvedRule);
+    if (!parsed) return [];
+    const requirement = requirementForRule(input.job, undefined, {
+      toolName: parsed.toolName,
+      ...(parsed.rule ? { ruleContent: parsed.rule } : {}),
+    });
+    return requirement ? [requirement] : [];
+  });
+  return { matched: true, requirements };
+}
+
 function candidateRule(
   candidate: GrantableRequirementCandidate,
 ): string | undefined {
@@ -397,24 +415,34 @@ function candidateRule(
   ])[0];
 }
 
-function requirementForRule(
+export function requirementForRule(
   job: Job,
-  blocker: JobSetupBlocker,
+  blocker: JobSetupBlocker | undefined,
   grantRule: { toolName: string; ruleContent?: string },
 ): JobAccessRequirement | undefined {
   // Review R1: blocker.id may carry the canonical capability: rule prefix -
   // requirements store the BARE capability id, so normalize before matching
   // and before appending (a prefixed id would both miss the existing
   // requirement and append an invalid duplicate).
-  const capabilityId = blocker.id.startsWith(SEMANTIC_CAPABILITY_RULE_PREFIX)
-    ? blocker.id.slice(SEMANTIC_CAPABILITY_RULE_PREFIX.length)
-    : blocker.id;
+  const blockerCapabilityId = blocker
+    ? blocker.id.startsWith(SEMANTIC_CAPABILITY_RULE_PREFIX)
+      ? blocker.id.slice(SEMANTIC_CAPABILITY_RULE_PREFIX.length)
+      : blocker.id
+    : undefined;
+  const approvedCapabilityId = grantRule.toolName.startsWith(
+    SEMANTIC_CAPABILITY_RULE_PREFIX,
+  )
+    ? grantRule.toolName.slice(SEMANTIC_CAPABILITY_RULE_PREFIX.length)
+    : undefined;
+  const capabilityId = blockerCapabilityId ?? approvedCapabilityId;
   const canonicalRule = grantRule.ruleContent
     ? `${grantRule.toolName}(${grantRule.ruleContent})`
     : grantRule.toolName;
   const existing = (job.access_requirements ?? []).find((requirement) => {
     if (requirement.target.kind === 'capability') {
-      return requirement.target.capabilityId === capabilityId;
+      return Boolean(
+        capabilityId && requirement.target.capabilityId === capabilityId,
+      );
     }
     // Review R1: an existing tool_rule only satisfies this blocker when it
     // matches the EXACT canonical rule the grant carries - a differently
@@ -425,10 +453,14 @@ function requirementForRule(
     );
   });
   if (existing) return undefined;
-  if (blocker.type === 'semantic_capability') {
+  const reason = blocker
+    ? `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`
+    : 'Required after this scheduled run needed approval.';
+  if (blocker?.type === 'semantic_capability' || approvedCapabilityId) {
+    if (!capabilityId) return undefined;
     return {
       target: { kind: 'capability', capabilityId },
-      reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
+      reason,
     };
   }
 
@@ -437,7 +469,7 @@ function requirementForRule(
       kind: 'tool_rule',
       rule: canonicalRule,
     },
-    reason: `Required after ${setupBlockerLabel(blocker, blocker.state)} was denied.`,
+    reason,
   };
 }
 

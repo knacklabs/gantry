@@ -16,11 +16,11 @@ import { listTelegramRecentChats } from '../cli/telegram-chat-discovery.js';
 import {
   GraphTeamsSetupDiscoveryClient,
   type TeamsSetupDiscoveryClient,
-} from './teams-setup-discovery.js';
+} from './teams/setup-discovery.js';
 import {
   RestDiscordSetupDiscoveryClient,
   type DiscordSetupDiscoveryClient,
-} from './discord-setup-discovery.js';
+} from './discord/setup-discovery.js';
 import './register-builtins.js';
 import {
   getProvider,

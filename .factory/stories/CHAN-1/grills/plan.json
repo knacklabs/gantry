@@ -1,0 +1,21 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "gaps": [
+    "Two tasks (Discord, Teams) keep each review small; T2 does not depend on T1 but runs after it to avoid overlapping importer edits.",
+    "Dynamic/string-path imports and path-string test mocks are the only class a compiler cannot catch \u2014 the verify plan adds a zero-hit grep for the old prefixes."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Entry modules become <provider>/index.ts (one path segment change for external importers).",
+    "Architecture-budget paths updated in the same task; check:architecture in verify.",
+    "No decision record: layout only; the active decision list has no layout constraint."
+  ],
+  "owner_questions": [],
+  "input_sha256": "d741e0a864b64abb47d4cae008df6884e48201c80fea85e0767dced2bed88dc7",
+  "issue": "CHAN-1",
+  "recorded_at": "2026-08-27T08:53:11+00:00",
+  "commit": "20db560fe4dfc610791944a7c09a3c68eca6f22d"
+}

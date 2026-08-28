@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-23T16:47:49+00:00", "story": "JOBPERM-1", "detail": "S-0014-1ac8: Budget raised to 38 files / 5800 lines (recorded reason: review-mandated hardening rounds, not scope creep). Complete the ROUND 2 fixes."}

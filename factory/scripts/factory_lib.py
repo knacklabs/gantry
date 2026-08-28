@@ -711,20 +711,55 @@ def task_marker_path(key: str, task_id: str) -> Path:
     return Path(".factory") / "stories" / key / "tasks" / task_id / "pr-ready.json"
 
 
+def default_trunk_branch(root: Path) -> str:
+    """The repo's integration trunk — origin's default branch, not a hardcoded
+    'main'. Task markers, the task-start base, and the branch-review diff all
+    live on whatever ``origin/HEAD`` points at (main / develop / trunk / …), so
+    deriving it keeps the harness correct on every repo instead of only on
+    main-trunk ones. Falls back to 'main' when the default cannot be resolved,
+    which preserves prior behaviour for main-trunk repos (zero regression)."""
+    # Branch/ref names are UTF-8 (unlike arbitrary file paths), so strict UTF-8
+    # decoding is correct here and needs no lossless surrogateescape.
+    ref = subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"],
+        cwd=root, capture_output=True, text=True, env=clean_git_env(),
+        encoding="utf-8",
+    )
+    if ref.returncode == 0 and ref.stdout.strip():
+        return ref.stdout.strip().rsplit("/", 1)[-1]
+    # origin/HEAD not set locally — ask the remote once, then fall back to main.
+    show = subprocess.run(
+        ["git", "remote", "show", "origin"],
+        cwd=root, capture_output=True, text=True, env=clean_git_env(),
+        encoding="utf-8",
+    )
+    for line in show.stdout.splitlines():
+        if "HEAD branch:" in line:
+            name = line.split("HEAD branch:", 1)[1].strip()
+            if name and name != "(unknown)":
+                return name
+    return "main"
+
+
 def task_marker_on_main(root: Path, key: str, task_id: str) -> bool:
-    """Refresh origin/main and report whether its tree contains the task marker."""
+    """Refresh the trunk and report whether its tree contains the task marker.
+
+    'main' in the name is historical: the branch queried is the resolved trunk
+    (``default_trunk_branch``), so a develop/trunk repo finds its markers too.
+    """
     marker = task_marker_path(key, task_id)
+    trunk = default_trunk_branch(root)
     fetch = subprocess.run(
-        ["git", "fetch", "origin", "main"], cwd=root, capture_output=True,
+        ["git", "fetch", "origin", trunk], cwd=root, capture_output=True,
         text=True, env=clean_git_env(), encoding="utf-8", errors="surrogateescape",
     )
     if fetch.returncode != 0:
         detail = fetch.stderr.strip() or fetch.stdout.strip()
         raise SystemExit(
-            "fetching origin/main failed" + (f": {detail}" if detail else "")
+            f"fetching origin/{trunk} failed" + (f": {detail}" if detail else "")
         )
     present = subprocess.run(
-        ["git", "cat-file", "-e", f"origin/main:{marker.as_posix()}"],
+        ["git", "cat-file", "-e", f"origin/{trunk}:{marker.as_posix()}"],
         cwd=root, capture_output=True, text=True, env=clean_git_env(),
         encoding="utf-8", errors="surrogateescape",
     )
@@ -983,17 +1018,18 @@ def load_review_artifacts(
 
 
 def branch_diff_digest(root: Path) -> str:
-    """Hash the committed product diff from origin/main to the current HEAD."""
+    """Hash the committed product diff from the trunk to the current HEAD."""
     from forge_cli.stages import WORKFLOW_PATHS, committed_paths
 
+    trunk = default_trunk_branch(root)
     merge_base = subprocess.run(
-        ["git", "merge-base", "origin/main", "HEAD"],
+        ["git", "merge-base", f"origin/{trunk}", "HEAD"],
         cwd=root, capture_output=True, text=True, env=clean_git_env(),
         encoding="utf-8", errors="surrogateescape",
     )
     if merge_base.returncode != 0 or not merge_base.stdout.strip():
         raise SystemExit(
-            "Cannot bind the branch review: origin/main has no merge base with HEAD."
+            f"Cannot bind the branch review: origin/{trunk} has no merge base with HEAD."
         )
     base_sha = merge_base.stdout.strip()
     current_head = head_sha(root)
@@ -1348,7 +1384,10 @@ def require_task_grill(
             f"the {task_id} task grill is STALE — its grounding inputs changed. "
             f"Re-grill and record `{record_command}`; --task-digest was removed "
             "because the digest is derived from the protected contract, approved "
-            "plan, and product tree."
+            "plan, and product tree. Tip: record the task grill LAST, immediately "
+            "before `task approve`/`stage start` — committing any tracked file "
+            "outside .factory/ and plans/ (docs/, factory/scripts/, source) between "
+            "grilling and approving changes the product tree and re-stales it."
         )
 
 
@@ -1374,6 +1413,43 @@ def plan_digest_without_assumptions(path: Path) -> str:
     text = path.read_text(encoding="utf-8")
     approved_text = text.partition("\n## Implementation Assumptions")[0]
     return hashlib.sha256(approved_text.encode()).hexdigest()
+
+
+def plan_body_digest(path: Path) -> str:
+    """Hash the authored plan body, excluding harness-managed content.
+
+    Line endings are normalised to LF before hashing so the digest is stable
+    across platforms and Git's autocrlf. The plan-mode marker's ``sha256_body``
+    is computed here from the plan-mode source, while ``require_plan_mode_marker``
+    recomputes it from the saved/committed task plan. Without normalisation a plan
+    saved by ``write_text()`` on Windows (LF -> CRLF), or checked out on another
+    machine under ``core.autocrlf``, would hash differently from its marker and
+    ``task approve`` would demand a spurious re-grill. Both callers run through
+    this function, so normalising here keeps create and check symmetric on every OS.
+    """
+    raw = path.read_bytes()
+    normalised = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    frontmatter = re.match(br"\A---\n.*?\n---\n", normalised, re.DOTALL)
+    body = normalised[frontmatter.end():] if frontmatter else normalised
+    approved_body = body.partition(b"\n## Implementation Assumptions")[0]
+    return hashlib.sha256(approved_body).hexdigest()
+
+
+def require_plan_mode_marker(root: Path, plan: Path) -> None:
+    """Require plan-mode provenance for the current plan body."""
+    story_directory = evidence_path(root, _active_story_key(root), "plan-mode")
+    root_directory = evidence_path(root, None, "plan-mode")
+    digest = plan_body_digest(plan)
+    for directory in dict.fromkeys((story_directory, root_directory)):
+        markers = sorted(directory.glob("*.json")) if directory.is_dir() else ()
+        for marker_path in markers:
+            marker = load_json(marker_path, default={})
+            if marker.get("sha256_body") == digest:
+                return
+    raise SystemExit(
+        f"plan-mode marker required for {plan.name}: enter plan mode, edit or save "
+        "this exact plan file there, then retry without changing its body."
+    )
 
 
 def approved_plan_digest(
@@ -1508,10 +1584,20 @@ def _task_contract_complete(task: dict) -> bool:
 
 
 def _task_grill_fresh(root: Path, task: dict, grill: dict) -> bool:
+    task_id = task.get("id")
+    plan = evidence_path(
+        root, _active_story_key(root), f"task-plans/{task_id}.md",
+    )
+    if not plan.is_file():
+        return False
+    plan_provenance_ok = (
+        grill.get("task_plan_sha256") == plan_digest_without_assumptions(plan)
+    )
     return bool(
         grill.get("verdict") == "pass"
         and grill.get("commit")
         and grill.get("input_sha256") == grounding_digest(root, task)
+        and plan_provenance_ok
     )
 
 
@@ -1566,11 +1652,14 @@ def task_rows(root: Path) -> list[dict]:
             state = "active"
         elif not _task_contract_complete(task):
             state = "skeleton"
-        elif not fresh:
-            state = "ready"
         else:
             plan_state = _task_plan_state(root, task, grill)
-            state = "grilled" if plan_state == "approved" else plan_state
+            if plan_state == "author-task-plan":
+                state = plan_state
+            elif not fresh:
+                state = "ready"
+            else:
+                state = "grilled" if plan_state == "approved" else plan_state
 
         budget = None
         if state == "active":
@@ -1645,9 +1734,11 @@ def task_frontier_state(root: Path) -> tuple[str, dict] | None:
 
     grill_path = evidence_path(root, key, f"grills/tasks/{task_id}.json")
     grill = load_json(grill_path, default={})
+    plan_state = _task_plan_state(root, frontier, grill)
+    if plan_state == "author-task-plan":
+        return plan_state, frontier
     if not _task_grill_fresh(root, frontier, grill):
         return "grill", frontier
-    plan_state = _task_plan_state(root, frontier, grill)
     if plan_state != "approved":
         return plan_state, frontier
     state = "delegate" if stage.get("status") == "active" else "stage-start"
@@ -1692,7 +1783,7 @@ def require_task_worktree(root: Path, *, allow_completed: bool = False) -> None:
 
 def require_ready_task(
     root: Path, task_id: str, *, require_approval: bool = True,
-    allow_completed: bool = False,
+    allow_completed: bool = False, require_grill: bool = True,
 ) -> dict:
     """Require the JIT execution contract and its fresh, passing grill."""
     tasks = load_json(
@@ -1736,18 +1827,19 @@ def require_ready_task(
     if allow_completed and completed:
         from forge_cli.stages import stage_baseline
         treeish = stage_baseline(root, stage)
-    require_task_grill(root, task_id, task, treeish=treeish)
-    if require_approval:
-        key = _active_story_key(root)
-        grill = load_json(
-            evidence_path(root, key, f"grills/tasks/{task_id}.json"), default={},
+    key = _active_story_key(root)
+    grill = load_json(
+        evidence_path(root, key, f"grills/tasks/{task_id}.json"), default={},
+    )
+    if require_approval and _task_plan_state(root, task, grill) == "author-task-plan":
+        raise SystemExit(
+            f"Task plan required first: author {task_id} in plan mode, then run "
+            f"`./forge task plan save {task_id} --from <path>`."
         )
+    if require_grill:
+        require_task_grill(root, task_id, task, treeish=treeish)
+    if require_approval:
         plan_state = _task_plan_state(root, task, grill)
-        if plan_state == "author-task-plan":
-            raise SystemExit(
-                f"Task plan required first: author {task_id} in plan mode, then run "
-                f"`./forge task plan save {task_id} --from <path>`."
-            )
         if plan_state == "await-approval":
             raise SystemExit(
                 f"Task plan approval required: a human must approve the current "
@@ -1803,12 +1895,20 @@ def require_task_sealed(root: Path, task_id: str) -> dict:
     from forge_cli.stages import _require_reviewed_commit, load_stages
 
     state = load_json(run_state_path(root), default={})
-    if state.get("task_id") != task_id:
-        raise SystemExit(
-            f"task worktree required: this worktree is bound to "
-            f"{state.get('task_id') or 'no task'!r}, not {task_id!r}"
-        )
-    require_task_worktree(root, allow_completed=True)
+    bound_task = state.get("task_id")
+    if bound_task:
+        # `forge task start` mode: the worktree is bound to a specific task_id;
+        # enforce that binding and the worktree pointer.
+        if bound_task != task_id:
+            raise SystemExit(
+                f"task worktree required: this worktree is bound to "
+                f"{bound_task!r}, not {task_id!r}"
+            )
+        require_task_worktree(root, allow_completed=True)
+    # Stage-based mode (no task_id in the run pointer, e.g. the task ran via
+    # `forge stage start` on the story branch): there is no task-bound worktree,
+    # so the seal is proven by the done stage + reviewed commit gate below
+    # rather than a worktree pointer.
     task = require_ready_task(root, task_id, allow_completed=True)
     stage = next(
         (candidate for candidate in load_stages(root).get("stages", [])

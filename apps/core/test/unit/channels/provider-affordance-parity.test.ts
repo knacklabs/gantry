@@ -5,15 +5,15 @@ import {
   discordActionComponents,
   parsePermissionCustomId,
   permissionCustomId,
-} from '@core/channels/discord-components.js';
+} from '@core/channels/discord/components.js';
 import { normalizePermissionAction } from '@core/channels/permission-interaction.js';
 import { slackPermissionDecisionActionId } from '@core/channels/slack/permission-action-id.js';
 import {
   buildTeamsApprovalAdaptiveCard,
   buildTeamsMessageCard,
-} from '@core/channels/teams-cards.js';
-import { readTeamsMessageAction } from '@core/channels/teams-message-actions.js';
-import { readTeamsPermissionDecision } from '@core/channels/teams-permission-submit.js';
+} from '@core/channels/teams/cards.js';
+import { readTeamsMessageAction } from '@core/channels/teams/message-actions.js';
+import { readTeamsPermissionDecision } from '@core/channels/teams/permission-submit.js';
 import {
   parseTelegramPermissionCallbackData,
   telegramPermissionCallbackData,

@@ -81,10 +81,21 @@ def _auto_heal_roadmap_after_merge(base: Path) -> None:
 def cmd_next(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
     _auto_heal_roadmap_after_merge(base)
+    # run.json is a derived pointer (0045); re-derive it when a fresh checkout or
+    # a shipped-task cleanup left it absent but the committed record still names
+    # exactly one in-flight story. Silent no-op when the pointer already stands.
+    from .story import ensure_active_pointer
+    rederived = not load_json(run_state_path(base), default={}).get("issue_key")
+    active_key = ensure_active_pointer(base)
     state = load_json(run_state_path(base), default={})
     factory = base / ".factory"
     pending_ctx = len(pending_context(base))
     steps: list[str] = []
+    if rederived and active_key:
+        steps.append(
+            f"(re-derived the worktree-local run pointer for {active_key} from "
+            "committed state — it was absent on this checkout; nothing was lost)"
+        )
     signed_off = client_signoff(base)[0]
     status = subprocess.run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
@@ -308,12 +319,14 @@ def cmd_next(args: argparse.Namespace) -> None:
                     )
                 elif frontier == "grill":
                     steps.append(
-                        f"[dev] Grill {task_id} with factory/prompts/griller.md --gate "
-                        "task; resolve findings and record the digest-bound pass"
+                        f"[dev] With the saved {task_id} task plan in place, grill it "
+                        "with factory/prompts/griller.md --gate task; resolve findings "
+                        "and record the digest-bound pass"
                     )
                 elif frontier == "author-task-plan":
                     steps.append(
-                        f"[dev] Enter plan mode and author {task_id}, then save it: "
+                        f"[dev] Before grilling, enter plan mode and author {task_id}, "
+                        "then save it: "
                         f"./forge task plan save {task_id} --from <path>"
                     )
                 elif frontier == "await-approval":
@@ -377,7 +390,11 @@ def cmd_next(args: argparse.Namespace) -> None:
                 steps.append(f"[EM] Guide {len(unguided)} open assumption(s) first "
                              "(pr_ready refuses them): forge.py assumptions list --open, "
                              "then assumptions resolve <id> --status ... --notes ...")
-            steps.append("[dev] Run: python3 factory/scripts/pr_ready.py (archives the task; merge stays manual)")
+            steps.append("[dev] Run: python3 factory/scripts/pr_ready.py (archives the story; merge stays manual)")
+            steps.append("[dev] Per-task PR instead: seal each completed task with "
+                         "`./forge task pr-ready <id>` — it writes the task marker, "
+                         "pushes the branch, and opens its PR to the repo default branch "
+                         "(works stage-based; no `forge task start` worktree required)")
             steps.append("[EM] Next task afterwards: pick from ./forge roadmap list --pending, "
                          "then intake.py --issue <KEY> --title \"<title>\"")
     from .decisions import decision_records

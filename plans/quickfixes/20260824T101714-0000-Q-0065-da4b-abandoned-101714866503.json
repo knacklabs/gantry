@@ -1,0 +1,16 @@
+{
+  "event": "abandoned",
+  "id": "Q-0065-da4b",
+  "profile": "lite",
+  "reason": "Telegram trims committed (64cf3fb70); slack/teams ratchet budgets need their own scoped window.",
+  "opened_reason": "Trim two Telegram channel files 5-7 lines over their 800-line budgets: apps/core/src/channels/telegram/channel-connect.ts, apps/core/src/channels/telegram/channel-delivery.ts, extracting helpers into apps/core/src/channels/telegram/extracted-helpers.ts.",
+  "started_at": "2026-08-24T10:04:02+00:00",
+  "completed_at": "2026-08-24T10:17:14+00:00",
+  "files": [
+    "apps/core/src/channels/telegram/channel-connect.ts",
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/src/channels/telegram/extracted-helpers.ts"
+  ],
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "4b917b713b2788e2822c55647642164d517e85d0"
+}
