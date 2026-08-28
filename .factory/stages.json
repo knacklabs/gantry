@@ -115,7 +115,7 @@
     {
       "id": "CHAN-3-T2",
       "title": "Split runQuery by phase into runner/query-loop-phases.ts",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-28T07:04:25+00:00",
       "base_sha": "1a03b75b99c2a09c36302e52718d5592174635ee",
       "dirty_at_start": {
@@ -200,7 +200,22 @@
           "git": "? .factory/stories/CHAN-3/task-plans/CHAN-3-T2.md\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "7fb01a0ab359e1bf79522c2d57eea31af8baa1cf46f0fd0476d11b5b635aa374"
+      "task_sha256": "6c0d0f40ccdbc3bf0415285db4ddace3a1e515bdc2724c67f57e0e55f2392e9a",
+      "local_review_stamp": {
+        "stage_id": "CHAN-3-T2",
+        "task_sha256": "6c0d0f40ccdbc3bf0415285db4ddace3a1e515bdc2724c67f57e0e55f2392e9a",
+        "brief_sha256": "db22afac7e9809478facdc3d3073bd851bdf156874142213d84e648cd0b7b346",
+        "base_sha": "1a03b75b99c2a09c36302e52718d5592174635ee",
+        "product_tree_digest": "0aeb3a5a45660b57f1af60186bd7623059ab41b1af8cc6d8b62e298011e716a1",
+        "recorded_at": "2026-08-28T09:01:15+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-08-28T09:01:54+00:00",
+      "contract_changed": {
+        "at": "2026-08-28T09:01:54+00:00",
+        "from": "7fb01a0ab359e1bf79522c2d57eea31af8baa1cf46f0fd0476d11b5b635aa374",
+        "to": "6c0d0f40ccdbc3bf0415285db4ddace3a1e515bdc2724c67f57e0e55f2392e9a"
+      }
     }
   ]
 }

@@ -92,7 +92,9 @@
         "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
         "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases.ts",
         "scripts/architecture-map.json",
-        "apps/core/test/unit/runner/"
+        "apps/core/test/unit/runner/",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-messages.ts"
       ],
       "required_tests": [
         {
@@ -113,9 +115,9 @@
         "dispatcher CC <= 15, every handler <= 25 by AST count"
       ],
       "review_budget": {
-        "max_changed_files": 4,
-        "max_changed_lines": 1800,
-        "reason": "A ~600-line function moves into a new module; line count is the move itself, not new logic."
+        "max_changed_files": 6,
+        "max_changed_lines": 2000,
+        "reason": "A ~600-line function moves verbatim into phase modules (two if prettier pushes one past 700 lines); line count is the move, not new logic."
       }
     }
   ],
@@ -149,5 +151,5 @@
   "project": "",
   "plan_file": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md",
   "plan_sha256": "e3dc17b7e91a3d3518a1776f28c106fa90163e5d06cae36b8ef7b293176b254f",
-  "commit": "07d4b12350e79d45997527937a2228260ef18e13"
+  "commit": "09b3b74325122a13cd5458a7eed3c7790e45581a"
 }

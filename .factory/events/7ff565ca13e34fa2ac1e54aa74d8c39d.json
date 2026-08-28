@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-28T08:51:57+00:00", "story": "CHAN-3", "detail": "CHAN-3-T2 two-module split passes the focused query-loop tests, tsc, architecture, and complexity thresholds, but the runner directory Vitest lane remained silent for 60 seconds and was terminated; re"}

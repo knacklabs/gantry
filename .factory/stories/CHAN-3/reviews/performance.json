@@ -1,0 +1,54 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/jobs/execution.ts",
+    "apps/core/src/jobs/execution-phases-setup.ts",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-messages.ts",
+    "scripts/architecture-map.json",
+    "apps/core/test/unit/runner/query-loop.test.ts"
+  ],
+  "residual_risks": [
+    "None."
+  ],
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "CHAN-3-AC1",
+      "verdict": "implemented",
+      "evidence": "runActiveJob is now createActiveJobRunContext \u2192 resolveActiveJobExecution/Model \u2192 prepareActiveJobSession \u2192 claimActiveJobLease \u2192 try { bind, system turn | agent, finalize, publish terminal, delete one-shot } finally { heartbeat stop, failsafe, lifecycle retire }; phases in execution-phases-setup.ts (342 lines) + execution-phases-run.ts (696); AST CC: sequencer < 8, largest phase finalizeActiveJobRun 15; execution.ts 848\u2192114"
+    },
+    {
+      "contract_id": "CHAN-3-AC3",
+      "verdict": "implemented",
+      "evidence": "git diff --stat -- apps/core/test empty; jobs lane 66 files/723 tests green; tsc clean; check:architecture passed (map entries); Postgres lane host-side (see stage evidence)"
+    },
+    {
+      "contract_id": "CHAN-3-AC4",
+      "verdict": "implemented",
+      "evidence": "branch feat/CHAN-3-job-runner-splits off main 1194bbb41 (#451 merged)"
+    },
+    {
+      "contract_id": "CHAN-3-AC2",
+      "verdict": "implemented",
+      "evidence": "runQuery is createQueryLoopContext \u2192 prepareSdkQuery \u2192 for-await dispatch (assistant/system/stream_event/result handlers) \u2192 closeQueryLoop in finally \u2192 finishQueryLoop; phases in runner/query-loop-phases-setup.ts (537 lines: context, SDK options/sandbox setup, close/finish) + query-loop-phases-messages.ts (316: one handler per message kind) under assumption A-0067; AST CC dispatcher 8 (ceiling 15), largest handler handleResultMessage 21 (ceiling 25); query-loop.ts 770\u219277"
+    },
+    {
+      "contract_id": "CHAN-3-AC3-T2",
+      "verdict": "implemented",
+      "evidence": "runner lane green; only the two source-text tests changed: their readFileSync now targets the phases modules (the nudge/stream.end test concatenates setup+messages; the canUseTool test reads setup) with expect() strings unchanged; required behavioural test 'removes approval context after the matching tool result' passes; tsc; check:architecture"
+    }
+  ],
+  "summary": "Story CHAN-3: runActiveJob and runQuery split by phase, verbatim (assumption A-0067: one module per phase group when >700 lines). T1 at 1a03b75b9: execution.ts 848\u2192114, execution-phases-setup 342, execution-phases-run 696; jobs lane 723/723 unchanged; Postgres lane 378/378; largest phase CC 15. T2 at c510fd23f: query-loop.ts 770\u219277, phases-setup 537, phases-messages 316; runner 501/501; only the two source-text tests changed where they read the source; CC 8/21. tsc + check:architecture green at both stages; autoreview T1 clean after rejecting one bundle-redaction artifact, T2 clean 0.99; verify.py at HEAD in the story evidence.",
+  "aspect": "performance",
+  "review_run_id": "be8bb34d1544beef3d8a14fe676ddaf51f4c6e81fd4828b2c7aab07f7f802b1d",
+  "brief_sha256": "1d10c0567ea25cd01801fa3cf82ccdb02115eb565072b905c458ac954e8faa5a",
+  "branch_diff_digest": "0f78a156df25d0a05e02405ccb4bcb02dd6265fe02ecdb674348d5b95d3afe00",
+  "recorded_at": "2026-08-28T09:07:59+00:00",
+  "commit": "c510fd23fc05062746a7dcc6f47c286a2c23afd4"
+}
