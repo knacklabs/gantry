@@ -9,7 +9,7 @@
     {
       "id": "CHAN-2-T2",
       "title": "Split the Telegram callback by action kind",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-28T04:12:52+00:00",
       "base_sha": "80bca165d18147db6226a52e77e0f66f94fcef03",
       "dirty_at_start": {
@@ -66,7 +66,17 @@
           "git": "1 .M N... 100644 100644 100644 6f998c3bd62fb1bee57df9f2ee3df297b772b31e 6f998c3bd62fb1bee57df9f2ee3df297b772b31e plans/roadmap.json\u0000\u0000100644 6f998c3bd62fb1bee57df9f2ee3df297b772b31e 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
         }
       },
-      "task_sha256": "60dec1a3dcd3171ea8e2c838a27dd5215d67427851cc1986208ad3478c06170d"
+      "task_sha256": "60dec1a3dcd3171ea8e2c838a27dd5215d67427851cc1986208ad3478c06170d",
+      "local_review_stamp": {
+        "stage_id": "CHAN-2-T2",
+        "task_sha256": "60dec1a3dcd3171ea8e2c838a27dd5215d67427851cc1986208ad3478c06170d",
+        "brief_sha256": "d24691b76d427facdafa287bed81fb362e9414a7601e38c2357fb1a6bdf3754a",
+        "base_sha": "80bca165d18147db6226a52e77e0f66f94fcef03",
+        "product_tree_digest": "b87a37b87437d8e0a09fc1ce40574ef497f76bdfa8149066fed7d533684a8eaf",
+        "recorded_at": "2026-08-28T04:31:55+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-08-28T04:32:31+00:00"
     }
   ]
 }
