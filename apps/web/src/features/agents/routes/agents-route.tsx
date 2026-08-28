@@ -138,7 +138,14 @@ export function AgentsRoute() {
                 </Button>
               </div>
             ) : null}
-            {directory.isError ? (
+            {directory.isLoading && !directory.data ? (
+              <PageState
+                description="Loading the agent directory."
+                icon={<Bot size={18} aria-hidden="true" />}
+                kind="loading"
+                title="Loading agents"
+              />
+            ) : directory.isError ? (
               <PageState
                 action={
                   <Button onClick={() => void directory.refetch()}>
