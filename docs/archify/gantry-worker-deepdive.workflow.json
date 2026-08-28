@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Gantry Worker Engine Execution Pipeline",
+    "animation": "trace",
+    "quality_profile": "standard",
+    "viewBox": [1080, 800],
+    "views": [
+      {
+        "id": "full-worker-flow",
+        "label": "Full Worker Flow",
+        "focus": ["notify_wake", "claim_item", "check_lock", "replay_check", "slash_check", "spawn_runner", "persist_state", "release_mutex"],
+        "note": "Follow work item claim through per-JID concurrency locking, replay cursor, memory hydration, and runner release."
+      },
+      {
+        "id": "concurrency-lane",
+        "label": "GroupQueue Concurrency",
+        "focus": ["check_lock", "buffer_wait", "replay_check", "release_mutex"],
+        "note": "Inspect 1-active mutex locking and FIFO waiting group buffering."
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "inbound", "label": "Admission & Leases" },
+    { "id": "queue", "label": "GroupQueue (Concurrency)" },
+    { "id": "processing", "label": "Group Processing" },
+    { "id": "runner", "label": "Agent Runner Subprocess" },
+    { "id": "state", "label": "PostgreSQL State" }
+  ],
+  "phases": [
+    { "id": "phase_intake", "label": "Intake & Claim", "fromCol": 0, "toCol": 1 },
+    { "id": "phase_concurrency", "label": "Concurrency & Replay", "fromCol": 2, "toCol": 3 },
+    { "id": "phase_exec", "label": "Execute & Finalize", "fromCol": 4, "toCol": 5 }
+  ],
+  "mainPath": ["notify_wake", "claim_item", "check_lock", "replay_check", "slash_check", "spawn_runner", "persist_state", "release_mutex"],
+  "nodes": [
+    { "id": "notify_wake", "lane": "inbound", "col": 0, "type": "messagebus", "label": "pg_notify Wakeup", "sublabel": "zero-latency signal" },
+    { "id": "claim_item", "lane": "inbound", "col": 1, "type": "backend", "label": "Claim Work Item", "sublabel": "FOR UPDATE SKIP LOCKED" },
+    
+    { "id": "check_lock", "lane": "queue", "col": 2, "type": "security", "label": "Per-JID Mutex Check", "sublabel": "is group active?" },
+    { "id": "buffer_wait", "lane": "queue", "col": 3, "type": "backend", "label": "Buffer in FIFO", "sublabel": "pendingMessages = true" },
+
+    { "id": "replay_check", "lane": "processing", "col": 3, "type": "backend", "label": "Replay Cursor", "sublabel": "fetch missed messages" },
+    { "id": "slash_check", "lane": "processing", "col": 4, "type": "backend", "label": "Session Commands", "sublabel": "/clear, /model, /stop" },
+
+    { "id": "spawn_runner", "lane": "runner", "col": 4, "type": "backend", "label": "Spawn Subprocess", "sublabel": "stdin config + IPC" },
+
+    { "id": "persist_state", "lane": "state", "col": 5, "type": "database", "label": "Persist Transcript", "sublabel": "agent_runs + messages" },
+    { "id": "release_mutex", "lane": "queue", "col": 5, "type": "backend", "label": "Release Mutex", "sublabel": "drain waiting groups" }
+  ],
+  "edges": [
+    { "id": "e1", "from": "notify_wake", "to": "claim_item", "variant": "emphasis" },
+    { "id": "e2", "from": "claim_item", "to": "check_lock", "fromSide": "bottom", "toSide": "top", "route": "drop", "variant": "emphasis" },
+    { "id": "e3_lock_busy", "from": "check_lock", "to": "buffer_wait", "label": "active run exists", "variant": "dashed" },
+    { "id": "e3_lock_free", "from": "check_lock", "to": "replay_check", "label": "lock acquired", "fromSide": "bottom", "toSide": "top", "route": "drop", "variant": "emphasis" },
+    { "id": "e4", "from": "replay_check", "to": "slash_check", "variant": "default" },
+    { "id": "e5", "from": "slash_check", "to": "spawn_runner", "fromSide": "bottom", "toSide": "top", "route": "drop", "variant": "emphasis" },
+    { "id": "e6", "from": "spawn_runner", "to": "persist_state", "fromSide": "bottom", "toSide": "top", "route": "drop", "variant": "emphasis" },
+    { "id": "e7", "from": "persist_state", "to": "release_mutex", "fromSide": "right", "toSide": "right", "route": "outside-right", "variant": "emphasis" }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Strict Serialization",
+      "items": [
+        "Only 1 agent turn executes per conversation/thread simultaneously",
+        "Buffered messages are automatically dequeued when the active turn completes"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Interactive Steering",
+      "items": [
+        "GroupQueue writes to IPC input directory during active runs",
+        "Supports real-time interruptions, human approvals, and cancellation"
+      ]
+    }
+  ]
+}

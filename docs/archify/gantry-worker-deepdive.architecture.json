@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gantry Worker Engine Deep-Dive & Concurrency Mechanics",
+    "quality_profile": "standard",
+    "viewBox": [1600, 900],
+    "views": [
+      {
+        "id": "admission-view",
+        "label": "1. Admission Work Loop",
+        "focus": ["notify_wakeup", "admission_loop", "claim_tx", "live_turns_tbl"],
+        "note": "Inspect pg_notify reactive wakeup, claiming live_admission_work_item with row lock, and issuing distributed fencing tokens."
+      },
+      {
+        "id": "groupqueue-view",
+        "label": "2. GroupQueue Mutex & FIFO",
+        "focus": ["claim_tx", "group_queue", "mutex_check", "fifo_backlog", "retry_backoff"],
+        "note": "Inspect the 1-active concurrency lock per conversation/thread JID, FIFO waiting group queueing, and exponential backoff."
+      },
+      {
+        "id": "groupproc-view",
+        "label": "3. GroupProcessing Pipeline",
+        "focus": ["mutex_check", "replay_cursor", "slash_cmds", "typing_heartbeat", "memory_hydrate", "spawner"],
+        "note": "Inspect replay cursor reconciliation, slash command interception (/clear, /model), typing indicators, and memory recall."
+      }
+    ]
+  },
+  "components": [
+    { "id": "notify_wakeup", "type": "messagebus", "label": "pg_notify Signal", "sublabel": "gantry_live_admissions", "pos": [50, 100], "size": [190, 75] },
+    { "id": "admission_loop", "type": "backend", "label": "Admission Work Loop", "sublabel": "Worker Loop Poller", "pos": [330, 100], "size": [200, 75] },
+    { "id": "claim_tx", "type": "database", "label": "Claim Work Item", "sublabel": "FOR UPDATE SKIP LOCKED", "pos": [620, 100], "size": [210, 75] },
+    { "id": "live_turns_tbl", "type": "database", "label": "Live Turn Fencing", "sublabel": "leaseToken + fencingVersion", "pos": [920, 100], "size": [210, 75] },
+
+    { "id": "group_queue", "type": "backend", "label": "GroupQueue Engine", "sublabel": "runtime/group-queue.ts", "pos": [330, 300], "size": [200, 75] },
+    { "id": "mutex_check", "type": "security", "label": "Per-JID Concurrency Lock", "sublabel": "1 active execution / JID", "pos": [620, 300], "size": [210, 75] },
+    { "id": "fifo_backlog", "type": "backend", "label": "FIFO Waiting Groups", "sublabel": "waitingMessageGroups[]", "pos": [920, 300], "size": [210, 75] },
+    { "id": "retry_backoff", "type": "backend", "label": "Exponential Retry", "sublabel": "baseRetryMs * 2^(retries)", "pos": [1220, 300], "size": [200, 75] },
+
+    { "id": "replay_cursor", "type": "database", "label": "Replay Cursor Check", "sublabel": "collectPendingMessagesSince", "pos": [330, 500], "size": [200, 75] },
+    { "id": "slash_cmds", "type": "backend", "label": "Session Commands", "sublabel": "/clear, /model, /stop, /job", "pos": [620, 500], "size": [210, 75] },
+    { "id": "typing_heartbeat", "type": "backend", "label": "Typing & Reactions", "sublabel": "4s heartbeats + 'seen'/'eyes'", "pos": [920, 500], "size": [210, 75] },
+    { "id": "memory_hydrate", "type": "database", "label": "Memory Hydration", "sublabel": "Bounded Recall Query", "pos": [1220, 500], "size": [200, 75] },
+
+    { "id": "spawner", "type": "backend", "label": "Subprocess Spawner", "sublabel": "agent-spawn-process.ts", "pos": [620, 700], "size": [210, 75] },
+    { "id": "ipc_control", "type": "backend", "label": "IPC Control Port", "sublabel": "GANTRY_IPC_INPUT_DIR", "pos": [920, 700], "size": [210, 75] },
+    { "id": "turn_finalize", "type": "database", "label": "Turn Finalization", "sublabel": "Complete run & release lease", "pos": [1220, 700], "size": [200, 75] }
+  ],
+  "connections": [
+    { "id": "c1", "from": "notify_wakeup", "to": "admission_loop", "label": "reactive trigger", "variant": "emphasis" },
+    { "id": "c2", "from": "admission_loop", "to": "claim_tx", "label": "claim work row", "variant": "emphasis" },
+    { "id": "c3", "from": "claim_tx", "to": "live_turns_tbl", "label": "mint lease fence", "variant": "emphasis" },
+
+    { "id": "c4", "from": "claim_tx", "to": "group_queue", "label": "enqueue check", "fromSide": "bottom", "toSide": "top" },
+    { "id": "c5", "from": "group_queue", "to": "mutex_check", "label": "check JID state", "variant": "emphasis" },
+    { "id": "c6_busy", "from": "mutex_check", "to": "fifo_backlog", "label": "if JID active", "variant": "dashed" },
+    { "id": "c6_retry", "from": "fifo_backlog", "to": "retry_backoff", "label": "on failure" },
+
+    { "id": "c7", "from": "mutex_check", "to": "replay_cursor", "label": "lock acquired", "fromSide": "bottom", "toSide": "top", "variant": "emphasis" },
+    { "id": "c8", "from": "replay_cursor", "to": "slash_cmds", "label": "check commands", "variant": "emphasis" },
+    { "id": "c9", "from": "slash_cmds", "to": "typing_heartbeat", "label": "normal turn" },
+    { "id": "c10", "from": "typing_heartbeat", "to": "memory_hydrate", "label": "load context", "variant": "emphasis" },
+
+    { "id": "c11", "from": "slash_cmds", "to": "spawner", "fromSide": "bottom", "toSide": "top", "variant": "emphasis" },
+    { "id": "c12", "from": "spawner", "to": "ipc_control", "label": "watch stdin/IPC", "variant": "emphasis" },
+    { "id": "c13", "from": "ipc_control", "to": "turn_finalize", "label": "stream finish", "variant": "emphasis" }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Strict Per-JID Concurrency Lock",
+      "items": [
+        "GroupQueue ensures exactly one turn executes per conversation or thread at a time",
+        "If a message arrives while an agent is running, it is safely queued in the FIFO backlog"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Replay Cursor Reconciliation",
+      "items": [
+        "collectPendingMessagesSince queries PostgreSQL from the last saved cursor to current",
+        "Guarantees that zero messages are dropped during network reconnections or worker restarts"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Distributed Fencing",
+      "items": [
+        "Live turns issue monotonically increasing fencing versions in PostgreSQL",
+        "Stale workers are immediately rejected if another node claims recovery"
+      ]
+    }
+  ]
+}

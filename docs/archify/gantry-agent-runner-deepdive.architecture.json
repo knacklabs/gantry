@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gantry Agent Runner Subsystem: Claude SDK vs DeepAgents",
+    "quality_profile": "standard",
+    "viewBox": [1680, 960],
+    "views": [
+      {
+        "id": "claude-sdk-view",
+        "label": "1. Anthropic Claude SDK Lane",
+        "focus": ["spawner_entry", "claude_runner", "claude_prompt_cache", "claude_thinking", "claude_gateway", "mcp_proxy"],
+        "note": "Inspect native Claude SDK query loop, prompt caching breakpoints, thinking budgets, and multi-cloud gateway."
+      },
+      {
+        "id": "deepagents-view",
+        "label": "2. DeepAgents / LangChain Lane",
+        "focus": ["spawner_entry", "da_runner", "da_model_factory", "da_sandbox", "da_stream_norm", "stdout_frames"],
+        "note": "Inspect LangGraph graph execution, stream normalization, sandboxed StateBackend, and checkpoint saving."
+      },
+      {
+        "id": "shared-capabilities-view",
+        "label": "3. Shared Tools & IPC Bridge",
+        "focus": ["ipc_dir", "mcp_proxy", "browser_cdp", "memory_ipc", "stdout_frames"],
+        "note": "Inspect file-based IPC directory, shared MCP server proxy, CDP browser session, and framed stdout output."
+      }
+    ]
+  },
+  "components": [
+    { "id": "spawner_entry", "type": "backend", "label": "Agent Spawner", "sublabel": "prepareAgentSpawn()", "pos": [50, 400], "size": [200, 80] },
+    { "id": "ipc_dir", "type": "backend", "label": "IPC Input Directory", "sublabel": "GANTRY_IPC_INPUT_DIR", "pos": [50, 600], "size": [200, 80] },
+
+    { "id": "claude_runner", "type": "backend", "label": "Claude SDK Engine", "sublabel": "anthropic-claude-agent/runner", "pos": [380, 150], "size": [230, 80] },
+    { "id": "claude_prompt_cache", "type": "backend", "label": "Prompt Cache Control", "sublabel": "Cache System & Tool Schemas", "pos": [720, 150], "size": [230, 80] },
+    { "id": "claude_thinking", "type": "backend", "label": "Thinking Budget", "sublabel": "resolveThinkingOptions()", "pos": [1060, 150], "size": [230, 80] },
+    { "id": "claude_gateway", "type": "cloud", "label": "Model Gateway", "sublabel": "Direct / Bedrock SigV4 / Vertex", "pos": [1400, 150], "size": [230, 80] },
+
+    { "id": "da_runner", "type": "backend", "label": "DeepAgents Engine", "sublabel": "deepagents-langchain/runner", "pos": [380, 650], "size": [230, 80] },
+    { "id": "da_model_factory", "type": "backend", "label": "Model Factory", "sublabel": "OpenAI / OpenRouter / Anthropic", "pos": [720, 650], "size": [230, 80] },
+    { "id": "da_sandbox", "type": "security", "label": "StateBackend Sandbox", "sublabel": "DENY_ALL_FILESYSTEM + /skills/**", "pos": [1060, 650], "size": [230, 80] },
+    { "id": "da_stream_norm", "type": "backend", "label": "Stream Normalizer", "sublabel": "LangGraph streamEvents v2", "pos": [1400, 650], "size": [230, 80] },
+
+    { "id": "mcp_proxy", "type": "backend", "label": "MCP Server Proxy", "sublabel": "Tools, Shell, File Gate", "pos": [720, 400], "size": [230, 80] },
+    { "id": "browser_cdp", "type": "external", "label": "Browser CDP Controller", "sublabel": "Playwright / Chrome Sessions", "pos": [1060, 400], "size": [230, 80] },
+    { "id": "memory_ipc", "type": "database", "label": "Memory IPC Service", "sublabel": "app_memories recall/save", "pos": [1400, 400], "size": [230, 80] },
+
+    { "id": "stdout_frames", "type": "messagebus", "label": "Framed Stdout Output", "sublabel": "OUTPUT_START / OUTPUT_END", "pos": [1400, 850], "size": [230, 80] }
+  ],
+  "connections": [
+    { "id": "c_spawn_claude", "from": "spawner_entry", "to": "claude_runner", "label": "spawn stdin", "variant": "emphasis" },
+    { "id": "c_spawn_da", "from": "spawner_entry", "to": "da_runner", "label": "spawn stdin", "variant": "emphasis" },
+    { "id": "c_ipc_watch", "from": "ipc_dir", "to": "claude_runner", "label": "poll followups", "variant": "dashed" },
+    { "id": "c_ipc_watch_da", "from": "ipc_dir", "to": "da_runner", "label": "poll followups", "variant": "dashed" },
+
+    { "id": "c_claude_1", "from": "claude_runner", "to": "claude_prompt_cache", "label": "apply cache points", "variant": "emphasis" },
+    { "id": "c_claude_2", "from": "claude_prompt_cache", "to": "claude_thinking", "label": "budget tokens", "variant": "emphasis" },
+    { "id": "c_claude_3", "from": "claude_thinking", "to": "claude_gateway", "label": "multi-cloud stream", "variant": "emphasis" },
+
+    { "id": "c_da_1", "from": "da_runner", "to": "da_model_factory", "label": "build model", "variant": "emphasis" },
+    { "id": "c_da_2", "from": "da_model_factory", "to": "da_sandbox", "label": "compile graph", "variant": "emphasis" },
+    { "id": "c_da_3", "from": "da_sandbox", "to": "da_stream_norm", "label": "normalize chunks", "variant": "emphasis" },
+
+    { "id": "c_claude_tools", "from": "claude_runner", "to": "mcp_proxy", "label": "native tools" },
+    { "id": "c_da_tools", "from": "da_runner", "to": "mcp_proxy", "label": "facade tools" },
+    { "id": "c_mcp_browser", "from": "mcp_proxy", "to": "browser_cdp", "label": "cdp actions" },
+    { "id": "c_mcp_mem", "from": "browser_cdp", "to": "memory_ipc", "label": "ipc query" },
+
+    { "id": "c_da_out", "from": "da_stream_norm", "to": "stdout_frames", "fromSide": "bottom", "toSide": "top", "variant": "emphasis" },
+    { "id": "c_claude_out", "from": "claude_gateway", "to": "stdout_frames", "fromSide": "right", "toSide": "right", "via": [[1650, 190], [1650, 890]], "variant": "emphasis" }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Anthropic Claude SDK Engine",
+      "items": [
+        "Native Anthropic client with Claude 3.5 / 3.7 models",
+        "Prompt Caching: caches system prompt, MCP tool schemas, and conversation history",
+        "Thinking Budgets: configurable effort and token budgets for deep reasoning",
+        "Gantry Model Gateway: routes via Anthropic API, AWS Bedrock (SigV4), or GCP Vertex AI"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "DeepAgents / LangChain Engine",
+      "items": [
+        "LangChain & LangGraph execution graph with stream normalizer",
+        "Sandboxed StateBackend: disables raw OS shell/filesystem; limits to virtual /skills/**",
+        "MCP Facade: exposes Gantry-owned tools while blocking unsafe built-in task tools",
+        "DeepAgentCheckpointSaver: serializes state graph checkpoints between turns"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Subprocess Isolation & IPC Bridge",
+      "items": [
+        "Runner processes execute in isolated Node.js child processes",
+        "Config is passed over stdin; output is streamed over framed stdout markers",
+        "Live steering, human-in-the-loop approvals, and cancellation arrive via GANTRY_IPC_INPUT_DIR"
+      ]
+    }
+  ]
+}

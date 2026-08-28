@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gantry System Architecture & Execution Flow",
+    "quality_profile": "standard",
+    "viewBox": [1800, 1000],
+    "views": [
+      {
+        "id": "ingress-view",
+        "label": "1. Ingress Layer",
+        "focus": ["in_channels", "in_ingress", "in_sdk", "in_cron", "dedup_norm", "pg_durable", "pg_notify"],
+        "note": "Inspect the 4 incoming entrypoints, signature checks, deduplication, and atomic PostgreSQL commit."
+      },
+      {
+        "id": "worker-view",
+        "label": "2. Worker Core",
+        "focus": ["pg_notify", "worker_admission", "group_queue", "group_proc", "session_cmds"],
+        "note": "Inspect Worker admission work loop, GroupQueue 1-active mutex per JID, replay cursor check, and slash commands."
+      },
+      {
+        "id": "runner-view",
+        "label": "3. Dual Agent Runners",
+        "focus": ["runner_spawner", "claude_runner", "deepagents_runner", "claude_gateway", "da_sandbox", "mcp_proxy", "browser_cdp"],
+        "note": "Inspect isolated child process spawning, Claude SDK prompt caching/thinking, and DeepAgents LangGraph sandbox."
+      },
+      {
+        "id": "db-view",
+        "label": "4. PostgreSQL Layer",
+        "focus": ["pg_durable", "worker_admission", "pg_database", "pg_outbox"],
+        "note": "Inspect the 20 transactional SQL queries across ingestion, claiming, execution, memory recall, and turn finalization."
+      }
+    ]
+  },
+  "components": [
+    { "id": "in_channels", "type": "external", "label": "Chat Channels", "sublabel": "Slack, Discord, TG, Teams", "pos": [50, 80], "size": [190, 75] },
+    { "id": "in_ingress", "type": "external", "label": "External Ingress", "sublabel": "HMAC Signed Webhooks", "pos": [50, 220], "size": [190, 75] },
+    { "id": "in_sdk", "type": "external", "label": "Gantry SDK", "sublabel": "REST & OpenAPI Client", "pos": [50, 360], "size": [190, 75] },
+    { "id": "in_cron", "type": "messagebus", "label": "Schedulers & Cron", "sublabel": "pg-boss Queue Engine", "pos": [50, 500], "size": [190, 75] },
+
+    { "id": "dedup_norm", "type": "backend", "label": "Normalize & Dedup", "sublabel": "SHA-256 Idempotency Hash", "pos": [360, 290], "size": [190, 75] },
+
+    { "id": "pg_durable", "type": "database", "label": "Durable Ingress TX", "sublabel": "canonical_messages & work_items", "pos": [670, 290], "size": [200, 75] },
+    { "id": "pg_notify", "type": "messagebus", "label": "Postgres pg_notify", "sublabel": "gantry_live_admissions channel", "pos": [670, 480], "size": [200, 75] },
+
+    { "id": "worker_admission", "type": "backend", "label": "Worker Admission Loop", "sublabel": "Claim with Advisory Lease", "pos": [990, 290], "size": [200, 75] },
+    { "id": "group_queue", "type": "backend", "label": "GroupQueue Mutex", "sublabel": "1-Active Run / JID Concurrency", "pos": [990, 100], "size": [200, 75] },
+    { "id": "group_proc", "type": "backend", "label": "Group Processing", "sublabel": "Replay Cursor & Context", "pos": [1300, 100], "size": [200, 75] },
+    { "id": "session_cmds", "type": "backend", "label": "Session Commands", "sublabel": "/clear, /model, /stop, /job", "pos": [1300, 290], "size": [200, 75] },
+
+    { "id": "runner_spawner", "type": "backend", "label": "Runner Spawner", "sublabel": "Child Process & IPC Bridge", "pos": [1300, 480], "size": [200, 75] },
+    { "id": "claude_runner", "type": "backend", "label": "Claude SDK Engine", "sublabel": "Prompt Cache & Thinking", "pos": [990, 670], "size": [200, 75] },
+    { "id": "deepagents_runner", "type": "backend", "label": "DeepAgents Engine", "sublabel": "LangGraph Stream Normalizer", "pos": [1300, 670], "size": [200, 75] },
+
+    { "id": "claude_gateway", "type": "cloud", "label": "Model Gateway", "sublabel": "Bedrock SigV4 / Vertex AI", "pos": [990, 850], "size": [200, 75] },
+    { "id": "da_sandbox", "type": "security", "label": "StateBackend Sandbox", "sublabel": "Filesystem Denied & Skills", "pos": [1300, 850], "size": [200, 75] },
+
+    { "id": "mcp_proxy", "type": "backend", "label": "MCP Server Proxy", "sublabel": "Tools, Shell, Memory IPC", "pos": [1590, 480], "size": [150, 75] },
+    { "id": "browser_cdp", "type": "external", "label": "Browser CDP", "sublabel": "Chrome Sessions", "pos": [1590, 670], "size": [150, 75] },
+
+    { "id": "pg_database", "type": "database", "label": "PostgreSQL Database", "sublabel": "live_turns, agent_runs, memory", "pos": [670, 670], "size": [200, 75] },
+    { "id": "pg_outbox", "type": "database", "label": "Audit Outbox", "sublabel": "runtime_events table", "pos": [670, 850], "size": [200, 75] }
+  ],
+  "connections": [
+    { "id": "ch_to_dedup", "from": "in_channels", "to": "dedup_norm", "label": "webhook" },
+    { "id": "ing_to_dedup", "from": "in_ingress", "to": "dedup_norm", "label": "HMAC post" },
+    { "id": "sdk_to_dedup", "from": "in_sdk", "to": "dedup_norm", "label": "REST call" },
+    { "id": "cron_to_dedup", "from": "in_cron", "to": "dedup_norm", "label": "pg-boss" },
+
+    { "id": "dedup_to_durable", "from": "dedup_norm", "to": "pg_durable", "label": "atomic commit", "variant": "emphasis" },
+    { "id": "durable_to_notify", "from": "pg_durable", "to": "pg_notify", "fromSide": "bottom", "toSide": "top", "variant": "emphasis" },
+
+    { "id": "notify_to_worker", "from": "pg_notify", "to": "worker_admission", "label": "wakeup", "variant": "emphasis" },
+    { "id": "durable_to_worker", "from": "pg_durable", "to": "worker_admission", "label": "claim work", "variant": "dashed" },
+
+    { "id": "worker_to_queue", "from": "worker_admission", "to": "group_queue", "fromSide": "top", "toSide": "bottom" },
+    { "id": "queue_to_proc", "from": "group_queue", "to": "group_proc", "label": "acquire mutex", "variant": "emphasis" },
+
+    { "id": "proc_to_cmds", "from": "group_proc", "to": "session_cmds", "fromSide": "bottom", "toSide": "top" },
+    { "id": "cmds_to_spawner", "from": "session_cmds", "to": "runner_spawner", "fromSide": "bottom", "toSide": "top", "variant": "emphasis" },
+
+    { "id": "spawner_to_claude", "from": "runner_spawner", "to": "claude_runner", "label": "claude runtime", "variant": "emphasis" },
+    { "id": "spawner_to_da", "from": "runner_spawner", "to": "deepagents_runner", "fromSide": "bottom", "toSide": "top" },
+
+    { "id": "claude_to_gateway", "from": "claude_runner", "to": "claude_gateway", "fromSide": "bottom", "toSide": "top" },
+    { "id": "da_to_sandbox", "from": "deepagents_runner", "to": "da_sandbox", "fromSide": "bottom", "toSide": "top" },
+
+    { "id": "spawner_to_mcp", "from": "runner_spawner", "to": "mcp_proxy", "label": "mcp tools", "labelDy": -28 },
+    { "id": "da_to_browser", "from": "deepagents_runner", "to": "browser_cdp", "label": "CDP session", "variant": "dashed", "labelDy": -28 },
+
+    { "id": "worker_to_db", "from": "worker_admission", "to": "pg_database", "fromSide": "bottom", "toSide": "top" },
+    { "id": "db_to_outbox", "from": "pg_database", "to": "pg_outbox", "fromSide": "bottom", "toSide": "top" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Strict Per-JID Concurrency",
+      "items": [
+        "GroupQueue serializes turns per conversation/thread with 1-active lock",
+        "Pending messages are buffered in FIFO waiting groups during active runs"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Dual Engine Architecture",
+      "items": [
+        "Claude SDK: Prompt caching, thinking budgets, and SigV4/Vertex gateways",
+        "DeepAgents: LangGraph stream normalizer, sandboxing, and MCP facades"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "PostgreSQL Durability & Notify",
+      "items": [
+        "Every turn executes 18-20 transactional SQL queries across its lifecycle",
+        "Zero-latency reactive wakeup via pg_notify with durable claim fallback"
+      ]
+    }
+  ]
+}

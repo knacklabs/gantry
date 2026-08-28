@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gantry Interactive Architecture Explorer</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              400: '#38bdf8',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+              900: '#0c4a6e',
+            },
+            accent: {
+              500: '#8b5cf6',
+              600: '#7c3aed',
+            },
+            darkBg: '#090d16',
+            darkCard: '#111827',
+            darkBorder: '#1f293d',
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0b0f19; }
+    ::-webkit-scrollbar-thumb { background: #26334d; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #38bdf8; }
+
+    .glow-cyan {
+      box-shadow: 0 0 25px -5px rgba(14, 165, 233, 0.4);
+    }
+    .glow-purple {
+      box-shadow: 0 0 25px -5px rgba(139, 92, 246, 0.4);
+    }
+    .glow-emerald {
+      box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.4);
+    }
+    .glow-amber {
+      box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.4);
+    }
+
+    .pulse-packet {
+      animation: pulsePath 2s infinite ease-in-out;
+    }
+    @keyframes pulsePath {
+      0% { offset-distance: 0%; opacity: 0; }
+      15% { opacity: 1; }
+      85% { opacity: 1; }
+      100% { offset-distance: 100%; opacity: 0; }
+    }
+
+    .node-card {
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .node-card:hover {
+      transform: translateY(-3px);
+    }
+    .node-card.active {
+      border-color: #38bdf8;
+      box-shadow: 0 0 25px -3px rgba(56, 189, 248, 0.45);
+    }
+  </style>
+</head>
+<body class="bg-darkBg text-slate-100 min-h-screen flex flex-col font-sans selection:bg-brand-500 selection:text-white">
+
+  <!-- Top Header Bar -->
+  <header class="border-b border-darkBorder bg-[#0d1322]/80 backdrop-blur-md sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-brand-600 to-accent-500 flex items-center justify-center shadow-lg shadow-brand-500/20">
+        <i data-lucide="layers" class="w-5 h-5 text-white"></i>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            Gantry <span class="text-xs px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20 font-medium">Architecture Explorer</span>
+          </h1>
+        </div>
+        <p class="text-xs text-slate-400">Interactive High-Level to Deep-Level System Architecture & Flow</p>
+      </div>
+    </div>
+
+    <!-- Controls / Quick Simulation -->
+    <div class="flex items-center space-x-3">
+      <!-- Simulation Trigger -->
+      <button id="simBtn" onclick="toggleSimulation()" class="flex items-center space-x-2 px-3.5 py-1.5 rounded-lg bg-brand-500/20 border border-brand-500/30 text-brand-400 hover:bg-brand-500/30 hover:border-brand-500/50 transition text-xs font-semibold">
+        <i data-lucide="play" class="w-3.5 h-3.5" id="simIcon"></i>
+        <span id="simText">Simulate Live Flow</span>
+      </button>
+
+      <button onclick="resetViews()" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition text-xs">
+        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+        <span>Reset View</span>
+      </button>
+
+      <div class="h-5 w-px bg-slate-800"></div>
+
+      <!-- Quick Nav Buttons -->
+      <div class="flex items-center bg-slate-900/80 p-1 rounded-lg border border-slate-800 text-xs">
+        <button onclick="selectSection('incoming')" class="px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition">1. Incoming (4 Types)</button>
+        <button onclick="selectSection('normalization')" class="px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition">2. Dedup & Norm</button>
+        <button onclick="selectSection('durable')" class="px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition">3. Durable & Notify</button>
+        <button onclick="selectSection('worker')" class="px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition">4. Worker</button>
+        <button onclick="selectSection('runner')" class="px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition">5. Agent Runner</button>
+        <button onclick="selectSection('database')" class="px-2.5 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white transition">6. Database (20 Queries)</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 grid grid-cols-12 gap-0 overflow-hidden relative">
+
+    <!-- LEFT 7 COLS: Interactive Pipeline Canvas -->
+    <div class="col-span-7 p-6 overflow-y-auto border-r border-darkBorder bg-[#090d16]/70 flex flex-col space-y-6">
+      
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-brand-400 animate-ping"></span>
+            End-to-End Execution Pipeline
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Click any block below to expand and drill deep into its routes, code logic, subcomponents, and database calls.</p>
+        </div>
+        <div class="text-[11px] text-slate-500 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-md">
+          Status: <span class="text-emerald-400 font-medium">Interactive Mode</span>
+        </div>
+      </div>
+
+      <!-- PIPELINE FLOW GRAPH -->
+      <div class="relative space-y-4">
+
+        <!-- 1. INCOMING LAYER CARD -->
+        <div id="node-incoming" onclick="selectSection('incoming')" 
+             class="node-card cursor-pointer rounded-xl bg-gradient-to-b from-[#11192e] to-[#0c1322] border-2 border-brand-500/30 p-4.5 hover:border-brand-400 shadow-md">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-lg bg-brand-500/20 border border-brand-500/40 flex items-center justify-center text-brand-400">
+                <i data-lucide="radio" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <span class="text-[10px] font-bold uppercase tracking-wider text-brand-400">Step 1 • Ingress Layer</span>
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                  Incoming (4 Entry Types)
+                  <span class="text-[11px] font-normal text-slate-400">(Click to explore routes)</span>
+                </h3>
+              </div>
+            </div>
+            <div class="flex items-center space-x-1.5">
+              <span class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Channels</span>
+              <span class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Ingress</span>
+              <span class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">SDK</span>
+              <span class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Cron</span>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400 ml-2"></i>
+            </div>
+          </div>
+          
+          <!-- Mini Sub-Grid of 4 Types -->
+          <div class="grid grid-cols-4 gap-2.5 mt-3 pt-3 border-t border-slate-800/80">
+            <div onclick="event.stopPropagation(); selectIncomingType('channels')" class="bg-[#090e1b] hover:bg-brand-900/30 border border-slate-800 hover:border-brand-500/40 p-2 rounded-lg text-center transition">
+              <i data-lucide="message-square" class="w-4 h-4 mx-auto text-sky-400 mb-1"></i>
+              <div class="text-[11px] font-semibold text-slate-200">1. Channels</div>
+              <div class="text-[9px] text-slate-400">Slack, Discord, TG, Teams</div>
+            </div>
+            <div onclick="event.stopPropagation(); selectIncomingType('ingress')" class="bg-[#090e1b] hover:bg-brand-900/30 border border-slate-800 hover:border-brand-500/40 p-2 rounded-lg text-center transition">
+              <i data-lucide="globe" class="w-4 h-4 mx-auto text-emerald-400 mb-1"></i>
+              <div class="text-[11px] font-semibold text-slate-200">2. External Ingress</div>
+              <div class="text-[9px] text-slate-400">HMAC Signed Webhooks</div>
+            </div>
+            <div onclick="event.stopPropagation(); selectIncomingType('sdk')" class="bg-[#090e1b] hover:bg-brand-900/30 border border-slate-800 hover:border-brand-500/40 p-2 rounded-lg text-center transition">
+              <i data-lucide="code" class="w-4 h-4 mx-auto text-purple-400 mb-1"></i>
+              <div class="text-[11px] font-semibold text-slate-200">3. Gantry SDK</div>
+              <div class="text-[9px] text-slate-400">REST / OpenAPI API</div>
+            </div>
+            <div onclick="event.stopPropagation(); selectIncomingType('cron')" class="bg-[#090e1b] hover:bg-brand-900/30 border border-slate-800 hover:border-brand-500/40 p-2 rounded-lg text-center transition">
+              <i data-lucide="clock" class="w-4 h-4 mx-auto text-amber-400 mb-1"></i>
+              <div class="text-[11px] font-semibold text-slate-200">4. Cron & Schedulers</div>
+              <div class="text-[9px] text-slate-400">pg-boss Queue Engine</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector Arrow -->
+        <div class="flex justify-center my-1">
+          <div class="flex flex-col items-center">
+            <div class="w-0.5 h-4 bg-gradient-to-b from-brand-500 to-indigo-500"></div>
+            <i data-lucide="arrow-down" class="w-3.5 h-3.5 text-indigo-400 -mt-1"></i>
+          </div>
+        </div>
+
+        <!-- 2. NORMALIZATION & DEDUPING CARD -->
+        <div id="node-normalization" onclick="selectSection('normalization')" 
+             class="node-card cursor-pointer rounded-xl bg-gradient-to-b from-[#14122b] to-[#0c0f1e] border-2 border-indigo-500/30 p-4 hover:border-indigo-400 shadow-md">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                <i data-lucide="shield-check" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <span class="text-[10px] font-bold uppercase tracking-wider text-indigo-400">Step 2 • Integrity & Idempotency</span>
+                <h3 class="text-sm font-bold text-white">Normalize & Deduplicating</h3>
+              </div>
+            </div>
+            <div class="flex items-center space-x-2 text-xs text-slate-400">
+              <span class="px-2 py-0.5 bg-indigo-950/70 border border-indigo-800/60 rounded text-[11px] text-indigo-300 font-mono">stableExternalIngressMessageId()</span>
+              <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="mt-2.5 text-xs text-slate-400 flex items-center gap-4">
+            <span class="flex items-center gap-1.5"><i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i> HMAC & Token Auth</span>
+            <span class="flex items-center gap-1.5"><i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i> SHA-256 Idempotency Key</span>
+            <span class="flex items-center gap-1.5"><i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i> NewMessage Standard Struct</span>
+          </div>
+        </div>
+
+        <!-- Connector Arrow -->
+        <div class="flex justify-center my-1">
+          <div class="flex flex-col items-center">
+            <div class="w-0.5 h-4 bg-gradient-to-b from-indigo-500 to-accent-500"></div>
+            <i data-lucide="arrow-down" class="w-3.5 h-3.5 text-accent-400 -mt-1"></i>
+          </div>
+        </div>
+
+        <!-- 3. DURABLE PERSISTENCE & NOTIFY CARD -->
+        <div id="node-durable" onclick="selectSection('durable')" 
+             class="node-card cursor-pointer rounded-xl bg-gradient-to-b from-[#18112e] to-[#0d0a1c] border-2 border-accent-500/30 p-4 hover:border-accent-400 shadow-md">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-lg bg-accent-500/20 border border-accent-500/40 flex items-center justify-center text-accent-400">
+                <i data-lucide="database" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <span class="text-[10px] font-bold uppercase tracking-wider text-accent-400">Step 3 • Durability & Wakeup</span>
+                <h3 class="text-sm font-bold text-white">Durable Ingress TX + pg_notify</h3>
+              </div>
+            </div>
+            <div class="flex items-center space-x-2 text-xs text-slate-400">
+              <span class="px-2 py-0.5 bg-accent-950/70 border border-accent-800/60 rounded text-[11px] text-accent-300 font-mono">pg_notify('gantry_live_admissions')</span>
+              <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="mt-2.5 grid grid-cols-3 gap-2 text-xs">
+            <div class="bg-black/30 p-1.5 rounded border border-slate-800/80 text-[11px] text-slate-300">
+              <span class="text-accent-400 font-semibold">1. Messages:</span> canonical_messages
+            </div>
+            <div class="bg-black/30 p-1.5 rounded border border-slate-800/80 text-[11px] text-slate-300">
+              <span class="text-accent-400 font-semibold">2. Work Items:</span> live_admission_work_items
+            </div>
+            <div class="bg-black/30 p-1.5 rounded border border-slate-800/80 text-[11px] text-slate-300">
+              <span class="text-accent-400 font-semibold">3. Reactive Wakeup:</span> Zero-latency signal
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector Arrow -->
+        <div class="flex justify-center my-1">
+          <div class="flex flex-col items-center">
+            <div class="w-0.5 h-4 bg-gradient-to-b from-accent-500 to-amber-500"></div>
+            <i data-lucide="arrow-down" class="w-3.5 h-3.5 text-amber-400 -mt-1"></i>
+          </div>
+        </div>
+
+        <!-- 4. WORKER ENGINE (Group Queueing & Group Processing) -->
+        <div id="node-worker" onclick="selectSection('worker')" 
+             class="node-card cursor-pointer rounded-xl bg-gradient-to-b from-[#221a0d] to-[#120e06] border-2 border-amber-500/40 p-4.5 hover:border-amber-400 shadow-md">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                <i data-lucide="cpu" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <span class="text-[10px] font-bold uppercase tracking-wider text-amber-400">Step 4 • Core Execution Engine</span>
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                  Worker (Live & Job Worker)
+                  <span class="text-[10px] bg-amber-500/20 border border-amber-500/30 text-amber-300 px-2 py-0.5 rounded-full font-medium">Distributed Fencing</span>
+                </h3>
+              </div>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
+          </div>
+
+          <!-- Inside Worker: 2 Halves -->
+          <div class="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-amber-500/20">
+            <!-- Group Queueing Box -->
+            <div class="bg-[#171108] border border-amber-500/30 p-3 rounded-lg">
+              <div class="flex items-center space-x-2 text-amber-300 font-semibold text-xs mb-1.5">
+                <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>
+                <span>Group Queueing</span>
+              </div>
+              <ul class="text-[11px] text-slate-300 space-y-1">
+                <li>• <b>1-Active Concurrency Lock</b> per JID</li>
+                <li>• FIFO Message Waiting Buffer</li>
+                <li>• Interactive Stdin & Cancel Signals</li>
+                <li>• Exponential Backoff Retries</li>
+              </ul>
+            </div>
+
+            <!-- Group Processing Box -->
+            <div class="bg-[#171108] border border-amber-500/30 p-3 rounded-lg">
+              <div class="flex items-center space-x-2 text-amber-300 font-semibold text-xs mb-1.5">
+                <i data-lucide="workflow" class="w-3.5 h-3.5"></i>
+                <span>Group Processing</span>
+              </div>
+              <ul class="text-[11px] text-slate-300 space-y-1">
+                <li>• Replay Cursor Reconciliation</li>
+                <li>• Slash Commands (<code class="text-amber-200">/clear</code>, <code class="text-amber-200">/model</code>)</li>
+                <li>• Channel Typing Indicator Heartbeats</li>
+                <li>• Memory & Boundaries Hydration</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector Arrow -->
+        <div class="flex justify-center my-1">
+          <div class="flex flex-col items-center">
+            <div class="w-0.5 h-4 bg-gradient-to-b from-amber-500 to-rose-500"></div>
+            <i data-lucide="arrow-down" class="w-3.5 h-3.5 text-rose-400 -mt-1"></i>
+          </div>
+        </div>
+
+        <!-- 5. AGENT RUNNER CARD -->
+        <div id="node-runner" onclick="selectSection('runner')" 
+             class="node-card cursor-pointer rounded-xl bg-gradient-to-b from-[#220d18] to-[#12070e] border-2 border-rose-500/40 p-4.5 hover:border-rose-400 shadow-md">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+                <i data-lucide="bot" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <span class="text-[10px] font-bold uppercase tracking-wider text-rose-400">Step 5 • Subprocess Sandboxed Runner</span>
+                <h3 class="text-sm font-bold text-white">Agent Runner (Claude SDK & DeepAgents)</h3>
+              </div>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-rose-500/20">
+            <div class="bg-[#170810] border border-rose-500/30 p-2.5 rounded-lg text-xs">
+              <div class="text-rose-300 font-semibold mb-1 flex items-center gap-1.5">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                <span>Anthropic Claude SDK</span>
+              </div>
+              <p class="text-[11px] text-slate-300 leading-relaxed">
+                Native Anthropic Client, Prompt Caching, Thinking Budgets, Multi-Cloud Gateway (SigV4/Vertex).
+              </p>
+            </div>
+            <div class="bg-[#170810] border border-rose-500/30 p-2.5 rounded-lg text-xs">
+              <div class="text-rose-300 font-semibold mb-1 flex items-center gap-1.5">
+                <i data-lucide="git-merge" class="w-3.5 h-3.5"></i>
+                <span>DeepAgents / LangChain</span>
+              </div>
+              <p class="text-[11px] text-slate-300 leading-relaxed">
+                LangGraph stream normalization, Sandboxed StateBackend, MCP facade tools, Checkpoints.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector Arrow -->
+        <div class="flex justify-center my-1">
+          <div class="flex flex-col items-center">
+            <div class="w-0.5 h-4 bg-gradient-to-b from-rose-500 to-emerald-500"></div>
+            <i data-lucide="arrow-down" class="w-3.5 h-3.5 text-emerald-400 -mt-1"></i>
+          </div>
+        </div>
+
+        <!-- 6. DATABASE STORAGE CARD -->
+        <div id="node-database" onclick="selectSection('database')" 
+             class="node-card cursor-pointer rounded-xl bg-gradient-to-b from-[#091f18] to-[#040e0b] border-2 border-emerald-500/40 p-4 hover:border-emerald-400 shadow-md">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                <i data-lucide="hard-drive" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Step 6 • State & Persistence</span>
+                <h3 class="text-sm font-bold text-white">PostgreSQL State Layer (20 Queries per Turn)</h3>
+              </div>
+            </div>
+            <div class="flex items-center space-x-2 text-xs">
+              <span class="px-2 py-0.5 rounded bg-emerald-900/50 border border-emerald-600 text-emerald-300 font-mono text-[11px]">Transactional Fencing</span>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-400"></i>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 mt-2">
+            Atomic transactions covering message ingestion, work item claiming, session context, vector memory recall, turn finalization, and outbound audit events.
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- RIGHT 5 COLS: Deep-Dive Inspector Panel -->
+    <div class="col-span-5 bg-[#0e1424] overflow-y-auto flex flex-col h-full">
+      
+      <!-- Panel Header -->
+      <div class="p-4 border-b border-darkBorder bg-[#090d18] sticky top-0 z-20 flex items-center justify-between">
+        <div>
+          <span id="panelCategory" class="text-[10px] font-bold uppercase tracking-wider text-brand-400">Inspector</span>
+          <h2 id="panelTitle" class="text-base font-bold text-white">1. Incoming (4 Types) Deep-Dive</h2>
+        </div>
+        <div id="panelBadge" class="text-[11px] px-2.5 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20 font-medium">
+          Detailed View
+        </div>
+      </div>
+
+      <!-- Panel Body (Dynamic Content) -->
+      <div id="panelContent" class="p-5 flex-1 space-y-6 text-sm">
+        <!-- Default Content loaded dynamically -->
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Live Simulation Overlay / Toast -->
+  <div id="simToast" class="fixed bottom-6 right-6 bg-slate-900/95 border border-brand-500/50 text-white px-4 py-3 rounded-xl shadow-2xl z-50 max-w-md hidden backdrop-blur-md">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-full bg-brand-500/20 border border-brand-400 flex items-center justify-center animate-pulse">
+        <i data-lucide="activity" class="w-4 h-4 text-brand-400"></i>
+      </div>
+      <div>
+        <div class="text-xs font-bold text-brand-400 uppercase" id="simStepTitle">Simulating Live Turn...</div>
+        <div class="text-xs text-slate-200 mt-0.5" id="simStepDesc">Message received via Slack webhook.</div>
+      </div>
+    </div>
+    <div class="w-full bg-slate-800 h-1 rounded-full mt-2.5 overflow-hidden">
+      <div id="simProgressBar" class="bg-brand-400 h-full w-0 transition-all duration-500"></div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let currentSection = 'incoming';
+    let isSimulating = false;
+    let simTimer = null;
+
+    // View Content Database
+    const deepDiveData = {
+      incoming: {
+        category: 'Ingress Subsystem',
+        title: '1. The 4 Incoming Entrypoints',
+        badge: '4 Active Ingress Vectors',
+        html: `
+          <div class="space-y-4">
+            <p class="text-xs text-slate-300 leading-relaxed">
+              Gantry ingests work through 4 distinct entry vectors. Each path performs authentication, validation, and passes data to the normalizer.
+            </p>
+
+            <!-- 4 TABS -->
+            <div class="grid grid-cols-4 gap-1 p-1 bg-slate-950 rounded-lg border border-slate-800 text-[11px] font-medium text-center">
+              <button onclick="selectIncomingType('channels')" id="tab-channels" class="py-1.5 rounded bg-brand-500 text-white font-semibold shadow">1. Channels</button>
+              <button onclick="selectIncomingType('ingress')" id="tab-ingress" class="py-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white">2. Ingress</button>
+              <button onclick="selectIncomingType('sdk')" id="tab-sdk" class="py-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white">3. SDK</button>
+              <button onclick="selectIncomingType('cron')" id="tab-cron" class="py-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white">4. Cron</button>
+            </div>
+
+            <!-- Dynamic Sub-panel for Ingress Type -->
+            <div id="incomingSubContent" class="space-y-4 pt-1">
+              <!-- Default: Channels -->
+            </div>
+          </div>
+        `
+      },
+      normalization: {
+        category: 'Normalization & Deduping',
+        title: '2. Normalization & Deduplication Logic',
+        badge: 'Idempotency Guarantee',
+        html: `
+          <div class="space-y-4 text-xs">
+            <div class="bg-indigo-950/40 border border-indigo-500/30 p-3 rounded-lg">
+              <h4 class="font-bold text-indigo-300 text-sm mb-1">Idempotent Delivery & Stable Hashes</h4>
+              <p class="text-slate-300 leading-relaxed">
+                To prevent duplicate turn executions during webhook retries, network glitches, or duplicate provider delivery, Gantry calculates a deterministic SHA-256 message ID.
+              </p>
+            </div>
+
+            <div class="space-y-2">
+              <div class="text-[11px] font-bold uppercase text-slate-400">Deterministic ID Calculation Code:</div>
+              <pre class="bg-slate-950 p-3 rounded-lg border border-slate-800 text-[11px] font-mono text-emerald-400 overflow-x-auto">
+function stableExternalIngressMessageId(parts: string[]): string {
+  return \`external-ingress:\${sha256Base64Url(parts.join('\\0')).slice(0, 32)}\`;
+}
+// Hash inputs: [appId, conversationId, threadId, externalMessageId]</pre>
+            </div>
+
+            <div class="space-y-2">
+              <div class="text-[11px] font-bold uppercase text-slate-400">Canonical NewMessage Struct:</div>
+              <pre class="bg-slate-950 p-3 rounded-lg border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto">
+export type NewMessage = {
+  id: string;                  // Stable Hash or UUID
+  chat_jid: string;            // e.g. "slack:T123:C456"
+  provider: string;            // "slack" | "discord" | "telegram" | "teams"
+  providerAccountId: string;   // Multi-account workspace ID
+  sender: string;              // Normalized User ID
+  sender_name: string;         // Display Name
+  content: string;             // Message text payload
+  timestamp: string;           // ISO 8601
+  is_from_me: boolean;         // False for inbound
+  is_bot_message: boolean;     // Filtered from triggering loops
+  external_message_id?: string;
+  thread_id?: string;
+};</pre>
+            </div>
+          </div>
+        `
+      },
+      durable: {
+        category: 'Durability & Wakeup',
+        title: '3. Durable Storage & Instant Notification',
+        badge: 'pg_notify Wakeup',
+        html: `
+          <div class="space-y-4 text-xs">
+            <div class="bg-accent-950/40 border border-accent-500/30 p-3 rounded-lg">
+              <h4 class="font-bold text-accent-300 text-sm mb-1">Atomic Ingress Transaction</h4>
+              <p class="text-slate-300 leading-relaxed">
+                Before any worker begins execution, the incoming event is committed to PostgreSQL inside an ACID transaction.
+              </p>
+            </div>
+
+            <div class="space-y-2">
+              <h5 class="font-semibold text-slate-200">The 3 Transaction Writes:</h5>
+              <div class="space-y-2">
+                <div class="p-2.5 rounded bg-slate-950 border border-slate-800">
+                  <div class="font-mono text-cyan-400 font-bold text-[11px]">1. INSERT INTO canonical_messages</div>
+                  <div class="text-slate-400 text-[11px] mt-0.5">Stores the message content, sender, thread context, and attachments.</div>
+                </div>
+                <div class="p-2.5 rounded bg-slate-950 border border-slate-800">
+                  <div class="font-mono text-purple-400 font-bold text-[11px]">2. INSERT INTO live_admission_work_items</div>
+                  <div class="text-slate-400 text-[11px] mt-0.5">Enqueues the durable admission item containing <code class="text-slate-300">queue_key</code> and <code class="text-slate-300">app_id</code>.</div>
+                </div>
+                <div class="p-2.5 rounded bg-slate-950 border border-slate-800">
+                  <div class="font-mono text-emerald-400 font-bold text-[11px]">3. INSERT INTO runtime_events</div>
+                  <div class="text-slate-400 text-[11px] mt-0.5">Publishes an audit event to the transactional outbox table.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <h5 class="font-semibold text-slate-200">Zero-Latency Notification Signal:</h5>
+              <pre class="bg-slate-950 p-3 rounded-lg border border-slate-800 text-[11px] font-mono text-amber-300 overflow-x-auto">
+// live-admission-notify.postgres.ts
+await this.pool.query(
+  'SELECT pg_notify($1, $2)',
+  ['gantry_live_admissions', '']
+);
+// Workers listen with LISTEN gantry_live_admissions</pre>
+            </div>
+          </div>
+        `
+      },
+      worker: {
+        category: 'Worker Core',
+        title: '4. Worker & Group Queueing Mechanics',
+        badge: 'Single-Concurrency Lock',
+        html: `
+          <div class="space-y-4 text-xs">
+            <div class="bg-amber-950/40 border border-amber-500/30 p-3 rounded-lg">
+              <h4 class="font-bold text-amber-300 text-sm mb-1">GroupQueue Concurrency Model</h4>
+              <p class="text-slate-300 leading-relaxed">
+                Gantry guarantees that <b>at most one agent run executes for a conversation or thread at any given time</b> (<code class="text-amber-200">queueJid</code>).
+              </p>
+            </div>
+
+            <div class="space-y-2.5">
+              <h5 class="font-semibold text-slate-200 text-xs">Worker Internal Pipeline:</h5>
+              <div class="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-2 text-[11px]">
+                <div class="flex items-start gap-2">
+                  <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">1</span>
+                  <div>
+                    <b class="text-slate-200">Durable Claim:</b> Worker claims item via <code class="text-slate-400">UPDATE live_admission_work_items SET status='claimed' ... FOR UPDATE SKIP LOCKED</code>.
+                  </div>
+                </div>
+                <div class="flex items-start gap-2">
+                  <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">2</span>
+                  <div>
+                    <b class="text-slate-200">Replay Cursor Check:</b> Loads messages since last cursor to ensure zero missed messages.
+                  </div>
+                </div>
+                <div class="flex items-start gap-2">
+                  <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">3</span>
+                  <div>
+                    <b class="text-slate-200">Command Interception:</b> Intercepts <code class="text-amber-300">/clear</code>, <code class="text-amber-300">/model</code>, <code class="text-amber-300">/stop</code> before LLM spawn.
+                  </div>
+                </div>
+                <div class="flex items-start gap-2">
+                  <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">4</span>
+                  <div>
+                    <b class="text-slate-200">Typing & Reaction Lifecycle:</b> Sends typing heartbeats every 4s and adds 'seen'/'eyes' reaction.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <div class="text-[11px] font-bold uppercase text-slate-400">File Reference:</div>
+              <div class="text-[11px] font-mono text-cyan-400 bg-slate-950 p-2 rounded border border-slate-800">
+                apps/core/src/runtime/group-queue.ts<br/>
+                apps/core/src/runtime/group-processing.ts
+              </div>
+            </div>
+          </div>
+        `
+      },
+      runner: {
+        category: 'Runner Subsystem',
+        title: '5. Agent Runner Subsystem Deep-Dive',
+        badge: 'Subprocess Isolation',
+        html: `
+          <div class="space-y-4 text-xs">
+            <div class="bg-rose-950/40 border border-rose-500/30 p-3 rounded-lg">
+              <h4 class="font-bold text-rose-300 text-sm mb-1">Process Isolation & Streaming Protocol</h4>
+              <p class="text-slate-300 leading-relaxed">
+                The agent executes inside a spawned child process with strict network, filesystem, and tool sandboxing.
+              </p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 text-[11px]">
+              <div class="p-2.5 rounded bg-slate-950 border border-slate-800">
+                <div class="font-bold text-rose-400 mb-1">Claude SDK Engine</div>
+                <p class="text-slate-400 leading-normal">Native Anthropic SDK with multi-cloud Gateway (Bedrock SigV4 / Vertex), Prompt Caching, and Thinking Token Budgets.</p>
+              </div>
+              <div class="p-2.5 rounded bg-slate-950 border border-slate-800">
+                <div class="font-bold text-rose-400 mb-1">DeepAgents Engine</div>
+                <p class="text-slate-400 leading-normal">LangGraph stream events, StateBackend filesystem denial, Gantry MCP facade proxying, and checkpoint saver.</p>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <h5 class="font-semibold text-slate-200">IPC Protocol:</h5>
+              <div class="p-2.5 bg-slate-950 rounded border border-slate-800 space-y-1 text-[11px] text-slate-300">
+                <div>• <b>Stdin:</b> Full agent configuration JSON passed at startup until EOF.</div>
+                <div>• <b>Stdout:</b> Framed with <code class="text-rose-300">OUTPUT_START_MARKER</code> & <code class="text-rose-300">OUTPUT_END_MARKER</code>.</div>
+                <div>• <b>IPC Directory:</b> Atomic file watches in <code class="text-rose-300">GANTRY_IPC_INPUT_DIR</code> for mid-flight steering.</div>
+              </div>
+            </div>
+          </div>
+        `
+      },
+      database: {
+        category: 'Storage & Schema',
+        title: '6. PostgreSQL Lifecycle & 20 Queries Breakdown',
+        badge: '18-20 Queries / Turn',
+        html: `
+          <div class="space-y-4 text-xs">
+            <div class="bg-emerald-950/40 border border-emerald-500/30 p-3 rounded-lg">
+              <h4 class="font-bold text-emerald-300 text-sm mb-1">Full Turn DB Lifecycle</h4>
+              <p class="text-slate-300 leading-relaxed">
+                Every state transition is persisted in PostgreSQL with distributed fencing tokens.
+              </p>
+            </div>
+
+            <div class="space-y-1.5 max-h-[380px] overflow-y-auto pr-1">
+              <table class="w-full text-left text-[11px] border border-slate-800">
+                <thead class="bg-slate-900 text-slate-300 sticky top-0">
+                  <tr>
+                    <th class="p-1.5 border-b border-slate-800">#</th>
+                    <th class="p-1.5 border-b border-slate-800">Phase</th>
+                    <th class="p-1.5 border-b border-slate-800">Table</th>
+                    <th class="p-1.5 border-b border-slate-800">SQL Op</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60 font-mono text-[10px]">
+                  <tr><td class="p-1.5 text-slate-400">1</td><td class="p-1.5 text-sky-400">Ingress</td><td class="p-1.5">canonical_conversations</td><td class="p-1.5 text-emerald-400">SELECT</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">2</td><td class="p-1.5 text-sky-400">Ingress</td><td class="p-1.5">canonical_messages</td><td class="p-1.5 text-amber-400">INSERT</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">3</td><td class="p-1.5 text-sky-400">Ingress</td><td class="p-1.5">live_admission_work_items</td><td class="p-1.5 text-amber-400">INSERT</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">4</td><td class="p-1.5 text-sky-400">Ingress</td><td class="p-1.5">runtime_events</td><td class="p-1.5 text-amber-400">INSERT</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">5</td><td class="p-1.5 text-sky-400">Ingress</td><td class="p-1.5">pg_notify</td><td class="p-1.5 text-purple-400">NOTIFY</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">6</td><td class="p-1.5 text-amber-400">Worker</td><td class="p-1.5">live_admission_work_items</td><td class="p-1.5 text-blue-400">UPDATE (CLAIM)</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">7</td><td class="p-1.5 text-amber-400">Worker</td><td class="p-1.5">canonical_messages</td><td class="p-1.5 text-emerald-400">SELECT (REPLAY)</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">8</td><td class="p-1.5 text-amber-400">Worker</td><td class="p-1.5">agent_sessions</td><td class="p-1.5 text-emerald-400">SELECT</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">9</td><td class="p-1.5 text-amber-400">Worker</td><td class="p-1.5">agent_runs</td><td class="p-1.5 text-amber-400">INSERT</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">10</td><td class="p-1.5 text-amber-400">Worker</td><td class="p-1.5">live_turns</td><td class="p-1.5 text-blue-400">UPSERT (LEASE)</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">11</td><td class="p-1.5 text-rose-400">Runner</td><td class="p-1.5">app_memories</td><td class="p-1.5 text-emerald-400">SELECT (RECALL)</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">12</td><td class="p-1.5 text-rose-400">Runner</td><td class="p-1.5">mcp_servers</td><td class="p-1.5 text-emerald-400">SELECT</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">13</td><td class="p-1.5 text-rose-400">Runner</td><td class="p-1.5">browser_profile_snapshots</td><td class="p-1.5 text-blue-400">UPDATE</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">14</td><td class="p-1.5 text-emerald-400">Finalize</td><td class="p-1.5">canonical_messages</td><td class="p-1.5 text-amber-400">INSERT (REPLY)</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">15</td><td class="p-1.5 text-emerald-400">Finalize</td><td class="p-1.5">agent_runs</td><td class="p-1.5 text-blue-400">UPDATE (METRICS)</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">16</td><td class="p-1.5 text-emerald-400">Finalize</td><td class="p-1.5">live_admission_work_items</td><td class="p-1.5 text-blue-400">UPDATE (DONE)</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">17</td><td class="p-1.5 text-emerald-400">Finalize</td><td class="p-1.5">live_turns</td><td class="p-1.5 text-blue-400">UPDATE (RELEASE)</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">18</td><td class="p-1.5 text-emerald-400">Finalize</td><td class="p-1.5">runtime_events</td><td class="p-1.5 text-amber-400">INSERT (AUDIT)</td></tr>
+                  <tr><td class="p-1.5 text-slate-400">19</td><td class="p-1.5 text-emerald-400">Finalize</td><td class="p-1.5">pg_notify</td><td class="p-1.5 text-purple-400">NOTIFY (OUTBOUND)</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `
+      }
+    };
+
+    // Sub-data for the 4 Ingress Types
+    const incomingTypesData = {
+      channels: `
+        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-sky-400 font-bold">1. Chat Channels (Slack, Discord, Telegram, Teams)</span>
+            <span class="text-[10px] bg-sky-950 text-sky-300 px-2 py-0.5 rounded border border-sky-800">Webhooks / SocketMode</span>
+          </div>
+          <p class="text-slate-300 text-[11px] leading-relaxed">
+            Adapters in <code class="text-sky-300">apps/core/src/channels/</code> listen to provider events.
+          </p>
+          <ul class="text-[11px] text-slate-400 space-y-1 list-disc list-inside">
+            <li><b>Slack:</b> Bolt SDK with Socket Mode or HTTP webhooks.</li>
+            <li><b>Discord:</b> <code class="text-slate-300">discord.js</code> Client listening to mentions and message events.</li>
+            <li><b>Telegram:</b> <code class="text-slate-300">grammY</code> webhook and long-polling adapter.</li>
+            <li><b>Teams:</b> Microsoft Bot Framework activity handler.</li>
+          </ul>
+        </div>
+      `,
+      ingress: `
+        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-emerald-400 font-bold">2. External Ingress (HMAC Signed)</span>
+            <span class="text-[10px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800">POST /v1/external-ingress/messages</span>
+          </div>
+          <p class="text-slate-300 text-[11px] leading-relaxed">
+            Direct authenticated webhook endpoint for enterprise services and backend integrations.
+          </p>
+          <div class="p-2 bg-slate-900 rounded text-[11px] font-mono text-emerald-300">
+            Headers:<br/>
+            x-gantry-signature: sha256=...<br/>
+            x-gantry-timestamp: 1787900800
+          </div>
+        </div>
+      `,
+      sdk: `
+        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-purple-400 font-bold">3. Gantry SDK & REST Control API</span>
+            <span class="text-[10px] bg-purple-950 text-purple-300 px-2 py-0.5 rounded border border-purple-800">@knacklabs/gantry-sdk</span>
+          </div>
+          <p class="text-slate-300 text-[11px] leading-relaxed">
+            TypeScript SDK and OpenAPI endpoints in <code class="text-purple-300">packages/sdk/</code>.
+          </p>
+          <div class="text-[11px] text-slate-400">
+            Enables programmatic session creation, asynchronous message submission, and live agent stream subscriptions.
+          </div>
+        </div>
+      `,
+      cron: `
+        <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-amber-400 font-bold">4. Cron & Schedulers (pg-boss)</span>
+            <span class="text-[10px] bg-amber-950 text-amber-300 px-2 py-0.5 rounded border border-amber-800">Queue: gantry.jobs</span>
+          </div>
+          <p class="text-slate-300 text-[11px] leading-relaxed">
+            Background job scheduler managed by <code class="text-amber-300">scheduler-engine.ts</code> using <code class="text-amber-300">pg-boss</code>.
+          </p>
+          <div class="text-[11px] text-slate-400">
+            Runs scheduled maintenance, autonomous periodic agents, and one-off delayed tasks with capacity slot locks.
+          </div>
+        </div>
+      `
+    };
+
+    function selectSection(sectionKey) {
+      currentSection = sectionKey;
+      const data = deepDiveData[sectionKey];
+      if (!data) return;
+
+      // Update Node Highlight in Left Canvas
+      document.querySelectorAll('.node-card').forEach(card => card.classList.remove('active'));
+      const activeCard = document.getElementById(`node-${sectionKey}`);
+      if (activeCard) activeCard.classList.add('active');
+
+      // Update Right Inspector Panel
+      document.getElementById('panelCategory').innerText = data.category;
+      document.getElementById('panelTitle').innerText = data.title;
+      document.getElementById('panelBadge').innerText = data.badge;
+      document.getElementById('panelContent').innerHTML = data.html;
+
+      // Re-init icons
+      lucide.createIcons();
+
+      // If incoming, load channels sub-tab by default
+      if (sectionKey === 'incoming') {
+        selectIncomingType('channels');
+      }
+    }
+
+    function selectIncomingType(typeKey) {
+      ['channels', 'ingress', 'sdk', 'cron'].forEach(t => {
+        const tab = document.getElementById(`tab-${t}`);
+        if (tab) {
+          if (t === typeKey) {
+            tab.className = 'py-1.5 rounded bg-brand-500 text-white font-semibold shadow';
+          } else {
+            tab.className = 'py-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white';
+          }
+        }
+      });
+      const container = document.getElementById('incomingSubContent');
+      if (container && incomingTypesData[typeKey]) {
+        container.innerHTML = incomingTypesData[typeKey];
+      }
+    }
+
+    function resetViews() {
+      selectSection('incoming');
+      if (isSimulating) toggleSimulation();
+    }
+
+    // Simulation Engine
+    const simSteps = [
+      { section: 'incoming', title: 'Step 1 / 6: Inbound Ingress', desc: 'Received message webhook payload. Validating HMAC signature...', progress: 16 },
+      { section: 'normalization', title: 'Step 2 / 6: Normalization', desc: 'Calculated SHA-256 stableExternalIngressMessageId. Checked dedup index: unique.', progress: 33 },
+      { section: 'durable', title: 'Step 3 / 6: Durable Persistence', desc: 'Atomic PostgreSQL commit: canonical_messages + live_admission_work_items + pg_notify.', progress: 50 },
+      { section: 'worker', title: 'Step 4 / 6: Worker GroupQueueing', desc: 'Worker claimed work item. Acquired per-JID concurrency lock. Hydrating memory.', progress: 68 },
+      { section: 'runner', title: 'Step 5 / 6: Agent Runner Spawning', desc: 'Spawned Claude SDK subprocess with prompt caching. Streaming response tokens...', progress: 85 },
+      { section: 'database', title: 'Step 6 / 6: Turn Finalization', desc: 'Persisted assistant transcript. Released turn lease. Settle outbound delivery.', progress: 100 }
+    ];
+
+    function toggleSimulation() {
+      const toast = document.getElementById('simToast');
+      const simText = document.getElementById('simText');
+      const simIcon = document.getElementById('simIcon');
+
+      if (isSimulating) {
+        clearInterval(simTimer);
+        isSimulating = false;
+        toast.classList.add('hidden');
+        simText.innerText = 'Simulate Live Flow';
+        simIcon.setAttribute('data-lucide', 'play');
+        lucide.createIcons();
+        return;
+      }
+
+      isSimulating = true;
+      toast.classList.remove('hidden');
+      simText.innerText = 'Stop Simulation';
+      simIcon.setAttribute('data-lucide', 'square');
+      lucide.createIcons();
+
+      let stepIdx = 0;
+      function runStep() {
+        const step = simSteps[stepIdx];
+        selectSection(step.section);
+        document.getElementById('simStepTitle').innerText = step.title;
+        document.getElementById('simStepDesc').innerText = step.desc;
+        document.getElementById('simProgressBar').style.width = step.progress + '%';
+
+        stepIdx++;
+        if (stepIdx >= simSteps.length) {
+          stepIdx = 0; // loop or stop
+        }
+      }
+
+      runStep();
+      simTimer = setInterval(runStep, 3500);
+    }
+
+    // Init on load
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      selectSection('incoming');
+    });
+  </script>
+</body>
+</html>
