@@ -8,7 +8,7 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 
 - Claude Code coordinates: discovery, planning, decisions, orchestration.
 - Codex executes: exploration, implementation, testing. Review is Claude's —
-  run the autoreview skill DIRECTLY, loop until clean post-rescue (0011).
+  run autoreview DIRECTLY; on findings delegate fixes to Codex and re-review, loop until clean (0011); then pr-ready → PR to default branch → poll CI green (fix failures). Never stop at review.
 - During planning, do NOT grep/read app code yourself — delegate `/codex:rescue`
   read-only: `gpt-5.6-terra` @ high to explore, `gpt-5.6-sol` @ xhigh to validate/debug. NEVER raw `codex exec`.
 
@@ -29,9 +29,9 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 
 ## Ground rules
 - Session write lock always armed: PLAN MODE never unlocks product/canon; delegate
-  writes, or during a companion outage use `forge mode degraded start --reason`, grill
-  (`/grill-me`), present to the HUMAN; on approval `./forge plan approve --by
-  "<name>"` and re-save — only its marker approves.
+  writes, or during a companion outage `forge mode degraded start --reason`. Grill
+  (`/grill-me`) BEFORE approval, loop rounds until clean; the human reviews the plan
+  on the BOARD (not chat), then `./forge plan approve --by "<name>"` + re-save — only its marker approves.
 - Decisions: `./forge decision new <slug>`; acceptance is HUMAN chat
   confirmation — then run accept/sign-off yourself, `--by "<name>"` + trailer.
 - Recording sign-off requires confirmed specs and their derived roadmap.
