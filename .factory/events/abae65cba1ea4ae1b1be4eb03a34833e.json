@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T07:16:49+00:00", "story": "CHAN-3", "detail": "S-0041-d90c: Informational: JUNIT wrapper policy-refused in sandbox (stage done runs the leaf test itself); Postgres is host-only \u2014 orchestrator ran the lane: 62 files/378 passed."}

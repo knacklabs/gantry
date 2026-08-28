@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T07:47:23+00:00", "story": "CHAN-3", "detail": "S-0042-0940: Owner ruling 2026-08-28: the two SOURCE-TEXT tests in apps/core/test/unit/runner/query-loop.test.ts ('keeps one-shot scheduled input open only for an accepted finish nudge' and 'does not pass allowedT"}

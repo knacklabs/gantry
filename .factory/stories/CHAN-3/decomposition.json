@@ -1,0 +1,155 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": false,
+  "story": "CHAN-3",
+  "epic": "harness-hygiene",
+  "tasks": [
+    {
+      "id": "CHAN-3-T1",
+      "title": "Split runActiveJob by phase into jobs/execution-phases.ts",
+      "objective": "Verbatim move: runActiveJob in apps/core/src/jobs/execution.ts (733 lines) becomes a phase sequencer (CC <= 15) over one ActiveJobRunContext built once; each phase is a named function (CC <= 25) in TWO sibling modules by phase group \u2014 jobs/execution-phases-setup.ts (context, failover, session/setup pause, lease + heartbeat) and jobs/execution-phases-run.ts (bind/event, system turn, agent-with-failover, finalization). try/finally stays in the sequencer. Zero test edits.",
+      "acceptance_criteria": [
+        "`runActiveJob` in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change.",
+        "No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green.",
+        "Branch based on main after PR #451 (CHAN-2)."
+      ],
+      "user_facing": false,
+      "depends_on": [],
+      "write_scope": [
+        "apps/core/src/jobs/execution.ts",
+        "apps/core/src/jobs/execution-phases-setup.ts",
+        "apps/core/src/jobs/execution-phases-run.ts",
+        "scripts/architecture-map.json",
+        "apps/core/test/unit/jobs/",
+        "docs/specs/job-runner-splits.md"
+      ],
+      "required_tests": [
+        {
+          "id": "records a failed terminal run when execution throws before normal settlement",
+          "path": "apps/core/test/unit/jobs/execution.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "plan_contracts": [
+        {
+          "id": "CHAN-3-AC1",
+          "statement": "`runActiveJob` in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change.",
+          "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+        },
+        {
+          "id": "CHAN-3-AC3",
+          "statement": "No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green.",
+          "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+        },
+        {
+          "id": "CHAN-3-AC4",
+          "statement": "Branch based on main after PR #451 (CHAN-2).",
+          "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+        }
+      ],
+      "reviewer_focus": [
+        "every phase moved verbatim (call sites, not re-implementations)",
+        "context built once carries every value the phases read",
+        "try/finally lease-release ordering unchanged in the sequencer",
+        "no existing test edited",
+        "sequencer CC <= 15, every phase <= 25 by AST count"
+      ],
+      "review_budget": {
+        "max_changed_files": 5,
+        "max_changed_lines": 2200,
+        "reason": "A 733-line function moves verbatim into two sibling modules; line count is the move (deletions + additions) plus context/imports, not new logic."
+      }
+    },
+    {
+      "id": "CHAN-3-T2",
+      "title": "Split runQuery by phase into runner/query-loop-phases.ts",
+      "objective": "Verbatim move: runQuery in runner/query-loop.ts becomes a for-await dispatcher (CC <= 15) over one QueryLoopContext built once; SDK options/sandbox setup, per-message handlers (system, assistant, stream_event, result incl. nudge + stream.end) and close/end are named functions (CC <= 25) in ONE sibling module runner/query-loop-phases.ts. Only the two source-text tests re-point their file path; no other test edits.",
+      "acceptance_criteria": [
+        "`runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.",
+        "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green."
+      ],
+      "user_facing": false,
+      "depends_on": [
+        "CHAN-3-T1"
+      ],
+      "plan_contracts": [
+        {
+          "id": "CHAN-3-AC2",
+          "statement": "`runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.",
+          "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+        },
+        {
+          "id": "CHAN-3-AC3-T2",
+          "statement": "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green.",
+          "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases.ts",
+        "scripts/architecture-map.json",
+        "apps/core/test/unit/runner/",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-messages.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "removes approval context after the matching tool result",
+          "path": "apps/core/test/unit/runner/query-loop.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "reviewer_focus": [
+        "every loop branch moved verbatim (guards, order, continues)",
+        "context shares the accumulators/flags by reference (nudge state, visible text, stream flags)",
+        "stream.end() sites and conditions identical",
+        "only the two source-text tests changed, and only their readFileSync path",
+        "dispatcher CC <= 15, every handler <= 25 by AST count"
+      ],
+      "review_budget": {
+        "max_changed_files": 6,
+        "max_changed_lines": 2000,
+        "reason": "A ~600-line function moves verbatim into phase modules (two if prettier pushes one past 700 lines); line count is the move, not new logic."
+      }
+    }
+  ],
+  "plan_contracts": [
+    {
+      "id": "CHAN-3-AC1",
+      "statement": "`runActiveJob` in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change.",
+      "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-3-AC2",
+      "statement": "`runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.",
+      "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-3-AC3",
+      "statement": "No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green.",
+      "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-3-AC4",
+      "statement": "Branch based on main after PR #451 (CHAN-2).",
+      "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-3-AC3-T2",
+      "statement": "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green.",
+      "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+    }
+  ],
+  "project": "",
+  "plan_file": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md",
+  "plan_sha256": "e3dc17b7e91a3d3518a1776f28c106fa90163e5d06cae36b8ef7b293176b254f",
+  "commit": "09b3b74325122a13cd5458a7eed3c7790e45581a"
+}

@@ -1,0 +1,33 @@
+{
+  "commit": "c510fd23fc05062746a7dcc6f47c286a2c23afd4",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "commit": "c510fd23fc05062746a7dcc6f47c286a2c23afd4",
+    "summary": "At HEAD c510fd23f: verify.py Verification passed (format, architecture, vendor integrity, dual-runtime, unit + integration lanes). Pure refactor: T1 jobs lane 66 files / 723 tests and Postgres integration lane 62 files / 378 passed (1 skipped) with zero test edits; T2 runner lane 43 files / 501 tests with only the two source-text tests changed where they read the source (behavioural assertions untouched); required behavioural leaves 'records a failed terminal run when execution throws before normal settlement' and 'removes approval context after the matching tool result' pass. tsc clean; check:architecture passed (execution-phases-setup 342, execution-phases-run 696, query-loop-phases-setup 537, query-loop-phases-messages 316 \u2014 all <= 700). AST CC: sequencers 8 / <8, largest phases 15 / 21 (ceilings 15 / 25).",
+    "blocking_findings": [],
+    "commands_run": [
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs/",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runner/",
+      "GANTRY_TEST_DATABASE_URL=\u2026 npm run test:integration:postgres",
+      "npx tsc --noEmit",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py"
+    ],
+    "pass_fail_summary": "jobs 723/723; runner 501/501; Postgres 378/378 (1 skipped); verify.py passed",
+    "tests_added_or_updated": [
+      "apps/core/test/unit/runner/query-loop.test.ts"
+    ],
+    "remaining_gaps": [],
+    "reviewed_scope": [
+      "apps/core/src/jobs",
+      "apps/core/src/adapters/llm/anthropic-claude-agent/runner"
+    ],
+    "skills_used": [],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-28T09:08:16+00:00"
+  },
+  "updated_at": "2026-08-28T09:08:16+00:00"
+}

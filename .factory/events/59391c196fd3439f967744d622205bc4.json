@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T06:39:15+00:00", "story": "CHAN-3", "detail": "S-0040-293d: Informational: the VITEST_JUNIT wrapper is policy-refused in the sandbox (stage done runs the required leaf test itself) and Postgres is host-only (orchestrator runs the lane). Host-side: jobs suites "}

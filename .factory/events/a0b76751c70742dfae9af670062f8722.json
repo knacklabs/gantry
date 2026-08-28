@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-28T08:00:40+00:00", "story": "CHAN-3", "detail": "CHAN-3-T2 exact required VITEST_JUNIT command is policy-refused before execution because the env-prefixed command requires a shell wrapper; run the recorded leaf command host-side."}

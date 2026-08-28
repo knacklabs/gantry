@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T08:59:49+00:00", "story": "CHAN-3", "detail": "S-0047-88e8: Informational: sandbox vitest went silent (CPU contention). Host-side: runner lane 43 files/501 tests green, tsc clean, check:architecture passed, both modules prettier-stable (setup 537 / messages 31"}

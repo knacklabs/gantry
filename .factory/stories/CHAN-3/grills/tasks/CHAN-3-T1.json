@@ -1,0 +1,58 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "CHAN-3-T1",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/jobs/execution.ts",
+    "apps/core/src/jobs/execution-finalization.ts",
+    "apps/core/src/jobs/execution-lease.ts",
+    "apps/core/test/unit/jobs/execution.test.ts",
+    "apps/core/test/unit/jobs/lifecycle-retirement.test.ts",
+    "scripts/architecture-map.json"
+  ],
+  "current_flow": "runActiveJob (execution.ts:116, ~400 lines, AST CC 76) resolves execution context/dead-letter, failover candidates, app session + setup pause, claims the run lease, binds run event state, emits JOB_STARTED, runs the system turn and the agent with failover inside one try/catch/finally that releases the lease and finalizes; every incident fix of the last two weeks landed inside this body.",
+  "criteria_map": {
+    "`runActiveJob` in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change.": "steps 1-3: ActiveJobRunContext built once; phases moved verbatim into execution-phases-setup.ts / execution-phases-run.ts; sequencer keeps try/catch/finally; step 5 CC report (sequencer <= 15, phases <= 25)",
+    "No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green.": "step 5: jobs suites green with git diff --stat -- apps/core/test empty; tsc; check:architecture; required test 'records a failed terminal run when execution throws before normal settlement'",
+    "Branch based on main after PR #451 (CHAN-2).": "branch feat/CHAN-3-job-runner-splits off main 1194bbb41 (#451 merged)"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "ActiveJobRunContext (built once) and two sibling modules jobs/execution-phases-setup.ts + jobs/execution-phases-run.ts (phase groups) \u2014 owner ruling 2026-08-28 after signal S-0039 (733-line function)"
+  ],
+  "gaps": [
+    "runActiveJob is 733 lines, so a verbatim move can't fit in one \u2264700-line module. Shape?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Verbatim moves only; helpers called not re-implemented; early returns stay in the sequencer.",
+    "Review budget 2200 lines / 5 files; each module <= 700 lines."
+  ],
+  "rounds": [
+    {
+      "question": "runActiveJob is 733 lines, so a verbatim move can't fit in one \u2264700-line module. Shape?",
+      "options": [
+        "Two sibling modules by phase group (Recommended)",
+        "One module, exempt it from the 700-line rule"
+      ],
+      "chosen": "Two sibling modules by phase group (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "A moved phase that read an outer const must receive it via the context; a miss surfaces as a tsc error or a failing jobs test, both gating.",
+      "source": "apps/core/src/jobs/execution.ts:116-520; task plan step 1"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "edb6730e468aae7d7f12e982c32e9aacf3f884fde0d42e8f6de9360ac4e5c1ea",
+  "task_plan_sha256": "74b35461e420b72b9900067009112c33262d1c9b1533a12055ab6e87ffa9c373",
+  "recorded_at": "2026-08-28T06:44:12+00:00",
+  "commit": "1a03b75b99c2a09c36302e52718d5592174635ee",
+  "approved_task_plan_sha256": "74b35461e420b72b9900067009112c33262d1c9b1533a12055ab6e87ffa9c373",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-28T06:44:12+00:00"
+}

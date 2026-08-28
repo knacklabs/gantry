@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T08:40:44+00:00", "story": "CHAN-3", "detail": "S-0046-90b6: Ruling 2026-08-28: the source-text test 'keeps one-shot scheduled input open only for an accepted finish nudge' may read BOTH query-loop-phases-setup.ts and query-loop-phases-messages.ts and assert ag"}

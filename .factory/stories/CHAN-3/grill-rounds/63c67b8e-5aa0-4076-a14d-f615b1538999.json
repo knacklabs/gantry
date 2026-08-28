@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "AC1/AC2 say each giant's phases go into \u201cONE sibling module\u201d, but both functions are too big for one \u2264700-line file after formatting (T1 already landed as two modules by phase group on your ruling; T2 needs the same). How should the plan record it?",
+      "options": [
+        "Record an implementation assumption: 'one module per phase group when a single module would exceed 700 lines' (Recommended)",
+        "Amend the plan's AC1/AC2 text and re-approve the plan"
+      ],
+      "chosen": "Record an implementation assumption: 'one module per phase group when a single module would exceed 700 lines' (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T08:24:23.738287+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-28T07:08:34+00:00", "story": "CHAN-3", "detail": "CHAN-3-T2 requires SDK options and nudge/stream.end logic to move out of query-loop.ts, but unchanged query-loop.test.ts asserts those exact source strings remain in query-loop.ts; zero existing test "}

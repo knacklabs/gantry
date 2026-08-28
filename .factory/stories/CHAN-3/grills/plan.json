@@ -1,0 +1,48 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "Order: T1 runActiveJob first, then T2 runQuery."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Verbatim moves only (owner ruling); one sibling module per giant; ceilings phases <= 25 / sequencer <= 15 on the CHAN-2 AST counter; kind=feature so the refactor ratchet does not apply."
+  ],
+  "rounds": [
+    {
+      "question": "CHAN-3 plan: two tasks (T1 runActiveJob split, T2 runQuery split), each a verbatim move into one sibling module with a context object built once. Which order?",
+      "options": [
+        "T1 runActiveJob first, then T2 runQuery (Recommended)",
+        "T2 runQuery first"
+      ],
+      "chosen": "T1 runActiveJob first, then T2 runQuery (Recommended)"
+    },
+    {
+      "question": "Anything else before I approve the plan and start T1?",
+      "options": [
+        "No \u2014 approve and start (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 approve and start (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "runActiveJob CC 76",
+      "path": "apps/core/src/jobs/execution.ts",
+      "line": 116
+    },
+    {
+      "finding": "runQuery CC 81",
+      "path": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+      "line": 102
+    }
+  ],
+  "input_sha256": "d4606600db8bad1d63a20b55e29cb4b4d96f7549bb6197dc7bd2f0bca72d4fac",
+  "issue": "CHAN-3",
+  "recorded_at": "2026-08-28T05:40:48+00:00",
+  "commit": "1194bbb41e6bb0cd926740a84c51855f309346db"
+}
