@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T19:16:21+00:00", "story": "JOBPERM-2", "detail": "S-0004-3810: Informational: the VITEST_JUNIT wrapper is policy-refused in the sandbox; stage done runs the required leaf test itself. Run the plain vitest command."}

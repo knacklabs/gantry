@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T19:16:21+00:00", "story": "JOBPERM-2", "detail": "S-0005-d8d5: Orchestrator runs the Postgres lane outside the sandbox and reports results via forge note; do not retry it in-sandbox."}

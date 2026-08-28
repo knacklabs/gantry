@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "JOBPERM-2 is done and live-proven; the only pr_ready blocker is the inherited harness drift on main (21 gate files vs VENDOR_MANIFEST, untouched by this branch). How do you want to land it?",
+      "options": [
+        "Raise the JOBPERM-2 PR now; re-vendor in a separate chore PR next (Recommended)",
+        "Re-vendor the harness on this branch first, then raise one PR"
+      ],
+      "chosen": "Raise the JOBPERM-2 PR now; re-vendor in a separate chore PR next (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T02:40:13.975367+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

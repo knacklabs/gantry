@@ -1,4 +1,109 @@
 {
+  "version": 1,
+  "epics": [
+    {
+      "id": "harness-hygiene",
+      "title": "Harness hygiene",
+      "objective": "Green deterministic gates so every story verifies honestly",
+      "source_refs": [
+        "docs/architecture/architecture-debt-paydown-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "permission-engine",
+      "title": "Permission engine redesign",
+      "objective": "Deterministic rails + host-side decision coordinator; ask only on genuine risk",
+      "source_refs": [
+        "docs/architecture/permission-engine-redesign-goal-prompt.md",
+        "docs/architecture/git-permission-rca.md"
+      ]
+    },
+    {
+      "id": "observer",
+      "title": "Curious Observer program",
+      "objective": "Harvest -> nightly dream -> value floor + batch judge -> daily private digest",
+      "source_refs": [
+        "docs/architecture/proactive-observer-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "agent-e2e-gate",
+      "title": "Agent E2E CI merge gate",
+      "objective": "Packaged real-runtime E2E matrix as the merge bar",
+      "source_refs": [
+        "docs/architecture/agent-e2e-ci-merge-gate-goal-prompt.md",
+        "docs/architecture/agent-e2e-test-matrix.md"
+      ]
+    },
+    {
+      "id": "capability-search",
+      "title": "Capability authoring + MCP hybrid search",
+      "objective": "Agents author capabilities; tool search gains FTS + optional semantic layer",
+      "source_refs": [
+        "docs/architecture/mcp-hybrid-search-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "ponytail",
+      "title": "Ponytail cutover",
+      "objective": "Land the phased re-derive: Phase-8 offline cutover, gated on explicit user go",
+      "source_refs": [
+        "docs/architecture/ponytail-audit-2026-07-16.md"
+      ]
+    },
+    {
+      "id": "observability",
+      "title": "OTel observability remainder",
+      "objective": "Permission/decision spans completing the shipped #220/#262 taxonomy",
+      "source_refs": [
+        "docs/architecture/otel-permission-spans-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "post-cutover",
+      "title": "Post-Ponytail-cutover lanes",
+      "objective": "Durable-work primitive and model management, gated on the user-authorized cutover",
+      "source_refs": [
+        "docs/architecture/durable-work-primitive-goal-prompt.md",
+        "docs/architecture/model-management-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "coordination-hardening",
+      "title": "Coordination hardening",
+      "objective": "Retire coordination-representation audit findings (B1/B2/C)",
+      "source_refs": [
+        "docs/architecture/coordination-representation-audit-2026-07-18.md"
+      ]
+    },
+    {
+      "id": "artifact-store",
+      "title": "Artifact store S3 bytes",
+      "objective": "S3/MinIO file-artifact bytes with verified commit + TTL janitor",
+      "source_refs": [
+        "docs/architecture/artifact-store-s3-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "web-authentication",
+      "title": "Web authentication and access",
+      "objective": "Give each Gantry deployment a secure browser authentication and console-access model without changing machine API-key clients.",
+      "source_refs": [
+        "docs/specs/authentication-access-web-ui.md"
+      ]
+    },
+    {
+      "id": "ai-employee-v1",
+      "title": "AI employee V1: onboard, scope, audit, offboard",
+      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap. Console: one Directory for people and AI employees; audit visible to administrators and approvers; handoffs viewable in console, claimed in chat; design pass before UI stories. Model governance: per-agent model allowlist and a pre-model guardrail hook (V1.0.x); reports, exports, SIEM, rate limits (V1.1). Gantry is the runtime, not a gateway: orgs with LiteLLM point the openai_compatible provider at it. Day-two operations in V1.0 (bootstrap, incident freeze, admin notifications, backup/upgrade/rollback, first contact); one API, three clients (console, CLI, the agent itself); self-improvement by reviewed proposal (V1.0.x)",
+      "source_refs": [
+        "docs/product/BRIEF.md",
+        "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
+        "docs/decisions/0136-voice-as-provider-adapter.md",
+        "docs/decisions/0137-connector-accounts-mirror-provider-accounts.md"
+      ]
+    }
+  ],
   "items": [
     {
       "status": "done",
@@ -2275,112 +2380,26 @@
       "depends_on": [],
       "origin": "adhoc",
       "spec": "docs/specs/channel-dispatchers-flatten-and-split.md"
-    }
-  ],
-  "epics": [
-    {
-      "id": "harness-hygiene",
-      "title": "Harness hygiene",
-      "objective": "Green deterministic gates so every story verifies honestly",
-      "source_refs": [
-        "docs/architecture/architecture-debt-paydown-goal-prompt.md"
-      ]
     },
     {
-      "id": "permission-engine",
-      "title": "Permission engine redesign",
-      "objective": "Deterministic rails + host-side decision coordinator; ask only on genuine risk",
-      "source_refs": [
-        "docs/architecture/permission-engine-redesign-goal-prompt.md",
-        "docs/architecture/git-permission-rca.md"
-      ]
-    },
-    {
-      "id": "observer",
-      "title": "Curious Observer program",
-      "objective": "Harvest -> nightly dream -> value floor + batch judge -> daily private digest",
-      "source_refs": [
-        "docs/architecture/proactive-observer-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "agent-e2e-gate",
-      "title": "Agent E2E CI merge gate",
-      "objective": "Packaged real-runtime E2E matrix as the merge bar",
-      "source_refs": [
-        "docs/architecture/agent-e2e-ci-merge-gate-goal-prompt.md",
-        "docs/architecture/agent-e2e-test-matrix.md"
-      ]
-    },
-    {
-      "id": "capability-search",
-      "title": "Capability authoring + MCP hybrid search",
-      "objective": "Agents author capabilities; tool search gains FTS + optional semantic layer",
-      "source_refs": [
-        "docs/architecture/mcp-hybrid-search-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "ponytail",
-      "title": "Ponytail cutover",
-      "objective": "Land the phased re-derive: Phase-8 offline cutover, gated on explicit user go",
-      "source_refs": [
-        "docs/architecture/ponytail-audit-2026-07-16.md"
-      ]
-    },
-    {
-      "id": "observability",
-      "title": "OTel observability remainder",
-      "objective": "Permission/decision spans completing the shipped #220/#262 taxonomy",
-      "source_refs": [
-        "docs/architecture/otel-permission-spans-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "post-cutover",
-      "title": "Post-Ponytail-cutover lanes",
-      "objective": "Durable-work primitive and model management, gated on the user-authorized cutover",
-      "source_refs": [
-        "docs/architecture/durable-work-primitive-goal-prompt.md",
-        "docs/architecture/model-management-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "coordination-hardening",
-      "title": "Coordination hardening",
-      "objective": "Retire coordination-representation audit findings (B1/B2/C)",
-      "source_refs": [
-        "docs/architecture/coordination-representation-audit-2026-07-18.md"
-      ]
-    },
-    {
-      "id": "artifact-store",
-      "title": "Artifact store S3 bytes",
-      "objective": "S3/MinIO file-artifact bytes with verified commit + TTL janitor",
-      "source_refs": [
-        "docs/architecture/artifact-store-s3-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "web-authentication",
-      "title": "Web authentication and access",
-      "objective": "Give each Gantry deployment a secure browser authentication and console-access model without changing machine API-key clients.",
-      "source_refs": [
-        "docs/specs/authentication-access-web-ui.md"
-      ]
-    },
-    {
-      "id": "ai-employee-v1",
-      "title": "AI employee V1: onboard, scope, audit, offboard",
-      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap. Console: one Directory for people and AI employees; audit visible to administrators and approvers; handoffs viewable in console, claimed in chat; design pass before UI stories. Model governance: per-agent model allowlist and a pre-model guardrail hook (V1.0.x); reports, exports, SIEM, rate limits (V1.1). Gantry is the runtime, not a gateway: orgs with LiteLLM point the openai_compatible provider at it. Day-two operations in V1.0 (bootstrap, incident freeze, admin notifications, backup/upgrade/rollback, first contact); one API, three clients (console, CLI, the agent itself); self-improvement by reviewed proposal (V1.0.x)",
-      "source_refs": [
-        "docs/product/BRIEF.md",
-        "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
-        "docs/decisions/0136-voice-as-provider-adapter.md",
-        "docs/decisions/0137-connector-accounts-mirror-provider-accounts.md"
-      ]
+      "key": "JOBPERM-2",
+      "title": "Job permissions: one card path with rule/once grants",
+      "story": "As the owner of a scheduled job, I get one Allow/Deny card for every permission the run asks for \u2014 even for commands that cannot be remembered \u2014 so a run never sits on a question that can only be answered no.",
+      "acceptance_criteria": [
+        "AC1: a job-run request with no persistable rule creates a once need row and a card revision with Allow / Deny; no classic prompt is sent and the cancel-only rewrite no longer exists",
+        "AC2: Allow on a once row replays a signed allow_once to the runner, writes no rule, and the held tool call resumes; Deny denies; the card settles and logs delivery as today",
+        "AC3: rule rows behave exactly as before; existing rows without a mode read as rule",
+        "AC4: a job attach failure denies the tool call with a logged plain reason instead of falling through to the chat prompt"
+      ],
+      "order": 110,
+      "status": "active",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/job-permissions-once-grants.md"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-27T15:19:25+00:00"
+  "updated_at": "2026-08-28T04:10:21+00:00"
 }

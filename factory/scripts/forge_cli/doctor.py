@@ -512,6 +512,116 @@ def _python_check() -> dict:
     )
 
 
+def _user_home() -> Path | None:
+    """The current user's home directory, resolved. USERPROFILE on Windows,
+    HOME on Unix, falling back to Path.home()."""
+    home = os.environ.get("USERPROFILE") or os.environ.get("HOME")
+    if not home:
+        try:
+            home = str(Path.home())
+        except (RuntimeError, OSError):
+            return None
+    try:
+        return Path(home).resolve()
+    except (OSError, ValueError):
+        return None
+
+
+def _under_user_home(path: Path) -> bool:
+    """True when `path` lives under the current user's home directory — the
+    region a filesystem-restricted Codex sandbox is least likely to grant (on
+    Windows it is actively hidden; on macOS/Linux it need not be in the sandbox
+    read roots)."""
+    home = _user_home()
+    if home is None:
+        return False
+    try:
+        return path.resolve().is_relative_to(home)
+    except (OSError, ValueError):
+        return False
+
+
+def _discoverable_interpreters() -> list[tuple[tuple[int, int], Path]]:
+    """(version, real sys.executable) for every Python the host — and thus the
+    Codex sandbox, via the system PATH — might resolve. Resolves launchers to
+    their real interpreter (a `py -3` lives in a machine dir but execs a
+    home-scoped python), and on Windows also enumerates ALL installs via
+    `py -0p` so a machine interpreter that `py -3` does not default to still
+    counts."""
+    found: dict[str, tuple[int, int]] = {}
+    for binary, launcher_args in _python_candidates():
+        code, output = run_quiet([
+            binary, *launcher_args, "-c",
+            "import sys;print(sys.version_info[0],sys.version_info[1]);"
+            "print(sys.executable)",
+        ])
+        lines = output.splitlines()
+        if code != 0 or len(lines) < 2 or not lines[1].strip():
+            continue
+        try:
+            version = (int(lines[0].split()[0]), int(lines[0].split()[1]))
+        except (ValueError, IndexError):
+            continue
+        found[str(Path(lines[1].strip()))] = version
+    if os.name == "nt":
+        code, output = run_quiet(["py", "-0p"])
+        if code == 0:
+            for line in output.splitlines():
+                match = re.match(
+                    r"\s*-V:(\d+)\.(\d+)\S*\s+\*?\s*(.+\S)\s*$", line)
+                if match:
+                    found[str(Path(match.group(3)))] = (
+                        int(match.group(1)), int(match.group(2)))
+    return [(version, Path(path)) for path, version in found.items()]
+
+
+def _codex_sandbox_python_check() -> dict:
+    """Codex runs delegated implementation in a filesystem-restricted sandbox.
+    On Windows it runs as a SEPARATE user with the caller's profile hidden; on
+    macOS/Linux the seatbelt/landlock sandbox likewise need not grant the user's
+    HOME. So a Python installed under the user's home — Windows
+    AppData\\Local\\Programs\\Python, or a pyenv (~/.pyenv), ~/.local, or conda
+    interpreter on Unix — can be unreachable inside the sandbox, making
+    `./forge` (and the `.codex` `pre_tool_use` hook that shells out to it) fail
+    INSIDE delegated Codex runs even though host doctor is green (the host
+    resolves the home-scoped interpreter fine). Advisory only (opt), all OSes:
+    non-blocking for host-side forge use, but flagged because a green host must
+    not mask a broken worker. A system/machine interpreter (C:\\Program Files,
+    /usr/bin, /opt/homebrew, /usr/local) sits outside HOME and passes.
+    """
+    name = "codex-sandbox python"
+    usable = [
+        (version, path) for version, path in _discoverable_interpreters()
+        if version >= (3, 10)
+    ]
+    if not usable:
+        # The hard `python >= 3.10` row already reports the absence.
+        return _check(name, True, "deferred to the python >= 3.10 check", "",
+                      required=False)
+    reachable = [path for version, path in usable if not _under_user_home(path)]
+    if reachable:
+        return _check(name, True,
+                      f"{reachable[0]} is outside the user home (sandbox-reachable)",
+                      "", required=False)
+    home_bound = ", ".join(str(path) for _, path in usable[:2])
+    if os.name == "nt":
+        fix = (f"install Python 3.10+ MACHINE-WIDE so the sandbox user can reach "
+               f"it: `winget install --id {WINDOWS_PYTHON_PACKAGE} --scope "
+               "machine` (elevated), or grant the Codex sandbox read access to "
+               "the interpreter's directory")
+    else:
+        fix = ("use a system/machine Python outside your home (the OS package "
+               "manager's python3, or Homebrew under /opt/homebrew or "
+               "/usr/local), or grant the Codex sandbox read access to the "
+               "interpreter's directory")
+    return _check(
+        name, False,
+        f"every Python >=3.10 is under the user home ({home_bound}) — the Codex "
+        "sandbox may not reach it, so `./forge` can fail inside delegated runs",
+        fix, required=False,
+    )
+
+
 def _psutil_discoverable() -> bool:
     return importlib.util.find_spec("psutil") is not None
 
@@ -1179,6 +1289,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     checks.extend(windows_install_checks)
 
     checks.append(_psutil_check(fix=args.fix))
+    checks.append(_codex_sandbox_python_check())
 
     if repo:
         checks.extend(hook_health_checks(repo))

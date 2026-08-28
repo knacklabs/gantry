@@ -150,6 +150,7 @@ export class JobPermissionProviderActions {
             need.decidedBy = input.actorRef;
             need.updatedAt = now;
             if (input.decision === 'allow') {
+              need.grant = row.grant ?? 'rule';
               need.state =
                 need.state === 'handoff_pending'
                   ? 'handoff_pending'

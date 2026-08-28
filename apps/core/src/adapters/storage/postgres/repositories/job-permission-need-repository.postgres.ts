@@ -187,7 +187,7 @@ export class JobPermissionNeedRepositoryPostgres {
         and(
           eq(table.kind, 'job_permission_need'),
           eq(table.status, 'pending'),
-          sql`${table.payloadJson}->>'state' IN ('asking', 'approved_pending_apply', 'denied_pending_delivery', 'handoff_pending')`,
+          sql`(${table.payloadJson}->>'state' IN ('asking', 'approved_pending_apply', 'denied_pending_delivery', 'handoff_pending') OR (${table.payloadJson}->>'state' = 'handed_off' AND ${table.payloadJson}->>'grant' = 'once'))`,
         ),
       )
       .orderBy(asc(table.createdAt))

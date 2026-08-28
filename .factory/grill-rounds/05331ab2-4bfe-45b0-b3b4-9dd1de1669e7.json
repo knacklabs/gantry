@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "If the job card itself can't be created for a request (DB down, no group route), what should the run get?",
+      "options": [
+        "Deny the tool call with a plain reason (Recommended)",
+        "Keep retrying until the run's deadline"
+      ],
+      "chosen": "Deny the tool call with a plain reason (Recommended)"
+    },
+    {
+      "question": "Anything else to settle for JOBPERM-2 before I confirm the spec and plan it?",
+      "options": [
+        "No \u2014 confirm and plan (Recommended)",
+        "Hold \u2014 I want to change something"
+      ],
+      "chosen": "No \u2014 confirm and plan (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T17:13:37.669975+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

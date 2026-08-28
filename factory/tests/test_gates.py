@@ -50,7 +50,8 @@ PLAN_MODE_DECISION_FIXTURE = (
 )
 sys.path.insert(0, str(HARNESS / "factory" / "scripts"))
 from factory_lib import (
-    branch_diff_digest, grounding_digest, plan_digest_without_assumptions,
+    branch_diff_digest, grounding_digest, plan_body_digest,
+    plan_digest_without_assumptions,
     product_tree_digest, require_task_grill,
     task_frontier_state, task_rows,
 )
@@ -18285,3 +18286,79 @@ def test_junit_case_attributed_file_or_classname_suffix():
     assert _junit_case_attributed(vitest, rel)
     assert _junit_case_attributed(withfile, rel)
     assert not _junit_case_attributed(wrong, rel)
+
+
+def test_plan_body_digest_is_line_ending_agnostic(tmp_path):
+    """The plan-mode marker digest must be stable across platforms and Git
+    autocrlf. plan_body_digest is computed once from the plan-mode source (marker
+    create) and again from the saved/committed task plan (marker check); if a
+    write_text() on Windows or a core.autocrlf checkout turned LF into CRLF, an
+    unnormalised digest would never match and `task approve` would demand a
+    spurious re-grill. So LF, CRLF, and CR renderings of the same body must hash
+    identically."""
+    body = "---\ntitle: T\nkey: value\n---\n\n# Plan\n\nline one\nline two\n"
+    lf = tmp_path / "lf.md"
+    lf.write_bytes(body.encode("utf-8"))
+    crlf = tmp_path / "crlf.md"
+    crlf.write_bytes(body.replace("\n", "\r\n").encode("utf-8"))
+    cr = tmp_path / "cr.md"
+    cr.write_bytes(body.replace("\n", "\r").encode("utf-8"))
+    assert plan_body_digest(lf) == plan_body_digest(crlf) == plan_body_digest(cr)
+
+    # The Implementation Assumptions appendix is excluded regardless of newline
+    # style, so appending it (in any rendering) does not change the digest.
+    with_appendix = body + "\n## Implementation Assumptions\n\n- later\n"
+    appended = tmp_path / "appended.md"
+    appended.write_bytes(with_appendix.replace("\n", "\r\n").encode("utf-8"))
+    assert plan_body_digest(appended) == plan_body_digest(lf)
+
+
+def test_default_trunk_branch_derives_from_origin_head(tmp_path):
+    """The trunk (task markers, task-start base, review diff) is whatever
+    origin/HEAD points at — main, develop, trunk — not a hardcoded 'main', so the
+    harness works on any repo. Falls back to 'main' when unresolved, preserving
+    main-trunk behaviour."""
+    from factory_lib import default_trunk_branch
+    repo = tmp_path / "r"
+    repo.mkdir()
+    def git(*a):
+        subprocess.run(["git", *GIT_ID, *a], cwd=repo, check=True,
+                       capture_output=True, text=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True,
+                   capture_output=True, text=True)
+    (repo / "f").write_text("x", encoding="utf-8")
+    git("add", "."); git("commit", "-qm", "c")
+    # No origin/HEAD and no 'origin' remote -> fall back to 'main'.
+    assert default_trunk_branch(repo) == "main"
+    # A develop-trunk remote: origin/HEAD -> origin/develop resolves to 'develop'.
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
+                         capture_output=True, text=True).stdout.strip()
+    git("update-ref", "refs/remotes/origin/develop", sha)
+    git("symbolic-ref", "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/develop")
+    assert default_trunk_branch(repo) == "develop"
+
+
+def test_forge_deps_lock_detects_manager_and_guards(tmp_path):
+    """`forge deps lock` infers the package manager from the lockfile present
+    (generic across pnpm/npm/yarn) and fails clearly with no package.json or no
+    lockfile, so it never silently no-ops."""
+    from forge_cli.deps import detect_locker, cmd_lock
+    root = tmp_path / "app"
+    root.mkdir()
+    assert detect_locker(root) is None
+    (root / "package-lock.json").write_text("{}", encoding="utf-8")
+    assert detect_locker(root)[1] == "npm"
+    (root / "pnpm-lock.yaml").write_text("", encoding="utf-8")
+    assert detect_locker(root)[1] == "pnpm"  # first-match precedence
+    # Guard: no package.json -> refuse.
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    with pytest.raises(SystemExit):
+        cmd_lock(argparse.Namespace(repo=str(bare)))
+    # Guard: package.json but no lockfile -> refuse.
+    only_pkg = tmp_path / "pkg"
+    only_pkg.mkdir()
+    (only_pkg / "package.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        cmd_lock(argparse.Namespace(repo=str(only_pkg)))

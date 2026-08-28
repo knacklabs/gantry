@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Once T1 passes review, deploy it to the runtime before T2 is done?",
+      "options": [
+        "Yes \u2014 deploy T1 as soon as it's green (Recommended)",
+        "No \u2014 deploy only after the whole story merges"
+      ],
+      "chosen": "Yes \u2014 deploy T1 as soon as it's green (Recommended)"
+    },
+    {
+      "question": "Anything else before I approve the plan?",
+      "options": [
+        "No \u2014 approve (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 approve (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T17:18:44.587572+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

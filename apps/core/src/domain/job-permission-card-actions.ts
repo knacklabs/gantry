@@ -18,7 +18,7 @@ export function jobPermissionCardActions(
   callbackKey: string,
   revision: JobPermissionCardRevision,
 ): JobPermissionCardAction[] {
-  return revision.rows.length > 0
+  return revision.rows.some((row) => row.actionEnabled || row.denyEnabled)
     ? [
         {
           token: actionToken(callbackKey, revision.revision, null, 'allow'),
@@ -71,6 +71,12 @@ export function jobPermissionCardText(
     return 'All permission requests for this job are settled.';
   }
   const rows = revision.rows.map((row) => {
+    if ((row.grant ?? 'rule') === 'once') {
+      if (row.expiredAt) {
+        return `${row.displayLabel} — Expired — the run ended before a decision; it will ask again next run`;
+      }
+      return `${row.displayLabel} (this run only)`;
+    }
     const scopes = row.visibleGrantAtoms
       .map((atom) => /\((.*)\)$/.exec(atom)?.[1] ?? atom)
       .join('; ');

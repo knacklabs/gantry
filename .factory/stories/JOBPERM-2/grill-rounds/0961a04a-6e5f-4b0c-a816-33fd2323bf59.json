@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "For the re-vendor chore PR: the harness clone (~/Workdir/symphony-forge) is on a feature branch 11 commits behind symphony-forge main (#141\u2013#143: self-healing run pointer, constitution-binding, coordinator flow fixes). Which version should myclaw re-vendor to?",
+      "options": [
+        "Latest harness main (#143) (Recommended)",
+        "Only re-sync the manifest to the current vendored files"
+      ],
+      "chosen": "Latest harness main (#143) (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T03:05:41.255761+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

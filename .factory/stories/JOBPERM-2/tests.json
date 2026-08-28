@@ -1,0 +1,69 @@
+{
+  "commit": "e42094c2db2cfabac0949537373fc39032b60c0b",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "passed",
+    "score": 9,
+    "summary": "Live functional check on the production runtime (launchd com.gantry, KnackLabs Lead Maintenance job, Telegram group tg:-1003986348737). Build T1 deployed 18:39Z (pid 4492): run c67c8e0e (18:40\u201318:50Z) completed with every request decided by saved rules \u2014 no regression on the rule path, no chat prompt. Build T2 deployed 19:52Z (pid 37735): run a2fbf7bc (19:52\u201320:09Z) raised a request for a PIPED curl (`Run Command: curl -s https://api.ashbyhq.com/posting-api/job-board/\u2026`) that cannot be saved as a rule; it attached to the job card as a `once` need (identity = request id perm-db20e02f, renderedGrantAtoms []), the card was delivered with Allow/Deny, Ravi (5759865942) tapped Allow at 20:08:17Z, the need reached `applied` at 20:08:23Z ('Job permission card delivered' \u2026 operation retire at 20:08:22Z), the held tool call resumed and the run completed at 20:09:30Z; permission_rules has 0 rows written since 19:50Z. The incident shape (run 0798f2bc 16:39Z: classic prompt with only Cancel, permission_prompts row 6299a039 rendered [\"cancel\"]) no longer has a code path: job runs never reach the chat requester. Expiry (AC5) was proven by unit + Postgres integration tests (no live run ended with a pending once row during the window).",
+    "blocking_findings": [],
+    "non_blocking_findings": [],
+    "residual_risks": [
+      "Expired-row copy (AC5) verified by tests, not yet observed live."
+    ],
+    "manual_validation_steps": [
+      "Trigger the KnackLabs job; when a piped command is requested, confirm the card row reads '<command> (this run only)' with Allow/Deny only; tap Allow; confirm the run resumes and gantry.permission_rules gains no row.",
+      "Let a run end with an undecided once row; confirm the row reads 'Expired \u2014 the run ended before a decision; it will ask again next run' and the next run asks afresh."
+    ],
+    "scenarios": [
+      {
+        "name": "Unrememberable command on a job run gets the Allow/Deny card and resumes on Allow",
+        "result": "passed",
+        "evidence": "run a2fbf7bc; need perm-db20e02f applied 20:08:23Z; permission_rules +0"
+      },
+      {
+        "name": "Rule path unchanged",
+        "result": "passed",
+        "evidence": "run c67c8e0e all requests decided by reviewed_rule, no prompt"
+      }
+    ],
+    "remaining_gaps": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-27T20:41:03+00:00",
+    "commit": "e42094c2db2cfabac0949537373fc39032b60c0b"
+  },
+  "updated_at": "2026-08-27T20:49:52+00:00",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "commit": "e42094c2db2cfabac0949537373fc39032b60c0b",
+    "summary": "At HEAD e42094c2d: verify.py Verification passed (format, architecture, vendor integrity, dual-runtime, unit + integration lanes). Full unit lane 1625 files / 9057 tests green at T1 (80057e7c1); application + runtime lanes 164 files / 2592 tests and application + adapters 88 files / 815 tests green after T2 and Q-0118; jobperm suites 32/32 incl. required leaves 'attaches a job request with no persistable rule as a once need', 'bounds and redacts the once need label', 'settles a once need as expired when its run ended', 'expires a once need already handed off before the expiry sweep existed'; synthesis pipe test; runtime ipc-interaction-handler 42/42. Postgres lane run for real locally: permission-decision-chain 5/5 incl. 'completes the signed once-card chain for a job request with no persistable rule without writing a rule'. tsc clean; check:architecture passed (reconciler 698 lines).",
+    "blocking_findings": [],
+    "commands_run": [
+      "npx vitest run -c vitest.unit.config.ts",
+      "GANTRY_TEST_DATABASE_URL=\u2026 npx vitest run -c vitest.integration.config.ts apps/core/test/integration/permission-decision-chain.postgres.integration.test.ts",
+      "npx tsc --noEmit",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py"
+    ],
+    "pass_fail_summary": "unit 9057/9057 (T1) + 2592/2592, 815/815 (T2/Q-0118); Postgres chain 5/5; verify.py passed",
+    "tests_added_or_updated": [
+      "apps/core/test/unit/application/jobperm-durability.test.ts",
+      "apps/core/test/unit/application/jobperm-ask-and-wait.test.ts",
+      "apps/core/test/unit/application/jobperm-edges.test.ts",
+      "apps/core/test/unit/application/permission-suggestion-synthesis.test.ts",
+      "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+      "apps/core/test/integration/permission-decision-chain.postgres.integration.test.ts"
+    ],
+    "remaining_gaps": [],
+    "reviewed_scope": [
+      "apps/core"
+    ],
+    "skills_used": [],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-27T20:49:52+00:00"
+  }
+}

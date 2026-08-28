@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "T1 amendment: the 'this run only' row shows the command itself. How long should that label be allowed to get on the card?",
+      "options": [
+        "160 characters, secrets redacted (Recommended)",
+        "Full command, secrets redacted"
+      ],
+      "chosen": "160 characters, secrets redacted (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T17:57:07.569824+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
