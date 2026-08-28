@@ -77,6 +77,10 @@ class InMemoryMcpServerRepository implements McpServerRepository {
     );
   }
 
+  async saveAgentBindingsBatch(bindings: AgentMcpServerBinding[]) {
+    for (const binding of bindings) await this.saveAgentBinding(binding);
+  }
+
   async getAgentBinding(input: {
     appId: AppId;
     agentId: AgentId;

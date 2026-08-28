@@ -79,11 +79,10 @@ function RootLayout() {
 }
 
 export const rootRoute = createRootRoute({
-  beforeLoad: async ({ abortController, location }) => {
+  beforeLoad: async ({ location }) => {
     if (isPublicAuthPath(location.pathname)) return { session: null };
     const bootstrap = await fetch('/ui/api/auth/session', {
       credentials: 'same-origin',
-      signal: abortController.signal,
     })
       .then(async (response) => {
         const body: unknown = await response.json();

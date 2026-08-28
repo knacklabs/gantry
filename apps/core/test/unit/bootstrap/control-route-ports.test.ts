@@ -104,6 +104,46 @@ describe('control route port composition', () => {
     });
   });
 
+  it('writes an explicit agent model or clears it to inherit the deployment default', async () => {
+    const port = createControlAgentSettingsPort();
+    state.settings.agents.worker = {
+      name: 'Worker',
+      folder: 'worker',
+      persona: 'developer',
+      delegates: [],
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    importWorkstation.mockResolvedValue({
+      status: 'revision_created',
+      revision: 2,
+    });
+
+    await port.writeAgentModelSetting({
+      runtimeHome: '/tmp/gantry-test',
+      appId: 'default' as never,
+      folder: 'worker',
+      name: 'Worker',
+      modelAlias: 'claude-sonnet',
+    });
+    expect(importWorkstation.mock.calls[0]?.[1].agents.worker).toMatchObject({
+      model: 'claude-sonnet',
+    });
+
+    await port.writeAgentModelSetting({
+      runtimeHome: '/tmp/gantry-test',
+      appId: 'default' as never,
+      folder: 'worker',
+      name: 'Worker',
+      modelAlias: null,
+    });
+    expect(
+      importWorkstation.mock.calls[1]?.[1].agents.worker.model,
+    ).toBeUndefined();
+  });
+
   it('adapts desired-state imports and classifies their concurrency errors', async () => {
     const port = createControlSettingsImportPort();
     importWorkstation.mockResolvedValue({ status: 'no_op' });

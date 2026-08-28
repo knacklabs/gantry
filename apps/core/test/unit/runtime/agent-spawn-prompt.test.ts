@@ -40,6 +40,10 @@ function compile(overrides: {
   agentInput?: Partial<AgentInput>;
   accessPreset?: 'full' | 'locked';
   mcpInventoryToolsMounted?: boolean;
+  resolveRoleSnapshot?: (agentId: string) => Promise<{
+    displayName: string;
+    prompt: string;
+  }>;
 }): Promise<string> {
   return compileSpawnSystemPrompt({
     group: { ...group, ...(overrides.group ?? {}) },
@@ -52,6 +56,9 @@ function compile(overrides: {
       modelId: 'claude-fable-5',
       provider: 'Anthropic API',
     },
+    ...(overrides.resolveRoleSnapshot
+      ? { resolveRoleSnapshot: overrides.resolveRoleSnapshot }
+      : {}),
     fileArtifactStore: () => undefined,
     measureAsync: (_name, fn) => fn(),
   });
@@ -140,6 +147,25 @@ describe('compileSpawnSystemPrompt', () => {
     expect(prompt).toContain('# Capability catalog');
     expect(prompt).toContain('Calendar · Team calendar');
     expect(prompt).toContain('Find availability and manage events.');
+  });
+
+  it('uses the saved role snapshot for the runtime agent', async () => {
+    const resolveRoleSnapshot = vi.fn(async (agentId: string) => {
+      expect(agentId).toBe('agent-one');
+      return {
+        displayName: 'Release writer',
+        prompt: 'Write concise release notes.',
+      };
+    });
+
+    const prompt = await compile({
+      agentInput: { agentId: 'agent-one' },
+      resolveRoleSnapshot,
+    });
+
+    expect(resolveRoleSnapshot).toHaveBeenCalledTimes(1);
+    expect(prompt).toContain('Write concise release notes.');
+    expect(prompt).toContain('# Gantry Runtime Rules');
   });
 
   it('compiles byte-identical profiles across different clock times (cache safety)', async () => {

@@ -70,6 +70,12 @@ class MemoryMcpRepository implements McpServerRepository {
     this.bindings.set(`${binding.agentId}:${binding.serverId}`, binding);
   }
 
+  async saveAgentBindingsBatch(
+    bindings: AgentMcpServerBinding[],
+  ): Promise<void> {
+    for (const binding of bindings) await this.saveAgentBinding(binding);
+  }
+
   async getAgentBinding(input: {
     appId: string;
     agentId: string;
@@ -318,6 +324,67 @@ describe('McpServerService', () => {
         serverId: server.id,
       }),
     ).rejects.toThrow('active before binding');
+  });
+
+  it('bulk binds only distinct active agents without changing capability policy', async () => {
+    const { repo } = serviceWithRepo();
+    const agents = [
+      {
+        id: 'agent:one' as never,
+        appId: 'app:one' as never,
+        name: 'One',
+        status: 'active' as const,
+        createdAt: '2026-01-01T00:00:00.000Z' as never,
+        updatedAt: '2026-01-01T00:00:00.000Z' as never,
+      },
+      {
+        id: 'agent:two' as never,
+        appId: 'app:one' as never,
+        name: 'Two',
+        status: 'active' as const,
+        createdAt: '2026-01-01T00:00:00.000Z' as never,
+        updatedAt: '2026-01-01T00:00:00.000Z' as never,
+      },
+    ];
+    const service = new McpServerService(
+      repo,
+      { listAgents: async () => agents } as never,
+      {
+        lookupHostname: async () => [{ family: 4, address: '93.184.216.34' }],
+      },
+    );
+    const server = await service.connectServer({
+      appId: 'app:one' as never,
+      name: 'github',
+      transportConfig: {
+        transport: 'http',
+        url: 'https://mcp.example.test/github',
+      },
+    });
+
+    const bindings = await service.bindToAgents({
+      appId: 'app:one' as never,
+      agentIds: agents.map((agent) => agent.id),
+      serverId: server.id,
+    });
+
+    expect(bindings).toHaveLength(2);
+    expect(bindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          required: false,
+          permissionPolicyIds: [],
+          allowedToolPatterns: [],
+        }),
+      ]),
+    );
+    await expect(
+      service.bindToAgents({
+        appId: 'app:one' as never,
+        agentIds: ['agent:one' as never, 'agent:one' as never],
+        serverId: server.id,
+      }),
+    ).rejects.toThrow('distinct agents');
   });
 
   it('scopes a binding to a subset of the reviewed tools per agent', async () => {

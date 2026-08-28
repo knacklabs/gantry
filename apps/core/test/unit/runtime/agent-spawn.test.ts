@@ -214,6 +214,12 @@ vi.mock('@core/application/agents/prompt-profile-service.js', () => ({
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeFileArtifactStore: vi.fn(() => ({})),
   getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
+  getRuntimeStorage: vi.fn(() => ({
+    repositories: {
+      agents: { getAgent: vi.fn(async () => null) },
+      agentConfigs: { getConfigVersion: vi.fn(async () => null) },
+    },
+  })),
 }));
 
 // Mock platform

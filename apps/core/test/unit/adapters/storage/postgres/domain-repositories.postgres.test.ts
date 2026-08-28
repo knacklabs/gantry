@@ -9,6 +9,7 @@ import {
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import { PostgresOutboundDeliveryRepository } from '@core/adapters/storage/postgres/repositories/outbound-delivery-repository.postgres.js';
 import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
+import { agentConfigVersionsPostgres } from '@core/adapters/storage/postgres/schema/agents.js';
 import {
   conversationInstallsPostgres,
   providerAccountsPostgres,
@@ -30,6 +31,11 @@ describe('createPostgresDomainRepositories', () => {
       PostgresProviderAccountRepository,
     );
   });
+
+  it('wires custom roles into the domain bundle', () => {
+    const repositories = createPostgresDomainRepositories({} as never);
+    expect(repositories.customRoles).toBeDefined();
+  });
 });
 
 describe('provider account schema', () => {
@@ -46,6 +52,20 @@ describe('provider account schema', () => {
     );
     expect(conversationInstallsPostgres).not.toHaveProperty('triggerPattern');
     expect(conversationInstallsPostgres).not.toHaveProperty('requiresTrigger');
+  });
+});
+
+describe('agent configuration schema', () => {
+  it('stores an immutable agent name with each configuration version', () => {
+    expect(agentConfigVersionsPostgres.agentNameSnapshot.name).toBe(
+      'agent_name_snapshot',
+    );
+  });
+
+  it('stores the model alias snapshot independently from the LLM profile', () => {
+    expect(agentConfigVersionsPostgres.modelAliasSnapshot.name).toBe(
+      'model_alias_snapshot',
+    );
   });
 });
 
