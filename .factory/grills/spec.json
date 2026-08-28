@@ -2,53 +2,46 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "questions_asked": 3,
+  "questions_asked": 2,
   "gaps": [
-    "Action kinds in the Telegram callback: user-question answers (other/done), lt:stop, jp: card taps, r: compact retry, perm: classic prompt \u2014 one named handler each.",
-    "Ceilings (handler <= 25, dispatcher <= 15) are measured with an AST counter on the final file."
+    "Ceilings: phase functions <= 25, sequencer <= 15 (AST counter, baseline 1) \u2014 same bar as CHAN-2."
   ],
   "contradictions": [],
   "resolutions": [
-    "Pure refactor: existing unit tests pass unchanged; additions only.",
-    "runActiveJob/runQuery out of scope (CHAN-3)."
+    "Two tasks (one per giant), pure moves into ONE sibling module each, zero test edits; roadmap kind=feature so the refactor ratchet (which rejects any net growth) does not apply to a split."
   ],
   "rounds": [
     {
-      "question": "Where should the split Telegram callback handlers live?",
+      "question": "CHAN-3 splits the last two giants (runActiveJob CC 76, runQuery CC 81). Same ceilings as CHAN-2?",
       "options": [
-        "One sibling module (Recommended)",
-        "One file per action kind",
-        "Keep in channel-connect.ts"
+        "Phase functions \u2264 25, sequencer \u2264 15 (Recommended)",
+        "Stricter: \u2264 15 / \u2264 10"
       ],
-      "chosen": "One sibling module (Recommended)"
+      "chosen": "Phase functions \u2264 25, sequencer \u2264 15 (Recommended)"
     },
     {
-      "question": "Complexity ceilings for the split?",
+      "question": "Anything else to settle before I confirm the CHAN-3 spec and plan it?",
       "options": [
-        "Handlers \u2264 25, dispatcher \u2264 15 (Recommended)",
-        "Stricter: handlers \u2264 15, dispatcher \u2264 10",
-        "No numeric ceiling"
+        "No \u2014 confirm and plan (Recommended)",
+        "Hold \u2014 change something first"
       ],
-      "chosen": "Handlers \u2264 25, dispatcher \u2264 15 (Recommended)"
-    },
-    {
-      "question": "Anything else to settle for CHAN-2 before I confirm the spec, save the plan and start the hoists?",
-      "options": [
-        "No \u2014 confirm and start (Recommended)",
-        "Hold \u2014 I want to change something first"
-      ],
-      "chosen": "No \u2014 confirm and start (Recommended)",
+      "chosen": "No \u2014 confirm and plan (Recommended)",
       "frontier_empty": true
     }
   ],
   "citations": [
     {
-      "finding": "Telegram bot.on callback CC 188; five repeated-guard hoists",
-      "source": "plans/codex-briefs/pr-444-cyclomatic-review.md (Codex Sol xhigh review of PR #444, 2026-08-27)"
+      "finding": "runActiveJob CC 76 at jobs/execution.ts:116 (848-line file)",
+      "path": "apps/core/src/jobs/execution.ts",
+      "line": 116
+    },
+    {
+      "finding": "runQuery CC 81 at runner/query-loop.ts:102 (770-line file)",
+      "path": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+      "line": 102
     }
   ],
-  "owner_questions": [],
-  "input_sha256": "eff7ef21eb7d757ded27388cd791db5bfe5d0f7a8562c7fda0582d3763798778",
-  "recorded_at": "2026-08-27T15:19:25+00:00",
-  "commit": "a8d35a5f567ea976b69d545c79e1f230a863362a"
+  "input_sha256": "9a3d022e283111a0075442a54adbd9ab43321ac52ef1febc9fdb676b57102bd1",
+  "recorded_at": "2026-08-28T05:37:53+00:00",
+  "commit": "1194bbb41e6bb0cd926740a84c51855f309346db"
 }

@@ -1,0 +1,12 @@
+# CHAN-3-T1 — Split runActiveJob by phase
+
+Contract (AC1, AC3, AC4 of `plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md`): `runActiveJob` in `apps/core/src/jobs/execution.ts` (line ~116, AST CC 76) becomes a phase sequencer whose own complexity is <= 15; each phase is a named function with complexity <= 25 in ONE sibling module `apps/core/src/jobs/execution-phases.ts`. Strictly verbatim moves (owner ruling): call sites move, no dedup, no hoists, no signature change outside the two files. Zero test edits; the jobs suites are the behaviour oracle.
+
+Steps:
+1. Define `ActiveJobRunContext` in `execution-phases.ts` — the values the phases read (deps, job, runId, trigger/source, execution context, failover candidates, app session, lease context, event state, logger fields, timers) — and build it ONCE at the top of `runActiveJob`, adding fields as phases are moved (every value a phase read from an outer `const` becomes a context field).
+2. Move each phase verbatim into a named function taking the context, in the order the sequencer runs them: resolve execution context / dead-letter (`resolveExecutionContextOrDeadLetter`), model failover candidates (`resolveModelFamilyCandidatesForApp`), app session + setup pause (`resolveAppSessionForJob`, `pauseJobForSetupIfNeeded`), lease claim + heartbeat wiring (`claimSchedulerRunLease`), run bind + `JOB_STARTED` (`bindSchedulerRunEventState`, `emitJobEvent`), system job turn (`runSystemJobTurn`), agent invocation with failover + provider metadata (`runJobAgentWithFailover`, `updateRunProviderMetadata`), finalization handoff (existing `execution-finalization.ts` calls). Helpers are called, never re-implemented.
+3. `runActiveJob` becomes: build context → phases in sequence → the existing `try/catch/finally` shape kept in the sequencer so lease release / heartbeat stop ordering is byte-for-byte the same. Early returns (dead-letter, paused-for-setup) stay early returns in the sequencer.
+4. Add an architecture-map entry for `execution-phases.ts` in `scripts/architecture-map.json` if `npm run check:architecture` requires one; keep both files <= 700 lines.
+5. Verify: `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs/` green with `git diff --stat -- apps/core/test` empty; `npx tsc --noEmit`; `npm run check:architecture`; the AST CC report over `execution.ts` and `execution-phases.ts` (sequencer <= 15, every phase <= 25).
+
+Not in scope: `runQuery` (T2), any behaviour change, dedup of repeated guards (follow-up), other jobs files.

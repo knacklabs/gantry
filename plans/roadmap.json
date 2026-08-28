@@ -2401,8 +2401,26 @@
       "kind": "feature",
       "depends_on": [],
       "spec": "docs/specs/job-permissions-once-grants.md"
+    },
+    {
+      "key": "CHAN-3",
+      "title": "Job runner: split runActiveJob and runQuery by phase",
+      "story": "As a maintainer, I can review a change to the job run loop or the SDK query loop one phase at a time, so incident fixes stop landing inside two 400\u2013600-line functions.",
+      "acceptance_criteria": [
+        "runActiveJob in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change",
+        "runQuery in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change",
+        "No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green",
+        "Branch based on main after PR #451 (CHAN-2)"
+      ],
+      "order": 111,
+      "status": "active",
+      "epic": "harness-hygiene",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/job-runner-splits.md"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-28T05:15:49+00:00"
+  "updated_at": "2026-08-28T05:37:54+00:00"
 }

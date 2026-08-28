@@ -1,0 +1,57 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "CHAN-3-T1",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/jobs/execution.ts",
+    "apps/core/src/jobs/execution-finalization.ts",
+    "apps/core/src/jobs/execution-lease.ts",
+    "apps/core/test/unit/jobs/execution.test.ts",
+    "apps/core/test/unit/jobs/lifecycle-retirement.test.ts",
+    "scripts/architecture-map.json"
+  ],
+  "current_flow": "runActiveJob (execution.ts:116, ~400 lines, AST CC 76) resolves execution context/dead-letter, failover candidates, app session + setup pause, claims the run lease, binds run event state, emits JOB_STARTED, runs the system turn and the agent with failover inside one try/catch/finally that releases the lease and finalizes; every incident fix of the last two weeks landed inside this body.",
+  "criteria_map": {
+    "`runActiveJob` in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change.": "steps 1-3: ActiveJobRunContext built once; phases moved verbatim into jobs/execution-phases.ts; sequencer keeps try/catch/finally; step 5 CC report (sequencer <= 15, phases <= 25)",
+    "No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green.": "step 5: jobs suites green with git diff --stat -- apps/core/test empty; tsc; check:architecture; required test 'records a failed terminal run when execution throws before normal settlement'",
+    "Branch based on main after PR #451 (CHAN-2).": "branch feat/CHAN-3-job-runner-splits off main 1194bbb41 (#451 merged)"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "ActiveJobRunContext (plain object built once per run) and jobs/execution-phases.ts (one module, one function per phase) \u2014 owner choice 2026-08-28"
+  ],
+  "gaps": [
+    "CHAN-3-T1 (runActiveJob split): the required proof test is 'records a failed terminal run when execution throws before normal settlement' \u2014 it exercises the try/catch/finally ordering the move must keep byte-identical. Anything to settle before Codex starts?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Verbatim moves only; helpers called not re-implemented; early returns stay in the sequencer."
+  ],
+  "rounds": [
+    {
+      "question": "CHAN-3-T1 (runActiveJob split): the required proof test is 'records a failed terminal run when execution throws before normal settlement' \u2014 it exercises the try/catch/finally ordering the move must keep byte-identical. Anything to settle before Codex starts?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "A moved phase that read an outer const must receive it via the context; a miss surfaces as a tsc error or a failing jobs test, both gating.",
+      "source": "apps/core/src/jobs/execution.ts:116-520; task plan step 1"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "ef6a163ace0b4abbde7a5064fe1dc356da690dd68ef4ad79fb2f80c1fbfcd3c8",
+  "task_plan_sha256": "ed7c64d75422117192f12bd180227d39375970aa5d67368a631d56d4d4fcefd9",
+  "recorded_at": "2026-08-28T05:55:11+00:00",
+  "commit": "1194bbb41e6bb0cd926740a84c51855f309346db",
+  "approved_task_plan_sha256": "ed7c64d75422117192f12bd180227d39375970aa5d67368a631d56d4d4fcefd9",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-28T05:55:12+00:00"
+}

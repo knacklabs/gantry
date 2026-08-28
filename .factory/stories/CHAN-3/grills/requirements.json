@@ -1,0 +1,43 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "Strictly verbatim moves: call sites move, no dedup/hoists inside the split; any dedup is a follow-up."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Spec holds against code: runActiveJob at jobs/execution.ts:116 (CC 76) and runQuery at runner/query-loop.ts:102 (CC 81) measured with the CHAN-2 AST counter; existing tests (unit + Postgres) are the behaviour oracle, zero edits."
+  ],
+  "rounds": [
+    {
+      "question": "Requirements check for CHAN-3: both giants carry incident-era behaviour (lease/heartbeat, finish nudge, stream open/close, permission waits). Should the split be strictly verbatim moves, or may Codex also fold obviously duplicated guard chains inside them (like the CHAN-2 hoists)?",
+      "options": [
+        "Strictly verbatim moves (Recommended)",
+        "Allow guard hoists too"
+      ],
+      "chosen": "Strictly verbatim moves (Recommended)"
+    },
+    {
+      "question": "Anything else before I write the plan?",
+      "options": [
+        "No \u2014 write the plan (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 write the plan (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "incident-era logic (Q-0098 heartbeat registry, Q-0105/Q-0108 nudge + stream handling) lives inside runQuery",
+      "path": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+      "line": 102
+    }
+  ],
+  "issue": "CHAN-3",
+  "input_sha256": "614177289b178399eb5222bfa5420c2c8dd7b7c6c0404a4fb732841d4bc29554",
+  "recorded_at": "2026-08-28T05:38:31+00:00",
+  "commit": "1194bbb41e6bb0cd926740a84c51855f309346db"
+}
