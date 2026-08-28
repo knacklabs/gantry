@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Teams cannot delete bot messages through our SDK client. When every row of a job card is allowed on Teams, what should the card become?",
+      "options": [
+        "One-line receipt card, no buttons (Recommended)",
+        "Keep the card body, add an Approved banner"
+      ],
+      "chosen": "One-line receipt card, no buttons (Recommended)"
+    },
+    {
+      "question": "Anything else to settle for T2 before I record the grill and send it to Codex? (Slack/Discord mirror chat prompts: delete, receipt edit on failure; retries make no second call.)",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go"
+    }
+  ],
+  "at": "2026-08-28T18:41:21.834991+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

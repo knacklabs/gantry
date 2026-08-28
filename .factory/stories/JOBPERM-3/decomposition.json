@@ -83,13 +83,72 @@
       "title": "Slack + Discord delete and Teams receipt card for retired cards",
       "objective": "Slack and Discord delete a fully allowed retired card (fallback edit); Teams edits to an approved receipt card (or sends the receipt if no activity id); denied/expired retire stays a receipt edit; provider unit coverage.",
       "acceptance_criteria": [
-        "when every row of a job permission card is settled by Allow, the card message is deleted on Telegram, Discord and Slack and edited to a one-line approved receipt on Teams; a failed delete falls back to the receipt edit.",
+        "when every row of a job permission card is settled by Allow, Slack and Discord delete the card message and fall back to a receipt edit when the delete fails; Teams edits the card to a one-line approved receipt card, or sends the receipt when no activity id is recorded; retries honour the recorded deletedAt/receiptMessageId and make no second provider call.",
+        "expired retire revisions reach Slack, Discord and Teams as the per-row 'Expired: <command>' edit, never a delete; Slack, Discord and Teams return jobPermissionCardRetireDelivery so the reconciler records the delete or receipt on the revision.",
         "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green."
       ],
       "user_facing": false,
       "depends_on": [
         "JOBPERM-3-T1"
-      ]
+      ],
+      "plan_contracts": [
+        {
+          "id": "JOBPERM-3-T2-AC1",
+          "statement": "when every row of a job permission card is settled by Allow, Slack and Discord delete the card message and fall back to a receipt edit when the delete fails; Teams edits the card to a one-line approved receipt card, or sends the receipt when no activity id is recorded; retries honour the recorded deletedAt/receiptMessageId and make no second provider call.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        },
+        {
+          "id": "JOBPERM-3-T2-AC2",
+          "statement": "expired retire revisions reach Slack, Discord and Teams as the per-row 'Expired: <command>' edit, never a delete; Slack, Discord and Teams return jobPermissionCardRetireDelivery so the reconciler records the delete or receipt on the revision.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        },
+        {
+          "id": "JOBPERM-3-T2-AC4",
+          "statement": "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/channels/slack/",
+        "apps/core/src/channels/discord/",
+        "apps/core/src/channels/teams/",
+        "apps/core/src/channels/job-permission-card-settlement.ts",
+        "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
+        "apps/core/src/domain/types.ts",
+        "apps/core/test/unit/channels/"
+      ],
+      "required_tests": [
+        {
+          "id": "deletes a fully allowed job permission card and falls back to a receipt edit",
+          "path": "apps/core/test/unit/channels/slack.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "deletes a fully allowed job permission card and falls back to a receipt edit",
+          "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "edits a fully allowed job permission card to a receipt card",
+          "path": "apps/core/test/unit/channels/teams/teams.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "reviewer_focus": [
+        "idempotent retry: persisted deletedAt/receiptMessageId short-circuit before any provider call; same-message operations serialized",
+        "Slack chat.delete/chat.update and Discord DELETE/PATCH go through the rate-limited mutation helpers, not raw fetch",
+        "Teams never throws without an activity id; receipt card carries no buttons",
+        "no change to Telegram behaviour beyond sharing the settlement helper"
+      ],
+      "review_budget": {
+        "max_changed_files": 12,
+        "max_changed_lines": 900,
+        "reason": "Three provider deliveries + shared settlement helper + three provider test suites."
+      }
     }
   ],
   "plan_contracts": [
@@ -117,5 +176,5 @@
   "project": "",
   "plan_file": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md",
   "plan_sha256": "e5d9f794804bbe03b7020f7ebe1710a9d882a375009b6b6c99fa47c13e8a317b",
-  "commit": "f8cc8c4bd9bc4d12f8b8e352b3847f154272d4e8"
+  "commit": "afe7ce25aaa3537b1eab55a8e8c2d8298d4b636c"
 }
