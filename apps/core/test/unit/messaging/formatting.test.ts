@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { createHmac } from 'node:crypto';
+import { afterEach, describe, it, expect } from 'vitest';
 
 import '@core/channels/provider-registry.js';
 import {
@@ -190,6 +191,17 @@ describe('formatMessages', () => {
 
 describe('formatConversationContextMessages', () => {
   const TZ = 'UTC';
+  const originalAttachmentClaimSecret =
+    process.env.GANTRY_ATTACHMENT_CLAIM_SECRET;
+
+  afterEach(() => {
+    if (originalAttachmentClaimSecret === undefined) {
+      delete process.env.GANTRY_ATTACHMENT_CLAIM_SECRET;
+    } else {
+      process.env.GANTRY_ATTACHMENT_CLAIM_SECRET =
+        originalAttachmentClaimSecret;
+    }
+  });
 
   it('renders recent channel, active thread, then current message with current_message last', () => {
     const result = formatConversationContextMessages(
@@ -363,6 +375,63 @@ describe('formatConversationContextMessages', () => {
     expect(result).not.toContain(
       'gantry_attachment="attachment-unmaterialized" gantry_ref=',
     );
+  });
+
+  it('renders a short-lived signed claim for authoritative Slack attachments', () => {
+    process.env.GANTRY_ATTACHMENT_CLAIM_SECRET = 'shared-claim-secret';
+    const result = formatConversationContextMessages(
+      {
+        recentChannelContext: [],
+        activeThreadContext: [],
+        currentMessages: [
+          makeMsg({
+            provider: 'slack',
+            chat_jid: 'sl:C123',
+            sender: 'U123',
+            attachments: [
+              {
+                id: 'slack-file:F123',
+                externalId: 'F123',
+                kind: 'file',
+              },
+            ],
+          }),
+        ],
+      },
+      TZ,
+    );
+    const claim = result.match(/attachment_claim="([^"]+)"/)?.[1];
+    expect(claim).toBeTruthy();
+    const [body, signature] = claim!.split('.');
+    expect(signature).toBe(
+      createHmac('sha256', 'shared-claim-secret')
+        .update(body)
+        .digest('base64url'),
+    );
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
+    expect(payload).toMatchObject({
+      sub: 'U123',
+      file: 'F123',
+      conversation: 'sl:C123',
+    });
+    expect(payload.exp - payload.iat).toBe(300);
+  });
+
+  it('does not render an attachment claim without configured signing authority', () => {
+    const result = formatConversationContextMessages(
+      {
+        recentChannelContext: [],
+        activeThreadContext: [],
+        currentMessages: [
+          makeMsg({
+            provider: 'slack',
+            attachments: [{ externalId: 'F123', kind: 'file' }],
+          }),
+        ],
+      },
+      TZ,
+    );
+    expect(result).not.toContain('attachment_claim=');
   });
 
   it('renders up to twelve attachment handles for multi-file requests', () => {

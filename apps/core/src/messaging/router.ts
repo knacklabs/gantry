@@ -4,6 +4,7 @@ import { formatLocalTime } from '../shared/timezone.js';
 import '../channels/register-builtins.js';
 import { getProvider } from '../channels/provider-registry.js';
 import { parseTextStyles } from './text-styles.js';
+import { createProviderAttachmentClaim } from './provider-attachment-claim.js';
 
 export interface ConversationContextMessages {
   recentChannelContext: NewMessage[];
@@ -229,7 +230,7 @@ function formatMessageLine(
         )}</quoted_message>`
       : '';
   const line = `<message sender="${escapeContextAttr(m.sender_name)}" time="${escapeXml(displayTime)}"${replyAttr}>${replySnippet}${formatAttachmentLines(
-    m.attachments,
+    m,
     limits,
   )}${escapeXml(
     boundedUtf8Text(m.content, limits.messageContentBytes),
@@ -243,9 +244,10 @@ function formatMessageLine(
 }
 
 function formatAttachmentLines(
-  attachments: NewMessage['attachments'],
+  message: NewMessage,
   limits: MessageLineLimits,
 ): string {
+  const attachments = message.attachments;
   if (!attachments?.length) return '';
   const renderedAttachments = attachments.slice(
     0,
@@ -275,12 +277,37 @@ function formatAttachmentLines(
             `${name}="${escapeXml(boundedAttachmentAttr(value))}"`,
         )
         .join(' ');
-      return `\n  <attachment ${attrs} />`;
+      const claim = attachmentClaim(message, attachment);
+      const claimAttr = claim
+        ? `${attrs ? ' ' : ''}attachment_claim="${escapeXml(claim)}"`
+        : '';
+      return `\n  <attachment ${attrs}${claimAttr} />`;
     })
     .join('');
   return omittedCount > 0
     ? `${lines}\n  <attachments_truncated omitted="${omittedCount}" />`
     : lines;
+}
+
+function attachmentClaim(
+  message: NewMessage,
+  attachment: NonNullable<NewMessage['attachments']>[number],
+): string | undefined {
+  const secret = process.env.GANTRY_ATTACHMENT_CLAIM_SECRET?.trim();
+  if (
+    !secret ||
+    message.provider !== 'slack' ||
+    !message.sender?.trim() ||
+    !message.chat_jid?.trim() ||
+    !attachment.externalId?.trim()
+  ) {
+    return undefined;
+  }
+  return createProviderAttachmentClaim(secret, {
+    senderId: message.sender.trim(),
+    fileId: attachment.externalId.trim(),
+    conversationId: message.chat_jid.trim(),
+  });
 }
 
 function boundedAttachmentAttr(value: string): string {

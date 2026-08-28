@@ -932,6 +932,13 @@
       "when": 1787270400000,
       "tag": "20260821000000_agent_tool_binding_person_compat",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1787875200000,
+      "tag": "20260828000000_permission_promotion_last_offered_at_repair",
+      "breakpoints": true
     }
   ]
 }
