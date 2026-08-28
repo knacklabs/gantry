@@ -2,37 +2,37 @@
 
 For each contract, emit a verdict — implemented | partial | missing — with file:line evidence, recorded as contract_verdicts in the quality artifact. Then review the diff normally; the contract check does not replace the quality/performance/security lenses.
 
-## Task CHAN-2-T1
+## Task JOBPERM-3-T1
 
 ### Plan contracts
 
-- **CHAN-2-AC1**
-  - Source: plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria
-  - Statement: The five review hoists are applied: telegram/message-action-affordances.ts dead early-returns removed; telegram/channel-connect.ts callback context computed once; slack/channel-message-action-handler.ts channelId/userId hoisted; discord/interactions.ts component user id hoisted; teams/cards.ts thread fragment computed once
-- **CHAN-2-AC4**
-  - Source: plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria
-  - Statement: Lands after PR #446 merged (CHAN-1 folder layout); branch based on main after it
+- **JOBPERM-3-AC1**
+  - Source: plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria
+  - Statement: when every row of a job permission card is settled by Allow, the card message is deleted on Telegram, Discord and Slack and edited to a one-line approved receipt on Teams; a failed delete falls back to the receipt edit.
+- **JOBPERM-3-AC2**
+  - Source: plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria
+  - Statement: when the remaining rows of a card have expired (the run ended before a decision), the card is edited to one line per expired request ('Expired: <command>') on every provider — never deleted; a card containing a denied row keeps its live rows (decision 0144: a Deny stays available with one-tap Reconsider) and does not retire.
+- **JOBPERM-3-AC3**
+  - Source: plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria
+  - Statement: the retire outcome (allowed | expired) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.
+- **JOBPERM-3-AC4**
+  - Source: plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria
+  - Statement: existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green.
 
 ### Reviewer focus
 
-- each hoist is behaviour-preserving (same guards, evaluated once)
-- no existing test edited
-- no signature change
+- retire outcome derives from need state (expiredAt ⇒ expired), never from text; denied needs never retire (0144)
+- delete only when every row allowed; expired ⇒ per-row receipt edit, never delete
+- failed delete degrades to the receipt edit exactly once; deletedAt/receiptMessageId gate retries
+- per-message lane serialization kept for the delete
+- retry-tail sanitizer and the Postgres delivery payload keep the new revision fields
 
-## Task CHAN-2-T2
+## Task JOBPERM-3-T2
 
 ### Plan contracts
 
-- **CHAN-2-AC2**
-  - Source: plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria
-  - Statement: The Telegram bot.on callback in telegram/channel-connect.ts is split by action kind into named handlers, each with cyclomatic complexity <= 25, dispatched from a callback whose own complexity is <= 15; no behaviour change
-- **CHAN-2-AC3**
-  - Source: plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria
-  - Statement: No behaviour change: existing unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green
+- None declared.
 
 ### Reviewer focus
 
-- every branch moved verbatim (call sites, not re-implementations)
-- dispatcher CC <= 15, handlers <= 25 by AST count
-- no existing test edited
-- context built once, passed through
+No task-specific reviewer focus declared.

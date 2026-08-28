@@ -29,7 +29,8 @@
         "apps/core/test/unit/domain/",
         "apps/core/test/integration/",
         "apps/core/src/adapters/storage/postgres/repositories/job-permission-need-repository.postgres.ts",
-        "apps/core/test/unit/adapters/"
+        "apps/core/test/unit/adapters/",
+        "docs/specs/settled-job-permission-cards-vanish.md"
       ],
       "required_tests": [
         {
@@ -72,9 +73,9 @@
         "retry-tail sanitizer and the Postgres delivery payload keep the new revision fields"
       ],
       "review_budget": {
-        "max_changed_files": 16,
-        "max_changed_lines": 1000,
-        "reason": "Projection + record + wiring + Telegram delivery + sanitizer + Postgres delivery payload and their tests."
+        "max_changed_files": 18,
+        "max_changed_lines": 1100,
+        "reason": "Projection + record + wiring + Telegram delivery + sanitizer + Postgres delivery payload and their tests, plus the repository revision guard (immutable retire markers) and a live-shaped Postgres once-card fixture."
       }
     },
     {
@@ -116,5 +117,5 @@
   "project": "",
   "plan_file": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md",
   "plan_sha256": "e5d9f794804bbe03b7020f7ebe1710a9d882a375009b6b6c99fa47c13e8a317b",
-  "commit": "2e4dfb71c821057f12e81db212b1e5741d68261b"
+  "commit": "f8cc8c4bd9bc4d12f8b8e352b3847f154272d4e8"
 }

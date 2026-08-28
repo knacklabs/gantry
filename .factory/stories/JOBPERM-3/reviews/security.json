@@ -1,0 +1,51 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/application/interactions/job-permission-card-projection.ts",
+    "apps/core/src/domain/job-permission-card-actions.ts",
+    "apps/core/src/domain/ports/job-permission-durability.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+    "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/src/domain/messages/retry-tail-provider-payload.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/job-permission-need-repository.postgres.ts",
+    "apps/core/test/integration/permission-decision-chain.postgres.integration.test.ts"
+  ],
+  "residual_risks": [
+    "Slack/Discord/Teams retire deliveries unchanged until T2."
+  ],
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "JOBPERM-3-AC1",
+      "verdict": "implemented",
+      "evidence": "allowed retire delivered as deleteMessageId; Telegram retireTelegramJobPermissionCard deletes inside the per-message lane and falls back to an editMessageText receipt; required test 'deletes a fully allowed card on retire and falls back to a receipt edit' \u2014 proof: jobperm-durability.test.ts 'deletes a fully allowed card on retire and falls back to a receipt edit' green; telegram.test.ts delete/fallback cases green; Postgres once-card chain records the delete on the retire revision (5/5)"
+    },
+    {
+      "contract_id": "JOBPERM-3-AC2",
+      "verdict": "implemented",
+      "evidence": "retire outcome 'expired' (cancelled+expiredAt) edits the card to 'Expired: <label>' lines, never deletes; denied rows stay live with Reconsider (0144) so such a card never retires \u2014 proof: jobperm-edges.test.ts outcome derivation (expired rows -> 'Expired: <label>' edit, no delete; denied row keeps the card live) green"
+    },
+    {
+      "contract_id": "JOBPERM-3-AC3",
+      "verdict": "implemented",
+      "evidence": "retireOutcome/retiredRows/retireDelivery carried on the revision (JSONB) and in the Postgres delivery payload; deletedAt/receiptMessageId/deleteFailedAt gate retries; the waiter's decision replays BEFORE the card retires (the retire delivery never gates a runner) \u2014 proof: jobperm-durability.test.ts retried retire after deletedAt makes no provider call; Postgres chain rejects clearing a recorded marker ('crossed its durable scope'); retry-tail-provider-payload.test.ts keeps the fields"
+    },
+    {
+      "contract_id": "JOBPERM-3-AC4",
+      "verdict": "implemented",
+      "evidence": "application/telegram/domain/adapters suites green with only retire-text/operation assertions updated; Postgres permission-decision-chain 5/5 host-side; tsc; check:architecture \u2014 proof: 175 files / 2115 unit tests green; Postgres permission-decision-chain 5/5; tsc clean; check:architecture passed; autoreview local clean"
+    }
+  ],
+  "summary": "Autoreview local (codex gpt-5.6-sol high) clean after one accepted P2 (retireDelivery markers made immutable in the repository guard); unit application/telegram/domain/adapters 175 files / 2115 tests green; Postgres permission-decision-chain 5/5 host-side incl. the once-card chain ending in a recorded delete and a rejected marker rewrite; tsc clean; check:architecture passed.",
+  "aspect": "security",
+  "review_run_id": "12fb172fe06107580823dc7d160d3407a6fc7a761670ffae76dad79aa83e77cc",
+  "brief_sha256": "b8fc51a332ae68488c851fafb2705db1ea40dd459fb1e6677061f50c784650a6",
+  "branch_diff_digest": "6100e9e1eabe2011dc783b9a81cd957fff00bfd7de69c3599a3e8ace0f2d746f",
+  "recorded_at": "2026-08-28T18:17:51+00:00",
+  "commit": "f8cc8c4bd9bc4d12f8b8e352b3847f154272d4e8"
+}

@@ -4,7 +4,7 @@
     {
       "id": "JOBPERM-3-T1",
       "title": "Retire outcome on the card revision + Telegram delete/receipt",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-28T13:07:30+00:00",
       "base_sha": "14b704201e7a08a7e6e944f2bbbbf252bcf23197",
       "dirty_at_start": {
@@ -117,7 +117,22 @@
           "git": "1 .M N... 100644 100644 100644 951c8c24d2406087939f7c4113dbe4d280bb4d88 951c8c24d2406087939f7c4113dbe4d280bb4d88 plans/roadmap.json\u0000\u0000100644 951c8c24d2406087939f7c4113dbe4d280bb4d88 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
         }
       },
-      "task_sha256": "3164970fc7e82d1cec51d75692b8e2d7e1a872425ea9a3be67397b7e24591b2f"
+      "task_sha256": "2c5ee02d3b4648b52dc4fe6fe3c229f7d7ffbd720ef8539eeab166d78a3277dd",
+      "local_review_stamp": {
+        "stage_id": "JOBPERM-3-T1",
+        "task_sha256": "2c5ee02d3b4648b52dc4fe6fe3c229f7d7ffbd720ef8539eeab166d78a3277dd",
+        "brief_sha256": "a5e8ece1188d65094ede6f597894799ad05e45a575b74e1e89e92908446adb90",
+        "base_sha": "14b704201e7a08a7e6e944f2bbbbf252bcf23197",
+        "product_tree_digest": "8cb1a13ad33d35cf17d00590ab29397c97b00ef5b967f5a44febf17c08e19053",
+        "recorded_at": "2026-08-28T18:27:30+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-08-28T18:28:11+00:00",
+      "contract_changed": {
+        "at": "2026-08-28T18:28:11+00:00",
+        "from": "3164970fc7e82d1cec51d75692b8e2d7e1a872425ea9a3be67397b7e24591b2f",
+        "to": "2c5ee02d3b4648b52dc4fe6fe3c229f7d7ffbd720ef8539eeab166d78a3277dd"
+      }
     },
     {
       "id": "JOBPERM-3-T2",
