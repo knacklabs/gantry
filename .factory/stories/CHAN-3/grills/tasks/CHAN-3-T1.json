@@ -14,29 +14,30 @@
   ],
   "current_flow": "runActiveJob (execution.ts:116, ~400 lines, AST CC 76) resolves execution context/dead-letter, failover candidates, app session + setup pause, claims the run lease, binds run event state, emits JOB_STARTED, runs the system turn and the agent with failover inside one try/catch/finally that releases the lease and finalizes; every incident fix of the last two weeks landed inside this body.",
   "criteria_map": {
-    "`runActiveJob` in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change.": "steps 1-3: ActiveJobRunContext built once; phases moved verbatim into jobs/execution-phases.ts; sequencer keeps try/catch/finally; step 5 CC report (sequencer <= 15, phases <= 25)",
+    "`runActiveJob` in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change.": "steps 1-3: ActiveJobRunContext built once; phases moved verbatim into execution-phases-setup.ts / execution-phases-run.ts; sequencer keeps try/catch/finally; step 5 CC report (sequencer <= 15, phases <= 25)",
     "No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green.": "step 5: jobs suites green with git diff --stat -- apps/core/test empty; tsc; check:architecture; required test 'records a failed terminal run when execution throws before normal settlement'",
     "Branch based on main after PR #451 (CHAN-2).": "branch feat/CHAN-3-job-runner-splits off main 1194bbb41 (#451 merged)"
   },
   "decision": "keep",
   "new_abstractions": [
-    "ActiveJobRunContext (plain object built once per run) and jobs/execution-phases.ts (one module, one function per phase) \u2014 owner choice 2026-08-28"
+    "ActiveJobRunContext (built once) and two sibling modules jobs/execution-phases-setup.ts + jobs/execution-phases-run.ts (phase groups) \u2014 owner ruling 2026-08-28 after signal S-0039 (733-line function)"
   ],
   "gaps": [
-    "CHAN-3-T1 (runActiveJob split): the required proof test is 'records a failed terminal run when execution throws before normal settlement' \u2014 it exercises the try/catch/finally ordering the move must keep byte-identical. Anything to settle before Codex starts?"
+    "runActiveJob is 733 lines, so a verbatim move can't fit in one \u2264700-line module. Shape?"
   ],
   "contradictions": [],
   "resolutions": [
-    "Verbatim moves only; helpers called not re-implemented; early returns stay in the sequencer."
+    "Verbatim moves only; helpers called not re-implemented; early returns stay in the sequencer.",
+    "Review budget 2200 lines / 5 files; each module <= 700 lines."
   ],
   "rounds": [
     {
-      "question": "CHAN-3-T1 (runActiveJob split): the required proof test is 'records a failed terminal run when execution throws before normal settlement' \u2014 it exercises the try/catch/finally ordering the move must keep byte-identical. Anything to settle before Codex starts?",
+      "question": "runActiveJob is 733 lines, so a verbatim move can't fit in one \u2264700-line module. Shape?",
       "options": [
-        "No \u2014 go (Recommended)",
-        "Hold"
+        "Two sibling modules by phase group (Recommended)",
+        "One module, exempt it from the 700-line rule"
       ],
-      "chosen": "No \u2014 go (Recommended)",
+      "chosen": "Two sibling modules by phase group (Recommended)",
       "frontier_empty": true
     }
   ],
@@ -47,11 +48,11 @@
     }
   ],
   "owner_questions": [],
-  "input_sha256": "ef6a163ace0b4abbde7a5064fe1dc356da690dd68ef4ad79fb2f80c1fbfcd3c8",
-  "task_plan_sha256": "ed7c64d75422117192f12bd180227d39375970aa5d67368a631d56d4d4fcefd9",
-  "recorded_at": "2026-08-28T05:55:11+00:00",
-  "commit": "1194bbb41e6bb0cd926740a84c51855f309346db",
-  "approved_task_plan_sha256": "ed7c64d75422117192f12bd180227d39375970aa5d67368a631d56d4d4fcefd9",
+  "input_sha256": "7eda1399dcd97a719e91b1f31198ae8711b37cb4402ff0ae6f4188ab430c6741",
+  "task_plan_sha256": "74b35461e420b72b9900067009112c33262d1c9b1533a12055ab6e87ffa9c373",
+  "recorded_at": "2026-08-28T06:12:41+00:00",
+  "commit": "b24337c9d1ef6b472e395a6822b6b8b5298a8c9a",
+  "approved_task_plan_sha256": "74b35461e420b72b9900067009112c33262d1c9b1533a12055ab6e87ffa9c373",
   "approved_by": "Ravi Kiran Vemula",
-  "approved_at": "2026-08-28T05:55:12+00:00"
+  "approved_at": "2026-08-28T06:12:41+00:00"
 }

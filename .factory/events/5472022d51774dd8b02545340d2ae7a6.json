@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T06:11:44+00:00", "story": "CHAN-3", "detail": "S-0039-4335: Owner ruling 2026-08-28: runActiveJob (733 lines) moves verbatim into TWO sibling modules by phase group \u2014 jobs/execution-phases-setup.ts (execution context/dead-letter, failover candidates, app sessi"}
