@@ -35,6 +35,7 @@
     "apps/core/src/channels/slack/channel-delivery-helpers.ts": 776,
     "apps/core/src/channels/slack/channel-delivery.ts": 732,
     "apps/core/src/channels/slack/channel-interactions.ts": 712,
+    "apps/core/src/channels/telegram/callback-handlers.ts": 900,
     "apps/core/src/channels/telegram/channel-connect.ts": 800,
     "apps/core/src/channels/telegram/channel-delivery.ts": 800,
     "apps/core/src/domain/types.ts": 740,
