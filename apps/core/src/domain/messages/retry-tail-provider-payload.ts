@@ -1,3 +1,5 @@
+import { MAX_JOB_PERMISSION_CARD_RETIRED_ROWS } from '../ports/job-permission-durability.js';
+
 const MAX_ID_LENGTH = 256;
 const MAX_WARNING_LENGTH = 160;
 const MAX_LIST_ITEMS = 20;
@@ -176,7 +178,6 @@ const MAX_CARD_TEXT = 1000;
 const MAX_CARD_DETAILS = 10;
 const MAX_CARD_BUTTONS = 4;
 const MAX_JOB_PERMISSION_CARD_ACTIONS = 20;
-const MAX_JOB_PERMISSION_CARD_RETIRED_ROWS = 20;
 const MAX_JOB_PERMISSION_CARD_LABEL = 160;
 const JOB_PERMISSION_ACTION_TOKEN =
   /^jp:[a-f0-9]{24}:[a-z0-9]+:[a-z0-9]+:[adrsn]$/;
@@ -280,16 +281,23 @@ function readJobPermissionCardRetireDelivery(
     return undefined;
   }
   const source = value as Record<string, unknown>;
+  const deleteFailedAt = readString(source.deleteFailedAt, {
+    maxLength: MAX_ID_LENGTH,
+  });
   const deletedAt = readString(source.deletedAt, {
     maxLength: MAX_ID_LENGTH,
   });
   const receiptMessageId = readString(source.receiptMessageId, {
     maxLength: MAX_ID_LENGTH,
   });
-  if ((!deletedAt && !receiptMessageId) || (deletedAt && receiptMessageId)) {
+  if (
+    (!deleteFailedAt && !deletedAt && !receiptMessageId) ||
+    (deletedAt && (deleteFailedAt || receiptMessageId))
+  ) {
     return undefined;
   }
   return {
+    ...(deleteFailedAt ? { deleteFailedAt } : {}),
     ...(deletedAt ? { deletedAt } : {}),
     ...(receiptMessageId ? { receiptMessageId } : {}),
   };

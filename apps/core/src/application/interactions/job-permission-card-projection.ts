@@ -1,9 +1,10 @@
-import type {
-  JobPermissionCardRecord,
-  JobPermissionCardRevision,
-  JobPermissionCardRowSnapshot,
-  JobPermissionDurabilityState,
-  JobPermissionNeedRecord,
+import {
+  MAX_JOB_PERMISSION_CARD_RETIRED_ROWS,
+  type JobPermissionCardRecord,
+  type JobPermissionCardRevision,
+  type JobPermissionCardRowSnapshot,
+  type JobPermissionDurabilityState,
+  type JobPermissionNeedRecord,
 } from '../../domain/ports/job-permission-durability.js';
 import { sha256Hex } from '../../shared/stable-hash.js';
 import { canonicalJson } from '../../shared/canonical-json.js';
@@ -79,6 +80,17 @@ export function reviseLivingCard(
   options: { force?: boolean; deliveryAttempt?: number } = {},
 ): void {
   const livingNeeds = livingCardNeeds(state);
+  if (
+    livingNeeds.length === 0 &&
+    state.needs.some(
+      ({ state }) =>
+        state === 'approved_pending_apply' ||
+        state === 'denied_pending_delivery' ||
+        state === 'handoff_pending',
+    )
+  ) {
+    return;
+  }
   const expiredNeeds = livingNeeds.filter(
     (need) => need.state === 'cancelled' && Boolean(need.expiredAt),
   );
@@ -150,9 +162,17 @@ export function reviseLivingCard(
         ? ('expired' as const)
         : ('allowed' as const)
       : undefined;
+  const overflow = Math.max(
+    0,
+    expiredNeeds.length - MAX_JOB_PERMISSION_CARD_RETIRED_ROWS + 1,
+  );
   const retiredRows = retiresExpiredCard
-    ? expiredNeeds.map((need) => ({ label: need.displayLabel }))
+    ? expiredNeeds
+        .slice(0, MAX_JOB_PERMISSION_CARD_RETIRED_ROWS - (overflow ? 1 : 0))
+        .map((need) => ({ label: need.displayLabel }))
     : undefined;
+  if (retiredRows && overflow)
+    retiredRows.push({ label: `and ${overflow} more` });
   const last = state.card.revisions.at(-1);
   if (
     !options.force &&
@@ -267,17 +287,10 @@ export function confirmCardRevisionInState(input: {
     input.retireDelivery &&
     input.revision.operation === 'retire' &&
     !input.revision.retireDelivery?.deletedAt &&
-    !input.revision.retireDelivery?.receiptMessageId
+    !input.revision.retireDelivery?.receiptMessageId &&
+    (input.retireDelivery.deletedAt || input.retireDelivery.receiptMessageId)
   ) {
-    if (input.retireDelivery.deletedAt) {
-      input.revision.retireDelivery = {
-        deletedAt: input.retireDelivery.deletedAt,
-      };
-    } else if (input.retireDelivery.receiptMessageId) {
-      input.revision.retireDelivery = {
-        receiptMessageId: input.retireDelivery.receiptMessageId,
-      };
-    }
+    input.revision.retireDelivery = { ...input.retireDelivery };
   }
   const retiredByDelete =
     input.revision.operation === 'retire' &&

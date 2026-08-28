@@ -348,7 +348,10 @@ describe('sanitizeRetryTailProviderPayload jobPermissionCard passthrough', () =>
       providerMessageId: '42',
       retireOutcome: 'expired' as const,
       retiredRows: [{ label: 'Run Command: npm test' }],
-      retireDelivery: { receiptMessageId: '42' },
+      retireDelivery: {
+        deleteFailedAt: '2026-08-28T11:59:00.000Z',
+        receiptMessageId: '42',
+      },
       actions: [],
     };
     const out = sanitizeRetryTailProviderPayload({

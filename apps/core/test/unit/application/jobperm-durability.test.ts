@@ -456,11 +456,21 @@ it('deletes a fully allowed card on retire and falls back to a receipt edit', as
     deleteMessage: vi.fn(async () => {
       throw new Error('delete unavailable');
     }),
-    editMessageText: vi.fn(async () => undefined),
+    editMessageText: vi
+      .fn()
+      .mockRejectedValueOnce(new Error('receipt unavailable'))
+      .mockResolvedValue(undefined),
   };
-  const fallback = await dispatch(fallbackApi);
+  const deleteFailure = await dispatch(fallbackApi).catch((error) => error);
   expect(fallbackApi.deleteMessage).toHaveBeenCalledOnce();
-  expect(fallbackApi.editMessageText).toHaveBeenCalledWith(
+  expect(fallbackApi.editMessageText).not.toHaveBeenCalled();
+  const retryPayload = (deleteFailure as any).retryTail.providerPayload;
+  await expect(dispatch(fallbackApi, retryPayload)).rejects.toMatchObject({
+    partialMessageDelivery: true,
+  });
+  const fallback = await dispatch(fallbackApi, retryPayload);
+  expect(fallbackApi.deleteMessage).toHaveBeenCalledOnce();
+  expect(fallbackApi.editMessageText).toHaveBeenLastCalledWith(
     '100',
     42,
     "Approved — this job's permission requests are done.",
@@ -472,7 +482,10 @@ it('deletes a fully allowed card on retire and falls back to a receipt edit', as
   expect(fallback).toMatchObject({
     status: 'sent',
     providerPayload: {
-      jobPermissionCardRetireDelivery: { receiptMessageId: '42' },
+      jobPermissionCardRetireDelivery: {
+        deleteFailedAt: expect.any(String),
+        receiptMessageId: '42',
+      },
     },
   });
 
@@ -756,6 +769,10 @@ it('denies a once need without writing a rule', async () => {
     jobId: 'job-once-deny',
     decision: 'deny',
   });
+  expect(
+    (await readState(repository, 'job-once-deny'))!.card.revisions.at(-1)!
+      .operation,
+  ).not.toBe('retire');
   await service.reconcile();
 
   expect(effects.grantKeys).toEqual([]);
@@ -1079,14 +1096,17 @@ it('logs a delivered card revision after recording it durably', async () => {
 });
 
 it('records a deleted retire revision and clears its provider message', async () => {
-  const { logs, repository, service } = createHarness();
+  const { effects, logs, repository, service } = createHarness();
   const asking = await attach(service);
   const decisionRevision = await confirmLatest(service, repository);
   await service.reconcile();
   await decide(service, asking, decisionRevision);
+  let state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).not.toBe('retire');
+  expect(effects.responseKinds).toEqual([]);
   await service.reconcile();
 
-  let state = await readState(repository);
+  state = await readState(repository);
   const retireRevision = state!.card.revisions.at(-1)!;
   expect(retireRevision).toMatchObject({
     operation: 'retire',
@@ -1518,7 +1538,12 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
   });
   state = await readState(repository, 'job-callback-proof');
   expect(state!.needs[0]!.waitStartedAt).toBe(clock.nowIso);
-  expect(state!.card.revisions.at(-1)!.operation).toBe('retire');
+  expect(state!.card.revisions.at(-1)!.operation).not.toBe('retire');
+  await service.reconcile();
+  expect(
+    (await readState(repository, 'job-callback-proof'))!.card.revisions.at(-1)!
+      .operation,
+  ).toBe('retire');
 });
 
 it('batch allow decides every decisionable card row and records rerun consent', async () => {

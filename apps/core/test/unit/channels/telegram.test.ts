@@ -3229,14 +3229,14 @@ describe('TelegramChannel', () => {
       await channel.connect({ inbound: false });
       currentBot().api.deleteMessage.mockClear();
       currentBot().api.editMessageText.mockClear();
-      currentBot().api.deleteMessage.mockRejectedValueOnce(
-        new Error('delete unavailable'),
-      );
       const revision = {
         callbackKey: 'abcdef012345abcdef012345',
         revision: 7,
         operation: 'retire' as const,
         retireOutcome: 'allowed' as const,
+        retireDelivery: {
+          deleteFailedAt: '2026-08-28T12:00:00.000Z',
+        },
       };
 
       const fallback = await channel.sendMessage(
@@ -3248,9 +3248,24 @@ describe('TelegramChannel', () => {
           jobPermissionCardRevision: revision,
         },
       );
-      expect(currentBot().api.deleteMessage).toHaveBeenCalledOnce();
+      expect(currentBot().api.deleteMessage).not.toHaveBeenCalled();
       expect(currentBot().api.editMessageText).toHaveBeenCalledOnce();
       expect(fallback.jobPermissionCardRetireDelivery).toEqual({
+        deleteFailedAt: '2026-08-28T12:00:00.000Z',
+        receiptMessageId: '987',
+      });
+
+      const settledRetry = await channel.sendMessage(
+        'tg:100200300',
+        "Approved — this job's permission requests are done.",
+        {
+          actionAffordances: [],
+          deleteMessageId: '987',
+          jobPermissionCardRevision: revision,
+        },
+      );
+      expect(settledRetry.jobPermissionCardRetireDelivery).toEqual({
+        deleteFailedAt: '2026-08-28T12:00:00.000Z',
         receiptMessageId: '987',
       });
 

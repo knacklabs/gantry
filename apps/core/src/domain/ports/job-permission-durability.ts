@@ -8,6 +8,8 @@ export type JobPermissionNeedState =
   | 'handed_off'
   | 'cancelled';
 
+export const MAX_JOB_PERMISSION_CARD_RETIRED_ROWS = 20;
+
 export type JobPermissionGrantMode = 'rule' | 'once';
 
 export type JobPermissionWaiterState =

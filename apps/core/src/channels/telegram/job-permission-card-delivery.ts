@@ -3,6 +3,7 @@ import type {
   MessageDeliveryResult,
   MessageSendOptions,
 } from '../../domain/types.js';
+import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   jobPermissionCardRevision,
@@ -11,6 +12,10 @@ import {
 import { telegramActionReplyMarkup } from './message-action-affordances.js';
 import type { telegramThreadOptionsFromString } from './channel-shared.js';
 import { escapeTelegramHtml } from './html-render.js';
+
+type RetireDelivery = NonNullable<
+  MessageDeliveryResult['jobPermissionCardRetireDelivery']
+>;
 
 export async function retireTelegramJobPermissionCard({
   api,
@@ -46,6 +51,33 @@ export async function retireTelegramJobPermissionCard({
     ...cardRevision,
     callbackKey: `${chatId}:${cardRevision.callbackKey}`,
   };
+  const partialFallback = (cause: unknown, deleteFailedAt: string) => {
+    const partial = new PartialMessageDeliveryError({
+      cause,
+      deliveredChunks: 1,
+      name: 'PartialTelegramJobPermissionCardRetireError',
+      message: 'Telegram card delete failed; receipt edit remains pending',
+      totalChunks: 2,
+    });
+    Object.assign(partial, {
+      provider: 'telegram',
+      deliveredParts: 1,
+      totalParts: 2,
+      externalMessageIds: [deleteMessageId],
+      retryTail: {
+        canonicalText: text,
+        providerPayload: {
+          jobPermissionCard: {
+            ...cardRevision,
+            providerMessageId: deleteMessageId,
+            retireDelivery: { deleteFailedAt },
+            actions: [],
+          },
+        },
+      },
+    });
+    return partial;
+  };
   const delivered = (
     externalMessageId: string,
     retireDelivery?: NonNullable<
@@ -73,27 +105,45 @@ export async function retireTelegramJobPermissionCard({
   deliveries.bindMessage(`${chatId}:${deleteMessageId}`, revision.callbackKey);
   return deliveries.serialize(revision.callbackKey, async () => {
     const settled = deliveries.settledMessageId(revision);
-    if (settled) return delivered(settled);
-    let retireDelivery: NonNullable<
-      MessageDeliveryResult['jobPermissionCardRetireDelivery']
-    >;
-    try {
-      await api.deleteMessage(chatId, messageId);
+    if (settled) {
+      const retireDelivery = persisted?.deleteFailedAt
+        ? {
+            deleteFailedAt: persisted.deleteFailedAt,
+            receiptMessageId: deleteMessageId,
+          }
+        : { deletedAt: new Date().toISOString() };
+      return delivered(settled, retireDelivery);
+    }
+    let retireDelivery: RetireDelivery;
+    if (persisted?.deleteFailedAt) {
+      try {
+        await api.editMessageText(chatId, messageId, escapeTelegramHtml(text), {
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: [] },
+        });
+      } catch (err) {
+        throw partialFallback(err, persisted.deleteFailedAt);
+      }
+      retireDelivery = {
+        deleteFailedAt: persisted.deleteFailedAt,
+        receiptMessageId: deleteMessageId,
+      };
+    } else {
+      try {
+        await api.deleteMessage(chatId, messageId);
+      } catch (err) {
+        const deleteFailedAt = new Date().toISOString();
+        logger.debug(
+          {
+            chatId,
+            messageId: deleteMessageId,
+            error: sanitizeErrorMessage(err),
+          },
+          'Failed to delete approved Telegram job permission card; receipt edit queued',
+        );
+        throw partialFallback(err, deleteFailedAt);
+      }
       retireDelivery = { deletedAt: new Date().toISOString() };
-    } catch (err) {
-      logger.debug(
-        {
-          chatId,
-          messageId: deleteMessageId,
-          error: sanitizeErrorMessage(err),
-        },
-        'Failed to delete approved Telegram job permission card; editing fallback receipt',
-      );
-      await api.editMessageText(chatId, messageId, escapeTelegramHtml(text), {
-        parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: [] },
-      });
-      retireDelivery = { receiptMessageId: deleteMessageId };
     }
     deliveries.record(
       revision,

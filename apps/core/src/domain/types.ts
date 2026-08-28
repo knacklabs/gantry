@@ -540,6 +540,7 @@ export interface JobNotificationView {
 export type JobPermissionCardRetireOutcome = 'allowed' | 'expired';
 
 export interface JobPermissionCardRetireDelivery {
+  deleteFailedAt?: string;
   deletedAt?: string;
   receiptMessageId?: string;
 }

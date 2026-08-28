@@ -7,6 +7,7 @@ import type {
   SkillCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import type {
+  JobPermissionCardRetireDelivery,
   MessageActionAffordance,
   MessageSendOptions,
 } from '../../domain/types.js';
@@ -34,7 +35,7 @@ interface JobPermissionCardPayload {
   providerMessageId: string | null;
   retireOutcome?: 'allowed' | 'expired';
   retiredRows?: Array<{ label: string }>;
-  retireDelivery?: { deletedAt?: string; receiptMessageId?: string };
+  retireDelivery?: JobPermissionCardRetireDelivery;
 }
 
 function jobPermissionStableUuid(value: string): string {
@@ -99,9 +100,7 @@ function parseJobPermissionCardPayload(
       retiredRows.push({ label: label.trim() });
     }
   }
-  let retireDelivery:
-    | { deletedAt?: string; receiptMessageId?: string }
-    | undefined;
+  let retireDelivery: JobPermissionCardRetireDelivery | undefined;
   if (raw.retireDelivery !== undefined) {
     if (
       !raw.retireDelivery ||
@@ -111,9 +110,15 @@ function parseJobPermissionCardPayload(
       return null;
     }
     const delivery = raw.retireDelivery as {
+      deleteFailedAt?: unknown;
       deletedAt?: unknown;
       receiptMessageId?: unknown;
     };
+    const deleteFailedAt =
+      typeof delivery.deleteFailedAt === 'string' &&
+      delivery.deleteFailedAt.trim()
+        ? delivery.deleteFailedAt.trim()
+        : undefined;
     const deletedAt =
       typeof delivery.deletedAt === 'string' && delivery.deletedAt.trim()
         ? delivery.deletedAt.trim()
@@ -123,10 +128,14 @@ function parseJobPermissionCardPayload(
       delivery.receiptMessageId.trim()
         ? delivery.receiptMessageId.trim()
         : undefined;
-    if ((!deletedAt && !receiptMessageId) || (deletedAt && receiptMessageId)) {
+    if (
+      (!deleteFailedAt && !deletedAt && !receiptMessageId) ||
+      (deletedAt && (deleteFailedAt || receiptMessageId))
+    ) {
       return null;
     }
     retireDelivery = {
+      ...(deleteFailedAt ? { deleteFailedAt } : {}),
       ...(deletedAt ? { deletedAt } : {}),
       ...(receiptMessageId ? { receiptMessageId } : {}),
     };
