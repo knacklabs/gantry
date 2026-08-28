@@ -67,7 +67,7 @@
     {
       "id": "CHAN-3-T2",
       "title": "Split runQuery by phase into runner/query-loop-phases.ts",
-      "objective": "Verbatim move: runQuery in runner/query-loop.ts becomes a for-await dispatcher (CC <= 15) over one QueryLoopContext built once; SDK options/sandbox setup and the per-message handlers (system init/api_retry/other, assistant, stream_event text deltas, result incl. the nudge and stream.end decisions) and close/end are named functions (CC <= 25) in ONE sibling module runner/query-loop-phases.ts. Zero test edits; runner suites unchanged and green.",
+      "objective": "Verbatim move: runQuery in runner/query-loop.ts becomes a for-await dispatcher (CC <= 15) over one QueryLoopContext built once; SDK options/sandbox setup, per-message handlers (system, assistant, stream_event, result incl. nudge + stream.end) and close/end are named functions (CC <= 25) in ONE sibling module runner/query-loop-phases.ts. Only the two source-text tests re-point their file path; no other test edits.",
       "acceptance_criteria": [
         "`runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.",
         "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green."
@@ -96,7 +96,7 @@
       ],
       "required_tests": [
         {
-          "id": "keeps one-shot scheduled input open only for an accepted finish nudge",
+          "id": "removes approval context after the matching tool result",
           "path": "apps/core/test/unit/runner/query-loop.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         }
@@ -109,7 +109,7 @@
         "every loop branch moved verbatim (guards, order, continues)",
         "context shares the accumulators/flags by reference (nudge state, visible text, stream flags)",
         "stream.end() sites and conditions identical",
-        "no existing test edited",
+        "only the two source-text tests changed, and only their readFileSync path",
         "dispatcher CC <= 15, every handler <= 25 by AST count"
       ],
       "review_budget": {
@@ -149,5 +149,5 @@
   "project": "",
   "plan_file": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md",
   "plan_sha256": "e3dc17b7e91a3d3518a1776f28c106fa90163e5d06cae36b8ef7b293176b254f",
-  "commit": "1a03b75b99c2a09c36302e52718d5592174635ee"
+  "commit": "07d4b12350e79d45997527937a2228260ef18e13"
 }

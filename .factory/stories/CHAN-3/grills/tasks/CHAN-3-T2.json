@@ -14,27 +14,28 @@
   "current_flow": "runQuery (query-loop.ts:102, ~600 lines, AST CC 81) builds SDK options (decision-0040 two-axis block, env/CLAUDE_CONFIG_DIR), then a for-await over sdkQuery with inline branches for system (init/api_retry/other), assistant, stream_event text deltas and result \u2014 the result branch carries the Q-0105 one-shot nudge and Q-0108 stream.end decisions \u2014 then close/end; incident fixes of the last two weeks landed inside this body.",
   "criteria_map": {
     "`runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.": "steps 1-3: QueryLoopContext built once (mutable state shared by reference); setup + per-message handlers + close moved verbatim into runner/query-loop-phases.ts; runQuery becomes the for-await dispatcher; step 5 CC report (dispatcher <= 15, handlers <= 25)",
-    "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green.": "step 5: runner suites green with git diff --stat -- apps/core/test empty; required test 'keeps one-shot scheduled input open only for an accepted finish nudge'; tsc; check:architecture"
+    "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green.": "step 5: runner suites green; git diff -- apps/core/test touches only the two readFileSync paths; required test 'removes approval context after the matching tool result'; tsc; check:architecture"
   },
   "decision": "keep",
   "new_abstractions": [
     "QueryLoopContext (built once per query) and runner/query-loop-phases.ts (one module; split by phase group only if the verbatim move exceeds 700 lines, as T1 did) \u2014 owner choice 2026-08-28"
   ],
   "gaps": [
-    "CHAN-3-T2 (runQuery split, CC 81 \u2192 dispatcher \u2264 15 / handlers \u2264 25, verbatim). The required proof test is 'keeps one-shot scheduled input open only for an accepted finish nudge' \u2014 the Q-0105/Q-0108 behaviour the move must preserve. Anything to settle before Codex starts?"
+    "T2 blocker: two runner tests don't test behaviour \u2014 they read `query-loop.ts` as text and assert the nudge/stream.end lines and the `canUseTool` option block are *in that file*. Moving the code means those two assertions must point at the new module. How should T2 treat them?"
   ],
   "contradictions": [],
   "resolutions": [
-    "Verbatim moves only; stream.end() sites and the nudge state stay byte-identical; helpers called not re-implemented."
+    "Verbatim moves only; stream.end() sites and the nudge state stay byte-identical; helpers called not re-implemented.",
+    "Only the two source-text tests re-point their readFileSync path; required proof test = 'removes approval context after the matching tool result' (behavioural)."
   ],
   "rounds": [
     {
-      "question": "CHAN-3-T2 (runQuery split, CC 81 \u2192 dispatcher \u2264 15 / handlers \u2264 25, verbatim). The required proof test is 'keeps one-shot scheduled input open only for an accepted finish nudge' \u2014 the Q-0105/Q-0108 behaviour the move must preserve. Anything to settle before Codex starts?",
+      "question": "T2 blocker: two runner tests don't test behaviour \u2014 they read `query-loop.ts` as text and assert the nudge/stream.end lines and the `canUseTool` option block are *in that file*. Moving the code means those two assertions must point at the new module. How should T2 treat them?",
       "options": [
-        "No \u2014 go (Recommended)",
-        "Hold"
+        "Re-point those two source-text tests at the new module; no other test edits (Recommended)",
+        "Keep zero test edits: leave that code in query-loop.ts"
       ],
-      "chosen": "No \u2014 go (Recommended)",
+      "chosen": "Re-point those two source-text tests at the new module; no other test edits (Recommended)",
       "frontier_empty": true
     }
   ],
@@ -45,11 +46,11 @@
     }
   ],
   "owner_questions": [],
-  "input_sha256": "a9f804718633b5beede64b9eaabeb7835a56a16bf2c1b090f7edec919d0389e5",
-  "task_plan_sha256": "352090d105b17e380191d165d1c968c262531ad132c4a2d90da9998c3385526f",
-  "recorded_at": "2026-08-28T07:04:25+00:00",
-  "commit": "1a03b75b99c2a09c36302e52718d5592174635ee",
-  "approved_task_plan_sha256": "352090d105b17e380191d165d1c968c262531ad132c4a2d90da9998c3385526f",
+  "input_sha256": "6cc6c142b4d74c25dfcce395baf17fea5201659967cc65ed55393754d3e31bd8",
+  "task_plan_sha256": "69fcaa5de6b49c302a2d961eedafba603086b2bb240323687a76f0bc411f86d1",
+  "recorded_at": "2026-08-28T07:47:24+00:00",
+  "commit": "07d4b12350e79d45997527937a2228260ef18e13",
+  "approved_task_plan_sha256": "69fcaa5de6b49c302a2d961eedafba603086b2bb240323687a76f0bc411f86d1",
   "approved_by": "Ravi Kiran Vemula",
-  "approved_at": "2026-08-28T07:04:25+00:00"
+  "approved_at": "2026-08-28T07:47:24+00:00"
 }

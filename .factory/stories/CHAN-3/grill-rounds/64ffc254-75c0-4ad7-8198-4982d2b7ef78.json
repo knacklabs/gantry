@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "T2 blocker: two runner tests don't test behaviour \u2014 they read `query-loop.ts` as text and assert the nudge/stream.end lines and the `canUseTool` option block are *in that file*. Moving the code means those two assertions must point at the new module. How should T2 treat them?",
+      "options": [
+        "Re-point those two source-text tests at the new module; no other test edits (Recommended)",
+        "Keep zero test edits: leave that code in query-loop.ts"
+      ],
+      "chosen": "Re-point those two source-text tests at the new module; no other test edits (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T07:40:30.785602+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
