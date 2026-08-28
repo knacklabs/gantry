@@ -1,0 +1,12 @@
+# CHAN-3-T2 — Split runQuery by phase
+
+Contract (AC2 + AC3-T2 of `plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md`): `runQuery` in `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts` (line ~102, ~600 lines, AST CC 81) becomes a `for await` dispatcher whose own complexity is <= 15; SDK options/sandbox setup, the per-message handlers and close/end are named functions with complexity <= 25 in ONE sibling module `runner/query-loop-phases.ts` (if the verbatim move exceeds 700 lines, split by the same phase-group rule as T1 into `query-loop-phases-setup.ts` + `query-loop-phases-messages.ts` and raise the signal). Strictly verbatim moves (owner ruling): call sites move, no dedup, no hoists, no signature change outside the two files. Zero test edits; the runner suites are the behaviour oracle.
+
+Steps:
+1. Define `QueryLoopContext` in the phases module — stream, agentInput, flags (`enableIpcFollowups`, `isScheduledJob`), nudge state (`nudged`, `closedDuringQuery`, `nudgeDeliveredThisTurn`), text accumulators (visible text since last result, textResult), steering gate, logger, timers, session/result holders — and build it ONCE at the top of `runQuery`. Mutable state stays shared by reference (one object), never copied into handlers.
+2. Move verbatim into named functions: SDK options + sandbox setup (the decision-0040 two-axis block and env/CLAUDE_CONFIG_DIR wiring, comments included), `handleSystemMessage` (init / api_retry / other), `handleAssistantMessage`, `handleStreamEvent` (text deltas), `handleResultMessage` (including the Q-0105 one-shot finish nudge via the steering gate and the Q-0108 `stream.end()` decisions, verbatim), and the close/end path.
+3. `runQuery` becomes: build context → setup phase → `for await (const message of sdkQuery)` dispatch by `message.type` → close/end. Every `continue`/early return inside the loop keeps its place in the dispatcher.
+4. Architecture-map entry for the new module(s) if `npm run check:architecture` requires one; every file <= 700 lines.
+5. Verify: `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runner/` green with `git diff --stat -- apps/core/test` empty (required test 'keeps one-shot scheduled input open only for an accepted finish nudge'); `npx tsc --noEmit`; `npm run check:architecture`; the AST CC report over the files (dispatcher <= 15, every handler <= 25).
+
+Not in scope: `runActiveJob` (T1, done), any behaviour change, dedup (follow-up), other runner files.

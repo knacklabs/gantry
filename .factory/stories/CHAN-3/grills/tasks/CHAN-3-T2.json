@@ -1,0 +1,55 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "CHAN-3-T2",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
+    "apps/core/test/unit/runner/query-loop.test.ts",
+    "scripts/architecture-map.json",
+    "apps/core/src/jobs/execution-phases-run.ts"
+  ],
+  "current_flow": "runQuery (query-loop.ts:102, ~600 lines, AST CC 81) builds SDK options (decision-0040 two-axis block, env/CLAUDE_CONFIG_DIR), then a for-await over sdkQuery with inline branches for system (init/api_retry/other), assistant, stream_event text deltas and result \u2014 the result branch carries the Q-0105 one-shot nudge and Q-0108 stream.end decisions \u2014 then close/end; incident fixes of the last two weeks landed inside this body.",
+  "criteria_map": {
+    "`runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.": "steps 1-3: QueryLoopContext built once (mutable state shared by reference); setup + per-message handlers + close moved verbatim into runner/query-loop-phases.ts; runQuery becomes the for-await dispatcher; step 5 CC report (dispatcher <= 15, handlers <= 25)",
+    "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green.": "step 5: runner suites green with git diff --stat -- apps/core/test empty; required test 'keeps one-shot scheduled input open only for an accepted finish nudge'; tsc; check:architecture"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "QueryLoopContext (built once per query) and runner/query-loop-phases.ts (one module; split by phase group only if the verbatim move exceeds 700 lines, as T1 did) \u2014 owner choice 2026-08-28"
+  ],
+  "gaps": [
+    "CHAN-3-T2 (runQuery split, CC 81 \u2192 dispatcher \u2264 15 / handlers \u2264 25, verbatim). The required proof test is 'keeps one-shot scheduled input open only for an accepted finish nudge' \u2014 the Q-0105/Q-0108 behaviour the move must preserve. Anything to settle before Codex starts?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Verbatim moves only; stream.end() sites and the nudge state stay byte-identical; helpers called not re-implemented."
+  ],
+  "rounds": [
+    {
+      "question": "CHAN-3-T2 (runQuery split, CC 81 \u2192 dispatcher \u2264 15 / handlers \u2264 25, verbatim). The required proof test is 'keeps one-shot scheduled input open only for an accepted finish nudge' \u2014 the Q-0105/Q-0108 behaviour the move must preserve. Anything to settle before Codex starts?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "A handler that copies rather than shares the nudge/visible-text state silently breaks the one-shot finish nudge; the required test guards stream.end() timing.",
+      "source": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts:435-700; task plan step 1"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "a9f804718633b5beede64b9eaabeb7835a56a16bf2c1b090f7edec919d0389e5",
+  "task_plan_sha256": "352090d105b17e380191d165d1c968c262531ad132c4a2d90da9998c3385526f",
+  "recorded_at": "2026-08-28T07:04:25+00:00",
+  "commit": "1a03b75b99c2a09c36302e52718d5592174635ee",
+  "approved_task_plan_sha256": "352090d105b17e380191d165d1c968c262531ad132c4a2d90da9998c3385526f",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-28T07:04:25+00:00"
+}

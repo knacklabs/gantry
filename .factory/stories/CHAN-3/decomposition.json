@@ -20,7 +20,8 @@
         "apps/core/src/jobs/execution-phases-setup.ts",
         "apps/core/src/jobs/execution-phases-run.ts",
         "scripts/architecture-map.json",
-        "apps/core/test/unit/jobs/"
+        "apps/core/test/unit/jobs/",
+        "docs/specs/job-runner-splits.md"
       ],
       "required_tests": [
         {
@@ -69,12 +70,53 @@
       "objective": "Verbatim move: runQuery in runner/query-loop.ts becomes a for-await dispatcher (CC <= 15) over one QueryLoopContext built once; SDK options/sandbox setup and the per-message handlers (system init/api_retry/other, assistant, stream_event text deltas, result incl. the nudge and stream.end decisions) and close/end are named functions (CC <= 25) in ONE sibling module runner/query-loop-phases.ts. Zero test edits; runner suites unchanged and green.",
       "acceptance_criteria": [
         "`runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.",
-        "No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green."
+        "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green."
       ],
       "user_facing": false,
       "depends_on": [
         "CHAN-3-T1"
-      ]
+      ],
+      "plan_contracts": [
+        {
+          "id": "CHAN-3-AC2",
+          "statement": "`runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.",
+          "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+        },
+        {
+          "id": "CHAN-3-AC3-T2",
+          "statement": "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green.",
+          "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases.ts",
+        "scripts/architecture-map.json",
+        "apps/core/test/unit/runner/"
+      ],
+      "required_tests": [
+        {
+          "id": "keeps one-shot scheduled input open only for an accepted finish nudge",
+          "path": "apps/core/test/unit/runner/query-loop.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "reviewer_focus": [
+        "every loop branch moved verbatim (guards, order, continues)",
+        "context shares the accumulators/flags by reference (nudge state, visible text, stream flags)",
+        "stream.end() sites and conditions identical",
+        "no existing test edited",
+        "dispatcher CC <= 15, every handler <= 25 by AST count"
+      ],
+      "review_budget": {
+        "max_changed_files": 4,
+        "max_changed_lines": 1800,
+        "reason": "A ~600-line function moves into a new module; line count is the move itself, not new logic."
+      }
     }
   ],
   "plan_contracts": [
@@ -97,10 +139,15 @@
       "id": "CHAN-3-AC4",
       "statement": "Branch based on main after PR #451 (CHAN-2).",
       "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
+    },
+    {
+      "id": "CHAN-3-AC3-T2",
+      "statement": "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green.",
+      "source": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria"
     }
   ],
   "project": "",
   "plan_file": "plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md",
   "plan_sha256": "e3dc17b7e91a3d3518a1776f28c106fa90163e5d06cae36b8ef7b293176b254f",
-  "commit": "b24337c9d1ef6b472e395a6822b6b8b5298a8c9a"
+  "commit": "1a03b75b99c2a09c36302e52718d5592174635ee"
 }

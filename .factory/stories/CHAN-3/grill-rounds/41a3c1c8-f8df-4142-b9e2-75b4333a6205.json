@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "CHAN-3-T2 (runQuery split, CC 81 \u2192 dispatcher \u2264 15 / handlers \u2264 25, verbatim). The required proof test is 'keeps one-shot scheduled input open only for an accepted finish nudge' \u2014 the Q-0105/Q-0108 behaviour the move must preserve. Anything to settle before Codex starts?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T07:03:49.244268+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
