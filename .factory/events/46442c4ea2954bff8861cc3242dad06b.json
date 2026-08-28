@@ -1,0 +1,1 @@
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-28T05:15:49+00:00", "story": "CHAN-2", "detail": "The provider adapters are easier to read and change safely. Five repeated guards (Telegram, Slack, Discord, Teams) are computed once instead of per branch, and the Telegram callback \u2014 previously one ~"}

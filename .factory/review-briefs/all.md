@@ -23,8 +23,16 @@ For each contract, emit a verdict — implemented | partial | missing — with f
 
 ### Plan contracts
 
-- None declared.
+- **CHAN-2-AC2**
+  - Source: plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria
+  - Statement: The Telegram bot.on callback in telegram/channel-connect.ts is split by action kind into named handlers, each with cyclomatic complexity <= 25, dispatched from a callback whose own complexity is <= 15; no behaviour change
+- **CHAN-2-AC3**
+  - Source: plans/active/CHAN-2-channel-dispatchers-flatten-repeated-guards-and-split-the-telegram-callback-by-action-kind.md#acceptance-criteria
+  - Statement: No behaviour change: existing unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green
 
 ### Reviewer focus
 
-No task-specific reviewer focus declared.
+- every branch moved verbatim (call sites, not re-implementations)
+- dispatcher CC <= 15, handlers <= 25 by AST count
+- no existing test edited
+- context built once, passed through

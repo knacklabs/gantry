@@ -2373,13 +2373,16 @@
         "Lands after PR #446 merged (CHAN-1 folder layout); branch based on main after it"
       ],
       "order": 110,
-      "status": "active",
+      "status": "done",
       "epic": "harness-hygiene",
       "skill": "backend",
-      "kind": "refactor",
+      "kind": "feature",
       "depends_on": [],
       "origin": "adhoc",
-      "spec": "docs/specs/channel-dispatchers-flatten-and-split.md"
+      "spec": "docs/specs/channel-dispatchers-flatten-and-split.md",
+      "completed_at": "2026-08-28T05:15:49+00:00",
+      "history": ".factory/stories/CHAN-2/",
+      "outcome": "The provider adapters are easier to read and change safely. Five repeated guards (Telegram, Slack, Discord, Teams) are computed once instead of per branch, and the Telegram callback \u2014 previously one ~700-line function handling every button tap \u2014 is now a thin dispatcher that builds one context object and hands each kind of tap (question answers, stop, job-permission card, memory/brain reviews, observer, retry, classic permission prompt) to a named handler in its own module. Nothing changed in behaviour: every existing test passes untouched. Complexity: dispatcher 11, largest handler 16 (ceilings 15/25)."
     },
     {
       "key": "JOBPERM-2",
@@ -2401,5 +2404,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-28T04:12:37+00:00"
+  "updated_at": "2026-08-28T05:15:49+00:00"
 }
