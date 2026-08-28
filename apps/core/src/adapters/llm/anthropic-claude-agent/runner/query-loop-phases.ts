@@ -26,7 +26,10 @@ import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import { allowedOuterSandboxClaudeExecutable, discoverAdditionalDirectories, IPC_INPUT_DIR, IPC_INTERACTION_BOUNDARY_DIR, RUNTIME_SIGNAL_FALLBACK_POLL_MS, resolveClaudeCodeExecutableFromPath, WORKSPACE_GROUP_DIR } from './runtime-env.js';
 // prettier-ignore
 import { buildRunnerSystemPrompt, readMemoryContextBlock } from './system-prompt.js';
-import type { AgentRunnerInput, AgentRunnerToolAttemptOutput } from './types.js';
+import type {
+  AgentRunnerInput,
+  AgentRunnerToolAttemptOutput,
+} from './types.js';
 import { usageEventIdForMessage } from './query-usage-event-id.js';
 // prettier-ignore
 import { assertRequiredMcpServerReady, readExternalMcpServers } from './mcp-server-validation.js';
@@ -51,34 +54,69 @@ type AssistantMessage = Extract<SDKMessage, { type: 'assistant' }>;
 type ResultMessage = Extract<SDKMessage, { type: 'result' }>;
 type StreamEventMessage = Extract<SDKMessage, { type: 'stream_event' }>;
 type SystemMessage = Extract<SDKMessage, { type: 'system' }>;
-type QueryLoopInput = Pick<QueryLoopContext, 'prompt' | 'mcpServerPath' | 'agentInput' | 'sdkEnv' | 'configuredModel' | 'queryThinking' | 'queryEffort' | 'enableIpcFollowups' | 'persistSdkSession'>;
+type QueryLoopInput = Pick<
+  QueryLoopContext,
+  | 'prompt'
+  | 'mcpServerPath'
+  | 'agentInput'
+  | 'sdkEnv'
+  | 'configuredModel'
+  | 'queryThinking'
+  | 'queryEffort'
+  | 'enableIpcFollowups'
+  | 'persistSdkSession'
+>;
 
 export interface QueryLoopContext {
-  prompt: string; mcpServerPath: string; agentInput: AgentRunnerInput;
+  prompt: string;
+  mcpServerPath: string;
+  agentInput: AgentRunnerInput;
   sdkEnv: Record<string, string | undefined>;
-  configuredModel: string | undefined; queryThinking: ThinkingConfig | undefined;
-  queryEffort: EffortLevel | undefined; enableIpcFollowups: boolean;
-  persistSdkSession: boolean; elapsedMs: () => number; stream: MessageStream;
-  queryRunId: string; newSessionId: string | undefined; toolActivitySequence: number;
+  configuredModel: string | undefined;
+  queryThinking: ThinkingConfig | undefined;
+  queryEffort: EffortLevel | undefined;
+  enableIpcFollowups: boolean;
+  persistSdkSession: boolean;
+  elapsedMs: () => number;
+  stream: MessageStream;
+  queryRunId: string;
+  newSessionId: string | undefined;
+  toolActivitySequence: number;
   terminalToolInvocationIds: Set<string>;
   registeredGantryToolFamilies: Map<string, ToolActivityFamily>;
   gantryToolFamiliesByInvocation: Map<string, ToolActivityFamily>;
-  memoryBlock: string; toolSuccessLedger: RunScopedToolSuccessLedger | undefined;
-  permissionApprovalContext: ReturnType<typeof createPermissionApprovalContextChannel>;
-  scheduledOneShot: boolean | undefined; ipcPolling: boolean; closedDuringQuery: boolean;
-  steeringGate: SteeringDeliveryGate; runtimeSignalPump: RuntimeSignalPump;
-  lastAssistantUuid: string | undefined; messageCount: number; resultCount: number;
-  sawPartialTextSinceLastResult: boolean; sawAssistantContentSinceLastResult: boolean;
-  sawStructuredTextSinceLastResult: boolean; visibleTextSinceLastResult: string;
-  pendingStructuredToPartialBoundary: boolean; nudgedScheduledRunToFinish: boolean;
+  memoryBlock: string;
+  toolSuccessLedger: RunScopedToolSuccessLedger | undefined;
+  permissionApprovalContext: ReturnType<
+    typeof createPermissionApprovalContextChannel
+  >;
+  scheduledOneShot: boolean | undefined;
+  ipcPolling: boolean;
+  closedDuringQuery: boolean;
+  steeringGate: SteeringDeliveryGate;
+  runtimeSignalPump: RuntimeSignalPump;
+  lastAssistantUuid: string | undefined;
+  messageCount: number;
+  resultCount: number;
+  sawPartialTextSinceLastResult: boolean;
+  sawAssistantContentSinceLastResult: boolean;
+  sawStructuredTextSinceLastResult: boolean;
+  visibleTextSinceLastResult: string;
+  pendingStructuredToPartialBoundary: boolean;
+  nudgedScheduledRunToFinish: boolean;
   primeToolAttempts: AgentRunnerToolAttemptOutput[];
   heartbeat: ReturnType<typeof startJobHeartbeat>;
-  capabilities?: ReturnType<typeof composeAgentCapabilities>; sdkQuery?: Query;
-  sdkQueryPreparedMs?: number; sdkQueryIteratorMs?: number;
+  capabilities?: ReturnType<typeof composeAgentCapabilities>;
+  sdkQuery?: Query;
+  sdkQueryPreparedMs?: number;
+  sdkQueryIteratorMs?: number;
   toolSearchDecision?: ClaudeSdkToolSearchDecision;
-  firstSdkMessageLogged: boolean; firstTextDeltaLogged: boolean;
-  firstSdkEventMs: number | undefined; providerSessionMs: number | undefined;
-  firstVisibleOutputMs: number | undefined; firstResultMs: number | undefined;
+  firstSdkMessageLogged: boolean;
+  firstTextDeltaLogged: boolean;
+  firstSdkEventMs: number | undefined;
+  providerSessionMs: number | undefined;
+  firstVisibleOutputMs: number | undefined;
+  firstResultMs: number | undefined;
   startupTimingDiagnosticEmitted: boolean;
 }
 
@@ -103,7 +141,12 @@ function emitTerminalToolOutcome(
 ): void {
   if (context.terminalToolInvocationIds.has(input.invocationId)) return;
   context.terminalToolInvocationIds.add(input.invocationId);
-  emitTerminalToolActivity({ agentInput: context.agentInput, getNewSessionId: () => context.newSessionId, ...input, seq: ++context.toolActivitySequence });
+  emitTerminalToolActivity({
+    agentInput: context.agentInput,
+    getNewSessionId: () => context.newSessionId,
+    ...input,
+    seq: ++context.toolActivitySequence,
+  });
 }
 
 function emitInteractionBoundary(context: QueryLoopContext): void {
@@ -111,9 +154,7 @@ function emitInteractionBoundary(context: QueryLoopContext): void {
   writeOutput({ status: 'success', result: null, newSessionId: context.newSessionId, interactionBoundary: 'user_interaction' });
 }
 
-function processRuntimeSignalsDuringQuery(
-  context: QueryLoopContext,
-): boolean {
+function processRuntimeSignalsDuringQuery(context: QueryLoopContext): boolean {
   if (!context.ipcPolling) return false;
   const interactionBoundaries = drainInteractionBoundaries();
   for (let i = 0; i < interactionBoundaries; i += 1) {
@@ -141,7 +182,9 @@ function processRuntimeSignalsDuringQuery(
   return true;
 }
 
-export function createQueryLoopContext(input: QueryLoopInput): QueryLoopContext {
+export function createQueryLoopContext(
+  input: QueryLoopInput,
+): QueryLoopContext {
   const { agentInput, enableIpcFollowups } = input;
   const queryStartMs = currentTimeMs();
   const elapsedMs = () => Math.max(0, currentTimeMs() - queryStartMs);
@@ -169,24 +212,46 @@ export function createQueryLoopContext(input: QueryLoopInput): QueryLoopContext 
       },
     },
   });
-  const heartbeat = startJobHeartbeat({ agentInput, writeOutput, getSessionId: () => contextRef.current?.newSessionId });
+  const heartbeat = startJobHeartbeat({
+    agentInput,
+    writeOutput,
+    getSessionId: () => contextRef.current?.newSessionId,
+  });
   const context: QueryLoopContext = {
     ...input,
-    elapsedMs, stream, queryRunId: randomUUID(), newSessionId: undefined,
+    elapsedMs,
+    stream,
+    queryRunId: randomUUID(),
+    newSessionId: undefined,
     toolActivitySequence: 0,
     terminalToolInvocationIds: new Set<string>(),
     registeredGantryToolFamilies: new Map<string, ToolActivityFamily>(),
     gantryToolFamiliesByInvocation: new Map<string, ToolActivityFamily>(),
-    memoryBlock, toolSuccessLedger, permissionApprovalContext, scheduledOneShot,
-    ipcPolling: true, closedDuringQuery: false, steeringGate, runtimeSignalPump,
-    lastAssistantUuid: undefined, messageCount: 0, resultCount: 0,
-    sawPartialTextSinceLastResult: false, sawAssistantContentSinceLastResult: false,
-    sawStructuredTextSinceLastResult: false, visibleTextSinceLastResult: '',
-    pendingStructuredToPartialBoundary: false, nudgedScheduledRunToFinish: false,
-    primeToolAttempts: [], heartbeat,
-    firstSdkMessageLogged: false, firstTextDeltaLogged: false,
-    firstSdkEventMs: undefined, providerSessionMs: undefined,
-    firstVisibleOutputMs: undefined, firstResultMs: undefined,
+    memoryBlock,
+    toolSuccessLedger,
+    permissionApprovalContext,
+    scheduledOneShot,
+    ipcPolling: true,
+    closedDuringQuery: false,
+    steeringGate,
+    runtimeSignalPump,
+    lastAssistantUuid: undefined,
+    messageCount: 0,
+    resultCount: 0,
+    sawPartialTextSinceLastResult: false,
+    sawAssistantContentSinceLastResult: false,
+    sawStructuredTextSinceLastResult: false,
+    visibleTextSinceLastResult: '',
+    pendingStructuredToPartialBoundary: false,
+    nudgedScheduledRunToFinish: false,
+    primeToolAttempts: [],
+    heartbeat,
+    firstSdkMessageLogged: false,
+    firstTextDeltaLogged: false,
+    firstSdkEventMs: undefined,
+    providerSessionMs: undefined,
+    firstVisibleOutputMs: undefined,
+    firstResultMs: undefined,
     startupTimingDiagnosticEmitted: false,
   };
   contextRef.current = context;
@@ -195,11 +260,13 @@ export function createQueryLoopContext(input: QueryLoopInput): QueryLoopContext 
 
 function createDeclarativePreToolUse(context: QueryLoopContext) {
   if (!context.toolSuccessLedger) return undefined;
-  return async (hookInput: { hook_event_name: string; tool_name?: string; tool_input?: unknown; tool_use_id?: string }) => {
-    if (
-      hookInput.hook_event_name !== 'PreToolUse' ||
-      !hookInput.tool_name
-    ) {
+  return async (hookInput: {
+    hook_event_name: string;
+    tool_name?: string;
+    tool_input?: unknown;
+    tool_use_id?: string;
+  }) => {
+    if (hookInput.hook_event_name !== 'PreToolUse' || !hookInput.tool_name) {
       return { continue: true as const };
     }
     // prettier-ignore
@@ -219,26 +286,40 @@ function createDeclarativePreToolUse(context: QueryLoopContext) {
         invocationId,
       },
     );
-    emitTerminalToolOutcome(context, { invocationId, toolName: hookInput.tool_name, outcome: 'failure' });
+    emitTerminalToolOutcome(context, {
+      invocationId,
+      toolName: hookInput.tool_name,
+      outcome: 'failure',
+    });
     return {
       continue: false as const,
       decision: 'block' as const,
       reason: JSON.stringify(denial.error),
-      hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: denial.error.message },
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse' as const,
+        permissionDecision: 'deny' as const,
+        permissionDecisionReason: denial.error.message,
+      },
     };
   };
 }
 
 async function bindGantryToolRegistrationProvenance(
   context: QueryLoopContext,
-  hookInput: { hook_event_name: string; tool_name?: string; tool_use_id?: string },
+  hookInput: {
+    hook_event_name: string;
+    tool_name?: string;
+    tool_use_id?: string;
+  },
 ) {
   if (
     hookInput.hook_event_name === 'PreToolUse' &&
     hookInput.tool_name &&
     hookInput.tool_use_id
   ) {
-    const family = context.registeredGantryToolFamilies.get(hookInput.tool_name);
+    const family = context.registeredGantryToolFamilies.get(
+      hookInput.tool_name,
+    );
     if (family) {
       context.gantryToolFamiliesByInvocation.set(hookInput.tool_use_id, family);
     }
@@ -247,7 +328,10 @@ async function bindGantryToolRegistrationProvenance(
 }
 
 export function prepareSdkQuery(context: QueryLoopContext): Query {
-  const systemPrompt = buildRunnerSystemPrompt(context.agentInput, context.memoryBlock);
+  const systemPrompt = buildRunnerSystemPrompt(
+    context.agentInput,
+    context.memoryBlock,
+  );
   const localCliCredentialDirectories = [
     ...new Set([
       ...readLocalCliCredentialDirectories(),
@@ -255,7 +339,9 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
     ]),
   ].sort();
   const extraDirs = discoverAdditionalDirectories();
-  const additionalDirectories = [...new Set([...extraDirs, ...localCliCredentialDirectories])].sort();
+  const additionalDirectories = [
+    ...new Set([...extraDirs, ...localCliCredentialDirectories]),
+  ].sort();
   // Two-axis model (decision 0040): `direct` = authorization is the whole control
   // (permission engine + classifier + host-side credential/protected-path rail);
   // no inner SDK Seatbelt, so Chromium's Mach-port register (and the whole class)
@@ -265,7 +351,12 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
   const sdkFilesystemSandbox = undefined;
   const workspaceFolder = context.agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
-  const isolatedSdkEnv: Record<string, string | undefined> = { ...context.sdkEnv, ...SDK_NATIVE_SKILL_DISABLE_ENV, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', ENABLE_CLAUDEAI_MCP_SERVERS: 'false' };
+  const isolatedSdkEnv: Record<string, string | undefined> = {
+    ...context.sdkEnv,
+    ...SDK_NATIVE_SKILL_DISABLE_ENV,
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+  };
   const claudeCodeExecutable =
     process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
       ? allowedOuterSandboxClaudeExecutable(
@@ -326,7 +417,8 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
       : {}),
     emitTerminalToolOutcome: (input) => emitTerminalToolOutcome(context, input),
     takeGantryOwnedToolActivityFamily: (providerInvocationId) => {
-      const family = context.gantryToolFamiliesByInvocation.get(providerInvocationId);
+      const family =
+        context.gantryToolFamiliesByInvocation.get(providerInvocationId);
       context.gantryToolFamiliesByInvocation.delete(providerInvocationId);
       return family;
     },
@@ -345,8 +437,10 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
   const sdkQuery = query({
     prompt: context.stream,
     options: {
-      model: context.configuredModel, thinking: context.queryThinking,
-      effort: context.queryEffort, cwd: WORKSPACE_GROUP_DIR,
+      model: context.configuredModel,
+      thinking: context.queryThinking,
+      effort: context.queryEffort,
+      cwd: WORKSPACE_GROUP_DIR,
       additionalDirectories:
         additionalDirectories.length > 0 ? additionalDirectories : undefined,
       persistSession: context.persistSdkSession,
@@ -354,9 +448,15 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
         ? { resume: context.agentInput.sessionId }
         : {}),
       systemPrompt,
-      settings: { autoMemoryEnabled: false, includeGitInstructions: false, skillOverrides: SDK_NATIVE_SKILL_OVERRIDES },
-      skills: enabledSdkSkills, tools: [...capabilities.availableTools],
-      disallowedTools: [...capabilities.disallowedTools], env: isolatedSdkEnv,
+      settings: {
+        autoMemoryEnabled: false,
+        includeGitInstructions: false,
+        skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
+      },
+      skills: enabledSdkSkills,
+      tools: [...capabilities.availableTools],
+      disallowedTools: [...capabilities.disallowedTools],
+      env: isolatedSdkEnv,
       // Without this the subprocess's own stderr is lost and startup failures
       // surface only as "Claude Code process exited with code 1".
       stderr: (data: string) => log(`[claude-code stderr] ${data}`),
@@ -375,8 +475,12 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
         PreToolUse: [
           {
             hooks: [
-              createSafetyPreToolUseHook(context.memoryBlock, context.agentInput.toolNetworkEnv ?? {}),
-              (hookInput) => bindGantryToolRegistrationProvenance(context, hookInput),
+              createSafetyPreToolUseHook(
+                context.memoryBlock,
+                context.agentInput.toolNetworkEnv ?? {},
+              ),
+              (hookInput) =>
+                bindGantryToolRegistrationProvenance(context, hookInput),
               ...(declarativePreToolUse ? [declarativePreToolUse] : []),
             ],
             timeout: 5,
@@ -448,7 +552,10 @@ function emitStartupTimingDiagnostic(context: QueryLoopContext): void {
   });
 }
 
-export function beginQueryLoopMessage(context: QueryLoopContext, message: SDKMessage): void {
+export function beginQueryLoopMessage(
+  context: QueryLoopContext,
+  message: SDKMessage,
+): void {
   context.messageCount++;
   context.heartbeat.markActivity();
   const msgType =
@@ -469,7 +576,10 @@ export function beginQueryLoopMessage(context: QueryLoopContext, message: SDKMes
   }
 }
 
-export function handleAssistantMessage(context: QueryLoopContext, message: AssistantMessage): void {
+export function handleAssistantMessage(
+  context: QueryLoopContext,
+  message: AssistantMessage,
+): void {
   if (message.type === 'assistant' && 'uuid' in message) {
     context.lastAssistantUuid = (message as { uuid: string }).uuid;
   }
@@ -493,13 +603,20 @@ export function handleAssistantMessage(context: QueryLoopContext, message: Assis
       context.sawStructuredTextSinceLastResult = true;
       context.pendingStructuredToPartialBoundary = true;
       context.visibleTextSinceLastResult += visibleText;
-      writeOutput({ status: 'success', result: visibleText, newSessionId: context.newSessionId });
+      writeOutput({
+        status: 'success',
+        result: visibleText,
+        newSessionId: context.newSessionId,
+      });
       emitStartupTimingDiagnostic(context);
     }
   }
 }
 
-export function handleSystemMessage(context: QueryLoopContext, message: SystemMessage): void {
+export function handleSystemMessage(
+  context: QueryLoopContext,
+  message: SystemMessage,
+): void {
   if (message.type === 'system' && message.subtype === 'init') {
     context.newSessionId = message.session_id;
     assertRequiredMcpServerReady(message);
@@ -525,23 +642,33 @@ export function handleSystemMessage(context: QueryLoopContext, message: SystemMe
     (message as { subtype?: string }).subtype === 'compact_boundary'
   ) {
     log('SDK compact boundary observed');
-    writeOutput({ status: 'success', result: null, newSessionId: context.newSessionId, compactBoundary: true });
+    writeOutput({
+      status: 'success',
+      result: null,
+      newSessionId: context.newSessionId,
+      compactBoundary: true,
+    });
   }
   const taskEvent =
     message.type === 'system'
-      ? taskRuntimeEvent(
-          context.agentInput,
-          message as Record<string, unknown>,
-        )
+      ? taskRuntimeEvent(context.agentInput, message as Record<string, unknown>)
       : null;
   if (taskEvent) {
     const payload = taskEvent.payload as Record<string, unknown>;
     log(`Task event: type=${taskEvent.eventType} task=${payload.taskId}`);
-    writeOutput({ status: 'success', result: null, runtimeEventOnly: true, runtimeEvents: [taskEvent] });
+    writeOutput({
+      status: 'success',
+      result: null,
+      runtimeEventOnly: true,
+      runtimeEvents: [taskEvent],
+    });
   }
 }
 
-export function handleStreamEvent(context: QueryLoopContext, message: StreamEventMessage): void {
+export function handleStreamEvent(
+  context: QueryLoopContext,
+  message: StreamEventMessage,
+): void {
   if (message.type === 'stream_event') {
     const event = (message as { event?: unknown }).event as
       | {
@@ -568,7 +695,11 @@ export function handleStreamEvent(context: QueryLoopContext, message: StreamEven
         context.pendingStructuredToPartialBoundary = false;
         context.sawPartialTextSinceLastResult = true;
         context.visibleTextSinceLastResult += visibleText;
-        writeOutput({ status: 'success', result: visibleText, newSessionId: context.newSessionId });
+        writeOutput({
+          status: 'success',
+          result: visibleText,
+          newSessionId: context.newSessionId,
+        });
         if (context.firstVisibleOutputMs !== undefined)
           emitStartupTimingDiagnostic(context);
       }
@@ -576,9 +707,17 @@ export function handleStreamEvent(context: QueryLoopContext, message: StreamEven
   }
 }
 
-function writeResultOutput(context: QueryLoopContext, message: ResultMessage, textResult: string | null | undefined, canUseResultFallback: boolean, continuedByFollowup: boolean, usage: ReturnType<typeof normalizeModelUsage>): void {
+function writeResultOutput(
+  context: QueryLoopContext,
+  message: ResultMessage,
+  textResult: string | null | undefined,
+  canUseResultFallback: boolean,
+  continuedByFollowup: boolean,
+  usage: ReturnType<typeof normalizeModelUsage>,
+): void {
   writeOutput({
-    status: 'success', result: textResult && canUseResultFallback ? textResult : null,
+    status: 'success',
+    result: textResult && canUseResultFallback ? textResult : null,
     newSessionId: context.newSessionId,
     ...(context.primeToolAttempts.length > 0
       ? { primeToolAttempts: context.primeToolAttempts }
@@ -587,13 +726,21 @@ function writeResultOutput(context: QueryLoopContext, message: ResultMessage, te
     ...(usage
       ? {
           usage,
-          usageEventId: usageEventIdForMessage(message, context.newSessionId ?? context.agentInput.sessionId, context.resultCount, context.queryRunId),
+          usageEventId: usageEventIdForMessage(
+            message,
+            context.newSessionId ?? context.agentInput.sessionId,
+            context.resultCount,
+            context.queryRunId,
+          ),
         }
       : {}),
   });
 }
 
-export async function handleResultMessage(context: QueryLoopContext, message: ResultMessage): Promise<void> {
+export async function handleResultMessage(
+  context: QueryLoopContext,
+  message: ResultMessage,
+): Promise<void> {
   if (message.type === 'result') {
     context.resultCount++;
     if (context.resultCount === 1) {
