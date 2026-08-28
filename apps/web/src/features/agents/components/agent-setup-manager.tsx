@@ -5,7 +5,6 @@ import {
   browserCsrfHeader,
   browserFetch,
 } from '../../../lib/auth/browser-auth';
-import { Button } from '../../../ui/primitives/button';
 import {
   agentCapabilitiesQuery,
   agentCatalogQuery,

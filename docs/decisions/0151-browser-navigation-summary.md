@@ -8,14 +8,12 @@ stories: [AGENTS-WEB-1]
 # Browser Navigation Summary
 
 ## Context
-
 The web console sidebar needs compact counts for agents, MCP servers, and
 model providers. Fetching each full page (or several filtered agent pages)
 from the application shell would duplicate work, scale poorly, and make it
 easy for tooltip copy to imply a status that the runtime does not measure.
 
 ## Decision
-
 Expose one authenticated, same-origin read-only `/ui/api/navigation-summary`
 browser façade. It returns app-scoped aggregate counts only: agent total,
 active, disabled, and without-role; MCP active and disabled; and model-provider
@@ -28,7 +26,6 @@ relevant mutations. Labels follow the underlying truth: MCP servers are
 live upstream reachability promise.
 
 ## Consequences
-
 - The browser response is session-bound, no-store, and redacted; it exposes no
   provider credentials, agent prompts, endpoints, bindings, or raw records.
 - A single count pill on each relevant navigation row reveals exact breakdowns

@@ -332,7 +332,7 @@ export function McpServerDetail({
       >
         <div className="grid">
           <ul className="m-0 grid max-h-64 list-none divide-y divide-border overflow-y-auto p-0">
-            {server.bindings.map(({ agentId: id, name, binding }) => (
+            {server.bindings.map(({ agentId: id, name }) => (
               <li
                 className="flex items-center justify-between gap-3 p-4"
                 key={id}
