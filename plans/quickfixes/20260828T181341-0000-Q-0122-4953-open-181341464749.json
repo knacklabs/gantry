@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0122-4953",
+  "profile": "degraded",
+  "reason": "Autoreview P2 on JOBPERM-3-T1 (retireDelivery markers mutable through the revision guard) \u2014 six-line fix in the Postgres need repository plus one guard test; companion non-compliance on this stage continues (runs 9-11).",
+  "started_at": "2026-08-28T18:13:41+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

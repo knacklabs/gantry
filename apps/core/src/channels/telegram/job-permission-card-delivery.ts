@@ -80,9 +80,7 @@ export async function retireTelegramJobPermissionCard({
   };
   const delivered = (
     externalMessageId: string,
-    retireDelivery?: NonNullable<
-      MessageDeliveryResult['jobPermissionCardRetireDelivery']
-    >,
+    retireDelivery?: RetireDelivery,
   ): MessageDeliveryResult => ({
     externalMessageId,
     externalMessageIds: [externalMessageId],

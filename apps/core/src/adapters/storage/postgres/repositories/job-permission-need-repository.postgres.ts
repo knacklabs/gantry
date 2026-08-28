@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
 import type {
@@ -461,13 +463,9 @@ function jobPermissionCardProviderPayload(
       rows: revision.rows,
       batchNeedIds: revision.batchNeedIds,
       hiddenRowCount: revision.hiddenRowCount,
-      ...(revision.retireOutcome
-        ? { retireOutcome: revision.retireOutcome }
-        : {}),
-      ...(revision.retiredRows ? { retiredRows: revision.retiredRows } : {}),
-      ...(revision.retireDelivery
-        ? { retireDelivery: revision.retireDelivery }
-        : {}),
+      retireOutcome: revision.retireOutcome,
+      retiredRows: revision.retiredRows,
+      retireDelivery: revision.retireDelivery,
       actions: jobPermissionCardActions(card.callbackKey, revision),
     },
   };
@@ -552,9 +550,22 @@ function assertJobPermissionState(
     state.card.conversationId !== previousCard.conversationId ||
     state.card.threadId !== previousCard.threadId ||
     state.card.agentId !== previousCard.agentId ||
-    JSON.stringify(
-      state.card.revisions.slice(0, previousCard.revisions.length),
-    ) !== JSON.stringify(previousCard.revisions) ||
+    // Recorded revisions stay immutable except for the first retire-delivery
+    // acknowledgement; a marker already recorded can never change or clear.
+    !isDeepStrictEqual(
+      state.card.revisions
+        .slice(0, previousCard.revisions.length)
+        .map((revision, index) =>
+          previousCard.revisions[index]?.retireDelivery
+            ? revision
+            : { ...revision, retireDelivery: undefined },
+        ),
+      previousCard.revisions.map((revision) =>
+        revision.retireDelivery
+          ? revision
+          : { ...revision, retireDelivery: undefined },
+      ),
+    ) ||
     !Number.isInteger(state.card.pageOffset) ||
     state.card.pageOffset < 0 ||
     !Number.isInteger(state.card.fullScopePageOffset) ||

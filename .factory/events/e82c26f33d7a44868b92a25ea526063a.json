@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-28T16:27:04+00:00", "story": "JOBPERM-3", "detail": "JOBPERM-3-T1 brief says the writable stage is active, but .factory/run.json is shipped with no issue/task and .factory/decomposition.json is absent."}

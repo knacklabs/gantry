@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0121-8dcf",
+  "profile": "degraded",
+  "reason": "Companion non-compliance: three consecutive delegate runs (9,10,11) failed to apply a 15-line fixture edit to permission-decision-chain.postgres.integration.test.ts (one reverted accepted product fixes, one made no edit before the compaction 404, one edited product instead). Orchestrator applies the test-only edit; product untouched.",
+  "started_at": "2026-08-28T18:02:15+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

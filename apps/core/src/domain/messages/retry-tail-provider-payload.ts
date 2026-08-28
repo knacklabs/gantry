@@ -60,9 +60,6 @@ export interface RetryTailProviderPayload {
   // free-form provider content — every field is capped and the affordance action
   // is allowlisted; malformed input drops the field/element, never throws.
   observerDigestView?: SanitizedObserverDigestView;
-  // Job-permission cards are durable, revision-bound delivery payloads. Keep
-  // their bounded action contract so recovery dispatch can edit the living
-  // card rather than degrading it to plain text.
   jobPermissionCard?: SanitizedJobPermissionCard;
 }
 

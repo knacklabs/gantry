@@ -1,0 +1,12 @@
+{
+  "topic": "Codex re-runs undo host-verified Postgres fixes",
+  "lesson": "When a follow-up delegate carries a fix Codex cannot reproduce in its sandbox (Postgres-only hang or failure), state in the note that the earlier fixes are accepted and that only the named file may change, with the host-side proof; otherwise Codex reasons the fix away and reverts autoreview-accepted work (JOBPERM-3-T1 run 9).",
+  "source": "launch-b91c7133aee64d1ebe2611bdbd530e7e",
+  "applies_to": [
+    "apps/core/test/integration/**",
+    ".factory/briefs/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-08-28T17:42:24+00:00"
+}

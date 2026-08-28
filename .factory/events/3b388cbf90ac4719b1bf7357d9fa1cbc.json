@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T16:28:43+00:00", "story": "JOBPERM-3", "detail": "S-0042-d146: Informational: .factory/run.json is the LEGACY pointer (literally {phase: shipped}); the authoritative run pointer is the protected .git/forge/run.json and the protected decomposition (forge next show"}
