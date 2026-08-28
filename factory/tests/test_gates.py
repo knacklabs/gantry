@@ -16689,7 +16689,7 @@ def test_review_brief_composes_contract_brief(repo, tmp_path):
              "plan_contracts": [{"id": "C1", "statement": "first statement",
                                   "source": "plan.md#first"}]}
     second = {**skeletal_stage_task("T2", "second slice"),
-              "dependencies": ["T1"], "reviewer_focus": "focus two",
+              "dependencies": ["T1"], "reviewer_focus": ["focus two", "focus three"],
               "plan_contracts": [{"id": "C2", "statement": "second statement",
                                    "source": "plan.md#second"}]}
     skeletons = [task_skeleton(first), task_skeleton(second)]
@@ -16722,7 +16722,8 @@ def test_review_brief_composes_contract_brief(repo, tmp_path):
     code, out = run(repo, "forge.py", "review-brief", "--all", "--repo", str(repo))
     assert code == 0 and out.strip() == ".factory/review-briefs/all.md"
     branch = (repo / out.strip()).read_text()
-    assert all(value in branch for value in ("C1", "C2", "focus one", "focus two"))
+    assert all(value in branch for value in (
+        "C1", "C2", "focus one", "- focus two", "- focus three"))
 
     for args, expected in [
         (("review-brief",), "exactly one"),
