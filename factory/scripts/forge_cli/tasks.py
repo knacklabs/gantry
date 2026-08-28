@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory_lib import (
-    clean_git_env, dump_json, evidence_path, git_control_dir, load_json, now_iso,
+    clean_git_env, default_trunk_branch, dump_json, evidence_path,
+    git_control_dir, load_json, now_iso,
     plan_digest_without_assumptions, repo_root, require_ready_task,
     require_plan_mode_marker, require_task_sealed,
     protected_decomposition_state_path, run_state_path,
@@ -38,19 +39,9 @@ def _require_git(base: Path, description: str, *args: str) -> str:
 
 def _default_branch(base: Path) -> str:
     """The integration branch a task PR targets: origin's default branch, not a
-    hardcoded 'main'. Repos ship on develop/trunk/etc.; a task PR must target
-    whatever origin/HEAD points at, falling back to main only if unresolved."""
-    proc = _git(base, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
-    if proc.returncode == 0 and proc.stdout.strip():
-        return proc.stdout.strip().rsplit("/", 1)[-1]
-    # origin/HEAD not set locally — ask the remote once, then fall back.
-    proc = _git(base, "remote", "show", "origin")
-    for line in proc.stdout.splitlines():
-        if "HEAD branch:" in line:
-            name = line.split("HEAD branch:", 1)[1].strip()
-            if name and name != "(unknown)":
-                return name
-    return "main"
+    hardcoded 'main'. Delegates to the single canonical resolver so PR targeting,
+    the task-start base, task markers, and the review diff all agree on the trunk."""
+    return default_trunk_branch(base)
 
 
 def _task_plan_path(base: Path, task_id: str, *, for_write: bool = False) -> Path:
@@ -159,19 +150,20 @@ def cmd_task_start(args: argparse.Namespace) -> None:
         fail(f"{args.id!r} is not a task in the protected decomposition")
     task_marker_path(key, args.id)  # validates both branch/path components
 
+    trunk = default_trunk_branch(base)
     if index:
         predecessor = tasks[index - 1].get("id")
         if not task_marker_on_main(base, key, predecessor):
             marker = task_marker_path(key, predecessor)
             fail(
                 f"task {args.id} cannot start: predecessor {predecessor} marker "
-                f"is absent from fetched origin/main ({marker.as_posix()})"
+                f"is absent from fetched origin/{trunk} ({marker.as_posix()})"
             )
     else:
-        _require_git(base, "fetching origin/main", "fetch", "origin", "main")
+        _require_git(base, f"fetching origin/{trunk}", "fetch", "origin", trunk)
     base_main_sha = _require_git(
-        base, "resolving fetched origin/main", "rev-parse", "--verify",
-        "origin/main^{commit}",
+        base, f"resolving fetched origin/{trunk}", "rev-parse", "--verify",
+        f"origin/{trunk}^{{commit}}",
     )
 
     branch = f"feat/{key}-{args.id}"

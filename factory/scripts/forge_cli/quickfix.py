@@ -97,21 +97,19 @@ def _open(base: Path, *, profile: str, reason: str, by: str | None = None) -> di
         stage.get("id") for stage in load_stages(base).get("stages", [])
         if isinstance(stage, dict) and stage.get("status") == "active"
     ]
-    if active_stages and profile != "degraded":
+    # A quickfix/lite window is out-of-band work and must not overlap a stage.
+    # A DEGRADED window is the host-exception valve (WORKFLOW.md "the single
+    # write exception"): when a required product fix is provably impossible to
+    # make or verify inside the companion sandbox, the orchestrator opens a
+    # bounded (<=5 file), ledgered degraded window to make the minimal host fix
+    # WITHOUT tearing down the active stage — otherwise stage-done (which runs
+    # the required test) can never be reached and the fix loops forever. The
+    # file cap + ledger keep it bounded even mid-stage.
+    if active_stages and profile != DEGRADED:
         fail(
             f"cannot open a {profile} window while a stage is active: "
             f"{', '.join(active_stages)} — finish it "
             "(`./forge stage done <id>`) so no stage is active, then open the window"
-        )
-    # A DEGRADED window is the documented companion-outage exception; the
-    # outage can strike MID-STAGE, and a stage cannot be deactivated without
-    # completing — refusing here deadlocks the exception exactly when it is
-    # needed. The stage's own diff measurement at stage-done still governs
-    # everything written inside the window. (Owner-authorized 2026-08-24.)
-    if active_stages and profile == "degraded":
-        print(
-            f"NOTE: degraded window opens under active stage(s) "
-            f"{', '.join(active_stages)}; their diff measurement still governs."
         )
     active_window = load_active(base)
     if active_window:

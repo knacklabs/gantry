@@ -49,6 +49,7 @@ from forge_cli import assumptions as assumptions_mod
 from forge_cli import context as ctx
 from forge_cli import delegate as delegate_mod
 from forge_cli import deferrals as deferrals_mod
+from forge_cli import deps as deps_mod
 from forge_cli import findings as findings_mod
 from forge_cli import fix as fix_mod
 from forge_cli import lessons as lessons_mod
@@ -245,6 +246,13 @@ def main() -> None:
     p_qfl = qf_sub.add_parser("list", help="show the active and completed quickfixes")
     p_qfl.add_argument("--repo")
     p_qfl.set_defaults(func=quickfix_mod.cmd_list)
+
+    p_deps = sub.add_parser("deps", help="bounded dependency lockfile management")
+    deps_sub = p_deps.add_subparsers(dest="deps_command", required=True)
+    p_deps_lock = deps_sub.add_parser(
+        "lock", help="refresh the lockfile only (no node_modules, no build scripts)")
+    p_deps_lock.add_argument("--repo")
+    p_deps_lock.set_defaults(func=deps_mod.cmd_lock)
 
     p_mode = sub.add_parser("mode", help="manage developer-selected workflow modes")
     mode_sub = p_mode.add_subparsers(dest="mode_command", required=True)
