@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Gantry External Ingress Architecture & Security Pipeline",
+    "quality_profile": "standard",
+    "viewBox": [1680, 960],
+    "views": [
+      {
+        "id": "security-gate-view",
+        "label": "1. Security & Idempotency Gate",
+        "focus": ["ext_client", "http_route", "sig_verify", "nonce_gate", "idempotency_store"],
+        "note": "Inspect HMAC-SHA256 signature verification, 5-minute timestamp tolerance, and atomic nonce reservation."
+      },
+      {
+        "id": "target-dispatch-view",
+        "label": "2. Target Dispatching",
+        "focus": ["target_router", "target_session", "target_conversation", "target_job", "target_template"],
+        "note": "Inspect how External Ingress dispatches to session_message, conversation_message, job_trigger, or job_template."
+      },
+      {
+        "id": "invocation-sync-view",
+        "label": "3. Invocation Tracking & Wait Mode",
+        "focus": ["invocation_tracker", "wait_endpoint", "postgres_invocations", "worker_admission"],
+        "note": "Inspect asynchronous 202 Accepted versus synchronous /wait polling with invocation records."
+      }
+    ]
+  },
+  "components": [
+    { "id": "ext_client", "type": "external", "label": "External Client / System", "sublabel": "Enterprise Webhook Caller", "pos": [50, 200], "size": [210, 80] },
+    { "id": "http_route", "type": "backend", "label": "Control API Route", "sublabel": "/v1/ingresses/:id/invoke", "pos": [350, 200], "size": [220, 80] },
+    { "id": "sig_verify", "type": "security", "label": "HMAC SigV4-style Gate", "sublabel": "verifyExternalIngressRequestSignature", "pos": [660, 200], "size": [230, 80] },
+    { "id": "nonce_gate", "type": "security", "label": "Nonce Replay Gate", "sublabel": "reserveExternalIngressNonce()", "pos": [980, 200], "size": [220, 80] },
+    { "id": "idempotency_store", "type": "database", "label": "Idempotency Registry", "sublabel": "external_ingress_invocations", "pos": [1290, 200], "size": [220, 80] },
+
+    { "id": "target_router", "type": "backend", "label": "Target Router", "sublabel": "dispatchTarget(target.kind)", "pos": [660, 480], "size": [230, 80] },
+
+    { "id": "target_session", "type": "backend", "label": "1. session_message", "sublabel": "ensureSession + acceptMessage", "pos": [50, 680], "size": [210, 80] },
+    { "id": "target_conversation", "type": "backend", "label": "2. conversation_message", "sublabel": "Inject to Slack/Discord/TG", "pos": [350, 680], "size": [220, 80] },
+    { "id": "target_job", "type": "backend", "label": "3. job_trigger", "sublabel": "Immediate cron execution", "pos": [660, 680], "size": [230, 80] },
+    { "id": "target_template", "type": "backend", "label": "4. job_template", "sublabel": "Render vars & trigger run", "pos": [980, 680], "size": [220, 80] },
+
+    { "id": "invocation_tracker", "type": "backend", "label": "Invocation Status", "sublabel": "pending -> completed/failed", "pos": [1290, 480], "size": [220, 80] },
+    { "id": "wait_endpoint", "type": "backend", "label": "Signed Wait Endpoint", "sublabel": "/v1/ingresses/:id/wait", "pos": [1290, 680], "size": [220, 80] },
+
+    { "id": "worker_admission", "type": "backend", "label": "Worker Admission", "sublabel": "live_admission_work_items", "pos": [350, 850], "size": [220, 80] },
+    { "id": "postgres_invocations", "type": "database", "label": "PostgreSQL Ingress DB", "sublabel": "external_ingresses & nonces", "pos": [1290, 850], "size": [220, 80] }
+  ],
+  "connections": [
+    { "id": "c_req", "from": "ext_client", "to": "http_route", "label": "HTTP POST", "variant": "emphasis" },
+    { "id": "c_sig", "from": "http_route", "to": "sig_verify", "label": "validate HMAC", "variant": "emphasis" },
+    { "id": "c_nonce", "from": "sig_verify", "to": "nonce_gate", "label": "check nonce", "variant": "emphasis" },
+    { "id": "c_idem", "from": "nonce_gate", "to": "idempotency_store", "label": "check cached", "variant": "emphasis" },
+
+    { "id": "c_dispatch", "from": "sig_verify", "to": "target_router", "fromSide": "bottom", "toSide": "top", "variant": "emphasis" },
+
+    { "id": "c_t_sess", "from": "target_router", "to": "target_session", "label": "session", "variant": "emphasis" },
+    { "id": "c_t_conv", "from": "target_router", "to": "target_conversation", "label": "conversation", "variant": "emphasis" },
+    { "id": "c_t_job", "from": "target_router", "to": "target_job", "fromSide": "bottom", "toSide": "top" },
+    { "id": "c_t_tmpl", "from": "target_router", "to": "target_template", "label": "job_template" },
+
+    { "id": "c_admit_sess", "from": "target_session", "to": "worker_admission", "fromSide": "bottom", "toSide": "top", "variant": "emphasis" },
+    { "id": "c_admit_conv", "from": "target_conversation", "to": "worker_admission", "fromSide": "bottom", "toSide": "top", "variant": "emphasis" },
+
+    { "id": "c_track", "from": "target_router", "to": "invocation_tracker", "label": "update status", "variant": "emphasis" },
+    { "id": "c_wait", "from": "wait_endpoint", "to": "invocation_tracker", "label": "poll result", "fromSide": "top", "toSide": "bottom", "variant": "dashed" },
+    { "id": "c_db_inv", "from": "invocation_tracker", "to": "postgres_invocations", "fromSide": "right", "toSide": "right", "via": [[1550, 520], [1550, 890]] }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Cryptographic HMAC Verification",
+      "items": [
+        "Header validation: x-gantry-ingress-timestamp, x-gantry-ingress-nonce, x-gantry-ingress-signature",
+        "Canonical payload string: METHOD + PATH + TIMESTAMP + NONCE + BODY_HASH + RAW_BODY",
+        "Constant-time string comparison protects against timing attacks"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "4 Distinct Target Dispatch Types",
+      "items": [
+        "1. session_message: Injects a turn directly into an interactive AI agent session",
+        "2. conversation_message: Injects message into Slack/Discord/Teams threads",
+        "3. job_trigger: Directly triggers execution of an asynchronous scheduled job",
+        "4. job_template: Renders JSON template variables into a dynamic job definition"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Known Bugs & Edge Cases",
+      "items": [
+        "Bug 1: Nonce Replay on Idempotent Retries (Same nonce rejects before idempotency check)",
+        "Bug 2: Proxy Body Mutation (Altered JSON whitespace causes HMAC signature failure)",
+        "Bug 3: 256 KB Body Limit (Fails 413 Payload Too Large on base64 images/files)"
+      ]
+    }
+  ]
+}
