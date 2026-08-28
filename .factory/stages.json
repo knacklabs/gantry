@@ -19,7 +19,7 @@
     {
       "id": "JOBPERM-2-T2",
       "title": "Once expiry settlement + Postgres integration proof of the once chain",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-27T18:42:18+00:00",
       "base_sha": "427e9828a60d2e4611248e7ee292d02fbc7d99d6",
       "dirty_at_start": {
@@ -64,7 +64,22 @@
           "git": "? .factory/stories/JOBPERM-2/task-plans/JOBPERM-2-T2.md\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "6974c1f85f7dfcb018026fe4261c1f07424dcdee736ba7ba5f3076078cf43066"
+      "task_sha256": "33f5cc533e38f0eb741a18b05e68f211918af0c1978a53739d1aa31117caf96a",
+      "local_review_stamp": {
+        "stage_id": "JOBPERM-2-T2",
+        "task_sha256": "33f5cc533e38f0eb741a18b05e68f211918af0c1978a53739d1aa31117caf96a",
+        "brief_sha256": "8cdc7ee70ea119e5a6d9fd3ef4be38a1d71f758f32e518c21c6315db248c06e3",
+        "base_sha": "427e9828a60d2e4611248e7ee292d02fbc7d99d6",
+        "product_tree_digest": "60c76ce2486f12ede7964f66a4b3657b18e33494758d044ef61fce32aa84ce62",
+        "recorded_at": "2026-08-27T19:50:34+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-08-27T19:51:12+00:00",
+      "contract_changed": {
+        "at": "2026-08-27T19:51:12+00:00",
+        "from": "6974c1f85f7dfcb018026fe4261c1f07424dcdee736ba7ba5f3076078cf43066",
+        "to": "33f5cc533e38f0eb741a18b05e68f211918af0c1978a53739d1aa31117caf96a"
+      }
     }
   ]
 }

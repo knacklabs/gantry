@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-27T19:35:05+00:00", "story": "JOBPERM-2", "detail": "JOBPERM-2-T2 Postgres integration proof cannot run: 127.0.0.1:5432 has no server, Docker API access is denied in this sandbox, and the required URL-prefixed command is policy-refused before execution."}

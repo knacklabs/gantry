@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T19:36:45+00:00", "story": "JOBPERM-2", "detail": "S-0007-4f94: Postgres is host-only; never retry it in-sandbox. The orchestrator already ran the suite host-side: the once chain reaches the runner with {approved:true, mode:'allow_once', decidedBy:'human_once'} an"}
