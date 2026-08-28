@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Requirements re-check (the tree moved under the plan): with the 0144 ruling, the shared card text for an expired card is one line per row \u2014 \"Expired: <command>\". Keep the label as the full command line (redacted, capped like once rows) or shorten to the tool name only?",
+      "options": [
+        "Full command label (redacted, capped) (Recommended)",
+        "Tool name only"
+      ],
+      "chosen": "Full command label (redacted, capped) (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T15:54:06.183035+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

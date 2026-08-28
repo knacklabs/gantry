@@ -4,7 +4,7 @@
   "verdict": "pass",
   "questions_asked": 2,
   "gaps": [
-    "T1 deploys to the runtime as soon as it is green; T2 follows in the same PR."
+    "AC2/AC3 amended after signal S-0041: retire outcome allowed | expired; denied rows stay live per 0144 and such a card never retires."
   ],
   "contradictions": [],
   "resolutions": [
@@ -12,20 +12,20 @@
   ],
   "rounds": [
     {
-      "question": "JOBPERM-3 plan: T1 = shared projection/record/wiring + Telegram delete; T2 = Slack + Discord delete and Teams receipt card. Deploy T1 to the runtime as soon as it's green (so your Telegram cards start vanishing before T2 lands)?",
+      "question": "Amended JOBPERM-3 plan: retire outcomes are allowed | expired; a card with a Deny keeps its live rows (0144 Reconsider) and never retires. Confirm the amendment?",
       "options": [
-        "Yes \u2014 deploy T1 when green (Recommended)",
-        "No \u2014 deploy only after the whole story merges"
-      ],
-      "chosen": "Yes \u2014 deploy T1 when green (Recommended)"
-    },
-    {
-      "question": "Anything else before I approve the plan and start T1?",
-      "options": [
-        "No \u2014 approve and start (Recommended)",
+        "Yes \u2014 approve the amended plan (Recommended)",
         "Hold"
       ],
-      "chosen": "No \u2014 approve and start (Recommended)",
+      "chosen": "Yes \u2014 approve the amended plan (Recommended)"
+    },
+    {
+      "question": "Anything else before I re-approve and restart T1?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)",
       "frontier_empty": true
     }
   ],
@@ -41,8 +41,8 @@
       "line": 84
     }
   ],
-  "input_sha256": "58f3793171a35b626d5c5e4c318569cb6184237510a66d86c942e20fddc38670",
+  "input_sha256": "04560d94baa8179ad8169c35a6ca12edd099e0489991affcc8e71a3eda6e07e2",
   "issue": "JOBPERM-3",
-  "recorded_at": "2026-08-28T13:05:33+00:00",
-  "commit": "14b704201e7a08a7e6e944f2bbbbf252bcf23197"
+  "recorded_at": "2026-08-28T15:55:04+00:00",
+  "commit": "2e4dfb71c821057f12e81db212b1e5741d68261b"
 }

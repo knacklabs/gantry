@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Amended JOBPERM-3 plan: retire outcomes are allowed | expired; a card with a Deny keeps its live rows (0144 Reconsider) and never retires. Confirm the amendment?",
+      "options": [
+        "Yes \u2014 approve the amended plan (Recommended)",
+        "Hold"
+      ],
+      "chosen": "Yes \u2014 approve the amended plan (Recommended)"
+    },
+    {
+      "question": "Anything else before I re-approve and restart T1?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T15:51:08.051603+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

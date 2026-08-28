@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Conflict: decision 0144 keeps a denied row on the card with a one-tap Reconsider (so the job can be un-denied later); AC2 would retire it into a buttonless receipt. Which wins?",
+      "options": [
+        "Keep 0144: denied rows stay live with Reconsider; a card only vanishes when every row is allowed; expired rows get the receipt (Recommended)",
+        "Amend 0144: Deny is final; denied rows retire into 'Permission denied: <command>' receipts"
+      ],
+      "chosen": "Keep 0144: denied rows stay live with Reconsider; a card only vanishes when every row is allowed; expired rows get the receipt (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T15:41:26.990039+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

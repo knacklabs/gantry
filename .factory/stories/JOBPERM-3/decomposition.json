@@ -7,11 +7,11 @@
     {
       "id": "JOBPERM-3-T1",
       "title": "Retire outcome on the card revision + Telegram delete/receipt",
-      "objective": "The card projection marks a retire revision allowed|denied (denied/expired rows carried); shared text renders per-row 'Permission denied: <label>' / 'Expired: <label>' receipts; the durable-send wiring delivers an allowed retire as a delete of the provider message (receipt fallback) and a denied retire as an edit; Telegram deletes (editMessageText receipt on failure); deletedAt/receiptMessageId recorded on the revision so retries no-op. Unit + Postgres coverage.",
+      "objective": "The card projection marks a retire revision allowed|expired (expired rows carried; denied rows never retire per 0144); shared text renders per-row 'Expired: <label>' lines; the durable-send wiring delivers an allowed retire as a delete of the provider message (receipt fallback) and an expired retire as an edit; Telegram deletes (editMessageText receipt on failure); deletedAt/receiptMessageId recorded on the revision so retries no-op. Unit + Postgres coverage.",
       "acceptance_criteria": [
         "when every row of a job permission card is settled by Allow, the card message is deleted on Telegram, Discord and Slack and edited to a one-line approved receipt on Teams; a failed delete falls back to the receipt edit.",
-        "when any row is denied or expired, the card is edited to a one-line receipt per denied/expired request ('Permission denied: <command>' / 'Expired: <command>') on every provider \u2014 never deleted.",
-        "the retire outcome (allowed | denied) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.",
+        "when the remaining rows of a card have expired (the run ended before a decision), the card is edited to one line per expired request ('Expired: <command>') on every provider \u2014 never deleted; a card containing a denied row keeps its live rows (decision 0144: a Deny stays available with one-tap Reconsider) and does not retire.",
+        "the retire outcome (allowed | expired) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.",
         "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green."
       ],
       "user_facing": false,
@@ -27,7 +27,9 @@
         "apps/core/test/unit/application/",
         "apps/core/test/unit/channels/",
         "apps/core/test/unit/domain/",
-        "apps/core/test/integration/"
+        "apps/core/test/integration/",
+        "apps/core/src/adapters/storage/postgres/repositories/job-permission-need-repository.postgres.ts",
+        "apps/core/test/unit/adapters/"
       ],
       "required_tests": [
         {
@@ -48,12 +50,12 @@
         },
         {
           "id": "JOBPERM-3-AC2",
-          "statement": "when any row is denied or expired, the card is edited to a one-line receipt per denied/expired request ('Permission denied: <command>' / 'Expired: <command>') on every provider \u2014 never deleted.",
+          "statement": "when the remaining rows of a card have expired (the run ended before a decision), the card is edited to one line per expired request ('Expired: <command>') on every provider \u2014 never deleted; a card containing a denied row keeps its live rows (decision 0144: a Deny stays available with one-tap Reconsider) and does not retire.",
           "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
         },
         {
           "id": "JOBPERM-3-AC3",
-          "statement": "the retire outcome (allowed | denied) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.",
+          "statement": "the retire outcome (allowed | expired) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.",
           "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
         },
         {
@@ -63,16 +65,16 @@
         }
       ],
       "reviewer_focus": [
-        "retire outcome derives from need state (decidedBy \u21d2 denied, expiredAt \u21d2 expired), never from text",
-        "delete only when every row allowed; denied/expired \u21d2 per-row receipt edit, never delete",
+        "retire outcome derives from need state (expiredAt \u21d2 expired), never from text; denied needs never retire (0144)",
+        "delete only when every row allowed; expired \u21d2 per-row receipt edit, never delete",
         "failed delete degrades to the receipt edit exactly once; deletedAt/receiptMessageId gate retries",
         "per-message lane serialization kept for the delete",
-        "retry-tail sanitizer keeps the new revision fields"
+        "retry-tail sanitizer and the Postgres delivery payload keep the new revision fields"
       ],
       "review_budget": {
-        "max_changed_files": 14,
-        "max_changed_lines": 900,
-        "reason": "Projection + record + wiring + Telegram delivery + sanitizer and four test files."
+        "max_changed_files": 16,
+        "max_changed_lines": 1000,
+        "reason": "Projection + record + wiring + Telegram delivery + sanitizer + Postgres delivery payload and their tests."
       }
     },
     {
@@ -97,12 +99,12 @@
     },
     {
       "id": "JOBPERM-3-AC2",
-      "statement": "when any row is denied or expired, the card is edited to a one-line receipt per denied/expired request ('Permission denied: <command>' / 'Expired: <command>') on every provider \u2014 never deleted.",
+      "statement": "when the remaining rows of a card have expired (the run ended before a decision), the card is edited to one line per expired request ('Expired: <command>') on every provider \u2014 never deleted; a card containing a denied row keeps its live rows (decision 0144: a Deny stays available with one-tap Reconsider) and does not retire.",
       "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
     },
     {
       "id": "JOBPERM-3-AC3",
-      "statement": "the retire outcome (allowed | denied) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.",
+      "statement": "the retire outcome (allowed | expired) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.",
       "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
     },
     {
@@ -113,6 +115,6 @@
   ],
   "project": "",
   "plan_file": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md",
-  "plan_sha256": "c9d4dab8d34229aeb653492b3fb99b953e2cebb234e2328c4a8b8e7d19ca84f7",
-  "commit": "14b704201e7a08a7e6e944f2bbbbf252bcf23197"
+  "plan_sha256": "e5d9f794804bbe03b7020f7ebe1710a9d882a375009b6b6c99fa47c13e8a317b",
+  "commit": "2e4dfb71c821057f12e81db212b1e5741d68261b"
 }
