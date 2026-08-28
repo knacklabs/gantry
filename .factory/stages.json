@@ -1,82 +1,128 @@
 {
-  "issue": "CHAN-2",
+  "issue": "JOBPERM-3",
   "stages": [
     {
-      "id": "CHAN-2-T1",
-      "title": "Five repeated-guard hoists across the provider adapters",
-      "status": "done"
-    },
-    {
-      "id": "CHAN-2-T2",
-      "title": "Split the Telegram callback by action kind",
-      "status": "done",
-      "started_at": "2026-08-28T04:12:52+00:00",
-      "base_sha": "80bca165d18147db6226a52e77e0f66f94fcef03",
+      "id": "JOBPERM-3-T1",
+      "title": "Retire outcome on the card revision + Telegram delete/receipt",
+      "status": "active",
+      "started_at": "2026-08-28T13:07:30+00:00",
+      "base_sha": "14b704201e7a08a7e6e944f2bbbbf252bcf23197",
       "dirty_at_start": {
-        ".factory/events/6401b16386f74cd5936a441e57c2d137.json": {
-          "digest": "4ce799a3d7d2acf60ed19e8c28e1ccc033240009f6bbe4f1f1f079d0530af4a1",
-          "git": "? .factory/events/6401b16386f74cd5936a441e57c2d137.json\u0000\u0000\u0000"
+        ".factory/events/05a77e11bc4f4d2b94601cd812303ba5.json": {
+          "digest": "73268576ff34d42f26fac14ee0e578531b29dd0e8fddba1e59a9f208a0335ce0",
+          "git": "? .factory/events/05a77e11bc4f4d2b94601cd812303ba5.json\u0000\u0000\u0000"
         },
-        ".factory/events/9c6a03ff2bd34377bfca61b5ae714266.json": {
-          "digest": "9f7ba96542cc1ebf4767a7b4ca3b3c6717693e958bb1b14e7b5e56c4ca361955",
-          "git": "? .factory/events/9c6a03ff2bd34377bfca61b5ae714266.json\u0000\u0000\u0000"
+        ".factory/events/1103ab71a64e42d494e6a1833f225038.json": {
+          "digest": "7a599736e72286fbd840735473541d66d460f4141d5ae1bc5b20e2f85320bb6d",
+          "git": "? .factory/events/1103ab71a64e42d494e6a1833f225038.json\u0000\u0000\u0000"
         },
-        ".factory/events/a27863cf876d4ebf9524f2e92895147c.json": {
-          "digest": "cd7572c19ccbbed58b5fc9acf9ccf39130823799ff1bff8354df308f5c8c6d4b",
-          "git": "? .factory/events/a27863cf876d4ebf9524f2e92895147c.json\u0000\u0000\u0000"
+        ".factory/events/2a363769b3b64776923a232473059eb9.json": {
+          "digest": "88b9984b837da84e6cec534cf189c041991be015f9a565b3ed712f4da76ecb57",
+          "git": "? .factory/events/2a363769b3b64776923a232473059eb9.json\u0000\u0000\u0000"
+        },
+        ".factory/events/34ef3a8ced4c40828ad71a7fc619a962.json": {
+          "digest": "e76a44f37c6bc6cda78b448eccfc47aaa25ac77a4157e3f54a460bbd6baac7e1",
+          "git": "? .factory/events/34ef3a8ced4c40828ad71a7fc619a962.json\u0000\u0000\u0000"
+        },
+        ".factory/events/3dc7dbba667344d9bb4bb77cc0fb512e.json": {
+          "digest": "d70286e16f5ba71764c36b7982549ba12e2039c6339c7a630ee29c6f9860e320",
+          "git": "? .factory/events/3dc7dbba667344d9bb4bb77cc0fb512e.json\u0000\u0000\u0000"
+        },
+        ".factory/events/53eb79622b9e431a99e84dcce64265bf.json": {
+          "digest": "7a599736e72286fbd840735473541d66d460f4141d5ae1bc5b20e2f85320bb6d",
+          "git": "? .factory/events/53eb79622b9e431a99e84dcce64265bf.json\u0000\u0000\u0000"
+        },
+        ".factory/events/7d943788108b4d688ca5c66f26082fd6.json": {
+          "digest": "e0c900fbed661d130911f180b451c3c04f21e6ee19653f21715895870a90fb46",
+          "git": "? .factory/events/7d943788108b4d688ca5c66f26082fd6.json\u0000\u0000\u0000"
+        },
+        ".factory/events/7e3bc665dc324ec8915c406aad1c8ddf.json": {
+          "digest": "e78e12f2969d31d7f1a7acc8d55237137cff0d8e479cb88136217370aae8f398",
+          "git": "? .factory/events/7e3bc665dc324ec8915c406aad1c8ddf.json\u0000\u0000\u0000"
+        },
+        ".factory/events/cca550bc721946e29379cddf4f16d3f5.json": {
+          "digest": "2b2a4cb24b954b7f93d9b26c967501994086457c39481fd2819bfe85c311cf6c",
+          "git": "? .factory/events/cca550bc721946e29379cddf4f16d3f5.json\u0000\u0000\u0000"
+        },
+        ".factory/grills/spec.json": {
+          "digest": "c46af68d0411b647b8a385ee3cac0f7cbe5fecfed520e4e556c495032ee9942a",
+          "git": "1 .M N... 100644 100644 100644 823f7aacd1bdcc512224510e3ce7742a2774ff56 823f7aacd1bdcc512224510e3ce7742a2774ff56 .factory/grills/spec.json\u0000\u0000100644 823f7aacd1bdcc512224510e3ce7742a2774ff56 0\t.factory/grills/spec.json\u0000\u0000H .factory/grills/spec.json\u0000"
         },
         ".factory/stages.json": {
-          "digest": "07ada69a730e67f1c462caebad0de7b3934fb0fde05f70006669d58dedb2cccb",
-          "git": "1 .M N... 100644 100644 100644 ad9cf10451e6a1f50dbae2634ef5bcd277b98a0a ad9cf10451e6a1f50dbae2634ef5bcd277b98a0a .factory/stages.json\u0000\u0000100644 ad9cf10451e6a1f50dbae2634ef5bcd277b98a0a 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+          "digest": "83d442ccb4f0263eb8d281191902c2351924ade24e20429c9c1f1e585cd20e08",
+          "git": "1 .M N... 100644 100644 100644 14c57af7d8ea3fe7503124b3ae7e7983f6f78ce4 14c57af7d8ea3fe7503124b3ae7e7983f6f78ce4 .factory/stages.json\u0000\u0000100644 14c57af7d8ea3fe7503124b3ae7e7983f6f78ce4 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
         },
-        ".factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json": {
-          "digest": "4d6a92b489116507921a6dbe9dd446aade84964192d9e0c4d17810e5c6bc3e4d",
-          "git": "1 .M N... 100644 100644 100644 d7c9862499cad7ff79ac5d0aa64e0db661aa8acf d7c9862499cad7ff79ac5d0aa64e0db661aa8acf .factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json\u0000\u0000100644 d7c9862499cad7ff79ac5d0aa64e0db661aa8acf 0\t.factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json\u0000\u0000H .factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json\u0000"
+        ".factory/stories/CHAN-3/grill-rounds/512f18e1-eb8d-4537-b472-d6ac3b3f1f9b.json": {
+          "digest": "3f669e251c5095fa8ede5f9f3874f5b96e12ad996692d9f7317cb4662e07878a",
+          "git": "? .factory/stories/CHAN-3/grill-rounds/512f18e1-eb8d-4537-b472-d6ac3b3f1f9b.json\u0000\u0000\u0000"
         },
-        ".factory/stories/JOBPERM-2/decomposition.json": {
-          "digest": "",
-          "git": "1 .D N... 100644 100644 000000 f54f0d8cd0fc3f0a51b03f328eced1c9de41a26f f54f0d8cd0fc3f0a51b03f328eced1c9de41a26f .factory/stories/JOBPERM-2/decomposition.json\u0000\u0000100644 f54f0d8cd0fc3f0a51b03f328eced1c9de41a26f 0\t.factory/stories/JOBPERM-2/decomposition.json\u0000\u0000H .factory/stories/JOBPERM-2/decomposition.json\u0000"
+        ".factory/stories/CHAN-3/grill-rounds/5238d336-b10e-4a29-b968-39e675b92240.json": {
+          "digest": "6614a728aa6c80ac5bc628e3745f62643ec640928391b59afc8ecc863c26f6a3",
+          "git": "? .factory/stories/CHAN-3/grill-rounds/5238d336-b10e-4a29-b968-39e675b92240.json\u0000\u0000\u0000"
         },
-        ".factory/stories/JOBPERM-2/grills/plan.json": {
-          "digest": "",
-          "git": "1 .D N... 100644 100644 000000 bbf3f4e3fc307b6659555c3598b75a556d8b61b3 bbf3f4e3fc307b6659555c3598b75a556d8b61b3 .factory/stories/JOBPERM-2/grills/plan.json\u0000\u0000100644 bbf3f4e3fc307b6659555c3598b75a556d8b61b3 0\t.factory/stories/JOBPERM-2/grills/plan.json\u0000\u0000H .factory/stories/JOBPERM-2/grills/plan.json\u0000"
+        ".factory/stories/CHAN-3/grill-rounds/b0a2db9a-55e2-4bed-866d-a1621edefee3.json": {
+          "digest": "de1e9092713991927b297000f99d74bf34740b4924c3527c47099fe93682c878",
+          "git": "? .factory/stories/CHAN-3/grill-rounds/b0a2db9a-55e2-4bed-866d-a1621edefee3.json\u0000\u0000\u0000"
         },
-        ".factory/stories/JOBPERM-2/reviews/performance.json": {
-          "digest": "",
-          "git": "1 .D N... 100644 100644 000000 55102e2d179f7a95f6b6ff906bb19965e842af3e 55102e2d179f7a95f6b6ff906bb19965e842af3e .factory/stories/JOBPERM-2/reviews/performance.json\u0000\u0000100644 55102e2d179f7a95f6b6ff906bb19965e842af3e 0\t.factory/stories/JOBPERM-2/reviews/performance.json\u0000\u0000H .factory/stories/JOBPERM-2/reviews/performance.json\u0000"
+        ".factory/stories/CHAN-3/grill-rounds/dd57e7e7-6387-43e8-8dbe-0c33ea7f3030.json": {
+          "digest": "7194b3ba630f4e0c7bfe3d8ed857f5d922b93bf3193391789c22b4d30f24dcc7",
+          "git": "? .factory/stories/CHAN-3/grill-rounds/dd57e7e7-6387-43e8-8dbe-0c33ea7f3030.json\u0000\u0000\u0000"
         },
-        ".factory/stories/JOBPERM-2/reviews/quality.json": {
-          "digest": "",
-          "git": "1 .D N... 100644 100644 000000 7f3f0d2b126899fe338793e836871cce654e97e1 7f3f0d2b126899fe338793e836871cce654e97e1 .factory/stories/JOBPERM-2/reviews/quality.json\u0000\u0000100644 7f3f0d2b126899fe338793e836871cce654e97e1 0\t.factory/stories/JOBPERM-2/reviews/quality.json\u0000\u0000H .factory/stories/JOBPERM-2/reviews/quality.json\u0000"
+        ".factory/stories/JOBPERM-3/decomposition.json": {
+          "digest": "7be666ff86c3d4d76d0459f36c65ea48821ed5bb4257a7dffbbc58dafe204b82",
+          "git": "? .factory/stories/JOBPERM-3/decomposition.json\u0000\u0000\u0000"
         },
-        ".factory/stories/JOBPERM-2/reviews/security.json": {
-          "digest": "",
-          "git": "1 .D N... 100644 100644 000000 aa8b5d432e9d414bd97438a24c781e92ff514aa8 aa8b5d432e9d414bd97438a24c781e92ff514aa8 .factory/stories/JOBPERM-2/reviews/security.json\u0000\u0000100644 aa8b5d432e9d414bd97438a24c781e92ff514aa8 0\t.factory/stories/JOBPERM-2/reviews/security.json\u0000\u0000H .factory/stories/JOBPERM-2/reviews/security.json\u0000"
+        ".factory/stories/JOBPERM-3/grill-rounds/cae974b2-52bc-4b9d-88cc-ab76578e2d17.json": {
+          "digest": "48260b8c4cfcaa9fb799d3954c974ebef093491c3f02e84adce67f8c83d97b95",
+          "git": "? .factory/stories/JOBPERM-3/grill-rounds/cae974b2-52bc-4b9d-88cc-ab76578e2d17.json\u0000\u0000\u0000"
         },
-        ".factory/stories/JOBPERM-2/tests.json": {
-          "digest": "",
-          "git": "1 .D N... 100644 100644 000000 89b02b61b96ded4aefb329bfe9b9b89eb1d1cb38 89b02b61b96ded4aefb329bfe9b9b89eb1d1cb38 .factory/stories/JOBPERM-2/tests.json\u0000\u0000100644 89b02b61b96ded4aefb329bfe9b9b89eb1d1cb38 0\t.factory/stories/JOBPERM-2/tests.json\u0000\u0000H .factory/stories/JOBPERM-2/tests.json\u0000"
+        ".factory/stories/JOBPERM-3/grill-rounds/e8a61608-c795-4b9d-811a-fb067d3055e8.json": {
+          "digest": "079ff38c649a4c45040d593381d45ec2641826fd3fd21bf03fb216993e61228d",
+          "git": "? .factory/stories/JOBPERM-3/grill-rounds/e8a61608-c795-4b9d-811a-fb067d3055e8.json\u0000\u0000\u0000"
         },
-        ".factory/stories/JOBPERM-2/verify.json": {
-          "digest": "",
-          "git": "1 .D N... 100644 100644 000000 39f1661900af16eab3543b5b6c37d91687e5fcb3 39f1661900af16eab3543b5b6c37d91687e5fcb3 .factory/stories/JOBPERM-2/verify.json\u0000\u0000100644 39f1661900af16eab3543b5b6c37d91687e5fcb3 0\t.factory/stories/JOBPERM-2/verify.json\u0000\u0000H .factory/stories/JOBPERM-2/verify.json\u0000"
+        ".factory/stories/JOBPERM-3/grill-rounds/fffccc30-7616-4b88-bf6c-796f84522c23.json": {
+          "digest": "7879836a6d175528b35060940effc507aa161d9ffd286c9bf809b96a0889748e",
+          "git": "? .factory/stories/JOBPERM-3/grill-rounds/fffccc30-7616-4b88-bf6c-796f84522c23.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-3/grills/plan.json": {
+          "digest": "a79597c46befdc1f19f3d704e1915a0c397e25f49b50aef8e900dd5bc6eeb8eb",
+          "git": "? .factory/stories/JOBPERM-3/grills/plan.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-3/grills/requirements.json": {
+          "digest": "65d9203ef4f4f3a7d48a69b274a180add8159462064cd3fa16cbf14d3a8b0dd6",
+          "git": "? .factory/stories/JOBPERM-3/grills/requirements.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-3/grills/tasks/JOBPERM-3-T1.json": {
+          "digest": "e214928f4e7db80b4c4a319305e2c533bda65b16c1bd297825a465b1eec3cd0b",
+          "git": "? .factory/stories/JOBPERM-3/grills/tasks/JOBPERM-3-T1.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-3/plan-mode/777d3088-28cb-43c7-86d1-25d3ae9c32c6.json": {
+          "digest": "589697d43ea788b605f39f8740c639888b2459ab4b8e89597aefbc2298cec0ee",
+          "git": "? .factory/stories/JOBPERM-3/plan-mode/777d3088-28cb-43c7-86d1-25d3ae9c32c6.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-3/plan-mode/f585f18f-4752-4643-bcc7-7ae3e8f6329a.json": {
+          "digest": "86f0a8b4f966ce4ed6283393ea2ef07c81f1c89ee3e7f6bc31b7db982c023fee",
+          "git": "? .factory/stories/JOBPERM-3/plan-mode/f585f18f-4752-4643-bcc7-7ae3e8f6329a.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-3/task-plans/JOBPERM-3-T1.md": {
+          "digest": "ea3bad19c436e312fa6ab130adf820ab3be6e42bd3d9e2e2745883106b8f0d0e",
+          "git": "? .factory/stories/JOBPERM-3/task-plans/JOBPERM-3-T1.md\u0000\u0000\u0000"
+        },
+        "docs/specs/settled-job-permission-cards-vanish.md": {
+          "digest": "3b6883bd72767717f460afa2c763f2da247b1863a241a3d50e9982f09d98367c",
+          "git": "? docs/specs/settled-job-permission-cards-vanish.md\u0000\u0000\u0000"
         },
         "plans/roadmap.json": {
-          "digest": "6b208ce305a2eb0190a987b600a17a62861afa765f1843d8947c0b8589da19de",
-          "git": "1 .M N... 100644 100644 100644 6f998c3bd62fb1bee57df9f2ee3df297b772b31e 6f998c3bd62fb1bee57df9f2ee3df297b772b31e plans/roadmap.json\u0000\u0000100644 6f998c3bd62fb1bee57df9f2ee3df297b772b31e 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+          "digest": "79194358e5ca1a36989894f01a96de949017e331f43e7ca6045c0068af875f58",
+          "git": "1 .M N... 100644 100644 100644 951c8c24d2406087939f7c4113dbe4d280bb4d88 951c8c24d2406087939f7c4113dbe4d280bb4d88 plans/roadmap.json\u0000\u0000100644 951c8c24d2406087939f7c4113dbe4d280bb4d88 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
         }
       },
-      "task_sha256": "60dec1a3dcd3171ea8e2c838a27dd5215d67427851cc1986208ad3478c06170d",
-      "local_review_stamp": {
-        "stage_id": "CHAN-2-T2",
-        "task_sha256": "60dec1a3dcd3171ea8e2c838a27dd5215d67427851cc1986208ad3478c06170d",
-        "brief_sha256": "d24691b76d427facdafa287bed81fb362e9414a7601e38c2357fb1a6bdf3754a",
-        "base_sha": "80bca165d18147db6226a52e77e0f66f94fcef03",
-        "product_tree_digest": "b87a37b87437d8e0a09fc1ce40574ef497f76bdfa8149066fed7d533684a8eaf",
-        "recorded_at": "2026-08-28T04:31:55+00:00",
-        "generated_by": "autoreview"
-      },
-      "completed_at": "2026-08-28T04:32:31+00:00"
+      "task_sha256": "3164970fc7e82d1cec51d75692b8e2d7e1a872425ea9a3be67397b7e24591b2f"
+    },
+    {
+      "id": "JOBPERM-3-T2",
+      "title": "Slack + Discord delete and Teams receipt card for retired cards",
+      "status": "pending"
     }
   ]
 }

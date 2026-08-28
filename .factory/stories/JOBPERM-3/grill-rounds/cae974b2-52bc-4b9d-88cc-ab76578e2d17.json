@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "JOBPERM-3-T1 (retire outcome + Telegram delete/receipt, idempotent retries). Required proof test: 'deletes a fully allowed card on retire and falls back to a receipt edit'. Anything to settle before Codex starts?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T13:05:56.422293+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Receipt wording when a card is NOT deleted (a row was denied or expired)?",
+      "options": [
+        "\"Permission denied: <command>\" / \"Expired: <command>\", one line per row (Recommended)",
+        "Single generic line: \"Some permission requests for this job were denied or expired.\""
+      ],
+      "chosen": "\"Permission denied: <command>\" / \"Expired: <command>\", one line per row (Recommended)"
+    },
+    {
+      "question": "Anything else to settle before I confirm the JOBPERM-3 spec and plan it?",
+      "options": [
+        "No \u2014 confirm and plan (Recommended)",
+        "Hold \u2014 change something first"
+      ],
+      "chosen": "No \u2014 confirm and plan (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T12:59:42.566759+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

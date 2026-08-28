@@ -1,0 +1,43 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "Deleted state is recorded on the retire revision (like settled message ids); retries no-op."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Spec holds against code: projection emits 'retire' with no outcome (card-projection.ts:155); card text is the static 'settled' line (card-actions.ts:70); providers edit via replaceMessageId (telegram job-permission-card-delivery.ts, slack channel-delivery.ts:104, discord index.ts:184); chat prompts delete on Telegram/Discord/Slack and receipt-edit on Teams."
+  ],
+  "rounds": [
+    {
+      "question": "Requirements check for JOBPERM-3: the durable card path retries deliveries. For a retired card that was deleted, a later retry (e.g. after a restart) must not try to delete again or re-send a receipt. Should the deleted state be recorded on the revision (idempotent, recommended) or should retries simply tolerate a 'message not found' error?",
+      "options": [
+        "Record 'deleted' on the revision; retries no-op (Recommended)",
+        "Tolerate not-found errors on retry"
+      ],
+      "chosen": "Record 'deleted' on the revision; retries no-op (Recommended)"
+    },
+    {
+      "question": "Anything else before I write the plan?",
+      "options": [
+        "No \u2014 write the plan (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 write the plan (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "retire revision carries no outcome; providers cannot tell allowed-all from denied",
+      "path": "apps/core/src/application/interactions/job-permission-card-projection.ts",
+      "line": 155
+    }
+  ],
+  "issue": "JOBPERM-3",
+  "input_sha256": "9a637ad3f2329fa63ab29cc1d3b5433cb2e612feb424d8c352137e4c7249b1de",
+  "recorded_at": "2026-08-28T13:02:31+00:00",
+  "commit": "14b704201e7a08a7e6e944f2bbbbf252bcf23197"
+}

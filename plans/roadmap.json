@@ -2401,8 +2401,26 @@
       "kind": "feature",
       "depends_on": [],
       "spec": "docs/specs/job-permissions-once-grants.md"
+    },
+    {
+      "key": "JOBPERM-3",
+      "title": "Settled job permission cards disappear like chat prompts",
+      "story": "As the owner of a scheduled job, an answered permission card goes away the way an approved chat prompt does, so the group is not left with stale 'settled' cards after every run.",
+      "acceptance_criteria": [
+        "AC1: when every row of a job permission card is settled by Allow, the card message is deleted on Telegram, Discord and Slack and edited to a one-line approved receipt on Teams; a failed delete falls back to the receipt edit",
+        "AC2: when any row is denied or expired, the card is edited to a one-line receipt per denied/expired request ('Permission denied: <command>' / 'Expired: <command>') on every provider \u2014 never deleted",
+        "AC3: the retire outcome (allowed | denied) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent",
+        "AC4: existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green"
+      ],
+      "order": 111,
+      "status": "active",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/settled-job-permission-cards-vanish.md"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-28T05:15:49+00:00"
+  "updated_at": "2026-08-28T13:00:07+00:00"
 }

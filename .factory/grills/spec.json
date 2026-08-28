@@ -2,53 +2,46 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "questions_asked": 3,
+  "questions_asked": 2,
   "gaps": [
-    "Action kinds in the Telegram callback: user-question answers (other/done), lt:stop, jp: card taps, r: compact retry, perm: classic prompt \u2014 one named handler each.",
-    "Ceilings (handler <= 25, dispatcher <= 15) are measured with an AST counter on the final file."
+    "Receipt when not deleted: 'Permission denied: <command>' / 'Expired: <command>', one line per row; allowed rows omitted."
   ],
   "contradictions": [],
   "resolutions": [
-    "Pure refactor: existing unit tests pass unchanged; additions only.",
-    "runActiveJob/runQuery out of scope (CHAN-3)."
+    "Delete on Telegram/Discord/Slack when every row was allowed (fallback receipt edit if delete fails); Teams edits to an approved receipt card; a denied/expired row keeps the receipt on every provider; kind=feature."
   ],
   "rounds": [
     {
-      "question": "Where should the split Telegram callback handlers live?",
+      "question": "Receipt wording when a card is NOT deleted (a row was denied or expired)?",
       "options": [
-        "One sibling module (Recommended)",
-        "One file per action kind",
-        "Keep in channel-connect.ts"
+        "\"Permission denied: <command>\" / \"Expired: <command>\", one line per row (Recommended)",
+        "Single generic line: \"Some permission requests for this job were denied or expired.\""
       ],
-      "chosen": "One sibling module (Recommended)"
+      "chosen": "\"Permission denied: <command>\" / \"Expired: <command>\", one line per row (Recommended)"
     },
     {
-      "question": "Complexity ceilings for the split?",
+      "question": "Anything else to settle before I confirm the JOBPERM-3 spec and plan it?",
       "options": [
-        "Handlers \u2264 25, dispatcher \u2264 15 (Recommended)",
-        "Stricter: handlers \u2264 15, dispatcher \u2264 10",
-        "No numeric ceiling"
+        "No \u2014 confirm and plan (Recommended)",
+        "Hold \u2014 change something first"
       ],
-      "chosen": "Handlers \u2264 25, dispatcher \u2264 15 (Recommended)"
-    },
-    {
-      "question": "Anything else to settle for CHAN-2 before I confirm the spec, save the plan and start the hoists?",
-      "options": [
-        "No \u2014 confirm and start (Recommended)",
-        "Hold \u2014 I want to change something first"
-      ],
-      "chosen": "No \u2014 confirm and start (Recommended)",
+      "chosen": "No \u2014 confirm and plan (Recommended)",
       "frontier_empty": true
     }
   ],
   "citations": [
     {
-      "finding": "Telegram bot.on callback CC 188; five repeated-guard hoists",
-      "source": "plans/codex-briefs/pr-444-cyclomatic-review.md (Codex Sol xhigh review of PR #444, 2026-08-27)"
+      "finding": "projection emits operation 'retire' when no visible rows remain; card text becomes 'All permission requests for this job are settled.'",
+      "path": "apps/core/src/application/interactions/job-permission-card-projection.ts",
+      "line": 155
+    },
+    {
+      "finding": "chat prompts: Telegram/Discord/Slack delete on approve, Teams edits to a receipt card",
+      "path": "apps/core/src/channels/telegram/permission-prompt-settlement.ts",
+      "line": 82
     }
   ],
-  "owner_questions": [],
-  "input_sha256": "eff7ef21eb7d757ded27388cd791db5bfe5d0f7a8562c7fda0582d3763798778",
-  "recorded_at": "2026-08-27T15:19:25+00:00",
-  "commit": "a8d35a5f567ea976b69d545c79e1f230a863362a"
+  "input_sha256": "4632f899863e7454a40e0751d29ba07c152cb4c83d28547f9afe9b0617c8e5df",
+  "recorded_at": "2026-08-28T13:00:07+00:00",
+  "commit": "14b704201e7a08a7e6e944f2bbbbf252bcf23197"
 }

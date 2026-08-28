@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Start JOBPERM-3 (\u201csettled job permission cards disappear like chat\u201d: delete on Telegram/Discord/Slack, receipt card on Teams; a denied/expired row keeps a one-line receipt) now?",
+      "options": [
+        "Yes \u2014 start it now on a branch off main (Recommended)",
+        "Wait until #453 is merged, then start"
+      ],
+      "chosen": "Yes \u2014 start it now on a branch off main (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T12:36:02.538486+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
