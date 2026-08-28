@@ -6055,7 +6055,8 @@ def test_frontier_orders_task_plan_before_grill(repo, tmp_path):
     record_skeleton_then_frontier(repo, [STAGE_TASK])
     assert task_frontier_state(repo)[0] == "author-task-plan"
     code, out = run(repo, "forge.py", "next")
-    assert code == 0 and "Before grilling" in out
+    assert code == 0 and "in plan mode" in out \
+        and "do NOT present the plan in chat" in out
 
     source = tmp_path / "T1.md"
     source.write_text("# T1 plan\n")
@@ -6067,7 +6068,7 @@ def test_frontier_orders_task_plan_before_grill(repo, tmp_path):
     assert code == 0, out
     assert task_frontier_state(repo)[0] == "grill"
     code, out = run(repo, "forge.py", "next")
-    assert code == 0 and "With the saved T1 task plan in place" in out
+    assert code == 0 and "Grill the saved T1 plan" in out
 
     payload = task_grill_payload(STAGE_TASK)
     code, out = log_grill_rounds(repo, payload["rounds"])
@@ -10330,43 +10331,20 @@ def test_board_default_view_is_the_overview():
         assert existing_affordance in render
 
 
-def test_overview_answers_the_four_questions():
+def test_overview_is_the_project_brief():
     page = (HARNESS / "factory" / "board" / "index.html").read_text()
     overview = page[page.index("function renderOverview(state)"):
-                    page.index("/* ═══ overlays", page.index(
-                        "function renderOverview(state)"))]
+                    page.index("function showBoardView(")]
 
-    questions = [
-        "What is this project?",
-        "What can start now?",
-        "What does each epic deliver?",
-        "Where does each story sit?",
-    ]
-    assert all(question in page for question in questions)
-    assert overview.index(questions[0]) < overview.index(questions[1])
-    assert overview.index(questions[1]) < overview.index(questions[2])
-    assert overview.index(questions[2]) < overview.index(questions[3])
+    # The Overview is deliberately the high-level project brief ONLY. The other
+    # three operational questions live on the Lifecycle (kanban) view now.
+    assert "What is this project?" in page
+    assert "What is this project?" in overview
 
     assert "state.project" in overview and "state.root" not in overview
-    assert "state.frontier" in overview
-    assert "frontier.length" in overview
-    assert "state.epics" in overview and "epic.objective" in overview
-    assert "epic.stories" in overview
-    assert "story.blocked_by" in overview
-    assert "story.unblocks" in overview
     assert "depends_on" not in overview
     assert "ageDays(" not in overview and "Date(" not in overview
     assert not re.search(r"\b(?:wave|layer)\s*\d", overview, re.IGNORECASE)
-    # The board polls, so a rebuild lands mid-interaction: it must restore both
-    # keyboard focus and the drawer's focus-return `opener`, or a live update
-    # silently steals a keyboard user's place.
-    assert "document.activeElement" in overview
-    assert "refocus.focus()" in overview
-    assert "opener = reopener" in overview
-    # A frontier story renders in BOTH sections, so identity is (slot, key):
-    # rebinding on key alone would jump focus to the other section.
-    assert "data-overview-slot" in page
-    assert 'node.dataset.overviewSlot' in overview
 
 
 def test_epic_story_and_task_are_explicitly_labelled():
@@ -10384,9 +10362,7 @@ def test_epic_story_and_task_are_explicitly_labelled():
                        page.index("const RAW_SOURCE")]
 
     assert 'kindLabel("EPIC")' in make_lane
-    assert 'kindLabel("EPIC")' in overview
     assert 'kindLabel("STORY")' in make_card
-    assert 'kindLabel("STORY")' in overview
     assert 'kindLabel("TASK")' in task_block
     assert 'kindLabel("TASK")' in proof_block
 
@@ -10438,11 +10414,6 @@ def test_blocked_reads_as_blocked_on_every_surface():
     assert "STATE_WORD[s.state]" in drawer_body
     assert "blocked by" in drawer_body
     assert "waiting on" not in drawer_body
-
-    # The overview is a fifth state-reporting surface; keep it consistent too.
-    overview = page[page.index("function renderOverview(state)"):
-                    page.index("function showBoardView(")]
-    assert "STATE_WORD[story.state]" in overview
 
 
 def test_board_page_stays_self_contained():
@@ -10540,7 +10511,7 @@ def test_board_shows_done_story_pr_link():
 
     page = (HARNESS / "factory" / "board" / "index.html").read_text()
     drawer_body = page[page.index("function drawerBody()"):
-                       page.index("function tabBar()")]
+                       page.index("function tabBar(")]
     assert 's.state === "shipped"' in drawer_body
     assert "prReference(s)" in drawer_body
 
@@ -10570,9 +10541,6 @@ def test_board_content_survives_all_three_widths():
     assert any(story["blocked_by"] for story in state["stories"])
     for question in (
         "What is this project?",
-        "What can start now?",
-        "What does each epic deliver?",
-        "Where does each story sit?",
     ):
         assert question in page
     assert '<section id="overview-view" role="tabpanel"' in page
@@ -10761,7 +10729,9 @@ def test_board_task_dossiers_survive_object_form_required_tests():
             "reviews": {},
         },
     }
-    dossiers = task_dossiers(detail)  # must not raise
+    # base/key only steer the per-task plan lookup; with no saved plan on disk
+    # the dossier still assembles (plan_state "none"), so coverage matching runs.
+    dossiers = task_dossiers(HARNESS, "RETURN-1", detail)  # must not raise
     assert len(dossiers) == 1
     covered = dossiers[0]["proof"]["covered_tests"]
     covered_ids = {t["id"] if isinstance(t, dict) else t for t in covered}
@@ -12155,7 +12125,7 @@ def test_done_contracts_immutable_and_criteria_map_binds_plan_contracts(
         repo, "record_grill_from_json.py", "--gate", "task", "--task", "T1",
         stdin=json.dumps(payload),
     )
-    assert code != 0 and "requires protected frontier plan_contracts" in out
+    assert code != 0 and "requires the task's plan_contracts" in out
 
     seed_task_grill_frontier(repo, task)
     code, out = run(
@@ -15806,7 +15776,8 @@ def test_forge_next_routes_the_jit_frontier_states(repo, tmp_path):
     )
     assert code == 0, out
     action = next_action()
-    assert "enter plan mode" in action
+    assert "in plan mode" in action
+    assert "do NOT present the plan in chat" in action
     assert "task plan save" in action
     assert "stage start" not in action and "forge delegate" not in action
 
@@ -15901,6 +15872,74 @@ def test_board_task_rows_match_frontier_states(repo, tmp_path):
     assert task_rows(repo)[0]["state"] == "done"
 
 
+def test_task_frontier_honours_dependency_dag(repo, tmp_path):
+    """#145 stage A: a deps-met task may start ahead of an unrelated earlier task."""
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    from factory_lib import require_ready_task, task_ready_ids
+    def task(task_id: str, **extra) -> dict:
+        contracts = [
+            {**contract, "id": f"{contract['id']}-{task_id}"}
+            for contract in STAGE_TASK["plan_contracts"]
+        ]
+        return {**STAGE_TASK, "id": task_id, "plan_contracts": contracts,
+                "acceptance_criteria": [c["statement"] for c in contracts],
+                **extra}
+
+    tasks = [
+        task("T1"),
+        task("T2"),
+        task("T3", dependencies=["T1"]),
+        task("T4", dependencies=["T2"]),
+    ]
+    skeletons = [
+        {**skeletal_stage_task(t["id"]), **({"dependencies": t["dependencies"]}
+                                            if "dependencies" in t else {})}
+        for t in tasks
+    ]
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": skeletons}),
+    )
+    assert code == 0, out
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [tasks[0], *skeletons[1:]]}),
+    )
+    assert code == 0, out
+    # Nothing done yet: only T1 is ready (T2 follows its predecessor T1).
+    assert task_ready_ids(repo) == ["T1"]
+    stages = json.loads((repo / ".factory" / "stages.json").read_text())
+    stages["stages"][0]["status"] = "done"
+    write_stages(repo, stages)
+    # T1 done: T2 (predecessor default) and T3 (explicit dep) are ready; T4 waits on T2.
+    assert task_ready_ids(repo) == ["T2", "T3"]
+    frontier = task_frontier_state(repo)
+    assert frontier and frontier[1]["id"] == "T2"
+    # Execution detail may be authored on the ready T3 ahead of T2, never on T4.
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [tasks[0], skeletons[1], tasks[2], skeletons[3]]}),
+    )
+    assert code == 0, out
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [tasks[0], skeletons[1], tasks[2], tasks[3]]}),
+    )
+    assert code != 0 and "T4: pending non-frontier task" in out
+    require_ready_task(repo, "T3", require_approval=False, require_grill=False)
+    with pytest.raises(SystemExit, match="T4 is not ready: waiting on T2"):
+        require_ready_task(repo, "T4", require_approval=False, require_grill=False)
+    # One active stage at a time: with T2 active, T3 must wait for it.
+    stages["stages"][1]["status"] = "active"
+    write_stages(repo, stages)
+    frontier = task_frontier_state(repo)
+    assert frontier and frontier[1]["id"] == "T2"
+    with pytest.raises(SystemExit, match="T3 cannot start while T2 is active"):
+        require_ready_task(repo, "T3", require_approval=False, require_grill=False)
+
+
 def test_stage_start_and_delegate_refuse_without_approved_task_plan(repo, tmp_path):
     sign_off(repo)
     intake(repo)
@@ -15957,7 +15996,7 @@ def test_forge_next_and_board_route_author_task_plan_and_await_approval(
         repo, "forge.py", "task", "plan", "save", "T1", "--from", str(source),
     )
     assert code == 0, out
-    assert_route("grill", "ready", "saved T1 task plan")
+    assert_route("grill", "ready", "Grill the saved T1 plan")
     payload = task_grill_payload(STAGE_TASK)
     code, out = log_grill_rounds(repo, payload["rounds"])
     assert code == 0, out

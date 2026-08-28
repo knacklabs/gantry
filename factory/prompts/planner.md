@@ -129,8 +129,9 @@ Rules:
 - Save the grilled plan into the repo, bound to its roadmap story:
   `python3 factory/scripts/forge.py plan save --from <plan-file> --story
   <story-key>`. This records it as `awaiting-approval`.
-- Present that saved plan to the human in plan mode. After the human confirms
-  approval in chat, run `./forge plan approve --by "<their name>"`, then rerun
+- The grilled plan is now on the board (`awaiting-approval`) — the human reviews
+  it THERE, not as a plan-mode dump in chat. After the human confirms approval
+  in chat, run `./forge plan approve --by "<their name>"`, then rerun
   `plan save` with the unchanged plan. `update_run.py` refuses implementation
   until this digest-bound approval makes `plan_status` approved.
 - **Approval LOCKS the contract until the PR opens.** At the moment of approval,

@@ -702,6 +702,7 @@ def fast_status(home: Path | None = None) -> tuple[list[str], list[str]]:
         "codex-plugin-cc": _codex_plugin_dir(home).is_dir(),
         "gstack skills": _gstack_dir(home).is_dir(),
         "autoreview skill": _autoreview_dir(home).is_dir(),
+        "grill-me skill": (home / ".claude" / "skills" / "grill-me").is_dir(),
     }
     advisory = {
         "frontend-design skill": (home / ".claude" / "skills" / "frontend-design").is_dir(),
@@ -1492,6 +1493,22 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "or rerun with --fix",
     ))
 
+    # /grill-me is the grilling skill the plan and task gates require (referenced
+    # across .claude/CLAUDE.md, griller.md, planner.md, phase.py, harness.yaml).
+    # It ships in Matt Pocock's skills pack, so --fix installs the pack.
+    grill_me = home / ".claude" / "skills" / "grill-me"
+    if not grill_me.is_dir() and args.fix:
+        print("[fix ] installing the /grill-me skill (mattpocock/skills) ...")
+        run_quiet(["npx", "-y", "skills", "add", "mattpocock/skills",
+                   "-g", "--copy", "--all"])
+    checks.append(_check(
+        "grill-me skill",
+        grill_me.is_dir(),
+        str(grill_me) if grill_me.is_dir() else "not installed",
+        "`npx -y skills add mattpocock/skills -g --copy --all` "
+        "(the /grill-me grill skill the plan/task gates require) — or rerun with --fix",
+    ))
+
     # Merge gate: scaffold-check must be a REQUIRED status check on the
     # default branch, or a red CI run can still merge (observed: a red suite
     # reached main with CI failing and nothing enforcing it). This is a
@@ -1513,13 +1530,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     # Optional tools below are reported but not installed by the normal
     # `doctor --fix` path. This keeps machine setup focused on required items.
 
+    # Design skill packs — --fix installs them, but they are not required to
+    # pass (only user-facing tasks need them, enforced per-task via harness.yaml
+    # required_skills). The mattpocock pack is installed above for /grill-me.
     skill_packs = [
-        (
-            "mattpocock skills",
-            "mattpocock/skills",
-            ["--all"],
-            home / ".claude" / "skills" / "ask-matt",
-        ),
         (
             "anthropic frontend-design",
             "anthropics/skills",
@@ -1535,6 +1549,10 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     ]
 
     for name, pack_repo, extra, sentinel in skill_packs:
+        if not sentinel.is_dir() and args.fix:
+            print(f"[fix ] installing {name} ...")
+            run_quiet(["npx", "-y", "skills", "add", pack_repo,
+                       "-g", "--copy", *extra])
         checks.append(_check(
             name,
             sentinel.is_dir(),

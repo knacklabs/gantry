@@ -40,7 +40,7 @@ or route:
 | decomposing | run docs-decomposer per task, record with `record_decomposition_from_json.py` (schema incl. `user_facing`) |
 | implementing | Follow the one frontier action printed by `./forge next`: enter plan mode and author/re-record the JIT contract; run the task griller; `forge stage start`; or `forge delegate`. The implementer writes and records the tests; user-facing tasks MUST load + attest emil-design-eng + frontend-design in `skills_used` (recorder-enforced; harness.yaml `required_skills`) |
 | verifying | `python3 factory/scripts/verify.py` |
-| reviewing | ONE autoreview run in Codex, three lenses (`factory/prompts/reviewer.md`) |
+| reviewing | Run the autoreview DIRECTLY (orchestrating session, 0011), three lenses (`factory/prompts/reviewer.md`); on findings delegate fixes to Codex, re-review — loop until every lens is clean |
 | functional-check | only shown when the task is user-facing; run `functional-checker` |
 | harvest pending | follow `factory/prompts/harvester.md` |
 | anything with a command | run the command verbatim |
@@ -146,7 +146,7 @@ instead of narrating it:
 - Implementation is delegated to Codex; planning exploration is Codex
   read-only. See `harness.yaml` for phase owners — it is the ALLOWLIST;
   recorders refuse artifacts from unpinned generators.
-- Review is ONE autoreview run — never inline, never nested reviewers.
+- Review is the orchestrating session's autoreview (0011), looped review → Codex fixes findings → re-review until clean — never a Codex review job, never nested reviewers.
 - Never set a decision to `accepted`, never flip `client_signoff`, never
   activate a proposed skill without an explicit human confirmation — the
   human decides; a clear in-chat statement lets you run the recording

@@ -18,8 +18,9 @@ from pathlib import Path
 
 from factory_lib import (
     plan_digest_without_assumptions,
-    dump_json, evidence_path, grounding_digest, head_sha, load_json, now_iso,
-    read_stdin_utf8, repo_root, requirements_digest, run_state_path, sha256_of,
+    dump_json, evidence_path, git_control_dir, grounding_digest, head_sha,
+    load_json, now_iso, protected_decomposition_state_path, read_stdin_utf8,
+    repo_root, requirements_digest, run_state_path, sha256_of,
     task_frontier_state, validate_payload,
 )
 from forge_cli.specs import resolve_spec_reference
@@ -164,26 +165,51 @@ def _validate_task_grill(root: Path, payload: dict, task_id: str) -> dict:
         raise SystemExit("task grill gaps entries must be non-empty strings")
 
     frontier = task_frontier_state(root)
-    if frontier is None or frontier[1].get("id") != task_id:
+    stage = next(
+        (s for s in load_json(
+            git_control_dir(root) / "stages.json", default={}
+        ).get("stages", []) if s.get("id") == task_id),
+        {},
+    )
+    # The frontier task grills before it starts; but an ACTIVE or DONE task may
+    # be legitimately RE-grilled — a re-decomposition or a post-approval plan
+    # edit stales its grill, and by then the frontier has moved past it. Accept
+    # the target task itself in that case (validated against ITS OWN contract,
+    # mirroring the seal check), and refuse only a task that is neither the
+    # frontier nor active/done.
+    if frontier is not None and frontier[1].get("id") == task_id:
+        target = frontier[1]
+    elif stage.get("status") in ("active", "done"):
+        target = next(
+            (t for t in load_json(
+                protected_decomposition_state_path(root), default={}
+            ).get("tasks", []) if t.get("id") == task_id),
+            None,
+        )
+        if target is None:
+            raise SystemExit(
+                f"task grill target {task_id} is not in the protected decomposition"
+            )
+    else:
         frontier_id = frontier[1].get("id") if frontier else "none"
         raise SystemExit(
-            f"task grill must cover the protected frontier task ({frontier_id}), "
-            f"not {task_id}"
+            f"task grill must cover the frontier task ({frontier_id}) or an "
+            f"active/done task; {task_id} is neither"
         )
-    criteria = frontier[1].get("acceptance_criteria") or []
+    criteria = target.get("acceptance_criteria") or []
     if set(payload["criteria_map"]) != set(criteria):
         missing = sorted(set(criteria) - set(payload["criteria_map"]))
         extra = sorted(set(payload["criteria_map"]) - set(criteria))
         raise SystemExit(
-            "task grill criteria_map must cover every protected frontier acceptance "
+            "task grill criteria_map must cover every task acceptance "
             f"criterion exactly (missing={missing}, extra={extra})"
         )
     if any(not _non_empty_string(value) for value in payload["criteria_map"].values()):
         raise SystemExit("task grill criteria_map values must be non-empty strings")
-    plan_contracts = frontier[1].get("plan_contracts")
+    plan_contracts = target.get("plan_contracts")
     if not isinstance(plan_contracts, list) or not plan_contracts:
         raise SystemExit(
-            "task grill requires protected frontier plan_contracts whose statements "
+            "task grill requires the task's plan_contracts whose statements "
             "match criteria_map keys"
         )
     contract_statements = {
@@ -250,7 +276,7 @@ def _validate_task_grill(root: Path, payload: dict, task_id: str) -> dict:
                 "these non-empty string fields: issue, evidence, recommendation, "
                 "alternatives, rollback"
             )
-    return frontier[1]
+    return target
 
 
 if any(
@@ -351,7 +377,23 @@ if args.gate == "task":
     for field in ("approved_task_plan_sha256", "approved_by", "approved_at"):
         payload.pop(field, None)
     payload["task_id"] = args.task
-    payload["input_sha256"] = grounding_digest(root, task)
+    # Ground on the SAME treeish the seal (require_ready_task) uses: a DONE
+    # task's grill seals against its stage baseline, so grounding the record on
+    # the moving working tree would read perpetually stale and the re-grill of an
+    # approved/completed task could never be seen fresh. A frontier/active task
+    # still grounds on the working tree ("").
+    _stage = next(
+        (s for s in load_json(
+            git_control_dir(root) / "stages.json", default={}
+        ).get("stages", []) if s.get("id") == args.task),
+        {},
+    )
+    if _stage.get("status") == "done":
+        from forge_cli.stages import stage_baseline
+        _treeish = stage_baseline(root, _stage)
+    else:
+        _treeish = ""
+    payload["input_sha256"] = grounding_digest(root, task, treeish=_treeish)
     payload["task_plan_sha256"] = plan_digest_without_assumptions(task_plan)
 if args.gate == "plan":
     # Plan grills are per task: stamp the active issue so a stale grill from

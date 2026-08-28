@@ -14,6 +14,7 @@ from factory_lib import (
     protected_decomposition_state_path, repo_root, require_approved_plan_digest,
     run_state_path,
     read_stdin_utf8, validate_payload,
+    ready_task_ids,
 )
 from forge_cli.doctor import unrunnable_reason
 from forge_cli.stages import review_budget
@@ -419,15 +420,27 @@ with delegation_exclusion(
         # plan approval so the flow is stuck until the human re-approves.
         graph_amended = _task_graph(tasks) != _task_graph(prior_task_list)
     if frontier_index is not None:
-        for task in tasks[frontier_index + 1:]:
+        # Execution detail is authored just-in-time: a pending task may carry it
+        # only once every dependency is done (a task without explicit
+        # dependencies follows its predecessor) — DAG order, not list order
+        # (symphony-forge #145).
+        done_ids = {
+            task_id for task_id, status in stage_statuses.items()
+            if status == "done"
+        }
+        ready_ids = set(ready_task_ids(tasks, done_ids))
+        for task in tasks[frontier_index:]:
             if stage_statuses.get(task.get("id")) == "done":
+                continue
+            if task.get("id") in ready_ids:
                 continue
             for field in execution_fields:
                 if field in task:
                     raise SystemExit(
                         f"decomposition task {task['id']}: pending non-frontier "
                         f"task must not declare {field}; author execution detail "
-                        "when the task reaches the frontier."
+                        "when the task reaches the frontier (its dependencies "
+                        "are done)."
                     )
     backfilled_stage_digest = False
     stages_dirty = False
