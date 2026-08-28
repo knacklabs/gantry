@@ -3,16 +3,18 @@ import type {
   ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import {
-  beginQueryLoopMessage,
   closeQueryLoop,
   createQueryLoopContext,
   finishQueryLoop,
+  prepareSdkQuery,
+} from './query-loop-phases-setup.js';
+import {
+  beginQueryLoopMessage,
   handleAssistantMessage,
   handleResultMessage,
   handleStreamEvent,
   handleSystemMessage,
-  prepareSdkQuery,
-} from './query-loop-phases.js';
+} from './query-loop-phases-messages.js';
 import type {
   AgentRunnerInput,
   AgentRunnerToolAttemptOutput,
