@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Requirements check for CHAN-3: both giants carry incident-era behaviour (lease/heartbeat, finish nudge, stream open/close, permission waits). Should the split be strictly verbatim moves, or may Codex also fold obviously duplicated guard chains inside them (like the CHAN-2 hoists)?",
+      "options": [
+        "Strictly verbatim moves (Recommended)",
+        "Allow guard hoists too"
+      ],
+      "chosen": "Strictly verbatim moves (Recommended)"
+    },
+    {
+      "question": "Anything else before I write the plan?",
+      "options": [
+        "No \u2014 write the plan (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 write the plan (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T05:38:17.115226+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

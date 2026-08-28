@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "symphony-forge #145 (task scheduler ignores the dependency DAG). The issue proposes two stages: A = DAG-aware frontier (small, safe: a deps-met task can start ahead of an unrelated earlier one; still one active stage at a time), B = intra-story task parallelism in worktrees (union-merging per-task evidence, write-scope disjointness gate, `roadmap parallel --tasks`). What should I take on now?",
+      "options": [
+        "Stage A now as a harness quickfix PR; B as a planned harness story (Recommended)",
+        "A and B together in one harness story"
+      ],
+      "chosen": "Stage A now as a harness quickfix PR; B as a planned harness story (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T06:15:32.526256+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

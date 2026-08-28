@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "runActiveJob is 733 lines, so a verbatim move can't fit in one \u2264700-line module. Shape?",
+      "options": [
+        "Two sibling modules by phase group (Recommended)",
+        "One module, exempt it from the 700-line rule"
+      ],
+      "chosen": "Two sibling modules by phase group (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T06:11:21.785140+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

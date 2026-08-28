@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T08:24:38+00:00", "story": "CHAN-3", "detail": "S-0045-3067: Owner ruling 2026-08-28 recorded as assumption A-0067 on the approved plan: 'ONE sibling module' means one module per phase group whenever a single module would exceed 700 lines after prettier. Procee"}

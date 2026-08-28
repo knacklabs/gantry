@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-28T06:09:19+00:00", "story": "CHAN-3", "detail": "CHAN-3-T1 cannot fit the 1400-line review budget: runActiveJob is 733 lines at current main (execution.ts:116-848), so a verbatim move alone costs at least 1466 additions plus deletions before context"}

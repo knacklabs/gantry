@@ -616,6 +616,12 @@
   .widen:hover { opacity: .75; }
   .widen:active { transform: scale(.98); }
 
+  /* The withheld-until-grilled note shown in a task dossier while its plan is
+     still being grilled (grill-clean plans are read from the plan tab row). */
+  .task-plan-pending {
+    margin-top: .5rem; font: italic .72rem/1.5 var(--serif); color: var(--faint);
+  }
+
   /* Reading tabs — solid pills; the active one fills with the accent, raw json
      sits apart on the right. */
   .tabs { display: flex; gap: .35rem; align-items: center; margin-bottom: 1rem; }
@@ -631,8 +637,16 @@
   .tabs button[aria-selected="true"] {
     color: var(--accent-ink); background: var(--accent); border-color: var(--accent);
   }
+  .tabs { flex-wrap: wrap; row-gap: .35rem; }
   .tabs .spacer { flex: 1; background: none; border: 0; padding: 0; }
   .tabs button.raw { text-transform: none; letter-spacing: .02em; }
+  /* Task-plan tabs share the row, after a hairline divider, keeping each task
+     id's exact case (T4a, not T4A). */
+  .tabs button.tp { text-transform: none; letter-spacing: .02em; }
+  .tabs .tab-sep {
+    align-self: stretch; width: 1px; flex: none;
+    margin: .15rem .3rem; background: var(--rule);
+  }
 
   .filelink {
     display: inline-flex; align-items: center; gap: .4rem;
@@ -1452,19 +1466,12 @@ let overviewSignature = "";
 function renderOverview(state) {
   const project = state.project || {};
   const recordOrigin = state.record_origin;
-  const frontier = state.frontier || [];
-  const epics = state.epics || [];
-  const stories = state.stories || [];
-  const byKey = new Map(stories.map(story => [story.key, story]));
+  // The Overview is deliberately the high-level project brief ONLY. Operational
+  // detail — what can start, what each epic delivers, and where each story sits —
+  // lives on the Lifecycle (kanban) view, so it is not duplicated here.
   const relevant = {
     project: state.project,
     record_origin: state.record_origin,
-    frontier: state.frontier,
-    epics: state.epics,
-    stories: stories.map(story => ({
-      key: story.key, title: story.title, state: story.state, epic: story.epic,
-      blocked_by: story.blocked_by, unblocks: story.unblocks,
-    })),
   };
   const nextSignature = JSON.stringify(relevant);
   if (nextSignature === overviewSignature) return;
@@ -1486,106 +1493,8 @@ function renderOverview(state) {
       : `<p class="overview-empty">No project brief yet. Ask for one before sign-off —
           it refuses until every required heading is captured.</p>`}`;
 
-  const frontierStories = frontier.map(item =>
-    typeof item === "string" ? (byKey.get(item) || {key: item}) : item);
-  const frontierAnswer = `<p class="frontier-count"><strong>${frontier.length}</strong> ${
-      frontier.length === 1 ? "story can" : "stories can"} start now in <strong>${frontier.length}</strong> ${
-      frontier.length === 1 ? "worktree" : "worktrees"} — one story per worktree.</p>
-    ${frontierStories.length
-      ? `<ul class="overview-list">${frontierStories.map(story => `<li>${overviewStoryButton(story, "", "frontier")}</li>`).join("")}</ul>`
-      : `<p class="overview-empty">${emptyFrontierReason(stories)}</p>`}`;
-
-  const epicAnswer = epics.length
-    ? `<div class="epic-deliveries">${epics.map(epic => `<section class="epic-delivery">
-        ${kindLabel("EPIC")}<h3>${esc(epic.title || epic.id)}</h3>
-        ${md(epic.objective || "No delivery objective recorded.")}
-        <div class="epic-stories">${(epic.stories || []).map(esc).join(" · ") || "No stories"}</div>
-      </section>`).join("")}</div>`
-    : `<p class="overview-empty">No epics yet. They arrive with the roadmap, and can be
-        added on their own after sign-off — ask for either.</p>`;
-
-  const epicNames = new Map(epics.map(epic => [epic.id, epic.title || epic.id]));
-  const storyAnswer = stories.length
-    ? `<ul class="overview-list">${stories.map(story => {
-        const requires = story.blocked_by || [];
-        const unblocks = story.unblocks || [];
-        const position = `${epicNames.get(story.epic) || story.epic || "Backlog"} · ${STATE_WORD[story.state] || story.state}`;
-        return `<li class="story-position">${overviewStoryButton(story, position, "stories")}
-          <p class="dependency-facts"><b>Requires:</b> ${requires.length ? requires.map(esc).join(", ") : "nothing outstanding"}<br>
-          <b>Unblocks:</b> ${unblocks.length ? unblocks.map(esc).join(", ") : "nothing further"}</p></li>`;
-      }).join("")}</ul>`
-    : `<p class="overview-empty">No stories have been derived yet.</p>`;
-
-  // The board polls, so this rebuild lands mid-interaction. Rebuilding
-  // detaches whatever node held focus AND the `opener` the drawer must focus
-  // on close — a keyboard user would silently lose their place on every state
-  // change. Story buttons are identified by key, so both can be re-bound to
-  // the equivalent new node.
-  // Identity is (slot, key), not key alone: a frontier story has a button in
-  // BOTH sections, so a key-only rebind would jump focus to the other section.
-  const identify = node => (node && node.closest
-    && node.closest("#overview [data-story-key]")) || null;
-  const focused = identify(document.activeElement);
-  const openerNode = identify(opener);
-
   $("overview").innerHTML = `
-    <section class="overview-question"><h2>What is this project?</h2><div class="overview-answer">${projectAnswer}</div></section>
-    <section class="overview-question"><h2>What can start now?</h2><div class="overview-answer">${frontierAnswer}</div></section>
-    <section class="overview-question"><h2>What does each epic deliver?</h2><div class="overview-answer">${epicAnswer}</div></section>
-    <section class="overview-question"><h2>Where does each story sit?</h2><div class="overview-answer">${storyAnswer}</div></section>`;
-  $("overview").querySelectorAll("[data-story-key]").forEach(button => {
-    button.addEventListener("click", () => openDrawer(button.dataset.storyKey, button));
-  });
-
-  // Same slot first; fall back to the key alone only if that occurrence is gone.
-  const rebind = node => {
-    if (!node) return null;
-    const key = CSS.escape(node.dataset.storyKey || "");
-    const slot = CSS.escape(node.dataset.overviewSlot || "");
-    return $("overview").querySelector(
-             `[data-story-key="${key}"][data-overview-slot="${slot}"]`)
-        || $("overview").querySelector(`[data-story-key="${key}"]`);
-  };
-  const refocus = rebind(focused);
-  if (refocus) refocus.focus();
-  const reopener = rebind(openerNode);
-  if (reopener) opener = reopener;
-}
-
-// `slot` disambiguates the two places one story can appear: a frontier story
-// is rendered under both "What can start now?" and "Where does each story
-// sit?", so key alone cannot identify WHICH button had focus.
-// An empty frontier has four distinct causes and they are not interchangeable:
-// no stories at all, everything shipped, work already in progress, or genuine
-// dependency blocking. Saying "waiting on another" for a story that is ACTIVE
-// tells the reader to go finish a dependency that does not exist.
-function emptyFrontierReason(stories) {
-  if (!stories.length) {
-    return `No stories yet. Confirm your specs, then ask for the roadmap —
-            stories are derived from them, never hand-written.`;
-  }
-  const unfinished = stories.filter(story => story.state !== "shipped");
-  if (!unfinished.length) {
-    return `Every story is shipped. Ask for the next one when you are ready.`;
-  }
-  const building = unfinished.filter(story => story.state === "building").length;
-  const blocked = unfinished.filter(story => story.state === "blocked").length;
-  const parts = [];
-  if (building) {
-    parts.push(`${building} ${building === 1 ? "story is" : "stories are"} already building`);
-  }
-  if (blocked) {
-    parts.push(`${blocked} ${blocked === 1 ? "is" : "are"} blocked by a dependency`);
-  }
-  return parts.length
-    ? `Nothing new can start — ${parts.join(", and ")}.`
-    : `Nothing can start right now.`;
-}
-
-function overviewStoryButton(story, position, slot) {
-  return `<button class="overview-story" type="button" data-story-key="${esc(story.key)}" data-overview-slot="${esc(slot)}">
-    ${kindLabel("STORY")}<span class="key">${esc(story.key)}</span><span class="title">${esc(story.title || "Untitled story")}</span>
-    ${position ? `<span class="position">${esc(position)}</span>` : ""}</button>`;
+    <section class="overview-question"><h2>What is this project?</h2><div class="overview-answer">${projectAnswer}</div></section>`;
 }
 
 function showBoardView(view) {
@@ -1658,7 +1567,7 @@ addEventListener("keydown", trapFocus);
 $("scrim").addEventListener("click", () => hidePanel());
 
 /* ═══ drawer ════════════════════════════════════════════════════════════ */
-const drawer = {key: null, detail: null, wide: false, tab: "plan", raw: false};
+const drawer = {key: null, detail: null, wide: false, tab: "plan", raw: false, taskPlan: null};
 
 function railBlock(story) {
   const flags = stationFlags(story);
@@ -1726,6 +1635,12 @@ function taskDossier(t) {
   }
   if (t.plan_excerpt) {
     rows.push(`<div class="task-plan"><h5>From the plan</h5>${md(t.plan_excerpt)}</div>`);
+  }
+  // A grill-clean plan is read from the plan tab row above — no per-task button
+  // here. A plan still being grilled is withheld entirely (never sent), so the
+  // dossier just says so rather than offering nothing.
+  if (t.plan_state === "grilling") {
+    rows.push(`<p class="task-plan-pending">Plan saved — being grilled. It appears in the plan tabs once the grill is clean.</p>`);
   }
   const proof = t.proof || {};
   const bits = [];
@@ -1848,7 +1763,9 @@ function drawerBody() {
   // The live story carries lifecycle/state/tasks; the detail carries artifacts.
   const s = liveStory(drawer.key) || detail.story || {};
   if (drawer.wide) {
-    if (drawer.raw) return `<div class="tabs">${tabBar()}</div>${rawBlock(RAW_SOURCE[drawer.tab](detail))}`;
+    const bar = `<div class="tabs">${tabBar(detail)}</div>`;
+    if (drawer.taskPlan) return bar + taskPlanContent(detail);
+    if (drawer.raw) return bar + rawBlock(RAW_SOURCE[drawer.tab](detail));
     let content;
     if (drawer.tab === "plan") {
       content = detail.plan_body
@@ -1862,7 +1779,7 @@ function drawerBody() {
     } else {
       content = proofBlock(detail);
     }
-    return `<div class="tabs">${tabBar()}</div>${content}`;
+    return bar + content;
   }
   const days = ageDays(detail.plan && detail.plan.saved);
   const age = days !== null && s.state !== "shipped"
@@ -1879,14 +1796,32 @@ function drawerBody() {
     <h3>Gate rail</h3>${railBlock(s)}
     ${readinessBlock(detail)}
     <h3>Tasks</h3>${taskBlock(detail.tasks ? detail : s)}
-    <button class="widen" type="button" data-widen="1">Read plan, spec and proof ›</button>`;
+    <button class="widen" type="button" data-widen="1">Read plans, spec and proof ›</button>`;
 }
 
-function tabBar() {
-  return ["plan", "spec", "proof"].map(t =>
-    `<button type="button" data-tab="${t}" aria-selected="${t === drawer.tab}">${t}</button>`).join("")
+// One reading pane, one tab row: the story plan/spec/proof, then — after a
+// hairline divider — one tab per task whose plan is grill-clean (only those are
+// ever in the payload). Task plans and the story plan read in the same sheet, so
+// there is a single "Read" affordance rather than competing buttons.
+function tabBar(detail) {
+  const story = ["plan", "spec", "proof"].map(t =>
+    `<button type="button" data-tab="${t}" aria-selected="${!drawer.taskPlan && t === drawer.tab}">${t}</button>`).join("");
+  const clean = ((detail || drawer.detail || {}).tasks || []).filter(t => t.plan_state === "clean");
+  const tasks = clean.length
+    ? `<span class="tab-sep" aria-hidden="true"></span>` + clean.map(t =>
+        `<button type="button" class="tp" data-taskplantab="${esc(t.id)}" title="${esc(t.title || t.id)}" aria-selected="${drawer.taskPlan === t.id}">${esc(t.id.split("-")[0] || t.id)}</button>`).join("")
+    : "";
+  return story + tasks
     + `<span class="spacer"></span>
        <button type="button" class="raw" data-raw="1" aria-selected="${drawer.raw}">raw json</button>`;
+}
+
+function taskPlanContent(detail) {
+  const tasks = (detail.tasks || []).filter(t => t.plan_state === "clean");
+  const active = tasks.find(t => t.id === drawer.taskPlan) || tasks[0];
+  if (!active) return `<p class="quiet">No grill-clean task plan to show yet.</p>`;
+  drawer.taskPlan = active.id;
+  return `${active.plan_path ? openFile(active.plan_path) : ""}${md(active.plan || "")}`;
 }
 
 function liveStory(key) {
@@ -1912,13 +1847,18 @@ function paintDrawer() {
   const widen = panel.querySelector("[data-widen]");
   if (widen) widen.addEventListener("click", () => { drawer.wide = true; paintDrawer(); refocus("[data-narrow]"); });
   const narrow = panel.querySelector("[data-narrow]");
-  if (narrow) narrow.addEventListener("click", () => { drawer.wide = false; paintDrawer(); refocus("[data-widen]"); });
+  if (narrow) narrow.addEventListener("click", () => { drawer.wide = false; drawer.taskPlan = null; paintDrawer(); refocus("[data-widen]"); });
   panel.querySelectorAll("[data-tab]").forEach(b =>
     b.addEventListener("click", () => {
-      drawer.tab = b.dataset.tab; paintDrawer(); refocus(`[data-tab="${b.dataset.tab}"]`);
+      drawer.tab = b.dataset.tab; drawer.taskPlan = null; paintDrawer(); refocus(`[data-tab="${b.dataset.tab}"]`);
     }));
   const raw = panel.querySelector("[data-raw]");
-  if (raw) raw.addEventListener("click", () => { drawer.raw = !drawer.raw; paintDrawer(); refocus("[data-raw]"); });
+  if (raw) raw.addEventListener("click", () => { drawer.raw = !drawer.raw; drawer.taskPlan = null; paintDrawer(); refocus("[data-raw]"); });
+  panel.querySelectorAll("[data-taskplantab]").forEach(b =>
+    b.addEventListener("click", () => {
+      drawer.taskPlan = b.dataset.taskplantab; drawer.raw = false; paintDrawer();
+      refocus(`[data-taskplantab="${CSS.escape(b.dataset.taskplantab)}"]`);
+    }));
 }
 
 // innerHTML replaces the control that was just clicked, so hand focus to
@@ -1933,6 +1873,7 @@ async function openDrawer(key, fromEl) {
   drawer.wide = false;
   drawer.tab = "plan";
   drawer.raw = false;
+  drawer.taskPlan = null;
   // Seed from the already-loaded board state so the drawer paints its gate
   // rail, status and tasks INSTANTLY on click; the fetch only fills in the
   // readiness checks and the plan/spec/proof artifacts.

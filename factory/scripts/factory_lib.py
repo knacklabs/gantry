@@ -1695,8 +1695,8 @@ def task_rows(root: Path) -> list[dict]:
     return rows
 
 
-def task_frontier_state(root: Path) -> tuple[str, dict] | None:
-    """Return the next JIT action and earliest unfinished task, without raising."""
+def _task_schedule(root: Path) -> tuple[list[dict], dict[str, dict], set[str]]:
+    """Tasks in declaration order, their stages, and the ids already done."""
     run_state = load_json(run_state_path(root), default={})
     is_task_level = bool(run_state.get("base_main_sha"))
     tasks = load_json(
@@ -1709,20 +1709,83 @@ def task_frontier_state(root: Path) -> tuple[str, dict] | None:
         if isinstance(stage, dict)
     }
     key = _active_story_key(root)
+    done = {
+        candidate.get("id")
+        for candidate in tasks
+        if (
+            task_marker_on_main(root, key, candidate.get("id"))
+            if is_task_level else
+            stage_by_id.get(candidate.get("id"), {}).get("status") == "done"
+        )
+    }
+    return tasks, stage_by_id, done
+
+
+def task_dependencies(tasks: list[dict], task_id: str) -> list[str]:
+    """A task's effective dependencies: its explicit list, else its predecessor.
+
+    The recorder validates `dependencies` as backward-only (acyclic). A task
+    that declares none depends on its immediate predecessor, so a decomposition
+    without explicit dependencies keeps today's list order; only tasks with
+    explicit dependencies opt into DAG order (symphony-forge #145).
+    """
+    previous: str | None = None
+    for candidate in tasks:
+        if candidate.get("id") == task_id:
+            explicit = candidate.get("dependencies")
+            if isinstance(explicit, list) and explicit:
+                return [str(dependency) for dependency in explicit]
+            return [previous] if previous else []
+        previous = candidate.get("id")
+    return []
+
+
+def ready_task_ids(tasks: list[dict], done: set[str]) -> list[str]:
+    """Pending tasks whose every effective dependency is done, in order."""
+    return [
+        candidate.get("id")
+        for candidate in tasks
+        if candidate.get("id") not in done
+        and all(
+            dependency in done
+            for dependency in task_dependencies(tasks, candidate.get("id"))
+        )
+    ]
+
+
+def task_ready_ids(root: Path) -> list[str]:
+    """Pending tasks of the protected decomposition whose dependencies are done."""
+    tasks, _stage_by_id, done = _task_schedule(root)
+    return ready_task_ids(tasks, done)
+
+
+def task_frontier_state(root: Path) -> tuple[str, dict] | None:
+    """Return the next JIT action and the task to act on, without raising.
+
+    Prefers a stage that is already active; otherwise the earliest READY task
+    (dependencies done), falling back to the earliest unfinished task.
+    """
+    tasks, stage_by_id, done = _task_schedule(root)
+    ready = set(task_ready_ids(root))
     frontier = next(
         (
-            candidate
-            for candidate in tasks
-            if (
-                not task_marker_on_main(root, key, candidate.get("id"))
-                if is_task_level else
-                stage_by_id.get(candidate.get("id"), {}).get("status") != "done"
-            )
+            candidate for candidate in tasks
+            if candidate.get("id") not in done
+            and stage_by_id.get(candidate.get("id"), {}).get("status") == "active"
         ),
+        None,
+    ) or next(
+        (candidate for candidate in tasks if candidate.get("id") in ready),
+        None,
+    ) or next(
+        (candidate for candidate in tasks if candidate.get("id") not in done),
         None,
     )
     if frontier is None:
         return None
+    run_state = load_json(run_state_path(root), default={})
+    is_task_level = bool(run_state.get("base_main_sha"))
+    key = _active_story_key(root)
     task_id = frontier.get("id")
     stage = stage_by_id.get(task_id, {})
 
@@ -1798,19 +1861,33 @@ def require_ready_task(
             f"{task_id!r} is not a task in the protected decomposition."
         )
 
-    frontier_state = task_frontier_state(root)
-    stage = next((stage for stage in load_json(
-        git_control_dir(root) / "stages.json", default={}
-    ).get("stages", []) if stage.get("id") == task_id), {})
+    tasks_all, stage_by_id, done = _task_schedule(root)
+    stage = stage_by_id.get(task_id, {})
     completed = stage.get("status") == "done"
-    if (
-        frontier_state is None or frontier_state[1].get("id") != task_id
-    ) and not (allow_completed and completed):
-        frontier_id = frontier_state[1].get("id") if frontier_state else "none"
-        raise SystemExit(
-            f"{task_id} is not the earliest unfinished task ({frontier_id}); "
-            "finish tasks in decomposition order."
+    if not (allow_completed and completed):
+        other_active = next(
+            (
+                other_id for other_id, other in stage_by_id.items()
+                if other_id != task_id and other.get("status") == "active"
+            ),
+            None,
         )
+        if other_active is not None:
+            raise SystemExit(
+                f"{task_id} cannot start while {other_active} is active; "
+                "one task runs at a time — finish it "
+                f"(`./forge stage done {other_active}`) first."
+            )
+        if task_id not in ready_task_ids(tasks_all, done):
+            waiting = [
+                d for d in task_dependencies(tasks_all, task_id) if d not in done
+            ]
+            raise SystemExit(
+                f"{task_id} is not ready: waiting on "
+                f"{', '.join(waiting) or 'nothing'}; tasks start only once their "
+                "dependencies are done (a task without explicit dependencies "
+                "follows its predecessor)."
+            )
 
     for field in _TASK_CONTRACT_FIELDS:
         value = task.get(field)

@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-28T08:30:05+00:00", "story": "CHAN-3", "detail": "CHAN-3-T2 owner ruling puts createQueryLoopContext in query-loop-phases-setup.ts and handleResultMessage in query-loop-phases-messages.ts, but the first source-text test asserts text from both and the"}

@@ -10,8 +10,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from factory_lib import (
-    evidence_path, load_json, now_iso, parse_sections, repo_root, run_state_path,
-    task_rows,
+    evidence_path, load_json, now_iso, parse_sections, plan_digest_without_assumptions,
+    repo_root, run_state_path, task_rows,
 )
 from record_signoff import REQUIRED_BRIEF_HEADINGS
 
@@ -478,7 +478,7 @@ def story_detail(base: Path, key: str) -> dict | None:
               "story": story, "plan": plan, "plan_body": plan_body,
               "spec": spec, "evidence": evidence}
     detail["task_rows"] = task_rows(base) if active == key else []
-    detail["tasks"] = task_dossiers(detail)
+    detail["tasks"] = task_dossiers(base, key, detail)
     detail["readiness"] = approval_readiness(base, detail)
     return detail
 
@@ -512,7 +512,33 @@ def plan_section(body: str, task_id: str) -> str:
     return ""
 
 
-def task_dossiers(detail: dict) -> list[dict]:
+def task_plan_view(base: Path, key: str, task: dict, grill: dict | None) -> dict:
+    """The per-task implementation plan, exposed to the board ONLY once its grill
+    is clean — the grill passed AND was recorded against the EXACT current plan
+    text (fresh, not stale). A saved-but-not-yet-grill-clean plan is withheld
+    entirely (never sent, so it cannot leak through the raw-json view either), so
+    a human first sees a task plan on the board only after it survives grilling,
+    at which point it is theirs to approve. plan_state is one of 'none' (no plan
+    saved yet), 'grilling' (saved, not yet grill-clean), or 'clean'."""
+    plan_path = evidence_path(base, key, f"task-plans/{task['id']}.md")
+    if not plan_path.is_file():
+        return {"plan_state": "none"}
+    if not grill or grill.get("verdict") != "pass":
+        return {"plan_state": "grilling"}
+    digest = plan_digest_without_assumptions(plan_path)
+    fresh = digest in (
+        grill.get("task_plan_sha256"), grill.get("approved_task_plan_sha256"),
+    )
+    if not fresh:
+        return {"plan_state": "grilling"}
+    return {
+        "plan_state": "clean",
+        "plan": plan_path.read_text(encoding="utf-8"),
+        "plan_path": plan_path.relative_to(base).as_posix(),
+    }
+
+
+def task_dossiers(base: Path, key: str, detail: dict) -> list[dict]:
     """Everything known about each task, assembled once for the drawer: what it
     was for (decomposition), what the plan said about it, which spec governs it,
     and the proof it produced."""
@@ -567,6 +593,7 @@ def task_dossiers(detail: dict) -> list[dict]:
         # both reads as a rendering bug rather than as two sources agreeing.
         objective = (task.get("objective") or "").strip()
         task["plan_excerpt"] = "" if excerpt.strip() == objective else excerpt
+        task.update(task_plan_view(base, key, task, task_grills.get(task["id"])))
         dossiers.append(task)
     return dossiers
 

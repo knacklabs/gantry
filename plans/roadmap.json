@@ -2403,6 +2403,27 @@
       "spec": "docs/specs/job-permissions-once-grants.md"
     },
     {
+      "key": "CHAN-3",
+      "title": "Job runner: split runActiveJob and runQuery by phase",
+      "story": "As a maintainer, I can review a change to the job run loop or the SDK query loop one phase at a time, so incident fixes stop landing inside two 400\u2013600-line functions.",
+      "acceptance_criteria": [
+        "runActiveJob in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change",
+        "runQuery in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change",
+        "No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green",
+        "Branch based on main after PR #451 (CHAN-2)"
+      ],
+      "order": 111,
+      "status": "done",
+      "epic": "harness-hygiene",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/job-runner-splits.md",
+      "completed_at": "2026-08-28T09:08:32+00:00",
+      "history": ".factory/stories/CHAN-3/",
+      "outcome": "The two biggest functions in the runtime are now readable one phase at a time. The job run loop (runActiveJob, 733 lines in one body) and the SDK query loop (runQuery, ~600 lines) each became a short sequencer over one context object, with every phase a named function in sibling modules \u2014 setup/lease/agent/finalization for jobs, options/setup and one handler per message kind for the query loop. Nothing changed in behaviour: every existing unit and Postgres integration test passes untouched. Complexity on the AST counter: sequencers under 15, largest phase under 25 (ceilings 15/25)."
+    },
+    {
       "key": "JOBPERM-3",
       "title": "Settled job permission cards disappear like chat prompts",
       "story": "As the owner of a scheduled job, an answered permission card goes away the way an approved chat prompt does, so the group is not left with stale 'settled' cards after every run.",
@@ -2412,7 +2433,7 @@
         "AC3: the retire outcome (allowed | denied) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent",
         "AC4: existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green"
       ],
-      "order": 111,
+      "order": 112,
       "status": "active",
       "epic": "permission-engine",
       "skill": "backend",

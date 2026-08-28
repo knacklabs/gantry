@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-28T08:05:16+00:00", "story": "CHAN-3", "detail": "CHAN-3-T2 runner directory Vitest lane stayed silent without a summary or exit code for 60 seconds and was terminated with exit 130; run the unit lane host-side."}

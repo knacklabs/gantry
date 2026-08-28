@@ -350,13 +350,20 @@ describe('Claude query loop usage event IDs', () => {
 
 describe('Claude query loop declarative tool names', () => {
   it('keeps one-shot scheduled input open only for an accepted finish nudge', () => {
-    const source = fs.readFileSync(
-      new URL(
-        '../../../src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts',
-        import.meta.url,
-      ),
-      'utf8',
-    );
+    const source = [
+      'query-loop-phases-setup.ts',
+      'query-loop-phases-messages.ts',
+    ]
+      .map((fileName) =>
+        fs.readFileSync(
+          new URL(
+            `../../../src/adapters/llm/anthropic-claude-agent/runner/${fileName}`,
+            import.meta.url,
+          ),
+          'utf8',
+        ),
+      )
+      .join('\n');
 
     expect(source).toContain(
       'if (!enableIpcFollowups && !agentInput.isScheduledJob) stream.end();',
@@ -370,7 +377,7 @@ describe('Claude query loop declarative tool names', () => {
   it('does not pass allowedTools while retaining canUseTool in SDK query options', () => {
     const source = fs.readFileSync(
       new URL(
-        '../../../src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts',
+        '../../../src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts',
         import.meta.url,
       ),
       'utf8',

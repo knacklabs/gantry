@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "CHAN-3 splits the last two giants (runActiveJob CC 76, runQuery CC 81). Same ceilings as CHAN-2?",
+      "options": [
+        "Phase functions \u2264 25, sequencer \u2264 15 (Recommended)",
+        "Stricter: \u2264 15 / \u2264 10"
+      ],
+      "chosen": "Phase functions \u2264 25, sequencer \u2264 15 (Recommended)"
+    },
+    {
+      "question": "Anything else to settle before I confirm the CHAN-3 spec and plan it?",
+      "options": [
+        "No \u2014 confirm and plan (Recommended)",
+        "Hold \u2014 change something first"
+      ],
+      "chosen": "No \u2014 confirm and plan (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T05:37:35.285116+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

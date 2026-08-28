@@ -1,0 +1,56 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "CHAN-3-T2",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
+    "apps/core/test/unit/runner/query-loop.test.ts",
+    "scripts/architecture-map.json",
+    "apps/core/src/jobs/execution-phases-run.ts"
+  ],
+  "current_flow": "runQuery (query-loop.ts:102, ~600 lines, AST CC 81) builds SDK options (decision-0040 two-axis block, env/CLAUDE_CONFIG_DIR), then a for-await over sdkQuery with inline branches for system (init/api_retry/other), assistant, stream_event text deltas and result \u2014 the result branch carries the Q-0105 one-shot nudge and Q-0108 stream.end decisions \u2014 then close/end; incident fixes of the last two weeks landed inside this body.",
+  "criteria_map": {
+    "`runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.": "steps 1-3: QueryLoopContext built once (mutable state shared by reference); setup + per-message handlers + close moved verbatim into runner/query-loop-phases.ts; runQuery becomes the for-await dispatcher; step 5 CC report (dispatcher <= 15, handlers <= 25)",
+    "No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green.": "step 5: runner suites green; git diff -- apps/core/test touches only the two readFileSync paths; required test 'removes approval context after the matching tool result'; tsc; check:architecture"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "QueryLoopContext (built once per query) and runner/query-loop-phases.ts (one module; split by phase group only if the verbatim move exceeds 700 lines, as T1 did) \u2014 owner choice 2026-08-28"
+  ],
+  "gaps": [
+    "T2 blocker: two runner tests don't test behaviour \u2014 they read `query-loop.ts` as text and assert the nudge/stream.end lines and the `canUseTool` option block are *in that file*. Moving the code means those two assertions must point at the new module. How should T2 treat them?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Verbatim moves only; stream.end() sites and the nudge state stay byte-identical; helpers called not re-implemented.",
+    "Only the two source-text tests re-point their readFileSync path; required proof test = 'removes approval context after the matching tool result' (behavioural)."
+  ],
+  "rounds": [
+    {
+      "question": "T2 blocker: two runner tests don't test behaviour \u2014 they read `query-loop.ts` as text and assert the nudge/stream.end lines and the `canUseTool` option block are *in that file*. Moving the code means those two assertions must point at the new module. How should T2 treat them?",
+      "options": [
+        "Re-point those two source-text tests at the new module; no other test edits (Recommended)",
+        "Keep zero test edits: leave that code in query-loop.ts"
+      ],
+      "chosen": "Re-point those two source-text tests at the new module; no other test edits (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "A handler that copies rather than shares the nudge/visible-text state silently breaks the one-shot finish nudge; the required test guards stream.end() timing.",
+      "source": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts:435-700; task plan step 1"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "0e474cd2cb0d3c36154c1f32ced1a29d844dd5d6ad19b3f9ddc518d4cb0963bc",
+  "task_plan_sha256": "69fcaa5de6b49c302a2d961eedafba603086b2bb240323687a76f0bc411f86d1",
+  "recorded_at": "2026-08-28T08:40:44+00:00",
+  "commit": "09b3b74325122a13cd5458a7eed3c7790e45581a",
+  "approved_task_plan_sha256": "69fcaa5de6b49c302a2d961eedafba603086b2bb240323687a76f0bc411f86d1",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-28T08:40:44+00:00"
+}
