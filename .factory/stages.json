@@ -1,124 +1,85 @@
 {
-  "issue": "CHAN-1",
+  "issue": "JOBPERM-2",
   "stages": [
     {
-      "id": "CHAN-1-T1",
-      "title": "Discord adapter moves to channels/discord/",
+      "id": "JOBPERM-2-T1",
+      "title": "Once grants end to end: every job-run request gets the card; once Allow replays allow_once; fail-closed attach; cancel-only rewrite deleted",
       "status": "done",
-      "started_at": "2026-08-27T08:56:17+00:00",
-      "base_sha": "20db560fe4dfc610791944a7c09a3c68eca6f22d",
+      "started_at": "2026-08-27T17:29:37+00:00",
+      "base_sha": "83e9947af4297d5d5049af3a3f28b0a5fabf7636",
       "dirty_at_start": {
-        ".factory/events/063eb9b448c043afa4e8d006329385e7.json": {
-          "digest": "1d5bb4366b44dd1be164361b1536b9c5bdb5c2be144161e92840f4cfd332787a",
-          "git": "? .factory/events/063eb9b448c043afa4e8d006329385e7.json\u0000\u0000\u0000"
-        },
-        ".factory/events/080868046d2944a791e8aaa99a055983.json": {
-          "digest": "223d41044dcdfcc8e9e44eb985634e1a207cd4eabeb598fe283f030aca17f3ff",
-          "git": "? .factory/events/080868046d2944a791e8aaa99a055983.json\u0000\u0000\u0000"
-        },
-        ".factory/events/0d3b2911663540cbb8394f0ca4a5716c.json": {
-          "digest": "d75060475914e7eca20441d813c86dbfb47faa9050d2886efb7d925280864d8b",
-          "git": "? .factory/events/0d3b2911663540cbb8394f0ca4a5716c.json\u0000\u0000\u0000"
-        },
-        ".factory/events/3973a9f3c39b4eacbadd21f9ba5e901f.json": {
-          "digest": "a22a9336c2705120eeb68184f1e307187c14cf4231085b1b977d95758fdf9612",
-          "git": "? .factory/events/3973a9f3c39b4eacbadd21f9ba5e901f.json\u0000\u0000\u0000"
-        },
-        ".factory/events/5fb495809ca54a7ca367bb2e409fcb57.json": {
-          "digest": "5ea01e8bb7c5b5834d555c7b3cc3067e040350d913731bb864faf58d52e6c57a",
-          "git": "? .factory/events/5fb495809ca54a7ca367bb2e409fcb57.json\u0000\u0000\u0000"
-        },
-        ".factory/events/64e619e72fda40eaba38162236f878cb.json": {
-          "digest": "591df95d2124aa93b277f67752d0788be3f3aff2179f5724fe1b2706508143e9",
-          "git": "? .factory/events/64e619e72fda40eaba38162236f878cb.json\u0000\u0000\u0000"
-        },
-        ".factory/events/934bcd818a5947589916655ea6fbcc4b.json": {
-          "digest": "e0ec7f8eb638de55fbad61ab9f24ff490db610e36cbcd2de060d12b9bc979359",
-          "git": "? .factory/events/934bcd818a5947589916655ea6fbcc4b.json\u0000\u0000\u0000"
-        },
-        ".factory/events/9a1781b19e31490c911956e9055d37c1.json": {
-          "digest": "bbb38466688e6614d7d00f410fa9b4503a7fcb8b6fe9436e54d124dba314ab1f",
-          "git": "? .factory/events/9a1781b19e31490c911956e9055d37c1.json\u0000\u0000\u0000"
-        },
-        ".factory/events/cc88f9396350488c849bc369f2a30649.json": {
-          "digest": "6a6f45460bf1a90b53e00dcdd2678b1e3c975ce43dee6a79a8475137645fcded",
-          "git": "? .factory/events/cc88f9396350488c849bc369f2a30649.json\u0000\u0000\u0000"
-        },
-        ".factory/events/d596f19d6a1b4bf5b5c4b8f6e54a1b01.json": {
-          "digest": "59d384f16112a06b9706001a2299914f80b5af09ee40b6598e9e3ae266c64b86",
-          "git": "? .factory/events/d596f19d6a1b4bf5b5c4b8f6e54a1b01.json\u0000\u0000\u0000"
-        },
-        ".factory/events/f5b45bc67a1c4668b75f0feed725639e.json": {
-          "digest": "0d9dc317efff8dd86c9c88610d163a7a400722e359276a41a37de77adde51caa",
-          "git": "? .factory/events/f5b45bc67a1c4668b75f0feed725639e.json\u0000\u0000\u0000"
-        },
-        ".factory/grills/spec.json": {
-          "digest": "e82ece3ec61a9dc07277ed76b21ad6f9077b598a1676bc6561c99a564b33e12c",
-          "git": "1 .M N... 100644 100644 100644 4a24b5345929b7d0916b5c5e7aa8df224ceeda4c 4a24b5345929b7d0916b5c5e7aa8df224ceeda4c .factory/grills/spec.json\u0000\u0000100644 4a24b5345929b7d0916b5c5e7aa8df224ceeda4c 0\t.factory/grills/spec.json\u0000\u0000H .factory/grills/spec.json\u0000"
-        },
-        ".factory/stages.json": {
-          "digest": "22cc262e6b6185ac5aa3cf2aa5d084686cccc6a35f6e46fc7b58506fc70d9c14",
-          "git": "1 .M N... 100644 100644 100644 2895c3d597917c85f8661b328743ca762088d252 2895c3d597917c85f8661b328743ca762088d252 .factory/stages.json\u0000\u0000100644 2895c3d597917c85f8661b328743ca762088d252 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
-        },
-        ".factory/stories/CHAN-1/decomposition.json": {
-          "digest": "822e90dc9d83ac6639df9345933d0bf38ff9733a95af868a878bcdb1843f6239",
-          "git": "? .factory/stories/CHAN-1/decomposition.json\u0000\u0000\u0000"
-        },
-        ".factory/stories/CHAN-1/grills/plan.json": {
-          "digest": "954d989a13b93b11e0059f91aa64259c94ac24dd20b549a2fe1e22c465b3a554",
-          "git": "? .factory/stories/CHAN-1/grills/plan.json\u0000\u0000\u0000"
-        },
-        ".factory/stories/CHAN-1/grills/requirements.json": {
-          "digest": "783bc4667a749cce3b96f455817f6a39f3b7a3b3cb8d31fa625311658a56664a",
-          "git": "? .factory/stories/CHAN-1/grills/requirements.json\u0000\u0000\u0000"
-        },
-        ".factory/stories/CHAN-1/grills/tasks/CHAN-1-T1.json": {
-          "digest": "f08f3a8d8cea1cc5d65f78f4e58fa92e2dac95ed0b348a17d5951b5f3f40b724",
-          "git": "? .factory/stories/CHAN-1/grills/tasks/CHAN-1-T1.json\u0000\u0000\u0000"
-        },
-        ".factory/stories/CHAN-1/task-plans/CHAN-1-T1.md": {
-          "digest": "2311399acbb1483c051a420870328735b22065bf56ccf4c2955ad2135f8009f8",
-          "git": "? .factory/stories/CHAN-1/task-plans/CHAN-1-T1.md\u0000\u0000\u0000"
-        },
-        "docs/specs/channel-adapters-one-folder-per-provider.md": {
-          "digest": "ed7fce51f85114f529a00ac166202489cdbc7c77bf172956788f384b6776da32",
-          "git": "? docs/specs/channel-adapters-one-folder-per-provider.md\u0000\u0000\u0000"
-        },
-        "plans/roadmap.json": {
-          "digest": "add42236c06ac7bcc6d82a06784a015088f8a827a2bf76c668bdec8b87820855",
-          "git": "1 .M N... 100644 100644 100644 3da5a61bd787c95a9ae70ae1f7c94d04e6443274 3da5a61bd787c95a9ae70ae1f7c94d04e6443274 plans/roadmap.json\u0000\u0000100644 3da5a61bd787c95a9ae70ae1f7c94d04e6443274 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
+        ".factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T1.json": {
+          "digest": "49dde08a3879934316dc51615bc8213fa6c156e4b1d701aee11649f58186aa50",
+          "git": "? .factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T1.json\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "b7d27d1b96643150b9c9afcfa0644c9ed9530e9346677924401f0c2b7a58ade7",
-      "completed_at": "2026-08-27T10:25:20+00:00"
+      "task_sha256": "87789d58f918cf06f13396de263df30692d6b0ba3e0fa9983d4bda884766030a",
+      "completed_at": "2026-08-27T18:38:32+00:00"
     },
     {
-      "id": "CHAN-1-T2",
-      "title": "Teams adapter moves to channels/teams/",
+      "id": "JOBPERM-2-T2",
+      "title": "Once expiry settlement + Postgres integration proof of the once chain",
       "status": "done",
-      "started_at": "2026-08-27T10:26:21+00:00",
-      "base_sha": "b09f0a8ba5ba1a01c9635963aabf99a2a6d6e54a",
+      "started_at": "2026-08-27T18:42:18+00:00",
+      "base_sha": "427e9828a60d2e4611248e7ee292d02fbc7d99d6",
       "dirty_at_start": {
-        ".factory/stories/CHAN-1/grills/tasks/CHAN-1-T2.json": {
-          "digest": "027817707e2b44512e983570301b00aa9a57d91320229a4967406e70d992d769",
-          "git": "1 .M N... 100644 100644 100644 0fd7c07b087ff199f1d511bf6d242e7a92e27e30 0fd7c07b087ff199f1d511bf6d242e7a92e27e30 .factory/stories/CHAN-1/grills/tasks/CHAN-1-T2.json\u0000\u0000100644 0fd7c07b087ff199f1d511bf6d242e7a92e27e30 0\t.factory/stories/CHAN-1/grills/tasks/CHAN-1-T2.json\u0000\u0000H .factory/stories/CHAN-1/grills/tasks/CHAN-1-T2.json\u0000"
+        ".factory/events/09d123085524420ba7c317801aac1154.json": {
+          "digest": "deba9259d33cb9ebc459669d13cdf51b5fc8d83fc975126eae7f94cdf514b237",
+          "git": "? .factory/events/09d123085524420ba7c317801aac1154.json\u0000\u0000\u0000"
         },
-        ".factory/stories/CHAN-1/task-plans/CHAN-1-T2.md": {
-          "digest": "527c3174133ccc1a04039b4a896c85e3ff8e31e2587e9bacdc983fa8ded44d59",
-          "git": "? .factory/stories/CHAN-1/task-plans/CHAN-1-T2.md\u0000\u0000\u0000"
+        ".factory/events/9aa811b552cc4e69b975ec8ce8f3c3b1.json": {
+          "digest": "6929e75ce7c122f09a84023ce9374e5c8f688739acda0913794f43aee42a22cf",
+          "git": "? .factory/events/9aa811b552cc4e69b975ec8ce8f3c3b1.json\u0000\u0000\u0000"
+        },
+        ".factory/events/f9960aa600744732aae1fe96b0b53d79.json": {
+          "digest": "a798c58d7fee340f3f916e120618415991e43238d9a1a9e73a70528e3d0f805f",
+          "git": "? .factory/events/f9960aa600744732aae1fe96b0b53d79.json\u0000\u0000\u0000"
+        },
+        ".factory/signals.jsonl": {
+          "digest": "772a954703245cdc17f6dcfdeb9709a32db4784f380738a5901a7614f99550fc",
+          "git": "1 .M N... 100644 100644 100644 21135f0c222fe5b8fef8e39bae34119445270e11 21135f0c222fe5b8fef8e39bae34119445270e11 .factory/signals.jsonl\u0000\u0000100644 21135f0c222fe5b8fef8e39bae34119445270e11 0\t.factory/signals.jsonl\u0000\u0000H .factory/signals.jsonl\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "f222cc00d6a752ba98ae880b41bf7a07783bb2430da3c33f9ca38fcb739ebbd9",
+          "git": "1 .M N... 100644 100644 100644 ca6a95e86ee4cafa691fc42ca3896c656c69e9ad ca6a95e86ee4cafa691fc42ca3896c656c69e9ad .factory/stages.json\u0000\u0000100644 ca6a95e86ee4cafa691fc42ca3896c656c69e9ad 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        },
+        ".factory/stories/JOBPERM-2/decomposition.json": {
+          "digest": "48b07c9c8a99780e9b511a58dc33e0d0b3ce433bc0fbe8dc20292e40fb7cc0ff",
+          "git": "1 .M N... 100644 100644 100644 f9011701941a16249689e2627e57e934b02d4c47 f9011701941a16249689e2627e57e934b02d4c47 .factory/stories/JOBPERM-2/decomposition.json\u0000\u0000100644 f9011701941a16249689e2627e57e934b02d4c47 0\t.factory/stories/JOBPERM-2/decomposition.json\u0000\u0000H .factory/stories/JOBPERM-2/decomposition.json\u0000"
+        },
+        ".factory/stories/JOBPERM-2/grill-rounds/c65cd0f0-ac90-4cb0-b014-19ae8d807419.json": {
+          "digest": "c3755aa137c1d40dbd90cacee474bba2598cd17c30b95e359543f599b68998f5",
+          "git": "? .factory/stories/JOBPERM-2/grill-rounds/c65cd0f0-ac90-4cb0-b014-19ae8d807419.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T2.json": {
+          "digest": "ba8b32bf2717412f82205bc2e329e02386941fa020b0511e1249b49ed1c21dc1",
+          "git": "? .factory/stories/JOBPERM-2/grills/tasks/JOBPERM-2-T2.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-2/plan-mode/e8ed3375-2846-4542-bc41-5742fc079e9e.json": {
+          "digest": "25b490443d6b79c5255420cbfb8d03470374b3f2df24afd83bef0bb420b24d9a",
+          "git": "? .factory/stories/JOBPERM-2/plan-mode/e8ed3375-2846-4542-bc41-5742fc079e9e.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/JOBPERM-2/task-plans/JOBPERM-2-T2.md": {
+          "digest": "24f0a2cf65a5ef8844b81c8121205790f53b5b305af50899cf6581a4d0e4e3aa",
+          "git": "? .factory/stories/JOBPERM-2/task-plans/JOBPERM-2-T2.md\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "54c235be1eb797140738285f6e82f312cfab7e16fbecfbc657bd1996ad0aa41a",
+      "task_sha256": "33f5cc533e38f0eb741a18b05e68f211918af0c1978a53739d1aa31117caf96a",
       "local_review_stamp": {
-        "stage_id": "CHAN-1-T2",
-        "task_sha256": "54c235be1eb797140738285f6e82f312cfab7e16fbecfbc657bd1996ad0aa41a",
-        "brief_sha256": "93769ca617219ace797a5c016609387f11b7b748af3eb80d68536590971c37c3",
-        "base_sha": "b09f0a8ba5ba1a01c9635963aabf99a2a6d6e54a",
-        "product_tree_digest": "02f423c980f697d4599666f1939ad18fc2435bff74cc645e816a7fcd1e060196",
-        "recorded_at": "2026-08-27T10:56:22+00:00",
+        "stage_id": "JOBPERM-2-T2",
+        "task_sha256": "33f5cc533e38f0eb741a18b05e68f211918af0c1978a53739d1aa31117caf96a",
+        "brief_sha256": "8cdc7ee70ea119e5a6d9fd3ef4be38a1d71f758f32e518c21c6315db248c06e3",
+        "base_sha": "427e9828a60d2e4611248e7ee292d02fbc7d99d6",
+        "product_tree_digest": "60c76ce2486f12ede7964f66a4b3657b18e33494758d044ef61fce32aa84ce62",
+        "recorded_at": "2026-08-27T19:50:34+00:00",
         "generated_by": "autoreview"
       },
-      "completed_at": "2026-08-27T10:56:57+00:00"
+      "completed_at": "2026-08-27T19:51:12+00:00",
+      "contract_changed": {
+        "at": "2026-08-27T19:51:12+00:00",
+        "from": "6974c1f85f7dfcb018026fe4261c1f07424dcdee736ba7ba5f3076078cf43066",
+        "to": "33f5cc533e38f0eb741a18b05e68f211918af0c1978a53739d1aa31117caf96a"
+      }
     }
   ]
 }

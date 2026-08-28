@@ -70,6 +70,7 @@ function commandRules(toolInput: unknown): string[] {
   if (!normalized || normalized.length > 2_048) return [];
   const parsed = parseBashCommand(normalized);
   if (!parsed.ok) return [];
+  if (parsed.piped) return [];
   if (
     parsed.leaves.some(
       (leaf) =>

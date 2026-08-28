@@ -1,0 +1,12 @@
+{
+  "event": "open",
+  "id": "Q-0118-2073",
+  "profile": "lite",
+  "reason": "JOBPERM-2 branch review P2: once needs already in handoff_pending/handed_off (from the T1-only deployment window) must settle as expired",
+  "started_at": "2026-08-27T19:55:51+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "by": "Ravi Kiran Vemula",
+  "base_sha": "bcdd9c5f97729ba8c996bc713d0998a571000e42"
+}

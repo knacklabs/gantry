@@ -48,4 +48,19 @@ describe('host permission suggestion synthesis', () => {
       expect(() => validatePersistentRule(rule)).not.toThrow();
     }
   });
+
+  it('does not persist pipe leaves but keeps compound command leaves', () => {
+    expect(
+      synthesizeHostPermissionSuggestions('RunCommand', {
+        command: 'npm test | tee report.txt',
+      }),
+    ).toBeUndefined();
+    expect(
+      permissionUpdateAllowedToolRules(
+        synthesizeHostPermissionSuggestions('RunCommand', {
+          command: 'npm test && git status',
+        }),
+      ),
+    ).toEqual(['RunCommand(npm test)', 'RunCommand(git status)']);
+  });
 });

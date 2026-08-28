@@ -1,0 +1,68 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "gaps": [
+    "Found while proving T2: the host still proposes per-leaf 'allow for future' rules for PIPED commands (e.g. `npm test | tee file`), even though a saved leaf rule can never authorise a pipe (decision 0134). For a job that means Allow would save useless rules and the job asks again every run; in chat it offers an 'Allow for future' that never works. Fix at the source?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Expired once rows stay on the card, non-decisionable, with the AC5 copy; a later run creates a fresh once need (request-id identity).",
+    "Required test leaf: 'settles a once need as expired when its run ended' in jobperm-durability.test.ts; integration proof in permission-decision-chain.postgres.integration.test.ts.",
+    "Pipes never get leaf rule suggestions (permission-suggestion-synthesis.ts guard on parsed.piped); expired copy = AC5 sentence verbatim after the label."
+  ],
+  "rounds": [
+    {
+      "question": "Found while proving T2: the host still proposes per-leaf 'allow for future' rules for PIPED commands (e.g. `npm test | tee file`), even though a saved leaf rule can never authorise a pipe (decision 0134). For a job that means Allow would save useless rules and the job asks again every run; in chat it offers an 'Allow for future' that never works. Fix at the source?",
+      "options": [
+        "Yes \u2014 never propose leaf rules for a piped command (Recommended)",
+        "No \u2014 only classify pipes as 'once' on job cards"
+      ],
+      "chosen": "Yes \u2014 never propose leaf rules for a piped command (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "waiter sweep moves a need with no live waiters to handoff_pending; a once need must instead settle as expired",
+      "source": "apps/core/src/application/interactions/job-permission-reconciler.ts:259-306; task plan step 1"
+    },
+    {
+      "finding": "handoff resolution assumes atoms/rule; must never see a once need",
+      "source": "apps/core/src/application/interactions/job-permission-reconciler.ts:323-335; task plan step 1"
+    },
+    {
+      "finding": "suggestion synthesis proposes per-leaf rules for piped commands the matcher never honours (Postgres proof classified `npm test | tee` as grant=rule)",
+      "source": "apps/core/src/application/permissions/permission-suggestion-synthesis.ts:71-84; apps/core/src/shared/tool-rule-matcher.ts:389; task plan step 3b"
+    }
+  ],
+  "task_id": "JOBPERM-2-T2",
+  "inspected_refs": [
+    "apps/core/src/application/interactions/job-permission-reconciler.ts",
+    "apps/core/src/domain/job-permission-card-actions.ts",
+    "apps/core/src/application/interactions/job-permission-card-projection.ts",
+    "apps/core/src/domain/ports/job-permission-durability.ts",
+    "apps/core/test/unit/application/jobperm-durability.test.ts",
+    "apps/core/test/integration/permission-decision-chain.postgres.integration.test.ts",
+    "apps/core/src/application/permissions/permission-suggestion-synthesis.ts",
+    "apps/core/src/shared/tool-rule-matcher.ts"
+  ],
+  "current_flow": "Reconciler waiter sweep (~:259-306): when every waiter is dead/expired the need goes to handoff_pending and later handed_off so a future run can pick a RULE up; a once need has no rule to hand off, so today it would be parked as a handoff that can never apply. Card copy has no expired state.",
+  "criteria_map": {
+    "a `once` row whose run ended before a decision settles as expired with copy \"Expired \u2014 the run ended before a decision; it will ask again next run\" and never becomes durable authority.": "steps 1-3: once need with all waiters dead/expired \u2192 cancelled + expiredAt; never handoff/rerun barriers/persistGrant; card renders the expired copy, non-decisionable; fresh once need next run; required test 'settles a once need as expired when its run ended'",
+    "Postgres integration proof: a signed scheduled once-card attach \u2192 Allow \u2192 `allow_once` replay with no rule written (permission-decision-chain suite).": "step 4: integration test 'completes the signed once-card chain for a job request with no persistable rule without writing a rule' in the Postgres lane"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "optional expiredAt on the once need/row record (JSONB, absent = not expired) \u2014 owner choice 2026-08-27"
+  ],
+  "owner_questions": [],
+  "input_sha256": "f60db0eeb164b1cedea341c4ca5a0491945dde189e6ee54c6f9266751f982323",
+  "task_plan_sha256": "7d9851f9a2da89524705827b837f6de5aaf898538f51cb233f466d910daf476e",
+  "recorded_at": "2026-08-27T19:18:55+00:00",
+  "commit": "fcaf547a2d2dce165aecbf81da01b3c35a142e64",
+  "approved_task_plan_sha256": "7d9851f9a2da89524705827b837f6de5aaf898538f51cb233f466d910daf476e",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-27T19:18:55+00:00"
+}

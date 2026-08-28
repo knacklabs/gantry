@@ -8,6 +8,8 @@ export type JobPermissionNeedState =
   | 'handed_off'
   | 'cancelled';
 
+export type JobPermissionGrantMode = 'rule' | 'once';
+
 export type JobPermissionWaiterState =
   | 'awaiting_card_delivery'
   | 'release_pending'
@@ -47,6 +49,7 @@ export interface JobPermissionNeedRecord {
   sourceAgentFolder: string;
   canonicalIdentity: string;
   displayLabel: string;
+  grant?: JobPermissionGrantMode;
   askingEpoch: number;
   state: JobPermissionNeedState;
   renderedGrantAtoms: string[];
@@ -57,6 +60,7 @@ export interface JobPermissionNeedRecord {
   denialReason: string | null;
   policyChangedReason: string | null;
   grantAppliedAt: string | null;
+  expiredAt?: string;
   requestSnapshots: Array<{
     requestId: string;
     request: PermissionApprovalRequest;
@@ -70,6 +74,8 @@ export interface JobPermissionCardRowSnapshot {
   needId: string;
   askingEpoch: number;
   displayLabel: string;
+  grant?: JobPermissionGrantMode;
+  expiredAt?: string;
   renderedGrantAtoms: string[];
   visibleGrantAtoms: string[];
   scopePageStart: number;

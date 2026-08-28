@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { expect, it } from 'vitest';
 
 import { jsonbRoundTrip } from './jsonb-round-trip.js';
@@ -10,7 +14,10 @@ import {
   type JobPermissionDurabilityLogger,
   type JobPermissionRevalidationResult,
 } from '@core/application/interactions/job-permission-durability.js';
-import { revalidateJobPermissionCurrentPolicy } from '@core/app/bootstrap/job-permission-durability-wiring.js';
+import {
+  createJobPermissionDurabilityWiring,
+  revalidateJobPermissionCurrentPolicy,
+} from '@core/app/bootstrap/job-permission-durability-wiring.js';
 import type {
   JobPermissionCardRecord,
   JobPermissionCardDeliveryOutcome,
@@ -18,13 +25,20 @@ import type {
   JobPermissionDurabilityState,
   JobPermissionNeedRecord,
 } from '@core/domain/ports/job-permission-durability.js';
-import { jobPermissionCardActions } from '@core/domain/job-permission-card-actions.js';
+import {
+  jobPermissionCardActions,
+  jobPermissionCardText,
+} from '@core/domain/job-permission-card-actions.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
+import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
+import { requestPermissionApprovalViaIpc } from '@core/runner/permission-ipc-client.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 
 class MemoryJobPermissionRepository implements JobPermissionDurabilityRepository {
   readonly states = new Map<string, JobPermissionDurabilityState>();
   readonly deliveries = new Map<string, JobPermissionCardDeliveryOutcome>();
+  pendingRequest: Record<string, any> | null = null;
+  activeLease: Record<string, any> | null = null;
 
   async mutateJobPermissionState<T>(input: {
     appId: string;
@@ -57,13 +71,15 @@ class MemoryJobPermissionRepository implements JobPermissionDurabilityRepository
   ): Promise<JobPermissionNeedRecord[]> {
     return [...this.states.values()]
       .flatMap((state) => state.needs)
-      .filter((need) =>
-        [
-          'asking',
-          'approved_pending_apply',
-          'denied_pending_delivery',
-          'handoff_pending',
-        ].includes(need.state),
+      .filter(
+        (need) =>
+          [
+            'asking',
+            'approved_pending_apply',
+            'denied_pending_delivery',
+            'handoff_pending',
+          ].includes(need.state) ||
+          (need.state === 'handed_off' && need.grant === 'once'),
       )
       .slice(0, input.limit ?? 100)
       .map((need) => structuredClone(need));
@@ -104,6 +120,14 @@ class MemoryJobPermissionRepository implements JobPermissionDurabilityRepository
     deliveryId: string;
   }): Promise<JobPermissionCardDeliveryOutcome | null> {
     return structuredClone(this.deliveries.get(input.deliveryId) ?? null);
+  }
+
+  async findPendingInteractionByRequest() {
+    return structuredClone(this.pendingRequest);
+  }
+
+  async getActiveRunLease() {
+    return structuredClone(this.activeLease);
   }
 }
 
@@ -226,12 +250,15 @@ function attach(
     jobId?: string;
     label?: string;
     atoms?: string[];
+    grant?: 'rule' | 'once';
     waiterId?: string;
     requestId?: string;
     runId?: string;
   } = {},
 ) {
-  const atoms = input.atoms ?? ['RunCommand(npm test *)'];
+  const grant = input.grant ?? 'rule';
+  const atoms =
+    input.atoms ?? (grant === 'once' ? [] : ['RunCommand(npm test *)']);
   const requestId = input.requestId ?? 'request-1';
   return service.attachNeed({
     appId: 'default',
@@ -239,8 +266,10 @@ function attach(
     sourceAgentFolder: 'main_agent',
     conversationId: 'conversation-1',
     agentId: 'agent-1',
-    canonicalIdentity: canonicalJobPermissionNeedIdentity(atoms),
+    canonicalIdentity:
+      grant === 'once' ? requestId : canonicalJobPermissionNeedIdentity(atoms),
     displayLabel: input.label ?? atoms.join(' + '),
+    grant,
     renderedGrantAtoms: atoms,
     requestSnapshot: {
       requestId,
@@ -301,6 +330,18 @@ function legacyCardActionToken(
   return `jp:${callbackKey}:${revision.toString(36)}:${rowIndex === null ? 'x' : rowIndex.toString(36)}:${codes[decision]}`;
 }
 
+async function waitForPermissionRequest(directory: string): Promise<string> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const [file] = fs.existsSync(directory)
+      ? fs.readdirSync(directory).filter((entry) => entry.endsWith('.json'))
+      : [];
+    if (file) return file;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('Timed out waiting for the permission request file.');
+}
+
 async function confirmLatest(
   service: JobPermissionDurabilityService,
   repository: MemoryJobPermissionRepository,
@@ -316,6 +357,380 @@ async function confirmLatest(
   });
   return revision.revision;
 }
+
+it('attaches a job request with no persistable rule as a once need', async () => {
+  const repository = new MemoryJobPermissionRepository();
+  const service = createJobPermissionDurabilityWiring({
+    repository: repository as never,
+    opsRepository: {} as never,
+    channelWiring: {} as never,
+    getPermissionRuntimeSettings: () => ({
+      agents: {},
+      permissions: {},
+    }),
+    getToolRepository: () => undefined,
+    getSkillRepository: () => undefined,
+    resolveCardTarget: () => ({
+      appId: 'default',
+      conversationId: 'tg:job',
+      threadId: null,
+      agentId: 'agent:main_agent',
+    }),
+    enqueueRunAgain: async () => undefined,
+  });
+
+  await expect(
+    service.attachRequest({
+      request: {
+        requestId: 'once-request-1',
+        appId: 'default',
+        sourceAgentFolder: 'main_agent',
+        jobId: 'job-once',
+        runId: 'run-once',
+        runLeaseToken: 'lease-once',
+        runLeaseFencingVersion: 1,
+        targetJid: 'tg:job',
+        toolName: 'RunCommand',
+        toolInput: { command: 'npm test | tee report.txt' },
+      },
+      sourceAgentFolder: 'main_agent',
+    }),
+  ).resolves.toBe(true);
+
+  const state = await readState(repository, 'job-once');
+  expect(state!.needs[0]).toMatchObject({
+    canonicalIdentity: 'once-request-1',
+    grant: 'once',
+    renderedGrantAtoms: [],
+  });
+  expect(state!.card.revisions.at(-1)!.rows[0]).toMatchObject({
+    grant: 'once',
+    renderedGrantAtoms: [],
+  });
+  expect(
+    jobPermissionCardActions(
+      state!.card.callbackKey,
+      state!.card.revisions.at(-1)!,
+    ).map((action) => action.label),
+  ).toEqual(['Allow', 'Deny']);
+});
+
+it('bounds and redacts the once need label', async () => {
+  const repository = new MemoryJobPermissionRepository();
+  const service = createJobPermissionDurabilityWiring({
+    repository: repository as never,
+    opsRepository: {} as never,
+    channelWiring: {} as never,
+    getPermissionRuntimeSettings: () => ({
+      agents: {},
+      permissions: {},
+    }),
+    getToolRepository: () => undefined,
+    getSkillRepository: () => undefined,
+    resolveCardTarget: () => ({
+      appId: 'default',
+      conversationId: 'tg:job',
+      threadId: null,
+      agentId: 'agent:main_agent',
+    }),
+    enqueueRunAgain: async () => undefined,
+  });
+  const secret = 'supersecretpassword';
+
+  await service.attachRequest({
+    request: {
+      requestId: 'once-request-bounded',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      jobId: 'job-once-bounded',
+      runId: 'run-once-bounded',
+      runLeaseToken: 'lease-once-bounded',
+      runLeaseFencingVersion: 1,
+      targetJid: 'tg:job',
+      toolName: 'RunCommand',
+      toolInput: {
+        command: `printf "password=${secret}"\n  | tee ${'report'.repeat(40)}`,
+      },
+    },
+    sourceAgentFolder: 'main_agent',
+  });
+
+  const state = await readState(repository, 'job-once-bounded');
+  const label = state!.needs[0]!.displayLabel;
+  expect(label).toHaveLength(160);
+  expect(label).toContain('password=[REDACTED_SECRET]');
+  expect(label).not.toContain(secret);
+  expect(label).not.toMatch(/\s{2,}|[\r\n]/);
+  expect(label.endsWith('…')).toBe(true);
+  expect(state!.card.revisions.at(-1)!.rows[0]!.displayLabel).toBe(label);
+  expect(
+    jobPermissionCardText('job-once-bounded', state!.card.revisions.at(-1)!),
+  ).toContain(`${label} (this run only)`);
+});
+
+it('replays a signed allow_once for a once need without writing a rule', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jobperm-once-'));
+  const repository = new MemoryJobPermissionRepository();
+  const auth = createIpcAuthEnvelope('main_agent');
+  const service = createJobPermissionDurabilityWiring({
+    repository: repository as never,
+    opsRepository: {
+      getJobById: async () => ({
+        workspace_key: 'main_agent',
+        execution_context: { conversationJid: 'tg:job' },
+      }),
+    } as never,
+    channelWiring: {
+      isControlApproverAllowed: async () => true,
+    },
+    getPermissionRuntimeSettings: () => ({
+      agents: { main_agent: { accessPreset: 'full' as const } },
+      permissions: {},
+    }),
+    getToolRepository: () => undefined,
+    getSkillRepository: () => undefined,
+    resolveCardTarget: () => ({
+      appId: 'default',
+      conversationId: 'tg:job',
+      threadId: null,
+      agentId: 'agent:main_agent',
+    }),
+    enqueueRunAgain: async () => undefined,
+  });
+  try {
+    const runnerDecision = requestPermissionApprovalViaIpc(
+      {
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        chatJid: 'tg:job',
+        jobId: 'job-once',
+        jobRunId: 'run-once',
+        jobRunLeaseToken: 'lease-once',
+        jobRunLeaseFencingVersion: '1',
+        ipcAuthToken: auth.authToken,
+        ipcResponseVerifyKey: auth.responseVerifyKey,
+        ipcResponseKeyId: auth.responseKeyId,
+        permissionRequestTimeoutMs: 5_000,
+        permissionLane: 'autonomous',
+        permissionMode: 'ask',
+        resolveWorkspaceIpcDir: (folder) => path.join(tempDir, 'ipc', folder),
+      },
+      {
+        agentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        toolInput: { command: 'npm test | tee report.txt' },
+      },
+    );
+    const requestDirectory = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const requestFile = await waitForPermissionRequest(requestDirectory);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDirectory, requestFile), 'utf8'),
+    ) as PermissionApprovalRequest & { responseNonce: string };
+    repository.pendingRequest = {
+      payload: { request },
+      callbackRoute: {
+        ipcBaseDir: path.join(tempDir, 'ipc'),
+        responseKeyId: auth.responseKeyId,
+        responseNonce: request.responseNonce,
+      },
+    };
+    repository.activeLease = {
+      runId: 'run-once',
+      leaseToken: 'lease-once',
+      fencingVersion: 1,
+    };
+
+    await expect(
+      service.attachRequest({ request, sourceAgentFolder: 'main_agent' }),
+    ).resolves.toBe(true);
+    const state = await readState(repository, 'job-once');
+    await expect(
+      service.decideCard({
+        appId: 'default',
+        jobId: 'job-once',
+        sourceAgentFolder: 'main_agent',
+        actorRef: 'operator-1',
+        actorContext: { conversationJid: 'tg:job' },
+        revision: state!.card.revision,
+        decision: 'allow',
+        batch: true,
+      }),
+    ).resolves.toMatchObject({ status: 'accepted' });
+    await service.reconcile();
+
+    await expect(runnerDecision).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'human_once',
+      source: 'human_once',
+      repeatableForFutureRuns: false,
+      decisionClassification: 'user_temporary',
+    });
+    const settled = await readState(repository, 'job-once');
+    expect(settled!.needs[0]).toMatchObject({
+      state: 'applied',
+      grant: 'once',
+      approvedGrantAtoms: [],
+    });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+it('treats a persisted need without grant as rule', async () => {
+  const { repository, effects, service } = createHarness();
+  const asking = await attach(service);
+  const stored = repository.states.get('default:job-1')!;
+  delete stored.needs[0]!.grant;
+  delete stored.card.revisions[0]!.rows[0]!.grant;
+  const revision = await confirmLatest(service, repository);
+  await service.reconcile();
+  await decide(service, asking, revision);
+  await service.reconcile();
+
+  expect(effects.grantKeys).toHaveLength(1);
+  expect((await readState(repository))!.needs[0]).toMatchObject({
+    state: 'applied',
+    grant: 'rule',
+  });
+});
+
+it('denies a once need without writing a rule', async () => {
+  const { repository, effects, service } = createHarness();
+  const asking = await attach(service, {
+    jobId: 'job-once-deny',
+    requestId: 'once-deny-request',
+    grant: 'once',
+    label: 'Run Command: npm test | tee report.txt',
+  });
+  const revision = await confirmLatest(service, repository, 'job-once-deny');
+  await service.reconcile();
+  await decide(service, asking, revision, {
+    jobId: 'job-once-deny',
+    decision: 'deny',
+  });
+  await service.reconcile();
+
+  expect(effects.grantKeys).toEqual([]);
+  expect(effects.responseKinds).toEqual(['denied']);
+  expect(
+    (await readState(repository, 'job-once-deny'))!.needs[0],
+  ).toMatchObject({ state: 'denied', grant: 'once' });
+});
+
+it('settles a once need as expired when its run ended', async () => {
+  const { repository, effects, clock, service } = createHarness();
+  const expired = await attach(service, {
+    jobId: 'job-once-expired',
+    requestId: 'once-expired-request',
+    runId: 'run-once-expired',
+    grant: 'once',
+    label: 'Run Command: npm test | tee report.txt',
+  });
+  await confirmLatest(service, repository, 'job-once-expired');
+  await service.reconcile();
+
+  effects.alive.set('run-once-expired', false);
+  clock.nowIso = '2026-08-23T00:01:00.000Z';
+  await service.reconcile();
+
+  let state = await readState(repository, 'job-once-expired');
+  expect(state!.needs[0]).toMatchObject({
+    id: expired.needId,
+    state: 'cancelled',
+    grant: 'once',
+    decidedAt: null,
+    decidedBy: null,
+    grantAppliedAt: null,
+    expiredAt: clock.nowIso,
+  });
+  expect(state!.needs[0]!.waiters).toEqual([
+    expect.objectContaining({ state: 'retired' }),
+  ]);
+  expect(state!.card.revisions.at(-1)!.rows[0]).toMatchObject({
+    needId: expired.needId,
+    actionEnabled: false,
+    denyEnabled: false,
+    expiredAt: clock.nowIso,
+  });
+  expect(effects.grantKeys).toEqual([]);
+  expect(effects.responseKinds).toEqual([]);
+  expect(effects.rerunKeys).toEqual([]);
+
+  const fresh = await attach(service, {
+    jobId: 'job-once-expired',
+    waiterId: 'once-fresh-waiter',
+    requestId: 'once-fresh-request',
+    runId: 'run-once-fresh',
+    grant: 'once',
+    label: 'Run Command: npm test | tee report.txt',
+  });
+  expect(fresh).toMatchObject({ status: 'asking' });
+  expect(fresh.needId).not.toBe(expired.needId);
+  state = await readState(repository, 'job-once-expired');
+  expect(state!.needs).toHaveLength(2);
+  expect(state!.needs.find((need) => need.id === expired.needId)).toMatchObject(
+    {
+      state: 'cancelled',
+      expiredAt: clock.nowIso,
+    },
+  );
+  expect(state!.needs.find((need) => need.id === fresh.needId)).toMatchObject({
+    state: 'asking',
+    grant: 'once',
+  });
+});
+
+it('expires a once need already handed off before the expiry sweep existed', async () => {
+  const { repository, effects, clock, service } = createHarness();
+  const pending = await attach(service, {
+    jobId: 'job-once-handoff-pending',
+    requestId: 'once-handoff-pending-request',
+    runId: 'once-handoff-pending-run',
+    grant: 'once',
+  });
+  const handedOff = await attach(service, {
+    jobId: 'job-once-handed-off',
+    requestId: 'once-handed-off-request',
+    runId: 'once-handed-off-run',
+    grant: 'once',
+  });
+  const pendingState = repository.states.get(
+    'default:job-once-handoff-pending',
+  )!;
+  pendingState.needs[0]!.state = 'handoff_pending';
+  pendingState.needs[0]!.waiters[0]!.state = 'handoff';
+  const handedOffState = repository.states.get('default:job-once-handed-off')!;
+  handedOffState.needs[0]!.state = 'handed_off';
+  handedOffState.needs[0]!.waiters[0]!.state = 'handoff';
+
+  clock.nowIso = '2026-08-23T00:01:00.000Z';
+  await service.reconcile();
+
+  for (const [jobId, needId] of [
+    ['job-once-handoff-pending', pending.needId],
+    ['job-once-handed-off', handedOff.needId],
+  ]) {
+    const state = (await readState(repository, jobId))!;
+    expect(state.needs[0]).toMatchObject({
+      id: needId,
+      state: 'cancelled',
+      expiredAt: clock.nowIso,
+      waiters: [expect.objectContaining({ state: 'handoff' })],
+    });
+    expect(
+      jobPermissionCardText(jobId, state.card.revisions.at(-1)!),
+    ).toContain('Expired —');
+  }
+  expect(effects.responseKinds).toEqual([]);
+  expect(effects.grantKeys).toEqual([]);
+  expect(effects.rerunKeys).toEqual([]);
+});
 
 it('jobperm-1-t2-reconciler-crash-safe', async () => {
   const { repository, effects, service } = createHarness();

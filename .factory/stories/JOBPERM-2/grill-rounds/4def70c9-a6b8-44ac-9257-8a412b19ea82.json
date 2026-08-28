@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Found while proving T2: the host still proposes per-leaf 'allow for future' rules for PIPED commands (e.g. `npm test | tee file`), even though a saved leaf rule can never authorise a pipe (decision 0134). For a job that means Allow would save useless rules and the job asks again every run; in chat it offers an 'Allow for future' that never works. Fix at the source?",
+      "options": [
+        "Yes \u2014 never propose leaf rules for a piped command (Recommended)",
+        "No \u2014 only classify pipes as 'once' on job cards"
+      ],
+      "chosen": "Yes \u2014 never propose leaf rules for a piped command (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T19:17:56.959438+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

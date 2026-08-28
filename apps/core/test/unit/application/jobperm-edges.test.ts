@@ -197,6 +197,7 @@ function createJobPermEdgeHarness() {
   };
   return {
     repository,
+    effects,
     service: new JobPermissionDurabilityService(repository, effects, clock, {
       maxRows: 10,
       maxGrantAtomsPerRow: 20,
@@ -206,17 +207,22 @@ function createJobPermEdgeHarness() {
 
 async function attachJobPermEdgeNeed(
   service: JobPermissionDurabilityService,
-  input: { suffix: string; label?: string },
+  input: { suffix: string; label?: string; grant?: 'rule' | 'once' },
 ) {
-  const atoms = [`RunCommand(task-${input.suffix} *)`];
+  const grant = input.grant ?? 'rule';
+  const atoms = grant === 'once' ? [] : [`RunCommand(task-${input.suffix} *)`];
   return service.attachNeed({
     appId: 'default',
     jobId: 'job-provider-contract',
     sourceAgentFolder: 'main_agent',
     conversationId: 'conversation-provider-contract',
     agentId: 'agent-main',
-    canonicalIdentity: canonicalJobPermissionNeedIdentity(atoms),
+    canonicalIdentity:
+      grant === 'once'
+        ? `request-${input.suffix}`
+        : canonicalJobPermissionNeedIdentity(atoms),
     displayLabel: input.label ?? `Task ${input.suffix}`,
+    grant,
     renderedGrantAtoms: atoms,
     waiter: {
       id: `waiter-${input.suffix}`,
@@ -227,6 +233,70 @@ async function attachJobPermEdgeNeed(
     },
   });
 }
+
+it('renders a once job permission row with only Allow and Deny', async () => {
+  const { repository, service } = createJobPermEdgeHarness();
+  await attachJobPermEdgeNeed(service, {
+    suffix: 'piped-command',
+    label: 'Run Command: npm test | tee report.txt',
+    grant: 'once',
+  });
+  const state = await repository.getJobPermissionState({
+    appId: 'default',
+    jobId: 'job-provider-contract',
+  });
+  const revision = state!.card.revisions.at(-1)!;
+
+  expect(jobPermissionCardText(state!.card.jobId, revision)).toBe(
+    'Permissions needed for this job\nRun Command: npm test | tee report.txt (this run only)',
+  );
+  expect(
+    jobPermissionCardActions(state!.card.callbackKey, revision).map(
+      (action) => action.label,
+    ),
+  ).toEqual(['Allow', 'Deny']);
+});
+
+it('renders an expired once row without decision actions', async () => {
+  const { repository, effects, service } = createJobPermEdgeHarness();
+  await attachJobPermEdgeNeed(service, {
+    suffix: 'expired-command',
+    label: 'Run Command: npm test | tee report.txt',
+    grant: 'once',
+  });
+  let state = await repository.getJobPermissionState({
+    appId: 'default',
+    jobId: 'job-provider-contract',
+  });
+  const askingRevision = state!.card.revisions.at(-1)!;
+  repository.deliveries.set(askingRevision.deliveryId, {
+    status: 'delivered',
+    provider: 'telegram',
+    providerMessageId: 'message-expired-command',
+    deliveredAt: '2026-08-24T00:00:00.000Z',
+  });
+  await service.reconcile();
+  vi.mocked(effects.isRunAlive).mockResolvedValue(false);
+  await service.reconcile();
+
+  state = await repository.getJobPermissionState({
+    appId: 'default',
+    jobId: 'job-provider-contract',
+  });
+  const expiredRevision = state!.card.revisions.at(-1)!;
+  expect(jobPermissionCardText(state!.card.jobId, expiredRevision)).toBe(
+    'Permissions needed for this job\nRun Command: npm test | tee report.txt — Expired — the run ended before a decision; it will ask again next run',
+  );
+  expect(expiredRevision.rows[0]).toMatchObject({
+    grant: 'once',
+    actionEnabled: false,
+    denyEnabled: false,
+    expiredAt: '2026-08-24T00:00:00.000Z',
+  });
+  expect(
+    jobPermissionCardActions(state!.card.callbackKey, expiredRevision),
+  ).toEqual([]);
+});
 
 function jobPermissionAffordances(
   callbackKey: string,

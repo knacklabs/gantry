@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-27T19:26:28+00:00", "story": "JOBPERM-2", "detail": "S-0006-2f78: Informational: Postgres is host-only; the orchestrator runs the permission-decision-chain suite host-side and reports via forge note."}

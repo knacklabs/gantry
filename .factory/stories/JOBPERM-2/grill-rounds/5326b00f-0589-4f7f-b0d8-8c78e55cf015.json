@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "A 'this run only' row can't be used after the run ends. If the run finishes (or times out) before you tap, what should the card show?",
+      "options": [
+        "Mark it expired, ask again next run (Recommended)",
+        "Leave it open until the next run picks it up"
+      ],
+      "chosen": "Mark it expired, ask again next run (Recommended)"
+    },
+    {
+      "question": "Anything else to settle before I write the plan?",
+      "options": [
+        "No \u2014 write the plan (Recommended)",
+        "Hold \u2014 change something first"
+      ],
+      "chosen": "No \u2014 write the plan (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T17:14:59.766208+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

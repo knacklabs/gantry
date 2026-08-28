@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Scheduled jobs now ask for permission one way only: the job card, with exactly Allow and Deny, for every request a run makes \u2014 including commands that cannot be saved as a rule. Those rows read \"<command> (this run only)\"; Allow lets the run continue once and saves nothing, Deny denies, and if the run ends first the row shows \"Expired \u2014 the run ended before a decision; it will ask again next run\". The old chat-prompt fallback (which had degenerated to a Cancel-only prompt and left a run stuck) is gone; an un-raisable card denies the tool call with a plain reason. Piped commands no longer get \"allow for future\" suggestions anywhere. Proven live: run a2fbf7bc asked for a piped curl, Allow was tapped, the run resumed six seconds later, no rule was written.",
+  "issue": "JOBPERM-2",
+  "commit": "e42094c2db2cfabac0949537373fc39032b60c0b",
+  "recorded_at": "2026-08-27T20:41:14+00:00"
+}
