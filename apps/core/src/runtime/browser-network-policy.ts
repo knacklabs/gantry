@@ -9,6 +9,7 @@ const policies = new Map<
   {
     browser: Browser;
     allowedHosts: readonly string[];
+    allowPublicNavigationDiscovery: boolean;
   }
 >();
 const pending = new Map<number, Promise<void>>();
@@ -17,7 +18,9 @@ const publicHostCache = new Map<string, number>();
 export function browserNavigationHostAllowed(
   hostname: string,
   allowedHosts: readonly string[],
+  allowPublicNavigationDiscovery = false,
 ): boolean {
+  if (allowPublicNavigationDiscovery) return true;
   if (allowedHosts.length === 0) return true;
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   return allowedHosts.some((entry) => {
@@ -34,17 +37,24 @@ export function browserNavigationHostAllowed(
 export async function ensureBrowserNetworkPolicy(input: {
   port: number;
   allowedHosts: readonly string[];
+  allowPublicNavigationDiscovery?: boolean;
 }): Promise<void> {
   const existing = policies.get(input.port);
   if (existing) {
     existing.allowedHosts = [...input.allowedHosts];
+    existing.allowPublicNavigationDiscovery =
+      input.allowPublicNavigationDiscovery === true;
     return;
   }
   const inFlight = pending.get(input.port);
   if (inFlight) {
     await inFlight;
     const installed = policies.get(input.port);
-    if (installed) installed.allowedHosts = [...input.allowedHosts];
+    if (installed) {
+      installed.allowedHosts = [...input.allowedHosts];
+      installed.allowPublicNavigationDiscovery =
+        input.allowPublicNavigationDiscovery === true;
+    }
     return;
   }
   const installation = install(input);
@@ -59,11 +69,17 @@ export async function ensureBrowserNetworkPolicy(input: {
 async function install(input: {
   port: number;
   allowedHosts: readonly string[];
+  allowPublicNavigationDiscovery?: boolean;
 }) {
   const browser = await chromium.connectOverCDP(
     `http://127.0.0.1:${input.port}`,
   );
-  const state = { browser, allowedHosts: [...input.allowedHosts] };
+  const state = {
+    browser,
+    allowedHosts: [...input.allowedHosts],
+    allowPublicNavigationDiscovery:
+      input.allowPublicNavigationDiscovery === true,
+  };
   policies.set(input.port, state);
   browser.on('disconnected', () => policies.delete(input.port));
   for (const context of browser.contexts()) {
@@ -73,7 +89,10 @@ async function install(input: {
 
 async function guardRoute(
   route: Route,
-  state: { allowedHosts: readonly string[] },
+  state: {
+    allowedHosts: readonly string[];
+    allowPublicNavigationDiscovery: boolean;
+  },
 ) {
   if (state.allowedHosts.length === 0) {
     await route.continue();
@@ -97,7 +116,11 @@ async function guardRoute(
   }
   if (
     request.isNavigationRequest() &&
-    !browserNavigationHostAllowed(url.hostname, state.allowedHosts)
+    !browserNavigationHostAllowed(
+      url.hostname,
+      state.allowedHosts,
+      state.allowPublicNavigationDiscovery,
+    )
   ) {
     await route.abort('blockedbyclient');
     return;

@@ -16,4 +16,14 @@ describe('browser network policy', () => {
       browserNavigationHostAllowed('tenders.example.gov.evil.test', allowed),
     ).toBe(false);
   });
+
+  it('allows recipe authoring to discover another public navigation host', () => {
+    expect(
+      browserNavigationHostAllowed(
+        'www.example.gov',
+        ['example.gov'],
+        true,
+      ),
+    ).toBe(true);
+  });
 });

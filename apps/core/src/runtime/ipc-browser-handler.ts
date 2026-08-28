@@ -350,6 +350,8 @@ async function handleBrowserToolActionInner(
     await ensureBrowserNetworkPolicy({
       port: session.port,
       allowedHosts: context.allowedNetworkHosts ?? [],
+      allowPublicNavigationDiscovery:
+        context.browserPolicy === 'recipe_authoring',
     });
   }
   if (request.action === 'resize') {
