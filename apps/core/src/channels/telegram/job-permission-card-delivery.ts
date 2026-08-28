@@ -3,12 +3,106 @@ import type {
   MessageDeliveryResult,
   MessageSendOptions,
 } from '../../domain/types.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 import {
   jobPermissionCardRevision,
   type JobPermissionCardDeliverySettlement,
 } from '../interaction-settlement.js';
 import { telegramActionReplyMarkup } from './message-action-affordances.js';
 import type { telegramThreadOptionsFromString } from './channel-shared.js';
+import { escapeTelegramHtml } from './html-render.js';
+
+export async function retireTelegramJobPermissionCard({
+  api,
+  chatId,
+  text,
+  options,
+  deliveries,
+  sanitizeErrorMessage,
+}: {
+  api: Api;
+  chatId: string;
+  text: string;
+  options: MessageSendOptions;
+  deliveries: JobPermissionCardDeliverySettlement;
+  sanitizeErrorMessage: (error: unknown) => string;
+}): Promise<MessageDeliveryResult> {
+  const deleteMessageId = options.deleteMessageId;
+  const messageId = Number.parseInt(deleteMessageId ?? '', 10);
+  const cardRevision = options.jobPermissionCardRevision;
+  if (!deleteMessageId || !Number.isSafeInteger(messageId)) {
+    throw new Error('Telegram deletion message id is invalid.');
+  }
+  if (
+    !cardRevision ||
+    cardRevision.operation !== 'retire' ||
+    cardRevision.retireOutcome !== 'allowed'
+  ) {
+    throw new Error(
+      'Telegram job permission card deletion has no allowed retire revision.',
+    );
+  }
+  const revision = {
+    ...cardRevision,
+    callbackKey: `${chatId}:${cardRevision.callbackKey}`,
+  };
+  const delivered = (
+    externalMessageId: string,
+    retireDelivery?: NonNullable<
+      MessageDeliveryResult['jobPermissionCardRetireDelivery']
+    >,
+  ): MessageDeliveryResult => ({
+    externalMessageId,
+    externalMessageIds: [externalMessageId],
+    deliveredParts: 1,
+    totalParts: 1,
+    ...(retireDelivery
+      ? { jobPermissionCardRetireDelivery: retireDelivery }
+      : {}),
+  });
+  const persisted = cardRevision.retireDelivery;
+  if (persisted?.deletedAt || persisted?.receiptMessageId) {
+    const settledMessageId = persisted.receiptMessageId ?? deleteMessageId;
+    deliveries.record(
+      revision,
+      settledMessageId,
+      `${chatId}:${deleteMessageId}`,
+    );
+    return delivered(settledMessageId, persisted);
+  }
+  deliveries.bindMessage(`${chatId}:${deleteMessageId}`, revision.callbackKey);
+  return deliveries.serialize(revision.callbackKey, async () => {
+    const settled = deliveries.settledMessageId(revision);
+    if (settled) return delivered(settled);
+    let retireDelivery: NonNullable<
+      MessageDeliveryResult['jobPermissionCardRetireDelivery']
+    >;
+    try {
+      await api.deleteMessage(chatId, messageId);
+      retireDelivery = { deletedAt: new Date().toISOString() };
+    } catch (err) {
+      logger.debug(
+        {
+          chatId,
+          messageId: deleteMessageId,
+          error: sanitizeErrorMessage(err),
+        },
+        'Failed to delete approved Telegram job permission card; editing fallback receipt',
+      );
+      await api.editMessageText(chatId, messageId, escapeTelegramHtml(text), {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [] },
+      });
+      retireDelivery = { receiptMessageId: deleteMessageId };
+    }
+    deliveries.record(
+      revision,
+      deleteMessageId,
+      `${chatId}:${deleteMessageId}`,
+    );
+    return delivered(deleteMessageId, retireDelivery);
+  });
+}
 
 export async function sendTelegramJobPermissionCard({
   api,

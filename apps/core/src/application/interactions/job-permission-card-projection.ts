@@ -78,7 +78,13 @@ export function reviseLivingCard(
   now: string,
   options: { force?: boolean; deliveryAttempt?: number } = {},
 ): void {
-  const needs = livingCardNeeds(state);
+  const livingNeeds = livingCardNeeds(state);
+  const expiredNeeds = livingNeeds.filter(
+    (need) => need.state === 'cancelled' && Boolean(need.expiredAt),
+  );
+  const retiresExpiredCard =
+    livingNeeds.length > 0 && expiredNeeds.length === livingNeeds.length;
+  const needs = retiresExpiredCard ? [] : livingNeeds;
   if (
     state.card.fullScopeNeedId &&
     !needs.some(
@@ -138,6 +144,15 @@ export function reviseLivingCard(
   const pageStart = state.card.pageOffset;
   const visible = rows.slice(pageStart, pageStart + capacity.maxRows);
   const hiddenRowCount = Math.max(0, rows.length - visible.length);
+  const retireOutcome =
+    visible.length === 0
+      ? retiresExpiredCard
+        ? ('expired' as const)
+        : ('allowed' as const)
+      : undefined;
+  const retiredRows = retiresExpiredCard
+    ? expiredNeeds.map((need) => ({ label: need.displayLabel }))
+    : undefined;
   const last = state.card.revisions.at(-1);
   if (
     !options.force &&
@@ -145,7 +160,9 @@ export function reviseLivingCard(
     // Persisted rows return from JSONB with normalized key order.
     canonicalJson(last.rows) === canonicalJson(visible) &&
     last.pageStart === pageStart &&
-    last.hiddenRowCount === hiddenRowCount
+    last.hiddenRowCount === hiddenRowCount &&
+    last.retireOutcome === retireOutcome &&
+    canonicalJson(last.retiredRows ?? []) === canonicalJson(retiredRows ?? [])
   ) {
     return;
   }
@@ -208,6 +225,8 @@ export function reviseLivingCard(
     pageStart,
     hiddenRowCount,
     deliveryAttempt: options.deliveryAttempt ?? 1,
+    ...(retireOutcome ? { retireOutcome } : {}),
+    ...(retiredRows ? { retiredRows } : {}),
     createdAt: now,
   });
   state.card.revisionDeliveries.push({
@@ -229,6 +248,7 @@ export function confirmCardRevisionInState(input: {
   provider: string | null;
   providerMessageId: string;
   deliveredAt: string;
+  retireDelivery?: JobPermissionCardRevision['retireDelivery'];
   now: string;
 }): boolean {
   const tracking = input.state.card.revisionDeliveries.find(
@@ -243,9 +263,30 @@ export function confirmCardRevisionInState(input: {
   tracking.confirmedAt ??= input.deliveredAt;
   tracking.reason = null;
   tracking.updatedAt = input.now;
+  if (
+    input.retireDelivery &&
+    input.revision.operation === 'retire' &&
+    !input.revision.retireDelivery?.deletedAt &&
+    !input.revision.retireDelivery?.receiptMessageId
+  ) {
+    if (input.retireDelivery.deletedAt) {
+      input.revision.retireDelivery = {
+        deletedAt: input.retireDelivery.deletedAt,
+      };
+    } else if (input.retireDelivery.receiptMessageId) {
+      input.revision.retireDelivery = {
+        receiptMessageId: input.retireDelivery.receiptMessageId,
+      };
+    }
+  }
+  const retiredByDelete =
+    input.revision.operation === 'retire' &&
+    Boolean(input.revision.retireDelivery?.deletedAt);
   if (input.revision.revision >= input.state.card.currentProviderRevision) {
     input.state.card.currentProvider = input.provider;
-    input.state.card.currentProviderMessageId = input.providerMessageId;
+    input.state.card.currentProviderMessageId = retiredByDelete
+      ? null
+      : input.providerMessageId;
     input.state.card.currentProviderRevision = input.revision.revision;
   }
   for (const represented of input.revision.representedNeeds) {

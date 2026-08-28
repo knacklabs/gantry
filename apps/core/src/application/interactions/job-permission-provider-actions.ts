@@ -1,5 +1,8 @@
 import { parseJobPermissionCardAction } from '../../domain/job-permission-card-actions.js';
-import type { JobPermissionActorContext } from '../../domain/ports/job-permission-durability.js';
+import type {
+  JobPermissionActorContext,
+  JobPermissionCardRevision,
+} from '../../domain/ports/job-permission-durability.js';
 import {
   confirmCardRevisionInState,
   initialCard,
@@ -51,6 +54,7 @@ export class JobPermissionProviderActions {
     provider: string;
     providerMessageId: string;
     deliveredAt?: string;
+    retireDelivery?: JobPermissionCardRevision['retireDelivery'];
   }): Promise<boolean> {
     const now = this.clock.now();
     const deliveredAt = input.deliveredAt ?? now;
@@ -71,6 +75,7 @@ export class JobPermissionProviderActions {
           provider: input.provider,
           providerMessageId: input.providerMessageId,
           deliveredAt,
+          retireDelivery: input.retireDelivery,
           now,
         });
         if (!confirmed) return { state, result: false };

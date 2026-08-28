@@ -341,6 +341,29 @@ describe('sanitizeRetryTailProviderPayload jobPermissionCard passthrough', () =>
     ).toBe(10_115);
   });
 
+  it('keeps retire outcome, rows, and delivery state', () => {
+    const retireCard = {
+      ...jobPermissionCard,
+      operation: 'retire' as const,
+      providerMessageId: '42',
+      retireOutcome: 'expired' as const,
+      retiredRows: [{ label: 'Run Command: npm test' }],
+      retireDelivery: { receiptMessageId: '42' },
+      actions: [],
+    };
+    const out = sanitizeRetryTailProviderPayload({
+      jobPermissionCard: retireCard,
+      jobPermissionCardRetireDelivery: {
+        deletedAt: '2026-08-28T12:00:00.000Z',
+      },
+    });
+
+    expect(out?.jobPermissionCard).toEqual(retireCard);
+    expect(out?.jobPermissionCardRetireDelivery).toEqual({
+      deletedAt: '2026-08-28T12:00:00.000Z',
+    });
+  });
+
   it('drops cards without a callbackKey or safe integer revision', () => {
     const { callbackKey: _callbackKey, ...withoutCallbackKey } =
       jobPermissionCard;

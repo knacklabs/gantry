@@ -285,13 +285,13 @@ it('renders an expired once row without decision actions', async () => {
   });
   const expiredRevision = state!.card.revisions.at(-1)!;
   expect(jobPermissionCardText(state!.card.jobId, expiredRevision)).toBe(
-    'Permissions needed for this job\nRun Command: npm test | tee report.txt — Expired — the run ended before a decision; it will ask again next run',
+    'Expired: Run Command: npm test | tee report.txt',
   );
-  expect(expiredRevision.rows[0]).toMatchObject({
-    grant: 'once',
-    actionEnabled: false,
-    denyEnabled: false,
-    expiredAt: '2026-08-24T00:00:00.000Z',
+  expect(expiredRevision).toMatchObject({
+    operation: 'retire',
+    retireOutcome: 'expired',
+    retiredRows: [{ label: 'Run Command: npm test | tee report.txt' }],
+    rows: [],
   });
   expect(
     jobPermissionCardActions(state!.card.callbackKey, expiredRevision),

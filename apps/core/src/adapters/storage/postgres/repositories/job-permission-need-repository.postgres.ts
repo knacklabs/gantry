@@ -11,6 +11,7 @@ import {
   jobPermissionCardActions,
   jobPermissionCardText,
 } from '../../../../domain/job-permission-card-actions.js';
+import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '../../../../shared/ipc-interaction-lifetime.js';
 import { sha256Hex } from '../../../../shared/stable-hash.js';
 import * as pgSchema from '../schema/schema.js';
@@ -297,6 +298,8 @@ export class JobPermissionNeedRepositoryPostgres {
         .select({
           providerMessageId:
             pgSchema.outboundDeliveryReceiptsPostgres.providerMessageId,
+          providerPayloadJson:
+            pgSchema.outboundDeliveryReceiptsPostgres.providerPayloadJson,
           sentAt: pgSchema.outboundDeliveryReceiptsPostgres.sentAt,
         })
         .from(pgSchema.outboundDeliveryReceiptsPostgres)
@@ -308,17 +311,22 @@ export class JobPermissionNeedRepositoryPostgres {
         )
         .orderBy(asc(pgSchema.outboundDeliveryReceiptsPostgres.sentAt))
         .limit(1);
-      return receipt?.providerMessageId
-        ? {
-            status: 'delivered',
-            provider: null,
-            providerMessageId: receipt.providerMessageId,
-            deliveredAt: receipt.sentAt,
-          }
-        : {
-            status: 'ambiguous',
-            reason: 'Card delivery settled without a provider message id.',
-          };
+      if (receipt?.providerMessageId) {
+        const retireDelivery = jobPermissionCardRetireDeliveryFromReceipt(
+          receipt.providerPayloadJson,
+        );
+        return {
+          status: 'delivered',
+          provider: null,
+          providerMessageId: receipt.providerMessageId,
+          deliveredAt: receipt.sentAt,
+          ...(retireDelivery ? { retireDelivery } : {}),
+        };
+      }
+      return {
+        status: 'ambiguous',
+        reason: 'Card delivery settled without a provider message id.',
+      };
     }
     const reason =
       delivery.lastError ||
@@ -390,6 +398,7 @@ async function insertJobPermissionCardDelivery(
     throw new Error('Job permission card route belongs to another app.');
   }
   const canonicalText = jobPermissionCardText(card.jobId, revision);
+  const providerPayload = jobPermissionCardProviderPayload(card, revision);
   const idempotencyKey = `job_permission_card:${card.id}:${revision.revision}`;
   const idempotencyFingerprint = sha256Hex(
     JSON.stringify([
@@ -398,7 +407,7 @@ async function insertJobPermissionCardDelivery(
       card.threadId,
       revision.operation,
       canonicalText,
-      revision.rows,
+      providerPayload.jobPermissionCard,
     ]),
   );
   await tx.insert(pgSchema.outboundDeliveriesPostgres).values({
@@ -429,25 +438,51 @@ async function insertJobPermissionCardDelivery(
     generation: revision.revision,
     ordinal: 0,
     canonicalText,
-    providerPayloadJson: JSON.stringify({
-      jobPermissionCard: {
-        jobId: card.jobId,
-        callbackKey: card.callbackKey,
-        revision: revision.revision,
-        operation: revision.operation,
-        providerMessageId: card.currentProviderMessageId,
-        rows: revision.rows,
-        batchNeedIds: revision.batchNeedIds,
-        hiddenRowCount: revision.hiddenRowCount,
-        actions: jobPermissionCardActions(card.callbackKey, revision),
-      },
-    }),
+    providerPayloadJson: JSON.stringify(providerPayload),
     status: 'pending',
     attemptCount: 0,
     nextAttemptAt: revision.createdAt,
     createdAt: revision.createdAt,
     updatedAt: revision.createdAt,
   });
+}
+
+function jobPermissionCardProviderPayload(
+  card: JobPermissionCardRecord,
+  revision: JobPermissionCardRevision,
+) {
+  return {
+    jobPermissionCard: {
+      jobId: card.jobId,
+      callbackKey: card.callbackKey,
+      revision: revision.revision,
+      operation: revision.operation,
+      providerMessageId: card.currentProviderMessageId,
+      rows: revision.rows,
+      batchNeedIds: revision.batchNeedIds,
+      hiddenRowCount: revision.hiddenRowCount,
+      ...(revision.retireOutcome
+        ? { retireOutcome: revision.retireOutcome }
+        : {}),
+      ...(revision.retiredRows ? { retiredRows: revision.retiredRows } : {}),
+      ...(revision.retireDelivery
+        ? { retireDelivery: revision.retireDelivery }
+        : {}),
+      actions: jobPermissionCardActions(card.callbackKey, revision),
+    },
+  };
+}
+
+function jobPermissionCardRetireDeliveryFromReceipt(
+  providerPayloadJson: string | null,
+) {
+  if (!providerPayloadJson) return undefined;
+  try {
+    return sanitizeRetryTailProviderPayload(JSON.parse(providerPayloadJson))
+      ?.jobPermissionCardRetireDelivery;
+  } catch {
+    return undefined;
+  }
 }
 
 async function cancelSupersededPendingCardDeliveries(

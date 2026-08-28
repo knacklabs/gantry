@@ -620,6 +620,7 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
           conversationJid: TARGET_JID,
           providerAccountId: PROVIDER_ACCOUNT_ID,
         },
+        providerMessageId: 'telegram-card-1',
         token: allow!.token,
       }),
     ).resolves.toMatchObject({ status: 'accepted' });
@@ -640,6 +641,61 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       grant: 'once',
       approvedGrantAtoms: [],
     });
+    const retireRevision = state!.card.revisions.at(-1)!;
+    expect(retireRevision).toMatchObject({
+      operation: 'retire',
+      retireOutcome: 'allowed',
+    });
+    const [retireItem] = await runtime.service.db
+      .select({
+        providerPayloadJson:
+          pgSchema.outboundDeliveryItemsPostgres.providerPayloadJson,
+      })
+      .from(pgSchema.outboundDeliveryItemsPostgres)
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.id,
+          retireRevision.deliveryItemId,
+        ),
+      )
+      .limit(1);
+    expect(JSON.parse(retireItem!.providerPayloadJson!)).toMatchObject({
+      jobPermissionCard: {
+        retireOutcome: 'allowed',
+        providerMessageId: 'telegram-card-1',
+      },
+    });
+
+    const deletedAt = new Date().toISOString();
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveriesPostgres)
+      .set({ status: 'sent', updatedAt: deletedAt })
+      .where(
+        eq(pgSchema.outboundDeliveriesPostgres.id, retireRevision.deliveryId),
+      );
+    await runtime.service.db
+      .insert(pgSchema.outboundDeliveryReceiptsPostgres)
+      .values({
+        id: `receipt:${retireRevision.revision}`,
+        deliveryId: retireRevision.deliveryId,
+        itemId: retireRevision.deliveryItemId,
+        idempotencyKey: `receipt:${retireRevision.revision}`,
+        providerMessageId: 'telegram-card-1',
+        providerPayloadJson: JSON.stringify({
+          externalMessageId: 'telegram-card-1',
+          jobPermissionCardRetireDelivery: { deletedAt },
+        }),
+        sentAt: deletedAt,
+        createdAt: deletedAt,
+      });
+    await durability.reconcile();
+    state = await runtime.repositories.workerCoordination.getJobPermissionState(
+      { appId: APP_ID, jobId },
+    );
+    expect(state!.card.revisions.at(-1)!.retireDelivery).toEqual({
+      deletedAt,
+    });
+    expect(state!.card.currentProviderMessageId).toBeNull();
     const ruleIdsAfter = (
       await runtime.service.db
         .select({ id: pgSchema.permissionRulesPostgres.id })

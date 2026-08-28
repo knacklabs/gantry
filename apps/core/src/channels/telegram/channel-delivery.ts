@@ -45,7 +45,10 @@ import {
   recordDurableQuestionAnswerProgress,
 } from '../../application/interactions/pending-interaction-durability.js';
 import { JobPermissionCardDeliverySettlement } from '../interaction-settlement.js';
-import { sendTelegramJobPermissionCard } from './job-permission-card-delivery.js';
+import {
+  retireTelegramJobPermissionCard,
+  sendTelegramJobPermissionCard,
+} from './job-permission-card-delivery.js';
 import { retainTelegramProgressHandleAfterEditFailure } from './progress-edit-failure.js';
 import { createTelegramPermissionCardPreparer } from './prepared-permission-card.js';
 import { sendTelegramDeliveryChunks } from './extracted-helpers.js';
@@ -125,6 +128,16 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
           options,
           threadOptions: sendOptions,
           deliveries: this.jobPermissionCardDeliveries,
+        });
+      }
+      if (options.deleteMessageId) {
+        return await retireTelegramJobPermissionCard({
+          api: this.bot.api,
+          chatId: numericId,
+          text,
+          options,
+          deliveries: this.jobPermissionCardDeliveries,
+          sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
         });
       }
       if (options.replaceMessageId) {
