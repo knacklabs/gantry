@@ -1,0 +1,25 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Where should the split Telegram callback handlers live?",
+      "options": [
+        "One sibling module (Recommended)",
+        "One file per action kind",
+        "Keep in channel-connect.ts"
+      ],
+      "chosen": "One sibling module (Recommended)"
+    },
+    {
+      "question": "Complexity ceilings for the split?",
+      "options": [
+        "Handlers \u2264 25, dispatcher \u2264 15 (Recommended)",
+        "Stricter: handlers \u2264 15, dispatcher \u2264 10",
+        "No numeric ceiling"
+      ],
+      "chosen": "Handlers \u2264 25, dispatcher \u2264 15 (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T13:02:59.301028+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

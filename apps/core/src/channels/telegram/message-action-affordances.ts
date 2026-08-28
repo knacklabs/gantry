@@ -62,10 +62,6 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
   | undefined {
   const buttons = (actions ?? [])
     .map((action) => {
-      if (action.kind === 'live_turn_stop') return null;
-      if (action.kind === 'memory_review_decision') return null;
-      if (action.kind === 'observer_feedback') return null;
-      if (action.kind === 'brain_dream_review_decision') return null;
       if (action.kind === 'job_permission_decision') {
         return action.label.trim() &&
           Buffer.byteLength(action.actionToken, 'utf8') <=
@@ -81,7 +77,12 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
       }
       const code = TELEGRAM_ACTION_CALLBACK_BY_KIND[action.kind];
       if (!code || !action.label.trim()) return null;
-      const callbackData = telegramSchedulerActionCallback(action);
+      const callbackData = telegramSchedulerActionCallback(
+        action as Extract<
+          MessageActionAffordance,
+          { kind: 'scheduler_run_now' | 'scheduler_pause_job' }
+        >,
+      );
       if (!callbackData) return null;
       return {
         text: action.label.trim(),

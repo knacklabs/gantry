@@ -278,12 +278,12 @@ export class DiscordInteractionHandler {
       this.sendDiscordPrompt(jid, text, options),
     timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
   });
-
   async handleInteraction(interaction: DiscordInteraction): Promise<void> {
     if (!interaction.id || !interaction.token || !interaction.channel_id)
       return;
     if (interaction.type === 3) {
       const customId = interaction.data?.custom_id || '';
+      const userId = interaction.member?.user?.id || interaction.user?.id;
       if (customId.startsWith(LIVE_STOP_CUSTOM_ID_PREFIX)) {
         await this.ackInteraction(interaction, 'Checking stop request.');
         const context = await this.input.resolveInteractionConversationContext(
@@ -294,7 +294,7 @@ export class DiscordInteractionHandler {
           conversationJid: context.conversationJid,
           providerAccountId: this.input.opts.providerAccountId,
           ...(context.threadId ? { threadId: context.threadId } : {}),
-          userId: interaction.member?.user?.id || interaction.user?.id,
+          userId,
           actionToken: customId.slice(LIVE_STOP_CUSTOM_ID_PREFIX.length),
         });
         return;
@@ -308,7 +308,7 @@ export class DiscordInteractionHandler {
           conversationJid: context.conversationJid,
           providerAccountId: this.input.opts.providerAccountId,
           ...(context.threadId ? { threadId: context.threadId } : {}),
-          userId: interaction.member?.user?.id || interaction.user?.id,
+          userId,
           ...(interaction.message?.id
             ? { messageId: interaction.message.id }
             : {}),
@@ -327,7 +327,7 @@ export class DiscordInteractionHandler {
           conversationJid: context.conversationJid,
           providerAccountId: this.input.opts.providerAccountId,
           ...(context.threadId ? { threadId: context.threadId } : {}),
-          userId: interaction.member?.user?.id || interaction.user?.id,
+          userId,
           jobId: decodeURIComponent(
             customId.slice(SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX.length),
           ),

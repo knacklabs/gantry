@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "When a job hits a command that can't be saved as a rule (piped/compound), what should happen?",
+      "options": [
+        "Allow once + Deny prompt (Recommended)",
+        "No prompt \u2014 auto-deny, tell the agent to split the command"
+      ],
+      "chosen": "Allow once + Deny prompt (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T16:53:30.932106+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

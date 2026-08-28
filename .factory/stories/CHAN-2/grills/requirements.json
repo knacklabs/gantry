@@ -1,0 +1,37 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "gaps": [
+    "A new module (telegram/callback-handlers.ts) may need an architecture-map budget entry; add it in T2.",
+    "If the jp: handler exceeds CC 25 it is sub-split inside the same module (parse token / resolve target / apply decision)."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Existing unit tests unchanged; additions only.",
+    "Owner rounds: one sibling module; handler <= 25, dispatcher <= 15."
+  ],
+  "citations": [
+    {
+      "finding": "Telegram bot.on callback CC 188; five repeated-guard hoists",
+      "source": "plans/codex-briefs/pr-444-cyclomatic-review.md (Codex Sol xhigh review of PR #444, 2026-08-27)"
+    }
+  ],
+  "owner_questions": [],
+  "rounds": [
+    {
+      "question": "Requirements for CHAN-2 \u2014 anything to add or change before I record them?",
+      "options": [
+        "No \u2014 record as written (Recommended)",
+        "Hold \u2014 change something"
+      ],
+      "chosen": "No \u2014 record as written (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "issue": "CHAN-2",
+  "input_sha256": "15b68fb28d227a51f3949833d0c595c1a93cfa85776f6aa7db150b1d1d8234a7",
+  "recorded_at": "2026-08-27T15:21:02+00:00",
+  "commit": "1691291142fdf37cab328941e63c66cc1cf09b22"
+}

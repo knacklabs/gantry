@@ -1,0 +1,58 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "CHAN-2-T2",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/channels/telegram/channel-connect.ts",
+    "apps/core/src/channels/telegram/message-action-affordances.ts",
+    "apps/core/src/domain/job-permission-card-actions.ts",
+    "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+    "apps/core/test/unit/channels/telegram.test.ts",
+    "scripts/architecture-map.json",
+    "plans/codex-briefs/pr-444-cyclomatic-review.md"
+  ],
+  "current_flow": "One bot.on('callback_query:data') callback (~lines 59-750) parses data, then handles user-question answers, lt:stop, jp: card taps, r: compact retry and perm: classic prompts inline, re-deriving message/chat/thread/user context per branch; CC 188 per the PR #444 review.",
+  "criteria_map": {
+    "The Telegram bot.on callback in telegram/channel-connect.ts is split by action kind into named handlers, each with cyclomatic complexity <= 25, dispatched from a callback whose own complexity is <= 15; no behaviour change": "steps 1-3: context built once, one named handler per kind in telegram/callback-handlers.ts, thin dispatcher; step 5 CC report (dispatcher <= 15, handlers <= 25)",
+    "No behaviour change: existing unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green": "step 5: telegram + channels suites unchanged and green, full unit lane, Postgres lane, tsc, architecture"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "TelegramCallbackContext (a plain object built once per callback) and telegram/callback-handlers.ts (one module, one function per action kind) \u2014 owner choice 2026-08-27"
+  ],
+  "rounds": [
+    {
+      "question": "CHAN-2-T2 (Telegram callback split into telegram/callback-handlers.ts) \u2014 anything to settle before Codex does it?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold \u2014 change something"
+      ],
+      "chosen": "No \u2014 go (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "gaps": [
+    "A moved branch that relied on variables computed earlier in the callback must receive them through the context object; missing one surfaces as a tsc error or a failing existing test, both gating."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Existing tests unchanged is the behaviour proof; CC ceilings are measured, not eyeballed.",
+    "Owner: one PR, two commits (T1 hoists, T2 split)."
+  ],
+  "citations": [
+    {
+      "finding": "A moved branch that relied on variables computed earlier in the callback must receive them through the context object; missing one surfaces as a tsc error or a failing existing test, both gating.",
+      "source": "apps/core/src/channels/telegram/channel-connect.ts:59-750 (callback body); verify step 5 in the task plan"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "cdd1e426dc9cf1286674644db160a44cd5e1e16eb6b0520e0928cebd42acbc96",
+  "task_plan_sha256": "a9db90d155fa9fdc6c7ca5a719787e33891a0e735109c223103c73f3dd0ca29e",
+  "recorded_at": "2026-08-28T04:12:52+00:00",
+  "commit": "80bca165d18147db6226a52e77e0f66f94fcef03",
+  "approved_task_plan_sha256": "a9db90d155fa9fdc6c7ca5a719787e33891a0e735109c223103c73f3dd0ca29e",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-28T04:12:52+00:00"
+}

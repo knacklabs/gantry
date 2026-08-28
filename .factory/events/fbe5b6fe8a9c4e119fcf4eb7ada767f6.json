@@ -1,0 +1,1 @@
+{"event": "intake", "generated_by": "orchestrator", "at": "2026-08-27T12:58:33+00:00", "story": "CHAN-2", "detail": "Channel dispatchers: flatten repeated guards and split the Telegram callback by action kind"}

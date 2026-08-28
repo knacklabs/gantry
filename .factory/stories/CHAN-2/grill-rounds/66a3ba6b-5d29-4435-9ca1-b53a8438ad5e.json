@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Anything else to settle for CHAN-2 before I confirm the spec, save the plan and start the hoists?",
+      "options": [
+        "No \u2014 confirm and start (Recommended)",
+        "Hold \u2014 I want to change something first"
+      ],
+      "chosen": "No \u2014 confirm and start (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T15:18:54.164942+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

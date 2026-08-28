@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "CHAN-2-T2 (Telegram callback split into telegram/callback-handlers.ts) \u2014 anything to settle before Codex does it?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold \u2014 change something"
+      ],
+      "chosen": "No \u2014 go (Recommended)"
+    }
+  ],
+  "at": "2026-08-27T16:39:04.050186+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

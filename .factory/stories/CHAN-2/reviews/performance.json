@@ -1,0 +1,44 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/channels/telegram/channel-connect.ts",
+    "apps/core/src/channels/telegram/callback-handlers.ts",
+    "scripts/architecture-map.json"
+  ],
+  "residual_risks": [
+    "None."
+  ],
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "CHAN-2-AC1",
+      "verdict": "implemented",
+      "evidence": "T1 7d0f932ad: five pure-read hoists (telegram affordances, telegram callback context, slack channelId/userId, discord user id, teams thread fragment); 5 files 77+/81-, no test edits"
+    },
+    {
+      "contract_id": "CHAN-2-AC4",
+      "verdict": "implemented",
+      "evidence": "branch based on main after #446 (67daf0edc), later merged main at 80bca165d"
+    },
+    {
+      "contract_id": "CHAN-2-AC2",
+      "verdict": "implemented",
+      "evidence": "bot.on('callback_query:data') is now parse \u2192 createTelegramCallbackContext (once) \u2192 dispatchTelegramCallback; one named handler per action kind in telegram/callback-handlers.ts; AST CC: dispatcher 11 (<=15), largest handler handleTelegramUserQuestionCallback 16 (<=25); channel-connect.ts 800\u2192114 lines"
+    },
+    {
+      "contract_id": "CHAN-2-AC3",
+      "verdict": "implemented",
+      "evidence": "git diff --stat -- apps/core/test is empty; channels lane 40 files/1006 tests green; tsc clean; check:architecture passed (architecture-map entry added)"
+    }
+  ],
+  "summary": "Story CHAN-2: five hoists + Telegram callback split, no behaviour change. Proof at c376051e7: channels lane 40 files/1006 tests green with zero test edits (git diff --stat -- apps/core/test empty); tsc clean; check:architecture passed; AST CC dispatcher 11 (<=15), largest handler 16 (<=25); channel-connect.ts 800\u2192114 lines; autoreview (codex sol high, local, brief plans/review-briefs/chan-2-t2-telegram-split.md) clean 0.97.",
+  "aspect": "performance",
+  "review_run_id": "8d5a9d686d7027bf6fc76869819fbf35913450fa5e258534768b1dce4b4295d0",
+  "brief_sha256": "41074b743e732e7702d3476f43402111aae2259205db8c6c3fb8569ddb76a520",
+  "branch_diff_digest": "8b392830c3dcb725d02f912a620fa7ca40d8f7e7c59ad7debfec369123a37fae",
+  "recorded_at": "2026-08-28T05:15:49+00:00",
+  "commit": "9f19495072fe9a29b1993438e8b9a2932404fa77"
+}

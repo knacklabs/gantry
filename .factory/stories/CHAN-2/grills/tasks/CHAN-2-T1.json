@@ -1,0 +1,54 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "CHAN-2-T1",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/channels/telegram/message-action-affordances.ts",
+    "apps/core/src/channels/telegram/channel-connect.ts",
+    "apps/core/src/channels/slack/channel-message-action-handler.ts",
+    "apps/core/src/channels/discord/interactions.ts",
+    "apps/core/src/channels/teams/cards.ts",
+    "plans/codex-briefs/pr-444-cyclomatic-review.md"
+  ],
+  "current_flow": "Each of the five sites re-derives the same optional-guard chain (message/chat/user ids or a thread fragment) inside every branch of a dispatcher; the Telegram affordance parser also carries four early returns for kinds the code lookup already rejects.",
+  "criteria_map": {
+    "The five review hoists are applied: telegram/message-action-affordances.ts dead early-returns removed; telegram/channel-connect.ts callback context computed once; slack/channel-message-action-handler.ts channelId/userId hoisted; discord/interactions.ts component user id hoisted; teams/cards.ts thread fragment computed once": "steps 1-5, one hoist per file; step 6 verify (unchanged channel suites green, tsc, architecture)",
+    "Lands after PR #446 merged (CHAN-1 folder layout); branch based on main after it": "branch is off merged main 67daf0edc which contains #446"
+  },
+  "decision": "keep",
+  "new_abstractions": [],
+  "rounds": [
+    {
+      "question": "CHAN-2-T1 (the five hoists) \u2014 anything to settle before Codex applies them?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold \u2014 change something"
+      ],
+      "chosen": "No \u2014 go (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "gaps": [
+    "A hoist must not change evaluation order where a guard had side effects; none of the five sites has side-effecting guards (pure property reads)."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Existing tests unchanged is the behaviour proof; each hoist is a pure-read reorder."
+  ],
+  "citations": [
+    {
+      "finding": "A hoist must not change evaluation order where a guard had side effects; none of the five sites has side-effecting guards (pure property reads).",
+      "source": "Codex Sol xhigh review of PR #444 (plans/codex-briefs/pr-444-cyclomatic-review.md), simplification opportunities 1-5"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "3dcda6161a341e40e9aebdc6495e52dee41639566560dd1b66b3b7105d28ec7e",
+  "task_plan_sha256": "ce52806d75e135e4b8e2c620429d50cb52bef588d9b83b4f5c2d32bb54e258b4",
+  "recorded_at": "2026-08-27T16:25:00+00:00",
+  "commit": "a630d4af1ad3d3b73a38d22e7ff95c35935ca3a0",
+  "approved_task_plan_sha256": "ce52806d75e135e4b8e2c620429d50cb52bef588d9b83b4f5c2d32bb54e258b4",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-27T16:25:00+00:00"
+}

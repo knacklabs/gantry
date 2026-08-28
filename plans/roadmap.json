@@ -1,4 +1,109 @@
 {
+  "version": 1,
+  "epics": [
+    {
+      "id": "harness-hygiene",
+      "title": "Harness hygiene",
+      "objective": "Green deterministic gates so every story verifies honestly",
+      "source_refs": [
+        "docs/architecture/architecture-debt-paydown-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "permission-engine",
+      "title": "Permission engine redesign",
+      "objective": "Deterministic rails + host-side decision coordinator; ask only on genuine risk",
+      "source_refs": [
+        "docs/architecture/permission-engine-redesign-goal-prompt.md",
+        "docs/architecture/git-permission-rca.md"
+      ]
+    },
+    {
+      "id": "observer",
+      "title": "Curious Observer program",
+      "objective": "Harvest -> nightly dream -> value floor + batch judge -> daily private digest",
+      "source_refs": [
+        "docs/architecture/proactive-observer-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "agent-e2e-gate",
+      "title": "Agent E2E CI merge gate",
+      "objective": "Packaged real-runtime E2E matrix as the merge bar",
+      "source_refs": [
+        "docs/architecture/agent-e2e-ci-merge-gate-goal-prompt.md",
+        "docs/architecture/agent-e2e-test-matrix.md"
+      ]
+    },
+    {
+      "id": "capability-search",
+      "title": "Capability authoring + MCP hybrid search",
+      "objective": "Agents author capabilities; tool search gains FTS + optional semantic layer",
+      "source_refs": [
+        "docs/architecture/mcp-hybrid-search-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "ponytail",
+      "title": "Ponytail cutover",
+      "objective": "Land the phased re-derive: Phase-8 offline cutover, gated on explicit user go",
+      "source_refs": [
+        "docs/architecture/ponytail-audit-2026-07-16.md"
+      ]
+    },
+    {
+      "id": "observability",
+      "title": "OTel observability remainder",
+      "objective": "Permission/decision spans completing the shipped #220/#262 taxonomy",
+      "source_refs": [
+        "docs/architecture/otel-permission-spans-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "post-cutover",
+      "title": "Post-Ponytail-cutover lanes",
+      "objective": "Durable-work primitive and model management, gated on the user-authorized cutover",
+      "source_refs": [
+        "docs/architecture/durable-work-primitive-goal-prompt.md",
+        "docs/architecture/model-management-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "coordination-hardening",
+      "title": "Coordination hardening",
+      "objective": "Retire coordination-representation audit findings (B1/B2/C)",
+      "source_refs": [
+        "docs/architecture/coordination-representation-audit-2026-07-18.md"
+      ]
+    },
+    {
+      "id": "artifact-store",
+      "title": "Artifact store S3 bytes",
+      "objective": "S3/MinIO file-artifact bytes with verified commit + TTL janitor",
+      "source_refs": [
+        "docs/architecture/artifact-store-s3-goal-prompt.md"
+      ]
+    },
+    {
+      "id": "web-authentication",
+      "title": "Web authentication and access",
+      "objective": "Give each Gantry deployment a secure browser authentication and console-access model without changing machine API-key clients.",
+      "source_refs": [
+        "docs/specs/authentication-access-web-ui.md"
+      ]
+    },
+    {
+      "id": "ai-employee-v1",
+      "title": "AI employee V1: onboard, scope, audit, offboard",
+      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap. Console: one Directory for people and AI employees; audit visible to administrators and approvers; handoffs viewable in console, claimed in chat; design pass before UI stories. Model governance: per-agent model allowlist and a pre-model guardrail hook (V1.0.x); reports, exports, SIEM, rate limits (V1.1). Gantry is the runtime, not a gateway: orgs with LiteLLM point the openai_compatible provider at it. Day-two operations in V1.0 (bootstrap, incident freeze, admin notifications, backup/upgrade/rollback, first contact); one API, three clients (console, CLI, the agent itself); self-improvement by reviewed proposal (V1.0.x)",
+      "source_refs": [
+        "docs/product/BRIEF.md",
+        "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
+        "docs/decisions/0136-voice-as-provider-adapter.md",
+        "docs/decisions/0137-connector-accounts-mirror-provider-accounts.md"
+      ]
+    }
+  ],
   "items": [
     {
       "status": "done",
@@ -2258,6 +2363,28 @@
       "spec": "docs/specs/day-two-operations.md"
     },
     {
+      "key": "CHAN-2",
+      "title": "Channel dispatchers: flatten repeated guards and split the Telegram callback by action kind",
+      "story": "As a maintainer, I read the Telegram message-action dispatcher as small per-action handlers and the provider adapters without repeated optional-guard chains, so that changes stay reviewable and the biggest hotspot from the JOBPERM-1 review is retired.",
+      "acceptance_criteria": [
+        "The five review hoists are applied: telegram/message-action-affordances.ts dead early-returns removed; telegram/channel-connect.ts callback context computed once; slack/channel-message-action-handler.ts channelId/userId hoisted; discord/interactions.ts component user id hoisted; teams/cards.ts thread fragment computed once",
+        "The Telegram bot.on callback in telegram/channel-connect.ts is split by action kind into named handlers, each with cyclomatic complexity <= 25, dispatched from a callback whose own complexity is <= 15; no behaviour change",
+        "No behaviour change: existing unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green",
+        "Lands after PR #446 merged (CHAN-1 folder layout); branch based on main after it"
+      ],
+      "order": 110,
+      "status": "done",
+      "epic": "harness-hygiene",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/channel-dispatchers-flatten-and-split.md",
+      "completed_at": "2026-08-28T05:15:49+00:00",
+      "history": ".factory/stories/CHAN-2/",
+      "outcome": "The provider adapters are easier to read and change safely. Five repeated guards (Telegram, Slack, Discord, Teams) are computed once instead of per branch, and the Telegram callback \u2014 previously one ~700-line function handling every button tap \u2014 is now a thin dispatcher that builds one context object and hands each kind of tap (question answers, stop, job-permission card, memory/brain reviews, observer, retry, classic permission prompt) to a named handler in its own module. Nothing changed in behaviour: every existing test passes untouched. Complexity: dispatcher 11, largest handler 16 (ceilings 15/25)."
+    },
+    {
       "key": "JOBPERM-2",
       "title": "Job permissions: one card path with rule/once grants",
       "story": "As the owner of a scheduled job, I get one Allow/Deny card for every permission the run asks for \u2014 even for commands that cannot be remembered \u2014 so a run never sits on a question that can only be answered no.",
@@ -2276,110 +2403,6 @@
       "spec": "docs/specs/job-permissions-once-grants.md"
     }
   ],
-  "epics": [
-    {
-      "id": "harness-hygiene",
-      "title": "Harness hygiene",
-      "objective": "Green deterministic gates so every story verifies honestly",
-      "source_refs": [
-        "docs/architecture/architecture-debt-paydown-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "permission-engine",
-      "title": "Permission engine redesign",
-      "objective": "Deterministic rails + host-side decision coordinator; ask only on genuine risk",
-      "source_refs": [
-        "docs/architecture/permission-engine-redesign-goal-prompt.md",
-        "docs/architecture/git-permission-rca.md"
-      ]
-    },
-    {
-      "id": "observer",
-      "title": "Curious Observer program",
-      "objective": "Harvest -> nightly dream -> value floor + batch judge -> daily private digest",
-      "source_refs": [
-        "docs/architecture/proactive-observer-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "agent-e2e-gate",
-      "title": "Agent E2E CI merge gate",
-      "objective": "Packaged real-runtime E2E matrix as the merge bar",
-      "source_refs": [
-        "docs/architecture/agent-e2e-ci-merge-gate-goal-prompt.md",
-        "docs/architecture/agent-e2e-test-matrix.md"
-      ]
-    },
-    {
-      "id": "capability-search",
-      "title": "Capability authoring + MCP hybrid search",
-      "objective": "Agents author capabilities; tool search gains FTS + optional semantic layer",
-      "source_refs": [
-        "docs/architecture/mcp-hybrid-search-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "ponytail",
-      "title": "Ponytail cutover",
-      "objective": "Land the phased re-derive: Phase-8 offline cutover, gated on explicit user go",
-      "source_refs": [
-        "docs/architecture/ponytail-audit-2026-07-16.md"
-      ]
-    },
-    {
-      "id": "observability",
-      "title": "OTel observability remainder",
-      "objective": "Permission/decision spans completing the shipped #220/#262 taxonomy",
-      "source_refs": [
-        "docs/architecture/otel-permission-spans-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "post-cutover",
-      "title": "Post-Ponytail-cutover lanes",
-      "objective": "Durable-work primitive and model management, gated on the user-authorized cutover",
-      "source_refs": [
-        "docs/architecture/durable-work-primitive-goal-prompt.md",
-        "docs/architecture/model-management-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "coordination-hardening",
-      "title": "Coordination hardening",
-      "objective": "Retire coordination-representation audit findings (B1/B2/C)",
-      "source_refs": [
-        "docs/architecture/coordination-representation-audit-2026-07-18.md"
-      ]
-    },
-    {
-      "id": "artifact-store",
-      "title": "Artifact store S3 bytes",
-      "objective": "S3/MinIO file-artifact bytes with verified commit + TTL janitor",
-      "source_refs": [
-        "docs/architecture/artifact-store-s3-goal-prompt.md"
-      ]
-    },
-    {
-      "id": "web-authentication",
-      "title": "Web authentication and access",
-      "objective": "Give each Gantry deployment a secure browser authentication and console-access model without changing machine API-key clients.",
-      "source_refs": [
-        "docs/specs/authentication-access-web-ui.md"
-      ]
-    },
-    {
-      "id": "ai-employee-v1",
-      "title": "AI employee V1: onboard, scope, audit, offboard",
-      "objective": "Onboard AI employees like real ones: a seat in Teams/Slack/web, only the access they need, a full audit trail, offboarding in one command; self-hosted, any model; installable from npm in an afternoon. Milestones: V1.0 = the 3-minute onboard->scope->approve->offboard video path; V1.0.x = connectors, cost view, sovereign mode, and the customer support assistant (phone identity + WhatsApp seat + human handoff); V1.1 = voice, hard cost cap. Console: one Directory for people and AI employees; audit visible to administrators and approvers; handoffs viewable in console, claimed in chat; design pass before UI stories. Model governance: per-agent model allowlist and a pre-model guardrail hook (V1.0.x); reports, exports, SIEM, rate limits (V1.1). Gantry is the runtime, not a gateway: orgs with LiteLLM point the openai_compatible provider at it. Day-two operations in V1.0 (bootstrap, incident freeze, admin notifications, backup/upgrade/rollback, first contact); one API, three clients (console, CLI, the agent itself); self-improvement by reviewed proposal (V1.0.x)",
-      "source_refs": [
-        "docs/product/BRIEF.md",
-        "docs/architecture/identity-01-canonical-person-continuous-memory-plan.md",
-        "docs/decisions/0136-voice-as-provider-adapter.md",
-        "docs/decisions/0137-connector-accounts-mirror-provider-accounts.md"
-      ]
-    }
-  ],
   "generated_by": "human",
-  "updated_at": "2026-08-27T17:14:29+00:00"
+  "updated_at": "2026-08-28T05:15:49+00:00"
 }

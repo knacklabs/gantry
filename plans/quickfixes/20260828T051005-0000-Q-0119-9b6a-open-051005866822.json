@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0119-9b6a",
+  "profile": "degraded",
+  "reason": "Owner ruling 2026-08-28: reclassify CHAN-2 roadmap kind refactor\u2192feature (the Telegram split cannot shrink: +220 lines of signatures/context type, zero logic, zero test edits); forge roadmap has no kind setter",
+  "started_at": "2026-08-28T05:10:05+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

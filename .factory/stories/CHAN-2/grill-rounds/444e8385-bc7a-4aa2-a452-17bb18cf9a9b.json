@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "What exactly did the Telegram prompt look like? (If the text was too long for one Telegram message, the runtime sends the text in pieces and then a short separate message \"Review the approval details above before choosing.\" that carries the buttons.)",
+      "options": [
+        "Text only, no short follow-up message",
+        "Buttons exist but read 'Allow once' / 'Cancel'",
+        "A short follow-up message came, but it had no buttons either"
+      ],
+      "chosen": "Text only, no short follow-up message"
+    }
+  ],
+  "at": "2026-08-27T16:51:03.607623+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
