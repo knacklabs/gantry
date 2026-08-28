@@ -4,60 +4,66 @@
     {
       "id": "CHAN-2-T1",
       "title": "Five repeated-guard hoists across the provider adapters",
-      "status": "done",
-      "started_at": "2026-08-27T16:25:01+00:00",
-      "base_sha": "a630d4af1ad3d3b73a38d22e7ff95c35935ca3a0",
-      "dirty_at_start": {
-        ".factory/stories/CHAN-2/grill-rounds/27a5f75c-0882-4adb-aebe-57d4d43e059c.json": {
-          "digest": "d382c7924e3ea901352ecf1fae5493050eba8358621afbfc0c918f81d07e7a93",
-          "git": "? .factory/stories/CHAN-2/grill-rounds/27a5f75c-0882-4adb-aebe-57d4d43e059c.json\u0000\u0000\u0000"
-        },
-        ".factory/stories/CHAN-2/grills/tasks/CHAN-2-T1.json": {
-          "digest": "969fe94f117bea8e02fa79c0ab48e66e1bf64ba49b5b4b7cd9ba81e1749881aa",
-          "git": "? .factory/stories/CHAN-2/grills/tasks/CHAN-2-T1.json\u0000\u0000\u0000"
-        }
-      },
-      "task_sha256": "c4cffdd8fc0f40336ad277c1c2918926a67ac4c56138a967744ab16aa75263a3",
-      "completed_at": "2026-08-27T16:37:16+00:00"
+      "status": "done"
     },
     {
       "id": "CHAN-2-T2",
       "title": "Split the Telegram callback by action kind",
       "status": "active",
-      "started_at": "2026-08-27T16:39:20+00:00",
-      "base_sha": "0e6ba4ce42576a80086fcb2bb1bf974ce88b90a4",
+      "started_at": "2026-08-28T04:12:52+00:00",
+      "base_sha": "80bca165d18147db6226a52e77e0f66f94fcef03",
       "dirty_at_start": {
-        ".factory/events/4562bdc705374072b929c38a4fe31d22.json": {
-          "digest": "32f8de272c182202cc5cbbd6d290dba470ee3811484386cf86eaa7de54e5b8cb",
-          "git": "? .factory/events/4562bdc705374072b929c38a4fe31d22.json\u0000\u0000\u0000"
+        ".factory/events/6401b16386f74cd5936a441e57c2d137.json": {
+          "digest": "4ce799a3d7d2acf60ed19e8c28e1ccc033240009f6bbe4f1f1f079d0530af4a1",
+          "git": "? .factory/events/6401b16386f74cd5936a441e57c2d137.json\u0000\u0000\u0000"
+        },
+        ".factory/events/9c6a03ff2bd34377bfca61b5ae714266.json": {
+          "digest": "9f7ba96542cc1ebf4767a7b4ca3b3c6717693e958bb1b14e7b5e56c4ca361955",
+          "git": "? .factory/events/9c6a03ff2bd34377bfca61b5ae714266.json\u0000\u0000\u0000"
+        },
+        ".factory/events/a27863cf876d4ebf9524f2e92895147c.json": {
+          "digest": "cd7572c19ccbbed58b5fc9acf9ccf39130823799ff1bff8354df308f5c8c6d4b",
+          "git": "? .factory/events/a27863cf876d4ebf9524f2e92895147c.json\u0000\u0000\u0000"
         },
         ".factory/stages.json": {
-          "digest": "9e914d75cdcef9e57631bf9621f94d6cc6f8557ed8863d7af345a99aa37c131f",
-          "git": "1 .M N... 100644 100644 100644 f727a635b33fee6b5ec3eaa60675456eb0618b49 f727a635b33fee6b5ec3eaa60675456eb0618b49 .factory/stages.json\u0000\u0000100644 f727a635b33fee6b5ec3eaa60675456eb0618b49 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
-        },
-        ".factory/stories/CHAN-2/decomposition.json": {
-          "digest": "7f24a0b622eed3e9b98a50dedad63ba5ad9de38525f46f6215abb3b9f9032c34",
-          "git": "1 .M N... 100644 100644 100644 3d67fdbc449fe558970a85b03a32a462211cc595 3d67fdbc449fe558970a85b03a32a462211cc595 .factory/stories/CHAN-2/decomposition.json\u0000\u0000100644 3d67fdbc449fe558970a85b03a32a462211cc595 0\t.factory/stories/CHAN-2/decomposition.json\u0000\u0000H .factory/stories/CHAN-2/decomposition.json\u0000"
-        },
-        ".factory/stories/CHAN-2/grill-rounds/a63242e0-cc61-4f1d-8063-dff55ff442d8.json": {
-          "digest": "a3a5713b1eda1a2540e163bd92793d4de55e2bfa859cef0f3a10f9ce17eee43c",
-          "git": "? .factory/stories/CHAN-2/grill-rounds/a63242e0-cc61-4f1d-8063-dff55ff442d8.json\u0000\u0000\u0000"
+          "digest": "07ada69a730e67f1c462caebad0de7b3934fb0fde05f70006669d58dedb2cccb",
+          "git": "1 .M N... 100644 100644 100644 ad9cf10451e6a1f50dbae2634ef5bcd277b98a0a ad9cf10451e6a1f50dbae2634ef5bcd277b98a0a .factory/stages.json\u0000\u0000100644 ad9cf10451e6a1f50dbae2634ef5bcd277b98a0a 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
         },
         ".factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json": {
-          "digest": "957a3c7c1ca8096004715fc40648933b5b74844aa8c6008fa7370ad86d03a294",
-          "git": "? .factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json\u0000\u0000\u0000"
+          "digest": "4d6a92b489116507921a6dbe9dd446aade84964192d9e0c4d17810e5c6bc3e4d",
+          "git": "1 .M N... 100644 100644 100644 d7c9862499cad7ff79ac5d0aa64e0db661aa8acf d7c9862499cad7ff79ac5d0aa64e0db661aa8acf .factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json\u0000\u0000100644 d7c9862499cad7ff79ac5d0aa64e0db661aa8acf 0\t.factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json\u0000\u0000H .factory/stories/CHAN-2/grills/tasks/CHAN-2-T2.json\u0000"
         },
-        ".factory/stories/CHAN-2/plan-mode/98cc9eff-fe99-4ac7-bb44-29c055ee0567.json": {
-          "digest": "9ef587a57e11f37a60470be4da1bb1899a3632889d91719519f704186ff2685b",
-          "git": "? .factory/stories/CHAN-2/plan-mode/98cc9eff-fe99-4ac7-bb44-29c055ee0567.json\u0000\u0000\u0000"
+        ".factory/stories/JOBPERM-2/decomposition.json": {
+          "digest": "",
+          "git": "1 .D N... 100644 100644 000000 f54f0d8cd0fc3f0a51b03f328eced1c9de41a26f f54f0d8cd0fc3f0a51b03f328eced1c9de41a26f .factory/stories/JOBPERM-2/decomposition.json\u0000\u0000100644 f54f0d8cd0fc3f0a51b03f328eced1c9de41a26f 0\t.factory/stories/JOBPERM-2/decomposition.json\u0000\u0000H .factory/stories/JOBPERM-2/decomposition.json\u0000"
         },
-        ".factory/stories/CHAN-2/task-plans/CHAN-2-T2.md": {
-          "digest": "e5e4a4fe6c748b53b61acc2298ce060dbb932e2ceeecef8ad3b120de44ed195e",
-          "git": "? .factory/stories/CHAN-2/task-plans/CHAN-2-T2.md\u0000\u0000\u0000"
+        ".factory/stories/JOBPERM-2/grills/plan.json": {
+          "digest": "",
+          "git": "1 .D N... 100644 100644 000000 bbf3f4e3fc307b6659555c3598b75a556d8b61b3 bbf3f4e3fc307b6659555c3598b75a556d8b61b3 .factory/stories/JOBPERM-2/grills/plan.json\u0000\u0000100644 bbf3f4e3fc307b6659555c3598b75a556d8b61b3 0\t.factory/stories/JOBPERM-2/grills/plan.json\u0000\u0000H .factory/stories/JOBPERM-2/grills/plan.json\u0000"
         },
-        "plans/review-briefs/chan-2-t1-hoists.md": {
-          "digest": "02ff3879a739de5493419d408b87e2db7e5901db98e7a7564fc1323d15a3eb32",
-          "git": "? plans/review-briefs/chan-2-t1-hoists.md\u0000\u0000\u0000"
+        ".factory/stories/JOBPERM-2/reviews/performance.json": {
+          "digest": "",
+          "git": "1 .D N... 100644 100644 000000 55102e2d179f7a95f6b6ff906bb19965e842af3e 55102e2d179f7a95f6b6ff906bb19965e842af3e .factory/stories/JOBPERM-2/reviews/performance.json\u0000\u0000100644 55102e2d179f7a95f6b6ff906bb19965e842af3e 0\t.factory/stories/JOBPERM-2/reviews/performance.json\u0000\u0000H .factory/stories/JOBPERM-2/reviews/performance.json\u0000"
+        },
+        ".factory/stories/JOBPERM-2/reviews/quality.json": {
+          "digest": "",
+          "git": "1 .D N... 100644 100644 000000 7f3f0d2b126899fe338793e836871cce654e97e1 7f3f0d2b126899fe338793e836871cce654e97e1 .factory/stories/JOBPERM-2/reviews/quality.json\u0000\u0000100644 7f3f0d2b126899fe338793e836871cce654e97e1 0\t.factory/stories/JOBPERM-2/reviews/quality.json\u0000\u0000H .factory/stories/JOBPERM-2/reviews/quality.json\u0000"
+        },
+        ".factory/stories/JOBPERM-2/reviews/security.json": {
+          "digest": "",
+          "git": "1 .D N... 100644 100644 000000 aa8b5d432e9d414bd97438a24c781e92ff514aa8 aa8b5d432e9d414bd97438a24c781e92ff514aa8 .factory/stories/JOBPERM-2/reviews/security.json\u0000\u0000100644 aa8b5d432e9d414bd97438a24c781e92ff514aa8 0\t.factory/stories/JOBPERM-2/reviews/security.json\u0000\u0000H .factory/stories/JOBPERM-2/reviews/security.json\u0000"
+        },
+        ".factory/stories/JOBPERM-2/tests.json": {
+          "digest": "",
+          "git": "1 .D N... 100644 100644 000000 89b02b61b96ded4aefb329bfe9b9b89eb1d1cb38 89b02b61b96ded4aefb329bfe9b9b89eb1d1cb38 .factory/stories/JOBPERM-2/tests.json\u0000\u0000100644 89b02b61b96ded4aefb329bfe9b9b89eb1d1cb38 0\t.factory/stories/JOBPERM-2/tests.json\u0000\u0000H .factory/stories/JOBPERM-2/tests.json\u0000"
+        },
+        ".factory/stories/JOBPERM-2/verify.json": {
+          "digest": "",
+          "git": "1 .D N... 100644 100644 000000 39f1661900af16eab3543b5b6c37d91687e5fcb3 39f1661900af16eab3543b5b6c37d91687e5fcb3 .factory/stories/JOBPERM-2/verify.json\u0000\u0000100644 39f1661900af16eab3543b5b6c37d91687e5fcb3 0\t.factory/stories/JOBPERM-2/verify.json\u0000\u0000H .factory/stories/JOBPERM-2/verify.json\u0000"
+        },
+        "plans/roadmap.json": {
+          "digest": "6b208ce305a2eb0190a987b600a17a62861afa765f1843d8947c0b8589da19de",
+          "git": "1 .M N... 100644 100644 100644 6f998c3bd62fb1bee57df9f2ee3df297b772b31e 6f998c3bd62fb1bee57df9f2ee3df297b772b31e plans/roadmap.json\u0000\u0000100644 6f998c3bd62fb1bee57df9f2ee3df297b772b31e 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
         }
       },
       "task_sha256": "60dec1a3dcd3171ea8e2c838a27dd5215d67427851cc1986208ad3478c06170d"
