@@ -73,7 +73,6 @@
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts": 705,
     "apps/core/src/application/attachments/attachment-resolver.ts": 710,
     "apps/core/src/channels/discord/index.ts": 740,
-    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts": 770,
     "apps/core/src/jobs/status-formatting.ts": 725
   },
   "layers": {
