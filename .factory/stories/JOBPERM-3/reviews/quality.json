@@ -3,19 +3,22 @@
   "score": 9,
   "recommendation": "approve",
   "reviewed_scope": [
-    "apps/core/src/application/interactions/job-permission-card-projection.ts",
-    "apps/core/src/domain/job-permission-card-actions.ts",
-    "apps/core/src/domain/ports/job-permission-durability.ts",
-    "apps/core/src/domain/types.ts",
-    "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+    "apps/core/src/channels/job-permission-card-settlement.ts",
+    "apps/core/src/channels/slack/job-permission-card-delivery.ts",
+    "apps/core/src/channels/slack/channel-delivery.ts",
+    "apps/core/src/channels/slack/channel-delivery-helpers.ts",
+    "apps/core/src/channels/discord/job-permission-card-delivery.ts",
+    "apps/core/src/channels/discord/index.ts",
+    "apps/core/src/channels/teams/index.ts",
+    "apps/core/src/channels/teams/progress.ts",
     "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
-    "apps/core/src/channels/telegram/channel-delivery.ts",
-    "apps/core/src/domain/messages/retry-tail-provider-payload.ts",
-    "apps/core/src/adapters/storage/postgres/repositories/job-permission-need-repository.postgres.ts",
-    "apps/core/test/integration/permission-decision-chain.postgres.integration.test.ts"
+    "apps/core/test/unit/channels/slack.test.ts",
+    "apps/core/test/unit/channels/discord/discord.test.ts",
+    "apps/core/test/unit/channels/teams/teams.test.ts"
   ],
   "residual_risks": [
-    "Slack/Discord/Teams retire deliveries unchanged until T2."
+    "Teams cannot delete bot activities: the receipt card is the ceiling (plan Risks).",
+    "Live Slack/Discord/Teams retire not exercised end-to-end in this session; Telegram was."
   ],
   "blocking_findings": [],
   "non_blocking_findings": [],
@@ -39,13 +42,28 @@
       "contract_id": "JOBPERM-3-AC4",
       "verdict": "implemented",
       "evidence": "application/telegram/domain/adapters suites green with only retire-text/operation assertions updated; Postgres permission-decision-chain 5/5 host-side; tsc; check:architecture \u2014 proof: 175 files / 2115 unit tests green; Postgres permission-decision-chain 5/5; tsc clean; check:architecture passed; autoreview local clean"
+    },
+    {
+      "contract_id": "JOBPERM-3-T2-AC1",
+      "verdict": "implemented",
+      "evidence": "proof: slack.test.ts and discord/discord.test.ts 'deletes a fully allowed job permission card and falls back to a receipt edit' + 'persists the delete failure before the receipt edit and edits on the next retry' green; teams/teams.test.ts 'edits a fully allowed job permission card to a receipt card' + 'keeps the retire revision retryable when the receipt card update fails' green; persisted deletedAt/receiptMessageId short-circuit in job-permission-card-settlement.ts"
+    },
+    {
+      "contract_id": "JOBPERM-3-T2-AC2",
+      "verdict": "implemented",
+      "evidence": "proof: expired retire keeps the replace path on all three providers (provider tests); all three deliveries return jobPermissionCardRetireDelivery; Postgres chain 5/5 records the retire outcome"
+    },
+    {
+      "contract_id": "JOBPERM-3-T2-AC4",
+      "verdict": "implemented",
+      "evidence": "proof: 114 files / 1994 unit tests green; Postgres 5/5; tsc clean; telegram.test.ts unchanged and green; autoreview clean"
     }
   ],
-  "summary": "Autoreview local (codex gpt-5.6-sol high) clean after one accepted P2 (retireDelivery markers made immutable in the repository guard); unit application/telegram/domain/adapters 175 files / 2115 tests green; Postgres permission-decision-chain 5/5 host-side incl. the once-card chain ending in a recorded delete and a rejected marker rewrite; tsc clean; check:architecture passed.",
+  "summary": "Autoreview local (codex gpt-5.6-sol high) clean after two accepted P1s (delete failure persisted before the receipt on Slack/Discord; Teams update failure stays retryable); channels+application unit 114 files / 1994 tests green; Postgres permission-decision-chain 5/5 host-side; tsc clean; check:architecture task-local clear (repo-wide red = main's expired providerConnection exceptions, LEGACY-2).",
   "aspect": "quality",
-  "review_run_id": "12fb172fe06107580823dc7d160d3407a6fc7a761670ffae76dad79aa83e77cc",
-  "brief_sha256": "b8fc51a332ae68488c851fafb2705db1ea40dd459fb1e6677061f50c784650a6",
-  "branch_diff_digest": "6100e9e1eabe2011dc783b9a81cd957fff00bfd7de69c3599a3e8ace0f2d746f",
-  "recorded_at": "2026-08-28T18:17:51+00:00",
-  "commit": "f8cc8c4bd9bc4d12f8b8e352b3847f154272d4e8"
+  "review_run_id": "a1f85fdbd5f8e0e77550b90882fe703e191ed712b804ce8a93808b31487d0979",
+  "brief_sha256": "9444cd49d1f532f43436284be327511b89773ddb34eea788ba9f3cb68aad737b",
+  "branch_diff_digest": "18f1eaf4caa8de3b8418d9356d49b23b884b8b424e23a0cd935496f902895119",
+  "recorded_at": "2026-08-29T02:42:53+00:00",
+  "commit": "14e4fe7af6e70291820298dce4fc41bcf9419494"
 }

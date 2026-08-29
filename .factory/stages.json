@@ -127,7 +127,16 @@
       "started_at": "2026-08-28T18:42:49+00:00",
       "base_sha": "1c3dbebfa849c1b1574e274f4df2ed7756e45ef0",
       "dirty_at_start": {},
-      "task_sha256": "c97e703ddcbbc127c9a4245b76a4e3e6375cafd6080d47847507204920a3943a"
+      "task_sha256": "c97e703ddcbbc127c9a4245b76a4e3e6375cafd6080d47847507204920a3943a",
+      "local_review_stamp": {
+        "stage_id": "JOBPERM-3-T2",
+        "task_sha256": "041f35e405cabc8f2bc29c0652e3c6e490840dac7902d7bdd6c0172a151984ca",
+        "brief_sha256": "67a8609ed2b96332d557c84c792120914ffe1dbc55522cd2ae26dbaaadcbc114",
+        "base_sha": "1c3dbebfa849c1b1574e274f4df2ed7756e45ef0",
+        "product_tree_digest": "4de7bdc710954c6bdbb5479ee95ce341b1f7a952c1ec987a3104ee00dcf5fd53",
+        "recorded_at": "2026-08-29T02:41:30+00:00",
+        "generated_by": "autoreview"
+      }
     }
   ]
 }

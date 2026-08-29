@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "After LEGACY-2, what should happen when a settings.yaml / stored settings revision still contains the old `provider_connection` / `providerConnection` key?",
+      "options": [
+        "Reject with a clear error (Recommended)",
+        "Ignore it silently"
+      ],
+      "chosen": "Ignore it silently"
+    },
+    {
+      "question": "Anything else to settle for LEGACY-2 before I confirm the spec and plan it? (Scope: ~19 files, exceptions deleted, one PR off main, merged before JOBPERM-3.)",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go"
+    }
+  ],
+  "at": "2026-08-29T03:12:39.307459+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
