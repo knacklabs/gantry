@@ -1,0 +1,40 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "gaps": [
+    "Requirements re-checked against code: the document key is already rejected by the strict key check; LEGACY-2 removes only the in-memory shadow field, its dual-reads and the 19 exceptions."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Spec confirmed with locked decisions 1-3 (old key stays rejected; providerConnectionId and the enum out of scope); plan scope matches."
+  ],
+  "rounds": [
+    {
+      "question": "LEGACY-2 requirements check against the code: the spec now says the old document key stays rejected (existing strict check), only the in-memory shadow field and its ~20 dual-reads go, plus the 19 exceptions. Does that still match what you want?",
+      "options": [
+        "Yes \u2014 matches (Recommended)",
+        "No \u2014 change something"
+      ],
+      "chosen": "Yes \u2014 matches (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "strict key check already rejects provider_connection",
+      "path": "apps/core/src/config/settings/runtime-settings-compact.ts",
+      "line": 150
+    },
+    {
+      "finding": "shadow field fill",
+      "path": "apps/core/src/config/settings/runtime-settings-parser.ts",
+      "line": 241
+    }
+  ],
+  "issue": "LEGACY-2",
+  "input_sha256": "5ad556864d0e7e1310f07165a86e37bf619d32338f003c6b69816fc2e98da695",
+  "recorded_at": "2026-08-29T18:13:57+00:00",
+  "commit": "16de17a064b25463c6cebaf7ea8f1266c8724271"
+}

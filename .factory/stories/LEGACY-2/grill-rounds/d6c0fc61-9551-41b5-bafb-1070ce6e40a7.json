@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "LEGACY-2 plan file re-written from plan mode (headings now 'Scope / Non-goals' as the harness requires; content unchanged). Confirm the scope once more: shadow field + ~20 dual-reads + shadow writers + rename-only locals + 19 exceptions; old document key stays rejected; providerConnectionId and the enum deferred (D-0070)?",
+      "options": [
+        "Confirmed (Recommended)",
+        "Change something"
+      ],
+      "chosen": "Confirmed (Recommended)"
+    },
+    {
+      "question": "Anything else before I approve the LEGACY-2 plan?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go"
+    }
+  ],
+  "at": "2026-08-29T18:17:50.683564+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
