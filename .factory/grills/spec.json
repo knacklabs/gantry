@@ -4,44 +4,49 @@
   "verdict": "pass",
   "questions_asked": 2,
   "gaps": [
-    "Ceilings: phase functions <= 25, sequencer <= 15 (AST counter, baseline 1) \u2014 same bar as CHAN-2."
+    "Old-key handling: a settings document that still carries provider_connection / providerConnection is ignored silently (key dropped on read; provider_account is the only source)."
   ],
   "contradictions": [],
   "resolutions": [
-    "Two tasks (one per giant), pure moves into ONE sibling module each, zero test edits; roadmap kind=feature so the refactor ratchet (which rejects any net growth) does not apply to a split."
+    "Remove the shadow field and every providerAccount ?? providerConnection read; delete the 19 exception entries; old key ignored silently; one PR off main merged before JOBPERM-3."
   ],
   "rounds": [
     {
-      "question": "CHAN-3 splits the last two giants (runActiveJob CC 76, runQuery CC 81). Same ceilings as CHAN-2?",
+      "question": "For the LEGACY-2 spec ledger (re-asking so the record lands under this story): a settings.yaml or stored settings revision that still has the old provider_connection / providerConnection key is \u2026",
       "options": [
-        "Phase functions \u2264 25, sequencer \u2264 15 (Recommended)",
-        "Stricter: \u2264 15 / \u2264 10"
+        "Ignored silently (your earlier answer)",
+        "Rejected with a clear error"
       ],
-      "chosen": "Phase functions \u2264 25, sequencer \u2264 15 (Recommended)"
+      "chosen": "Ignored silently (your earlier answer)"
     },
     {
-      "question": "Anything else to settle before I confirm the CHAN-3 spec and plan it?",
+      "question": "Anything else to settle for LEGACY-2? (One PR off main, ~19 files, exceptions deleted, merged before JOBPERM-3.)",
       "options": [
-        "No \u2014 confirm and plan (Recommended)",
-        "Hold \u2014 change something first"
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
       ],
-      "chosen": "No \u2014 confirm and plan (Recommended)",
+      "chosen": "No \u2014 go",
       "frontier_empty": true
     }
   ],
   "citations": [
     {
-      "finding": "runActiveJob CC 76 at jobs/execution.ts:116 (848-line file)",
-      "path": "apps/core/src/jobs/execution.ts",
-      "line": 116
+      "finding": "parser fills the shadow field from providerAccount",
+      "path": "apps/core/src/config/settings/runtime-settings-parser.ts",
+      "line": 241
     },
     {
-      "finding": "runQuery CC 81 at runner/query-loop.ts:102 (770-line file)",
-      "path": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
-      "line": 102
+      "finding": "dual-read providerAccount ?? providerConnection in validation",
+      "path": "apps/core/src/config/settings/runtime-settings-validation.ts",
+      "line": 190
+    },
+    {
+      "finding": "19 expired dual_read exceptions (remove_by 2026-08-28)",
+      "path": "scripts/architecture-exceptions.json",
+      "line": 1
     }
   ],
-  "input_sha256": "9a3d022e283111a0075442a54adbd9ab43321ac52ef1febc9fdb676b57102bd1",
-  "recorded_at": "2026-08-28T05:37:53+00:00",
-  "commit": "1194bbb41e6bb0cd926740a84c51855f309346db"
+  "input_sha256": "e61f46b5ae4141517e8ab917deb1b5a4512051964255c522bd5559f4619b7cce",
+  "recorded_at": "2026-08-29T03:19:35+00:00",
+  "commit": "5163462f3215419345619c3bc64c2e311f544bad"
 }
