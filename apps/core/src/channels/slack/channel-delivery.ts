@@ -49,9 +49,11 @@ import { renderSlackRichInteraction } from './rich-interaction.js';
 import { addSlackReaction, removeSlackReaction } from './reactions.js';
 import { requestSlackUserAnswer } from './user-question-delivery.js';
 import { historyCoverageInboundCallbacks } from '../conversation-history-coverage-lifecycle.js';
+import { singleMessageDeliveryResult } from '../job-permission-card-settlement.js';
 import { slackMessageActionBlocks } from './message-action-affordances.js';
 import { sendSlackSnippetFallback } from './extracted-helpers.js';
 import type { SlackSnippetFallbackInput } from './file-delivery.js';
+import { retireSlackCard } from './job-permission-card-delivery.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
@@ -100,7 +102,10 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
+    const { channelId } = parsed;
     const formattedText = formatOutboundForChannel(text, 'slack');
+    if (options.jobPermissionCardRevision?.operation === 'retire')
+      return retireSlackCard(this.app, channelId, formattedText, options);
     if (options.replaceMessageId) {
       const blocks = slackMessageActionBlocks(
         formattedText,
@@ -111,24 +116,19 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         },
       );
       const updated = (await this.app.client.chat.update({
-        channel: parsed.channelId,
+        channel: channelId,
         ts: options.replaceMessageId,
         text: formattedText,
         blocks: (blocks ?? []) as any,
       })) as { ts?: string };
       const messageId = updated.ts ?? options.replaceMessageId;
-      return {
-        externalMessageId: messageId,
-        externalMessageIds: [messageId],
-        deliveredParts: 1,
-        totalParts: 1,
-      };
+      return singleMessageDeliveryResult(messageId);
     }
 
     return sendSlackMessage({
       app: this.app,
       jid,
-      channelId: parsed.channelId,
+      channelId,
       formattedText,
       options: {
         ...options,

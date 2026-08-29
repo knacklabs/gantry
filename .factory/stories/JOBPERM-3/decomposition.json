@@ -132,6 +132,21 @@
           "id": "edits a fully allowed job permission card to a receipt card",
           "path": "apps/core/test/unit/channels/teams/teams.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "persists the delete failure before the receipt edit and edits on the next retry",
+          "path": "apps/core/test/unit/channels/slack.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "persists the delete failure before the receipt edit and edits on the next retry",
+          "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps the retire revision retryable when the receipt card update fails",
+          "path": "apps/core/test/unit/channels/teams/teams.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         }
       ],
       "verify_commands": [
@@ -139,15 +154,16 @@
         "npm run check:architecture"
       ],
       "reviewer_focus": [
+        "ACCEPTED AUTOREVIEW P1 (fix first): Slack and Discord must persist the delete failure BEFORE any receipt call, exactly like Telegram \u2014 onDeleteFailure THROWS the partial-delivery error carrying retireDelivery { deleteFailedAt } (see telegram/job-permission-card-delivery.ts partialFallback) and pendingReceiptError is passed; the receipt edit then runs on the next retry. Logging-only onDeleteFailure is a defect.",
+        "ACCEPTED AUTOREVIEW P1 (fix first): Teams must NOT fall through to sendTeamsTextMessage when an activity id is recorded and updateAdaptiveCard throws or is unavailable \u2014 rethrow so the revision stays retryable; the plain receipt send is only for the no-activity-id case.",
         "idempotent retry: persisted deletedAt/receiptMessageId short-circuit before any provider call; same-message operations serialized",
         "Slack chat.delete/chat.update and Discord DELETE/PATCH go through the rate-limited mutation helpers, not raw fetch",
-        "Teams never throws without an activity id; receipt card carries no buttons",
         "no change to Telegram behaviour beyond sharing the settlement helper"
       ],
       "review_budget": {
         "max_changed_files": 12,
-        "max_changed_lines": 900,
-        "reason": "Three provider deliveries + shared settlement helper + three provider test suites."
+        "max_changed_lines": 1100,
+        "reason": "Three provider deliveries + shared settlement helper + three provider test suites (907 lines measured on run 2)."
       }
     }
   ],
@@ -176,5 +192,5 @@
   "project": "",
   "plan_file": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md",
   "plan_sha256": "e5d9f794804bbe03b7020f7ebe1710a9d882a375009b6b6c99fa47c13e8a317b",
-  "commit": "afe7ce25aaa3537b1eab55a8e8c2d8298d4b636c"
+  "commit": "1c3dbebfa849c1b1574e274f4df2ed7756e45ef0"
 }

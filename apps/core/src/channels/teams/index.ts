@@ -39,7 +39,10 @@ import {
   requestTeamsPermissionApproval,
 } from './permission-approval.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.js';
-import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
+import {
+  JobPermissionCardDeliverySettlement,
+  resolveInteractionSettlementDelayMs,
+} from '../interaction-settlement.js';
 import { cancelPendingTeamsPermission } from './permission-cancellation.js';
 import { renderTeamsAgentTodo, type TeamsTodoMessages } from './todos.js';
 import {
@@ -118,6 +121,8 @@ export class TeamsChannel implements ChannelAdapter {
   >();
   private readonly pendingTodos: TeamsTodoMessages = new Map();
   private readonly pendingProgress: TeamsProgressMessages = new Map();
+  private readonly jobPermissionCardDeliveries =
+    new JobPermissionCardDeliverySettlement();
   private readonly activeStreams = new Map<string, TeamsStreamingState>();
   private readonly streamResetEpochs = new StreamResetEpochs();
   private readonly streamGenerationByJid = new Map<string, number>();
@@ -258,6 +263,7 @@ export class TeamsChannel implements ChannelAdapter {
       jid,
       text: teamsTextWithAttachmentNotice(text, Boolean(options.files?.length)),
       options,
+      jobPermissionCardDeliveries: this.jobPermissionCardDeliveries,
     });
   }
 

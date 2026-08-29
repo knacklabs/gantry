@@ -12,6 +12,8 @@ import {
 import { sendTeamsTextMessage } from './delivery.js';
 import type { TeamsSdkClient } from './types.js';
 import { teamsConversationIdFromJid } from './types.js';
+import type { JobPermissionCardDeliverySettlement } from '../interaction-settlement.js';
+import { settleJobPermissionCardRetire } from '../job-permission-card-settlement.js';
 
 export type TeamsProgressMessages = Map<
   string,
@@ -46,10 +48,50 @@ export async function sendTeamsTextOrActionMessage(input: {
   jid: string;
   text: string;
   options?: MessageSendOptions;
+  jobPermissionCardDeliveries: JobPermissionCardDeliverySettlement;
 }): Promise<MessageDeliveryResult | void> {
   const options = input.options ?? {};
   const conversationId = teamsConversationIdFromJid(input.jid);
   if (!conversationId) return;
+  if (options.jobPermissionCardRevision?.operation === 'retire') {
+    const providerMessageId =
+      options.deleteMessageId ?? options.replaceMessageId;
+    return settleJobPermissionCardRetire({
+      deliveries: input.jobPermissionCardDeliveries,
+      scope: conversationId,
+      providerMessageId,
+      options,
+      deliverReceipt: async () => {
+        if (providerMessageId) {
+          if (!input.sdkClient.updateAdaptiveCard) {
+            throw new Error('Teams job permission card update is unavailable.');
+          }
+          const updated = await input.sdkClient.updateAdaptiveCard({
+            conversationId,
+            messageId: providerMessageId,
+            card: buildTeamsMessageCard({
+              text: input.text,
+              targetJid: input.jid,
+              threadId: options.threadId,
+              actionAffordances: [],
+            }),
+            ...(options.threadId ? { threadId: options.threadId } : {}),
+          });
+          return updated.externalMessageId ?? providerMessageId;
+        }
+        const sent = await sendTeamsTextMessage(
+          input.sdkClient,
+          conversationId,
+          input.text,
+          options,
+        );
+        if (!sent?.externalMessageId) {
+          throw new Error('Teams job permission receipt has no activity id.');
+        }
+        return sent.externalMessageId;
+      },
+    });
+  }
   if (options.observerDigestView && input.sdkClient.sendAdaptiveCard) {
     return input.sdkClient.sendAdaptiveCard({
       conversationId,

@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-28T19:51:55+00:00", "story": "JOBPERM-3", "detail": "JOBPERM-3-T2 architecture verification is blocked by 19 providerConnection compatibility exceptions that expired on 2026-08-28 outside the task write scope."}

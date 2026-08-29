@@ -65,6 +65,46 @@ async function waitForPostMessageRetry(delayMs: number): Promise<void> {
     setTimeout(resolve, clampSlackRetryDelayMs(delayMs)),
   );
 }
+
+type SlackMutationResult = { ok?: boolean; error?: string };
+
+export async function runSlackMutationWithRetry<
+  Result extends SlackMutationResult,
+>(
+  mutate: () => Promise<Result>,
+  operation: string,
+  context: Record<string, unknown>,
+  onRetry = (attempt: number, retryDelayMs: number) => {
+    logger.warn(
+      { ...context, operation, attempt, retryDelayMs },
+      'Slack mutation rate-limited; retrying',
+    );
+  },
+): Promise<Result> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let failure: unknown;
+    let caught = false;
+    try {
+      const result = await mutate();
+      if (result.ok !== false) return result;
+      failure = result;
+    } catch (error) {
+      caught = true;
+      failure = error;
+    }
+    const retryDelayMs = slackRateLimitRetryDelayMs(failure);
+    if (retryDelayMs === null || attempt >= 2) {
+      if (caught) throw failure;
+      throw new Error(
+        (failure as SlackMutationResult).error || `Slack ${operation} failed`,
+      );
+    }
+    onRetry(attempt + 1, retryDelayMs);
+    await waitForPostMessageRetry(retryDelayMs);
+  }
+  throw new Error(`Slack ${operation} retries exhausted`);
+}
+
 export async function postSlackMessageWithRetry(
   app: App | null,
   payload: SlackPostMessagePayload,
@@ -73,43 +113,24 @@ export async function postSlackMessageWithRetry(
   log: SlackDeliveryLogger,
 ): Promise<{ ts?: string }> {
   if (!app) throw new Error('Slack app not initialized');
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const posted = (await app.client.chat.postMessage(payload)) as {
+  return runSlackMutationWithRetry(
+    () =>
+      app.client.chat.postMessage(payload) as Promise<{
         ok?: boolean;
         ts?: string;
         error?: string;
         retry_after?: number;
-      };
-      if (posted.ok === false) {
-        const retryDelayMs = slackRateLimitRetryDelayMs(posted);
-        if (retryDelayMs !== null && attempt < 2) {
-          warnings.push('slack.rate_limited_retry');
-          log.warn(
-            { ...context, attempt: attempt + 1, retryDelayMs },
-            'Slack postMessage rate-limited; retrying',
-          );
-          await waitForPostMessageRetry(retryDelayMs);
-          continue;
-        }
-        throw new Error(posted.error || 'Slack postMessage failed');
-      }
-      return posted;
-    } catch (err) {
-      const retryDelayMs = slackRateLimitRetryDelayMs(err);
-      if (retryDelayMs !== null && attempt < 2) {
-        warnings.push('slack.rate_limited_retry');
-        log.warn(
-          { ...context, attempt: attempt + 1, retryDelayMs },
-          'Slack postMessage rate-limited via error; retrying',
-        );
-        await waitForPostMessageRetry(retryDelayMs);
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error('Slack postMessage retries exhausted');
+      }>,
+    'postMessage',
+    context,
+    (attempt, retryDelayMs) => {
+      warnings.push('slack.rate_limited_retry');
+      log.warn(
+        { ...context, attempt, retryDelayMs },
+        'Slack postMessage rate-limited; retrying',
+      );
+    },
+  );
 }
 
 export async function sendSlackMessage(input: {

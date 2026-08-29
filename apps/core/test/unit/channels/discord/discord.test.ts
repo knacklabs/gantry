@@ -239,6 +239,163 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
+  it('deletes a fully allowed job permission card and falls back to a receipt edit', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const receipt = "Approved — this job's permission requests are done.";
+    const allowed = {
+      callbackKey: 'abcdef012345abcdef012345',
+      revision: 2,
+      operation: 'retire' as const,
+      retireOutcome: 'allowed' as const,
+    };
+
+    const deleted = await channel.sendMessage('dc:channel-1', receipt, {
+      deleteMessageId: 'card-1',
+      jobPermissionCardRevision: allowed,
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://discord.com/api/v10/channels/channel-1/messages/card-1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    expect(deleted).toMatchObject({
+      jobPermissionCardRetireDelivery: { deletedAt: expect.any(String) },
+    });
+
+    const fallback = await channel.sendMessage('dc:channel-1', receipt, {
+      deleteMessageId: 'card-2',
+      jobPermissionCardRevision: {
+        ...allowed,
+        callbackKey: 'fedcba543210fedcba543210',
+        retireDelivery: {
+          deleteFailedAt: '2026-08-28T12:00:00.000Z',
+        },
+      },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://discord.com/api/v10/channels/channel-1/messages/card-2',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          content: receipt,
+          allowed_mentions: { parse: [] },
+          components: [],
+          embeds: [],
+        }),
+      }),
+    );
+    expect(fallback).toMatchObject({
+      jobPermissionCardRetireDelivery: {
+        deleteFailedAt: '2026-08-28T12:00:00.000Z',
+        receiptMessageId: 'card-2',
+      },
+    });
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    const expired = await channel.sendMessage(
+      'dc:channel-1',
+      'Expired: Run Command: npm test',
+      {
+        replaceMessageId: 'card-expired',
+        jobPermissionCardRevision: {
+          ...allowed,
+          callbackKey: '11223344556677889900aabb',
+          retireOutcome: 'expired',
+        },
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/card-expired',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+    expect(expired).toMatchObject({
+      jobPermissionCardRetireDelivery: {
+        receiptMessageId: 'card-expired',
+      },
+    });
+    fetchMock.mockClear();
+    const receiptMessageId = 'card-receipt';
+    await channel.sendMessage('dc:channel-1', 'Approved', {
+      deleteMessageId: 'card-settled',
+      jobPermissionCardRevision: {
+        ...allowed,
+        revision: 4,
+        retireDelivery: { receiptMessageId },
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('persists the delete failure before the receipt edit and edits on the next retry', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: 'delete unavailable' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const receipt = "Approved — this job's permission requests are done.";
+    const revision = {
+      callbackKey: 'abcdef012345abcdef012345',
+      revision: 2,
+      operation: 'retire' as const,
+      retireOutcome: 'allowed' as const,
+    };
+
+    const partial = await channel
+      .sendMessage('dc:channel-1', receipt, {
+        deleteMessageId: 'card-1',
+        jobPermissionCardRevision: revision,
+      })
+      .catch((error) => error);
+    expect(partial).toMatchObject({
+      name: 'PartialDiscordJobPermissionCardRetireError',
+      retryTail: {
+        providerPayload: {
+          jobPermissionCard: {
+            retireDelivery: { deleteFailedAt: expect.any(String) },
+          },
+        },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/channels/channel-1/messages/card-1',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+    const pendingCard = (partial as any).retryTail.providerPayload
+      .jobPermissionCard;
+
+    const retried = await channel.sendMessage('dc:channel-1', receipt, {
+      deleteMessageId: 'card-1',
+      jobPermissionCardRevision: {
+        ...revision,
+        retireDelivery: pendingCard.retireDelivery,
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://discord.com/api/v10/channels/channel-1/messages/card-1',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+    expect(retried.jobPermissionCardRetireDelivery).toEqual({
+      deleteFailedAt: pendingCard.retireDelivery.deleteFailedAt,
+      receiptMessageId: 'card-1',
+    });
+  });
+
   it('renders structured job notifications as Discord embeds and otherwise keeps plain text', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

@@ -12,10 +12,7 @@ import {
 import { telegramActionReplyMarkup } from './message-action-affordances.js';
 import type { telegramThreadOptionsFromString } from './channel-shared.js';
 import { escapeTelegramHtml } from './html-render.js';
-
-type RetireDelivery = NonNullable<
-  MessageDeliveryResult['jobPermissionCardRetireDelivery']
->;
+import { settleJobPermissionCardRetire } from '../job-permission-card-settlement.js';
 
 export async function retireTelegramJobPermissionCard({
   api,
@@ -47,10 +44,6 @@ export async function retireTelegramJobPermissionCard({
       'Telegram job permission card deletion has no allowed retire revision.',
     );
   }
-  const revision = {
-    ...cardRevision,
-    callbackKey: `${chatId}:${cardRevision.callbackKey}`,
-  };
   const partialFallback = (cause: unknown, deleteFailedAt: string) => {
     const partial = new PartialMessageDeliveryError({
       cause,
@@ -78,77 +71,31 @@ export async function retireTelegramJobPermissionCard({
     });
     return partial;
   };
-  const delivered = (
-    externalMessageId: string,
-    retireDelivery?: RetireDelivery,
-  ): MessageDeliveryResult => ({
-    externalMessageId,
-    externalMessageIds: [externalMessageId],
-    deliveredParts: 1,
-    totalParts: 1,
-    ...(retireDelivery
-      ? { jobPermissionCardRetireDelivery: retireDelivery }
-      : {}),
-  });
-  const persisted = cardRevision.retireDelivery;
-  if (persisted?.deletedAt || persisted?.receiptMessageId) {
-    const settledMessageId = persisted.receiptMessageId ?? deleteMessageId;
-    deliveries.record(
-      revision,
-      settledMessageId,
-      `${chatId}:${deleteMessageId}`,
-    );
-    return delivered(settledMessageId, persisted);
-  }
-  deliveries.bindMessage(`${chatId}:${deleteMessageId}`, revision.callbackKey);
-  return deliveries.serialize(revision.callbackKey, async () => {
-    const settled = deliveries.settledMessageId(revision);
-    if (settled) {
-      const retireDelivery = persisted?.deleteFailedAt
-        ? {
-            deleteFailedAt: persisted.deleteFailedAt,
-            receiptMessageId: deleteMessageId,
-          }
-        : { deletedAt: new Date().toISOString() };
-      return delivered(settled, retireDelivery);
-    }
-    let retireDelivery: RetireDelivery;
-    if (persisted?.deleteFailedAt) {
-      try {
-        await api.editMessageText(chatId, messageId, escapeTelegramHtml(text), {
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [] },
-        });
-      } catch (err) {
-        throw partialFallback(err, persisted.deleteFailedAt);
-      }
-      retireDelivery = {
-        deleteFailedAt: persisted.deleteFailedAt,
-        receiptMessageId: deleteMessageId,
-      };
-    } else {
-      try {
-        await api.deleteMessage(chatId, messageId);
-      } catch (err) {
-        const deleteFailedAt = new Date().toISOString();
-        logger.debug(
-          {
-            chatId,
-            messageId: deleteMessageId,
-            error: sanitizeErrorMessage(err),
-          },
-          'Failed to delete approved Telegram job permission card; receipt edit queued',
-        );
-        throw partialFallback(err, deleteFailedAt);
-      }
-      retireDelivery = { deletedAt: new Date().toISOString() };
-    }
-    deliveries.record(
-      revision,
-      deleteMessageId,
-      `${chatId}:${deleteMessageId}`,
-    );
-    return delivered(deleteMessageId, retireDelivery);
+  return settleJobPermissionCardRetire({
+    deliveries,
+    scope: chatId,
+    providerMessageId: deleteMessageId,
+    options,
+    deleteMessage: () => api.deleteMessage(chatId, messageId).then(() => {}),
+    deliverReceipt: async () => {
+      await api.editMessageText(chatId, messageId, escapeTelegramHtml(text), {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [] },
+      });
+      return deleteMessageId;
+    },
+    onDeleteFailure: (err, deleteFailedAt) => {
+      logger.debug(
+        {
+          chatId,
+          messageId: deleteMessageId,
+          error: sanitizeErrorMessage(err),
+        },
+        'Failed to delete approved Telegram job permission card; receipt edit queued',
+      );
+      throw partialFallback(err, deleteFailedAt);
+    },
+    pendingReceiptError: partialFallback,
   });
 }
 
