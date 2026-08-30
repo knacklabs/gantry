@@ -4,32 +4,32 @@
   "verdict": "pass",
   "questions_asked": 1,
   "gaps": [
-    "Expired rows render the full (redacted, capped) command label; denied rows stay live per 0144 \u2014 no denied retire outcome."
+    "Requirements re-checked after main moved (LEGACY-2, CHAN-3): story scope unchanged."
   ],
   "contradictions": [],
   "resolutions": [
-    "Spec holds against code: projection emits 'retire' with no outcome (card-projection.ts:155); card text is the static 'settled' line (card-actions.ts:70); providers edit via replaceMessageId (telegram job-permission-card-delivery.ts, slack channel-delivery.ts:104, discord index.ts:184); chat prompts delete on Telegram/Discord/Slack and receipt-edit on Teams."
+    "Scope confirmed unchanged; T1 shipped and live, T2 committed and review-clean; closeout proceeds on the green architecture gate."
   ],
   "rounds": [
     {
-      "question": "Requirements re-check (the tree moved under the plan): with the 0144 ruling, the shared card text for an expired card is one line per row \u2014 \"Expired: <command>\". Keep the label as the full command line (redacted, capped like once rows) or shorten to the tool name only?",
+      "question": "Back on JOBPERM-3 after LEGACY-2 merged. The harness wants the requirements gate re-checked because main moved: story scope unchanged \u2014 allowed cards deleted on Telegram/Slack/Discord, Teams receipt card, expired rows as 'Expired:' lines, denied rows stay live (0144). Still right?",
       "options": [
-        "Full command label (redacted, capped) (Recommended)",
-        "Tool name only"
+        "Yes \u2014 unchanged (Recommended)",
+        "No \u2014 change something"
       ],
-      "chosen": "Full command label (redacted, capped) (Recommended)",
+      "chosen": "Yes \u2014 unchanged (Recommended)",
       "frontier_empty": true
     }
   ],
   "citations": [
     {
-      "finding": "retire revision carries no outcome; providers cannot tell allowed-all from denied",
-      "path": "apps/core/src/application/interactions/job-permission-card-projection.ts",
-      "line": 155
+      "finding": "architecture gate green on main after LEGACY-2 (#455)",
+      "path": "scripts/architecture-exceptions.json",
+      "line": 1
     }
   ],
   "issue": "JOBPERM-3",
-  "input_sha256": "33d36826c1a2982b1823c89efd8194c95eb1409fb79ff67637dc90abb1fba3bd",
-  "recorded_at": "2026-08-28T15:55:03+00:00",
-  "commit": "2e4dfb71c821057f12e81db212b1e5741d68261b"
+  "input_sha256": "b2b7b220f24283ecf95ac764b7e7a3a09931f33b360b0da23de0d11c0de5185e",
+  "recorded_at": "2026-08-30T02:56:06+00:00",
+  "commit": "bcec3e03dc32ea3ce87ac89b62ab852ce4c9b10b"
 }

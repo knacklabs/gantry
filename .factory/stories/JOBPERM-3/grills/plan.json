@@ -4,45 +4,40 @@
   "verdict": "pass",
   "questions_asked": 2,
   "gaps": [
-    "AC2/AC3 amended after signal S-0041: retire outcome allowed | expired; denied rows stay live per 0144 and such a card never retires."
+    "Deploy plan after merge: rebuild + restart on main, live Allow-tap check on Telegram."
   ],
   "contradictions": [],
   "resolutions": [
-    "Retire outcome carried on the revision (JSONB, A-0065); delete on Telegram/Discord/Slack when all rows allowed, receipt card on Teams; denied/expired rows keep a per-row receipt; deleted/receipt state recorded on the revision for idempotent retries; kind=feature."
+    "Redeploy after merge with a live Allow-tap check; plan otherwise unchanged; one PR; orchestrator merges when green."
   ],
   "rounds": [
     {
-      "question": "Amended JOBPERM-3 plan: retire outcomes are allowed | expired; a card with a Deny keeps its live rows (0144 Reconsider) and never retires. Confirm the amendment?",
+      "question": "JOBPERM-3 plan re-approval (the saved copy got a new timestamp, so the harness wants the two rounds again). Deploy plan after the story merges: rebuild + restart the runtime on main, then a live check where you tap Allow on the next job card (Telegram) and it disappears. OK?",
       "options": [
-        "Yes \u2014 approve the amended plan (Recommended)",
-        "Hold"
+        "Yes (Recommended)",
+        "Hold the redeploy"
       ],
-      "chosen": "Yes \u2014 approve the amended plan (Recommended)"
+      "chosen": "Yes (Recommended)"
     },
     {
-      "question": "Anything else before I re-approve and restart T1?",
+      "question": "Anything else before I re-approve the JOBPERM-3 plan and close it out?",
       "options": [
-        "No \u2014 go (Recommended)",
-        "Hold"
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
       ],
-      "chosen": "No \u2014 go (Recommended)",
+      "chosen": "No \u2014 go",
       "frontier_empty": true
     }
   ],
   "citations": [
     {
-      "finding": "retire revision has no outcome; text is static 'settled' line",
-      "path": "apps/core/src/application/interactions/job-permission-card-projection.ts",
-      "line": 155
-    },
-    {
-      "finding": "Telegram chat prompt deletes on approve",
-      "path": "apps/core/src/channels/telegram/permission-prompt-settlement.ts",
-      "line": 84
+      "finding": "T2 committed 14e4fe7af; reviews recorded; stage done blocked only by check:architecture (now green on main)",
+      "path": ".factory/stages.json",
+      "line": 1
     }
   ],
-  "input_sha256": "04560d94baa8179ad8169c35a6ca12edd099e0489991affcc8e71a3eda6e07e2",
+  "input_sha256": "2af758dff50501774c8e6a0179005e5426dd67e3f2fe8a8a5717ff8b6a64547f",
   "issue": "JOBPERM-3",
-  "recorded_at": "2026-08-28T15:55:04+00:00",
-  "commit": "2e4dfb71c821057f12e81db212b1e5741d68261b"
+  "recorded_at": "2026-08-30T08:29:30+00:00",
+  "commit": "bcec3e03dc32ea3ce87ac89b62ab852ce4c9b10b"
 }

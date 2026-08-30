@@ -6,7 +6,7 @@
       "title": "Retire outcome on the card revision + Telegram delete/receipt",
       "status": "done",
       "started_at": "2026-08-28T13:07:30+00:00",
-      "base_sha": "14b704201e7a08a7e6e944f2bbbbf252bcf23197",
+      "base_sha": "1c3dbebfa849c1b1574e274f4df2ed7756e45ef0",
       "dirty_at_start": {
         ".factory/events/05a77e11bc4f4d2b94601cd812303ba5.json": {
           "digest": "73268576ff34d42f26fac14ee0e578531b29dd0e8fddba1e59a9f208a0335ce0",
@@ -127,7 +127,7 @@
       "started_at": "2026-08-28T18:42:49+00:00",
       "base_sha": "1c3dbebfa849c1b1574e274f4df2ed7756e45ef0",
       "dirty_at_start": {},
-      "task_sha256": "c97e703ddcbbc127c9a4245b76a4e3e6375cafd6080d47847507204920a3943a",
+      "task_sha256": "041f35e405cabc8f2bc29c0652e3c6e490840dac7902d7bdd6c0172a151984ca",
       "local_review_stamp": {
         "stage_id": "JOBPERM-3-T2",
         "task_sha256": "041f35e405cabc8f2bc29c0652e3c6e490840dac7902d7bdd6c0172a151984ca",
