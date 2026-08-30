@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "The old providerConnection name no longer lives anywhere in the runtime settings path: the in-memory shadow field and its parser fill are gone, every providerAccount ?? providerConnection read now reads provider accounts only, writers stop creating the property, and the 19 expired architecture exceptions are deleted, so npm run check:architecture is green on main again. Behaviour is unchanged: a settings document that still says provider_connection keeps being rejected by the existing strict key check (now covered by a test), and the Slack approver lookup stays account-qualified. providerConnectionId and the missing_provider_connection enum are deliberately left alone (deferral D-0070).",
+  "issue": "LEGACY-2",
+  "commit": "ebb1d4b5444ddd70e97967843c500ec1b59222ce",
+  "recorded_at": "2026-08-30T02:10:33+00:00"
+}

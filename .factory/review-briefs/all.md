@@ -2,43 +2,27 @@
 
 For each contract, emit a verdict — implemented | partial | missing — with file:line evidence, recorded as contract_verdicts in the quality artifact. Then review the diff normally; the contract check does not replace the quality/performance/security lenses.
 
-## Task CHAN-3-T1
+## Task LEGACY-2-T1
 
 ### Plan contracts
 
-- **CHAN-3-AC1**
-  - Source: plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria
-  - Statement: `runActiveJob` in jobs/execution.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, sequenced from a body whose own complexity is <= 15; no behaviour change.
-- **CHAN-3-AC3**
-  - Source: plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria
-  - Statement: No behaviour change: existing unit and Postgres integration tests pass unchanged (only new tests may be added); tsc, architecture check, unit + Postgres integration lanes green.
-- **CHAN-3-AC4**
-  - Source: plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria
-  - Statement: Branch based on main after PR #451 (CHAN-2).
+- **LEGACY-2-AC1**
+  - Source: plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria
+  - Statement: the providerConnection shadow field is removed from the runtime settings types and the parser no longer fills it; every providerAccount ?? providerConnection read collapses to providerAccount (settings parser/validation/renderer/exports/reconcile/observer activation, control-plane storage model, CLI provider utils, Slack permission delivery, control routes).
+- **LEGACY-2-AC2**
+  - Source: plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria
+  - Statement: a settings document that still carries providerConnection / provider_connection keeps being rejected by the existing strict key check (no new code); nothing dual-reads it in memory.
+- **LEGACY-2-AC3**
+  - Source: plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria
+  - Statement: the 19 providerConnection entries are deleted from scripts/architecture-exceptions.json and npm run check:architecture passes with no providerConnection exception.
+- **LEGACY-2-AC4**
+  - Source: plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria
+  - Statement: existing unit and Postgres integration suites pass (only assertions that named providerConnection change); tsc green.
 
 ### Reviewer focus
 
-- every phase moved verbatim (call sites, not re-implementations)
-- context built once carries every value the phases read
-- try/finally lease-release ordering unchanged in the sequencer
-- no existing test edited
-- sequencer CC <= 15, every phase <= 25 by AST count
-
-## Task CHAN-3-T2
-
-### Plan contracts
-
-- **CHAN-3-AC2**
-  - Source: plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria
-  - Statement: `runQuery` in runner/query-loop.ts is split by phase into named functions in ONE sibling module, each with cyclomatic complexity <= 25, driven from a loop body whose own complexity is <= 15; no behaviour change.
-- **CHAN-3-AC3-T2**
-  - Source: plans/active/CHAN-3-job-runner-split-runactivejob-and-runquery-by-phase.md#acceptance-criteria
-  - Statement: No behaviour change for the runner split: existing runner unit tests pass unchanged (only new tests may be added); tsc, architecture check, unit lane green.
-
-### Reviewer focus
-
-- every loop branch moved verbatim (guards, order, continues)
-- context shares the accumulators/flags by reference (nudge state, visible text, stream flags)
-- stream.end() sites and conditions identical
-- only the two source-text tests changed, and only their readFileSync path
-- dispatcher CC <= 15, every handler <= 25 by AST count
+- No behaviour change: every providerAccount ?? providerConnection collapses to providerAccount; the Slack approver match stays account-qualified (conversation.providerAccount === providerAccountId).
+- Delete the type/parser fill FIRST and let tsc enumerate dependents; no compat shim, no silent-drop of the old document key (the strict key check already rejects it — do not add code for it).
+- Rename-only locals (routes/agents.ts, desired-state helpers, runtime-settings.ts setup names) change names only.
+- Do NOT touch providerConnectionId (ConversationRoute, identity events, CLI setup return names) or the OpenAPI enum missing_provider_connection (deferral D-0070).
+- scripts/architecture-exceptions.json: delete exactly the 19 symbol=providerConnection entries; npm run check:architecture must pass with none left.

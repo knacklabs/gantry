@@ -1,0 +1,58 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/config/settings/runtime-settings-types.ts",
+    "apps/core/src/config/settings/runtime-settings-parser.ts",
+    "apps/core/src/config/settings/runtime-settings-validation.ts",
+    "apps/core/src/config/settings/runtime-settings-renderer.ts",
+    "apps/core/src/config/settings/settings-revision-document.ts",
+    "apps/core/src/config/settings/desired-state-service-helpers.ts",
+    "apps/core/src/config/settings/desired-state-current-export.ts",
+    "apps/core/src/config/settings/desired-state-conversation-reconcile.ts",
+    "apps/core/src/config/settings/observer-activation.ts",
+    "apps/core/src/config/index.ts",
+    "apps/core/src/application/control-plane/control-plane-storage-model.ts",
+    "apps/core/src/cli/provider-utils.ts",
+    "apps/core/src/channels/slack/permission-approval-delivery.ts",
+    "apps/core/src/control/server/routes/agents.ts",
+    "scripts/architecture-exceptions.json",
+    "apps/core/test/unit/config/runtime-settings.test.ts"
+  ],
+  "residual_risks": [
+    "providerConnectionId and the missing_provider_connection enum remain (deferral D-0070).",
+    "Live-DB inventory of settings_revisions for the old key is a read-only closeout check, not code."
+  ],
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "LEGACY-2-AC1",
+      "verdict": "implemented",
+      "evidence": "proof: runtime-settings-types.ts/parser no longer declare or fill providerConnection; git grep providerConnection\b in apps/core/src leaves only the channel-providerConnection: account-id prefix string (out of scope) and a doc line; tsc clean; 3190 unit tests green"
+    },
+    {
+      "contract_id": "LEGACY-2-AC2",
+      "verdict": "implemented",
+      "evidence": "proof: runtime-settings.test.ts 'rejects provider_connection as an unsupported conversation key' and 'parses conversations without a providerConnection shadow field' green; no drop/mapping code added"
+    },
+    {
+      "contract_id": "LEGACY-2-AC3",
+      "verdict": "implemented",
+      "evidence": "proof: 0 symbol=providerConnection entries remain in scripts/architecture-exceptions.json; npm run check:architecture: Architecture checks passed"
+    },
+    {
+      "contract_id": "LEGACY-2-AC4",
+      "verdict": "implemented",
+      "evidence": "proof: 222 files / 3190 unit tests, Postgres 5/5, tsc clean; only shadow-field assertions changed"
+    }
+  ],
+  "summary": "Autoreview local (codex gpt-5.6-sol high) clean (0.94); unit config/channels/cli/application/control 222 files / 3190 tests green; Postgres control-plane-repository + conversation-install-settings 5/5; tsc clean; npm run check:architecture PASSES with zero providerConnection exceptions.",
+  "aspect": "performance",
+  "review_run_id": "e437e95fb6057a95a1bed0f528f8376d7d53a9e8e25cd6c63b8b5d60e2a8e3ff",
+  "brief_sha256": "0d42bec16557cbb35d4cbb4db9e8b631d1a26c3e90101b2f38583761743039d5",
+  "branch_diff_digest": "f02b6b32e9bac54495e02397473a0f977cd8daea87e3a81058946d369b4b679b",
+  "recorded_at": "2026-08-30T02:05:04+00:00",
+  "commit": "ebb1d4b5444ddd70e97967843c500ec1b59222ce"
+}
