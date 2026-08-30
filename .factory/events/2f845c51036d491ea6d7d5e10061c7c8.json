@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T17:27:27+00:00", "story": "JOBPERM-3", "detail": "S-0043-a66d: Informational: the JUNIT wrapper is policy-refused in the sandbox; stage done runs the leaf test itself. Host-side: application/telegram/domain/adapters 2115 tests green, tsc clean, check:architecture"}

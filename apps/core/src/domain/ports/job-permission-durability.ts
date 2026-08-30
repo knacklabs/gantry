@@ -8,6 +8,8 @@ export type JobPermissionNeedState =
   | 'handed_off'
   | 'cancelled';
 
+export const MAX_JOB_PERMISSION_CARD_RETIRED_ROWS = 20;
+
 export type JobPermissionGrantMode = 'rule' | 'once';
 
 export type JobPermissionWaiterState =
@@ -100,6 +102,9 @@ export interface JobPermissionCardRevision {
   pageStart: number;
   hiddenRowCount: number;
   deliveryAttempt: number;
+  retireOutcome?: JobPermissionCardRetireOutcome;
+  retiredRows?: JobPermissionCardRetiredRow[];
+  retireDelivery?: JobPermissionCardRetireDelivery;
   createdAt: string;
 }
 
@@ -169,6 +174,7 @@ export type JobPermissionCardDeliveryOutcome =
       provider: string | null;
       providerMessageId: string;
       deliveredAt: string;
+      retireDelivery?: JobPermissionCardRetireDelivery;
     }
   | { status: 'ambiguous' | 'exhausted' | 'cancelled'; reason: string };
 
@@ -200,4 +206,9 @@ export interface JobPermissionDurabilityRepository {
     callbackKey: string;
   }): Promise<JobPermissionDurabilityState | null>;
 }
-import type { PermissionApprovalRequest } from '../types.js';
+import type {
+  JobPermissionCardRetireDelivery,
+  JobPermissionCardRetiredRow,
+  JobPermissionCardRetireOutcome,
+  PermissionApprovalRequest,
+} from '../types.js';

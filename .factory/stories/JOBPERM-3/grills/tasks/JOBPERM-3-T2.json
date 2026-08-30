@@ -1,0 +1,84 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "JOBPERM-3-T2",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "inspected_refs": [
+    "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+    "apps/core/src/channels/slack/channel-delivery.ts",
+    "apps/core/src/channels/slack/channel-interactions.ts",
+    "apps/core/src/channels/discord/index.ts",
+    "apps/core/src/channels/discord/permission-prompt-settlement.ts",
+    "apps/core/src/channels/discord/http-helpers.ts",
+    "apps/core/src/channels/teams/progress.ts",
+    "apps/core/src/channels/teams/interaction-handlers.ts",
+    "apps/core/src/channels/teams/types.ts",
+    "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/test/unit/channels/slack.test.ts",
+    "apps/core/test/unit/channels/discord/discord.test.ts",
+    "apps/core/test/unit/channels/teams/teams.test.ts"
+  ],
+  "current_flow": "The wiring already emits deleteMessageId for retire/allowed and replaceMessageId otherwise (job-permission-wiring-setup.ts:391). Slack's delivery handles replaceMessageId via chat.update and ignores deleteMessageId, so an allowed retire falls through to a new generic send (slack/channel-delivery.ts:104); Discord edits via messageMutations.edit and likewise ignores deleteMessageId (discord/index.ts:184); Teams sends zero-action retire/replace messages through sendTeamsTextMessage and handles neither option (teams/progress.ts:44). Only Telegram returns jobPermissionCardRetireDelivery (domain/types.ts:601). Chat prompts already delete (Slack response_url delete_original, Discord DELETE then PATCH receipt) or update the Adaptive Card to a receipt (Teams interaction-handlers.ts:423).",
+  "criteria_map": {
+    "when every row of a job permission card is settled by Allow, Slack and Discord delete the card message and fall back to a receipt edit when the delete fails; Teams edits the card to a one-line approved receipt card, or sends the receipt when no activity id is recorded; retries honour the recorded deletedAt/receiptMessageId and make no second provider call.": "steps 1-4: shared settlement helper (persisted-marker short-circuit + same-message lane) hoisted from Telegram; Slack chat.delete then chat.update receipt; Discord DELETE then PATCH receipt via the rate-limited mutation requester; Teams updateAdaptiveCard receipt card or plain receipt when no activity id; all return jobPermissionCardRetireDelivery.",
+    "expired retire revisions reach Slack, Discord and Teams as the per-row 'Expired: <command>' edit, never a delete; Slack, Discord and Teams return jobPermissionCardRetireDelivery so the reconciler records the delete or receipt on the revision.": "steps 2-4: expired retire keeps the replace path (chat.update / PATCH / updateAdaptiveCard with 'Expired: <command>' lines); step 5 keeps the retire-delivery result shape; the reconciler records deletedAt/receiptMessageId/deleteFailedAt as in T1.",
+    "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green.": "step 7: channels + application unit suites, tsc, check:architecture; Postgres permission-decision-chain lane host-side stays 5/5."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "apps/core/src/channels/job-permission-card-settlement.ts: the Telegram settlement lane hoisted so Slack/Discord/Teams share one idempotent retire path (owner choice 2026-08-29: Teams receipt = one-line card, no buttons)."
+  ],
+  "gaps": [
+    "Teams cannot delete bot messages through our SDK client. When every row of a job card is allowed on Teams, what should the card become?",
+    "Anything else to settle for T2 before I record the grill and send it to Codex? (Slack/Discord mirror chat prompts: delete, receipt edit on failure; retries make no second call.)"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Teams: one-line receipt card with no buttons, same wording as the Telegram fallback receipt; expired rows as 'Expired: <command>' lines; no delete support added (SDK client has no delete).",
+    "Slack/Discord mirror chat prompts: delete, receipt edit on failure, persisted markers make retries a no-op."
+  ],
+  "rounds": [
+    {
+      "question": "Teams cannot delete bot messages through our SDK client. When every row of a job card is allowed on Teams, what should the card become?",
+      "options": [
+        "One-line receipt card, no buttons (Recommended)",
+        "Keep the card body, add an Approved banner"
+      ],
+      "chosen": "One-line receipt card, no buttons (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "Anything else to settle for T2 before I record the grill and send it to Codex? (Slack/Discord mirror chat prompts: delete, receipt edit on failure; retries make no second call.)",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "Slack and Discord ignore deleteMessageId so an allowed retire posts a new message and the old card stays",
+      "source": "apps/core/src/channels/slack/channel-delivery.ts:104; apps/core/src/channels/discord/index.ts:184; task plan steps 2-3"
+    },
+    {
+      "finding": "Teams handles neither replaceMessageId nor deleteMessageId for zero-action card messages; its SDK client exposes send/update only",
+      "source": "apps/core/src/channels/teams/progress.ts:44; apps/core/src/channels/teams/types.ts:97; task plan step 4"
+    },
+    {
+      "finding": "only Telegram returns jobPermissionCardRetireDelivery; without it the reconciler would re-attempt a delete after restart",
+      "source": "apps/core/src/domain/types.ts:601; apps/core/src/adapters/storage/postgres/repositories/job-permission-need-repository.postgres.ts:316; task plan step 1"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "9daa119801082f73d2c5ef95015e384834b2feffc2ccd76e1fd44b79af43487f",
+  "task_plan_sha256": "551b1e1a4874d481d768dde9644454f39e0b450bd2ecce2f580d840e26205a4b",
+  "recorded_at": "2026-08-30T08:32:52+00:00",
+  "commit": "8cc09028cc2cc0fa1f2ef2b9eefe9db24059e9ff",
+  "approved_task_plan_sha256": "551b1e1a4874d481d768dde9644454f39e0b450bd2ecce2f580d840e26205a4b",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-30T08:32:52+00:00"
+}

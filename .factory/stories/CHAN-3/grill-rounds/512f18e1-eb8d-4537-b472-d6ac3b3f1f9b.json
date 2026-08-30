@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "When a job permission card is fully answered, what should happen to the message?",
+      "options": [
+        "Mirror chat: delete it when every row was allowed; keep a one-line receipt if anything was denied or expired (Recommended)",
+        "Always delete the card once settled"
+      ],
+      "chosen": "Mirror chat: delete it when every row was allowed; keep a one-line receipt if anything was denied or expired (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T12:31:12.658306+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

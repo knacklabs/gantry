@@ -4472,6 +4472,156 @@ describe('Slack channel', () => {
     );
   });
 
+  it('deletes a fully allowed job permission card and falls back to a receipt edit', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect({ inbound: false });
+    const receipt = "Approved — this job's permission requests are done.";
+    const allowed = {
+      callbackKey: 'abcdef012345abcdef012345',
+      revision: 2,
+      operation: 'retire' as const,
+      retireOutcome: 'allowed' as const,
+    };
+
+    const deleted = await channel.sendMessage('sl:C123', receipt, {
+      deleteMessageId: 'card-1',
+      jobPermissionCardRevision: allowed,
+    });
+    expect(appRef.current.client.chat.delete).toHaveBeenCalledWith({
+      channel: 'C123',
+      ts: 'card-1',
+    });
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    expect(deleted).toMatchObject({
+      jobPermissionCardRetireDelivery: { deletedAt: expect.any(String) },
+    });
+
+    appRef.current.client.chat.delete.mockClear();
+    const deleteFailedAt = '2026-08-28T12:00:00.000Z';
+    const fallback = await channel.sendMessage('sl:C123', receipt, {
+      deleteMessageId: 'card-2',
+      jobPermissionCardRevision: {
+        ...allowed,
+        callbackKey: 'fedcba543210fedcba543210',
+        retireDelivery: { deleteFailedAt },
+      },
+    });
+    expect(appRef.current.client.chat.delete).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+      channel: 'C123',
+      ts: 'card-2',
+      text: receipt,
+      blocks: [],
+    });
+    expect(fallback).toMatchObject({
+      jobPermissionCardRetireDelivery: {
+        deleteFailedAt,
+        receiptMessageId: 'card-2',
+      },
+    });
+    appRef.current.client.chat.delete.mockClear();
+    appRef.current.client.chat.update.mockClear();
+    const expired = await channel.sendMessage(
+      'sl:C123',
+      'Expired: Run Command: npm test',
+      {
+        replaceMessageId: 'card-expired',
+        jobPermissionCardRevision: {
+          ...allowed,
+          callbackKey: '11223344556677889900aabb',
+          retireOutcome: 'expired',
+        },
+      },
+    );
+
+    expect(appRef.current.client.chat.delete).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C123',
+        ts: 'card-expired',
+        text: 'Expired: Run Command: npm test',
+        blocks: [],
+      }),
+    );
+    expect(expired).toMatchObject({
+      jobPermissionCardRetireDelivery: {
+        receiptMessageId: 'card-expired',
+      },
+    });
+    appRef.current.client.chat.delete.mockClear();
+    appRef.current.client.chat.update.mockClear();
+    const deletedAt = '2026-08-28T13:00:00.000Z';
+    await channel.sendMessage('sl:C123', 'Approved', {
+      deleteMessageId: 'card-settled',
+      jobPermissionCardRevision: {
+        ...allowed,
+        revision: 4,
+        retireDelivery: { deletedAt },
+      },
+    });
+    expect(appRef.current.client.chat.delete).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+  });
+
+  it('persists the delete failure before the receipt edit and edits on the next retry', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect({ inbound: false });
+    const receipt = "Approved — this job's permission requests are done.";
+    const revision = {
+      callbackKey: 'abcdef012345abcdef012345',
+      revision: 2,
+      operation: 'retire' as const,
+      retireOutcome: 'allowed' as const,
+    };
+    appRef.current.client.chat.delete.mockRejectedValueOnce(
+      new Error('delete unavailable'),
+    );
+
+    const partial = await channel
+      .sendMessage('sl:C123', receipt, {
+        deleteMessageId: 'card-1',
+        jobPermissionCardRevision: revision,
+      })
+      .catch((error) => error);
+    expect(partial).toMatchObject({
+      name: 'PartialSlackJobPermissionCardRetireError',
+      retryTail: {
+        providerPayload: {
+          jobPermissionCard: {
+            retireDelivery: { deleteFailedAt: expect.any(String) },
+          },
+        },
+      },
+    });
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    const pendingCard = (partial as any).retryTail.providerPayload
+      .jobPermissionCard;
+    appRef.current.client.chat.delete.mockClear();
+
+    const retried = await channel.sendMessage('sl:C123', receipt, {
+      deleteMessageId: 'card-1',
+      jobPermissionCardRevision: {
+        ...revision,
+        retireDelivery: pendingCard.retireDelivery,
+      },
+    });
+
+    expect(appRef.current.client.chat.delete).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.update).toHaveBeenCalledOnce();
+    expect(retried.jobPermissionCardRetireDelivery).toEqual({
+      deleteFailedAt: pendingCard.retireDelivery.deleteFailedAt,
+      receiptMessageId: 'card-1',
+    });
+  });
+
   it('uploads outbound file content through the Slack external upload flow', async () => {
     const uploadFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal('fetch', uploadFetch);

@@ -1,0 +1,43 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "Deploy plan after merge: rebuild + restart on main, live Allow-tap check on Telegram."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Redeploy after merge with a live Allow-tap check; plan otherwise unchanged; one PR; orchestrator merges when green."
+  ],
+  "rounds": [
+    {
+      "question": "JOBPERM-3 plan re-approval (the saved copy got a new timestamp, so the harness wants the two rounds again). Deploy plan after the story merges: rebuild + restart the runtime on main, then a live check where you tap Allow on the next job card (Telegram) and it disappears. OK?",
+      "options": [
+        "Yes (Recommended)",
+        "Hold the redeploy"
+      ],
+      "chosen": "Yes (Recommended)"
+    },
+    {
+      "question": "Anything else before I re-approve the JOBPERM-3 plan and close it out?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "T2 committed 14e4fe7af; reviews recorded; stage done blocked only by check:architecture (now green on main)",
+      "path": ".factory/stages.json",
+      "line": 1
+    }
+  ],
+  "input_sha256": "2af758dff50501774c8e6a0179005e5426dd67e3f2fe8a8a5717ff8b6a64547f",
+  "issue": "JOBPERM-3",
+  "recorded_at": "2026-08-30T08:29:30+00:00",
+  "commit": "bcec3e03dc32ea3ce87ac89b62ab852ce4c9b10b"
+}

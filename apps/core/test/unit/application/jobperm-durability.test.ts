@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 
 import { jsonbRoundTrip } from './jsonb-round-trip.js';
 
@@ -18,6 +18,9 @@ import {
   createJobPermissionDurabilityWiring,
   revalidateJobPermissionCurrentPolicy,
 } from '@core/app/bootstrap/job-permission-durability-wiring.js';
+import { sendJobPermCard } from '@core/app/bootstrap/job-permission-wiring-setup.js';
+import { TelegramChannelDelivery } from '@core/channels/telegram/channel-delivery.js';
+import { JobPermissionCardDeliverySettlement } from '@core/channels/interaction-settlement.js';
 import type {
   JobPermissionCardRecord,
   JobPermissionCardDeliveryOutcome,
@@ -358,6 +361,158 @@ async function confirmLatest(
   return revision.revision;
 }
 
+it('deletes a fully allowed card on retire and falls back to a receipt edit', async () => {
+  const payload = {
+    jobPermissionCard: {
+      callbackKey: '0123456789abcdef01234567',
+      revision: 2,
+      operation: 'retire',
+      providerMessageId: '42',
+      retireOutcome: 'allowed',
+      actions: [],
+    },
+  };
+  const dispatch = async (
+    api: {
+      deleteMessage: ReturnType<typeof vi.fn>;
+      editMessageText: ReturnType<typeof vi.fn>;
+    },
+    cardPayload: Record<string, unknown> = payload,
+    canonicalText = "Approved — this job's permission requests are done.",
+  ) => {
+    const receiver = Object.assign(
+      Object.create(TelegramChannelDelivery.prototype),
+      {
+        bot: { api },
+        jobPermissionCardDeliveries: new JobPermissionCardDeliverySettlement(),
+        sanitizeErrorMessage: (error: unknown) => String(error),
+      },
+    );
+    return sendJobPermCard(
+      cardPayload,
+      {
+        delivery: { id: 'delivery-2' },
+        item: {
+          id: 'delivery-2:item',
+          canonicalText,
+        },
+      },
+      ((input) => input) as never,
+      (async (jid, text, input) =>
+        TelegramChannelDelivery.prototype.sendMessage.call(
+          receiver as never,
+          jid,
+          text,
+          input.messageOptions,
+        )) as never,
+      'tg:100',
+      undefined,
+      { providerAccountId: 'telegram-account' },
+      {} as never,
+    );
+  };
+
+  const deletedApi = {
+    deleteMessage: vi.fn(async () => true),
+    editMessageText: vi.fn(async () => undefined),
+  };
+  const deleted = await dispatch(deletedApi);
+  expect(deletedApi.deleteMessage).toHaveBeenCalledWith('100', 42);
+  expect(deletedApi.editMessageText).not.toHaveBeenCalled();
+  expect(deleted).toMatchObject({
+    status: 'sent',
+    providerMessageId: '42',
+    providerPayload: {
+      jobPermissionCardRetireDelivery: {
+        deletedAt: expect.any(String),
+      },
+    },
+  });
+
+  const retriedApi = {
+    deleteMessage: vi.fn(async () => true),
+    editMessageText: vi.fn(async () => undefined),
+  };
+  const retried = await dispatch(retriedApi, {
+    jobPermissionCard: {
+      ...payload.jobPermissionCard,
+      retireDelivery: {
+        deletedAt: '2026-08-28T12:00:00.000Z',
+      },
+    },
+  });
+  expect(retriedApi.deleteMessage).not.toHaveBeenCalled();
+  expect(retriedApi.editMessageText).not.toHaveBeenCalled();
+  expect(retried).toMatchObject({
+    status: 'sent',
+    providerPayload: {
+      jobPermissionCardRetireDelivery: {
+        deletedAt: '2026-08-28T12:00:00.000Z',
+      },
+    },
+  });
+
+  const fallbackApi = {
+    deleteMessage: vi.fn(async () => {
+      throw new Error('delete unavailable');
+    }),
+    editMessageText: vi
+      .fn()
+      .mockRejectedValueOnce(new Error('receipt unavailable'))
+      .mockResolvedValue(undefined),
+  };
+  const deleteFailure = await dispatch(fallbackApi).catch((error) => error);
+  expect(fallbackApi.deleteMessage).toHaveBeenCalledOnce();
+  expect(fallbackApi.editMessageText).not.toHaveBeenCalled();
+  const retryPayload = (deleteFailure as any).retryTail.providerPayload;
+  await expect(dispatch(fallbackApi, retryPayload)).rejects.toMatchObject({
+    partialMessageDelivery: true,
+  });
+  const fallback = await dispatch(fallbackApi, retryPayload);
+  expect(fallbackApi.deleteMessage).toHaveBeenCalledOnce();
+  expect(fallbackApi.editMessageText).toHaveBeenLastCalledWith(
+    '100',
+    42,
+    "Approved — this job's permission requests are done.",
+    {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [] },
+    },
+  );
+  expect(fallback).toMatchObject({
+    status: 'sent',
+    providerPayload: {
+      jobPermissionCardRetireDelivery: {
+        deleteFailedAt: expect.any(String),
+        receiptMessageId: '42',
+      },
+    },
+  });
+
+  const expiredApi = {
+    deleteMessage: vi.fn(async () => true),
+    editMessageText: vi.fn(async () => undefined),
+  };
+  await dispatch(
+    expiredApi,
+    {
+      jobPermissionCard: {
+        ...payload.jobPermissionCard,
+        retireOutcome: 'expired',
+        retiredRows: [{ label: 'Run Command: npm test' }],
+      },
+    },
+    'Expired: Run Command: npm test',
+  );
+  expect(expiredApi.deleteMessage).not.toHaveBeenCalled();
+  expect(expiredApi.editMessageText).toHaveBeenCalledWith(
+    '100',
+    42,
+    'Expired: Run Command: npm test',
+    { reply_markup: { inline_keyboard: [] } },
+  );
+});
+
 it('attaches a job request with no persistable rule as a once need', async () => {
   const repository = new MemoryJobPermissionRepository();
   const service = createJobPermissionDurabilityWiring({
@@ -614,13 +769,20 @@ it('denies a once need without writing a rule', async () => {
     jobId: 'job-once-deny',
     decision: 'deny',
   });
+  expect(
+    (await readState(repository, 'job-once-deny'))!.card.revisions.at(-1)!
+      .operation,
+  ).not.toBe('retire');
   await service.reconcile();
 
   expect(effects.grantKeys).toEqual([]);
   expect(effects.responseKinds).toEqual(['denied']);
-  expect(
-    (await readState(repository, 'job-once-deny'))!.needs[0],
-  ).toMatchObject({ state: 'denied', grant: 'once' });
+  const state = await readState(repository, 'job-once-deny');
+  expect(state!.needs[0]).toMatchObject({ state: 'denied', grant: 'once' });
+  expect(state!.card.revisions.at(-1)).toMatchObject({
+    operation: 'edit',
+    rows: [expect.objectContaining({ action: 'reconsider' })],
+  });
 });
 
 it('settles a once need as expired when its run ended', async () => {
@@ -652,11 +814,11 @@ it('settles a once need as expired when its run ended', async () => {
   expect(state!.needs[0]!.waiters).toEqual([
     expect.objectContaining({ state: 'retired' }),
   ]);
-  expect(state!.card.revisions.at(-1)!.rows[0]).toMatchObject({
-    needId: expired.needId,
-    actionEnabled: false,
-    denyEnabled: false,
-    expiredAt: clock.nowIso,
+  expect(state!.card.revisions.at(-1)).toMatchObject({
+    operation: 'retire',
+    retireOutcome: 'expired',
+    retiredRows: [{ label: 'Run Command: npm test | tee report.txt' }],
+    rows: [],
   });
   expect(effects.grantKeys).toEqual([]);
   expect(effects.responseKinds).toEqual([]);
@@ -693,12 +855,14 @@ it('expires a once need already handed off before the expiry sweep existed', asy
     requestId: 'once-handoff-pending-request',
     runId: 'once-handoff-pending-run',
     grant: 'once',
+    label: 'Pending legacy command',
   });
   const handedOff = await attach(service, {
     jobId: 'job-once-handed-off',
     requestId: 'once-handed-off-request',
     runId: 'once-handed-off-run',
     grant: 'once',
+    label: 'Handed-off legacy command',
   });
   const pendingState = repository.states.get(
     'default:job-once-handoff-pending',
@@ -712,9 +876,9 @@ it('expires a once need already handed off before the expiry sweep existed', asy
   clock.nowIso = '2026-08-23T00:01:00.000Z';
   await service.reconcile();
 
-  for (const [jobId, needId] of [
-    ['job-once-handoff-pending', pending.needId],
-    ['job-once-handed-off', handedOff.needId],
+  for (const [jobId, needId, label] of [
+    ['job-once-handoff-pending', pending.needId, 'Pending legacy command'],
+    ['job-once-handed-off', handedOff.needId, 'Handed-off legacy command'],
   ]) {
     const state = (await readState(repository, jobId))!;
     expect(state.needs[0]).toMatchObject({
@@ -723,9 +887,9 @@ it('expires a once need already handed off before the expiry sweep existed', asy
       expiredAt: clock.nowIso,
       waiters: [expect.objectContaining({ state: 'handoff' })],
     });
-    expect(
-      jobPermissionCardText(jobId, state.card.revisions.at(-1)!),
-    ).toContain('Expired —');
+    expect(jobPermissionCardText(jobId, state.card.revisions.at(-1)!)).toBe(
+      `Expired: ${label}`,
+    );
   }
   expect(effects.responseKinds).toEqual([]);
   expect(effects.grantKeys).toEqual([]);
@@ -929,6 +1093,44 @@ it('logs a delivered card revision after recording it durably', async () => {
       message: 'Job permission card delivered',
     },
   ]);
+});
+
+it('records a deleted retire revision and clears its provider message', async () => {
+  const { effects, logs, repository, service } = createHarness();
+  const asking = await attach(service);
+  const decisionRevision = await confirmLatest(service, repository);
+  await service.reconcile();
+  await decide(service, asking, decisionRevision);
+  let state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.operation).not.toBe('retire');
+  expect(effects.responseKinds).toEqual([]);
+  await service.reconcile();
+
+  state = await readState(repository);
+  const retireRevision = state!.card.revisions.at(-1)!;
+  expect(retireRevision).toMatchObject({
+    operation: 'retire',
+    retireOutcome: 'allowed',
+  });
+  repository.deliveries.set(retireRevision.deliveryId, {
+    status: 'delivered',
+    provider: 'telegram',
+    providerMessageId: 'message:1',
+    deliveredAt: '2026-08-23T00:02:00.000Z',
+    retireDelivery: { deletedAt: '2026-08-23T00:02:00.000Z' },
+  });
+
+  await service.reconcile();
+  state = await readState(repository);
+  expect(state!.card.revisions.at(-1)!.retireDelivery).toEqual({
+    deletedAt: '2026-08-23T00:02:00.000Z',
+  });
+  expect(state!.card.currentProviderMessageId).toBeNull();
+  expect(logs.at(-1)).toMatchObject({
+    level: 'info',
+    context: { operation: 'delete' },
+    message: 'Job permission card delivered',
+  });
 });
 
 it('logs a failed card revision after recording its reason durably', async () => {
@@ -1336,7 +1538,12 @@ it('jobperm-1-t2-living-card-revision-bound', async () => {
   });
   state = await readState(repository, 'job-callback-proof');
   expect(state!.needs[0]!.waitStartedAt).toBe(clock.nowIso);
-  expect(state!.card.revisions.at(-1)!.operation).toBe('retire');
+  expect(state!.card.revisions.at(-1)!.operation).not.toBe('retire');
+  await service.reconcile();
+  expect(
+    (await readState(repository, 'job-callback-proof'))!.card.revisions.at(-1)!
+      .operation,
+  ).toBe('retire');
 });
 
 it('batch allow decides every decisionable card row and records rerun consent', async () => {

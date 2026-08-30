@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0122-4953",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Autoreview P2 on JOBPERM-3-T1 (retireDelivery markers mutable through the revision guard) \u2014 six-line fix in the Postgres need repository plus one guard test; companion non-compliance on this stage continues (runs 9-11).",
+  "started_at": "2026-08-28T18:13:41+00:00",
+  "completed_at": "2026-08-28T18:14:43+00:00",
+  "files": []
+}

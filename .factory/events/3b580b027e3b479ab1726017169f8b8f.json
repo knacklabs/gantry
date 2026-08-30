@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-28T15:45:50+00:00", "story": "JOBPERM-3", "detail": "JOBPERM-3-T1 contract requires allowed|denied retire outcomes and denied receipts, but the active plan's owner-ruling implementation assumption says explicit Deny remains live, never retires, and only"}

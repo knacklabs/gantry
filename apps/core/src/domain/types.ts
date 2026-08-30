@@ -537,17 +537,34 @@ export interface JobNotificationView {
   nextRunAt?: string;
 }
 
+export type JobPermissionCardRetireOutcome = 'allowed' | 'expired';
+
+export interface JobPermissionCardRetireDelivery {
+  deleteFailedAt?: string;
+  deletedAt?: string;
+  receiptMessageId?: string;
+}
+
+export interface JobPermissionCardRetiredRow {
+  label: string;
+}
+
 export interface MessageSendOptions {
   threadId?: string;
   providerAccountId?: string;
   agentId?: string;
   /** Provider message to edit in place for a durable living-card revision. */
   replaceMessageId?: string;
+  /** Provider message to delete for a fully allowed retired card. */
+  deleteMessageId?: string;
   /** Identity of a job-permission card revision; lets a provider settle zero-action retire/replace edits against the card. */
   jobPermissionCardRevision?: {
     callbackKey: string;
     revision: number;
     operation: 'send' | 'edit' | 'retire' | 'replace';
+    retireOutcome?: JobPermissionCardRetireOutcome;
+    retiredRows?: JobPermissionCardRetiredRow[];
+    retireDelivery?: JobPermissionCardRetireDelivery;
   };
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
@@ -588,6 +605,7 @@ export interface MessageDeliveryResult {
   totalParts?: number;
   warnings?: string[];
   fallbackArtifactId?: string;
+  jobPermissionCardRetireDelivery?: JobPermissionCardRetireDelivery;
 }
 
 // Callback type that channels use to deliver inbound messages

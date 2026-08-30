@@ -3185,6 +3185,7 @@ describe('TelegramChannel', () => {
       await channel.connect({ inbound: false });
       currentBot().api.sendMessage.mockClear();
       currentBot().api.editMessageText.mockClear();
+      currentBot().api.deleteMessage.mockClear();
       const actionsFor = (revision: number) => [
         {
           kind: 'job_permission_decision' as const,
@@ -3198,22 +3199,96 @@ describe('TelegramChannel', () => {
       });
       await channel.sendMessage('tg:100200300', 'Retired', {
         actionAffordances: [],
-        replaceMessageId: '987',
+        deleteMessageId: '987',
         jobPermissionCardRevision: {
           callbackKey: 'abcdef012345abcdef012345',
           revision: 2,
           operation: 'retire',
+          retireOutcome: 'allowed',
         },
       });
-      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.deleteMessage).toHaveBeenCalledWith(
+        '100200300',
+        987,
+      );
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
 
       const delayed = await channel.sendMessage('tg:100200300', 'Revision 1', {
         actionAffordances: actionsFor(1),
       });
 
       expect(delayed.externalMessageId).toBe('987');
-      expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.deleteMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to one receipt edit and no-ops a persisted retire retry', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect({ inbound: false });
+      currentBot().api.deleteMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      const revision = {
+        callbackKey: 'abcdef012345abcdef012345',
+        revision: 7,
+        operation: 'retire' as const,
+        retireOutcome: 'allowed' as const,
+        retireDelivery: {
+          deleteFailedAt: '2026-08-28T12:00:00.000Z',
+        },
+      };
+
+      const fallback = await channel.sendMessage(
+        'tg:100200300',
+        "Approved — this job's permission requests are done.",
+        {
+          actionAffordances: [],
+          deleteMessageId: '987',
+          jobPermissionCardRevision: revision,
+        },
+      );
+      expect(currentBot().api.deleteMessage).not.toHaveBeenCalled();
+      expect(currentBot().api.editMessageText).toHaveBeenCalledOnce();
+      expect(fallback.jobPermissionCardRetireDelivery).toEqual({
+        deleteFailedAt: '2026-08-28T12:00:00.000Z',
+        receiptMessageId: '987',
+      });
+
+      const settledRetry = await channel.sendMessage(
+        'tg:100200300',
+        "Approved — this job's permission requests are done.",
+        {
+          actionAffordances: [],
+          deleteMessageId: '987',
+          jobPermissionCardRevision: revision,
+        },
+      );
+      expect(settledRetry.jobPermissionCardRetireDelivery).toEqual({
+        deleteFailedAt: '2026-08-28T12:00:00.000Z',
+        receiptMessageId: '987',
+      });
+
+      const restarted = new TelegramChannel('test-token', createTestOpts());
+      await restarted.connect({ inbound: false });
+      currentBot().api.deleteMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+      const retried = await restarted.sendMessage(
+        'tg:100200300',
+        "Approved — this job's permission requests are done.",
+        {
+          actionAffordances: [],
+          deleteMessageId: '987',
+          jobPermissionCardRevision: {
+            ...revision,
+            retireDelivery: { receiptMessageId: '987' },
+          },
+        },
+      );
+      expect(retried.jobPermissionCardRetireDelivery).toEqual({
+        receiptMessageId: '987',
+      });
+      expect(currentBot().api.deleteMessage).not.toHaveBeenCalled();
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
     });
 
     it('queues a buttonless retire edit behind an in-flight card send', async () => {

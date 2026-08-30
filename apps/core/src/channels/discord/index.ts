@@ -71,8 +71,10 @@ import { DiscordMessageChannelCache } from './message-channel-cache.js';
 import { createDiscordHistoricalAttachmentFetcher } from './historical-attachment-fetcher.js';
 import { StreamResetEpochs } from '../stream-reset-epochs.js';
 import { resolveInboundConversationIdentity } from '../inbound-conversation-identity.js';
+import { singleMessageDeliveryResult } from '../job-permission-card-settlement.js';
 import { routeDiscordGatewayDispatch } from './gateway-dispatch.js';
 import * as discordExtractedHelpers from './extracted-helpers.js';
+import { retireDiscordCard } from './job-permission-card-delivery.js';
 
 export * from './extracted-helpers.js';
 export class DiscordChannel implements ChannelAdapter {
@@ -179,6 +181,8 @@ export class DiscordChannel implements ChannelAdapter {
     const channelId =
       options.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) throw new Error(`Invalid Discord conversation id: ${jid}`);
+    if (options.jobPermissionCardRevision?.operation === 'retire')
+      return retireDiscordCard(channelId, text, options, this.messageMutations);
     const parts = options.jobNotificationView ? [''] : splitDiscordText(text);
     const components = discordActionComponents(options);
     if (options.replaceMessageId) {
@@ -199,12 +203,7 @@ export class DiscordChannel implements ChannelAdapter {
             }
           : { embeds: [] }),
       });
-      return {
-        externalMessageId: options.replaceMessageId,
-        externalMessageIds: [options.replaceMessageId],
-        deliveredParts: 1,
-        totalParts: 1,
-      };
+      return singleMessageDeliveryResult(options.replaceMessageId);
     }
     return postDiscordMessageParts({
       channelId,

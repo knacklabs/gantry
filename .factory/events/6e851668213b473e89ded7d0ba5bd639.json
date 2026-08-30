@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-28T19:23:06+00:00", "story": "JOBPERM-3", "detail": "JOBPERM-3-T2 currently spans the allowed 12 files but totals 907 changed lines, exceeding the 900-line review budget by 7; split or explicitly revise the task budget before more edits."}

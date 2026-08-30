@@ -68,6 +68,14 @@ export function jobPermissionCardText(
   revision: JobPermissionCardRevision,
 ): string {
   if (revision.operation === 'retire') {
+    if (revision.retireOutcome === 'allowed') {
+      return "Approved — this job's permission requests are done.";
+    }
+    if (revision.retireOutcome === 'expired') {
+      return (revision.retiredRows ?? [])
+        .map((row) => `Expired: ${row.label}`)
+        .join('\n');
+    }
     return 'All permission requests for this job are settled.';
   }
   const rows = revision.rows.map((row) => {

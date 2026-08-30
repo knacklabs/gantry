@@ -1,0 +1,196 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "story": "JOBPERM-3",
+  "epic": "permission-engine",
+  "tasks": [
+    {
+      "id": "JOBPERM-3-T1",
+      "title": "Retire outcome on the card revision + Telegram delete/receipt",
+      "objective": "The card projection marks a retire revision allowed|expired (expired rows carried; denied rows never retire per 0144); shared text renders per-row 'Expired: <label>' lines; the durable-send wiring delivers an allowed retire as a delete of the provider message (receipt fallback) and an expired retire as an edit; Telegram deletes (editMessageText receipt on failure); deletedAt/receiptMessageId recorded on the revision so retries no-op. Unit + Postgres coverage.",
+      "acceptance_criteria": [
+        "when every row of a job permission card is settled by Allow, the card message is deleted on Telegram, Discord and Slack and edited to a one-line approved receipt on Teams; a failed delete falls back to the receipt edit.",
+        "when the remaining rows of a card have expired (the run ended before a decision), the card is edited to one line per expired request ('Expired: <command>') on every provider \u2014 never deleted; a card containing a denied row keeps its live rows (decision 0144: a Deny stays available with one-tap Reconsider) and does not retire.",
+        "the retire outcome (allowed | expired) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.",
+        "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green."
+      ],
+      "user_facing": false,
+      "depends_on": [],
+      "write_scope": [
+        "apps/core/src/application/interactions/",
+        "apps/core/src/domain/job-permission-card-actions.ts",
+        "apps/core/src/domain/ports/job-permission-durability.ts",
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+        "apps/core/src/channels/telegram/",
+        "apps/core/src/domain/messages/retry-tail-provider-payload.ts",
+        "apps/core/test/unit/application/",
+        "apps/core/test/unit/channels/",
+        "apps/core/test/unit/domain/",
+        "apps/core/test/integration/",
+        "apps/core/src/adapters/storage/postgres/repositories/job-permission-need-repository.postgres.ts",
+        "apps/core/test/unit/adapters/",
+        "docs/specs/settled-job-permission-cards-vanish.md"
+      ],
+      "required_tests": [
+        {
+          "id": "deletes a fully allowed card on retire and falls back to a receipt edit",
+          "path": "apps/core/test/unit/application/jobperm-durability.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "plan_contracts": [
+        {
+          "id": "JOBPERM-3-AC1",
+          "statement": "when every row of a job permission card is settled by Allow, the card message is deleted on Telegram, Discord and Slack and edited to a one-line approved receipt on Teams; a failed delete falls back to the receipt edit.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        },
+        {
+          "id": "JOBPERM-3-AC2",
+          "statement": "when the remaining rows of a card have expired (the run ended before a decision), the card is edited to one line per expired request ('Expired: <command>') on every provider \u2014 never deleted; a card containing a denied row keeps its live rows (decision 0144: a Deny stays available with one-tap Reconsider) and does not retire.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        },
+        {
+          "id": "JOBPERM-3-AC3",
+          "statement": "the retire outcome (allowed | expired) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        },
+        {
+          "id": "JOBPERM-3-AC4",
+          "statement": "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        }
+      ],
+      "reviewer_focus": [
+        "retire outcome derives from need state (expiredAt \u21d2 expired), never from text; denied needs never retire (0144)",
+        "delete only when every row allowed; expired \u21d2 per-row receipt edit, never delete",
+        "failed delete degrades to the receipt edit exactly once; deletedAt/receiptMessageId gate retries",
+        "per-message lane serialization kept for the delete",
+        "retry-tail sanitizer and the Postgres delivery payload keep the new revision fields"
+      ],
+      "review_budget": {
+        "max_changed_files": 18,
+        "max_changed_lines": 1100,
+        "reason": "Projection + record + wiring + Telegram delivery + sanitizer + Postgres delivery payload and their tests, plus the repository revision guard (immutable retire markers) and a live-shaped Postgres once-card fixture."
+      }
+    },
+    {
+      "id": "JOBPERM-3-T2",
+      "title": "Slack + Discord delete and Teams receipt card for retired cards",
+      "objective": "Slack and Discord delete a fully allowed retired card (fallback edit); Teams edits to an approved receipt card (or sends the receipt if no activity id); denied/expired retire stays a receipt edit; provider unit coverage.",
+      "acceptance_criteria": [
+        "when every row of a job permission card is settled by Allow, Slack and Discord delete the card message and fall back to a receipt edit when the delete fails; Teams edits the card to a one-line approved receipt card, or sends the receipt when no activity id is recorded; retries honour the recorded deletedAt/receiptMessageId and make no second provider call.",
+        "expired retire revisions reach Slack, Discord and Teams as the per-row 'Expired: <command>' edit, never a delete; Slack, Discord and Teams return jobPermissionCardRetireDelivery so the reconciler records the delete or receipt on the revision.",
+        "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green."
+      ],
+      "user_facing": false,
+      "depends_on": [
+        "JOBPERM-3-T1"
+      ],
+      "plan_contracts": [
+        {
+          "id": "JOBPERM-3-T2-AC1",
+          "statement": "when every row of a job permission card is settled by Allow, Slack and Discord delete the card message and fall back to a receipt edit when the delete fails; Teams edits the card to a one-line approved receipt card, or sends the receipt when no activity id is recorded; retries honour the recorded deletedAt/receiptMessageId and make no second provider call.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        },
+        {
+          "id": "JOBPERM-3-T2-AC2",
+          "statement": "expired retire revisions reach Slack, Discord and Teams as the per-row 'Expired: <command>' edit, never a delete; Slack, Discord and Teams return jobPermissionCardRetireDelivery so the reconciler records the delete or receipt on the revision.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        },
+        {
+          "id": "JOBPERM-3-T2-AC4",
+          "statement": "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green.",
+          "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/channels/slack/",
+        "apps/core/src/channels/discord/",
+        "apps/core/src/channels/teams/",
+        "apps/core/src/channels/job-permission-card-settlement.ts",
+        "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
+        "apps/core/src/domain/types.ts",
+        "apps/core/test/unit/channels/"
+      ],
+      "required_tests": [
+        {
+          "id": "deletes a fully allowed job permission card and falls back to a receipt edit",
+          "path": "apps/core/test/unit/channels/slack.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "deletes a fully allowed job permission card and falls back to a receipt edit",
+          "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "edits a fully allowed job permission card to a receipt card",
+          "path": "apps/core/test/unit/channels/teams/teams.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "persists the delete failure before the receipt edit and edits on the next retry",
+          "path": "apps/core/test/unit/channels/slack.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "persists the delete failure before the receipt edit and edits on the next retry",
+          "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps the retire revision retryable when the receipt card update fails",
+          "path": "apps/core/test/unit/channels/teams/teams.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "reviewer_focus": [
+        "ACCEPTED AUTOREVIEW P1 (fix first): Slack and Discord must persist the delete failure BEFORE any receipt call, exactly like Telegram \u2014 onDeleteFailure THROWS the partial-delivery error carrying retireDelivery { deleteFailedAt } (see telegram/job-permission-card-delivery.ts partialFallback) and pendingReceiptError is passed; the receipt edit then runs on the next retry. Logging-only onDeleteFailure is a defect.",
+        "ACCEPTED AUTOREVIEW P1 (fix first): Teams must NOT fall through to sendTeamsTextMessage when an activity id is recorded and updateAdaptiveCard throws or is unavailable \u2014 rethrow so the revision stays retryable; the plain receipt send is only for the no-activity-id case.",
+        "idempotent retry: persisted deletedAt/receiptMessageId short-circuit before any provider call; same-message operations serialized",
+        "Slack chat.delete/chat.update and Discord DELETE/PATCH go through the rate-limited mutation helpers, not raw fetch",
+        "no change to Telegram behaviour beyond sharing the settlement helper"
+      ],
+      "review_budget": {
+        "max_changed_files": 12,
+        "max_changed_lines": 1100,
+        "reason": "Three provider deliveries + shared settlement helper + three provider test suites (907 lines measured on run 2)."
+      }
+    }
+  ],
+  "plan_contracts": [
+    {
+      "id": "JOBPERM-3-AC1",
+      "statement": "when every row of a job permission card is settled by Allow, the card message is deleted on Telegram, Discord and Slack and edited to a one-line approved receipt on Teams; a failed delete falls back to the receipt edit.",
+      "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+    },
+    {
+      "id": "JOBPERM-3-AC2",
+      "statement": "when the remaining rows of a card have expired (the run ended before a decision), the card is edited to one line per expired request ('Expired: <command>') on every provider \u2014 never deleted; a card containing a denied row keeps its live rows (decision 0144: a Deny stays available with one-tap Reconsider) and does not retire.",
+      "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+    },
+    {
+      "id": "JOBPERM-3-AC3",
+      "statement": "the retire outcome (allowed | expired) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.",
+      "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+    },
+    {
+      "id": "JOBPERM-3-AC4",
+      "statement": "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green.",
+      "source": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md#acceptance-criteria"
+    }
+  ],
+  "project": "",
+  "plan_file": "plans/active/JOBPERM-3-settled-job-permission-cards-disappear-like-chat-prompts.md",
+  "plan_sha256": "ee485453a852d858ad12b744ae90589deb3158f2272af978143577b89a417f95",
+  "commit": "8cc09028cc2cc0fa1f2ef2b9eefe9db24059e9ff"
+}

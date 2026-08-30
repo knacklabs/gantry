@@ -725,6 +725,183 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(sdkClient.stop).toHaveBeenCalled();
   });
 
+  it('edits a fully allowed job permission card to a receipt card', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({
+        externalMessageId: 'teams-receipt-1',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect({ inbound: false });
+    const receipt = "Approved — this job's permission requests are done.";
+    const allowed = {
+      callbackKey: 'abcdef012345abcdef012345',
+      revision: 2,
+      operation: 'retire' as const,
+      retireOutcome: 'allowed' as const,
+    };
+
+    const result = await channel.sendMessage(
+      'teams:19:abc@thread.v2',
+      receipt,
+      {
+        deleteMessageId: 'teams-card-1',
+        jobPermissionCardRevision: allowed,
+      },
+    );
+
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+      messageId: 'teams-card-1',
+      card: expect.objectContaining({
+        body: [{ type: 'TextBlock', text: receipt, wrap: true }],
+        actions: [],
+      }),
+    });
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      jobPermissionCardRetireDelivery: {
+        receiptMessageId: 'teams-card-1',
+      },
+    });
+
+    vi.mocked(sdkClient.updateAdaptiveCard!).mockClear();
+    await channel.sendMessage('teams:19:abc@thread.v2', receipt, {
+      deleteMessageId: 'teams-card-1',
+      jobPermissionCardRevision: {
+        ...allowed,
+        retireDelivery: { receiptMessageId: 'teams-card-1' },
+      },
+    });
+    expect(sdkClient.updateAdaptiveCard).not.toHaveBeenCalled();
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+    const sent = await channel.sendMessage('teams:19:abc@thread.v2', receipt, {
+      jobPermissionCardRevision: {
+        ...allowed,
+        callbackKey: 'fedcba543210fedcba543210',
+      },
+    });
+
+    expect(sdkClient.updateAdaptiveCard).not.toHaveBeenCalled();
+    expect(sdkClient.sendMessage).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+      text: receipt,
+    });
+    expect(sent).toMatchObject({
+      jobPermissionCardRetireDelivery: {
+        receiptMessageId: 'teams-receipt-1',
+      },
+    });
+    vi.mocked(sdkClient.sendMessage).mockClear();
+    const expired = await channel.sendMessage(
+      'teams:19:abc@thread.v2',
+      'Expired: Run Command: npm test',
+      {
+        replaceMessageId: 'teams-card-expired',
+        jobPermissionCardRevision: {
+          ...allowed,
+          callbackKey: '11223344556677889900aabb',
+          retireOutcome: 'expired',
+        },
+      },
+    );
+
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: 'teams-card-expired',
+        card: expect.objectContaining({
+          body: [
+            {
+              type: 'TextBlock',
+              text: 'Expired: Run Command: npm test',
+              wrap: true,
+            },
+          ],
+          actions: [],
+        }),
+      }),
+    );
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+    expect(expired).toMatchObject({
+      jobPermissionCardRetireDelivery: {
+        receiptMessageId: 'teams-card-expired',
+      },
+    });
+  });
+
+  it('keeps the retire revision retryable when the receipt card update fails', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({
+        externalMessageId: 'teams-receipt-1',
+      })),
+      updateAdaptiveCard: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('update unavailable'))
+        .mockResolvedValueOnce({}),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect({ inbound: false });
+    const receipt = "Approved — this job's permission requests are done.";
+    const options = {
+      deleteMessageId: 'teams-card-1',
+      jobPermissionCardRevision: {
+        callbackKey: 'abcdef012345abcdef012345',
+        revision: 2,
+        operation: 'retire' as const,
+        retireOutcome: 'allowed' as const,
+      },
+    };
+
+    await expect(
+      channel.sendMessage('teams:19:abc@thread.v2', receipt, options),
+    ).rejects.toThrow('update unavailable');
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+
+    await expect(
+      channel.sendMessage('teams:19:abc@thread.v2', receipt, options),
+    ).resolves.toMatchObject({
+      jobPermissionCardRetireDelivery: {
+        receiptMessageId: 'teams-card-1',
+      },
+    });
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledTimes(2);
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+
+    delete sdkClient.updateAdaptiveCard;
+    await expect(
+      channel.sendMessage('teams:19:abc@thread.v2', receipt, {
+        ...options,
+        deleteMessageId: 'teams-card-2',
+        jobPermissionCardRevision: {
+          ...options.jobPermissionCardRevision,
+          callbackKey: 'fedcba543210fedcba543210',
+        },
+      }),
+    ).rejects.toThrow('Teams job permission card update is unavailable.');
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+  });
+
   it('ingests attachment-only Teams messages with provider metadata only', async () => {
     let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
       undefined;

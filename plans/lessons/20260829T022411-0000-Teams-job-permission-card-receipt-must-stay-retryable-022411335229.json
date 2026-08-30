@@ -1,0 +1,11 @@
+{
+  "topic": "Teams job permission card receipt must stay retryable",
+  "lesson": "With a recorded activity id, a failed or unavailable updateAdaptiveCard must rethrow so the retire revision is retried; sending a new text receipt instead leaves the old actionable card in place and the persisted receiptMessageId makes it unrepairable.",
+  "source": "plans/review-briefs/jobperm-3-t2-provider-retire.md",
+  "applies_to": [
+    "apps/core/src/channels/teams/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-08-29T02:24:11+00:00"
+}

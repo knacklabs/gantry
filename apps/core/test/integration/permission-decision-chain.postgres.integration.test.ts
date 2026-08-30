@@ -10,6 +10,12 @@ import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
 import { createGantryShellTool } from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
 import { createJobPermissionDurabilityWiring } from '@core/app/bootstrap/job-permission-durability-wiring.js';
 import {
+  acquireRunSlot,
+  configureRunSlotBackend,
+  resetSchedulerRunSlots,
+} from '@core/jobs/concurrency.js';
+import { registerWorkerInstance } from '@core/jobs/worker-identity.js';
+import {
   bindPendingPermissionInteractionMessage,
   claimPermissionInteractionCallback,
   configurePendingInteractionDurability,
@@ -571,6 +577,15 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     )
       .map(({ id }) => id)
       .sort();
+    // A live run holds its scheduler slot; the durable waiter releases it
+    // once the card is delivered and re-acquires it for the decision.
+    configureRunSlotBackend({
+      repository: runtime.repositories.workerCoordination,
+      workerInstanceId: await registerWorkerInstance(
+        runtime.repositories.workerCoordination,
+      ),
+    });
+    const releaseRunSlot = await acquireRunSlot(jobId, 1, { runId });
     const runnerDecision = requestPermissionApprovalViaIpc(
       clientEnv({
         jobId,
@@ -608,6 +623,28 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       }),
     ]);
     const revision = state!.card.revisions.at(-1)!;
+    // Settle the card send so the card learns its provider message id; the
+    // retire revision must then delete that message.
+    const cardSentAt = new Date().toISOString();
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveriesPostgres)
+      .set({ status: 'sent', updatedAt: cardSentAt })
+      .where(eq(pgSchema.outboundDeliveriesPostgres.id, revision.deliveryId));
+    await runtime.service.db
+      .insert(pgSchema.outboundDeliveryReceiptsPostgres)
+      .values({
+        id: `receipt:${revision.revision}`,
+        deliveryId: revision.deliveryId,
+        itemId: revision.deliveryItemId,
+        idempotencyKey: `receipt:${revision.revision}`,
+        providerMessageId: 'telegram-card-1',
+        providerPayloadJson: JSON.stringify({
+          externalMessageId: 'telegram-card-1',
+        }),
+        sentAt: cardSentAt,
+        createdAt: cardSentAt,
+      });
+    await durability.reconcile();
     const allow = jobPermissionCardActions(
       state!.card.callbackKey,
       revision,
@@ -640,6 +677,73 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       grant: 'once',
       approvedGrantAtoms: [],
     });
+    const retireRevision = state!.card.revisions.at(-1)!;
+    expect(retireRevision).toMatchObject({
+      operation: 'retire',
+      retireOutcome: 'allowed',
+    });
+    const [retireItem] = await runtime.service.db
+      .select({
+        providerPayloadJson:
+          pgSchema.outboundDeliveryItemsPostgres.providerPayloadJson,
+      })
+      .from(pgSchema.outboundDeliveryItemsPostgres)
+      .where(
+        eq(
+          pgSchema.outboundDeliveryItemsPostgres.id,
+          retireRevision.deliveryItemId,
+        ),
+      )
+      .limit(1);
+    expect(JSON.parse(retireItem!.providerPayloadJson!)).toMatchObject({
+      jobPermissionCard: {
+        retireOutcome: 'allowed',
+        providerMessageId: 'telegram-card-1',
+      },
+    });
+
+    const deletedAt = new Date().toISOString();
+    await runtime.service.db
+      .update(pgSchema.outboundDeliveriesPostgres)
+      .set({ status: 'sent', updatedAt: deletedAt })
+      .where(
+        eq(pgSchema.outboundDeliveriesPostgres.id, retireRevision.deliveryId),
+      );
+    await runtime.service.db
+      .insert(pgSchema.outboundDeliveryReceiptsPostgres)
+      .values({
+        id: `receipt:${retireRevision.revision}`,
+        deliveryId: retireRevision.deliveryId,
+        itemId: retireRevision.deliveryItemId,
+        idempotencyKey: `receipt:${retireRevision.revision}`,
+        providerMessageId: 'telegram-card-1',
+        providerPayloadJson: JSON.stringify({
+          externalMessageId: 'telegram-card-1',
+          jobPermissionCardRetireDelivery: { deletedAt },
+        }),
+        sentAt: deletedAt,
+        createdAt: deletedAt,
+      });
+    await durability.reconcile();
+    state = await runtime.repositories.workerCoordination.getJobPermissionState(
+      { appId: APP_ID, jobId },
+    );
+    expect(state!.card.revisions.at(-1)!.retireDelivery).toEqual({
+      deletedAt,
+    });
+    // A recorded delete marker is immutable: clearing it must be refused.
+    await expect(
+      runtime.repositories.workerCoordination.mutateJobPermissionState({
+        appId: APP_ID,
+        jobId,
+        initialCard: state!.card,
+        mutate: (current) => {
+          delete current.card.revisions.at(-1)!.retireDelivery;
+          return { state: current, result: undefined };
+        },
+      }),
+    ).rejects.toThrow('crossed its durable scope');
+    expect(state!.card.currentProviderMessageId).toBeNull();
     const ruleIdsAfter = (
       await runtime.service.db
         .select({ id: pgSchema.permissionRulesPostgres.id })
@@ -648,6 +752,9 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       .map(({ id }) => id)
       .sort();
     expect(ruleIdsAfter).toEqual(ruleIdsBefore);
+    await releaseRunSlot();
+    resetSchedulerRunSlots();
+    configureRunSlotBackend(null);
   }, 60_000);
 
   it('persists allow-for-future through the signed chain without an outbound chat receipt', async () => {

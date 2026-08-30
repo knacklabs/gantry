@@ -95,6 +95,7 @@ export class JobPermissionReconciler {
     if (!selected) return false;
     const { revision, outcome } = selected;
     if (outcome.status === 'delivered') {
+      const deleted = outcome.retireDelivery?.deletedAt;
       const delivered = await this.providerActions.confirmCardDelivery({
         appId: card.appId,
         jobId: card.jobId,
@@ -103,6 +104,7 @@ export class JobPermissionReconciler {
         provider: outcome.provider ?? 'unknown',
         providerMessageId: outcome.providerMessageId,
         deliveredAt: outcome.deliveredAt,
+        retireDelivery: outcome.retireDelivery,
       });
       if (delivered) {
         this.logger.info(
@@ -110,7 +112,7 @@ export class JobPermissionReconciler {
             jobId: card.jobId,
             cardId: card.id,
             revision: revision.revision,
-            operation: revision.operation,
+            operation: deleted ? 'delete' : revision.operation,
             provider: outcome.provider ?? 'unknown',
             providerMessageId: outcome.providerMessageId,
             deliveryId: revision.deliveryId,

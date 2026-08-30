@@ -1,0 +1,10 @@
+# Review brief — JOBPERM-3-T2 (Slack + Discord delete and Teams receipt card for retired job permission cards)
+
+Facts: T1 (f8cc8c4bd) made a retired card revision carry `retireOutcome` ('allowed' | 'expired'), `retiredRows`, `retireDelivery` ({deletedAt | receiptMessageId | deleteFailedAt}); the wiring delivers retire/allowed with `MessageSendOptions.deleteMessageId` and every other retire with `replaceMessageId` + receipt text. Telegram acted on it; Slack, Discord and Teams did not (allowed retire posted a NEW message and the old card stayed).
+
+Contract for this diff:
+- AC1: when every row is allowed, Slack (`chat.delete`, fallback `chat.update` receipt) and Discord (DELETE message, fallback PATCH receipt with no components) delete the card; Teams edits it to a ONE-LINE receipt card with no buttons via `updateAdaptiveCard`, or sends the plain receipt when no activity id is recorded. Retries honour recorded `deletedAt` / `receiptMessageId` and make NO second provider call.
+- AC2: expired retire revisions reach all three as the per-row 'Expired: <command>' edit — never a delete. All three return `jobPermissionCardRetireDelivery` so the reconciler records the outcome on the revision.
+- AC4: existing suites pass; only new/updated retire assertions; tsc + architecture green. Telegram behaviour unchanged (its tests pass unchanged) even if its settlement lane is hoisted into a shared helper.
+
+Focus: (1) idempotency — persisted-marker short-circuit BEFORE any provider call, and same-message operations serialized; (2) Slack/Discord calls go through the existing rate-limited helpers (Slack `channel-delivery-helpers.ts` retry; Discord `http-helpers.ts` mutation requester), never raw fetch; (3) Teams never throws without an activity id, receipt card carries no actions; (4) a failed delete persists `deleteFailedAt` before the receipt edit so a crash between the two does not retry the delete; (5) expired path is edit-only on every provider. Denied rows never retire (decision 0144) — out of scope. Ignore style.

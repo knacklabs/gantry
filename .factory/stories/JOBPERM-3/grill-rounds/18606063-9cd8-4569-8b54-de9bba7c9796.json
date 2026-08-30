@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "JOBPERM-3-T1 under the amended contract (allowed | expired; denied rows stay live). Anything to settle before Codex starts run 4?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T15:55:50.151185+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

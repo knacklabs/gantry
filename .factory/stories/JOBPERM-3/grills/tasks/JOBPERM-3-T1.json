@@ -1,0 +1,65 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "JOBPERM-3-T1",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/application/interactions/job-permission-card-projection.ts",
+    "apps/core/src/domain/job-permission-card-actions.ts",
+    "apps/core/src/domain/ports/job-permission-durability.ts",
+    "apps/core/src/app/bootstrap/job-permission-wiring-setup.ts",
+    "apps/core/src/channels/telegram/job-permission-card-delivery.ts",
+    "apps/core/src/channels/telegram/channel-delivery.ts",
+    "apps/core/src/channels/telegram/permission-prompt-settlement.ts",
+    "apps/core/src/domain/messages/retry-tail-provider-payload.ts",
+    "apps/core/test/unit/application/jobperm-durability.test.ts"
+  ],
+  "current_flow": "When no visible rows remain the projection emits operation 'retire' with no outcome (card-projection.ts:155); jobPermissionCardText returns the static 'All permission requests for this job are settled.' (card-actions.ts:70); the wiring maps retire to an edit via replaceMessageId (wiring-setup.ts:315) and Telegram editMessageText's the card with an empty keyboard \u2014 the message stays. Chat prompts delete on approve (permission-prompt-settlement.ts:82) with a receipt-edit fallback.",
+  "criteria_map": {
+    "when every row of a job permission card is settled by Allow, the card message is deleted on Telegram, Discord and Slack and edited to a one-line approved receipt on Teams; a failed delete falls back to the receipt edit.": "steps 4-5: allowed retire delivered as deleteMessageId; Telegram deleteMessage inside the per-message lane, editMessageText receipt on failure; required test 'deletes a fully allowed card on retire and falls back to a receipt edit'",
+    "when the remaining rows of a card have expired (the run ended before a decision), the card is edited to one line per expired request ('Expired: <command>') on every provider \u2014 never deleted; a card containing a denied row keeps its live rows (decision 0144: a Deny stays available with one-tap Reconsider) and does not retire.": "steps 2-3: outcome 'expired' when a settled need is cancelled+expiredAt; per-row 'Expired: <label>' edit, never a delete; denied needs never retire (livingCardNeeds unchanged, 0144); durability + edges tests",
+    "the retire outcome (allowed | expired) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent.": "steps 1-2, 5: retireOutcome/retiredRows/retireDelivery on the revision (JSONB) and in the Postgres delivery payload; deletedAt/receiptMessageId short-circuit retries; sanitizer keeps the fields",
+    "existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green.": "step 7: application/telegram/domain/adapters suites green with only retire-text/operation assertions updated; tsc; check:architecture; Postgres lane host-side"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "retireOutcome / retiredRows / retireDelivery on JobPermissionCardRevision and MessageSendOptions.deleteMessageId \u2014 owner choice 2026-08-28 (mirror chat: delete when all allowed, receipt when denied/expired, idempotent)"
+  ],
+  "gaps": [
+    "JOBPERM-3-T1 under the amended contract (allowed | expired; denied rows stay live). Anything to settle before Codex starts run 4?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Outcome derives from need state, never text; delete only when every row allowed; expired \u21d2 receipt edit; denied \u21d2 card stays live (0144); failed delete degrades to the receipt edit once; Slack/Discord/Teams are T2."
+  ],
+  "rounds": [
+    {
+      "question": "JOBPERM-3-T1 under the amended contract (allowed | expired; denied rows stay live). Anything to settle before Codex starts run 4?",
+      "options": [
+        "No \u2014 go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 go (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "retire revision carries no outcome and the text is static, so providers cannot tell allowed-all from denied",
+      "source": "apps/core/src/application/interactions/job-permission-card-projection.ts:155; apps/core/src/domain/job-permission-card-actions.ts:70; task plan steps 2-3"
+    },
+    {
+      "finding": "the chat prompt delete-with-receipt-fallback shape to mirror",
+      "source": "apps/core/src/channels/telegram/permission-prompt-settlement.ts:82-101; task plan step 5"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "d9396d01a3c04953278c29d30029a9696b37d619095620315f5aaecce61eb860",
+  "task_plan_sha256": "b969482b79b632a1c24c42f71c02e2294e917a1a97eaae2e9100c84284d75e03",
+  "recorded_at": "2026-08-28T18:19:04+00:00",
+  "commit": "f8cc8c4bd9bc4d12f8b8e352b3847f154272d4e8",
+  "approved_task_plan_sha256": "b969482b79b632a1c24c42f71c02e2294e917a1a97eaae2e9100c84284d75e03",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-28T18:19:04+00:00"
+}

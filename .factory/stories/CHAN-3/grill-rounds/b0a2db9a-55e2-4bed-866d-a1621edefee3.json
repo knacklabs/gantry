@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Card-retire fix scope: shared projection + wiring + Telegram delete is 5 files (fits a lite window today); adding Discord delete parity makes it 6\u20137 (needs a small story). Which?",
+      "options": [
+        "Lite window now: shared + Telegram delete; Discord parity as a follow-up (Recommended)",
+        "One small story covering Telegram + Discord together"
+      ],
+      "chosen": "Lite window now: shared + Telegram delete; Discord parity as a follow-up (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T12:33:23.356032+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

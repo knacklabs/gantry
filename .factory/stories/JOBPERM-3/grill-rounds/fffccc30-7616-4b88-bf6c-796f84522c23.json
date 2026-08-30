@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "JOBPERM-3 plan: T1 = shared projection/record/wiring + Telegram delete; T2 = Slack + Discord delete and Teams receipt card. Deploy T1 to the runtime as soon as it's green (so your Telegram cards start vanishing before T2 lands)?",
+      "options": [
+        "Yes \u2014 deploy T1 when green (Recommended)",
+        "No \u2014 deploy only after the whole story merges"
+      ],
+      "chosen": "Yes \u2014 deploy T1 when green (Recommended)"
+    },
+    {
+      "question": "Anything else before I approve the plan and start T1?",
+      "options": [
+        "No \u2014 approve and start (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 approve and start (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T13:04:56.839956+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

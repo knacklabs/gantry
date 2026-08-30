@@ -7,6 +7,7 @@ import type {
   SkillCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import type {
+  JobPermissionCardRetireDelivery,
   MessageActionAffordance,
   MessageSendOptions,
 } from '../../domain/types.js';
@@ -32,6 +33,9 @@ interface JobPermissionCardPayload {
   revision: number;
   operation: 'send' | 'edit' | 'retire' | 'replace';
   providerMessageId: string | null;
+  retireOutcome?: 'allowed' | 'expired';
+  retiredRows?: Array<{ label: string }>;
+  retireDelivery?: JobPermissionCardRetireDelivery;
 }
 
 function jobPermissionStableUuid(value: string): string {
@@ -49,6 +53,9 @@ function parseJobPermissionCardPayload(
     revision?: unknown;
     operation?: unknown;
     providerMessageId?: unknown;
+    retireOutcome?: unknown;
+    retiredRows?: unknown;
+    retireDelivery?: unknown;
   };
   if (!Array.isArray(raw.actions)) return null;
   if (typeof raw.callbackKey !== 'string' || !raw.callbackKey.trim()) {
@@ -73,6 +80,65 @@ function parseJobPermissionCardPayload(
     !providerMessageId
   ) {
     return null;
+  }
+  const retireOutcome = raw.retireOutcome;
+  if (
+    retireOutcome !== undefined &&
+    retireOutcome !== 'allowed' &&
+    retireOutcome !== 'expired'
+  ) {
+    return null;
+  }
+  let retiredRows: Array<{ label: string }> | undefined;
+  if (raw.retiredRows !== undefined) {
+    if (!Array.isArray(raw.retiredRows)) return null;
+    retiredRows = [];
+    for (const row of raw.retiredRows) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+      const label = (row as { label?: unknown }).label;
+      if (typeof label !== 'string' || !label.trim()) return null;
+      retiredRows.push({ label: label.trim() });
+    }
+  }
+  let retireDelivery: JobPermissionCardRetireDelivery | undefined;
+  if (raw.retireDelivery !== undefined) {
+    if (
+      !raw.retireDelivery ||
+      typeof raw.retireDelivery !== 'object' ||
+      Array.isArray(raw.retireDelivery)
+    ) {
+      return null;
+    }
+    const delivery = raw.retireDelivery as {
+      deleteFailedAt?: unknown;
+      deletedAt?: unknown;
+      receiptMessageId?: unknown;
+    };
+    const deleteFailedAt =
+      typeof delivery.deleteFailedAt === 'string' &&
+      delivery.deleteFailedAt.trim()
+        ? delivery.deleteFailedAt.trim()
+        : undefined;
+    const deletedAt =
+      typeof delivery.deletedAt === 'string' && delivery.deletedAt.trim()
+        ? delivery.deletedAt.trim()
+        : undefined;
+    const receiptMessageId =
+      typeof delivery.receiptMessageId === 'string' &&
+      delivery.receiptMessageId.trim()
+        ? delivery.receiptMessageId.trim()
+        : undefined;
+    if (
+      (!deleteFailedAt && !deletedAt && !receiptMessageId) ||
+      (deletedAt && (deleteFailedAt || receiptMessageId))
+    ) {
+      return null;
+    }
+    retireDelivery = {
+      ...(deleteFailedAt ? { deleteFailedAt } : {}),
+      ...(deletedAt ? { deletedAt } : {}),
+      ...(receiptMessageId ? { receiptMessageId } : {}),
+    };
   }
   const actions: MessageActionAffordance[] = [];
   for (const action of raw.actions) {
@@ -101,6 +167,9 @@ function parseJobPermissionCardPayload(
     revision: raw.revision,
     operation: raw.operation as JobPermissionCardPayload['operation'],
     providerMessageId,
+    ...(retireOutcome ? { retireOutcome } : {}),
+    ...(retiredRows ? { retiredRows } : {}),
+    ...(retireDelivery ? { retireDelivery } : {}),
   };
 }
 
@@ -311,11 +380,22 @@ export async function sendJobPermCard(
                 callbackKey: card.callbackKey,
                 revision: card.revision,
                 operation: card.operation,
+                ...(card.retireOutcome
+                  ? { retireOutcome: card.retireOutcome }
+                  : {}),
+                ...(card.retiredRows ? { retiredRows: card.retiredRows } : {}),
+                ...(card.retireDelivery
+                  ? { retireDelivery: card.retireDelivery }
+                  : {}),
               },
-              ...((card.operation === 'edit' || card.operation === 'retire') &&
+              ...(card.operation === 'retire' &&
+              card.retireOutcome === 'allowed' &&
               card.providerMessageId
-                ? { replaceMessageId: card.providerMessageId }
-                : {}),
+                ? { deleteMessageId: card.providerMessageId }
+                : (card.operation === 'edit' || card.operation === 'retire') &&
+                    card.providerMessageId
+                  ? { replaceMessageId: card.providerMessageId }
+                  : {}),
             }
           : {}),
       },

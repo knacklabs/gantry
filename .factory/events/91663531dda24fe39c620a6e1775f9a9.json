@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T19:47:38+00:00", "story": "JOBPERM-3", "detail": "S-0053-3f06: Informational: the 19 expired providerConnection exceptions are main's debt (expired 2026-08-28), not this task. Owner ruling 2026-08-29: LEGACY-2 removes the dual-read before JOBPERM-3 ships. The orc"}

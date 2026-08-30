@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-28T13:17:48+00:00", "story": "JOBPERM-3", "detail": "S-0039-4012: Ruling 2026-08-28: write scope widened to apps/core/src/adapters/storage/postgres/repositories/job-permission-need-repository.postgres.ts (and its unit test under apps/core/test/unit/adapters/) so the"}

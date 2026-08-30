@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-08-28T13:24:59+00:00", "story": "JOBPERM-3", "detail": "JOBPERM-3 AC2 requires denied rows to retire into a buttonless receipt, but active decision 0144 requires explicit denials to remain available with one-tap Reconsider; current livingCardNeeds keeps de"}

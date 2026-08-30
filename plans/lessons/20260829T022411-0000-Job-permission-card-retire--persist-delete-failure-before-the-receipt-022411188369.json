@@ -1,0 +1,13 @@
+{
+  "topic": "Job permission card retire: persist delete failure before the receipt",
+  "lesson": "When a retire delete fails, the provider delivery must surface deleteFailedAt through the partial-delivery error BEFORE any receipt call (Telegram partialFallback pattern); the receipt edit runs on the next retry. A logging-only onDeleteFailure lets a crash between delete and edit re-issue the delete.",
+  "source": "plans/review-briefs/jobperm-3-t2-provider-retire.md",
+  "applies_to": [
+    "apps/core/src/channels/slack/**",
+    "apps/core/src/channels/discord/**",
+    "apps/core/src/channels/job-permission-card-settlement.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-08-29T02:24:11+00:00"
+}

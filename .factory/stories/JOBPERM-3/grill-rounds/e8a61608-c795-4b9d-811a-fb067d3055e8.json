@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Requirements check for JOBPERM-3: the durable card path retries deliveries. For a retired card that was deleted, a later retry (e.g. after a restart) must not try to delete again or re-send a receipt. Should the deleted state be recorded on the revision (idempotent, recommended) or should retries simply tolerate a 'message not found' error?",
+      "options": [
+        "Record 'deleted' on the revision; retries no-op (Recommended)",
+        "Tolerate not-found errors on retry"
+      ],
+      "chosen": "Record 'deleted' on the revision; retries no-op (Recommended)"
+    },
+    {
+      "question": "Anything else before I write the plan?",
+      "options": [
+        "No \u2014 write the plan (Recommended)",
+        "Hold"
+      ],
+      "chosen": "No \u2014 write the plan (Recommended)"
+    }
+  ],
+  "at": "2026-08-28T13:02:16.216793+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

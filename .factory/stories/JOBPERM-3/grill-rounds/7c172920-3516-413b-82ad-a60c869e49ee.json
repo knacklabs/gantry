@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "JOBPERM-3 plan re-approval (the saved copy got a new timestamp, so the harness wants the two rounds again). Deploy plan after the story merges: rebuild + restart the runtime on main, then a live check where you tap Allow on the next job card (Telegram) and it disappears. OK?",
+      "options": [
+        "Yes (Recommended)",
+        "Hold the redeploy"
+      ],
+      "chosen": "Yes (Recommended)"
+    },
+    {
+      "question": "Anything else before I re-approve the JOBPERM-3 plan and close it out?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go"
+    }
+  ],
+  "at": "2026-08-30T08:29:07.734044+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

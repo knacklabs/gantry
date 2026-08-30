@@ -43,6 +43,10 @@ import {
   type JobPermissionDurabilityClock,
   type JobPermissionDurabilityEffects,
 } from '@core/application/interactions/job-permission-durability.js';
+import {
+  initialCard,
+  reviseLivingCard,
+} from '@core/application/interactions/job-permission-card-projection.js';
 import { DiscordChannel } from '@core/channels/discord/index.js';
 import { discordActionComponents } from '@core/channels/discord/components.js';
 import { DiscordInteractionHandler } from '@core/channels/discord/interactions.js';
@@ -285,17 +289,40 @@ it('renders an expired once row without decision actions', async () => {
   });
   const expiredRevision = state!.card.revisions.at(-1)!;
   expect(jobPermissionCardText(state!.card.jobId, expiredRevision)).toBe(
-    'Permissions needed for this job\nRun Command: npm test | tee report.txt — Expired — the run ended before a decision; it will ask again next run',
+    'Expired: Run Command: npm test | tee report.txt',
   );
-  expect(expiredRevision.rows[0]).toMatchObject({
-    grant: 'once',
-    actionEnabled: false,
-    denyEnabled: false,
-    expiredAt: '2026-08-24T00:00:00.000Z',
+  expect(expiredRevision).toMatchObject({
+    operation: 'retire',
+    retireOutcome: 'expired',
+    retiredRows: [{ label: 'Run Command: npm test | tee report.txt' }],
+    rows: [],
   });
   expect(
     jobPermissionCardActions(state!.card.callbackKey, expiredRevision),
   ).toEqual([]);
+});
+
+it('bounds expired retire rows with an overflow receipt', () => {
+  const now = '2026-08-24T00:00:00.000Z';
+  const state = {
+    card: initialCard({ appId: 'default', jobId: 'job-many-expired' }, now),
+    needs: Array.from(
+      { length: 25 },
+      (_, index) =>
+        ({
+          id: `need-${index}`,
+          state: 'cancelled',
+          expiredAt: now,
+          displayLabel: `Command ${index}`,
+          createdAt: now,
+        }) as JobPermissionNeedRecord,
+    ),
+  };
+  reviseLivingCard(state, { maxRows: 10, maxGrantAtomsPerRow: 20 }, now);
+  expect(state.card.revisions.at(-1)!.retiredRows).toHaveLength(20);
+  expect(state.card.revisions.at(-1)!.retiredRows!.at(-1)).toEqual({
+    label: 'and 6 more',
+  });
 });
 
 function jobPermissionAffordances(

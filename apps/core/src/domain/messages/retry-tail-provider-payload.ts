@@ -1,3 +1,5 @@
+import { MAX_JOB_PERMISSION_CARD_RETIRED_ROWS } from '../ports/job-permission-durability.js';
+
 const MAX_ID_LENGTH = 256;
 const MAX_WARNING_LENGTH = 160;
 const MAX_LIST_ITEMS = 20;
@@ -46,6 +48,7 @@ export interface RetryTailProviderPayload {
   totalParts?: number;
   warnings?: string[];
   fallbackArtifactId?: string;
+  jobPermissionCardRetireDelivery?: SanitizedJobPermissionCardRetireDelivery;
   // Host-generated structured card view (brain destructive-proposal review, T6).
   // Bounded passthrough so the Approve/Reject buttons survive durable persistence
   // and are re-rendered on recovery dispatch (the retry-tail allowlist otherwise
@@ -57,9 +60,6 @@ export interface RetryTailProviderPayload {
   // free-form provider content — every field is capped and the affordance action
   // is allowlisted; malformed input drops the field/element, never throws.
   observerDigestView?: SanitizedObserverDigestView;
-  // Job-permission cards are durable, revision-bound delivery payloads. Keep
-  // their bounded action contract so recovery dispatch can edit the living
-  // card rather than degrading it to plain text.
   jobPermissionCard?: SanitizedJobPermissionCard;
 }
 
@@ -68,7 +68,15 @@ export interface SanitizedJobPermissionCard {
   revision: number;
   operation: 'send' | 'edit' | 'retire' | 'replace';
   providerMessageId?: string;
+  retireOutcome?: 'allowed' | 'expired';
+  retiredRows?: Array<{ label: string }>;
+  retireDelivery?: SanitizedJobPermissionCardRetireDelivery;
   actions: Array<{ token: string; label: string }>;
+}
+
+export interface SanitizedJobPermissionCardRetireDelivery {
+  deletedAt?: string;
+  receiptMessageId?: string;
 }
 
 export interface SanitizedObserverDigestView {
@@ -143,6 +151,12 @@ export function sanitizeRetryTailProviderPayload(
     maxLength: MAX_ID_LENGTH,
   });
   if (fallbackArtifactId) sanitized.fallbackArtifactId = fallbackArtifactId;
+  const jobPermissionCardRetireDelivery = readJobPermissionCardRetireDelivery(
+    source.jobPermissionCardRetireDelivery,
+  );
+  if (jobPermissionCardRetireDelivery) {
+    sanitized.jobPermissionCardRetireDelivery = jobPermissionCardRetireDelivery;
+  }
   const deliveredParts = readInt(source.deliveredParts);
   if (deliveredParts !== undefined) sanitized.deliveredParts = deliveredParts;
   const totalParts = readInt(source.totalParts);
@@ -161,6 +175,7 @@ const MAX_CARD_TEXT = 1000;
 const MAX_CARD_DETAILS = 10;
 const MAX_CARD_BUTTONS = 4;
 const MAX_JOB_PERMISSION_CARD_ACTIONS = 20;
+const MAX_JOB_PERMISSION_CARD_LABEL = 160;
 const JOB_PERMISSION_ACTION_TOKEN =
   /^jp:[a-f0-9]{24}:[a-z0-9]+:[a-z0-9]+:[adrsn]$/;
 
@@ -190,6 +205,24 @@ function readJobPermissionCard(
   if ((operation === 'edit' || operation === 'retire') && !providerMessageId) {
     return undefined;
   }
+  const retireOutcome = source.retireOutcome;
+  if (
+    retireOutcome !== undefined &&
+    retireOutcome !== 'allowed' &&
+    retireOutcome !== 'expired'
+  ) {
+    return undefined;
+  }
+  const retiredRows = readJobPermissionCardRetiredRows(source.retiredRows);
+  if (source.retiredRows !== undefined && retiredRows === undefined) {
+    return undefined;
+  }
+  const retireDelivery = readJobPermissionCardRetireDelivery(
+    source.retireDelivery,
+  );
+  if (source.retireDelivery !== undefined && !retireDelivery) {
+    return undefined;
+  }
   if (!Array.isArray(source.actions)) return undefined;
   const actions: SanitizedJobPermissionCard['actions'] = [];
   for (const value of source.actions.slice(
@@ -212,7 +245,58 @@ function readJobPermissionCard(
     revision,
     operation: operation as SanitizedJobPermissionCard['operation'],
     ...(providerMessageId ? { providerMessageId } : {}),
+    ...(retireOutcome ? { retireOutcome } : {}),
+    ...(retiredRows ? { retiredRows } : {}),
+    ...(retireDelivery ? { retireDelivery } : {}),
     actions,
+  };
+}
+
+function readJobPermissionCardRetiredRows(
+  value: unknown,
+): Array<{ label: string }> | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return undefined;
+  const rows: Array<{ label: string }> = [];
+  for (const entry of value.slice(0, MAX_JOB_PERMISSION_CARD_RETIRED_ROWS)) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return undefined;
+    }
+    const label = readString((entry as Record<string, unknown>).label, {
+      maxLength: MAX_JOB_PERMISSION_CARD_LABEL,
+    });
+    if (!label) return undefined;
+    rows.push({ label });
+  }
+  return rows;
+}
+
+function readJobPermissionCardRetireDelivery(
+  value: unknown,
+): SanitizedJobPermissionCardRetireDelivery | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const deleteFailedAt = readString(source.deleteFailedAt, {
+    maxLength: MAX_ID_LENGTH,
+  });
+  const deletedAt = readString(source.deletedAt, {
+    maxLength: MAX_ID_LENGTH,
+  });
+  const receiptMessageId = readString(source.receiptMessageId, {
+    maxLength: MAX_ID_LENGTH,
+  });
+  if (
+    (!deleteFailedAt && !deletedAt && !receiptMessageId) ||
+    (deletedAt && (deleteFailedAt || receiptMessageId))
+  ) {
+    return undefined;
+  }
+  return {
+    ...(deleteFailedAt ? { deleteFailedAt } : {}),
+    ...(deletedAt ? { deletedAt } : {}),
+    ...(receiptMessageId ? { receiptMessageId } : {}),
   };
 }
 

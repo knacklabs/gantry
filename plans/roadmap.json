@@ -2444,8 +2444,29 @@
       "completed_at": "2026-08-30T02:15:24+00:00",
       "history": ".factory/stories/LEGACY-2/",
       "outcome": "The old providerConnection name no longer lives anywhere in the runtime settings path: the in-memory shadow field and its parser fill are gone, every providerAccount ?? providerConnection read now reads provider accounts only, writers stop creating the property, and the 19 expired architecture exceptions are deleted, so npm run check:architecture is green on main again. Behaviour is unchanged: a settings document that still says provider_connection keeps being rejected by the existing strict key check (now covered by a test), and the Slack approver lookup stays account-qualified. providerConnectionId and the missing_provider_connection enum are deliberately left alone (deferral D-0070)."
+    },
+    {
+      "key": "JOBPERM-3",
+      "title": "Settled job permission cards disappear like chat prompts",
+      "story": "As the owner of a scheduled job, an answered permission card goes away the way an approved chat prompt does, so the group is not left with stale 'settled' cards after every run.",
+      "acceptance_criteria": [
+        "AC1: when every row of a job permission card is settled by Allow, the card message is deleted on Telegram, Discord and Slack and edited to a one-line approved receipt on Teams; a failed delete falls back to the receipt edit",
+        "AC2: when any row is denied or expired, the card is edited to a one-line receipt per denied/expired request ('Permission denied: <command>' / 'Expired: <command>') on every provider \u2014 never deleted",
+        "AC3: the retire outcome (allowed | denied) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent",
+        "AC4: existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green"
+      ],
+      "order": 113,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/settled-job-permission-cards-vanish.md",
+      "completed_at": "2026-08-30T08:47:21+00:00",
+      "history": ".factory/stories/JOBPERM-3/",
+      "outcome": "Answered job permission cards now behave like chat prompts. When every request on a card is allowed, the card is deleted on Telegram, Slack and Discord (with a short approved receipt if the delete fails), and on Teams it becomes a one-line receipt card with no buttons. Requests that expired show as 'Expired: <command>' lines instead of lingering buttons; a denied request still keeps its live card row with one-tap Reconsider, as decision 0144 requires. The shared card record carries the retire outcome and the delete/receipt markers, so a retried delivery never deletes or edits twice and a recorded marker can never be rewritten. The Postgres once-card test now runs like a live job (delivered card, scheduler slot held), which is what exposed the ordering bug behind the earlier hang."
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-30T02:15:24+00:00"
+  "updated_at": "2026-08-30T08:47:21+00:00"
 }

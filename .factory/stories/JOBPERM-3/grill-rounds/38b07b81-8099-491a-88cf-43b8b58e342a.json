@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "18 architecture exceptions for the old `providerConnection` dual-read expired last night (remove_by 2026-08-28), so main and every branch now fail `check:architecture`. Two files are reported (settings-revision-document.ts, routes/agents.ts). How do you want it handled?",
+      "options": [
+        "Extend 30 days via a tiny separate PR + queue LEGACY-2 (Recommended)",
+        "Remove the dual-read now, before JOBPERM-3 ships",
+        "Extend inside the JOBPERM-3 PR"
+      ],
+      "chosen": "Remove the dual-read now, before JOBPERM-3 ships"
+    }
+  ],
+  "at": "2026-08-28T19:46:46.768912+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
