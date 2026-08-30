@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Answered job permission cards now behave like chat prompts. When every request on a card is allowed, the card is deleted on Telegram, Slack and Discord (with a short approved receipt if the delete fails), and on Teams it becomes a one-line receipt card with no buttons. Requests that expired show as 'Expired: <command>' lines instead of lingering buttons; a denied request still keeps its live card row with one-tap Reconsider, as decision 0144 requires. The shared card record carries the retire outcome and the delete/receipt markers, so a retried delivery never deletes or edits twice and a recorded marker can never be rewritten. The Postgres once-card test now runs like a live job (delivered card, scheduler slot held), which is what exposed the ordering bug behind the earlier hang.",
+  "issue": "JOBPERM-3",
+  "commit": "8cc09028cc2cc0fa1f2ef2b9eefe9db24059e9ff",
+  "recorded_at": "2026-08-30T08:47:05+00:00"
+}

@@ -25,25 +25,25 @@
   "contract_verdicts": [
     {
       "contract_id": "JOBPERM-3-T2-AC1",
-      "verdict": "met",
+      "verdict": "implemented",
       "evidence": "proof: slack.test.ts and discord/discord.test.ts 'deletes a fully allowed job permission card and falls back to a receipt edit' + 'persists the delete failure before the receipt edit and edits on the next retry' green; teams/teams.test.ts 'edits a fully allowed job permission card to a receipt card' + 'keeps the retire revision retryable when the receipt card update fails' green; persisted deletedAt/receiptMessageId short-circuit in job-permission-card-settlement.ts"
     },
     {
       "contract_id": "JOBPERM-3-T2-AC2",
-      "verdict": "met",
+      "verdict": "implemented",
       "evidence": "proof: expired retire keeps the replace path on all three providers (provider tests); all three deliveries return jobPermissionCardRetireDelivery; Postgres chain 5/5 records the retire outcome"
     },
     {
       "contract_id": "JOBPERM-3-T2-AC4",
-      "verdict": "met",
+      "verdict": "implemented",
       "evidence": "proof: 114 files / 1994 unit tests green; Postgres 5/5; tsc clean; telegram.test.ts unchanged and green; autoreview clean"
     }
   ],
   "summary": "Autoreview local (codex gpt-5.6-sol high) clean after two accepted P1s (delete failure persisted before the receipt on Slack/Discord; Teams update failure stays retryable); channels+application unit 114 files / 1994 tests green; Postgres permission-decision-chain 5/5 host-side; tsc clean; check:architecture task-local clear (repo-wide red = main's expired providerConnection exceptions, LEGACY-2).",
   "aspect": "performance",
-  "review_run_id": "a1f85fdbd5f8e0e77550b90882fe703e191ed712b804ce8a93808b31487d0979",
+  "review_run_id": "b687652e0775d41779e12a07a732fcf191be4b011aa574aab5f17d615ee0130b",
   "brief_sha256": "9444cd49d1f532f43436284be327511b89773ddb34eea788ba9f3cb68aad737b",
-  "branch_diff_digest": "18f1eaf4caa8de3b8418d9356d49b23b884b8b424e23a0cd935496f902895119",
-  "recorded_at": "2026-08-29T02:42:17+00:00",
-  "commit": "14e4fe7af6e70291820298dce4fc41bcf9419494"
+  "branch_diff_digest": "bea24cb649f018bf317e7bac6ba86e60ac0a3376f2ea5b537f09d57b97ad80dd",
+  "recorded_at": "2026-08-30T08:43:01+00:00",
+  "commit": "8cc09028cc2cc0fa1f2ef2b9eefe9db24059e9ff"
 }

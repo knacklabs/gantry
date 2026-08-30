@@ -123,7 +123,7 @@
     {
       "id": "JOBPERM-3-T2",
       "title": "Slack + Discord delete and Teams receipt card for retired cards",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-08-28T18:42:49+00:00",
       "base_sha": "1c3dbebfa849c1b1574e274f4df2ed7756e45ef0",
       "dirty_at_start": {},
@@ -131,12 +131,13 @@
       "local_review_stamp": {
         "stage_id": "JOBPERM-3-T2",
         "task_sha256": "041f35e405cabc8f2bc29c0652e3c6e490840dac7902d7bdd6c0172a151984ca",
-        "brief_sha256": "67a8609ed2b96332d557c84c792120914ffe1dbc55522cd2ae26dbaaadcbc114",
+        "brief_sha256": "a18781246be499939496bdff7d9b8f057a5f307f4f09f2ad3e33c4dcc9a911b7",
         "base_sha": "1c3dbebfa849c1b1574e274f4df2ed7756e45ef0",
-        "product_tree_digest": "4de7bdc710954c6bdbb5479ee95ce341b1f7a952c1ec987a3104ee00dcf5fd53",
-        "recorded_at": "2026-08-29T02:41:30+00:00",
+        "product_tree_digest": "f25ca14e4865adfd12d5e3ba02d1fd6b9edad868d599faa832bcf5aa77faccd6",
+        "recorded_at": "2026-08-30T08:42:04+00:00",
         "generated_by": "autoreview"
-      }
+      },
+      "completed_at": "2026-08-30T08:42:50+00:00"
     }
   ]
 }

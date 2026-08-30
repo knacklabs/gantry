@@ -61,9 +61,9 @@
   ],
   "summary": "Autoreview local (codex gpt-5.6-sol high) clean after two accepted P1s (delete failure persisted before the receipt on Slack/Discord; Teams update failure stays retryable); channels+application unit 114 files / 1994 tests green; Postgres permission-decision-chain 5/5 host-side; tsc clean; check:architecture task-local clear (repo-wide red = main's expired providerConnection exceptions, LEGACY-2).",
   "aspect": "quality",
-  "review_run_id": "a1f85fdbd5f8e0e77550b90882fe703e191ed712b804ce8a93808b31487d0979",
+  "review_run_id": "b687652e0775d41779e12a07a732fcf191be4b011aa574aab5f17d615ee0130b",
   "brief_sha256": "9444cd49d1f532f43436284be327511b89773ddb34eea788ba9f3cb68aad737b",
-  "branch_diff_digest": "18f1eaf4caa8de3b8418d9356d49b23b884b8b424e23a0cd935496f902895119",
-  "recorded_at": "2026-08-29T02:42:53+00:00",
-  "commit": "14e4fe7af6e70291820298dce4fc41bcf9419494"
+  "branch_diff_digest": "bea24cb649f018bf317e7bac6ba86e60ac0a3376f2ea5b537f09d57b97ad80dd",
+  "recorded_at": "2026-08-30T08:43:01+00:00",
+  "commit": "8cc09028cc2cc0fa1f2ef2b9eefe9db24059e9ff"
 }

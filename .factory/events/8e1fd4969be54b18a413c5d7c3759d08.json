@@ -1,0 +1,1 @@
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-30T08:47:21+00:00", "story": "JOBPERM-3", "detail": "Answered job permission cards now behave like chat prompts. When every request on a card is allowed, the card is deleted on Telegram, Slack and Discord (with a short approved receipt if the delete fai"}
