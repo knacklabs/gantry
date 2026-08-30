@@ -205,12 +205,19 @@ describe('runtime settings', () => {
       'providers:\n  slack:\n    enabled: true\n    default_connection: slack_default\n',
       'agents:\n  main_agent:\n    name: Main\n    bindings: {}\n',
       'agents:\n  main_agent:\n    name: Main\n    requires_trigger: true\n',
-      'conversations:\n  c1:\n    provider_connection: slack_one\n',
     ]) {
       expect(() => parseRuntimeSettings(yaml)).toThrow(
         /not supported|no longer supported/,
       );
     }
+  });
+
+  it('rejects provider_connection as an unsupported conversation key', () => {
+    expect(() =>
+      parseRuntimeSettings(
+        'conversations:\n  c1:\n    provider_connection: slack_one\n',
+      ),
+    ).toThrow('conversations.c1.provider_connection is not supported');
   });
 
   it('accepts two provider accounts installed in one conversation', () => {
@@ -296,7 +303,7 @@ conversations:
     );
   });
 
-  it('accepts provider-account-only conversation objects', () => {
+  it('parses conversations without a providerConnection shadow field', () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack.enabled = true;
     settings.agents.agent_one = {
@@ -328,9 +335,12 @@ conversations:
     const rendered = renderRuntimeSettingsYaml(settings);
     expect(rendered).toContain('provider_account: slack_one');
     expect(rendered).not.toContain('providerConnection');
-    expect(parseRuntimeSettings(rendered).conversations.shared_channel).toEqual(
+    const parsedConversation =
+      parseRuntimeSettings(rendered).conversations.shared_channel;
+    expect(parsedConversation).toEqual(
       expect.objectContaining({ providerAccount: 'slack_one' }),
     );
+    expect(parsedConversation).not.toHaveProperty('providerConnection');
   });
 
   it('round-trips per-conversation brain harvest with default off', () => {

@@ -123,7 +123,7 @@ function capabilityFromToolReference(
 }
 
 export function configuredConversationId(input: {
-  providerConnectionId: string;
+  providerAccountId: string;
   externalId: string;
   conversations: Record<string, RuntimeConfiguredConversation>;
 }): string | undefined {
@@ -132,7 +132,7 @@ export function configuredConversationId(input: {
 
 export function dedupeConfiguredConversation(input: {
   canonicalId: string;
-  providerConnectionId: string;
+  providerAccountId: string;
   externalId: string;
   conversations: Record<string, RuntimeConfiguredConversation>;
   bindings: Record<string, RuntimeConfiguredBinding>;
@@ -172,15 +172,14 @@ export function dedupeConfiguredConversation(input: {
 }
 
 function rankedConversationMatches(input: {
-  providerConnectionId: string;
+  providerAccountId: string;
   externalId: string;
   conversations: Record<string, RuntimeConfiguredConversation>;
 }): string[] {
   return Object.entries(input.conversations)
     .filter(
       ([, conversation]) =>
-        (conversation.providerAccount ?? conversation.providerConnection) ===
-          input.providerConnectionId &&
+        conversation.providerAccount === input.providerAccountId &&
         conversation.externalId === input.externalId,
     )
     .sort(([leftId, left], [rightId, right]) => {

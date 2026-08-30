@@ -47,8 +47,7 @@ function buildRevisionDocument(
           : undefined,
     })),
     conversations: mapRecord(settings.conversations, (conversation) => ({
-      provider_account:
-        conversation.providerAccount ?? conversation.providerConnection,
+      provider_account: conversation.providerAccount,
       external_id: conversation.externalId,
       kind: conversation.kind,
       display_name: conversation.displayName,

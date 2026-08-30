@@ -974,7 +974,7 @@ describe('channel CLI command', () => {
           },
           conversations: {
             main_telegram_group: {
-              providerConnection: 'telegram_default',
+              providerAccount: 'telegram_default',
               externalId,
             },
           },
@@ -987,7 +987,7 @@ describe('channel CLI command', () => {
           },
           conversations: {
             main_telegram_group: {
-              providerConnection: 'telegram_default',
+              providerAccount: 'telegram_default',
               externalId,
             },
           },

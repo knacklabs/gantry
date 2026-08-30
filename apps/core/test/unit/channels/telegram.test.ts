@@ -225,7 +225,6 @@ function createTestOpts(
       },
       conversations: {
         whatsapp_main_conversation: {
-          providerConnection: 'telegram_default',
           providerAccount: 'telegram_default',
           externalId: '100200300',
           kind: 'group',

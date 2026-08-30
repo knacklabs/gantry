@@ -750,7 +750,7 @@ describe('cli telegram helpers', () => {
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.providers.telegram.enabled).toBe(true);
     const conversation = Object.values(settings.conversations).find(
-      (entry) => entry.providerConnection === 'telegram_test2',
+      (entry) => entry.providerAccount === 'telegram_test2',
     );
     expect(conversation?.senderPolicy.allow).toBe('*');
     expect(conversation?.controlApprovers).toEqual(['5759865942']);
@@ -837,7 +837,7 @@ describe('cli telegram helpers', () => {
     expect(code).toBe(0);
     const conversation = Object.values(
       loadRuntimeSettings(runtimeHome).conversations,
-    ).find((entry) => entry.providerConnection === 'telegram_default');
+    ).find((entry) => entry.providerAccount === 'telegram_default');
     expect(conversation?.controlApprovers).toEqual(['5759865942']);
     expect(text).toHaveBeenNthCalledWith(
       1,

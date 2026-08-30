@@ -64,7 +64,6 @@ export function applyConversationInstallToSettings(input: {
     : (existing?.controlApprovers ?? []);
 
   settings.conversations[conversationKey] = {
-    providerConnection: providerAccountId,
     providerAccount: providerAccountId,
     externalId,
     kind: conversation.kind === 'direct' ? 'dm' : conversation.kind,
@@ -120,8 +119,7 @@ function configuredConversationKey(
   const existing = Object.entries(settings.conversations).find(
     ([, configured]) =>
       configured.externalId === externalId &&
-      (configured.providerAccount ?? configured.providerConnection) ===
-        providerAccountId,
+      configured.providerAccount === providerAccountId,
   );
   if (existing) return existing[0];
   const raw = `${providerAccountId}_${externalId}`;

@@ -82,8 +82,7 @@ export function resolveObserverOwnerRoute(
   if (!conversation.controlApprovers.includes(owner.recipient)) {
     return { ok: false, reason: 'owner_recipient_not_approver' };
   }
-  const providerAccountId =
-    conversation.providerAccount ?? conversation.providerConnection ?? '';
+  const providerAccountId = conversation.providerAccount ?? '';
   const providerAccount = settings.providerAccounts[providerAccountId];
   if (!providerAccount) {
     return { ok: false, reason: 'owner_provider_account_not_found' };

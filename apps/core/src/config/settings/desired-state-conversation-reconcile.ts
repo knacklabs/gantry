@@ -99,8 +99,7 @@ async function ensureDesiredConversation(input: {
 }): Promise<Conversation | null> {
   const conversations = input.repositories.conversations;
   if (!conversations) return null;
-  const configuredProviderAccount =
-    input.conversation.providerAccount ?? input.conversation.providerConnection;
+  const configuredProviderAccount = input.conversation.providerAccount;
   const connectionSettings = input.providerAccounts[configuredProviderAccount];
   if (!connectionSettings) {
     input.skipped.push(`conversation:${input.key}:missing-provider-connection`);
@@ -201,7 +200,6 @@ async function rebindConfiguredConversationBindings(input: {
             conversation: {
               ...input.conversation,
               providerAccount: installProviderAccountId,
-              providerConnection: installProviderAccountId,
             },
             providerAccounts: input.settings.providerAccounts,
             now: input.now,
@@ -280,7 +278,6 @@ async function rebindConfiguredConversationBindings(input: {
             conversation: {
               ...input.conversation,
               providerAccount: installProviderAccountId,
-              providerConnection: installProviderAccountId,
             },
             providerAccounts: input.settings.providerAccounts,
             now: input.now,

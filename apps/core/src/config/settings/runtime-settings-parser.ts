@@ -238,7 +238,6 @@ function parseConversations(
     }
     seenExternal.add(externalKey);
     conversations[conversationId] = {
-      providerConnection: providerAccount,
       providerAccount,
       externalId,
       kind,

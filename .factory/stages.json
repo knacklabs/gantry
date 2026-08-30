@@ -4,7 +4,11 @@
     {
       "id": "LEGACY-2-T1",
       "title": "Remove the providerConnection shadow field, dual-reads and the 19 expired exceptions",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-08-30T01:47:03+00:00",
+      "base_sha": "b91fc58c56baa0ca09c0e10baa3037a1bbd330b1",
+      "dirty_at_start": {},
+      "task_sha256": "7bcfee65d5a616f937e6873d04af21c0cbd50719078735b24f8189c263de5d68"
     }
   ]
 }

@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-30T01:59:54+00:00", "story": "LEGACY-2", "detail": "The two required VITEST_JUNIT=1 selectors are policy-refused before Vitest; equivalent selectors pass, but the orchestrator must run the literal commands host-side."}

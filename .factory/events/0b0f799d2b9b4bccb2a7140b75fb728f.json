@@ -1,0 +1,1 @@
+{"event": "stage-start", "generated_by": "implementer", "at": "2026-08-30T01:47:03+00:00", "story": "LEGACY-2", "detail": "LEGACY-2-T1 Remove the providerConnection shadow field, dual-reads and the 19 expired exceptions"}

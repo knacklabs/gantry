@@ -188,7 +188,7 @@ describe('runStartup', () => {
             },
             conversations: {
               main_telegram: {
-                providerConnection: 'telegram_default',
+                providerAccount: 'telegram_default',
                 externalId: '123',
                 kind: 'group',
                 displayName: 'Main',
