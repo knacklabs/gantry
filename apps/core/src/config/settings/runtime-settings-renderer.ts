@@ -433,7 +433,7 @@ function renderConversationsYaml(
   for (const [conversationId, conversation] of entries) {
     lines.push(`  ${quoteYamlKey(conversationId)}:`);
     lines.push(
-      `    provider_account: ${quoteYamlString(conversation.providerAccount ?? conversation.providerConnection)}`,
+      `    provider_account: ${quoteYamlString(conversation.providerAccount)}`,
     );
     lines.push(
       `    id: ${quoteYamlString(conversation.externalId)}`,

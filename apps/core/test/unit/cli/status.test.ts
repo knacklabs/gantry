@@ -136,7 +136,7 @@ describe('status command formatting', () => {
       capabilities: [{ id: 'browser.use', version: 'builtin' }],
     };
     settings.conversations.main_dm = {
-      providerConnection: 'telegram_default',
+      providerAccount: 'telegram_default',
       externalId: '123',
       kind: 'dm',
       displayName: 'Main DM',

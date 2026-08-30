@@ -164,9 +164,7 @@ export function configuredRoutingBindings(
           binding.threadId,
         );
         const candidateProviderAccountId =
-          candidateInstall?.providerAccountId ??
-          candidate.providerAccount ??
-          candidate.providerConnection;
+          candidateInstall?.providerAccountId ?? candidate.providerAccount;
         return candidateProviderAccountId === binding.providerAccountId;
       });
       const configuredConversation =
@@ -183,8 +181,7 @@ export function configuredRoutingBindings(
       const providerAccountId =
         binding.providerAccountId ??
         configuredInstall?.providerAccountId ??
-        configuredConversation?.[1].providerAccount ??
-        configuredConversation?.[1].providerConnection;
+        configuredConversation?.[1].providerAccount;
       byAgentAndJid.set(
         `${folder}\0${providerAccountId ?? ''}\0${binding.jid}\0${binding.threadId ?? ''}`,
         {
@@ -222,9 +219,7 @@ export function configuredRoutingBindings(
     const install =
       conversation.installedAgents?.[binding.installKey ?? binding.agent];
     const providerAccountId =
-      install?.providerAccountId ??
-      conversation.providerAccount ??
-      conversation.providerConnection;
+      install?.providerAccountId ?? conversation.providerAccount;
     byAgentAndJid.set(
       `${binding.agent}\0${providerAccountId ?? ''}\0${jid}\0${binding.threadId ?? ''}`,
       {
@@ -361,8 +356,7 @@ function conversationTopology(settings: RuntimeSettings): unknown {
       .map(([conversationKey, conversation]) => [
         conversationKey,
         {
-          providerAccount:
-            conversation.providerAccount ?? conversation.providerConnection,
+          providerAccount: conversation.providerAccount,
           externalId: conversation.externalId,
           kind: conversation.kind,
           installedAgents: Object.fromEntries(
@@ -483,10 +477,10 @@ export function groupByConversationId(
 }
 
 export function storedConversationKey(
-  providerConnectionId: string,
+  providerAccountId: string,
   externalConversationId: string,
 ): string {
-  return `${providerConnectionId}\0${externalConversationId}`;
+  return `${providerAccountId}\0${externalConversationId}`;
 }
 
 function jsonEqual(left: unknown, right: unknown): boolean {

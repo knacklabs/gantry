@@ -1,0 +1,106 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": false,
+  "story": "LEGACY-2",
+  "epic": "harness-hygiene",
+  "plan_contracts": [
+    {
+      "id": "LEGACY-2-AC1",
+      "statement": "the providerConnection shadow field is removed from the runtime settings types and the parser no longer fills it; every providerAccount ?? providerConnection read collapses to providerAccount (settings parser/validation/renderer/exports/reconcile/observer activation, control-plane storage model, CLI provider utils, Slack permission delivery, control routes).",
+      "source": "plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria"
+    },
+    {
+      "id": "LEGACY-2-AC2",
+      "statement": "a settings document that still carries providerConnection / provider_connection keeps being rejected by the existing strict key check (no new code); nothing dual-reads it in memory.",
+      "source": "plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria"
+    },
+    {
+      "id": "LEGACY-2-AC3",
+      "statement": "the 19 providerConnection entries are deleted from scripts/architecture-exceptions.json and npm run check:architecture passes with no providerConnection exception.",
+      "source": "plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria"
+    },
+    {
+      "id": "LEGACY-2-AC4",
+      "statement": "existing unit and Postgres integration suites pass (only assertions that named providerConnection change); tsc green.",
+      "source": "plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "LEGACY-2-T1",
+      "title": "Remove the providerConnection shadow field, dual-reads and the 19 expired exceptions",
+      "objective": "Delete the in-memory providerConnection shadow field (types + parser fill), collapse every providerAccount ?? providerConnection read to providerAccount, stop writers creating the shadow property, rename the rename-only locals, delete the 19 exception entries, update the tests that named the shadow; old document key stays rejected by the existing strict check.",
+      "acceptance_criteria": [
+        "the providerConnection shadow field is removed from the runtime settings types and the parser no longer fills it; every providerAccount ?? providerConnection read collapses to providerAccount (settings parser/validation/renderer/exports/reconcile/observer activation, control-plane storage model, CLI provider utils, Slack permission delivery, control routes).",
+        "a settings document that still carries providerConnection / provider_connection keeps being rejected by the existing strict key check (no new code); nothing dual-reads it in memory.",
+        "the 19 providerConnection entries are deleted from scripts/architecture-exceptions.json and npm run check:architecture passes with no providerConnection exception.",
+        "existing unit and Postgres integration suites pass (only assertions that named providerConnection change); tsc green."
+      ],
+      "user_facing": false,
+      "depends_on": [],
+      "write_scope": [
+        "apps/core/src/config/",
+        "apps/core/src/application/control-plane/control-plane-storage-model.ts",
+        "apps/core/src/cli/provider-utils.ts",
+        "apps/core/src/channels/slack/permission-approval-delivery.ts",
+        "apps/core/src/control/server/routes/agents.ts",
+        "scripts/architecture-exceptions.json",
+        "apps/core/test/"
+      ],
+      "required_tests": [
+        {
+          "id": "rejects provider_connection as an unsupported conversation key",
+          "path": "apps/core/test/unit/config/runtime-settings.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "parses conversations without a providerConnection shadow field",
+          "path": "apps/core/test/unit/config/runtime-settings.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "plan_contracts": [
+        {
+          "id": "LEGACY-2-AC1",
+          "statement": "the providerConnection shadow field is removed from the runtime settings types and the parser no longer fills it; every providerAccount ?? providerConnection read collapses to providerAccount (settings parser/validation/renderer/exports/reconcile/observer activation, control-plane storage model, CLI provider utils, Slack permission delivery, control routes).",
+          "source": "plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria"
+        },
+        {
+          "id": "LEGACY-2-AC2",
+          "statement": "a settings document that still carries providerConnection / provider_connection keeps being rejected by the existing strict key check (no new code); nothing dual-reads it in memory.",
+          "source": "plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria"
+        },
+        {
+          "id": "LEGACY-2-AC3",
+          "statement": "the 19 providerConnection entries are deleted from scripts/architecture-exceptions.json and npm run check:architecture passes with no providerConnection exception.",
+          "source": "plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria"
+        },
+        {
+          "id": "LEGACY-2-AC4",
+          "statement": "existing unit and Postgres integration suites pass (only assertions that named providerConnection change); tsc green.",
+          "source": "plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md#acceptance-criteria"
+        }
+      ],
+      "reviewer_focus": [
+        "No behaviour change: every providerAccount ?? providerConnection collapses to providerAccount; the Slack approver match stays account-qualified (conversation.providerAccount === providerAccountId).",
+        "Delete the type/parser fill FIRST and let tsc enumerate dependents; no compat shim, no silent-drop of the old document key (the strict key check already rejects it \u2014 do not add code for it).",
+        "Rename-only locals (routes/agents.ts, desired-state helpers, runtime-settings.ts setup names) change names only.",
+        "Do NOT touch providerConnectionId (ConversationRoute, identity events, CLI setup return names) or the OpenAPI enum missing_provider_connection (deferral D-0070).",
+        "scripts/architecture-exceptions.json: delete exactly the 19 symbol=providerConnection entries; npm run check:architecture must pass with none left."
+      ],
+      "review_budget": {
+        "max_changed_files": 45,
+        "max_changed_lines": 900,
+        "reason": "19 source files with one-line collapses, the exceptions file, and the test files that named the shadow field (74 mentions)."
+      }
+    }
+  ],
+  "project": "",
+  "plan_file": "plans/active/LEGACY-2-remove-the-providerconnection-dual-read.md",
+  "plan_sha256": "989429d8c74714d252902a053d9929ce05359d193c67407cf6aaebbfe0e135c4",
+  "commit": "41182b848126be482020142c9133e1505f6f282a"
+}

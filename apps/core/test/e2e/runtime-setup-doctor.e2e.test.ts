@@ -38,7 +38,6 @@ function makeFixture() {
         },
       };
       settings.conversations.slack_test_channel = {
-        providerConnection: 'slack_default',
         providerAccount: 'slack_default',
         externalId: 'slack:C0123456789',
         kind: 'channel',

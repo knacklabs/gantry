@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "For the LEGACY-2 spec ledger (re-asking so the record lands under this story): a settings.yaml or stored settings revision that still has the old provider_connection / providerConnection key is \u2026",
+      "options": [
+        "Ignored silently (your earlier answer)",
+        "Rejected with a clear error"
+      ],
+      "chosen": "Ignored silently (your earlier answer)"
+    },
+    {
+      "question": "Anything else to settle for LEGACY-2? (One PR off main, ~19 files, exceptions deleted, merged before JOBPERM-3.)",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go"
+    }
+  ],
+  "at": "2026-08-29T03:19:10.691969+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

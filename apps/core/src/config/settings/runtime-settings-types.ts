@@ -37,7 +37,6 @@ export type RuntimeConversationKind =
   | 'web';
 
 export interface RuntimeConfiguredConversation {
-  providerConnection?: string;
   providerAccount: string;
   externalId: string;
   kind: RuntimeConversationKind;

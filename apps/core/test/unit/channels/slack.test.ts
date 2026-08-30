@@ -245,7 +245,7 @@ function createOpts(
       },
       conversations: {
         slack_test_conversation: {
-          providerConnection: 'slack_default',
+          providerAccount: 'slack_default',
           externalId: 'C123',
           kind: 'channel',
           displayName: 'test',
@@ -253,7 +253,7 @@ function createOpts(
           controlApprovers: controlAllowlist.default,
         },
         slack_long_test_conversation: {
-          providerConnection: 'slack_default',
+          providerAccount: 'slack_default',
           externalId: 'C1234567890',
           kind: 'channel',
           displayName: 'test-long',
@@ -7695,12 +7695,12 @@ describe('Slack channel', () => {
           conversations: {
             other_account_conversation: {
               ...settings.conversations.slack_test_conversation,
-              providerConnection: 'slack_other',
+              providerAccount: 'slack_other',
               controlApprovers: ['U_OTHER_ACCOUNT'],
             },
             this_account_conversation: {
               ...settings.conversations.slack_test_conversation,
-              providerConnection: 'slack_default',
+              providerAccount: 'slack_default',
               controlApprovers: ['U_THIS_ACCOUNT'],
             },
           },

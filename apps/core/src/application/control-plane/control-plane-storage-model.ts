@@ -138,7 +138,6 @@ export interface ControlObserverSettingsView {
   conversations: Record<
     string,
     {
-      providerConnection?: string;
       providerAccount: string;
       externalId: string;
       kind: string;
@@ -188,7 +187,7 @@ export async function resolveControlObserverStatus(input: {
     ? settings.conversations[owner.conversation]
     : undefined;
   const providerAccountId = conversation
-    ? conversation.providerAccount || conversation.providerConnection || ''
+    ? conversation.providerAccount || ''
     : '';
   const providerAccount = settings.providerAccounts[providerAccountId];
   if (

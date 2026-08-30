@@ -235,7 +235,6 @@ describe('SettingsDesiredStateService', () => {
       capabilities: [],
     };
     settings.conversations.sales_slack = {
-      providerConnection: 'slack_default',
       providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
@@ -292,7 +291,6 @@ describe('SettingsDesiredStateService', () => {
       capabilities: [],
     };
     settings.conversations.sales_settings_key = {
-      providerConnection: 'slack_default',
       providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
@@ -310,7 +308,6 @@ describe('SettingsDesiredStateService', () => {
       },
     };
     settings.conversations.support_settings_key = {
-      providerConnection: 'slack_default',
       providerAccount: 'slack_default',
       externalId: 'C456',
       kind: 'channel',
@@ -434,7 +431,6 @@ describe('SettingsDesiredStateService', () => {
       capabilities: [],
     };
     settings.conversations.sales_slack = {
-      providerConnection: 'slack_default',
       providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
@@ -484,7 +480,6 @@ describe('SettingsDesiredStateService', () => {
       capabilities: [],
     };
     settings.conversations.sales_slack = {
-      providerConnection: 'slack_default',
       providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
@@ -1255,7 +1250,6 @@ describe('SettingsDesiredStateService', () => {
       capabilities: [],
     };
     settings.conversations.sales_slack = {
-      providerConnection: 'slack_default',
       providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
@@ -1435,7 +1429,6 @@ conversations:
       capabilities: [],
     };
     settings.conversations.sales_one = {
-      providerConnection: 'slack_one',
       providerAccount: 'slack_one',
       externalId: 'C123',
       kind: 'channel',
@@ -2249,7 +2242,7 @@ conversations:
       capabilities: [],
     };
     settings.conversations.sales = {
-      providerConnection: 'slack_default',
+      providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
       displayName: 'Sales',
@@ -2338,7 +2331,7 @@ conversations:
       capabilities: [],
     };
     settings.conversations.direct_user = {
-      providerConnection: 'slack_default',
+      providerAccount: 'slack_default',
       externalId: 'U123',
       kind: 'dm',
       displayName: 'Direct User',
@@ -2411,7 +2404,6 @@ conversations:
       capabilities: [],
     };
     settings.conversations.main = {
-      providerConnection: 'telegram_default',
       providerAccount: 'telegram_default',
       externalId: '-100123',
       kind: 'group',
@@ -2659,7 +2651,7 @@ conversations:
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
     };
     settings.conversations.kai = {
-      providerConnection: 'telegram_default',
+      providerAccount: 'telegram_default',
       externalId: '-100123',
       kind: 'group',
       displayName: 'Kai',
@@ -2668,7 +2660,7 @@ conversations:
     };
     const savedConversations: any[] = [];
     const savedApprovers = new Map<string, string[]>();
-    const providerConnection = {
+    const providerAccount = {
       id: 'telegram_default',
       appId: 'default',
       agentId: 'agent:main_agent',
@@ -2732,7 +2724,7 @@ conversations:
       conversations,
       providerAccounts: {
         getProviderAccount: vi.fn(async (id: string) =>
-          id === 'telegram_default' ? providerConnection : null,
+          id === 'telegram_default' ? providerAccount : null,
         ),
         saveProviderAccount: vi.fn(async () => undefined),
       },
@@ -2837,7 +2829,7 @@ conversations:
       capabilities: [],
     };
     settings.conversations.sales_slack = {
-      providerConnection: 'slack_default',
+      providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
       displayName: 'Sales Slack',
@@ -2845,7 +2837,7 @@ conversations:
       controlApprovers: ['U123'],
     };
     settings.conversations.sales_teams = {
-      providerConnection: 'teams_default',
+      providerAccount: 'teams_default',
       externalId: '19:channel@thread.tacv2',
       kind: 'channel',
       displayName: 'Sales Teams',
@@ -2955,7 +2947,7 @@ conversations:
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
     };
     settings.conversations.telegram_conflict = {
-      providerConnection: 'telegram_default',
+      providerAccount: 'telegram_default',
       externalId: 'C123',
       kind: 'group',
       displayName: 'Telegram C123',
@@ -3032,7 +3024,7 @@ conversations:
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
     };
     settings.conversations.sales = {
-      providerConnection: 'slack_default',
+      providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
       displayName: 'Sales',
@@ -3260,7 +3252,7 @@ conversations:
     ).not.toHaveBeenCalled();
     expect(exported.conversations.main_agent_telegram).toEqual(
       expect.objectContaining({
-        providerConnection: 'telegram_default',
+        providerAccount: 'telegram_default',
         externalId: '-100123',
         controlApprovers: [],
       }),
@@ -3279,7 +3271,7 @@ conversations:
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
     };
     settings.conversations.main_agent_telegram = {
-      providerConnection: 'telegram_default',
+      providerAccount: 'telegram_default',
       externalId: '-100123',
       kind: 'group',
       displayName: 'Generated Group',
@@ -3287,7 +3279,7 @@ conversations:
       controlApprovers: [],
     };
     settings.conversations.main_telegram_group = {
-      providerConnection: 'telegram_default',
+      providerAccount: 'telegram_default',
       externalId: '-100123',
       kind: 'group',
       displayName: 'Default Agent Telegram Group',
@@ -3327,7 +3319,7 @@ conversations:
 
     const exportedConversations = Object.entries(exported.conversations).filter(
       ([, conversation]) =>
-        conversation.providerConnection === 'telegram_default' &&
+        conversation.providerAccount === 'telegram_default' &&
         conversation.externalId === '-100123',
     );
     expect(exportedConversations).toEqual([
@@ -3369,7 +3361,7 @@ conversations:
       },
     };
     settings.conversations.sales = {
-      providerConnection: 'slack_default',
+      providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
       displayName: 'Sales',

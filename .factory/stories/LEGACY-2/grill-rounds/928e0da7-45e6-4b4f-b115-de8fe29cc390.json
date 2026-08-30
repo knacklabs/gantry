@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "LEGACY-2 plan re-grill (frontmatter now lists all 125 active decisions). Merge handling: merge the LEGACY-2 PR myself once CI is green (your standing 'merge any PRs once green'), then merge main into JOBPERM-3 and close it out?",
+      "options": [
+        "Yes \u2014 merge when green (Recommended)",
+        "No \u2014 I merge LEGACY-2 myself"
+      ],
+      "chosen": "Yes \u2014 merge when green (Recommended)"
+    },
+    {
+      "question": "Anything else before I approve the LEGACY-2 plan?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go"
+    }
+  ],
+  "at": "2026-08-29T18:15:29.537549+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

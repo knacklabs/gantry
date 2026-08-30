@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-30T02:02:00+00:00", "story": "LEGACY-2", "detail": "S-0001-cf3e: Informational: the VITEST_JUNIT wrapper is policy-refused in the sandbox (known, S-0043 on JOBPERM-3); stage done runs the leaf tests itself. Host-side verification by the orchestrator."}
