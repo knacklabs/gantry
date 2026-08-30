@@ -1,0 +1,10 @@
+{
+  "issue": "LEGACY-2",
+  "stages": [
+    {
+      "id": "LEGACY-2-T1",
+      "title": "Remove the providerConnection shadow field, dual-reads and the 19 expired exceptions",
+      "status": "pending"
+    }
+  ]
+}
