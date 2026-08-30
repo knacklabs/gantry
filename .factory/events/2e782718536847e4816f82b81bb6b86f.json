@@ -1,0 +1,1 @@
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-30T02:15:24+00:00", "story": "LEGACY-2", "detail": "The old providerConnection name no longer lives anywhere in the runtime settings path: the in-memory shadow field and its parser fill are gone, every providerAccount ?? providerConnection read now rea"}
