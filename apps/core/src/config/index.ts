@@ -160,11 +160,9 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
 function getPublicConfiguredConversations(settings: RuntimeSettings) {
   return Object.fromEntries(
     Object.entries(settings.conversations).map(([conversationId, entry]) => {
-      const { providerConnection: _providerConnection, ...conversation } =
-        entry;
       return [
         conversationId,
-        { ...conversation, brainHarvest: conversation.brainHarvest ?? false },
+        { ...entry, brainHarvest: entry.brainHarvest ?? false },
       ];
     }),
   );

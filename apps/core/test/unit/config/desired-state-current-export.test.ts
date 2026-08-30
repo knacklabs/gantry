@@ -182,7 +182,6 @@ describe('exportCurrentDesiredState', () => {
     });
     expect(Object.values(exported.conversations)).toEqual([
       expect.objectContaining({
-        providerConnection: 'slack-default',
         providerAccount: 'slack-default',
         externalId: 'C123',
       }),
@@ -215,7 +214,6 @@ permissions:
 `);
     settings.conversations = {
       shared_channel: {
-        providerConnection: 'slack-default',
         providerAccount: 'slack-default',
         externalId: 'C123',
         kind: 'channel',
@@ -423,7 +421,6 @@ permissions:
     } as never;
     settings.conversations = {
       shared_channel: {
-        providerConnection: 'slack-default',
         providerAccount: 'slack-default',
         externalId: 'C123',
         kind: 'channel',
@@ -659,7 +656,6 @@ permissions:
     const settings = parseRuntimeSettings('agents: {}\n');
     settings.conversations = {
       shared_channel: {
-        providerConnection: 'slack-default',
         providerAccount: 'slack-default',
         externalId: 'C123',
         kind: 'channel',
@@ -977,7 +973,6 @@ permissions:
       runtimeSecretRefs: {},
     };
     appSettings.conversations.app_workspace = {
-      providerConnection: 'app_live',
       providerAccount: 'app_live',
       externalId: 'workspace',
       kind: 'group',

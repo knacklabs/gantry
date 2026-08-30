@@ -84,7 +84,7 @@ it('projects configured agent access using the public contract shape', async () 
   expect(publicAgent).not.toHaveProperty('accessPreset');
 });
 
-it('omits legacy providerConnection from public conversation settings', async () => {
+it('returns canonical public conversation settings', async () => {
   const runtimeHome = fs.mkdtempSync(
     path.join(os.tmpdir(), 'gantry-settings-'),
   );
@@ -109,7 +109,6 @@ it('omits legacy providerConnection from public conversation settings', async ()
     runtimeSecretRefs: {},
   };
   defaults.conversations.slack_c123 = {
-    providerConnection: 'slack_legacy',
     providerAccount: 'slack_default',
     externalId: 'C123',
     kind: 'channel',
@@ -133,8 +132,5 @@ it('omits legacy providerConnection from public conversation settings', async ()
     controlApprovers: ['U1'],
     installedAgents: {},
   });
-  expect(publicSettings.conversations.slack_c123).not.toHaveProperty(
-    'providerConnection',
-  );
   expect(() => RuntimeSettingsPublicSchema.parse(publicSettings)).not.toThrow();
 });

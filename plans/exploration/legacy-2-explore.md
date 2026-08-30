@@ -1,0 +1,8 @@
+READ-ONLY exploration for LEGACY-2 (do not edit files). Goal: remove the `providerConnection` shadow field and dual-read introduced when provider connections became provider accounts (2026-07-02). The 19 time-boxed exceptions in scripts/architecture-exceptions.json (symbol providerConnection, kind dual_read) expired 2026-08-28. Ruling: a settings document that still carries provider_connection / providerConnection is IGNORED silently (key dropped on read; provider_account is the only source).
+Report with file:line citations:
+1. Every occurrence of `providerConnection` / `provider_connection` / `ProviderConnection` under apps/core/src and packages/ (contracts, sdk), grouped as: (a) the shadow field declaration + parser fill, (b) dual-read sites `providerAccount ?? providerConnection`, (c) writers/exports that emit the old key, (d) plain local-variable or function naming with no data-shape meaning, (e) tests/fixtures under apps/core/test that name it, (f) docs/schemas/contract types.
+2. Where settings documents are parsed/validated (settings.yaml + stored settings revisions): what happens today to an unknown key, and the smallest change that makes the old key ignored silently (drop before schema, or accept-and-drop).
+3. Any runtime data at rest that still carries the old key (settings_revisions rows, exported desired-state files) and whether a read path would break when the field disappears.
+4. The exact 19 exception entries and which of them will be satisfied by (a)-(d).
+5. Risks: contracts/SDK public types that expose providerConnection (breaking for external callers?), Slack permission delivery, control routes/agents.ts naming, CLI provider-utils.
+Return a structured report; no code changes.

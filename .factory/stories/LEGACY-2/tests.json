@@ -1,0 +1,25 @@
+{
+  "commit": "ebb1d4b5444ddd70e97967843c500ec1b59222ce",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "npx tsc --noEmit clean; npm run check:architecture passed with zero providerConnection exceptions; unit config/channels/cli/application/control 222 files / 3190 tests green incl. the two required leaves in runtime-settings.test.ts; Postgres control-plane-repository + conversation-install-settings 5/5 host-side; verify.py passed.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npx tsc --noEmit",
+      "npm run check:architecture",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/config/ apps/core/test/unit/channels/ apps/core/test/unit/cli/ apps/core/test/unit/application/ apps/core/test/unit/control/",
+      "GANTRY_TEST_DATABASE_URL=... npx vitest run -c vitest.integration.config.ts apps/core/test/integration/control-plane-repository.postgres.integration.test.ts apps/core/test/integration/conversation-install-settings.postgres.integration.test.ts",
+      "python3 factory/scripts/verify.py"
+    ],
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "tests_added_or_updated": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-30T02:10:12+00:00",
+    "commit": "ebb1d4b5444ddd70e97967843c500ec1b59222ce"
+  },
+  "updated_at": "2026-08-30T02:10:12+00:00"
+}

@@ -24,9 +24,7 @@ export function deriveAgentBindingsFromDesiredState(input: {
     const agent = agents[binding.agent];
     const conversation = input.conversations[binding.conversation];
     if (!agent || !conversation) continue;
-    const connection =
-      input.providerAccounts[conversation.providerAccount] ??
-      input.providerAccounts[conversation.providerConnection ?? ''];
+    const connection = input.providerAccounts[conversation.providerAccount];
     const install =
       conversation.installedAgents[binding.installKey ?? ''] ??
       Object.values(conversation.installedAgents).find(
@@ -39,9 +37,7 @@ export function deriveAgentBindingsFromDesiredState(input: {
       threadId: binding.threadId,
       provider: connection?.provider,
       providerAccountId:
-        install?.providerAccountId ??
-        conversation.providerAccount ??
-        conversation.providerConnection,
+        install?.providerAccountId ?? conversation.providerAccount,
       name: conversation.displayName,
       trigger: binding.trigger,
       addedAt: binding.addedAt,

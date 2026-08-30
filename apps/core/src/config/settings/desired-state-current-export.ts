@@ -214,7 +214,7 @@ export async function exportCurrentDesiredState(input: {
       String(conversation.id).replace(/^conversation:/, '');
     const conversationId =
       configuredConversationId({
-        providerConnectionId: providerAccountId,
+        providerAccountId,
         externalId,
         conversations: settings.conversations,
       }) ??
@@ -245,7 +245,6 @@ export async function exportCurrentDesiredState(input: {
       ? storedApprovers
       : (existingConversation?.controlApprovers ?? []);
     conversations[conversationId] = {
-      providerConnection: providerAccountId,
       providerAccount: providerAccountId,
       externalId,
       kind: conversation.kind,
@@ -324,12 +323,12 @@ export async function exportCurrentDesiredState(input: {
       String(storedConversation.id).replace(/^conversation:/, '');
     const conversationId =
       configuredConversationId({
-        providerConnectionId: binding.providerAccountId as string,
+        providerAccountId: binding.providerAccountId as string,
         externalId,
         conversations,
       }) ??
       configuredConversationId({
-        providerConnectionId: binding.providerAccountId as string,
+        providerAccountId: binding.providerAccountId as string,
         externalId,
         conversations: settings.conversations,
       });
@@ -487,12 +486,12 @@ export async function exportCurrentDesiredState(input: {
     };
     const conversationId =
       configuredConversationId({
-        providerConnectionId: connectionId,
+        providerAccountId: connectionId,
         externalId,
         conversations,
       }) ??
       configuredConversationId({
-        providerConnectionId: connectionId,
+        providerAccountId: connectionId,
         externalId,
         conversations: settings.conversations,
       }) ??
@@ -512,7 +511,6 @@ export async function exportCurrentDesiredState(input: {
       ? existingConversation.controlApprovers
       : storedApprovers;
     conversations[conversationId] = {
-      providerConnection: connectionId,
       providerAccount: connectionId,
       externalId,
       kind,
@@ -529,7 +527,7 @@ export async function exportCurrentDesiredState(input: {
     };
     dedupeConfiguredConversation({
       canonicalId: conversationId,
-      providerConnectionId: connectionId,
+      providerAccountId: connectionId,
       externalId,
       conversations,
       bindings,

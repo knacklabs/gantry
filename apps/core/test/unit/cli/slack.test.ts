@@ -816,7 +816,7 @@ describe('cli slack helpers', () => {
     expect(settings.conversations?.slack_default_c0123456789).toEqual(
       expect.objectContaining({
         displayName: 'ops-room',
-        providerConnection: 'slack_default',
+        providerAccount: 'slack_default',
         externalId: 'C0123456789',
         controlApprovers: ['U123'],
         senderPolicy: { allow: '*', mode: 'trigger' },
@@ -970,7 +970,7 @@ describe('cli slack helpers', () => {
     expect(settings.conversations?.slack_default_c0123456789).toEqual(
       expect.objectContaining({
         displayName: 'recruiting-demo',
-        providerConnection: 'slack_default',
+        providerAccount: 'slack_default',
         externalId: 'C0123456789',
         controlApprovers: ['U123'],
         senderPolicy: { allow: '*', mode: 'trigger' },
@@ -1032,7 +1032,7 @@ describe('cli slack helpers', () => {
     expect(settings.conversations?.slack_default_c0123456789).toEqual(
       expect.objectContaining({
         displayName: 'recruiting-demo',
-        providerConnection: 'slack_default',
+        providerAccount: 'slack_default',
         externalId: 'C0123456789',
         controlApprovers: ['U123'],
         senderPolicy: { allow: '*', mode: 'trigger' },

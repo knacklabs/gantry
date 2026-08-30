@@ -1,0 +1,31 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "LEGACY-2 requirements check against the code: the spec now says the old document key stays rejected (existing strict check), only the in-memory shadow field and its ~20 dual-reads go, plus the 19 exceptions. Does that still match what you want?",
+      "options": [
+        "Yes \u2014 matches (Recommended)",
+        "No \u2014 change something"
+      ],
+      "chosen": "Yes \u2014 matches (Recommended)"
+    },
+    {
+      "question": "Plan shape: one bounded task (types+parser first so tsc lists every dependent site, then reads, writers, renames, exceptions, tests) \u2014 or split settings vs channels/CLI/control into two tasks?",
+      "options": [
+        "One task (Recommended)",
+        "Two tasks"
+      ],
+      "chosen": "One task (Recommended)"
+    },
+    {
+      "question": "Anything else to settle before I approve the LEGACY-2 plan and delegate it?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go"
+    }
+  ],
+  "at": "2026-08-29T18:12:21.517246+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

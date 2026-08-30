@@ -1,0 +1,69 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "LEGACY-2-T1",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/config/settings/runtime-settings-types.ts",
+    "apps/core/src/config/settings/runtime-settings-parser.ts",
+    "apps/core/src/config/settings/runtime-settings-compact.ts",
+    "apps/core/src/config/settings/runtime-settings-validation.ts",
+    "apps/core/src/channels/slack/permission-approval-delivery.ts",
+    "apps/core/src/application/control-plane/control-plane-storage-model.ts",
+    "apps/core/src/cli/provider-utils.ts",
+    "apps/core/src/control/server/routes/agents.ts",
+    "scripts/architecture-exceptions.json",
+    "scripts/architecture_rules.py",
+    "apps/core/test/unit/config/runtime-settings.test.ts"
+  ],
+  "current_flow": "runtime-settings-types.ts:40 declares providerConnection; runtime-settings-parser.ts:241 fills it from providerAccount; ~20 sites read providerAccount ?? providerConnection (validation :190/194/219, renderer :436, revision document :51, desired-state helpers, observer activation :86, Slack approver :122, control-plane model :191, CLI provider-utils :140); writers create the property (install settings :67, runtime-settings :406, current export :248/515, reconcile :204/283); config/index.ts:163 strips it from the public projection. The document key provider_connection is already rejected by the strict key check (runtime-settings-compact.ts:150, parser :187). 19 expired dual_read exceptions cover exactly these tokens; architecture_rules.py matches the exact token with word boundaries.",
+  "criteria_map": {
+    "the providerConnection shadow field is removed from the runtime settings types and the parser no longer fills it; every providerAccount ?? providerConnection read collapses to providerAccount (settings parser/validation/renderer/exports/reconcile/observer activation, control-plane storage model, CLI provider utils, Slack permission delivery, control routes).": "steps 1-4: type + fill deleted, reads collapsed, writers stop creating the property, locals renamed.",
+    "a settings document that still carries providerConnection / provider_connection keeps being rejected by the existing strict key check (no new code); nothing dual-reads it in memory.": "step 6 leaf 'rejects provider_connection as an unsupported conversation key' through the existing strict check; no new code.",
+    "the 19 providerConnection entries are deleted from scripts/architecture-exceptions.json and npm run check:architecture passes with no providerConnection exception.": "step 5: the 19 entries deleted; step 7 check:architecture passes.",
+    "existing unit and Postgres integration suites pass (only assertions that named providerConnection change); tsc green.": "step 7: unit config/channels/cli/application/control suites, tsc; Postgres lane host-side."
+  },
+  "decision": "keep",
+  "new_abstractions": [],
+  "gaps": [
+    "LEGACY-2-T1 task grill (one round required): the task deletes the type first so tsc enumerates every dependent, then collapses reads, removes shadow writers, renames locals, deletes the 19 exception entries, and adds two leaf tests in runtime-settings.test.ts (old key rejected; no shadow property). Anything to settle before Codex starts?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Go: single cut in the stated order; tsc after step 1 enumerates dependents; providerConnectionId and the enum stay (D-0070)."
+  ],
+  "rounds": [
+    {
+      "question": "LEGACY-2-T1 task grill (one round required): the task deletes the type first so tsc enumerates every dependent, then collapses reads, removes shadow writers, renames locals, deletes the 19 exception entries, and adds two leaf tests in runtime-settings.test.ts (old key rejected; no shadow property). Anything to settle before Codex starts?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "shadow field declaration and parser fill",
+      "source": "apps/core/src/config/settings/runtime-settings-types.ts:40; runtime-settings-parser.ts:241; task plan step 1"
+    },
+    {
+      "finding": "strict key check already rejects the old document key",
+      "source": "apps/core/src/config/settings/runtime-settings-compact.ts:150; runtime-settings-parser.ts:187; task plan step 6"
+    },
+    {
+      "finding": "guard matches the exact token; providerConnectionId untouched",
+      "source": "scripts/architecture_rules.py:41; deferral D-0070"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "064d9290ca95c6100e94d51cdd1e9bcaa1f595d331c18c178321279dd0dd8bf2",
+  "task_plan_sha256": "118c0391249b138f99ca3e664834a7e450d42796a90b2713a80abe1fd69db745",
+  "recorded_at": "2026-08-30T01:46:44+00:00",
+  "commit": "41182b848126be482020142c9133e1505f6f282a",
+  "approved_task_plan_sha256": "118c0391249b138f99ca3e664834a7e450d42796a90b2713a80abe1fd69db745",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-30T01:46:44+00:00"
+}

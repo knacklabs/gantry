@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Correction from the code read: a settings.yaml / stored revision with the old `provider_connection` key is ALREADY rejected today as an unknown key (strict key check). The in-memory shadow field is the only dual-read. Given that, what should LEGACY-2 do with the old key in documents?",
+      "options": [
+        "Keep rejecting it \u2014 no new code (Recommended)",
+        "Add a special-case silent drop"
+      ],
+      "chosen": "Keep rejecting it \u2014 no new code (Recommended)"
+    },
+    {
+      "question": "Scope guard: `providerConnectionId` (route/event payloads, CLI setup return names) and the OpenAPI enum `missing_provider_connection` are NOT part of the expired gate and touching them is a wider/breaking change. Leave them out of LEGACY-2?",
+      "options": [
+        "Leave them out (Recommended)",
+        "Rename providerConnectionId too"
+      ],
+      "chosen": "Leave them out (Recommended)"
+    }
+  ],
+  "at": "2026-08-29T03:32:39.914487+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

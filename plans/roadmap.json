@@ -2424,6 +2424,28 @@
       "outcome": "The two biggest functions in the runtime are now readable one phase at a time. The job run loop (runActiveJob, 733 lines in one body) and the SDK query loop (runQuery, ~600 lines) each became a short sequencer over one context object, with every phase a named function in sibling modules \u2014 setup/lease/agent/finalization for jobs, options/setup and one handler per message kind for the query loop. Nothing changed in behaviour: every existing unit and Postgres integration test passes untouched. Complexity on the AST counter: sequencers under 15, largest phase under 25 (ceilings 15/25)."
     },
     {
+      "key": "LEGACY-2",
+      "title": "Remove the providerConnection dual-read",
+      "story": "As a maintainer, settings and control code read provider accounts through one name only, so the 19 expired architecture exceptions disappear and the architecture gate is green on main again.",
+      "acceptance_criteria": [
+        "AC1: the providerConnection shadow field is removed from the runtime settings types and the parser no longer fills it; every providerAccount ?? providerConnection read collapses to providerAccount (settings parser/validation/renderer/exports/reconcile/observer activation, control-plane storage model, CLI provider utils, Slack permission delivery, control routes).",
+        "AC2: a settings document that still carries providerConnection / provider_connection is ignored silently \u2014 the key is dropped on read and provider_account is the only source; nothing dual-reads it.",
+        "AC3: the 19 providerConnection entries are deleted from scripts/architecture-exceptions.json and npm run check:architecture passes with no providerConnection exception.",
+        "AC4: existing unit and Postgres integration suites pass (only assertions that named providerConnection change); tsc green."
+      ],
+      "order": 112,
+      "status": "done",
+      "epic": "harness-hygiene",
+      "skill": "backend",
+      "kind": "refactor",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/legacy-2-provider-connection-removal.md",
+      "completed_at": "2026-08-30T02:15:24+00:00",
+      "history": ".factory/stories/LEGACY-2/",
+      "outcome": "The old providerConnection name no longer lives anywhere in the runtime settings path: the in-memory shadow field and its parser fill are gone, every providerAccount ?? providerConnection read now reads provider accounts only, writers stop creating the property, and the 19 expired architecture exceptions are deleted, so npm run check:architecture is green on main again. Behaviour is unchanged: a settings document that still says provider_connection keeps being rejected by the existing strict key check (now covered by a test), and the Slack approver lookup stays account-qualified. providerConnectionId and the missing_provider_connection enum are deliberately left alone (deferral D-0070)."
+    },
+    {
       "key": "JOBPERM-3",
       "title": "Settled job permission cards disappear like chat prompts",
       "story": "As the owner of a scheduled job, an answered permission card goes away the way an approved chat prompt does, so the group is not left with stale 'settled' cards after every run.",
@@ -2433,7 +2455,7 @@
         "AC3: the retire outcome (allowed | denied) is carried on the card revision by the shared projection; provider deliveries act on it; retry of a retire revision is idempotent",
         "AC4: existing unit and Postgres integration suites pass (only new or updated assertions on the retire text/operation); tsc, architecture check green"
       ],
-      "order": 112,
+      "order": 113,
       "status": "active",
       "epic": "permission-engine",
       "skill": "backend",

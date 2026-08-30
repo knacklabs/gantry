@@ -2168,7 +2168,6 @@ describe('importFleetSettingsRevision', () => {
       runtimeSecretRefs: { bot_token: 'env:TELEGRAM_PAUSED_BOT_TOKEN' },
     };
     settings.conversations.owner_dm = {
-      providerConnection: 'telegram_main',
       providerAccount: 'telegram_main',
       externalId: '42',
       kind: 'dm',
@@ -2178,7 +2177,6 @@ describe('importFleetSettingsRevision', () => {
       installedAgents: {},
     };
     settings.conversations.shared_channel = {
-      providerConnection: 'telegram_main',
       providerAccount: 'telegram_main',
       externalId: 'telegram:C123',
       kind: 'group',
@@ -2378,7 +2376,6 @@ describe('importFleetSettingsRevision', () => {
       runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
     };
     settings.conversations.ops = {
-      providerConnection: 'telegram_main',
       providerAccount: 'telegram_main',
       externalId: '-1001234',
       kind: 'channel',
@@ -2438,7 +2435,6 @@ describe('importFleetSettingsRevision', () => {
       runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
     };
     settings.conversations.shared_channel = {
-      providerConnection: 'telegram_main',
       providerAccount: 'telegram_main',
       externalId: 'telegram:C123',
       kind: 'group',
