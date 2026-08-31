@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ExternalIngressModule } from '@core/application/external-ingress/external-ingress-module.js';
 import { EXTERNAL_INGRESS_RUNTIME_DISPATCH } from '@core/application/external-ingress/runtime-dispatch.js';
-import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
+import { signExternalIngressEd25519Request } from '@core/application/external-ingress/signature.js';
 
 const signatureCrypto = {
   sha256: (input: string) => createHash('sha256').update(input).digest('hex'),
@@ -17,6 +17,7 @@ const signatureCrypto = {
       timingSafeEqual(leftBuffer, rightBuffer)
     );
   },
+  ed25519Verify: (pub, payload, sig) => sig !== 'bad-signature',
 };
 
 function signedInvokeInput(input: {
@@ -26,19 +27,22 @@ function signedInvokeInput(input: {
   nonce?: string;
   timestamp?: string;
   path?: string;
+  privateKeyPem?: string;
 }) {
   const ingressId = input.ingressId ?? 'ingress-1';
   const method = input.method ?? 'POST';
   const nonce = input.nonce ?? 'nonce-1';
   const timestamp = input.timestamp ?? String(Date.now());
   const path = input.path ?? `/v1/ingresses/${ingressId}/invoke`;
-  const signature = signExternalIngressRequest({
+  const signature = signExternalIngressEd25519Request({
     crypto: signatureCrypto,
     method,
     path,
     timestamp,
     nonce,
     rawBody: input.rawBody,
+    privateKeyPem: input.privateKeyPem ?? 'dummy-private-key',
+    privateKeySign: (key, payload) => 'dummy-signature',
   }).signature;
   return {
     ingressId,
@@ -64,6 +68,8 @@ function makeModule(overrides?: {
       ingressId: 'ingress-created',
       appId: input.appId,
       name: input.name,
+      signatureAlgorithm: 'ed25519',
+      publicKey: 'dummy-public-key',
       enabled: input.enabled ?? true,
       metadata: input.metadata ?? {},
       createdAt: '2026-04-30T00:00:00.000Z',
@@ -74,6 +80,8 @@ function makeModule(overrides?: {
       ingressId: 'ingress-1',
       appId: 'app-one',
       name: 'main',
+      signatureAlgorithm: 'ed25519',
+      publicKey: 'dummy-public-key',
       enabled: true,
       metadata: overrides?.metadata ?? {
         targetPolicy: {
@@ -201,6 +209,7 @@ function makeModule(overrides?: {
     now: () => '2026-04-30T00:00:00.000Z',
 
     createInvocationId: () => 'invocation-new',
+    createKeyPair: () => ({ publicKeyPem: 'dummy-public-key', privateKeyPem: 'dummy-private-key' }),
     signatureCrypto,
     perAppTriggerLimit: 5,
     perJobTriggerLimit: 2,
