@@ -1,0 +1,32 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Mechanism for 'Allow once for this run' on a compound-command pause card (decisions 0115/0134/0144 constrain it):",
+      "options": [
+        "Retry-and-ask: one-shot rerun in ask mode (Recommended)",
+        "New pre-authorized once mechanism",
+        "Drop Allow-once; Retry + Pause only"
+      ],
+      "chosen": "Retry-and-ask: one-shot rerun in ask mode (Recommended)"
+    },
+    {
+      "question": "'Pause job' renders on every provider today but is guidance-only (tapping it just says 'use the scheduler'). Make it actually pause the job in this story?",
+      "options": [
+        "Yes \u2014 make it real (Recommended)",
+        "Keep guidance-only"
+      ],
+      "chosen": "Yes \u2014 make it real (Recommended)"
+    },
+    {
+      "question": "Anything else before I approve the CARDFIX-1 plan and delegate to Codex sol@xhigh?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go"
+    }
+  ],
+  "at": "2026-08-31T10:52:07.289548+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
