@@ -289,7 +289,7 @@ export async function handleBrowserSkillRoutes(
 
   const agentsPath = BROWSER_SKILL_AGENTS_PATH.exec(pathname);
   if (agentsPath && req.method === 'GET') {
-    const session = await requireReadSession(req, res, mode);
+    const session = await requireReadSession(req, res, mode, 'skills:admin');
     if (!session) return true;
     const appId = session.appId as AppId;
     const skillId = decoded(agentsPath[1]) as SkillId | null;
@@ -406,14 +406,22 @@ async function requireReadSession(
   req: IncomingMessage,
   res: ServerResponse,
   mode: 'local' | 'hosted',
+  scope: 'skills:read' | 'skills:admin' = 'skills:read',
 ) {
   const session = await activeSession(req, mode);
   if (!session) {
     browserError(res, 401, 'UNAUTHORIZED', 'Sign in is required.');
     return null;
   }
-  if (!browserRoleAllowsScope(session.role as ConsoleRole, 'skills:read')) {
-    browserError(res, 403, 'FORBIDDEN', 'Viewer access is required.');
+  if (!browserRoleAllowsScope(session.role as ConsoleRole, scope)) {
+    browserError(
+      res,
+      403,
+      'FORBIDDEN',
+      scope === 'skills:admin'
+        ? 'Administrator access is required.'
+        : 'Viewer access is required.',
+    );
     return null;
   }
   return session;

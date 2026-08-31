@@ -536,6 +536,26 @@ it('rejects cross-app attachment ids before mutation', async () => {
   ).not.toHaveBeenCalled();
 });
 
+it('does not expose attachment candidates to viewers', async () => {
+  activeSession.mockResolvedValue({
+    appId: 'app:one',
+    userId: 'user:viewer',
+    role: 'viewer',
+  });
+  const res = response();
+
+  await handleBrowserSkillRoutes(
+    request('GET'),
+    res,
+    routeContext() as never,
+    '/ui/api/skills/skill%3Aone/agents',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(403);
+  expect(storage.repositories.agents.listAgents).not.toHaveBeenCalled();
+});
+
 it('returns only verified app-scoped file bytes and sanitizes failures', async () => {
   activeSession.mockResolvedValue({
     appId: 'app:one',
