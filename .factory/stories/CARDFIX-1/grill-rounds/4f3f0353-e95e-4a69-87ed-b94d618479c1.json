@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "CARDFIX-1-T1 can't get through: OpenAI's remote-compaction endpoint has 404'd five runs in a row (11:14\u201313:21Z), killing each one mid-exploration before any code lands. How do you want to proceed?",
+      "options": [
+        "Split the task + drop to sol@high (Recommended)",
+        "Keep waiting for OpenAI",
+        "Degraded window \u2014 you implement it"
+      ],
+      "chosen": null
+    }
+  ],
+  "at": "2026-08-31T13:22:32.873819+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

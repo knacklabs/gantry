@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0126-7e73",
+  "profile": "degraded",
+  "reason": "Companion outage continues. CARDFIX-1-T1 part C: provider callback consumers (Telegram, Discord, Teams).",
+  "started_at": "2026-08-31T15:02:36+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

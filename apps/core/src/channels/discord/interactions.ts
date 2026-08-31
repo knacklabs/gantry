@@ -1,5 +1,17 @@
 // prettier-ignore
-import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalCancellation, PermissionApprovalDecision, PermissionApprovalDecisionMode, PermissionApprovalRequest, PermissionApprovalResult, RichInteractionRequest, UserQuestionCancellation, UserQuestionRequest } from '../../domain/types.js';
+import { dispatchDiscordSchedulerInteraction } from './scheduler-interactions.js';
+import {
+  MessageDeliveryResult,
+  MessageSendOptions,
+  PermissionApprovalCancellation,
+  PermissionApprovalDecision,
+  PermissionApprovalDecisionMode,
+  PermissionApprovalRequest,
+  PermissionApprovalResult,
+  RichInteractionRequest,
+  UserQuestionCancellation,
+  UserQuestionRequest,
+} from '../../domain/types.js';
 import {
   claimPermissionInteractionCallback,
   DurableInteractionPersistenceError,
@@ -28,8 +40,6 @@ import {
   PERMISSION_CUSTOM_ID_PREFIX,
   permissionCustomId,
   QUESTION_CUSTOM_ID_PREFIX,
-  SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX,
-  SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX,
 } from './components.js';
 import { sendDiscordPromptMessage } from './delivery.js';
 import type { DiscordInteraction } from './types.js';
@@ -317,25 +327,14 @@ export class DiscordInteractionHandler {
         await this.ackInteraction(interaction, 'Decision received.');
         return;
       }
-      if (customId.startsWith(SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX)) {
-        await this.ackInteraction(interaction, 'Checking retry request.');
-        const context = await this.input.resolveInteractionConversationContext(
-          interaction.channel_id,
-        );
-        await this.input.opts.onMessageAction?.({
-          kind: 'scheduler_run_now',
-          conversationJid: context.conversationJid,
-          providerAccountId: this.input.opts.providerAccountId,
-          ...(context.threadId ? { threadId: context.threadId } : {}),
-          userId,
-          jobId: decodeURIComponent(
-            customId.slice(SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX.length),
-          ),
-        });
-        return;
-      }
-      if (customId.startsWith(SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX))
-        return void this.ackInteraction(interaction, 'Use scheduler to pause.');
+      const handledScheduler = await dispatchDiscordSchedulerInteraction(
+        customId,
+        userId,
+        interaction.channel_id,
+        this.input,
+        (text) => this.ackInteraction(interaction, text),
+      );
+      if (handledScheduler) return;
       if (customId.startsWith(PERMISSION_CUSTOM_ID_PREFIX)) {
         await this.handlePermissionInteraction(interaction, customId);
         return;

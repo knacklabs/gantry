@@ -1,0 +1,54 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "Pause job is a fake button on all four providers (no MessageActionCallbackInput variant; guidance-only replies)."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Ruled: make Pause job real in this story \u2014 callback variant + neutral router handling + scheduler pause with same-channel approver authorization (the scheduler_run_now pattern).",
+    "Plan approved shape: one bounded task CARDFIX-1-T1 (affordances on pause stories + scheduler_retry_ask + real Pause job + tests), implementer sol@xhigh, provider-neutral only."
+  ],
+  "rounds": [
+    {
+      "question": "'Pause job' renders on every provider today but is guidance-only (tapping it just says 'use the scheduler'). Make it actually pause the job in this story?",
+      "options": [
+        "Yes \u2014 make it real (Recommended)",
+        "Keep guidance-only"
+      ],
+      "chosen": "Yes \u2014 make it real (Recommended)"
+    },
+    {
+      "question": "Anything else before I approve the CARDFIX-1 plan and delegate to Codex sol@xhigh?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "no scheduler_pause_job callback variant; providers reply with guidance",
+      "path": "apps/core/src/domain/message-actions.ts",
+      "line": 62
+    },
+    {
+      "finding": "notification route forwards actionAffordances already",
+      "path": "apps/core/src/jobs/delivery.ts",
+      "line": 152
+    },
+    {
+      "finding": "scheduler_run_now handler is the pattern for the pause handler",
+      "path": "apps/core/src/app/bootstrap/runtime-live-stop-message-action.ts",
+      "line": 199
+    }
+  ],
+  "input_sha256": "185ee9463294c39aeedc5f83a7c0a8d7ece001acb31824c1c61d4c1f0b2dea9f",
+  "issue": "CARDFIX-1",
+  "recorded_at": "2026-08-31T11:01:48+00:00",
+  "commit": "4ab7ac7b5e0eabdb8ec2def5e04d4abe12d5e3e5"
+}

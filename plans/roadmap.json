@@ -1315,13 +1315,16 @@
       "story": "As an operator, no job ever pauses into a dead end: every setup card offers at least one button - approve the exact scoped command it tried, approve the capability fix, or another concrete action - never prose alone.",
       "acceptance_criteria": [],
       "order": 61,
-      "status": "pending",
+      "status": "done",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "Ravi's ruling (2026-08-12, third occurrence of buttonless cards): bare-RunCommand denials render non-grantable prose even though the exact denied leaf is known and a SCOPED RunCommand grant is supported; synthesize the scoped request_access suggestion so the card is always actionable"
+      "spec": "docs/specs/every-pause-card-carries-a-real-action.md",
+      "completed_at": "2026-08-31T16:42:50+00:00",
+      "history": ".factory/stories/CARDFIX-1/",
+      "outcome": "Paused scheduled jobs are no longer dead ends: every pause/setup message now arrives with working buttons on Slack, Telegram, Discord and Teams. A job paused for a blocked shell command offers 'Allow once for this run' \u2014 one more run that asks live for that exact command, nothing permanently granted \u2014 and 'Pause job', which now really pauses the job from the card on every provider (it used to be guidance text). Double taps, crashed taps and concurrent taps all collapse into exactly one extra run."
     },
     {
       "key": "JOBFLOW-1",
@@ -2468,5 +2471,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-30T12:17:06+00:00"
+  "updated_at": "2026-08-31T16:42:50+00:00"
 }

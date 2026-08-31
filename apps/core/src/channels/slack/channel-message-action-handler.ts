@@ -15,6 +15,7 @@ import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
   'scheduler_run_now',
   'scheduler_pause_job',
+  'scheduler_retry_ask',
 ]);
 
 type SlackAppLike = {
@@ -299,6 +300,20 @@ export function registerSlackMessageActionHandler(
         userId,
         jobId: payload.jobId,
         runId: typeof payload.runId === 'string' ? payload.runId : null,
+      });
+      return;
+    }
+    if (
+      payload.kind === 'scheduler_pause_job' ||
+      payload.kind === 'scheduler_retry_ask'
+    ) {
+      await opts?.onMessageAction?.({
+        kind: payload.kind,
+        conversationJid: `sl:${channelId}`,
+        ...providerAccountFromPayload(payload, opts?.providerAccountId),
+        threadId: body.message?.thread_ts,
+        userId,
+        jobId: payload.jobId,
       });
       return;
     }

@@ -105,6 +105,19 @@ export async function listRecordedJobRunActions(input: {
 export interface SchedulerRunEventState {
   boundTriggerId?: string;
   eventAppSession?: SchedulerEventAppSession;
+  // The bound trigger was a scheduler_retry_ask tap: this one run must ask
+  // interactively regardless of the job's configured permission mode.
+  interactiveAskOverride?: boolean;
+}
+
+function isRetryAskRequestedBy(requestedBy: string | undefined): boolean {
+  if (!requestedBy) return false;
+  try {
+    const parsed = JSON.parse(requestedBy) as { kind?: unknown };
+    return parsed.kind === 'scheduler_retry_ask';
+  } catch {
+    return false;
+  }
 }
 
 export function createRuntimeEventPublisher(input: {
@@ -167,6 +180,8 @@ export async function bindSchedulerRunEventState(input: {
     return {
       boundTriggerId: boundTrigger?.triggerId,
       eventAppSession,
+      interactiveAskOverride:
+        isRetryAskRequestedBy(boundTrigger?.requestedBy) || undefined,
     };
   } catch (err) {
     input.logger.warn(

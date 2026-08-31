@@ -310,6 +310,72 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('runs with an interactive ask override when the bound trigger is a scheduler_retry_ask tap', async () => {
+    const job = makeJob();
+    const opsRepository = makeOpsRepository(job);
+    runtimeStoreMock.bindPendingTriggerToRun.mockResolvedValueOnce({
+      triggerId: 'trigger-retry-ask',
+      requestedBy: JSON.stringify({
+        kind: 'scheduler_retry_ask',
+        setupFingerprint: 'fp-1',
+      }),
+    } as never);
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'done',
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).toHaveBeenCalledOnce();
+    expect(runAgent.mock.calls[0]?.[1]).toMatchObject({
+      permissionMode: 'ask',
+    });
+  });
+
+  it('does not override the permission mode for an ordinary bound trigger', async () => {
+    const job = makeJob();
+    const opsRepository = makeOpsRepository(job);
+    runtimeStoreMock.bindPendingTriggerToRun.mockResolvedValueOnce({
+      triggerId: 'trigger-mcp',
+      requestedBy: JSON.stringify({ kind: 'mcp' }),
+    } as never);
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'done',
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).toHaveBeenCalledOnce();
+    expect(
+      (runAgent.mock.calls[0]?.[1] as { permissionMode?: string })
+        .permissionMode,
+    ).toBeUndefined();
+  });
+
   it('records a failed terminal run when execution throws before normal settlement', async () => {
     const job = makeJob();
     let observedLogContext: ReturnType<typeof currentLogContext> = undefined;

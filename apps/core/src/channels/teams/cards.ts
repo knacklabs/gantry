@@ -74,7 +74,10 @@ export interface TeamsAdaptiveCardAction {
       }
     | {
         action: 'message_action';
-        kind: 'scheduler_run_now' | 'scheduler_pause_job';
+        kind:
+          | 'scheduler_run_now'
+          | 'scheduler_pause_job'
+          | 'scheduler_retry_ask';
         jobId: string;
         targetJid: string;
         threadId?: string;
@@ -333,28 +336,25 @@ export function buildTeamsMessageCard(options: {
           },
         };
       }
-      if (action.kind === 'scheduler_run_now' && action.jobId.trim()) {
+      if (
+        (action.kind === 'scheduler_run_now' ||
+          action.kind === 'scheduler_retry_ask' ||
+          action.kind === 'scheduler_pause_job') &&
+        action.jobId.trim()
+      ) {
+        // CARDFIX-1: retry-and-ask joins the set and pause is a real action.
+        const verb = {
+          scheduler_run_now: 'gantry.scheduler.run_now',
+          scheduler_retry_ask: 'gantry.scheduler.retry_ask',
+          scheduler_pause_job: 'gantry.scheduler.pause_job',
+        }[action.kind];
         return {
           type: 'Action.Execute',
           title: action.label.trim(),
-          verb: 'gantry.scheduler.run_now',
+          verb,
           data: {
             action: 'message_action',
-            kind: 'scheduler_run_now',
-            jobId: action.jobId,
-            targetJid: options.targetJid,
-            ...threadFragment,
-          },
-        };
-      }
-      if (action.kind === 'scheduler_pause_job' && action.jobId.trim()) {
-        return {
-          type: 'Action.Execute',
-          title: 'How to pause',
-          verb: 'gantry.scheduler.pause_job',
-          data: {
-            action: 'message_action',
-            kind: 'scheduler_pause_job',
+            kind: action.kind,
             jobId: action.jobId,
             targetJid: options.targetJid,
             ...threadFragment,

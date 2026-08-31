@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "CARDFIX-1-T1: seven Codex runs killed by the remote-compact 404 (CLI updated, token limit raised/removed/restored, v2 flags off \u2014 none of it prevents the legacy compact call). Each retry costs ~10 min. How do we land this?",
+      "options": [
+        "Degraded window \u2014 I implement it (Recommended)",
+        "Split into 2\u20133 tiny tasks at sol@high",
+        "Park CARDFIX-1 until OpenAI fixes the endpoint"
+      ],
+      "chosen": "Degraded window \u2014 I implement it (Recommended)"
+    }
+  ],
+  "at": "2026-08-31T14:50:47.755470+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

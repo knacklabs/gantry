@@ -3426,7 +3426,7 @@ describe('TelegramChannel', () => {
             inline_keyboard: [
               [
                 { text: 'Retry now', callback_data: 'r:job-1' },
-                { text: 'Pause job', callback_data: 'dl:pause' },
+                { text: 'Pause job', callback_data: 'dl:pause:job-1' },
               ],
             ],
           },

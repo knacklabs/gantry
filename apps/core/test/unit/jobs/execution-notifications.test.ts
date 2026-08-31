@@ -656,6 +656,86 @@ describe('jobs/execution-notifications', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it('delivers every pause story with at least one action affordance', async () => {
+    // CARDFIX-1 AC1: no pause/setup story is ever sent action-less; the
+    // compound tool denial offers retry-and-ask and never a durable grant.
+    const toolSetupState: JobSetupState = {
+      state: 'missing_permission',
+      checked_at: '2026-08-31T00:00:00.000Z',
+      fingerprint: 'fp-tool',
+      blockers: [
+        {
+          state: 'missing_permission',
+          type: 'tool',
+          id: 'RunCommand',
+          summary: 'Tool access: RunCommand',
+          action: {
+            kind: 'instruction' as const,
+            text: 'Reformulate the command, then resume the job.',
+          },
+        },
+      ],
+    };
+    const sources = [
+      undefined,
+      'final_setup',
+      'permission_denied',
+      'permission_timeout',
+      'partial_recovery',
+    ] as const;
+    for (const source of sources) {
+      const sendMessage = vi.fn(async () => undefined);
+      const delivered = await notifySchedulerSetupRequired({
+        job: makeJob({ name: 'Card check' }),
+        setupState: toolSetupState,
+        ...(source ? { source } : {}),
+        sendMessage,
+      });
+      expect(delivered).toBe(true);
+      const options = sendMessage.mock.calls[0]?.[2] as
+        | { actionAffordances?: Array<{ kind: string; label: string }> }
+        | undefined;
+      const affordances = options?.actionAffordances ?? [];
+      expect(affordances.length).toBeGreaterThanOrEqual(1);
+      expect(
+        affordances.some((action) => action.kind === 'scheduler_pause_job'),
+      ).toBe(true);
+      // Never a durable-grant button on a tool-denial pause card (0134).
+      expect(
+        affordances.every(
+          (action) =>
+            action.kind === 'scheduler_pause_job' ||
+            action.kind === 'scheduler_retry_ask',
+        ),
+      ).toBe(true);
+      if (source === 'permission_denied' || source === 'permission_timeout') {
+        expect(affordances[0]).toMatchObject({
+          kind: 'scheduler_retry_ask',
+          label: 'Allow once for this run',
+        });
+      }
+    }
+    // Non-tool blockers still carry Pause but no retry-and-ask.
+    const sendMessage = vi.fn(async () => undefined);
+    await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Card check' }),
+      setupState: {
+        ...toolSetupState,
+        fingerprint: 'fp-credential',
+        blockers: [
+          { ...toolSetupState.blockers[0], type: 'credential' as const },
+        ],
+      },
+      sendMessage,
+    });
+    const options = sendMessage.mock.calls[0]?.[2] as {
+      actionAffordances?: Array<{ kind: string }>;
+    };
+    expect(options.actionAffordances).toEqual([
+      expect.objectContaining({ kind: 'scheduler_pause_job' }),
+    ]);
+  });
+
   it('sends setup-required notifications with plain user actions', async () => {
     const sendMessage = vi.fn(async () => undefined);
     const setupState: JobSetupState = {

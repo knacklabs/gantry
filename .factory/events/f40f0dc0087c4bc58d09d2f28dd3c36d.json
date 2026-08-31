@@ -1,0 +1,1 @@
+{"event": "stage-done", "generated_by": "implementer", "at": "2026-08-31T16:38:02+00:00", "story": "CARDFIX-1", "detail": "CARDFIX-1-T1 Pause stories carry real actions: retry-and-ask + real Pause job, neutral layer"}

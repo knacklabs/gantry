@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0124-9389",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Companion outage (openai/codex remote-compact 404, 7 consecutive delegate kills 11:14-13:55Z; CLI updated 0.151.0, config levers exhausted; owner ruled 'degraded window - you implement it'). CARDFIX-1-T1 part A: neutral types, router, handler, IPC retry-ask executor, pause-story affordances.",
+  "started_at": "2026-08-31T14:57:36+00:00",
+  "completed_at": "2026-08-31T15:00:18+00:00",
+  "files": []
+}

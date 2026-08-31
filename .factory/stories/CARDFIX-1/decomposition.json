@@ -1,0 +1,120 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "story": "CARDFIX-1",
+  "epic": "permission-engine",
+  "plan_contracts": [
+    {
+      "id": "CARDFIX-1-AC1",
+      "statement": "every formatSchedulerSetupStory delivery reaches the channel with at least one working action affordance, on all four providers, via the neutral affordance path; no pause/setup message is ever sent action-less.",
+      "source": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria"
+    },
+    {
+      "id": "CARDFIX-1-AC2",
+      "statement": "the compound-command denial card offers exactly Allow-once-for-this-run (retry-and-ask) and Pause job, and never a durable-grant button (0134 holds); the retry runs the job once in ask mode and is idempotent per pause story.",
+      "source": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria"
+    },
+    {
+      "id": "CARDFIX-1-AC3",
+      "statement": "tapping each offered action performs its effect through the neutral router \u2014 retry-and-ask starts one fresh run, Pause job pauses the job (same-channel approver authorized) \u2014 unit-tested per action; provider render covered by the existing per-provider affordance tests.",
+      "source": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria"
+    },
+    {
+      "id": "CARDFIX-1-AC4",
+      "statement": "existing unit and Postgres integration suites pass; tsc and check:architecture green.",
+      "source": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "CARDFIX-1-T1",
+      "title": "Pause stories carry real actions: retry-and-ask + real Pause job, neutral layer",
+      "objective": "Attach action affordances to every pause/setup story delivery in the neutral layer (notification route already forwards them); add scheduler_retry_ask (one-shot rerun in ask mode; the compound arrives as the normal ask-and-wait card, approval is the existing once-grant, nothing persisted) and make scheduler_pause_job a real pause (callback variant + router + handler, same-channel approver); providers only consume the neutral callback.",
+      "acceptance_criteria": [
+        "every formatSchedulerSetupStory delivery reaches the channel with at least one working action affordance, on all four providers, via the neutral affordance path; no pause/setup message is ever sent action-less.",
+        "the compound-command denial card offers exactly Allow-once-for-this-run (retry-and-ask) and Pause job, and never a durable-grant button (0134 holds); the retry runs the job once in ask mode and is idempotent per pause story.",
+        "tapping each offered action performs its effect through the neutral router \u2014 retry-and-ask starts one fresh run, Pause job pauses the job (same-channel approver authorized) \u2014 unit-tested per action; provider render covered by the existing per-provider affordance tests.",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green."
+      ],
+      "user_facing": true,
+      "depends_on": [],
+      "write_scope": [
+        "apps/core/src/domain/message-actions.ts",
+        "apps/core/src/jobs/",
+        "apps/core/src/application/jobs/",
+        "apps/core/src/app/bootstrap/",
+        "apps/core/src/channels/telegram/callback-handlers.ts",
+        "apps/core/src/channels/slack/channel-message-action-handler.ts",
+        "apps/core/src/channels/discord/interactions.ts",
+        "apps/core/src/channels/teams/message-actions.ts",
+        "apps/core/test/",
+        "apps/core/src/channels/slack/message-action-affordances.ts",
+        "apps/core/src/channels/telegram/message-action-affordances.ts",
+        "apps/core/src/channels/discord/components.ts",
+        "apps/core/src/channels/teams/cards.ts",
+        "apps/core/src/channels/telegram/scheduler-callback.ts",
+        "apps/core/src/channels/discord/scheduler-interactions.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "delivers every pause story with at least one action affordance",
+          "path": "apps/core/test/unit/jobs/execution-notifications.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "retry-and-ask starts exactly one fresh run in ask mode and is idempotent",
+          "path": "apps/core/test/unit/application/scheduler-message-actions.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "pause job action pauses the job for a same-channel approver",
+          "path": "apps/core/test/unit/application/scheduler-message-actions.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "plan_contracts": [
+        {
+          "id": "CARDFIX-1-AC1",
+          "statement": "every formatSchedulerSetupStory delivery reaches the channel with at least one working action affordance, on all four providers, via the neutral affordance path; no pause/setup message is ever sent action-less.",
+          "source": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria"
+        },
+        {
+          "id": "CARDFIX-1-AC2",
+          "statement": "the compound-command denial card offers exactly Allow-once-for-this-run (retry-and-ask) and Pause job, and never a durable-grant button (0134 holds); the retry runs the job once in ask mode and is idempotent per pause story.",
+          "source": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria"
+        },
+        {
+          "id": "CARDFIX-1-AC3",
+          "statement": "tapping each offered action performs its effect through the neutral router \u2014 retry-and-ask starts one fresh run, Pause job pauses the job (same-channel approver authorized) \u2014 unit-tested per action; provider render covered by the existing per-provider affordance tests.",
+          "source": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria"
+        },
+        {
+          "id": "CARDFIX-1-AC4",
+          "statement": "existing unit and Postgres integration suites pass; tsc and check:architecture green.",
+          "source": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria"
+        }
+      ],
+      "reviewer_focus": [
+        "Neutral only: affordances built where the story is built; providers ONLY consume the neutral callback (owner directive \u2014 no provider-specific handlers).",
+        "0134 holds: never a durable-grant button for a compound; retry-and-ask persists nothing and the per-run ask override applies to exactly one run (0115 fresh retry; 0121 untouched).",
+        "Double delivery: the approver-route exclusion (execution-readiness.ts:216) must keep the durable setup card and the notification route from showing buttons twice.",
+        "Idempotency: one-shot key per pause story (setup fingerprint hash pattern, setup-pause-permission-wiring.ts:230); a tapped retry must not stack runs.",
+        "Slack buttons: unique index-suffixed action_ids (fix #458) \u2014 keep using slackMessageActionBlocks, never hand-built blocks.",
+        "If the per-run ask override seems to need a durable contract, raise a signal \u2014 do not invent a decision."
+      ],
+      "review_budget": {
+        "max_changed_files": 30,
+        "max_changed_lines": 1200,
+        "reason": "S-0058 widened write_scope with the four provider affordance renderer files (plus their existing tests), decision-0134 idempotency hardening from autoreview rounds 1-2, the round-3 run-scoped ask override (execution-runtime-events/execution-phases-run + tests), and two architecture-budget-forced extractions (telegram/scheduler-callback.ts, discord/scheduler-interactions.ts) \u2014 measured 29 files / 1146 lines, all inside the approved contract and reviewed across four autoreview rounds."
+      }
+    }
+  ],
+  "project": "",
+  "plan_file": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md",
+  "plan_sha256": "338bb17ef3117e40ed0c0bd9611ede808930aeb88f0365559ac83ee5e7c50dba",
+  "commit": "f1d79a1699aeda82e0d899b353f5b93633e534cf"
+}

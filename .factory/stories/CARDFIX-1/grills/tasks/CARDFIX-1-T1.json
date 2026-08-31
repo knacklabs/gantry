@@ -1,0 +1,76 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "CARDFIX-1-T1",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/application/jobs/scheduler-setup-story.ts",
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/jobs/delivery.ts",
+    "apps/core/src/jobs/execution-finalization.ts",
+    "apps/core/src/jobs/execution-readiness.ts",
+    "apps/core/src/domain/message-actions.ts",
+    "apps/core/src/app/bootstrap/channel-message-action-router.ts",
+    "apps/core/src/app/bootstrap/runtime-live-stop-message-action.ts",
+    "apps/core/src/app/bootstrap/setup-pause-permission-wiring.ts",
+    "apps/core/src/channels/telegram/callback-handlers.ts",
+    "apps/core/src/channels/slack/channel-message-action-handler.ts",
+    "apps/core/src/channels/discord/interactions.ts",
+    "apps/core/src/channels/teams/message-actions.ts",
+    "apps/core/src/channels/slack/message-action-affordances.ts",
+    "apps/core/src/channels/discord/components.ts",
+    "apps/core/src/channels/teams/cards.ts"
+  ],
+  "current_flow": "formatSchedulerSetupStory returns text only; notifyJobSetupRequired delivers it through sendJobNotification which already forwards MessageSendOptions.actionAffordances (delivery.ts:152) \u2014 no call site attaches any. scheduler_pause_job renders on all providers but MessageActionCallbackInput has no variant, so every provider answers with guidance instead of pausing. The compound denial (0134) terminalizes the run into a buttonless pause story (live: job card-check-2). The approver-route exclusion (execution-readiness.ts:216) keeps the durable setup card and the notification route from double-delivering.",
+  "criteria_map": {
+    "every formatSchedulerSetupStory delivery reaches the channel with at least one working action affordance, on all four providers, via the neutral affordance path; no pause/setup message is ever sent action-less.": "steps 1-2, 6: affordances attached at every delivered source with a >=1-action assertion; providers render via existing affordance renderers.",
+    "the compound-command denial card offers exactly Allow-once-for-this-run (retry-and-ask) and Pause job, and never a durable-grant button (0134 holds); the retry runs the job once in ask mode and is idempotent per pause story.": "steps 2, 4: compound \u21d2 [retry-and-ask, pause] only; retry-and-ask persists nothing, one-shot key per pause story.",
+    "tapping each offered action performs its effect through the neutral router \u2014 retry-and-ask starts one fresh run, Pause job pauses the job (same-channel approver authorized) \u2014 unit-tested per action; provider render covered by the existing per-provider affordance tests.": "steps 3-5, 6: router variants + handler with same-channel approver auth; provider stubs become neutral-callback dispatch; per-action unit tests.",
+    "existing unit and Postgres integration suites pass; tsc and check:architecture green.": "step 7: channels/application/jobs/domain suites, tsc, check:architecture; Postgres lane host-side."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "scheduler_retry_ask affordance kind + scheduler_pause_job/scheduler_retry_ask callback variants (owner-ruled 2026-08-31: retry-and-ask one-shot rerun in ask mode; Pause made real)."
+  ],
+  "gaps": [
+    "CARDFIX-1-T1 re-start (ledger round): Codex asked for the four provider affordance renderer files in scope (Slack/Telegram message-action-affordances, Discord components, Teams cards) to encode the new retry-and-ask button \u2014 scope widened, everything else unchanged. Go again?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Go: write_scope widened with the four renderer files (S-0058 resolved); trigger-metadata semantics for the per-run ask override stand (S-0057); neutral-only rule unchanged."
+  ],
+  "rounds": [
+    {
+      "question": "CARDFIX-1-T1 re-start (ledger round): Codex asked for the four provider affordance renderer files in scope (Slack/Telegram message-action-affordances, Discord components, Teams cards) to encode the new retry-and-ask button \u2014 scope widened, everything else unchanged. Go again?",
+      "options": [
+        "No further notes \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No further notes \u2014 go",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "pause stories deliver with no affordances anywhere",
+      "source": "apps/core/src/jobs/execution-notifications.ts:269; apps/core/src/jobs/delivery.ts:152; task plan step 2"
+    },
+    {
+      "finding": "Pause job is guidance-only on all four providers",
+      "source": "apps/core/src/domain/message-actions.ts:62; task plan steps 3-5"
+    },
+    {
+      "finding": "idempotency pattern for the one-shot retry",
+      "source": "apps/core/src/app/bootstrap/setup-pause-permission-wiring.ts:230; task plan step 4"
+    }
+  ],
+  "owner_questions": [],
+  "input_sha256": "58884712bd6c16798e2cd8be02acfbeda6c84d8026fa6567b8e0c89bb7d1b392",
+  "task_plan_sha256": "5d50cef06fa9f223278b1b39c3248aafca088a2415f9a2e53d9094c140eb8e38",
+  "recorded_at": "2026-08-31T16:23:07+00:00",
+  "commit": "f1d79a1699aeda82e0d899b353f5b93633e534cf",
+  "approved_task_plan_sha256": "5d50cef06fa9f223278b1b39c3248aafca088a2415f9a2e53d9094c140eb8e38",
+  "approved_by": "Ravi Kiran Vemula",
+  "approved_at": "2026-08-31T16:23:07+00:00"
+}

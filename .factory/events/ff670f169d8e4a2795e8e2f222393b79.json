@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-31T11:25:05+00:00", "story": "CARDFIX-1", "detail": "CARDFIX-1-T1 needs the four provider affordance renderer files (Slack message-action-affordances.ts, Telegram message-action-affordances.ts, Discord components.ts, Teams cards.ts) in write scope to en"}

@@ -23,6 +23,7 @@ import {
   truncateTelegramCallbackAnswer,
 } from './observer-digest-message.js';
 import { resolveDurableTelegramPermissionCallback } from './permission-callback.js';
+import { handleTelegramSchedulerCallback } from './scheduler-callback.js';
 import {
   TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN,
   TELEGRAM_PERMISSION_CALLBACK_PATTERN,
@@ -228,15 +229,18 @@ export async function dispatchTelegramCallback(
     return;
   }
   const compactRetryJobId = ctx.data.startsWith('r:') ? ctx.data.slice(2) : '';
-  const deadLetterActionMatch = compactRetryJobId
-    ? null
-    : TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN.exec(ctx.data);
-  if (compactRetryJobId || deadLetterActionMatch) {
+  const askRetryJobId = ctx.data.startsWith('a:') ? ctx.data.slice(2) : '';
+  const deadLetterActionMatch =
+    compactRetryJobId || askRetryJobId
+      ? null
+      : TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN.exec(ctx.data);
+  if (compactRetryJobId || askRetryJobId || deadLetterActionMatch) {
     await handleTelegramSchedulerCallback(
       channel,
       ctx,
       compactRetryJobId,
       deadLetterActionMatch,
+      askRetryJobId,
     );
     return;
   }
@@ -686,45 +690,6 @@ async function handleTelegramObserverCallback(
           );
       }
     },
-  );
-}
-
-async function handleTelegramSchedulerCallback(
-  channel: TelegramCallbackChannel,
-  ctx: TelegramCallbackContext,
-  compactRetryJobId: string,
-  deadLetterActionMatch: RegExpExecArray | null,
-): Promise<void> {
-  if (
-    compactRetryJobId ||
-    (deadLetterActionMatch?.[1] === 'retry' && deadLetterActionMatch[2])
-  ) {
-    let jobId: string;
-    try {
-      jobId = decodeURIComponent(
-        compactRetryJobId || deadLetterActionMatch![2],
-      );
-    } catch {
-      await ctx.answer('Invalid scheduler action.', true);
-      return;
-    }
-    if (!ctx.conversationJid) return;
-    await channel.opts.onMessageAction?.({
-      kind: 'scheduler_run_now',
-      conversationJid: ctx.conversationJid,
-      ...(ctx.providerAccountId
-        ? { providerAccountId: ctx.providerAccountId }
-        : {}),
-      threadId: ctx.threadId,
-      userId: ctx.userId,
-      jobId,
-    });
-    await ctx.answer('Checking retry request.');
-    return;
-  }
-  await ctx.answer(
-    'Open the scheduler surface or use scheduler tools to run this action.',
-    true,
   );
 }
 

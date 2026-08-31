@@ -29,6 +29,7 @@ import {
 } from '../shared/system-job-identity.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import {
+  setupStoryActionAffordances,
   formatSchedulerSetupStory,
   type SchedulerSetupStorySource,
 } from '../application/jobs/scheduler-setup-story.js';
@@ -271,6 +272,9 @@ export async function notifySchedulerSetupRequired(input: {
     text: formatSchedulerSetupStory(input),
     phase: 'summary',
     runId: `setup:${input.setupState.fingerprint}`,
+    // CARDFIX-1: a pause story is never action-less. Retry-and-ask resumes the
+    // job for one asking run (0134: nothing durable is granted); Pause is real.
+    actionAffordances: setupStoryActionAffordances(input),
     sendMessage: input.sendMessage,
   });
 }
