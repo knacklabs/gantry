@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0032-6a0f",
+  "profile": "quickfix",
+  "reason": "Repair PR 424 CI blockers after rebase: provider-boundary E2E flag, clean-checkout docs, and duplicate decision id",
+  "started_at": "2026-08-19T07:18:20+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

@@ -206,9 +206,9 @@ maybeDescribe(
               status: string;
               approver_ref: string | null;
               payload_json: {
+                commandPreview?: string;
                 request?: {
                   toolName?: string;
-                  toolInputSanitized?: Record<string, unknown>;
                 };
               };
               resolution_json: Record<string, unknown>;
@@ -220,14 +220,12 @@ maybeDescribe(
             expect(interactions.rows).toEqual([
               expect.objectContaining({
                 request_id: expect.any(String),
-                status: 'resolved',
+                status: 'cancelled',
                 approver_ref: 'fixed_image',
                 payload_json: expect.objectContaining({
+                  commandPreview: COMMAND,
                   request: expect.objectContaining({
                     toolName: 'RunCommand',
-                    toolInputSanitized: expect.objectContaining({
-                      command: COMMAND,
-                    }),
                   }),
                 }),
                 resolution_json: expect.objectContaining({

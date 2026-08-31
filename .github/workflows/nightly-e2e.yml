@@ -112,13 +112,15 @@ jobs:
 
       # Real-model turn: supplementary signal — the hermetic agent-e2e already
       # ran above. Self-skips when bwrap is unavailable (runner can't sandbox
-      # the SDK child) or the key is absent. The key reaches ONLY this step's env.
+      # the SDK child) or the Claude Code setup token is absent. The token
+      # reaches ONLY this step's env.
       - name: Agent E2E turn (real model)
         env:
           E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
+          AGENT_E2E_EVIDENCE_DIR: /tmp/gantry-agent-e2e-evidence
         run: |
           if [ -z "$E2E_MODEL_API_KEY" ]; then
-            echo "::notice::E2E_MODEL_API_KEY is unavailable; skipping the real-model turn."
+            echo "::notice::E2E_ANTHROPIC_API_KEY is unavailable; skipping the real-model turn."
             exit 0
           fi
           set -o pipefail
@@ -128,6 +130,37 @@ jobs:
           fi
           export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
           timeout 900s env LOG_LEVEL=fatal CI=true npm run test:e2e:agent:turn 2>&1 | tee -a /tmp/vitest.log
+
+      # Real Slack lane: a dedicated test user posts to the dedicated channel,
+      # then the test observes the Gantry bot reply in the same thread. These
+      # tenant credentials are intentionally absent from PR CI.
+      - name: Agent E2E Slack (real tenant)
+        env:
+          E2E_MODEL_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
+          E2E_SLACK_USER_TOKEN: ${{ secrets.E2E_SLACK_USER_TOKEN }}
+          E2E_SLACK_BOT_TOKEN: ${{ secrets.E2E_SLACK_BOT_TOKEN }}
+          E2E_SLACK_APP_TOKEN: ${{ secrets.E2E_SLACK_APP_TOKEN }}
+          E2E_SLACK_CHANNEL_NAME: agent-e2e-channel
+          AGENT_E2E_EVIDENCE_DIR: /tmp/gantry-agent-e2e-evidence
+        run: |
+          if [ -z "$E2E_MODEL_API_KEY" ] || [ -z "$E2E_SLACK_USER_TOKEN" ] || [ -z "$E2E_SLACK_BOT_TOKEN" ] || [ -z "$E2E_SLACK_APP_TOKEN" ]; then
+            echo "::notice::Slack E2E secrets are unavailable; skipping the real Slack lane."
+            exit 0
+          fi
+          if ! command -v bwrap >/dev/null || ! command -v socat >/dev/null; then
+            echo "::warning::bwrap/socat unavailable; skipping the real Slack lane."
+            exit 0
+          fi
+          export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
+          timeout 900s env LOG_LEVEL=fatal CI=true npm run test:e2e:agent:slack 2>&1 | tee -a /tmp/vitest.log
+
+      - name: Upload agent E2E evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-agent-e2e-evidence
+          path: /tmp/gantry-agent-e2e-evidence
+          if-no-files-found: ignore
 
       - name: Debug hang context
         if: ${{ always() && steps.tests.outcome != 'success' }}
