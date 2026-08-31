@@ -1,0 +1,24 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Spec grill R1a \u2014 family-breadth boundary: 'Allow curl \u21d2 curl with anything' is clear for network/read tools. Should the SAME family breadth apply to destructive binaries (rm, dd, git push --force, sudo\u2026), or do those stay exact-argv/per-ask?",
+      "options": [
+        "Family for all, risk-gated (Recommended)",
+        "Family breadth for every binary",
+        "Family only for a safe list"
+      ],
+      "chosen": "Family for all, risk-gated (Recommended)"
+    },
+    {
+      "question": "Spec grill R1b \u2014 does killing the 'Setup needed' message also apply to NON-tool blockers (missing credential, capability install, channel setup) that today carry grantable setup actions on that card?",
+      "options": [
+        "Yes \u2014 one card for all needs (Recommended)",
+        "No \u2014 tools only for now"
+      ],
+      "chosen": "Yes \u2014 one card for all needs (Recommended)"
+    }
+  ],
+  "at": "2026-08-31T17:52:16.408550+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

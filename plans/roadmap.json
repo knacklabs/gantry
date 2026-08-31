@@ -2468,8 +2468,26 @@
       "completed_at": "2026-08-30T08:47:21+00:00",
       "history": ".factory/stories/JOBPERM-3/",
       "outcome": "Answered job permission cards now behave like chat prompts. When every request on a card is allowed, the card is deleted on Telegram, Slack and Discord (with a short approved receipt if the delete fails), and on Teams it becomes a one-line receipt card with no buttons. Requests that expired show as 'Expired: <command>' lines instead of lingering buttons; a denied request still keeps its live card row with one-tap Reconsider, as decision 0144 requires. The shared card record carries the retire outcome and the delete/receipt markers, so a retried delivery never deletes or edits twice and a recorded marker can never be rewritten. The Postgres once-card test now runs like a live job (delivered card, scheduler slot held), which is what exposed the ordering bug behind the earlier hang."
+    },
+    {
+      "key": "CARDSIMPLE-1",
+      "title": "One permission surface, family-wide grants",
+      "story": "CARDSIMPLE-1",
+      "acceptance_criteria": [
+        "one canonical permission card is the only surface for every blocked-need class on all four providers",
+        "Allow records a shared-synthesizer family rule; rails gate the exact command; pipes never get Allow",
+        "late taps record the decision, reply once with Run now, and never fan out triggers",
+        "suites, tsc and architecture green"
+      ],
+      "order": 114,
+      "status": "pending",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/cardsimple-1-one-permission-surface.md"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-31T16:42:50+00:00"
+  "updated_at": "2026-08-31T18:35:43+00:00"
 }

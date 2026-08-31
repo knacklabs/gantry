@@ -1,0 +1,31 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Grill R2a \u2014 the Pause job button (shipped in CARDFIX-1 on the prose card): keep it as an action on the canonical permission card, or drop it entirely (a job blocked on a need is already paused; Deny just leaves it paused)?",
+      "options": [
+        "Drop it (Recommended)",
+        "Keep Pause job on the card"
+      ],
+      "chosen": "Drop it (Recommended)"
+    },
+    {
+      "question": "Grill R2b \u2014 who gets the card? Today prose notifications go to ALL configured notification routes, while permission prompts go only to the approver route. Under one-card, who sees it?",
+      "options": [
+        "Approver route only (Recommended)",
+        "Project to every route"
+      ],
+      "chosen": "Approver route only (Recommended)"
+    },
+    {
+      "question": "Grill R2c \u2014 ratify two corrections Codex proved against the code: (1) PIPED commands never get an Allow button at all (reformulation-only \u2014 0134/0144 already mandate this; my draft wrongly offered Allow-once); retry-and-ask remains the compound-row action for paused jobs. (2) 'Risk-gated family' needs a real mechanism: rails evaluate the exact command BEFORE a family match is honored; a rail hit asks, and that Allow is once-only.",
+      "options": [
+        "Ratify both (Recommended)",
+        "Discuss further"
+      ],
+      "chosen": "Ratify both (Recommended)"
+    }
+  ],
+  "at": "2026-08-31T18:29:43.738702+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
