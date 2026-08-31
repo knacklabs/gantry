@@ -84,7 +84,7 @@ beforeEach(() => {
   vi.resetAllMocks();
 });
 
-it('maps required credential names without secret values', async () => {
+it('redacts skill inventory and rejects viewer mutations', async () => {
   const viewer = {
     appId: 'app:one',
     userId: 'user:viewer',
