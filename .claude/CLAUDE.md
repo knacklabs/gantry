@@ -17,10 +17,10 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 - `./forge delegate <task-id>` composes the brief and runs the installed companion
   with a fixed shell-free argv, deriving `--write` from stage state.
   Allowlisted direct read-only status/resume/task calls pass; writes route to delegate.
-- WATCH it: `./forge codex status` (still moving?) and Monitor
-  `.factory/signals.jsonl` — workers raise contradiction/confusion/blocked/
-  scope-change and PAUSE; `./forge signal resolve <id> --notes "<answer>"`, then
-  resume. `stage done` MEASURES the diff; partial work is `--incomplete "<gap>"`.
+- WATCH it EVERY time — every Codex release (delegate AND the read-only grill),
+  never fire-and-forget: `./forge codex status` + Monitor `.factory/signals.jsonl`;
+  workers raise contradiction/confusion/blocked/scope-change and PAUSE — `./forge
+  signal resolve <id>`, then resume. `stage done` MEASURES the diff; partial work is `--incomplete "<gap>"`.
 - PARALLELIZE whenever separation allows: `./forge roadmap parallel` → one
   worktree + companion per unblocked story. Tasks inside a story stay sequential;
   parallel work belongs in separate story worktrees (WORKFLOW.md Concurrency).
@@ -30,8 +30,8 @@ Read `AGENTS.md` first; it is the contract. Standards live in `constitution/`
 ## Ground rules
 - Session write lock always armed: PLAN MODE never unlocks product/canon; delegate
   writes, or during a companion outage `forge mode degraded start --reason`. Grill
-  (`/grill-me`) BEFORE approval, loop rounds until clean; the human reviews the plan
-  on the BOARD (not chat), then `./forge plan approve --by "<name>"` + re-save — only its marker approves.
+  (`/grill-me`) via a fresh read-only Codex `gpt-5.6-terra` @ xhigh cold-read every round (you authored it — never a Claude sub-agent, never inline) and WATCH that run; loop until clean AND stable; the plan then shows on the BOARD, the human reviews it THERE (not chat) and approves
+  EXACTLY ONCE — `./forge plan approve --by "<name>"` + re-save. Never approve before convergence, or twice.
 - Decisions: `./forge decision new <slug>`; acceptance is HUMAN chat
   confirmation — then run accept/sign-off yourself, `--by "<name>"` + trailer.
 - Recording sign-off requires confirmed specs and their derived roadmap.

@@ -23,6 +23,12 @@
     --shipped: #2f6b4f;   /* forest */
     --build:   #3b4c8a;   /* indigo */
     --ready:   #a8741a;   /* ochre  */
+    --done-surface: #dfeee5;   /* completed graph card */
+    --done-ink: #183f2d;
+    --active-surface: #f4cf57; /* unmistakable in-progress yellow */
+    --active-ink: #3f2d00;
+    --ready-surface: #dfe7fa;  /* unlocked and ready to build */
+    --ready-ink: #263969;
     --stone:   #9a938a;
     --rule:    #1a17141f; /* hairline, ink @ 12% */
     --wash:    #1a17140a;
@@ -39,6 +45,8 @@
     --mono:  ui-monospace, "SF Mono", Consolas, monospace;
 
     --enter: cubic-bezier(.32,.72,0,1);
+    --ease-out: cubic-bezier(.23,1,.32,1);
+    --ease-in-out: cubic-bezier(.77,0,.175,1);
     --gutter: clamp(.75rem, 2.2vw, 1.75rem);
   }
   @media (prefers-color-scheme: dark) {
@@ -54,6 +62,12 @@
       --shipped: #5fa37e;
       --build:   #8296d8;
       --ready:   #d9a441;
+      --done-surface: #244536;
+      --done-ink: #d9f0e2;
+      --active-surface: #765f18;
+      --active-ink: #fff4bd;
+      --ready-surface: #28365f;
+      --ready-ink: #e3eaff;
       --stone:   #6b6459;
       --rule:    #f0ece424; /* cream @ 14% */
       --wash:    #f0ece40a;
@@ -333,6 +347,286 @@
   }
   .dependency-facts b { color: var(--ink); font-weight: 600; }
   .overview-empty { color: var(--muted); font-family: var(--serif); }
+
+  /* ── dependency DAG ─────────────────────────────────────────────────
+     The board's one deliberately futuristic gesture: authored roadmap
+     dependencies become a signal map. The chrome stays in the same solid,
+     editorial language; precision routing and motion carry the character. */
+  .dag-intro {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 1rem 2rem; padding: 1.25rem 0 .85rem;
+  }
+  .dag-intro h2 {
+    font: 400 clamp(1.25rem, 2.2vw, 1.75rem)/1.15 var(--serif);
+    color: var(--accent); letter-spacing: -.01em;
+  }
+  .dag-intro p { margin-top: .35rem; color: var(--muted); max-width: 48rem; }
+  .dag-legend {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: .55rem 1rem; flex-wrap: wrap; color: var(--muted);
+    font: .64rem/1.3 var(--mono); white-space: nowrap;
+  }
+  .dag-legend span { display: inline-flex; align-items: center; gap: .35rem; }
+  .dag-legend i { width: 18px; height: 2px; background: var(--rule); }
+  .dag-legend .upstream { background: var(--accent); }
+  .dag-legend .downstream { background: var(--build); }
+
+  .dag-shell {
+    overflow: hidden; background: var(--surface); border: 1px solid var(--rule);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+  }
+  .dag-toolbar {
+    display: flex; align-items: center; gap: .6rem 1rem; min-height: 3.2rem;
+    padding: .6rem .75rem .6rem 1rem; border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .dag-back {
+    flex: none; padding-inline: .7rem; color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  .dag-status {
+    flex: 1; min-width: 12rem; color: var(--muted); font-size: .76rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dag-status b { color: var(--ink); font-weight: 600; }
+  .dag-actions { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+  .dag-control {
+    min-width: 2rem; padding-inline: .6rem; text-transform: none;
+    letter-spacing: .02em; font-family: var(--mono);
+  }
+  .dag-control:active { transform: scale(.96); }
+  .dag-control:disabled { opacity: .34; cursor: default; pointer-events: none; }
+  .dag-zoom { min-width: 3.1rem; text-align: center; color: var(--muted); font: .66rem/1 var(--mono); }
+
+  .dag-viewport {
+    position: relative; height: clamp(31rem, 68vh, 46rem); overflow: hidden;
+    background: var(--surface-2); touch-action: none; cursor: grab;
+    isolation: isolate; user-select: none; perspective: 900px;
+  }
+  .dag-viewport.is-panning { cursor: grabbing; }
+  .dag-viewport.is-zooming { cursor: zoom-in; }
+  .dag-viewport:focus-visible { outline-offset: -3px; }
+  .dag-shell.is-switching .dag-node { pointer-events: none; }
+  .dag-world {
+    position: absolute; left: 0; top: 0; transform-origin: 0 0;
+    will-change: transform; contain: layout style;
+  }
+  .dag-scene {
+    position: absolute; inset: 0; transform-style: preserve-3d;
+    transform-origin: var(--origin-x, 50%) var(--origin-y, 68px);
+    will-change: transform, opacity;
+  }
+  .dag-scene::before {
+    content: ""; position: absolute; z-index: 0; pointer-events: none;
+    left: var(--origin-x, 50%); top: var(--origin-y, 50%);
+    width: var(--globe-diameter, 520px); aspect-ratio: 1; border-radius: 50%;
+    background: transparent;
+    border: 1px solid #8f2d3724;
+    box-shadow: inset -22px -16px 48px #28223908, 0 28px 90px #2822390e;
+    opacity: 0; transform: translate(-50%, -50%) scale(.72);
+    transition: opacity 86.6667ms var(--ease-out), transform 206.6667ms var(--ease-in-out);
+  }
+  .dag-shell.is-forming:not(.is-unfolding) .dag-scene::before {
+    opacity: .86; transform: translate(-50%, -50%) scale(1);
+  }
+  .dag-shell.is-unfolding .dag-scene::before {
+    opacity: 0; transform: translate(-50%, -50%) scale(1.08);
+  }
+  .dag-depths, .dag-nodes, .dag-edges { position: absolute; inset: 0; }
+  .dag-depths { z-index: 1; }
+  .dag-edges { z-index: 2; }
+  .dag-nodes { z-index: 3; }
+  .dag-depth {
+    position: absolute; left: 0; right: 0; height: 1px;
+    border-top: 1px solid var(--rule); pointer-events: none;
+    transform-origin: left center;
+  }
+  .dag-depth span {
+    position: absolute; left: 1rem; top: .55rem;
+    font: 600 .54rem/1 var(--mono); letter-spacing: .14em;
+    text-transform: uppercase; color: var(--faint);
+  }
+  .dag-shell.is-forming .dag-depth { opacity: 0; transform: scaleX(0); }
+  .dag-shell.is-unfolding .dag-depth {
+    animation: dag-guide-form var(--depth-duration, 226.6667ms) var(--ease-out) both;
+    animation-delay: var(--depth-delay, 0ms);
+  }
+  .dag-edges { overflow: visible; pointer-events: none; }
+  .dag-edge, .dag-signal, .dag-globe-edge {
+    fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round;
+    stroke-linejoin: round; shape-rendering: geometricPrecision;
+  }
+  .dag-globe-edge {
+    stroke: var(--accent); stroke-width: 1.5; opacity: 0;
+  }
+  .dag-edge {
+    stroke: var(--stone); stroke-width: 1.15; opacity: .42;
+    transition: stroke 180ms var(--ease-out), opacity 180ms var(--ease-out),
+                stroke-width 180ms var(--ease-out);
+  }
+  .dag-signal {
+    stroke: transparent; stroke-width: 1.15; opacity: 0;
+    stroke-dasharray: 12 84; stroke-dashoffset: 96;
+  }
+  .dag-edge.is-upstream { stroke: var(--accent); stroke-width: 2.35; opacity: 1; }
+  .dag-edge.is-downstream { stroke: var(--build); stroke-width: 2.35; opacity: 1; }
+  .dag-edge.is-dim { opacity: .055; }
+  .dag-signal.is-upstream, .dag-signal.is-downstream {
+    opacity: .96; animation: dag-signal-flow 1080ms linear infinite;
+  }
+  .dag-signal.is-upstream {
+    stroke: var(--accent-ink);
+  }
+  .dag-signal.is-downstream {
+    stroke: var(--accent-ink);
+  }
+  .dag-shell.is-forming .dag-edge { opacity: 0; }
+  .dag-shell.is-unfolding .dag-edge {
+    stroke-dasharray: var(--edge-length, 1);
+    stroke-dashoffset: var(--edge-length, 1);
+    animation: dag-edge-form var(--edge-duration, 240ms) var(--ease-out) both;
+    animation-delay: var(--edge-delay, 0ms);
+  }
+  .dag-shell.is-forming .dag-signal { animation: none; opacity: 0; }
+  @keyframes dag-signal-flow { to { stroke-dashoffset: 0; } }
+
+  .dag-node {
+    position: absolute; display: flex; align-items: center; justify-content: center;
+    width: 240px; height: 66px; padding: .5rem .9rem; cursor: pointer;
+    text-align: center; isolation: isolate;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+    transform-origin: center;
+    transition: border-color 160ms ease, background-color 180ms ease,
+                color 180ms ease, box-shadow 220ms var(--ease-out),
+                opacity 180ms var(--ease-out), transform 220ms var(--ease-out);
+  }
+  .dag-node:active { transform: scale(.96); }
+  .dag-node-title {
+    position: relative; z-index: 2; width: 100%;
+    overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3; color: var(--ink); font-size: .72rem;
+    font-weight: 620; line-height: 1.22; letter-spacing: -.005em;
+    transition: color 180ms ease, transform 220ms var(--ease-out);
+  }
+  .dag-node[data-state="shipped"] {
+    background: var(--done-surface); border-color: var(--shipped);
+  }
+  .dag-node[data-state="shipped"] .dag-node-title {
+    color: var(--done-ink);
+  }
+  .dag-node[data-state="shipped"] .dag-port {
+    background: var(--done-surface); border-color: var(--shipped);
+  }
+  .dag-node[data-state="building"] {
+    background: var(--active-surface); border-color: var(--ready);
+  }
+  .dag-node[data-state="building"] .dag-node-title {
+    color: var(--active-ink);
+  }
+  .dag-node[data-state="building"] .dag-port {
+    background: var(--active-surface); border-color: var(--ready);
+  }
+  .dag-node[data-state="ready"] {
+    background: var(--ready-surface); border-color: var(--build);
+  }
+  .dag-node[data-state="ready"] .dag-node-title {
+    color: var(--ready-ink);
+  }
+  .dag-node[data-state="ready"] .dag-port {
+    background: var(--ready-surface); border-color: var(--build);
+  }
+  .dag-node-wave {
+    position: absolute; inset: -5px; z-index: -1; border: 1px solid var(--accent);
+    border-radius: calc(var(--radius-sm) + 5px); opacity: 0; pointer-events: none;
+  }
+  .dag-node::before {
+    content: ""; position: absolute; inset: -7px; z-index: -1;
+    border: 1px solid var(--accent); border-radius: calc(var(--radius-sm) + 7px);
+    opacity: 0; transform: scale(.9); pointer-events: none;
+  }
+  .dag-port {
+    position: absolute; left: 50%; width: 8px; height: 8px;
+    border-radius: 2px; background: var(--surface); border: 2px solid var(--stone);
+    transform: translateX(-50%) rotate(45deg);
+    transition: border-color 180ms var(--ease-out), transform 180ms var(--ease-out);
+  }
+  .dag-port.in { top: -5px; }
+  .dag-port.out { bottom: -5px; }
+  .dag-node.is-upstream {
+    border-color: var(--accent); box-shadow: 0 0 0 1px var(--tint), var(--shadow-sm);
+  }
+  .dag-node.is-downstream {
+    border-color: var(--build); box-shadow: 0 0 0 1px var(--wash), var(--shadow-sm);
+  }
+  .dag-node.is-selected {
+    z-index: 5; border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 5px var(--accent),
+                0 22px 42px #1a17142e;
+    transform: scale(1.08);
+  }
+  .dag-node.is-selected .dag-port {
+    border-color: var(--accent);
+    transform: translateX(-50%) rotate(45deg) scale(1.35);
+  }
+  .dag-node.is-selected::before {
+    animation: dag-node-broadcast 1.65s var(--ease-out) infinite;
+  }
+  .dag-node.is-igniting .dag-node-wave {
+    animation: dag-node-shock 920ms var(--ease-out) both;
+  }
+  .dag-node.is-dim { opacity: .13; }
+  .dag-node.is-upstream .dag-port { border-color: var(--accent); }
+  .dag-node.is-downstream .dag-port { border-color: var(--build); }
+  .dag-shell.is-forming .dag-node { pointer-events: none; transition: none; }
+  @media (hover: hover) and (pointer: fine) {
+    .dag-node.is-hovered:not(.is-selected) {
+      z-index: 4; border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent), 0 18px 38px #1a171426;
+      transform: scale(1.055);
+      will-change: transform;
+    }
+    .dag-node.is-hovered:not(.is-selected)::before {
+      animation: dag-node-radar 900ms var(--ease-out) infinite;
+    }
+    .dag-node.is-selected.is-hovered { transform: scale(1.095); will-change: transform; }
+  }
+  @keyframes dag-guide-form {
+    from { opacity: 0; transform: scaleX(0); }
+    to { opacity: 1; transform: scaleX(1); }
+  }
+  @keyframes dag-edge-form {
+    from { opacity: 0; stroke-dashoffset: var(--edge-length, 1); }
+    35% { opacity: .86; }
+    to { opacity: .42; stroke-dashoffset: 0; }
+  }
+  @keyframes dag-node-radar {
+    from { opacity: .72; transform: scale(.9); }
+    to { opacity: 0; transform: scale(1.24); }
+  }
+  @keyframes dag-node-broadcast {
+    0%, 42% { opacity: 0; transform: scale(.94); }
+    58% { opacity: .72; }
+    100% { opacity: 0; transform: scale(1.24); }
+  }
+  @keyframes dag-node-shock {
+    from { opacity: .95; transform: scale(.84); }
+    to { opacity: 0; transform: scale(1.62); }
+  }
+  .dag-level-empty {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    padding: clamp(2rem, 8vw, 6rem); text-align: center; cursor: default;
+  }
+  .dag-level-empty > div { max-width: 34rem; }
+  .dag-level-empty .kind {
+    display: inline-flex; margin-bottom: .85rem; color: var(--accent);
+  }
+  .dag-level-empty h3 {
+    font: 400 clamp(1.2rem, 2.5vw, 1.65rem)/1.2 var(--serif);
+    color: var(--ink); margin-bottom: .45rem;
+  }
+  .dag-level-empty p { color: var(--muted); line-height: 1.55; }
+  .dag-empty { padding: 2rem 0; color: var(--muted); font-family: var(--serif); }
 
   /* ── lanes ────────────────────────────────────────────────────────── */
   .lane { padding-block: .1rem .35rem; }
@@ -809,6 +1103,17 @@
     .colhead .bn::before { content: "\25C6"; font-size: .6rem; }
     .card-title { display: none; }
     .rail { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem .4rem; }
+    .dag-intro { align-items: flex-start; flex-direction: column; }
+    .dag-legend { justify-content: flex-start; }
+    .dag-toolbar { align-items: flex-start; flex-direction: column; }
+    .dag-status {
+      display: -webkit-box; width: 100%; min-width: 0; min-height: 2.6em;
+      overflow: hidden; white-space: normal; line-height: 1.3;
+      -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    }
+    .dag-actions { width: 100%; }
+    .dag-control[data-dag-open] { margin-left: auto; }
+    .dag-viewport { height: 70vh; }
   }
 
   /* ── motion budget ────────────────────────────────────────────────── */
@@ -818,6 +1123,12 @@
       animation-duration: 1ms !important;
       animation-iteration-count: 1 !important;
       scroll-behavior: auto !important;
+    }
+    .dag-signal.is-upstream, .dag-signal.is-downstream {
+      animation: none !important; stroke-dasharray: none;
+    }
+    .dag-scene, .dag-node, .dag-node.is-hovered, .dag-node.is-selected {
+      transform: none !important;
     }
   }
 </style>
@@ -840,6 +1151,8 @@
               data-board-view="overview" aria-selected="true" aria-controls="overview-view">Overview</button>
       <button class="board-view" type="button" role="tab"
               data-board-view="lifecycle" aria-selected="false" aria-controls="lifecycle-view">Lifecycle</button>
+      <button class="board-view" type="button" role="tab"
+              data-board-view="dependencies" aria-selected="false" aria-controls="dependencies-view">Dependencies</button>
     </nav>
 
     <div id="lifecycle-controls" hidden>
@@ -874,12 +1187,53 @@
     <div id="lanes"></div>
     <div id="empty" class="empty" hidden></div>
   </section>
+  <section id="dependencies-view" hidden role="tabpanel" aria-label="Story dependencies">
+    <div class="dag-intro">
+      <div>
+        <h2 id="dag-title">Story dependency map</h2>
+        <p id="dag-description">Every arrow is authored roadmap data. Hover to preview a dependency signal;
+           select a story to lock its full path and read it in detail.</p>
+      </div>
+      <div class="dag-legend" aria-label="Dependency path legend">
+        <span><i class="upstream" aria-hidden="true"></i> prerequisites</span>
+        <span><i class="downstream" aria-hidden="true"></i> unlocks</span>
+        <span><i aria-hidden="true"></i> other dependency</span>
+      </div>
+    </div>
+    <div id="dag-shell" class="dag-shell">
+      <div class="dag-toolbar">
+        <button class="ghost dag-control dag-back" type="button" data-dag-back hidden>← Stories</button>
+        <p id="dag-status" class="dag-status" aria-live="polite">Loading dependency map…</p>
+        <div class="dag-actions" aria-label="Dependency map controls">
+          <button class="ghost dag-control" type="button" data-dag-camera data-dag-reset aria-label="Return to dependency root">Root</button>
+          <button class="ghost dag-control" type="button" data-dag-camera data-dag-fit aria-label="Fit dependency map">Fit</button>
+          <button class="ghost dag-control" type="button" data-dag-camera data-dag-zoom="out" aria-label="Zoom out">−</button>
+          <span id="dag-zoom" class="dag-zoom" aria-hidden="true">100%</span>
+          <button class="ghost dag-control" type="button" data-dag-camera data-dag-zoom="in" aria-label="Zoom in">+</button>
+          <button class="ghost dag-control" type="button" data-dag-open hidden>Read story ↗</button>
+        </div>
+      </div>
+      <div id="dag-viewport" class="dag-viewport" tabindex="0"
+           role="region" aria-label="Interactive read-only story dependency map">
+        <div id="dag-world" class="dag-world">
+          <div id="dag-scene" class="dag-scene">
+            <div id="dag-depths" class="dag-depths" aria-hidden="true"></div>
+            <svg id="dag-edges" class="dag-edges" aria-hidden="true"></svg>
+            <div id="dag-nodes" class="dag-nodes"></div>
+          </div>
+        </div>
+        <div id="dag-level-empty" class="dag-level-empty" hidden role="status"></div>
+      </div>
+    </div>
+    <p id="dag-empty" class="dag-empty" hidden>No roadmap stories yet. Dependencies appear after the roadmap is derived.</p>
+  </section>
 </main>
 
 <footer class="wrap">
   <p>Read-only — this board never writes. Work happens in your session: ask what is next, and
      approve plans in chat, because the grill is bound by digest to the exact plan text.</p>
   <p id="lifecycle-footer" hidden>A card sits in the column it is waiting on. ★ marks one you can plan now.</p>
+  <p id="dependencies-footer" hidden>Read-only — selecting a node traces its authored dependency path; it never changes the roadmap.</p>
 </footer>
 
 <div id="scrim" hidden></div>
@@ -897,6 +1251,8 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 // on the next poll without a reload — no change listener needed.
 const REDUCE = matchMedia("(prefers-reduced-motion: reduce)");
 const ENTER = "cubic-bezier(.32,.72,0,1)";
+const EASE_OUT = "cubic-bezier(.23,1,.32,1)";
+const EASE_IN_OUT = "cubic-bezier(.77,0,.175,1)";
 
 /* Minimal markdown for what plans actually use. Input is escaped FIRST, so
    nothing here can inject — the patterns only add tags around safe text. */
@@ -1497,17 +1853,1280 @@ function renderOverview(state) {
     <section class="overview-question"><h2>What is this project?</h2><div class="overview-answer">${projectAnswer}</div></section>`;
 }
 
+/* ═══ dependency DAG — authored roadmap edges, never inferred writes ═══ */
+const DAG_NODE_W = 240;
+const DAG_NODE_H = 66;
+const DAG_X_GAP = 24;
+const DAG_Y_STEP = 142;
+const DAG_X_PAD = 116;
+const DAG_Y_PAD = 68;
+const DAG_SVG = "http://www.w3.org/2000/svg";
+const DAG_GLOBE_ROTATION_RADIANS = Math.PI / 2;
+const DAG_GLOBE_SPEED = 3;
+const DAG_GLOBE_TOTAL_MS = (520 + 1480 + 920) / DAG_GLOBE_SPEED;
+const DAG_GLOBE_ASSEMBLE_MS = DAG_GLOBE_TOTAL_MS * .24;
+const DAG_GLOBE_ROTATE_START_MS = DAG_GLOBE_TOTAL_MS * .08;
+const DAG_GLOBE_ROTATE_MS = DAG_GLOBE_TOTAL_MS * .68;
+const DAG_GLOBE_UNFOLD_START_MS = DAG_GLOBE_TOTAL_MS * .62;
+const DAG_GLOBE_UNFOLD_MS = DAG_GLOBE_TOTAL_MS * .38;
+const DAG_GLOBE_CURVE_STEPS = [0, 1 / 3, 2 / 3, 1];
+const DAG = {
+  mode: "stories", sourceState: null, taskStoryKey: null,
+  signature: "", layout: null, nodes: new Map(), edges: [],
+  selected: null, hovered: null,
+  view: {x: 0, y: 0, scale: 1}, animation: null,
+  springFrame: 0, zoomFrame: 0, wheel: null,
+  drag: null, needsReset: true, entryPending: true,
+  entranceFrame: 0, entranceSchedule: 0, entranceState: "idle", entranceRun: 0,
+  entryTarget: null, returnView: null, returnFocusKey: null,
+  modeAnimation: null, transitionRun: 0,
+  hoverTimer: 0,
+  lastZoomText: "",
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+function preferredDagStory(state, stories = state.stories || []) {
+  const byKey = new Map(stories.map(story => [story.key, story]));
+  const run = state.run || {};
+  const runKey = run.issue_key || run.story;
+  const runStory = byKey.get(runKey);
+  const terminalPhases = new Set(["shipped", "pr-ready", "done", "complete"]);
+  // A shipped run pointer may remain available for evidence. It is not active
+  // work, so it must never outrank an unlocked frontier story on entry.
+  if (runStory && runStory.status === "active" && runStory.state !== "shipped"
+      && !terminalPhases.has(run.phase)) return runStory.key;
+  const active = stories.find(story => story.status === "active"
+    && story.state !== "shipped");
+  if (active) return active.key;
+  const unlocked = (state.frontier || []).find(key => byKey.get(key)?.ready_to_plan);
+  return unlocked || stories.find(story => story.ready_to_plan)?.key || null;
+}
+
+function dagTaskVisualState(task) {
+  const state = task.state || task.status || "skeleton";
+  if (state === "done") return "shipped";
+  if (state === "active" || state === "await-merge") return "building";
+  if (["ready", "grilled", "await-approval", "author-task-plan"].includes(state)) {
+    return "ready";
+  }
+  return "waiting";
+}
+
+function effectiveDagTaskDependencies(tasks, index) {
+  const explicit = tasks[index].dependencies;
+  if (Array.isArray(explicit) && explicit.length) return explicit;
+  // This is the execution contract used by factory_lib.task_dependencies:
+  // an omitted/empty list keeps decomposition order by waiting on its predecessor.
+  return index ? [tasks[index - 1].id] : [];
+}
+
+function taskDagItems(story) {
+  const tasks = story && story.tasks || [];
+  const ids = new Set(tasks.map(task => task.id));
+  return tasks.map((task, index) => ({
+    key: task.id,
+    title: task.title,
+    state: dagTaskVisualState(task),
+    taskState: task.state || task.status || "skeleton",
+    depends_on: effectiveDagTaskDependencies(tasks, index).filter(key => ids.has(key)),
+    epic: story.epic,
+    kind: "task",
+  }));
+}
+
+function layoutDag(stories, epics) {
+  const byKey = new Map(stories.map((story, index) => [story.key, {...story, roadmapIndex: index}]));
+  const children = new Map(stories.map(story => [story.key, []]));
+  const indegree = new Map(stories.map(story => [story.key, 0]));
+  for (const story of stories) {
+    for (const parent of story.depends_on || []) {
+      if (!byKey.has(parent)) continue;
+      children.get(parent).push(story.key);
+      indegree.set(story.key, indegree.get(story.key) + 1);
+    }
+  }
+
+  // Kahn order gives the depth its graph meaning: one row is one more
+  // prerequisite hop from a root, never an arbitrary roadmap "wave".
+  const queue = stories.filter(story => indegree.get(story.key) === 0)
+    .map(story => story.key);
+  const depth = new Map(queue.map(key => [key, 0]));
+  const visited = new Set();
+  while (queue.length) {
+    const key = queue.shift();
+    visited.add(key);
+    for (const child of children.get(key) || []) {
+      depth.set(child, Math.max(depth.get(child) || 0, (depth.get(key) || 0) + 1));
+      indegree.set(child, indegree.get(child) - 1);
+      if (indegree.get(child) === 0) queue.push(child);
+    }
+  }
+  // Roadmap validation rejects cycles; this fallback keeps a damaged local
+  // file inspectable rather than making the board itself disappear.
+  for (const story of stories) if (!visited.has(story.key)) depth.set(story.key, 0);
+
+  const layers = new Map();
+  for (const story of stories) {
+    const row = depth.get(story.key) || 0;
+    if (!layers.has(row)) layers.set(row, []);
+    layers.get(row).push(story);
+  }
+  const epicOrder = new Map((epics || []).map((epic, index) => [epic.id, index]));
+  const maxDepth = Math.max(0, ...layers.keys());
+  const maxCount = Math.max(1, ...[...layers.values()].map(layer => layer.length));
+  const contentWidth = maxCount * DAG_NODE_W + (maxCount - 1) * DAG_X_GAP;
+  const width = contentWidth + DAG_X_PAD * 2;
+  const height = DAG_Y_PAD + (maxDepth + 1) * DAG_Y_STEP + DAG_NODE_H + 42;
+  const positions = new Map();
+  const orderedLayers = [];
+
+  for (let row = 0; row <= maxDepth; row++) {
+    const layer = (layers.get(row) || []).slice();
+    layer.sort((a, b) => {
+      const parentCentre = story => {
+        const parents = (story.depends_on || []).map(key => positions.get(key)).filter(Boolean);
+        return parents.length
+          ? parents.reduce((sum, item) => sum + item.x + DAG_NODE_W / 2, 0) / parents.length
+          : Number.POSITIVE_INFINITY;
+      };
+      const aCentre = parentCentre(a), bCentre = parentCentre(b);
+      if (aCentre !== bCentre) return aCentre - bCentre;
+      return (epicOrder.get(a.epic) ?? 999) - (epicOrder.get(b.epic) ?? 999)
+        || byKey.get(a.key).roadmapIndex - byKey.get(b.key).roadmapIndex;
+    });
+    const layerWidth = layer.length * DAG_NODE_W + Math.max(0, layer.length - 1) * DAG_X_GAP;
+    const startX = (width - layerWidth) / 2;
+    layer.forEach((story, index) => positions.set(story.key, {
+      x: startX + index * (DAG_NODE_W + DAG_X_GAP),
+      y: DAG_Y_PAD + row * DAG_Y_STEP,
+      depth: row,
+    }));
+    orderedLayers.push(layer);
+  }
+
+  const edges = [];
+  for (const story of stories) {
+    for (const parent of story.depends_on || []) {
+      if (positions.has(parent)) edges.push({from: parent, to: story.key});
+    }
+  }
+  // A stable Fibonacci sphere gives the same story nodes a temporary 3D
+  // topology for the entry sequence. It is a presentation state only; the
+  // final positions above remain the authored dependency layout.
+  const globeCenter = {x: width / 2, y: height / 2};
+  const radius = Math.min(300, Math.max(220, Math.min(width * .21, height * .31)));
+  const globeRadius = {x: radius, y: radius, z: radius};
+  const globePositions = new Map();
+  const globeVectors = new Map();
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  stories.forEach((story, index) => {
+    const latitude = 1 - (2 * (index + .5)) / stories.length;
+    const ring = Math.sqrt(Math.max(0, 1 - latitude * latitude));
+    const angle = goldenAngle * index;
+    const vector = {
+      x: Math.cos(angle) * ring,
+      y: latitude,
+      z: Math.sin(angle) * ring,
+    };
+    globeVectors.set(story.key, vector);
+    globePositions.set(story.key, {
+      x: globeCenter.x + vector.x * radius,
+      y: globeCenter.y + vector.y * radius,
+      z: vector.z * radius,
+    });
+  });
+  return {
+    byKey, children, positions, orderedLayers, edges, width, height, maxDepth,
+    globeCenter, globeRadius, globePositions, globeVectors,
+  };
+}
+
+function dagEdgePath(from, to) {
+  const sx = from.x + DAG_NODE_W / 2;
+  const sy = from.y + DAG_NODE_H;
+  const tx = to.x + DAG_NODE_W / 2;
+  const ty = to.y;
+  const pull = Math.min(76, Math.max(38, (ty - sy) * .42));
+  return `M ${sx} ${sy} C ${sx} ${sy + pull}, ${tx} ${ty - pull}, ${tx} ${ty}`;
+}
+
+const dagEaseOutCubic = value => 1 - Math.pow(1 - clamp(value, 0, 1), 3);
+const dagEaseInOutCubic = value => {
+  const t = clamp(value, 0, 1);
+  return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+};
+const dagMix = (from, to, progress) => from + (to - from) * progress;
+
+function dagSlerp(from, to, progress) {
+  const dot = clamp(from.x * to.x + from.y * to.y + from.z * to.z, -.9999, .9999);
+  const omega = Math.acos(dot);
+  const sine = Math.sin(omega);
+  if (sine < .001) {
+    const x = dagMix(from.x, to.x, progress);
+    const y = dagMix(from.y, to.y, progress);
+    const z = dagMix(from.z, to.z, progress);
+    const length = Math.hypot(x, y, z) || 1;
+    return {x: x / length, y: y / length, z: z / length};
+  }
+  const fromWeight = Math.sin((1 - progress) * omega) / sine;
+  const toWeight = Math.sin(progress * omega) / sine;
+  return {
+    x: from.x * fromWeight + to.x * toWeight,
+    y: from.y * fromWeight + to.y * toWeight,
+    z: from.z * fromWeight + to.z * toWeight,
+  };
+}
+
+function projectDagGlobePoint(vector, turn = 0, radiusScale = 1) {
+  const {globeCenter, globeRadius} = DAG.layout;
+  // The yaw is strictly bounded from 0 → π/2. The fixed pitch exposes depth
+  // without adding a second animated axis or continuing past a quarter-turn.
+  const yaw = turn * DAG_GLOBE_ROTATION_RADIANS;
+  const pitch = -.105 * Math.PI;
+  const cosYaw = Math.cos(yaw), sinYaw = Math.sin(yaw);
+  const yawX = vector.x * cosYaw + vector.z * sinYaw;
+  const yawZ = -vector.x * sinYaw + vector.z * cosYaw;
+  const cosPitch = Math.cos(pitch), sinPitch = Math.sin(pitch);
+  const y = vector.y * cosPitch - yawZ * sinPitch;
+  const z = vector.y * sinPitch + yawZ * cosPitch;
+  const perspective = 2.9 / (2.9 - z);
+  return {
+    x: globeCenter.x + yawX * globeRadius.x * radiusScale * perspective,
+    y: globeCenter.y + y * globeRadius.y * radiusScale * perspective,
+    z,
+    depth: clamp((z + 1) / 2, 0, 1),
+  };
+}
+
+function dagGlobeEdgeVectors(edge) {
+  const from = DAG.layout.globeVectors.get(edge.from);
+  const to = DAG.layout.globeVectors.get(edge.to);
+  return DAG_GLOBE_CURVE_STEPS.map(progress => dagSlerp(from, to, progress));
+}
+
+function dagGlobeEdgePoints(edge, turn = 0, radiusScale = 1) {
+  const vectors = edge.globeVectors || dagGlobeEdgeVectors(edge);
+  return vectors.map(vector => projectDagGlobePoint(vector, turn, radiusScale));
+}
+
+function dagFinalEdgePoints(edge) {
+  const from = DAG.layout.positions.get(edge.from);
+  const to = DAG.layout.positions.get(edge.to);
+  const sx = from.x + DAG_NODE_W / 2, sy = from.y + DAG_NODE_H;
+  const tx = to.x + DAG_NODE_W / 2, ty = to.y;
+  const pull = Math.min(76, Math.max(38, (ty - sy) * .42));
+  return [
+    {x: sx, y: sy},
+    {x: sx, y: sy + pull},
+    {x: tx, y: ty - pull},
+    {x: tx, y: ty},
+  ];
+}
+
+function dagCubicPath(points) {
+  const [start, controlA, controlB, end] = points;
+  return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${controlA.x.toFixed(1)} ${controlA.y.toFixed(1)}, ${controlB.x.toFixed(1)} ${controlB.y.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+}
+
+function dagGlobeEdgePath(edge, turn = 0, radiusScale = 1) {
+  return dagCubicPath(dagGlobeEdgePoints(edge, turn, radiusScale));
+}
+
+function dagPathSets(key) {
+  const layout = DAG.layout;
+  const ancestors = new Set(), descendants = new Set();
+  if (!layout || !key) return {ancestors, descendants};
+  const upstream = [...((layout.byKey.get(key) || {}).depends_on || [])];
+  while (upstream.length) {
+    const parent = upstream.pop();
+    if (!layout.byKey.has(parent) || ancestors.has(parent)) continue;
+    ancestors.add(parent);
+    upstream.push(...((layout.byKey.get(parent) || {}).depends_on || []));
+  }
+  const downstream = [...(layout.children.get(key) || [])];
+  while (downstream.length) {
+    const child = downstream.pop();
+    if (descendants.has(child)) continue;
+    descendants.add(child);
+    downstream.push(...(layout.children.get(child) || []));
+  }
+  return {ancestors, descendants};
+}
+
+function updateDagStatus(pathSets = dagPathSets(DAG.hovered || DAG.selected),
+                         activeKey = DAG.hovered || DAG.selected) {
+  const items = (DAG.layout && DAG.layout.byKey) || new Map();
+  const totalEdges = (DAG.layout && DAG.layout.edges.length) || 0;
+  const isTasks = DAG.mode === "tasks";
+  const noun = isTasks ? "task" : "story";
+  const pluralNoun = isTasks ? "tasks" : "stories";
+  if (isTasks && !items.size) {
+    $("dag-status").innerHTML = "<b>No recorded tasks</b> · the graph forms after decomposition";
+  } else if (activeKey && items.has(activeKey)) {
+    const prerequisites = pathSets.ancestors.size;
+    const downstream = pathSets.descendants.size;
+    const item = items.get(activeKey);
+    const preview = DAG.hovered && DAG.hovered !== DAG.selected ? " · click to lock" : "";
+    $("dag-status").innerHTML = `<b>${esc(item.title || activeKey)}</b> · ${prerequisites} prerequisite${prerequisites === 1 ? "" : "s"} · ${downstream} downstream ${downstream === 1 ? noun : pluralNoun}${preview}`;
+  } else {
+    const dependencyWord = isTasks ? "effective" : "authored";
+    $("dag-status").innerHTML = `<b>${items.size}</b> ${items.size === 1 ? noun : pluralNoun} · <b>${totalEdges}</b> ${dependencyWord} dependencies · build flows top → bottom`;
+  }
+  const open = document.querySelector("[data-dag-open]");
+  open.hidden = isTasks ? !DAG.taskStoryKey : !DAG.selected;
+  if (!open.hidden) open.textContent = "Story details ↗";
+  setDagZoomLabel(DAG.view.scale);
+}
+
+function applyDagSelection() {
+  const activeKey = DAG.hovered || DAG.selected;
+  const pathSets = dagPathSets(activeKey);
+  for (const [key, node] of DAG.nodes) {
+    const selected = key === DAG.selected;
+    const hovered = key === DAG.hovered;
+    const upstream = pathSets.ancestors.has(key);
+    const downstream = pathSets.descendants.has(key);
+    node.classList.toggle("is-selected", selected);
+    node.classList.toggle("is-hovered", hovered);
+    node.classList.toggle("is-upstream", upstream);
+    node.classList.toggle("is-downstream", downstream);
+    node.classList.toggle("is-dim", Boolean(activeKey) && key !== activeKey
+      && !selected && !upstream && !downstream);
+    node.setAttribute("aria-pressed", String(selected));
+  }
+  for (const edge of DAG.edges) {
+    const upstream = pathSets.ancestors.has(edge.from)
+      && (pathSets.ancestors.has(edge.to) || edge.to === activeKey);
+    const downstream = (edge.from === activeKey || pathSets.descendants.has(edge.from))
+      && pathSets.descendants.has(edge.to);
+    edge.base.classList.toggle("is-upstream", upstream);
+    edge.base.classList.toggle("is-downstream", downstream);
+    edge.base.classList.toggle("is-dim", Boolean(activeKey) && !upstream && !downstream);
+    edge.signal.classList.toggle("is-upstream", upstream);
+    edge.signal.classList.toggle("is-downstream", downstream);
+  }
+  updateDagStatus(pathSets, activeKey);
+}
+
+function setDagHovered(key, defer = false) {
+  if (DAG.hoverTimer) clearTimeout(DAG.hoverTimer);
+  DAG.hoverTimer = 0;
+  const commit = () => {
+    DAG.hoverTimer = 0;
+    if (DAG.hovered === key) return;
+    DAG.hovered = key;
+    applyDagSelection();
+  };
+  // A short leave grace period prevents a one-frame flash when the pointer
+  // crosses a curved edge, port, or the narrow gap between adjacent cards.
+  if (defer) DAG.hoverTimer = setTimeout(commit, 56);
+  else commit();
+}
+
+function setDagLevelChrome(story = null) {
+  const isTasks = DAG.mode === "tasks";
+  $("dag-shell").dataset.level = isTasks ? "tasks" : "stories";
+  $("dag-title").textContent = isTasks
+    ? `${story && story.key || "Story"} task graph`
+    : "Story dependency map";
+  $("dag-description").textContent = isTasks
+    ? `${story && story.title || "This story"} — every connection follows the recorded task execution contract.`
+    : "Every arrow is authored roadmap data. Hover to preview a dependency signal; select a story to trace it, then double-click to open its task graph.";
+  document.querySelector("[data-dag-back]").hidden = !isTasks;
+  document.querySelector("[data-dag-reset]").setAttribute("aria-label",
+    isTasks ? "Return to task graph root" : "Return to story dependency root");
+  document.querySelector(".dag-actions").setAttribute("aria-label",
+    isTasks ? "Task dependency map controls" : "Story dependency map controls");
+  $("dag-viewport").setAttribute("aria-label", isTasks
+    ? `Interactive read-only task dependency map for ${story && story.key || "story"}`
+    : "Interactive read-only story dependency map");
+  $("dependencies-footer").textContent = isTasks
+    ? "Read-only — task selection only traces the recorded execution path; it never changes a task or story."
+    : "Read-only — a single click traces the story; double-click opens its recorded task graph. Nothing here changes the roadmap.";
+}
+
+function setDagCameraDisabled(disabled) {
+  document.querySelectorAll("[data-dag-camera]").forEach(button => {
+    button.disabled = disabled;
+  });
+}
+
+function renderDagLevelEmpty(story) {
+  const empty = $("dag-level-empty");
+  if (DAG.mode !== "tasks") { empty.hidden = true; return; }
+  const planned = Boolean(story && (story.lifecycle || {}).planned);
+  empty.innerHTML = `<div>${kindLabel("STORY")}
+    <h3>No task graph yet</h3>
+    <p>${planned
+      ? "This story is planned, but no tasks have been recorded yet. They will appear here after decomposition."
+      : "Tasks will appear here after this story is planned and decomposed."}</p></div>`;
+  empty.hidden = false;
+}
+
+function renderDag(state) {
+  DAG.sourceState = state;
+  const roadmapStories = state.stories || [];
+  DAG.entryTarget = preferredDagStory(state, roadmapStories);
+  const taskStory = DAG.mode === "tasks"
+    ? roadmapStories.find(story => story.key === DAG.taskStoryKey) : null;
+  const stories = DAG.mode === "tasks" ? taskDagItems(taskStory) : roadmapStories.map(story => ({
+    key: story.key, title: story.title, epic: story.epic, state: story.state,
+    status: story.status, ready_to_plan: story.ready_to_plan,
+    depends_on: story.depends_on || [], unblocks: story.unblocks || [], kind: "story",
+  }));
+  const relevant = stories.map(story => ({
+    key: story.key, title: story.title, epic: story.epic, state: story.state,
+    taskState: story.taskState, depends_on: story.depends_on || [],
+    unblocks: story.unblocks || [],
+  }));
+  const signature = JSON.stringify({mode: DAG.mode, taskStoryKey: DAG.taskStoryKey,
+    entryTarget: DAG.entryTarget, stories: relevant,
+    epics: DAG.mode === "stories" ? state.epics || [] : []});
+  if (signature === DAG.signature) return;
+  const entranceInterrupted = DAG.mode === "stories"
+    && (DAG.entranceState !== "idle" || DAG.entranceSchedule);
+  if (entranceInterrupted) {
+    cancelDagEntrance(false);
+    stopDagMotion();
+    DAG.entryPending = true;
+  }
+  DAG.signature = signature;
+  setDagLevelChrome(taskStory);
+  const roadmapEmpty = DAG.mode === "stories" && stories.length === 0;
+  $("dag-shell").hidden = roadmapEmpty;
+  $("dag-empty").hidden = !roadmapEmpty;
+  $("dag-world").hidden = stories.length === 0;
+  setDagCameraDisabled(stories.length === 0);
+  if (!stories.length) {
+    DAG.layout = null; DAG.nodes.clear(); DAG.edges = [];
+    DAG.selected = null; DAG.hovered = null;
+    if (DAG.mode === "stories") DAG.entryPending = true;
+    setDagView({x: 0, y: 0, scale: 1});
+    renderDagLevelEmpty(taskStory);
+    updateDagStatus();
+    return;
+  }
+  $("dag-level-empty").hidden = true;
+
+  const previousWidth = DAG.layout && DAG.layout.width;
+  const previousHeight = DAG.layout && DAG.layout.height;
+  DAG.layout = layoutDag(stories, DAG.mode === "stories" ? state.epics || [] : []);
+  const {layout} = DAG;
+  const world = $("dag-world");
+  world.style.width = `${layout.width}px`;
+  world.style.height = `${layout.height}px`;
+  $("dag-scene").style.setProperty("--origin-x", `${layout.globeCenter.x}px`);
+  $("dag-scene").style.setProperty("--origin-y", `${layout.globeCenter.y}px`);
+  $("dag-scene").style.setProperty("--globe-diameter", `${layout.globeRadius.x * 2}px`);
+  $("dag-depths").innerHTML = layout.orderedLayers.map((_, row) => {
+    const depthProgress = layout.maxDepth ? row / layout.maxDepth : 0;
+    const depthDelay = depthProgress * DAG_GLOBE_UNFOLD_MS * .22;
+    const depthDuration = DAG_GLOBE_UNFOLD_MS * .68;
+    return `<div class="dag-depth" style="top:${DAG_Y_PAD + row * DAG_Y_STEP - 28}px;--depth-delay:${depthDelay}ms;--depth-duration:${depthDuration}ms"><span>${row ? `hop ${String(row).padStart(2, "0")}` : "origin"}</span></div>`;
+  }).join("");
+
+  const svg = $("dag-edges");
+  svg.setAttribute("viewBox", `0 0 ${layout.width} ${layout.height}`);
+  svg.setAttribute("width", String(layout.width));
+  svg.setAttribute("height", String(layout.height));
+  svg.innerHTML = `<defs><marker id="dag-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 7 4 L 0 7 z" fill="context-stroke"></path></marker></defs>`;
+  DAG.edges = layout.edges.map((edge, edgeIndex) => {
+    const globeVectors = dagGlobeEdgeVectors(edge);
+    const data = dagEdgePath(layout.positions.get(edge.from), layout.positions.get(edge.to));
+    const globeData = dagGlobeEdgePath({...edge, globeVectors}, 0, .76);
+    const globe = document.createElementNS(DAG_SVG, "path");
+    globe.setAttribute("class", "dag-globe-edge");
+    globe.setAttribute("d", globeData);
+    const base = document.createElementNS(DAG_SVG, "path");
+    base.setAttribute("class", "dag-edge");
+    base.setAttribute("d", data);
+    base.setAttribute("marker-end", "url(#dag-arrow)");
+    const signal = document.createElementNS(DAG_SVG, "path");
+    signal.setAttribute("class", "dag-signal");
+    signal.setAttribute("d", data);
+    svg.append(globe, base, signal);
+    const length = Math.ceil(base.getTotalLength());
+    const edgeDepth = layout.positions.get(edge.to).depth;
+    const edgeProgress = layout.maxDepth ? edgeDepth / layout.maxDepth : 0;
+    const edgeDelay = edgeProgress * DAG_GLOBE_UNFOLD_MS * .24;
+    base.style.setProperty("--edge-length", String(length));
+    base.style.setProperty("--edge-delay", `${edgeDelay}ms`);
+    base.style.setProperty("--edge-duration", `${DAG_GLOBE_UNFOLD_MS * .64}ms`);
+    return {
+      ...edge, index: edgeIndex, globeVectors, globe, base, signal,
+      finalPoints: dagFinalEdgePoints(edge),
+    };
+  });
+
+  const nodes = $("dag-nodes");
+  nodes.replaceChildren();
+  DAG.nodes.clear();
+  for (const [storyIndex, story] of stories.entries()) {
+    const position = layout.positions.get(story.key);
+    const node = document.createElement("button");
+    node.type = "button";
+    node.className = "dag-node";
+    node.dataset.key = story.key;
+    node.dataset.state = story.state;
+    node.dataset.kind = story.kind || "story";
+    if (DAG.mode === "stories") node.dataset.storyKey = story.key;
+    node.dataset.globeIndex = String(storyIndex);
+    node.style.left = `${position.x}px`;
+    node.style.top = `${position.y}px`;
+    const parents = (story.depends_on || []).filter(key => layout.byKey.has(key));
+    const unlocks = layout.children.get(story.key) || [];
+    node.innerHTML = `<span class="dag-port in" aria-hidden="true"></span>
+      <span class="dag-node-title">${esc(story.title || "")}</span>
+      <span class="dag-node-wave" aria-hidden="true"></span>
+      <span class="dag-port out" aria-hidden="true"></span>`;
+    const kind = DAG.mode === "tasks" ? "Task" : "Story";
+    const stateWord = DAG.mode === "tasks"
+      ? story.taskState || story.state : STATE_WORD[story.state] || story.state;
+    const action = DAG.mode === "tasks"
+      ? "Select to trace its dependency path."
+      : "Select to trace its dependency path. Double-click or press Enter to open its task dependency graph.";
+    node.setAttribute("aria-label", `${kind} ${story.key}${story.title ? " — " + story.title : ""}. ${stateWord}. ${parents.length} prerequisites and ${unlocks.length} direct downstream ${unlocks.length === 1 ? kind.toLowerCase() : `${kind.toLowerCase()}s`}. ${action}`);
+    node.setAttribute("aria-pressed", "false");
+    node.addEventListener("pointerenter", event => {
+      if (event.pointerType === "touch") return;
+      setDagHovered(story.key);
+    });
+    node.addEventListener("pointerleave", () => {
+      if (DAG.hovered === story.key) setDagHovered(null, true);
+    });
+    node.addEventListener("focus", () => {
+      setDagHovered(story.key);
+      if (node.matches(":focus-visible")) {
+        focusDagStory(story.key, !REDUCE.matches, 220);
+      }
+    });
+    node.addEventListener("blur", () => {
+      if (DAG.hovered === story.key) setDagHovered(null);
+    });
+    node.addEventListener("click", event => {
+      selectDagNode(story.key, event.detail !== 0);
+    });
+    node.addEventListener("dblclick", event => {
+      if (DAG.mode !== "stories") return;
+      event.preventDefault();
+      openDagTaskView(story.key, event.detail !== 0, node);
+    });
+    node.addEventListener("keydown", event => {
+      if (DAG.mode !== "stories" || event.key !== "Enter") return;
+      event.preventDefault();
+      openDagTaskView(story.key, false, node);
+    });
+    nodes.appendChild(node);
+    DAG.nodes.set(story.key, node);
+  }
+
+  if (DAG.selected && !layout.byKey.has(DAG.selected)) DAG.selected = null;
+  if (DAG.hovered && !layout.byKey.has(DAG.hovered)) DAG.hovered = null;
+  DAG.needsReset = DAG.needsReset || previousWidth !== layout.width || previousHeight !== layout.height;
+  const returningToStories = DAG.mode === "stories" && Boolean(DAG.returnView);
+  if (DAG.mode === "stories" && !returningToStories) {
+    DAG.entryPending = DAG.entryPending || !previousWidth;
+  }
+  applyDagSelection();
+  if (DAG.mode === "tasks" && !previousWidth) resetDagView(false);
+  if (DAG.mode === "stories" && !returningToStories
+      && document.body.dataset.view === "dependencies"
+      && DAG.entryPending) scheduleDagEntrance();
+}
+
+function dagTransform(view) {
+  return `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.scale})`;
+}
+
+function stopDagMotion() {
+  const world = $("dag-world");
+  if (DAG.animation) {
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(world).transform);
+    const current = {x: matrix.m41, y: matrix.m42, scale: Math.hypot(matrix.m11, matrix.m12) || 1};
+    DAG.animation.cancel();
+    DAG.animation = null;
+    DAG.view = current;
+    world.style.transform = dagTransform(current);
+  }
+  if (DAG.springFrame) {
+    cancelAnimationFrame(DAG.springFrame);
+    DAG.springFrame = 0;
+  }
+  if (DAG.zoomFrame) {
+    cancelAnimationFrame(DAG.zoomFrame);
+    DAG.zoomFrame = 0;
+  }
+  DAG.wheel = null;
+  $("dag-viewport").classList.remove("is-zooming");
+}
+
+function dagBounds(scale) {
+  const viewport = $("dag-viewport");
+  const width = (DAG.layout && DAG.layout.width || 0) * scale;
+  const height = (DAG.layout && DAG.layout.height || 0) * scale;
+  const margin = 48;
+  const horizontal = width <= viewport.clientWidth - margin * 2
+    ? [(viewport.clientWidth - width) / 2, (viewport.clientWidth - width) / 2]
+    : [viewport.clientWidth - width - margin, margin];
+  const vertical = height <= viewport.clientHeight - margin * 2
+    ? [(viewport.clientHeight - height) / 2, (viewport.clientHeight - height) / 2]
+    : [viewport.clientHeight - height - margin, margin];
+  return {minX: horizontal[0], maxX: horizontal[1], minY: vertical[0], maxY: vertical[1]};
+}
+
+function clampDagView(view) {
+  const scale = clamp(view.scale, .2, 1.4);
+  const bounds = dagBounds(scale);
+  return {x: clamp(view.x, bounds.minX, bounds.maxX),
+          y: clamp(view.y, bounds.minY, bounds.maxY), scale};
+}
+
+function setDagZoomLabel(scale) {
+  const text = `${Math.round(scale * 100)}%`;
+  if (text === DAG.lastZoomText) return;
+  DAG.lastZoomText = text;
+  $("dag-zoom").textContent = text;
+}
+
+function setDagView(view) {
+  DAG.view = view;
+  $("dag-world").style.transform = dagTransform(view);
+  setDagZoomLabel(view.scale);
+}
+
+function animateDagView(target, animate = true, duration = 260) {
+  stopDagMotion();
+  const from = {...DAG.view};
+  const to = clampDagView(target);
+  setDagView(to);
+  if (!animate || REDUCE.matches ||
+      (Math.abs(from.x - to.x) < .5 && Math.abs(from.y - to.y) < .5
+       && Math.abs(from.scale - to.scale) < .002)) return;
+  const animation = $("dag-world").animate([
+    {transform: dagTransform(from)},
+    {transform: dagTransform(to)},
+  ], {duration, easing: EASE_IN_OUT});
+  DAG.animation = animation;
+  const clear = () => { if (DAG.animation === animation) DAG.animation = null; };
+  animation.addEventListener("finish", clear, {once: true});
+  animation.addEventListener("cancel", clear, {once: true});
+}
+
+function fitDag(animate = true) {
+  if (!DAG.layout) return;
+  const viewport = $("dag-viewport");
+  const scale = clamp(Math.min(
+    (viewport.clientWidth - 36) / DAG.layout.width,
+    (viewport.clientHeight - 36) / DAG.layout.height,
+  ), .2, 1);
+  animateDagView({
+    x: (viewport.clientWidth - DAG.layout.width * scale) / 2,
+    y: (viewport.clientHeight - DAG.layout.height * scale) / 2,
+    scale,
+  }, animate);
+  DAG.needsReset = false;
+}
+
+function frameDagGlobe() {
+  if (!DAG.layout) return;
+  const viewport = $("dag-viewport");
+  const {globeCenter, globeRadius} = DAG.layout;
+  const sphereWidth = globeRadius.x * 2 + DAG_NODE_W * .7;
+  const sphereHeight = globeRadius.y * 2 + DAG_NODE_H * .7;
+  const rotatingDiameter = Math.max(sphereWidth, sphereHeight);
+  const scale = clamp(Math.min(
+    (viewport.clientWidth - 88) / rotatingDiameter,
+    (viewport.clientHeight - 72) / rotatingDiameter,
+  ), .28, .82);
+  animateDagView({
+    x: viewport.clientWidth / 2 - globeCenter.x * scale,
+    y: viewport.clientHeight / 2 - globeCenter.y * scale,
+    scale,
+  }, false);
+}
+
+function renderDagGlobeFrame({turn = 0, assemble = 1, unfold = 0}) {
+  if (!DAG.layout) return;
+  const radiusScale = dagMix(.74, 1, dagEaseOutCubic(assemble));
+  const projected = new Map();
+  for (const [key, vector] of DAG.layout.globeVectors) {
+    projected.set(key, projectDagGlobePoint(vector, turn, radiusScale));
+  }
+
+  for (const [key, node] of DAG.nodes) {
+    const point = projected.get(key);
+    const position = DAG.layout.positions.get(key);
+    const index = Number(node.dataset.globeIndex || 0);
+    const nodeArrival = dagEaseOutCubic(clamp(assemble * 1.34 - index * .018, 0, 1));
+    const nodeDelay = clamp(position.depth * .018 + index * .0025, 0, .24);
+    const nodeUnfold = dagEaseInOutCubic(clamp(
+      (unfold - nodeDelay) / (1 - nodeDelay), 0, 1));
+    const finalX = position.x + DAG_NODE_W / 2;
+    const finalY = position.y + DAG_NODE_H / 2;
+    const x = dagMix(point.x, finalX, nodeUnfold);
+    const y = dagMix(point.y, finalY, nodeUnfold);
+    const globeScale = (.3 + point.depth * .23) * dagMix(.38, 1, nodeArrival);
+    const scale = dagMix(globeScale, 1, nodeUnfold);
+    const globeOpacity = nodeArrival * (.12 + point.depth * .88);
+    const opacity = dagMix(globeOpacity, 1, nodeUnfold);
+
+    node.style.transform = `translate3d(${(x - finalX).toFixed(1)}px, ${(y - finalY).toFixed(1)}px, 0) scale(${scale.toFixed(3)})`;
+    node.style.opacity = opacity.toFixed(3);
+    const zIndex = String(20 + Math.round(point.depth * 8));
+    if (node.style.zIndex !== zIndex) node.style.zIndex = zIndex;
+  }
+
+  for (const edge of DAG.edges) {
+    const globePoints = dagGlobeEdgePoints(edge, turn, radiusScale);
+    const targetDepth = DAG.layout.positions.get(edge.to).depth;
+    const edgeDelay = clamp(targetDepth * .026, 0, .22);
+    const edgeUnfold = dagEaseInOutCubic(clamp(
+      (unfold - edgeDelay) / (1 - edgeDelay), 0, 1));
+    const points = globePoints.map((point, index) => ({
+      x: dagMix(point.x, edge.finalPoints[index].x, edgeUnfold),
+      y: dagMix(point.y, edge.finalPoints[index].y, edgeUnfold),
+    }));
+    const averageDepth = globePoints.reduce((sum, point) => sum + point.depth, 0)
+      / globePoints.length;
+    const edgeArrival = dagEaseOutCubic(clamp(assemble * 1.22 - edge.index * .011, 0, 1));
+    const globeFade = 1 - clamp((edgeUnfold - .7) / .3, 0, 1);
+    edge.globe.setAttribute("d", dagCubicPath(points));
+    edge.globe.style.opacity = (edgeArrival * (.12 + averageDepth * .7) * globeFade).toFixed(3);
+  }
+}
+
+function clearDagGlobeFrame() {
+  for (const node of DAG.nodes.values()) {
+    node.style.removeProperty("will-change");
+    node.style.removeProperty("transform");
+    node.style.removeProperty("opacity");
+    node.style.removeProperty("z-index");
+  }
+  for (const edge of DAG.edges) {
+    edge.globe.style.removeProperty("opacity");
+  }
+}
+
+function cancelDagEntrance(finish = true) {
+  if (DAG.entranceSchedule) cancelAnimationFrame(DAG.entranceSchedule);
+  if (DAG.entranceFrame) cancelAnimationFrame(DAG.entranceFrame);
+  DAG.entranceSchedule = 0;
+  DAG.entranceFrame = 0;
+  DAG.entranceRun += 1;
+  DAG.entranceState = "idle";
+  const shell = $("dag-shell");
+  shell.classList.remove("is-forming", "is-unfolding");
+  $("dag-viewport").removeAttribute("aria-busy");
+  clearDagGlobeFrame();
+  if (finish && DAG.layout) resetDagView(false);
+}
+
+function scheduleDagEntrance() {
+  if (DAG.mode !== "stories") return;
+  if (!DAG.layout) { DAG.entryPending = true; return; }
+  if (DAG.entranceSchedule || DAG.entranceState !== "idle") return;
+  DAG.entranceState = "scheduled";
+  DAG.entranceSchedule = requestAnimationFrame(() => {
+    DAG.entranceSchedule = 0;
+    if (document.body.dataset.view === "dependencies") playDagEntrance();
+    else DAG.entranceState = "idle";
+  });
+}
+
+function resetDagView(animate = true, duration = 260) {
+  if (!DAG.layout) return;
+  const viewport = $("dag-viewport");
+  // Start readable and at the root. "Fit" remains available for the whole-map
+  // overview; the default should not make every story label microscopic.
+  const scale = clamp((viewport.clientWidth - 56) / DAG.layout.width, .64, 1);
+  const root = DAG.layout.orderedLayers[0][0];
+  const rootPosition = root && DAG.layout.positions.get(root.key);
+  animateDagView({
+    x: rootPosition
+      ? viewport.clientWidth / 2 - (rootPosition.x + DAG_NODE_W / 2) * scale
+      : 24,
+    y: 24,
+    scale,
+  }, animate, duration);
+  DAG.needsReset = false;
+}
+
+function landDagOnEntryTarget(animate = true, duration = 420) {
+  if (DAG.entryTarget && DAG.layout && DAG.layout.positions.has(DAG.entryTarget)) {
+    focusDagStory(DAG.entryTarget, animate, duration);
+  } else {
+    resetDagView(animate, duration);
+  }
+}
+
+function selectDagEntryTarget() {
+  DAG.selected = DAG.entryTarget && DAG.layout?.byKey.has(DAG.entryTarget)
+    ? DAG.entryTarget : null;
+  applyDagSelection();
+}
+
+function playDagEntrance() {
+  if (DAG.mode !== "stories") return;
+  if (!DAG.layout) { DAG.entryPending = true; return; }
+  cancelDagEntrance(false);
+  DAG.entryPending = false;
+  DAG.needsReset = false;
+  if (DAG.hoverTimer) clearTimeout(DAG.hoverTimer);
+  DAG.hoverTimer = 0;
+  DAG.hovered = null;
+  DAG.selected = null;
+  applyDagSelection();
+  const shell = $("dag-shell");
+  if (REDUCE.matches) {
+    landDagOnEntryTarget(false);
+    selectDagEntryTarget();
+    shell.animate([{opacity: .72}, {opacity: 1}], {
+      duration: 180, easing: EASE_OUT,
+    });
+    return;
+  }
+
+  // The story graph itself assembles into a projected sphere. Its authored
+  // topology then completes exactly one 0 → π/2 Y-axis quarter-turn before those same
+  // nodes and connections unfold into their final dependency positions.
+  frameDagGlobe();
+  void shell.offsetWidth;
+  shell.classList.add("is-forming");
+  for (const node of DAG.nodes.values()) node.style.willChange = "transform, opacity";
+  $("dag-viewport").setAttribute("aria-busy", "true");
+  DAG.entranceState = "forming";
+  const run = ++DAG.entranceRun;
+  const started = performance.now();
+  let unfolding = false;
+  const total = DAG_GLOBE_TOTAL_MS;
+
+  const step = now => {
+    if (run !== DAG.entranceRun || DAG.entranceState === "idle") return;
+    const elapsed = clamp(now - started, 0, total);
+    const assemble = clamp(elapsed / DAG_GLOBE_ASSEMBLE_MS, 0, 1);
+    const rotationElapsed = elapsed - DAG_GLOBE_ROTATE_START_MS;
+    const rotationProgress = clamp(rotationElapsed / DAG_GLOBE_ROTATE_MS, 0, 1);
+    const rotation = dagEaseInOutCubic(rotationProgress);
+    const unfoldElapsed = elapsed - DAG_GLOBE_UNFOLD_START_MS;
+    const unfold = clamp(unfoldElapsed / DAG_GLOBE_UNFOLD_MS, 0, 1);
+
+    // Absolute progress—not accumulated angles—guarantees a single 0 → π/2 arc.
+    renderDagGlobeFrame({turn: rotation, assemble, unfold});
+    if (unfold > 0 && !unfolding) {
+      unfolding = true;
+      DAG.entranceState = "unfolding";
+      shell.classList.add("is-unfolding");
+      landDagOnEntryTarget(true, DAG_GLOBE_UNFOLD_MS);
+    }
+    if (elapsed < total) {
+      DAG.entranceFrame = requestAnimationFrame(step);
+      return;
+    }
+
+    DAG.entranceFrame = 0;
+    DAG.entranceState = "idle";
+    shell.classList.remove("is-forming", "is-unfolding");
+    $("dag-viewport").removeAttribute("aria-busy");
+    clearDagGlobeFrame();
+    selectDagEntryTarget();
+  };
+  DAG.entranceFrame = requestAnimationFrame(step);
+}
+
+function focusDagStory(key, animate = true, duration = 420) {
+  if (!DAG.layout || !DAG.layout.positions.has(key)) return;
+  const viewport = $("dag-viewport");
+  const position = DAG.layout.positions.get(key);
+  const scale = clamp(Math.max(DAG.view.scale, 1.02), .2, 1.25);
+  animateDagView({
+    x: viewport.clientWidth / 2 - (position.x + DAG_NODE_W / 2) * scale,
+    y: viewport.clientHeight * .46 - (position.y + DAG_NODE_H / 2) * scale,
+    scale,
+  }, animate, duration);
+}
+
+function playDagSelection(key, animate = true) {
+  if (!animate || REDUCE.matches || !DAG.layout) return;
+  const node = DAG.nodes.get(key);
+  if (!node) return;
+  node.classList.remove("is-igniting");
+  void node.offsetWidth;
+  node.classList.add("is-igniting");
+  setTimeout(() => node.classList.remove("is-igniting"), 940);
+
+  const pathSets = dagPathSets(key);
+  const centreDepth = DAG.layout.positions.get(key).depth;
+  for (const pathKey of [...pathSets.ancestors, key, ...pathSets.descendants]) {
+    const pathNode = DAG.nodes.get(pathKey);
+    const title = pathNode && pathNode.querySelector(".dag-node-title");
+    if (!title) continue;
+    const distance = Math.abs(DAG.layout.positions.get(pathKey).depth - centreDepth);
+    title.animate([
+      {opacity: .28, transform: "translate3d(0, 5px, 0)"},
+      {opacity: 1, transform: "translate3d(0, 0, 0)"},
+    ], {duration: 360, delay: Math.min(360, distance * 54), easing: EASE_OUT});
+  }
+}
+
+function selectDagNode(key, animate = true) {
+  DAG.selected = DAG.selected === key ? null : key;
+  applyDagSelection();
+  if (DAG.selected) {
+    playDagSelection(key, animate);
+    focusDagStory(key, animate);
+  }
+}
+
+function stopDagLevelTransition() {
+  DAG.transitionRun += 1;
+  if (DAG.modeAnimation) DAG.modeAnimation.cancel();
+  DAG.modeAnimation = null;
+  const scene = $("dag-scene");
+  scene.style.removeProperty("transform-origin");
+  $("dag-shell").classList.remove("is-switching");
+}
+
+function completeDagLevelSwap(mode, storyKey, animate, run) {
+  if (run !== DAG.transitionRun) return;
+  DAG.mode = mode;
+  DAG.taskStoryKey = mode === "tasks" ? storyKey : null;
+  DAG.signature = "";
+  DAG.selected = null;
+  DAG.hovered = null;
+  renderDag(DAG.sourceState || lastState || {});
+
+  if (DAG.layout) {
+    if (mode === "tasks") {
+      // Enter readable at the task root; Fit remains the deliberate overview.
+      resetDagView(false);
+    } else if (DAG.returnView) {
+      setDagView(clampDagView(DAG.returnView));
+      DAG.selected = DAG.returnFocusKey && DAG.layout.byKey.has(DAG.returnFocusKey)
+        ? DAG.returnFocusKey : DAG.entryTarget;
+      applyDagSelection();
+    } else {
+      landDagOnEntryTarget(false);
+      selectDagEntryTarget();
+    }
+  }
+
+  const finish = () => {
+    if (run !== DAG.transitionRun) return;
+    DAG.modeAnimation = null;
+    const scene = $("dag-scene");
+    scene.style.removeProperty("transform-origin");
+    $("dag-shell").classList.remove("is-switching");
+    if (mode === "tasks") {
+      const back = document.querySelector("[data-dag-back]");
+      back.scrollIntoView({block: "nearest", behavior: REDUCE.matches ? "auto" : "smooth"});
+      back.focus({preventScroll: true});
+    } else {
+      const returned = DAG.nodes.get(DAG.returnFocusKey);
+      if (returned) returned.focus({preventScroll: true});
+      DAG.returnView = null;
+      DAG.returnFocusKey = null;
+    }
+  };
+
+  if (!animate || REDUCE.matches) { finish(); return; }
+  const incomingTarget = DAG.layout ? $("dag-scene") : $("dag-level-empty");
+  const incoming = incomingTarget.animate([
+    {opacity: 0, transform: "scale(.985)"},
+    {opacity: 1, transform: "scale(1)"},
+  ], {duration: 170, easing: EASE_OUT});
+  DAG.modeAnimation = incoming;
+  incoming.addEventListener("finish", finish, {once: true});
+  incoming.addEventListener("cancel", () => {
+    if (DAG.modeAnimation === incoming) DAG.modeAnimation = null;
+  }, {once: true});
+}
+
+function swapDagLevel(mode, storyKey, animate = true, originNode = null) {
+  if (!DAG.sourceState || (mode === DAG.mode && storyKey === DAG.taskStoryKey)) return;
+  if (DAG.entranceState !== "idle" || DAG.entranceSchedule) cancelDagEntrance(false);
+  stopDagMotion();
+  if (DAG.hoverTimer) clearTimeout(DAG.hoverTimer);
+  DAG.hoverTimer = 0;
+  DAG.hovered = null;
+  stopDagLevelTransition();
+  const run = DAG.transitionRun;
+  const shell = $("dag-shell");
+  const scene = $("dag-scene");
+  const outgoingTarget = DAG.layout ? scene : $("dag-level-empty");
+  shell.classList.add("is-switching");
+  if (originNode) {
+    scene.style.transformOrigin = `${originNode.offsetLeft + DAG_NODE_W / 2}px ${originNode.offsetTop + DAG_NODE_H / 2}px`;
+  }
+
+  if (!animate || REDUCE.matches) {
+    completeDagLevelSwap(mode, storyKey, false, run);
+    return;
+  }
+  const outgoing = outgoingTarget.animate([
+    {opacity: 1, transform: "scale(1)"},
+    {opacity: 0, transform: "scale(1.025)"},
+  ], {duration: 110, easing: EASE_OUT, fill: "forwards"});
+  DAG.modeAnimation = outgoing;
+  outgoing.addEventListener("finish", () => {
+    if (run !== DAG.transitionRun) return;
+    outgoing.cancel();
+    if (DAG.modeAnimation === outgoing) DAG.modeAnimation = null;
+    completeDagLevelSwap(mode, storyKey, true, run);
+  }, {once: true});
+  outgoing.addEventListener("cancel", () => {
+    if (DAG.modeAnimation === outgoing) DAG.modeAnimation = null;
+  }, {once: true});
+}
+
+function openDagTaskView(key, animate = true, originNode = null) {
+  const story = (DAG.sourceState && DAG.sourceState.stories || [])
+    .find(candidate => candidate.key === key);
+  if (!story) return;
+  DAG.returnView = {...DAG.view};
+  DAG.returnFocusKey = key;
+  swapDagLevel("tasks", key, animate, originNode);
+}
+
+function returnDagToStories(animate = true) {
+  if (DAG.mode !== "tasks") return;
+  swapDagLevel("stories", null, animate);
+}
+
+function zoomDag(factor, animate = true, point = null) {
+  if (!DAG.layout) return;
+  stopDagMotion();
+  const viewport = $("dag-viewport");
+  const anchor = point || {x: viewport.clientWidth / 2, y: viewport.clientHeight / 2};
+  const scale = clamp(DAG.view.scale * factor, .2, 1.4);
+  const worldX = (anchor.x - DAG.view.x) / DAG.view.scale;
+  const worldY = (anchor.y - DAG.view.y) / DAG.view.scale;
+  animateDagView({x: anchor.x - worldX * scale, y: anchor.y - worldY * scale, scale}, animate);
+}
+
+function retargetDagZoom(delta, point) {
+  if (!DAG.layout) return;
+  if (REDUCE.matches) {
+    zoomDag(Math.exp(-delta * .00135), false, point);
+    return;
+  }
+  if (!DAG.wheel) {
+    stopDagMotion();
+    DAG.wheel = {
+      target: {...DAG.view}, vx: 0, vy: 0, vs: 0,
+      previous: performance.now(),
+    };
+  }
+  const motion = DAG.wheel;
+  const base = motion.target;
+  const scale = clamp(base.scale * Math.exp(-delta * .00135), .2, 1.4);
+  const worldX = (point.x - base.x) / base.scale;
+  const worldY = (point.y - base.y) / base.scale;
+  motion.target = clampDagView({
+    x: point.x - worldX * scale,
+    y: point.y - worldY * scale,
+    scale,
+  });
+  $("dag-viewport").classList.add("is-zooming");
+  if (!DAG.zoomFrame) DAG.zoomFrame = requestAnimationFrame(stepDagZoom);
+}
+
+function stepDagZoom(now) {
+  const motion = DAG.wheel;
+  if (!motion) { DAG.zoomFrame = 0; return; }
+  const dt = Math.min(.032, (now - motion.previous) / 1000);
+  motion.previous = now;
+
+  // A critically damped spring (damping 1.0, response .3s) keeps every wheel
+  // event interruptible: new input retargets the live camera without restarts.
+  const response = .3;
+  const omega = (2 * Math.PI) / response;
+  const stiffness = omega * omega;
+  const damping = 2 * omega;
+  const acceleration = (target, value, velocity) =>
+    stiffness * (target - value) - damping * velocity;
+  motion.vx += acceleration(motion.target.x, DAG.view.x, motion.vx) * dt;
+  motion.vy += acceleration(motion.target.y, DAG.view.y, motion.vy) * dt;
+  motion.vs += acceleration(motion.target.scale, DAG.view.scale, motion.vs) * dt;
+  setDagView({
+    x: DAG.view.x + motion.vx * dt,
+    y: DAG.view.y + motion.vy * dt,
+    scale: DAG.view.scale + motion.vs * dt,
+  });
+
+  const positionGap = Math.hypot(motion.target.x - DAG.view.x,
+                                 motion.target.y - DAG.view.y);
+  const scaleGap = Math.abs(motion.target.scale - DAG.view.scale);
+  if (positionGap < .18 && scaleGap < .0003
+      && Math.hypot(motion.vx, motion.vy) < 2 && Math.abs(motion.vs) < .004) {
+    setDagView(motion.target);
+    DAG.wheel = null;
+    DAG.zoomFrame = 0;
+    $("dag-viewport").classList.remove("is-zooming");
+    return;
+  }
+  DAG.zoomFrame = requestAnimationFrame(stepDagZoom);
+}
+
+function rubberband(overshoot, dimension, constant = .55) {
+  return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
+}
+
+function rubberAxis(value, min, max, dimension) {
+  if (value < min) return min + rubberband(value - min, dimension);
+  if (value > max) return max + rubberband(value - max, dimension);
+  return value;
+}
+
+function springDagPan(target, velocity) {
+  stopDagMotion();
+  const destination = clampDagView({...target, scale: DAG.view.scale});
+  let x = DAG.view.x, y = DAG.view.y;
+  let vx = velocity.x, vy = velocity.y;
+  let previous = performance.now();
+  // The animate skill's traditional spring: mass 1, stiffness 100, damping 10.
+  const step = now => {
+    const dt = Math.min(.032, (now - previous) / 1000);
+    previous = now;
+    vx += (100 * (destination.x - x) - 10 * vx) * dt;
+    vy += (100 * (destination.y - y) - 10 * vy) * dt;
+    x += vx * dt; y += vy * dt;
+    setDagView({x, y, scale: DAG.view.scale});
+    if (Math.hypot(destination.x - x, destination.y - y) < .35 && Math.hypot(vx, vy) < 4) {
+      setDagView(destination); DAG.springFrame = 0; return;
+    }
+    DAG.springFrame = requestAnimationFrame(step);
+  };
+  if (REDUCE.matches) setDagView(destination);
+  else DAG.springFrame = requestAnimationFrame(step);
+}
+
+const dagViewport = $("dag-viewport");
+dagViewport.addEventListener("pointerdown", event => {
+  if (event.button !== 0 || DAG.drag || event.target.closest(".dag-node")) return;
+  if (DAG.entranceState !== "idle") cancelDagEntrance(true);
+  stopDagMotion();
+  dagViewport.setPointerCapture(event.pointerId);
+  DAG.drag = {
+    id: event.pointerId, startX: event.clientX, startY: event.clientY,
+    viewX: DAG.view.x, viewY: DAG.view.y, moved: false,
+    history: [{x: event.clientX, y: event.clientY, time: performance.now()}],
+  };
+});
+dagViewport.addEventListener("pointermove", event => {
+  const drag = DAG.drag;
+  if (!drag || drag.id !== event.pointerId) return;
+  const dx = event.clientX - drag.startX, dy = event.clientY - drag.startY;
+  if (!drag.moved && Math.hypot(dx, dy) < 8) return;
+  drag.moved = true;
+  dagViewport.classList.add("is-panning");
+  const bounds = dagBounds(DAG.view.scale);
+  setDagView({
+    x: rubberAxis(drag.viewX + dx, bounds.minX, bounds.maxX, dagViewport.clientWidth),
+    y: rubberAxis(drag.viewY + dy, bounds.minY, bounds.maxY, dagViewport.clientHeight),
+    scale: DAG.view.scale,
+  });
+  drag.history.push({x: event.clientX, y: event.clientY, time: performance.now()});
+  if (drag.history.length > 5) drag.history.shift();
+});
+
+function endDagDrag(event, cancelled = false) {
+  const drag = DAG.drag;
+  if (!drag || drag.id !== event.pointerId) return;
+  DAG.drag = null;
+  dagViewport.classList.remove("is-panning");
+  if (dagViewport.hasPointerCapture(event.pointerId)) dagViewport.releasePointerCapture(event.pointerId);
+  if (!drag.moved) { DAG.selected = null; applyDagSelection(); return; }
+  const first = drag.history[0], last = drag.history[drag.history.length - 1];
+  const elapsed = Math.max(16, last.time - first.time) / 1000;
+  const velocity = cancelled ? {x: 0, y: 0}
+    : {x: (last.x - first.x) / elapsed, y: (last.y - first.y) / elapsed};
+  const deceleration = .99;
+  const project = value => (value / 1000) * deceleration / (1 - deceleration);
+  springDagPan({x: DAG.view.x + project(velocity.x), y: DAG.view.y + project(velocity.y)}, velocity);
+}
+dagViewport.addEventListener("pointerup", event => endDagDrag(event));
+dagViewport.addEventListener("pointercancel", event => endDagDrag(event, true));
+dagViewport.addEventListener("wheel", event => {
+  if (!event.deltaY) return;
+  event.preventDefault();
+  if (DAG.entranceState !== "idle") cancelDagEntrance(true);
+  const rect = dagViewport.getBoundingClientRect();
+  const unit = event.deltaMode === 1 ? 16
+    : event.deltaMode === 2 ? dagViewport.clientHeight : 1;
+  retargetDagZoom(event.deltaY * unit,
+                  {x: event.clientX - rect.left, y: event.clientY - rect.top});
+}, {passive: false});
+
+document.querySelector("[data-dag-fit]").addEventListener("click", event => {
+  if (DAG.entranceState !== "idle") cancelDagEntrance(false);
+  fitDag(event.detail !== 0);
+});
+document.querySelector("[data-dag-reset]").addEventListener("click", event => {
+  if (DAG.entranceState !== "idle") cancelDagEntrance(false);
+  resetDagView(event.detail !== 0);
+});
+document.querySelectorAll("[data-dag-zoom]").forEach(button => button.addEventListener("click", event => {
+  if (DAG.entranceState !== "idle") cancelDagEntrance(false);
+  zoomDag(button.dataset.dagZoom === "in" ? 1.25 : .8, event.detail !== 0);
+}));
+document.querySelector("[data-dag-open]").addEventListener("click", () => {
+  const storyKey = DAG.mode === "tasks" ? DAG.taskStoryKey : DAG.selected;
+  if (storyKey) openDrawer(storyKey,
+    DAG.mode === "tasks" ? document.querySelector("[data-dag-open]") : DAG.nodes.get(storyKey));
+});
+document.querySelector("[data-dag-back]").addEventListener("click", event => {
+  returnDagToStories(event.detail !== 0);
+});
+$("dag-shell").addEventListener("keydown", event => {
+  if (event.key === "Escape" && DAG.mode === "tasks") {
+    event.preventDefault();
+    returnDagToStories(false);
+  }
+});
+
+function restoreStoryDagForEntry() {
+  stopDagLevelTransition();
+  if (DAG.mode === "stories") return;
+  stopDagMotion();
+  DAG.mode = "stories";
+  DAG.taskStoryKey = null;
+  DAG.signature = "";
+  DAG.selected = null;
+  DAG.hovered = null;
+  DAG.returnView = null;
+  DAG.returnFocusKey = null;
+  DAG.entryPending = true;
+  renderDag(DAG.sourceState || lastState || {});
+}
+
 function showBoardView(view) {
-  if (view !== "overview" && view !== "lifecycle") return;
+  if (!(["overview", "lifecycle", "dependencies"].includes(view))) return;
+  const previousView = document.body.dataset.view;
   document.body.dataset.view = view;
   $("overview-view").hidden = view !== "overview";
   $("lifecycle-view").hidden = view !== "lifecycle";
+  $("dependencies-view").hidden = view !== "dependencies";
   $("lifecycle-controls").hidden = view !== "lifecycle";
   $("lifecycle-footer").hidden = view !== "lifecycle";
+  $("dependencies-footer").hidden = view !== "dependencies";
   document.querySelectorAll("[data-board-view]").forEach(button => {
     button.setAttribute("aria-selected",
                         String(button.dataset.boardView === view));
   });
+  if (view === "dependencies" && (previousView !== "dependencies" || DAG.entryPending)) {
+    restoreStoryDagForEntry();
+    DAG.entryPending = true;
+    scheduleDagEntrance();
+  } else if (view === "dependencies" && DAG.mode === "tasks") {
+    restoreStoryDagForEntry();
+    scheduleDagEntrance();
+  } else if (view !== "dependencies") {
+    stopDagLevelTransition();
+    if (DAG.entranceState !== "idle" || DAG.entranceSchedule) cancelDagEntrance(true);
+    DAG.entryPending = true;
+    if (DAG.hovered || DAG.hoverTimer) setDagHovered(null);
+  }
 }
 
 document.querySelectorAll("[data-board-view]").forEach(button => {
@@ -1970,6 +3589,7 @@ function render(state) {
   renderColhead();
   patchLanes(state);
   renderOverview(state);
+  renderDag(state);
   if (firstEver) requestAnimationFrame(() => $("bar").classList.add("animate"));
 }
 
@@ -2007,7 +3627,18 @@ function followHash() {
   const card = cards.get(key);
   const overviewButton = [...$("overview").querySelectorAll("[data-story-key]")]
     .find(button => button.dataset.storyKey === key);
-  const target = document.body.dataset.view === "overview" ? overviewButton : card && card.el;
+  if (document.body.dataset.view === "dependencies") {
+    const node = DAG.nodes.get(key);
+    if (!node) return;
+    DAG.selected = key;
+    applyDagSelection();
+    focusDagStory(key, false);
+    dagViewport.scrollIntoView({block: "center", behavior: "auto"});
+    openDrawer(key, node);
+    return;
+  }
+  const target = document.body.dataset.view === "overview" ? overviewButton
+    : card && card.el;
   if (!target) return;
   target.scrollIntoView({block: "center", behavior: REDUCE.matches ? "auto" : "smooth"});
   openDrawer(key, target);

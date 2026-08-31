@@ -12,13 +12,15 @@ inherits the author's blind spots and rubber-stamps the very gap it was meant to
 catch (a plan that promised an API surface can pass its own grill precisely
 because its author never scoped that surface). So if the coordinating session
 authored the plan, the JIT task contract, or the decomposition, it MUST run that
-grill in a SEPARATE agent that did not author the artifact — a fresh subagent
-(a Claude subagent via the Agent tool, or a read-only Codex pass) reading the
-plan/contract cold — rather than certify its own work inline. A Claude subagent
-is usually the better fit for planning grills: it reasons over the docs, is fully
-independent of the authoring context, and sidesteps the write-lock that gates the
-Codex companion. Interrogate as an adversary trying to break the handover, never
-as its author defending it.
+grill in a SEPARATE agent that did not author the artifact — a read-only Codex
+pass (`gpt-5.6-terra` @ xhigh, via `/codex:rescue`) reading the plan/contract
+cold — rather than certify its own work inline. Codex on `gpt-5.6-terra` @ xhigh
+is the required cold reader for planning grills: a fresh model context fully
+independent of the authoring session, and because it is read-only it never
+writes, so the write-lock that gates the write companion does not apply. Do NOT
+use a Claude sub-agent for the grill, and never grill your own work inline.
+Interrogate as an adversary trying to break the handover, never as its author
+defending it.
 
 For the two gates whose rounds are recorded from the AskUserQuestion ledger
 (`--gate plan` and `--gate task`, decision 0048), independence is a COLD READ,
@@ -26,12 +28,17 @@ not necessarily a separate process. The recorder accepts ONLY rounds that match 
 logged AskUserQuestion record (`record_grill_from_json.py`), and only the
 top-level Claude session in plan mode produces those log entries — a subagent or
 read-only Codex pass cannot. So for plan/task grills the top-level session drives
-the rounds through AskUserQuestion itself; a fresh subagent or Codex pass is still
-a legitimate way to gather independent findings first, but you must carry those
-findings back into your own AskUserQuestion rounds rather than hand the recorder a
-subagent's findings JSON (it will reject rounds that are not in the ledger). Read
-the artifact cold, as an adversary who did not write it. (The spec, signoff, and
-epics gates do not ledger-match, so a subagent grill records directly there.)
+the rounds through AskUserQuestion itself — but because the coordinating session
+authored the plan, the independent cold-read pass is MANDATORY, not optional: on
+EVERY round release a fresh READ-ONLY Codex pass (`gpt-5.6-terra` @ xhigh, via
+`/codex:rescue`) that reads the plan/contract cold and returns findings — never a
+Claude sub-agent, never grill your own work inline — then carry ONLY those
+findings into your own AskUserQuestion rounds (the recorder rejects rounds not in
+the ledger, so the top-level session must still ask). Loop Codex grill → your
+AskUserQuestion rounds → answers → Codex grill again, until a round is clean AND
+the plan is stable; only then, approve exactly once. Read cold, as an adversary
+who did not write it. (The spec, signoff, and epics gates do not ledger-match, so
+a read-only Codex grill records directly there.)
 
 Five gates, five scopes:
 
@@ -92,8 +99,8 @@ Five gates, five scopes:
   integration`), or database work ignoring `pnp-database-standards`. Flag each and
   require the plan to conform or record a deliberate, written deviation — never
   wave it through as "the implementer will follow standards later"; a plan must not
-  design AGAINST the law. (Do this whether you grill as a Claude subagent or a
-  read-only Codex pass; `constitution/` is on disk in every environment.)
+  design AGAINST the law. (`constitution/` is on disk in every environment, so the
+  read-only Codex cold-read has the law available — hold the plan to it.)
   Reconcile the plan explicitly against
   EVERY ID from `forge decision list --active`; a conflict becomes a
   contradiction signal or a superseding decision, never a silent exception.
