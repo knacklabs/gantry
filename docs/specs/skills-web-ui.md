@@ -1,7 +1,7 @@
 ---
 slug: skills-web-ui
 title: Skills Web UI Design
-status: draft
+status: confirmed
 saved: 2026-08-31T05:41:53+00:00
 ---
 

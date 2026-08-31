@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Should attaching a skill remain separate from authorizing its declared actions?",
+      "options": [
+        "Keep separate (Recommended)",
+        "Authorize on attach"
+      ],
+      "chosen": "Keep separate (Recommended)"
+    },
+    {
+      "question": "The independent cold read found no contradictions. Is the current Skills UI spec ready to confirm?",
+      "options": [
+        "Confirm spec (Recommended)",
+        "Hold spec"
+      ],
+      "chosen": "Confirm spec (Recommended)"
+    }
+  ],
+  "at": "2026-08-31T06:08:43.339696+00:00",
+  "session_id": ""
+}
