@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-31T16:37:18+00:00", "story": "CARDFIX-1", "detail": "S-0060-b2bb: Informational (same class as S-0001/S-0043): the VITEST_JUNIT wrapper is policy-refused in the managed sandbox. The orchestrator ran the literal proof host-side: full unit sweep 194 files / 2852 tests"}

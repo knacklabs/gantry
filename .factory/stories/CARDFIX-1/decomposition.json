@@ -51,7 +51,9 @@
         "apps/core/src/channels/slack/message-action-affordances.ts",
         "apps/core/src/channels/telegram/message-action-affordances.ts",
         "apps/core/src/channels/discord/components.ts",
-        "apps/core/src/channels/teams/cards.ts"
+        "apps/core/src/channels/teams/cards.ts",
+        "apps/core/src/channels/telegram/scheduler-callback.ts",
+        "apps/core/src/channels/discord/scheduler-interactions.ts"
       ],
       "required_tests": [
         {
@@ -105,14 +107,14 @@
         "If the per-run ask override seems to need a durable contract, raise a signal \u2014 do not invent a decision."
       ],
       "review_budget": {
-        "max_changed_files": 18,
-        "max_changed_lines": 1100,
-        "reason": "Neutral types + notification wiring + router/handler + four provider callback consumers + their tests (plan estimate 14-18 files)."
+        "max_changed_files": 30,
+        "max_changed_lines": 1200,
+        "reason": "S-0058 widened write_scope with the four provider affordance renderer files (plus their existing tests), decision-0134 idempotency hardening from autoreview rounds 1-2, the round-3 run-scoped ask override (execution-runtime-events/execution-phases-run + tests), and two architecture-budget-forced extractions (telegram/scheduler-callback.ts, discord/scheduler-interactions.ts) \u2014 measured 29 files / 1146 lines, all inside the approved contract and reviewed across four autoreview rounds."
       }
     }
   ],
   "project": "",
   "plan_file": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md",
   "plan_sha256": "338bb17ef3117e40ed0c0bd9611ede808930aeb88f0365559ac83ee5e7c50dba",
-  "commit": "886784c02f1b9884e1e042b37679a0f7ba89592f"
+  "commit": "f1d79a1699aeda82e0d899b353f5b93633e534cf"
 }

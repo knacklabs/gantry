@@ -1,0 +1,63 @@
+{
+  "commit": "f1d79a1699aeda82e0d899b353f5b93633e534cf",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "summary": "tsc clean; check:architecture passes; full unit sweep (channels/application/jobs/domain) 194 files / 2852 tests green incl. the required leaves: 'delivers every pause story with at least one action affordance' (AC1), 'retry-and-ask starts exactly one fresh run in ask mode and is idempotent' + 'pause job action pauses the job for a same-channel approver' (AC3) with non-approver/consumed-trigger/crash-replay cases, run-scoped ask-override spawn proof + ordinary-trigger control case, and four-provider render parity for scheduler_retry_ask/scheduler_pause_job (AC2: no durable-grant button). Postgres integration lane host-side: 8 suites / 36 tests green. verify.py passed at closeout. Design-skill lens applied to the card surface: labels state their exact effect ('Allow once for this run', 'Pause job'), one neutral vocabulary on all providers, 'already used' ack directs; no motion code introduced.",
+    "blocking_findings": [],
+    "non_blocking_findings": [],
+    "commands_run": [
+      "npx tsc --noEmit",
+      "npm run check:architecture",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/channels/ apps/core/test/unit/application/ apps/core/test/unit/jobs/ apps/core/test/unit/domain/",
+      "GANTRY_TEST_DATABASE_URL=... npx vitest run -c vitest.integration.postgres.config.ts <8 job/permission suites>",
+      "python3 factory/scripts/verify.py"
+    ],
+    "remaining_gaps": [],
+    "residual_risks": [
+      "Live provider button taps are exercised post-deploy (Slack live check scheduled with the owner); pre-merge proof is unit + mocked-provider."
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/jobs/execution-notifications.test.ts: delivers every pause story with at least one action affordance",
+      "apps/core/test/unit/application/scheduler-message-actions.test.ts: retry-and-ask starts exactly one fresh run in ask mode and is idempotent; pause job action pauses the job for a same-channel approver; non-approver rejection; consumed-trigger refusal; crash-replay",
+      "apps/core/test/unit/jobs/execution.test.ts: runs with an interactive ask override when the bound trigger is a scheduler_retry_ask tap; does not override the permission mode for an ordinary bound trigger",
+      "apps/core/test/unit/channels/provider-affordance-parity.test.ts: scheduler_retry_ask parity + Pause job labels",
+      "7 stale assertions updated across job-management/telegram/discord/teams suites"
+    ],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-31T16:42:38+00:00",
+    "commit": "f1d79a1699aeda82e0d899b353f5b93633e534cf"
+  },
+  "updated_at": "2026-08-31T16:42:38+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "passed",
+    "score": 8,
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "summary": "Pause-card behaviour proven against provider clients in the unit harness: every delivered pause/setup story carries >=1 affordance on Slack/Telegram/Discord/Teams via the neutral renderers; the compound-denial card offers exactly 'Allow once for this run' + 'Pause job' (no durable-grant button, 0134); tapping retry-and-ask through the neutral router/IPC starts exactly one fresh run whose spawn input carries permissionMode 'ask' (job definition untouched), a second tap acks 'already used', a crash-torn tap replays; Pause pauses for a same-channel approver and rejects others. Copy reviewed under the design-skill lens: labels name their exact effect, consistent across providers. Live end-to-end tap (re-trigger card-check-2 on Slack after deploy: Allow once => ask card => approve => run completes; Pause pauses) is scheduled with the owner immediately after the post-merge redeploy \u2014 same protocol as the JOBPERM-3 closeout.",
+    "blocking_findings": [],
+    "non_blocking_findings": [],
+    "commands_run": [
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/channels/ apps/core/test/unit/application/ apps/core/test/unit/jobs/"
+    ],
+    "remaining_gaps": [
+      "Live Slack tap check pending post-deploy (owner-in-the-loop)."
+    ],
+    "residual_risks": [],
+    "tests_added_or_updated": [],
+    "manual_validation_steps": [
+      "Post-deploy: node <scratchpad>/cc2-trigger.mjs re-triggers job-card-check-2-6b287483eb0b; pause card must show 'Allow once for this run' + 'Pause job'; Allow once => ask-and-wait card => approve => run completes; Pause pauses the job."
+    ],
+    "reviewed_scope": [],
+    "recorded_at": "2026-08-31T16:42:38+00:00",
+    "commit": "f1d79a1699aeda82e0d899b353f5b93633e534cf"
+  }
+}

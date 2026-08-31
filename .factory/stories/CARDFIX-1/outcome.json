@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Paused scheduled jobs are no longer dead ends: every pause/setup message now arrives with working buttons on Slack, Telegram, Discord and Teams. A job paused for a blocked shell command offers 'Allow once for this run' \u2014 one more run that asks live for that exact command, nothing permanently granted \u2014 and 'Pause job', which now really pauses the job from the card on every provider (it used to be guidance text). Double taps, crashed taps and concurrent taps all collapse into exactly one extra run.",
+  "issue": "CARDFIX-1",
+  "commit": "f1d79a1699aeda82e0d899b353f5b93633e534cf",
+  "recorded_at": "2026-08-31T16:42:49+00:00"
+}

@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-31T16:35:36+00:00", "story": "CARDFIX-1", "detail": "Exact required VITEST_JUNIT wrappers are policy-refused before Vitest launches in this managed sandbox; direct selector equivalents pass, but literal JUnit proof must be run by the orchestrator or hos"}

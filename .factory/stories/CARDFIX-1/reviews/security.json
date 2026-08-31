@@ -1,0 +1,72 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/domain/message-actions.ts",
+    "apps/core/src/application/jobs/scheduler-setup-story.ts",
+    "apps/core/src/application/jobs/job-management-run-now.ts",
+    "apps/core/src/application/jobs/job-management-service.ts",
+    "apps/core/src/jobs/execution-notifications.ts",
+    "apps/core/src/jobs/ipc-scheduler-mutate-handlers.ts",
+    "apps/core/src/app/bootstrap/channel-message-action-router.ts",
+    "apps/core/src/app/bootstrap/runtime-live-stop-message-action.ts",
+    "apps/core/src/channels/slack/message-action-affordances.ts",
+    "apps/core/src/channels/slack/channel-message-action-handler.ts",
+    "apps/core/src/channels/telegram/message-action-affordances.ts",
+    "apps/core/src/channels/telegram/callback-handlers.ts",
+    "apps/core/src/channels/telegram/scheduler-callback.ts",
+    "apps/core/src/channels/discord/components.ts",
+    "apps/core/src/channels/discord/interactions.ts",
+    "apps/core/src/channels/discord/scheduler-interactions.ts",
+    "apps/core/src/channels/teams/cards.ts",
+    "apps/core/src/channels/teams/message-actions.ts",
+    "apps/core/test/unit/jobs/execution-notifications.test.ts",
+    "apps/core/test/unit/application/scheduler-message-actions.test.ts",
+    "apps/core/test/unit/channels/provider-affordance-parity.test.ts",
+    "apps/core/src/jobs/execution-runtime-events.ts",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/test/unit/jobs/execution.test.ts"
+  ],
+  "residual_risks": [
+    "Autoreview round-3 P1 (interactive-ask override) ACCEPTED on its third press \u2014 jobs configured with a non-ask permission mode would otherwise run the retry without asking \u2014 and IMPLEMENTED: the bound scheduler_retry_ask trigger's requestedBy sets that run's spawn permissionMode to 'ask' (execution-runtime-events.ts interactiveAskOverride \u2192 execution-phases-run.ts baseInput); the job definition is never mutated. If trigger binding fails, the run degrades to the job's configured mode (bind failure returns {}).",
+    "Autoreview round-4 P1 'retry replay can enqueue an already-dispatched trigger again' REJECTED with code evidence: enqueueSchedulerTriggerDelivery sends with a deterministic pg-boss id derived from the trigger id (pgBossSendId(jobId,'trigger:<triggerId>'), scheduler-engine.ts), and pg-boss 12.26.4 insertJobs uses ON CONFLICT DO NOTHING with createJob returning null on the skipped duplicate \u2014 concurrent or repeated taps converge on ONE queue row. Independently, claimDueCanonicalJobRunStart fences the deterministic run id in one transaction (existing non-expired run/lease \u21d2 null claim). Invariant documented inline at the replay enqueue.",
+    "A stale pause card tapped after a NEWER pause of the same job fires retry for the current pause (tap-time fingerprint); same job, same owner intent \u2014 accepted and documented.",
+    "Live Slack/Discord/Teams button taps not exercised end-to-end pre-merge; the deploy live-check covers Slack.",
+    "review-animations lens applied to the full diff: zero animation/motion code introduced (grep for animation/transition/ease/keyframe/spring across the commit matches only scheduler state prose); the cards render through provider-native components with no motion. Verdict: approve \u2014 no findings."
+  ],
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "CARDFIX-1-AC1",
+      "verdict": "implemented",
+      "evidence": "Unit leaf 'delivers every pause story with at least one action affordance' (execution-notifications.test.ts) drives every delivered pause/setup story source through setupStoryActionAffordances; provider-affordance-parity.test.ts renders the new scheduler_retry_ask + scheduler_pause_job affordances on Slack, Telegram, Discord and Teams via the existing neutral renderers. Sweep green 2026-08-31: 194 unit files / 2852 tests."
+    },
+    {
+      "contract_id": "CARDFIX-1-AC2",
+      "verdict": "implemented",
+      "evidence": "setupStoryActionAffordances yields exactly 'Allow once for this run' + 'Pause job' for tool-only permission_denied/permission_timeout blockers; no durable-grant affordance kind exists on the card \u2014 scheduler_retry_ask performs a one-shot deterministic trigger (job-management-run-now.ts) and persists no rule, holding decision 0134. Asserted in execution-notifications.test.ts and scheduler-message-actions.test.ts."
+    },
+    {
+      "contract_id": "CARDFIX-1-AC3",
+      "verdict": "implemented",
+      "evidence": "scheduler-message-actions.test.ts leaves: 'retry-and-ask starts exactly one fresh run in ask mode and is idempotent' and 'pause job action pauses the job for a same-channel approver', plus non-approver rejection, consumed-trigger refusal and crash-replay cases, all through the neutral router/IPC path. The run-scoped ask override is proven end-to-end in execution.test.ts: 'runs with an interactive ask override when the bound trigger is a scheduler_retry_ask tap' (spawn input permissionMode 'ask') and the ordinary-trigger control case (no override)."
+    },
+    {
+      "contract_id": "CARDFIX-1-AC4",
+      "verdict": "implemented",
+      "evidence": "2026-08-31: npx tsc --noEmit clean; npm run check:architecture passed; full unit sweep (channels/application/jobs/domain) 194 files / 2852 tests green; Postgres integration lane green host-side: 8 suites / 36 tests (job-lifecycle, permission-decision-chain, permission-decision-memory, job-coordination-state, jobs-runs-memory-flow, setup-permission-prompt-preparation, permission-durable-authority, job-setup-action-migration)."
+    }
+  ],
+  "summary": "Autoreview (codex gpt-5.6-sol@high) rounds 1-4 on the CARDFIX-1-T1 local diff. Rounds 1-2 findings fixed: deterministic one-shot trigger/run ids, create-trigger-first refusal, crash-replay dispatch, enqueue-failure pause restore. Round-3 P1 accepted and implemented: run-scoped interactive-ask override from the bound scheduler_retry_ask trigger to the spawn input. Round-4 P1 rejected with pg-boss/claim-fence code evidence (see residual risks). No accepted findings remain; tsc, architecture, 2852 unit tests and the 8-suite Postgres lane are green.",
+  "skills_used": [
+    "review-animations"
+  ],
+  "aspect": "security",
+  "review_run_id": "74ccbc3e2f6e3afa819b05188dd0ac986a117b8dabbecaba38339949acdbc969",
+  "brief_sha256": "fef6d3f96d80d38ca7defc30fb8da64ddcea547db78784fb7ffb5d3d28d6dd47",
+  "branch_diff_digest": "5beb23e9c4f90fde865a8bee0001963fe968d10a8dfa35736ea27f5c7b5ae154",
+  "recorded_at": "2026-08-31T16:08:15+00:00",
+  "commit": "f1d79a1699aeda82e0d899b353f5b93633e534cf"
+}

@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-31T16:19:44+00:00", "story": "CARDFIX-1", "detail": "CARDFIX-1-T1 already spans 29 product files and 1,146 changed lines from stage base 886784c02, exceeding the 18-file/1,100-line review budget; it also edits out-of-scope channels/discord/scheduler-int"}

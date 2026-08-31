@@ -1,0 +1,1 @@
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-08-31T16:42:50+00:00", "story": "CARDFIX-1", "detail": "Paused scheduled jobs are no longer dead ends: every pause/setup message now arrives with working buttons on Slack, Telegram, Discord and Teams. A job paused for a blocked shell command offers 'Allow "}
