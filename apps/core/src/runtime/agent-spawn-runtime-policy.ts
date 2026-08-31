@@ -309,7 +309,16 @@ function canProjectThirdPartyMcpSourceToRunner(
   agentEngine: AgentEngine,
 ): boolean {
   if (agentEngine === DEEPAGENTS_ENGINE) return false;
-  return definition.transport === 'stdio_template';
+  // stdio_template servers are spawned as child processes directly by the runner.
+  // http/sse servers are proxied through the Gantry host-side MCP proxy — the
+  // runner connects to a local proxy socket that the host manages. Both are
+  // safe to project; the transport difference only affects how the MCP config
+  // file entry is rendered, not whether projection is permitted.
+  return (
+    definition.transport === 'stdio_template' ||
+    definition.transport === 'http' ||
+    definition.transport === 'sse'
+  );
 }
 
 export function sandboxAllowedNetworkHostsFromRuntimeAccess(

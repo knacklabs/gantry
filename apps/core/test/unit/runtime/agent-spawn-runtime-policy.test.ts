@@ -44,7 +44,7 @@ function reviewedGithubPatternRuntimeAccess(): CapabilityRuntimeAccess[] {
 }
 
 function githubMcpRecord(
-  transport: 'stdio_template' | 'http' = 'stdio_template',
+  transport: 'stdio_template' | 'http' | 'sse' = 'stdio_template',
 ): MaterializedMcpServer {
   const definition: MaterializedMcpServer['definition'] = {
     id: 'mcp:github' as never,
@@ -219,15 +219,20 @@ describe('agent spawn runtime policy', () => {
     });
   });
 
-  it('does not directly project remote MCP sources to runner config', () => {
-    const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
-      runtimeAccess: reviewedGithubRuntimeAccess(),
-      mcpSourceRecords: [githubMcpRecord('http')],
-    });
+  it.each(['http', 'sse'] as const)(
+    'projects reviewed %s MCP sources through the host-side proxy',
+    (transport) => {
+      const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
+        runtimeAccess: reviewedGithubRuntimeAccess(),
+        mcpSourceRecords: [githubMcpRecord(transport)],
+      });
 
-    expect(projection).toEqual({
-      reviewedMcpToolNames: [],
-      projectedMcpSourceIds: [],
+      expect(projection).toEqual({
+        reviewedMcpToolNames: [
+          'mcp__github__issues.create',
+          'mcp__github__search_repositories',
+        ],
+        projectedMcpSourceIds: ['mcp:github'],
+      });
     });
-  });
 });
