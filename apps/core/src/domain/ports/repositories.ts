@@ -515,6 +515,7 @@ export interface AgentToolAccessSnapshot {
 
 export interface SkillCatalogRepository {
   getSkill(id: SkillId): Promise<SkillCatalogItem | null>;
+  summarizeNavigation?(appId: AppId): Promise<{ installed: number }>;
   listSkills(input: {
     appId: AppId;
     agentId?: AgentId;
@@ -539,6 +540,12 @@ export interface SkillCatalogRepository {
   listAgentSkillBindingsForAgents(input: {
     appId: AppId;
     agentIds: readonly AgentId[];
+  }): Promise<AgentSkillBinding[]>;
+  replaceSkillAgentBindings?(input: {
+    appId: AppId;
+    skillId: SkillId;
+    agentIds: readonly AgentId[];
+    updatedAt: string;
   }): Promise<AgentSkillBinding[]>;
   listEnabledSkillsForAgent(input: {
     appId: AppId;

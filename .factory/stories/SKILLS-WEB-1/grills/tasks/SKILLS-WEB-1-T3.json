@@ -1,0 +1,69 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Added a digest-excluded task-plan appendix that binds T3 to the four-file web-only scope and the completed T1/T2 flow.",
+    "Expanded required test leaves to cover mutation failure preservation, confirmed-state refetch, affected-query invalidation, and dialog accessibility/constrained layout."
+  ],
+  "inspected_refs": [
+    ".factory/stories/SKILLS-WEB-1/decomposition.json:SKILLS-WEB-1-T3",
+    ".factory/stories/SKILLS-WEB-1/task-plans/SKILLS-WEB-1-T3.md",
+    "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md",
+    "docs/specs/skills-web-ui.md",
+    "apps/core/src/control/server/routes/browser-skills.controller.ts",
+    "apps/web/src/features/operations/skills-queries.ts",
+    "apps/web/src/features/operations/routes/skills-route.tsx",
+    "docs/decisions/0020-mcp-source-vs-action-capability.md",
+    "docs/decisions/0066-race-1-skill-artifact-app-isolation.md",
+    "docs/decisions/0151-browser-navigation-summary.md"
+  ],
+  "current_flow": "T1 exposes administrator-protected ZIP install and atomic complete-set attachment replacement routes, while T2 exposes a viewer-safe read-only Skills inventory/detail page; T3 adds only the missing administrator dialogs and query invalidation over those existing seams.",
+  "criteria_map": {
+    "Administrators can choose one ZIP, see the approved same-name update warning, install without automatic attachment, and use success actions to view the skill or attach agents.": "The ZIP-install leaf proves native file gating, application/zip submission, the always-visible approved warning, inventory-only installation, success actions, and Skills cache invalidation.",
+    "Administrators can replace the complete attachment set from a dialog that preserves state on failure and announces success with next-run wording.": "The attachment and failure leaves prove lazy confirmed-state loading, complete-set PUT submission, open-dialog/input preservation, confirmed-state refetch after failure, and the next-run live announcement.",
+    "Disabled agents remain selectable and are labeled \"Disabled \u00b7 available when the agent is enabled.\"": "The attachment leaf selects a disabled agent, asserts the exact approved label, and verifies its ID is included in the complete desired set.",
+    "Mutation flows invalidate Skills and affected Agent queries without exposing controls to viewer sessions.": "The role leaf proves viewer controls are absent; the mutation-failure/invalidation leaf proves Skills, navigation summary, and affected Agent queries are invalidated after success.",
+    "Dialog focus, keyboard operation, labels, live status, and narrow-layout behavior follow existing Web UI conventions.": "The accessibility leaf explicitly proves labels, keyboard behavior, focus return, pending-close prevention, live status, and constrained responsive dialog dimensions using existing primitives."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "One scoped skills-admin-dialogs.tsx sibling component boundary; no generic abstraction or dependency."
+  ],
+  "rounds": [
+    {
+      "question": "The independent T3 grill passes with no remaining gaps. Should I hand off the exact four-file contract and five required tests for implementation?",
+      "options": [
+        "Approve and hand off",
+        "Reopen the contract"
+      ],
+      "chosen": "Approve and hand off",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The existing facade already provides the exact install and complete-set attachment endpoints, so T3 needs no backend expansion.",
+      "source": "apps/core/src/control/server/routes/browser-skills.controller.ts"
+    },
+    {
+      "finding": "The approved spec requires disabled agents to remain selectable while attachment stays separate from action authorization.",
+      "source": "docs/specs/skills-web-ui.md"
+    },
+    {
+      "finding": "The updated task appendix and required leaves close the prior handoff evidence gaps without changing the approved plan body.",
+      "source": ".factory/stories/SKILLS-WEB-1/task-plans/SKILLS-WEB-1-T3.md"
+    }
+  ],
+  "open_items": [],
+  "task_id": "SKILLS-WEB-1-T3",
+  "input_sha256": "dd087724c9ef37b21d0df7d021272e803e52d88f0544e58548aab9067a311f6a",
+  "task_plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
+  "recorded_at": "2026-08-31T11:49:15+00:00",
+  "commit": "abf3f2a007a2f6dd3d78cfb12cef41eced852422",
+  "approved_task_plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
+  "approved_by": "User",
+  "approved_at": "2026-08-31T11:49:16+00:00"
+}

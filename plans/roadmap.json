@@ -2468,6 +2468,23 @@
       "completed_at": "2026-08-30T08:47:21+00:00",
       "history": ".factory/stories/JOBPERM-3/",
       "outcome": "Answered job permission cards now behave like chat prompts. When every request on a card is allowed, the card is deleted on Telegram, Slack and Discord (with a short approved receipt if the delete fails), and on Teams it becomes a one-line receipt card with no buttons. Requests that expired show as 'Expired: <command>' lines instead of lingering buttons; a denied request still keeps its live card row with one-tap Reconsider, as decision 0144 requires. The shared card record carries the retire outcome and the delete/receipt markers, so a retried delivery never deletes or edits twice and a recorded marker can never be rewritten. The Postgres once-card test now runs like a live job (delivered card, scheduler slot held), which is what exposed the ordering bug behind the earlier hang."
+    },
+    {
+      "key": "SKILLS-WEB-1",
+      "title": "Skills inventory and agent attachment Web UI",
+      "story": "As an administrator, I can inspect, install, and attach skills from the Web UI so that agents receive managed instructions without bypassing access controls.",
+      "acceptance_criteria": [
+        "Viewers can inspect sanitized skill inventory, files, and declared actions at /ui/skills.",
+        "Administrators can install ZIP packages into inventory with same-name update warning and without automatic attachment.",
+        "Administrators can atomically replace a skill's complete agent attachment set, including disabled agents.",
+        "Skill attachment never grants declared-action capabilities and browser responses expose no storage or secret-bearing fields."
+      ],
+      "order": 114,
+      "status": "active",
+      "epic": "capability-search",
+      "skill": "fullstack",
+      "depends_on": [],
+      "spec": "docs/specs/skills-web-ui.md"
     }
   ],
   "generated_by": "human",

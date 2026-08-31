@@ -1,0 +1,67 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Approve the bounded backend contract with separate sanitized browser DTOs and one transactional desired-binding replacement operation."
+  ],
+  "open_items": [],
+  "summary": "Task 1 is reachable, bounded to the approved backend surfaces, and has focused executable proof for its two highest-risk seams.",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "packages/contracts/src/skills/index.ts",
+    "apps/core/src/domain/ports/repositories.ts",
+    "apps/core/src/application/skills/skill-service.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/skill-repository.postgres.ts",
+    "apps/core/src/control/server/routes/browser-mcp-servers.ts",
+    "apps/core/src/control/server/routes/browser-navigation-summary.ts",
+    "apps/core/src/control/server/index.ts"
+  ],
+  "current_flow": "Skills are installed and individually bound through the public Control API. Browser session routes exist for adjacent management domains, but Skills have no sanitized browser facade and the repository has no atomic complete-set replacement operation.",
+  "criteria_map": {
+    "Browser-session Skills inventory, file metadata/content, install, and attachment routes enforce session auth, role scopes, Origin, CSRF, recent-reauth where required, and app isolation.": "Focused browser route tests exercise unauthenticated, viewer, administrator, Origin, CSRF, hosted reauth, and cross-app requests.",
+    "Browser DTOs and errors omit storage references, hashes, credentials, secrets, tokens, stack traces, and raw upstream errors.": "The browser mapper and route tests assert the allowlisted response keys and sanitized error messages.",
+    "ZIP installation validates packages, updates same-name skills in inventory, and does not attach agents.": "Route and integration tests install valid and invalid ZIPs, repeat a materialized name, and assert the binding set is unchanged.",
+    "Attachment saving atomically replaces the full desired set for up to 100 distinct app-scoped agents, including disabled agents, and invokes settings projection once after commit.": "Repository/service tests prove full-set replacement and rollback; route tests prove bounds, disabled agents, and one projection call.",
+    "Declared actions remain inventory metadata only and are not granted by attachment.": "Response and replacement tests assert action metadata is readable while capability selections remain untouched."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "One repository operation for transaction-backed desired skill-binding replacement."
+  ],
+  "rounds": [
+    {
+      "question": "Task 1 is bounded to the sanitized browser facade plus one transactional desired-binding replacement operation. Is this backend contract ready to implement?",
+      "options": [
+        "Approve Task 1 (Recommended)",
+        "Revise Task 1"
+      ],
+      "chosen": "Approve Task 1 (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The storage-bearing skill contract cannot be serialized directly to browser clients.",
+      "source": "packages/contracts/src/skills/index.ts"
+    },
+    {
+      "finding": "Current application methods mutate one agent binding at a time.",
+      "source": "apps/core/src/application/skills/skill-service.ts"
+    },
+    {
+      "finding": "Adjacent browser routes provide the required authorization and sanitization pattern.",
+      "source": "apps/core/src/control/server/routes/browser-mcp-servers.ts"
+    }
+  ],
+  "task_id": "SKILLS-WEB-1-T1",
+  "input_sha256": "381af93467bd140548a0b3191282dc64ef1b579c9aef3fd2ebd37469feeef813",
+  "task_plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
+  "recorded_at": "2026-08-31T06:33:54+00:00",
+  "commit": "e4dd58a5f7c8b9ea790ef705b467f160f3cfcc36",
+  "approved_task_plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
+  "approved_by": "User",
+  "approved_at": "2026-08-31T06:33:54+00:00"
+}

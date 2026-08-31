@@ -11,6 +11,7 @@ const storage = vi.hoisted(() => ({
     agents: { listAgents: vi.fn(), summarizeNavigation: vi.fn() },
     agentConfigs: { getConfigVersion: vi.fn() },
     mcpServers: { listServers: vi.fn(), summarizeNavigation: vi.fn() },
+    skills: { listSkills: vi.fn(), summarizeNavigation: vi.fn() },
     modelCredentials: {},
   },
 }));
@@ -66,6 +67,8 @@ beforeEach(() => {
   storage.repositories.agentConfigs.getConfigVersion.mockReset();
   storage.repositories.mcpServers.listServers.mockReset();
   storage.repositories.mcpServers.summarizeNavigation.mockReset();
+  storage.repositories.skills.listSkills.mockReset();
+  storage.repositories.skills.summarizeNavigation.mockReset();
 });
 
 it('returns one redacted, app-scoped navigation summary', async () => {
@@ -80,6 +83,9 @@ it('returns one redacted, app-scoped navigation summary', async () => {
   storage.repositories.mcpServers.summarizeNavigation.mockResolvedValue({
     active: 1,
     disabled: 1,
+  });
+  storage.repositories.skills.summarizeNavigation.mockResolvedValue({
+    installed: 3,
   });
   listProviders.mockResolvedValue([
     { health: 'ready' },
@@ -103,13 +109,19 @@ it('returns one redacted, app-scoped navigation summary', async () => {
   expect(JSON.parse(res.body)).toEqual({
     agents: { total: 2, active: 1, disabled: 1, withoutRole: 1 },
     mcpServers: { active: 1, disabled: 1 },
+    skills: { installed: 3 },
     modelProviders: { ready: 1, missing: 1, disabled: 1 },
   });
 });
 
-it('does not leak navigation counts without an administrator session', async () => {
+it('returns only a viewer-safe Skills navigation count', async () => {
   activeSession.mockResolvedValue({ appId: 'app:one', role: 'viewer' });
-  browserRoleAllowsScope.mockReturnValue(false);
+  browserRoleAllowsScope.mockImplementation(
+    (_role, scope) => scope === 'skills:read',
+  );
+  storage.repositories.skills.summarizeNavigation.mockResolvedValue({
+    installed: 3,
+  });
   const res = response();
 
   await handleBrowserNavigationSummary(
@@ -120,6 +132,32 @@ it('does not leak navigation counts without an administrator session', async () 
     { authentication: { mode: 'local' } },
   );
 
-  expect(res.statusCode).toBe(403);
+  expect(res.statusCode).toBe(200);
+  expect(JSON.parse(res.body)).toEqual({ skills: { installed: 3 } });
   expect(storage.repositories.agents.listAgents).not.toHaveBeenCalled();
+  expect(
+    storage.repositories.agents.summarizeNavigation,
+  ).not.toHaveBeenCalled();
+  expect(
+    storage.repositories.mcpServers.summarizeNavigation,
+  ).not.toHaveBeenCalled();
+  expect(listProviders).not.toHaveBeenCalled();
+});
+
+it('does not leak navigation counts without a session', async () => {
+  activeSession.mockResolvedValue(null);
+  const res = response();
+
+  await handleBrowserNavigationSummary(
+    request(),
+    res,
+    {} as never,
+    '/ui/api/navigation-summary',
+    { authentication: { mode: 'local' } },
+  );
+
+  expect(res.statusCode).toBe(401);
+  expect(
+    storage.repositories.skills.summarizeNavigation,
+  ).not.toHaveBeenCalled();
 });

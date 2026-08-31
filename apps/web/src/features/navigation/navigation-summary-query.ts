@@ -3,14 +3,15 @@ import { queryOptions } from '@tanstack/react-query';
 import { browserFetch } from '../../lib/auth/browser-auth';
 
 export type NavigationSummary = {
-  agents: {
+  agents?: {
     total: number;
     active: number;
     disabled: number;
     withoutRole: number;
   };
-  mcpServers: { active: number; disabled: number };
-  modelProviders: { ready: number; missing: number; disabled: number };
+  mcpServers?: { active: number; disabled: number };
+  modelProviders?: { ready: number; missing: number; disabled: number };
+  skills: { installed: number };
 };
 
 export const navigationSummaryQuery = queryOptions({

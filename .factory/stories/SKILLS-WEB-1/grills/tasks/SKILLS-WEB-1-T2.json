@@ -1,0 +1,61 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Replace stale render-time search object spreads with TanStack functional search updaters for q, skill, and tab within the existing T2 route.",
+    "Extend the existing URL-state test leaf to cover all three functional updaters and prove no stale object-spread navigation remains.",
+    "Rerun the five required selectors, T2 verification, autoreview, and live desktop/constrained URL-state validation."
+  ],
+  "inspected_refs": [
+    ".factory/stories/SKILLS-WEB-1/decomposition.json:SKILLS-WEB-1-T2",
+    ".factory/stories/SKILLS-WEB-1/task-plans/SKILLS-WEB-1-T2.md",
+    "apps/web/src/features/operations/routes/skills-route.tsx",
+    "apps/web/src/features/operations/routes/skills-route.test.ts"
+  ],
+  "current_flow": "The live T2 page renders correctly, but q, skill, and tab navigation handlers spread render-time search state; manual validation proved a later tab change can restore a previously selected skill.",
+  "criteria_map": {
+    "/ui/skills renders under the existing app shell and appears under Configure with a viewer-safe installed-skill count.": "Already implemented and retained; rerun the required navigation/count selector.",
+    "The route restores valid skill, q, and tab search state and falls back safely when a selected skill or tab is unavailable.": "Functional search updaters remove the reproduced stale-state race; the existing named URL-state test and live interaction check prove preservation of current q, skill, and tab.",
+    "The split inventory/detail layout stacks on constrained screens and preserves loading, empty, search-empty, and error states.": "No layout change; rerun the responsive page-state selector and constrained visual check.",
+    "Viewers can inspect sanitized inventory, overview, files, actions, and attached agents without mutation controls.": "No authority or control change; rerun the read-only inspection selector.",
+    "Files are loaded lazily; UTF-8 text previews render as inert text and binary files show metadata only.": "No query or preview change; rerun the lazy inspection selector.",
+    "Actions include sanitized required credential names as read-only metadata, and attached-agent links route to the existing Agent Access tab.": "No DTO or link change; rerun the mapper and read-only inspection selectors."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "None"
+  ],
+  "rounds": [
+    {
+      "question": "Reply yes to re-approve this correction.",
+      "options": [
+        "yes",
+        "no"
+      ],
+      "chosen": "yes",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "All three route navigation handlers spread render-time search state and can overwrite newer URL state.",
+      "source": "apps/web/src/features/operations/routes/skills-route.tsx:100"
+    },
+    {
+      "finding": "The existing T2 contract already owns URL restoration and both affected files.",
+      "source": ".factory/stories/SKILLS-WEB-1/decomposition.json:SKILLS-WEB-1-T2"
+    }
+  ],
+  "open_items": [],
+  "task_id": "SKILLS-WEB-1-T2",
+  "input_sha256": "5db19acf93e08ee2c2dd810bf73bed9a84cc07044d114e843bbda9953c274a5e",
+  "task_plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
+  "recorded_at": "2026-08-31T10:41:27+00:00",
+  "commit": "921ba474390b7c81d016fc5b675fc3e52eb2959b",
+  "approved_task_plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
+  "approved_by": "User",
+  "approved_at": "2026-08-31T10:41:27+00:00"
+}

@@ -1,6 +1,9 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import type { SkillArtifactStore } from '../../domain/ports/skill-artifact-store.js';
+import type {
+  SkillArtifactBundle,
+  SkillArtifactStore,
+} from '../../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../../domain/ports/repositories.js';
 import type { SkillCatalogItem } from '../../domain/skills/skills.js';
 import { isSkillMaterializableLocally } from '../../domain/skills/skills.js';
@@ -125,6 +128,20 @@ async function projectSkillArtifact(input: {
   skill: SkillCatalogItem;
   artifactStore: SkillArtifactStore;
 }): Promise<SelectedSkillProjectionItem> {
+  const bundle = await readVerifiedSkillArtifact(input);
+  return {
+    id: String(input.skill.id),
+    name: input.skill.name,
+    contentHash: input.skill.storage?.contentHash,
+    actionPermissions: input.skill.actionPermissions ?? [],
+    assets: bundle.assets,
+  };
+}
+
+export async function readVerifiedSkillArtifact(input: {
+  skill: SkillCatalogItem;
+  artifactStore: SkillArtifactStore;
+}): Promise<SkillArtifactBundle> {
   if (!input.skill.storage) {
     throw new Error(
       `Selected skill "${input.skill.id}" is missing artifact storage.`,
@@ -165,13 +182,7 @@ async function projectSkillArtifact(input: {
       `Selected skill "${input.skill.id}" artifact integrity check failed: expected ${input.skill.storage.contentHash}, got ${actualContentHash}.`,
     );
   }
-  return {
-    id: String(input.skill.id),
-    name: input.skill.name,
-    contentHash: input.skill.storage.contentHash,
-    actionPermissions: input.skill.actionPermissions ?? [],
-    assets,
-  };
+  return { assets };
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

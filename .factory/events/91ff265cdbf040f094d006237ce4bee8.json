@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-31T09:37:42+00:00", "story": "SKILLS-WEB-1", "detail": "S-0057-bca2: Orchestrator corrected the three web JUnit commands to run with --root .; rerun the active task and keep the alias/test fix within skills-route.test.ts."}

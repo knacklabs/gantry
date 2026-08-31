@@ -386,7 +386,7 @@ function skillAssetToFileResponse(asset: {
   };
 }
 
-function normalizeRequestedSkillFilePath(value: string): string {
+export function normalizeRequestedSkillFilePath(value: string): string {
   const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
   const parts = normalized.split('/');
   if (

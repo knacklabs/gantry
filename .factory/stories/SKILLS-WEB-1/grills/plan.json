@@ -1,0 +1,72 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Keep the three bounded tasks so backend and user-facing stages remain independently testable and grillable.",
+    "Approve the frozen plan without changing its contracts or Surface Impact ownership."
+  ],
+  "open_items": [],
+  "summary": "The independent cold read found no blocking gaps, unowned changed surfaces, silent tooling choices, or acceptance criteria without an owning task.",
+  "questions_asked": 2,
+  "inspected_refs": [
+    "/tmp/skills-web-1-plan.md",
+    "docs/specs/skills-web-ui.md",
+    "plans/roadmap.json",
+    "constitution/README.md",
+    "apps/core/src/application/skills/skill-service.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/skill-repository.postgres.ts",
+    "apps/core/src/control/server/routes/browser-mcp-servers.ts",
+    "apps/web/src"
+  ],
+  "current_flow": "The repository has installed skills, artifacts, per-agent bindings, and established browser facade patterns, but no live browser Skills facade or /ui/skills route.",
+  "criteria_map": {
+    "Viewers can inspect sanitized skill inventory, files, and declared actions at /ui/skills.": "Tasks 1 and 2 own the sanitized facade and inspection UI.",
+    "Administrators can install ZIP packages into inventory with same-name update warning and without automatic attachment.": "Tasks 1 and 3 own ZIP installation and the warning workflow.",
+    "Administrators can atomically replace a skill's complete agent attachment set, including disabled agents.": "Tasks 1 and 3 own the transaction and attachment dialog.",
+    "Skill attachment never grants declared-action capabilities and browser responses expose no storage or secret-bearing fields.": "All three tasks preserve the authority boundary; Task 1 owns redaction and Tasks 2-3 render only browser DTOs."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "One transaction-backed desired skill-binding replacement repository operation; required by the approved atomic full-set save contract."
+  ],
+  "rounds": [
+    {
+      "question": "Should the implementation stay split into three bounded tasks: browser facade, inspection UI, then administrator workflows?",
+      "options": [
+        "Keep three tasks (Recommended)",
+        "Combine UI tasks"
+      ],
+      "chosen": "Keep three tasks (Recommended)"
+    },
+    {
+      "question": "The independent cold read found no blocking gaps or unowned changed surfaces. Is this frozen plan ready for Forge approval?",
+      "options": [
+        "Approve plan (Recommended)",
+        "Hold plan"
+      ],
+      "chosen": "Approve plan (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The public skill response includes storage-bearing fields and must not be reused by the browser UI.",
+      "source": "packages/contracts/src/skills/index.ts"
+    },
+    {
+      "finding": "Current Skills mutation APIs operate one agent binding at a time and do not satisfy atomic desired-set replacement.",
+      "source": "apps/core/src/application/skills/skill-service.ts"
+    },
+    {
+      "finding": "The established browser facade pattern already supplies the required session and administrative protection shape.",
+      "source": "apps/core/src/control/server/routes/browser-mcp-servers.ts"
+    }
+  ],
+  "input_sha256": "f57852e8f33866c11fe7ffb2959415cfed707c02d05e4b31ad81b6bd26ebaedc",
+  "issue": "SKILLS-WEB-1",
+  "recorded_at": "2026-08-31T06:21:51+00:00",
+  "commit": "e4dd58a5f7c8b9ea790ef705b467f160f3cfcc36"
+}

@@ -1,0 +1,45 @@
+{
+  "commit": "abf3f2a007a2f6dd3d78cfb12cef41eced852422",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "All five required T3 leaves pass; the complete focused Skills web suite is 8/8. Web typecheck, lint, format, diff check, and the full production build pass.",
+    "blocking_findings": [],
+    "commands_run": [
+      "VITEST_JUNIT=1 npx vitest run -c apps/web/vitest.config.ts --root . apps/web/src/features/operations/routes/skills-route.test.ts -t <each required leaf> --reporter=default --reporter=junit --outputFile.junit=/tmp/skills-web-1-t3-<1..5>.junit.xml",
+      "npx vitest run -c apps/web/vitest.config.ts --root . apps/web/src/features/operations/routes/skills-route.test.ts",
+      "npm run typecheck:web",
+      "npm run lint:web",
+      "npm run format:check:web",
+      "git diff --check",
+      "npm run build"
+    ],
+    "tests_added_or_updated": [
+      "apps/web/src/features/operations/routes/skills-route.test.ts"
+    ],
+    "pass_fail_summary": "5/5 required JUnit leaves passed; focused suite 8/8 passed; typecheck, lint, format, diff, and build passed.",
+    "remaining_gaps": [
+      "D-0071: component-level dialog interaction tests require a supported DOM test runtime; this bounded task adds no dependency and has real-browser functional coverage."
+    ],
+    "reviewed_scope": [
+      "apps/web/src/features/operations/skills-queries.ts",
+      "apps/web/src/features/operations/routes/skills-route.tsx",
+      "apps/web/src/features/operations/routes/skills-admin-dialogs.tsx",
+      "apps/web/src/features/operations/routes/skills-route.test.ts"
+    ],
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design",
+      "review-animations",
+      "runtime-ops-verification",
+      "agent-browser",
+      "ponytail:full"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-08-31T13:15:16+00:00",
+    "commit": "abf3f2a007a2f6dd3d78cfb12cef41eced852422"
+  },
+  "updated_at": "2026-08-31T13:15:16+00:00"
+}

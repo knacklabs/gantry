@@ -9,18 +9,23 @@ const state = vi.hoisted(() => ({
   agents: new Map<string, any>(),
 }));
 
-vi.mock('@core/config/index.js', () => ({
-  GANTRY_HOME: '/tmp/gantry-session-ensure-agent-home',
-  getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
-  syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
-  getDefaultModelConfig: vi.fn(() => ({
-    model: 'opus',
-    source: 'system default',
-  })),
-  getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
-  patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
-  configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
-}));
+vi.mock('@core/config/index.js', async () => {
+  const { createDefaultRuntimeSettings } =
+    await import('@core/config/settings/runtime-settings.js');
+  return {
+    GANTRY_HOME: '/tmp/gantry-session-ensure-agent-home',
+    getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
+    getRuntimeSettingsForConfig: vi.fn(createDefaultRuntimeSettings),
+    syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
+    getDefaultModelConfig: vi.fn(() => ({
+      model: 'opus',
+      source: 'system default',
+    })),
+    getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
+    patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
+    configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
+  };
+});
 
 vi.mock('@core/jobs/scheduler.js', () => ({
   schedulerNotReadyReason: vi.fn(() => undefined),

@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Should T2 ship only the read-only Skills inspection page, leaving ZIP installation and attachment mutations entirely to T3?",
+      "options": [
+        "Keep T2 read-only (Recommended)",
+        "Combine T2 and T3"
+      ],
+      "chosen": "Keep T2 read-only (Recommended)"
+    }
+  ],
+  "at": "2026-08-31T08:39:25.956064+00:00",
+  "session_id": "codex-skills-web-1-t2"
+}

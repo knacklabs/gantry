@@ -1170,7 +1170,7 @@ describe('control server runtime hardening', () => {
       expect(getResponse.status).toBe(200);
       await expect(getResponse.json()).resolves.toMatchObject({
         settings: {
-          agent: { name: 'Default Agent', defaultModel: '' },
+          agent: { name: 'Default Agent', defaultModel: 'opus' },
           memory: { enabled: true, dreaming: { enabled: false } },
         },
       });

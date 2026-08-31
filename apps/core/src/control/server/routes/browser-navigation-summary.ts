@@ -34,23 +34,37 @@ export async function handleBrowserNavigationSummary(
     sendError(res, 401, 'UNAUTHORIZED', 'Sign in is required.');
     return true;
   }
-  if (!browserRoleAllowsScope(session.role as ConsoleRole, 'agents:admin')) {
+  const role = session.role as ConsoleRole;
+  const canSeeAdministratorCounts = browserRoleAllowsScope(
+    role,
+    'agents:admin',
+  );
+  if (
+    !canSeeAdministratorCounts &&
+    !browserRoleAllowsScope(role, 'skills:read')
+  ) {
     sendError(res, 403, 'FORBIDDEN', 'Administrator access is required.');
     return true;
   }
 
   const storage = getRuntimeStorage();
   const appId = session.appId as AppId;
-  const [agents, servers, providers] = await Promise.all([
+  if (!canSeeAdministratorCounts) {
+    sendJson(res, 200, { skills: await summarizeSkills(storage, appId) });
+    return true;
+  }
+  const [agents, servers, providers, skills] = await Promise.all([
     summarizeAgents(storage, appId),
     summarizeMcpServers(storage, appId),
     new ModelCredentialService(storage.repositories.modelCredentials).list({
       appId,
     }),
+    summarizeSkills(storage, appId),
   ]);
   sendJson(res, 200, {
     agents,
     mcpServers: servers,
+    skills,
     modelProviders: {
       ready: providers.filter((provider) => provider.health === 'ready').length,
       missing: providers.filter((provider) => provider.health === 'missing')
@@ -60,6 +74,20 @@ export async function handleBrowserNavigationSummary(
     },
   });
   return true;
+}
+
+async function summarizeSkills(
+  storage: ReturnType<typeof getRuntimeStorage>,
+  appId: AppId,
+) {
+  if (storage.repositories.skills.summarizeNavigation) {
+    return storage.repositories.skills.summarizeNavigation(appId);
+  }
+  const skills = await storage.repositories.skills.listSkills({
+    appId,
+    statuses: ['installed'],
+  });
+  return { installed: skills.length };
 }
 
 async function summarizeAgents(
