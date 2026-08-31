@@ -2480,7 +2480,7 @@
         "Skill attachment never grants declared-action capabilities and browser responses expose no storage or secret-bearing fields."
       ],
       "order": 114,
-      "status": "pending",
+      "status": "active",
       "epic": "capability-search",
       "skill": "fullstack",
       "depends_on": [],
