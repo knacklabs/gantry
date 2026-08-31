@@ -1,10 +1,18 @@
 import { readFileSync } from 'node:fs';
 
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
+
+const browserAuth = vi.hoisted(() => ({
+  browserCsrfHeader: vi.fn(() => ({ 'x-csrf-token': 'test-csrf' })),
+  browserFetch: vi.fn(),
+}));
+
+vi.mock('../../../lib/auth/browser-auth', () => browserAuth);
 
 vi.mock('@tanstack/react-query', () => ({
   queryOptions: <T>(options: T) => options,
   useQuery: vi.fn(),
+  useQueryClient: vi.fn(),
 }));
 
 vi.mock('@/lib/utils', () => ({
@@ -18,16 +26,27 @@ vi.mock('@/ui/primitives/label', () => ({
   Label: 'label',
 }));
 
+vi.mock('@/ui/primitives/button', () => ({
+  Button: 'button',
+}));
+
 vi.mock('@/ui/primitives/separator', () => ({
   Separator: 'hr',
 }));
 
 import { skillsSearchSchema } from '../operations-search';
 import {
+  installSkillZip,
+  replaceSkillAttachments,
+  skillAttachmentsQuery,
   skillFileQuery,
   skillFilesQuery,
   type BrowserSkill,
 } from '../skills-queries';
+import {
+  MAX_SELECTED_AGENTS,
+  toggleAgentSelection,
+} from './skills-admin-dialogs';
 import { filterSkills, resolveSkillSelection } from './skills-route';
 
 const skill: BrowserSkill = {
@@ -59,6 +78,11 @@ const skill: BrowserSkill = {
 function source(path: string): string {
   return readFileSync(new URL(path, import.meta.url), 'utf8');
 }
+
+beforeEach(() => {
+  browserAuth.browserFetch.mockReset();
+  browserAuth.browserCsrfHeader.mockClear();
+});
 
 it('renders Skills navigation and count contract', () => {
   const navigation = source('../../../app/app-navigation.tsx');
@@ -113,7 +137,6 @@ it('keeps Skills inspection read only and lazy with Agent Access links', () => {
   expect(skillFileQuery(skill.id, 'SKILL.md', false).enabled).toBe(false);
   expect(route).toContain('requiredCredentialNames');
   expect(route).toContain('Declared actions are read-only inventory metadata');
-  expect(route).not.toMatch(/Install skill|Attach agents|Save changes/);
 
   expect(route).toContain('to="/agents/$agentId"');
   expect(route).toContain("search={{ tab: 'access' }}");
@@ -125,4 +148,168 @@ it('keeps Skills inspection read only and lazy with Agent Access links', () => {
   expect(route).toContain('Binary contents are not displayed');
   expect(route).toContain('file.contentType');
   expect(route).toContain('file.sizeBytes');
+});
+
+it('renders admin Skills controls and keeps viewers read only', () => {
+  const route = source('./skills-route.tsx');
+
+  expect(route).toContain("inventoryQuery.data?.role === 'administrator'");
+  expect(route).toMatch(/canManage \? \(\s*<Button[\s\S]*Install skill/);
+  expect(route).toMatch(/canManage && skill\.status === 'installed'/);
+  expect(route).toContain('Manage attachments');
+  expect(route).toMatch(/\{canManage \? \(\s*<>[\s\S]*SkillInstallDialog/);
+});
+
+it('supports administrator ZIP installation without automatic attachment', async () => {
+  browserAuth.browserFetch.mockResolvedValueOnce(
+    new Response(JSON.stringify({ skill }), {
+      status: 201,
+      headers: { 'content-type': 'application/json' },
+    }),
+  );
+  const file = new File(['zip bytes'], 'incident-reader.zip', {
+    type: 'application/zip',
+  });
+
+  await expect(installSkillZip(file)).resolves.toEqual(skill);
+  expect(browserAuth.browserFetch).toHaveBeenCalledTimes(1);
+  expect(browserAuth.browserFetch).toHaveBeenCalledWith(
+    '/ui/api/skills/install',
+    expect.objectContaining({
+      method: 'POST',
+      body: file,
+      headers: expect.objectContaining({
+        'content-type': 'application/zip',
+        'x-csrf-token': 'test-csrf',
+      }),
+    }),
+  );
+
+  const dialogs = source('./skills-admin-dialogs.tsx').replace(/\s+/g, ' ');
+  expect(dialogs).toContain(
+    'Add a ZIP package to Gantry’s skill inventory. Agent attachment is managed separately after installation.',
+  );
+  expect(dialogs).toContain('Choose a skill ZIP');
+  expect(dialogs).toContain('ZIP only · Maximum 5 MB');
+  expect(dialogs).toContain(
+    'Installing a package with the same skill name updates it in place. Attached agents receive the updated instructions on their next run.',
+  );
+  expect(dialogs).toContain('Skill installed.');
+  expect(dialogs).toContain('View skill');
+  expect(dialogs).toContain('Attach agents');
+  expect(dialogs).toContain('...skill.attachedAgents.map((agent) =>');
+  expect(dialogs).toContain("agentQueryKeys.all, 'sources', agent.id");
+});
+
+it('replaces the complete attachment set and keeps disabled agents selectable', async () => {
+  const attachments = {
+    skillId: skill.id,
+    agents: [
+      { ...skill.attachedAgents[0], attached: false },
+      {
+        id: 'agent:disabled',
+        name: 'Paused agent',
+        status: 'disabled' as const,
+        attached: true,
+      },
+    ],
+  };
+  browserAuth.browserFetch.mockResolvedValueOnce(
+    new Response(JSON.stringify(attachments), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+  );
+
+  await expect(
+    replaceSkillAttachments(skill.id, ['agent:one', 'agent:disabled']),
+  ).resolves.toEqual(attachments);
+  expect(browserAuth.browserFetch).toHaveBeenCalledWith(
+    `/ui/api/skills/${encodeURIComponent(skill.id)}/agents`,
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ agentIds: ['agent:one', 'agent:disabled'] }),
+    }),
+  );
+
+  const dialogs = source('./skills-admin-dialogs.tsx').replace(/\s+/g, ' ');
+  expect(dialogs).toContain('Disabled · available when the agent is enabled.');
+  expect(dialogs).toContain(
+    '<DialogTitle className="text-lg font-semibold"> Attach agents </DialogTitle>',
+  );
+  expect(dialogs).toContain(
+    'Choose which agents receive this skill’s instructions on their next run.',
+  );
+  expect(dialogs).toContain(
+    'Attachment is not authorization. Declared actions must still be enabled from each agent’s Access tab.',
+  );
+  expect(dialogs).toContain('checked={selected.has(agent.id)}');
+  expect(skillAttachmentsQuery(skill.id, false).enabled).toBe(false);
+
+  let selected = new Set(
+    Array.from({ length: MAX_SELECTED_AGENTS }, (_, index) => `agent:${index}`),
+  );
+  selected = toggleAgentSelection(selected, 'agent:extra');
+  expect(selected.size).toBe(MAX_SELECTED_AGENTS);
+  expect(selected.has('agent:extra')).toBe(false);
+  selected = toggleAgentSelection(selected, 'agent:0');
+  expect(selected.size).toBe(MAX_SELECTED_AGENTS - 1);
+  selected = toggleAgentSelection(selected, 'agent:extra');
+  expect(selected.has('agent:extra')).toBe(true);
+  expect(dialogs).toContain(
+    'disabled={ !selected.has(agent.id) && selected.size >= MAX_SELECTED_AGENTS }',
+  );
+});
+
+it('preserves mutation failures and invalidates affected queries', async () => {
+  browserAuth.browserFetch.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({ error: { message: 'Confirmed failure message.' } }),
+      { status: 500, headers: { 'content-type': 'application/json' } },
+    ),
+  );
+
+  await expect(
+    replaceSkillAttachments(skill.id, ['agent:one']),
+  ).rejects.toThrow('Confirmed failure message.');
+
+  const dialogs = source('./skills-admin-dialogs.tsx');
+  expect(dialogs).toContain('query.isFetching');
+  expect(dialogs).toContain('query.isError');
+  expect(dialogs).toContain('hydratedSkillId !== skill.id');
+  expect(dialogs).toContain('setHydratedSkillId(undefined)');
+  expect(dialogs).toContain(
+    'Attachments saved. Changes apply on each agent’s next run.',
+  );
+  expect(dialogs).toContain('role="alert"');
+  expect(dialogs).toContain('const refreshed = await query.refetch()');
+  expect(dialogs).toContain('setSelected(ids)');
+  expect(dialogs).toContain('setSelected(new Set(confirmed))');
+  expect(dialogs.match(/skillInventoryQuery\.queryKey/g)).toHaveLength(3);
+  expect(dialogs.match(/navigationSummaryQuery\.queryKey/g)).toHaveLength(3);
+  expect(
+    dialogs.match(/agentQueryKeys\.all, 'sources', agentId/g),
+  ).toHaveLength(2);
+  expect(dialogs).toContain("'Attachments could not be saved.'");
+  expect(source('./skills-route.tsx')).toContain(
+    'Attachments saved. Changes apply on each agent’s next run.',
+  );
+});
+
+it('keeps Skills dialogs accessible and constrained', () => {
+  const dialogs = source('./skills-admin-dialogs.tsx');
+
+  expect(dialogs).toContain('accept=".zip,application/zip"');
+  expect(dialogs).toContain(
+    'aria-describedby="skill-zip-hint skill-update-warning"',
+  );
+  expect(dialogs).toContain('aria-live="polite"');
+  expect(dialogs).toContain('aria-atomic="true"');
+  expect(dialogs).toContain('aria-live="assertive"');
+  expect(dialogs).toContain('onOpenAutoFocus');
+  expect(dialogs).toContain('onCloseAutoFocus');
+  expect(dialogs).toContain('onEscapeKeyDown');
+  expect(dialogs).toContain('onInteractOutside');
+  expect(dialogs).toContain('max-h-[calc(100dvh-32px)]');
+  expect(dialogs).toContain('w-[min(680px,calc(100vw-32px))]');
 });

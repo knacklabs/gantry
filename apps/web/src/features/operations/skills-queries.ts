@@ -1,6 +1,6 @@
 import { queryOptions } from '@tanstack/react-query';
 
-import { browserFetch } from '../../lib/auth/browser-auth';
+import { browserCsrfHeader, browserFetch } from '../../lib/auth/browser-auth';
 import { operationsQueryKeys } from './operations-queries';
 
 export type BrowserSkill = {
@@ -41,6 +41,32 @@ export type BrowserSkillFileMetadata = {
   isText: boolean;
 };
 
+export type BrowserSkillAttachmentAgent =
+  BrowserSkill['attachedAgents'][number] & {
+    attached: boolean;
+  };
+
+export type BrowserSkillAttachments = {
+  skillId: string;
+  agents: BrowserSkillAttachmentAgent[];
+};
+
+type BrowserError = { error?: { message?: string } };
+
+async function responseBody<T>(
+  response: Response,
+  fallback: string,
+): Promise<T> {
+  const body = (await response.json().catch(() => null)) as
+    | T
+    | BrowserError
+    | null;
+  if (!response.ok || !body) {
+    throw new Error((body as BrowserError | null)?.error?.message ?? fallback);
+  }
+  return body as T;
+}
+
 export const skillInventoryQuery = queryOptions({
   queryKey: operationsQueryKeys.skills(),
   queryFn: async (): Promise<BrowserSkillInventory> => {
@@ -51,6 +77,66 @@ export const skillInventoryQuery = queryOptions({
     return response.json() as Promise<BrowserSkillInventory>;
   },
 });
+
+export function skillAttachmentsQuery(
+  skillId: string | undefined,
+  enabled: boolean,
+) {
+  return queryOptions({
+    queryKey: [
+      ...operationsQueryKeys.skills(),
+      skillId ?? '',
+      'agents',
+    ] as const,
+    enabled: enabled && Boolean(skillId),
+    queryFn: async (): Promise<BrowserSkillAttachments> => {
+      const response = await browserFetch(
+        `/ui/api/skills/${encodeURIComponent(skillId ?? '')}/agents`,
+        { credentials: 'same-origin' },
+      );
+      return responseBody(response, 'Skill attachments could not be loaded.');
+    },
+  });
+}
+
+export async function installSkillZip(file: File): Promise<BrowserSkill> {
+  if (!file.name.toLowerCase().endsWith('.zip')) {
+    throw new Error('Choose one ZIP skill package.');
+  }
+  const response = await browserFetch('/ui/api/skills/install', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'content-type': 'application/zip',
+      ...browserCsrfHeader(),
+    },
+    body: file,
+  });
+  const body = await responseBody<{ skill: BrowserSkill }>(
+    response,
+    'The skill ZIP could not be installed.',
+  );
+  return body.skill;
+}
+
+export async function replaceSkillAttachments(
+  skillId: string,
+  agentIds: readonly string[],
+): Promise<BrowserSkillAttachments> {
+  const response = await browserFetch(
+    `/ui/api/skills/${encodeURIComponent(skillId)}/agents`,
+    {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: {
+        'content-type': 'application/json',
+        ...browserCsrfHeader(),
+      },
+      body: JSON.stringify({ agentIds }),
+    },
+  );
+  return responseBody(response, 'Skill attachments could not be saved.');
+}
 
 export function skillFilesQuery(skillId: string | undefined, enabled: boolean) {
   return queryOptions({

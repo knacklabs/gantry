@@ -222,6 +222,7 @@
       "id": "SKILLS-WEB-1-T3",
       "title": "Administrator install and attachment workflows",
       "objective": "Add admin-only ZIP install and attachment dialogs with same-name update warning, disabled-agent labels, pending/error preservation, query invalidation, and accessibility behavior while keeping attachment separate from authorization.",
+      "user_facing": true,
       "acceptance_criteria": [
         "Administrators can choose one ZIP, see the approved same-name update warning, install without automatic attachment, and use success actions to view the skill or attach agents.",
         "Administrators can replace the complete attachment set from a dialog that preserves state on failure and announces success with next-run wording.",
@@ -233,7 +234,85 @@
         "SKILLS-WEB-1-T1",
         "SKILLS-WEB-1-T2"
       ],
-      "epic_id": "capability-search"
+      "epic_id": "capability-search",
+      "write_scope": [
+        "apps/web/src/features/operations/skills-queries.ts",
+        "apps/web/src/features/operations/routes/skills-route.tsx",
+        "apps/web/src/features/operations/routes/skills-admin-dialogs.tsx",
+        "apps/web/src/features/operations/routes/skills-route.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "renders admin Skills controls and keeps viewers read only",
+          "path": "apps/web/src/features/operations/routes/skills-route.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "supports administrator ZIP installation without automatic attachment",
+          "path": "apps/web/src/features/operations/routes/skills-route.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "replaces the complete attachment set and keeps disabled agents selectable",
+          "path": "apps/web/src/features/operations/routes/skills-route.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "preserves mutation failures and invalidates affected queries",
+          "path": "apps/web/src/features/operations/routes/skills-route.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "keeps Skills dialogs accessible and constrained",
+          "path": "apps/web/src/features/operations/routes/skills-route.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx vitest run -c apps/web/vitest.config.ts --root . apps/web/src/features/operations/routes/skills-route.test.ts",
+        "npm run typecheck:web",
+        "npm run lint:web",
+        "npm run format:check:web"
+      ],
+      "plan_contracts": [
+        {
+          "id": "SKILLS-WEB-1-T3-AC1",
+          "statement": "Administrators can choose one ZIP, see the approved same-name update warning, install without automatic attachment, and use success actions to view the skill or attach agents.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-3-administrator-install-and-attachment-workflows"
+        },
+        {
+          "id": "SKILLS-WEB-1-T3-AC2",
+          "statement": "Administrators can replace the complete attachment set from a dialog that preserves state on failure and announces success with next-run wording.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-3-administrator-install-and-attachment-workflows"
+        },
+        {
+          "id": "SKILLS-WEB-1-T3-AC3",
+          "statement": "Disabled agents remain selectable and are labeled \"Disabled \u00b7 available when the agent is enabled.\"",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-3-administrator-install-and-attachment-workflows"
+        },
+        {
+          "id": "SKILLS-WEB-1-T3-AC4",
+          "statement": "Mutation flows invalidate Skills and affected Agent queries without exposing controls to viewer sessions.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-3-administrator-install-and-attachment-workflows"
+        },
+        {
+          "id": "SKILLS-WEB-1-T3-AC5",
+          "statement": "Dialog focus, keyboard operation, labels, live status, and narrow-layout behavior follow existing Web UI conventions.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-3-administrator-install-and-attachment-workflows"
+        }
+      ],
+      "reviewer_focus": [
+        "Load-bearing references: constitution/09-agent-conduct.md, constitution/pnp-coding-standards-modular-monolith.md, docs/architecture/web-ui-foundation.md, docs/architecture/capability-management.md, and docs/decisions/0020-mcp-source-vs-action-capability.md.",
+        "Task-specific seam: use the existing T1 browser endpoints and T2 route state; keep admin dialog orchestration separate from read-only inventory rendering, with no client-side package parser or new dependency.",
+        "Authority boundary: attachment remains selected-skill availability for later agent runs only; declared actions stay read-only metadata and Agent Access remains the only authorization path.",
+        "State correctness: initialize attachments from the lazy server response, preserve confirmed selection on failure, send the complete desired set, and invalidate Skills, navigation summary, and affected Agent queries after success.",
+        "Design attestation: apply emil-design-eng and frontend-design through existing Gantry primitives, native file input, visible focus, live status text, responsive dialog constraints, and no new visual system."
+      ],
+      "review_budget": {
+        "max_changed_files": 4,
+        "max_changed_lines": 1200,
+        "reason": "One admin UI slice: mutations and dialogs layered onto the existing Skills page and query module, with focused route tests. Backend, contracts, schema, public API, and CLI are unchanged."
+      }
     }
   ],
   "linear_plan": {
@@ -243,5 +322,5 @@
   "epic": "capability-search",
   "plan_file": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md",
   "plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
-  "commit": "096d2a6778db0a471534cefdda9dea7b452656c4"
+  "commit": "abf3f2a007a2f6dd3d78cfb12cef41eced852422"
 }

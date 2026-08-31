@@ -7,7 +7,7 @@ import {
   PackageOpen,
   SearchX,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { PageState } from '../../../ui/compositions/page-state';
@@ -16,6 +16,7 @@ import { RouteTabs } from '../../../ui/compositions/route-tabs';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Badge } from '../../../ui/primitives/badge';
+import { Button } from '../../../ui/primitives/button';
 import type { SkillTab } from '../operations-search';
 import {
   skillFileQuery,
@@ -24,6 +25,10 @@ import {
   type BrowserSkill,
   type BrowserSkillFileMetadata,
 } from '../skills-queries';
+import {
+  SkillAttachmentsDialog,
+  SkillInstallDialog,
+} from './skills-admin-dialogs';
 
 const SOURCE_LABELS: Record<BrowserSkill['source'], string> = {
   bundled: 'Bundled',
@@ -62,6 +67,7 @@ export function SkillsRoute() {
   const search = useSearch({ from: '/skills' });
   const navigate = useNavigate({ from: '/skills' });
   const inventoryQuery = useQuery(skillInventoryQuery);
+  const canManage = inventoryQuery.data?.role === 'administrator';
   const skills = inventoryQuery.data?.skills ?? [];
   const visibleSkills = useMemo(
     () => filterSkills(skills, search.q),
@@ -69,6 +75,12 @@ export function SkillsRoute() {
   );
   const selectedSkill = resolveSkillSelection(visibleSkills, search.skill);
   const [requestedFilePath, setRequestedFilePath] = useState<string>();
+  const installTriggerRef = useRef<HTMLButtonElement>(null);
+  const attachmentReturnFocusRef = useRef<HTMLElement | null>(null);
+  const [installOpen, setInstallOpen] = useState(false);
+  const [attachmentSkill, setAttachmentSkill] = useState<BrowserSkill>();
+  const [attachmentOpen, setAttachmentOpen] = useState(false);
+  const [receipt, setReceipt] = useState<string>();
   const filesQuery = useQuery(
     skillFilesQuery(selectedSkill?.id, search.tab === 'files'),
   );
@@ -86,10 +98,32 @@ export function SkillsRoute() {
   return (
     <div className="mx-auto grid w-full max-w-[1240px] gap-6">
       <PageHeader
+        action={
+          canManage ? (
+            <Button
+              onClick={() => setInstallOpen(true)}
+              ref={installTriggerRef}
+            >
+              Install skill
+            </Button>
+          ) : null
+        }
         eyebrow="Configure"
         title="Skills"
         description="Inspect installed skill packages, their declared actions, and where they are attached."
       />
+
+      <p
+        aria-atomic="true"
+        aria-live="polite"
+        className={
+          receipt
+            ? 'm-0 rounded-lg border border-status-success/40 bg-status-success-soft px-4 py-3 text-sm text-status-success'
+            : 'sr-only'
+        }
+      >
+        {receipt ?? ''}
+      </p>
 
       <div className="max-w-md">
         <TextField
@@ -165,6 +199,7 @@ export function SkillsRoute() {
             }
           />
           <SkillDetail
+            canManage={canManage}
             file={fileQuery.data?.file}
             fileError={fileQuery.isError}
             fileLoading={fileQuery.isPending}
@@ -174,6 +209,11 @@ export function SkillsRoute() {
             selectedFilePath={selectedFile?.path}
             skill={selectedSkill}
             tab={search.tab}
+            onManageAttachments={(trigger) => {
+              attachmentReturnFocusRef.current = trigger;
+              setAttachmentSkill(selectedSkill);
+              setAttachmentOpen(true);
+            }}
             onFileSelect={setRequestedFilePath}
             onTabChange={(tab) =>
               void navigate({
@@ -182,6 +222,42 @@ export function SkillsRoute() {
             }
           />
         </div>
+      ) : null}
+
+      {canManage ? (
+        <>
+          <SkillInstallDialog
+            onAttachAgents={(skill) => {
+              attachmentReturnFocusRef.current = installTriggerRef.current;
+              setAttachmentSkill(skill);
+              setAttachmentOpen(true);
+            }}
+            onOpenChange={setInstallOpen}
+            onViewSkill={(skill) =>
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  q: '',
+                  skill: skill.id,
+                  tab: 'overview',
+                }),
+              })
+            }
+            open={installOpen}
+            returnFocusRef={installTriggerRef}
+          />
+          <SkillAttachmentsDialog
+            onOpenChange={setAttachmentOpen}
+            onSaved={() =>
+              setReceipt(
+                'Attachments saved. Changes apply on each agent’s next run.',
+              )
+            }
+            open={attachmentOpen}
+            returnFocusRef={attachmentReturnFocusRef}
+            skill={attachmentSkill}
+          />
+        </>
       ) : null}
     </div>
   );
@@ -239,24 +315,28 @@ function SkillInventory({
 }
 
 function SkillDetail({
+  canManage,
   file,
   fileError,
   fileLoading,
   files,
   filesError,
   filesLoading,
+  onManageAttachments,
   onFileSelect,
   onTabChange,
   selectedFilePath,
   skill,
   tab,
 }: {
+  canManage: boolean;
   file?: BrowserSkillFileMetadata & { content: string | null };
   fileError: boolean;
   fileLoading: boolean;
   files?: BrowserSkillFileMetadata[];
   filesError: boolean;
   filesLoading: boolean;
+  onManageAttachments: (trigger: HTMLButtonElement) => void;
   onFileSelect: (path: string) => void;
   onTabChange: (tab: SkillTab) => void;
   selectedFilePath?: string;
@@ -265,7 +345,20 @@ function SkillDetail({
 }) {
   return (
     <Panel
-      action={<StatusBadge status={skill.status} />}
+      action={
+        <div className="flex items-center gap-2">
+          {canManage && skill.status === 'installed' ? (
+            <Button
+              onClick={(event) => onManageAttachments(event.currentTarget)}
+              size="sm"
+              variant="secondary"
+            >
+              Manage attachments
+            </Button>
+          ) : null}
+          <StatusBadge status={skill.status} />
+        </div>
+      }
       className="min-h-[32rem]"
       title={skill.name}
     >
