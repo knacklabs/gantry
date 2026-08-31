@@ -168,6 +168,10 @@ it('redacts skill inventory and rejects viewer mutations', async () => {
     JSON.parse(inventoryResponse.body),
   );
   expect(inventoryResponse.statusCode).toBe(200);
+  expect(storage.repositories.skills.listSkills).toHaveBeenCalledWith({
+    appId: 'app:one',
+    statuses: ['installed'],
+  });
   expect(inventory.skills[0]).toMatchObject({
     id: 'skill:one',
     attachedAgents: [{ id: 'agent:one', status: 'active' }],
@@ -680,5 +684,30 @@ it('lists bundled skills without an artifact as an empty file collection', async
 
   expect(res.statusCode).toBe(200);
   expect(JSON.parse(res.body)).toEqual({ skillId: 'skill:memory', files: [] });
+  expect(storage.skillArtifacts.getSkillArtifact).not.toHaveBeenCalled();
+});
+
+it('does not expose files for disabled skills', async () => {
+  activeSession.mockResolvedValue({
+    appId: 'app:one',
+    userId: 'user:viewer',
+    role: 'viewer',
+  });
+  storage.repositories.skills.getSkill.mockResolvedValue({
+    id: 'skill:disabled',
+    appId: 'app:one',
+    status: 'disabled',
+  });
+  const res = response();
+
+  await handleBrowserSkillRoutes(
+    request('GET'),
+    res,
+    routeContext() as never,
+    '/ui/api/skills/skill%3Adisabled/files',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(404);
   expect(storage.skillArtifacts.getSkillArtifact).not.toHaveBeenCalled();
 });

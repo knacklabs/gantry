@@ -85,7 +85,7 @@ export async function handleBrowserSkillRoutes(
     const storage = getRuntimeStorage();
     const appId = session.appId as AppId;
     const [skills, agents] = await Promise.all([
-      skillService().listSkills({ appId }),
+      skillService().listSkills({ appId, statuses: ['installed'] }),
       storage.repositories.agents.listAgents(appId),
     ]);
     const bindings =
@@ -231,7 +231,7 @@ export async function handleBrowserSkillRoutes(
     }
     const storage = getRuntimeStorage();
     const skill = await storage.repositories.skills.getSkill(skillId);
-    if (!skill || skill.appId !== appId) {
+    if (!skill || skill.appId !== appId || skill.status !== 'installed') {
       return browserError(res, 404, 'NOT_FOUND', 'Skill files were not found.');
     }
     if (!skill.storage) {
