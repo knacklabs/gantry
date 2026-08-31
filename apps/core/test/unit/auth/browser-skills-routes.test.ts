@@ -509,3 +509,31 @@ it('returns only verified app-scoped file bytes and sanitizes failures', async (
   );
   expect(crossAppResponse.statusCode).toBe(404);
 });
+
+it('lists bundled skills without an artifact as an empty file collection', async () => {
+  activeSession.mockResolvedValue({
+    appId: 'app:one',
+    userId: 'user:viewer',
+    role: 'viewer',
+  });
+  storage.repositories.skills.getSkill.mockResolvedValue({
+    id: 'skill:memory',
+    appId: 'app:one',
+    name: 'memory',
+    source: 'bundled',
+    status: 'installed',
+  });
+  const res = response();
+
+  await handleBrowserSkillRoutes(
+    request('GET'),
+    res,
+    routeContext() as never,
+    '/ui/api/skills/skill%3Amemory/files',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(200);
+  expect(JSON.parse(res.body)).toEqual({ skillId: 'skill:memory', files: [] });
+  expect(storage.skillArtifacts.getSkillArtifact).not.toHaveBeenCalled();
+});

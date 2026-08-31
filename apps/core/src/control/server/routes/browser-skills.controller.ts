@@ -198,7 +198,14 @@ export async function handleBrowserSkillRoutes(
     }
     const storage = getRuntimeStorage();
     const skill = await storage.repositories.skills.getSkill(skillId);
-    if (!skill || skill.appId !== appId || !skill.storage) {
+    if (!skill || skill.appId !== appId) {
+      return browserError(res, 404, 'NOT_FOUND', 'Skill files were not found.');
+    }
+    if (!skill.storage) {
+      if (!files[2] && skill.source === 'bundled') {
+        sendJson(res, 200, { skillId, files: [] });
+        return true;
+      }
       return browserError(res, 404, 'NOT_FOUND', 'Skill files were not found.');
     }
     let bundle;
