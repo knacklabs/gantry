@@ -377,7 +377,8 @@ export function SkillAttachmentsDialog({
       setSuccess('Attachments saved. Changes apply on each agent’s next run.');
       onSaved(skill, result.agents.filter((agent) => agent.attached).length);
     } catch (caught) {
-      if (errorCode(caught) === 'SETTINGS_PROJECTION_FAILED') {
+      const code = errorCode(caught);
+      if (code === 'SETTINGS_PROJECTION_FAILED' || !code) {
         const refreshed = await query.refetch();
         if (refreshed.isSuccess && refreshed.data) {
           const ids = attachedIds(refreshed.data);
@@ -386,6 +387,8 @@ export function SkillAttachmentsDialog({
         } else {
           setReconciliationRequired(true);
         }
+      } else {
+        setSelected(new Set(confirmed));
       }
       await Promise.all([
         queryClient.invalidateQueries({

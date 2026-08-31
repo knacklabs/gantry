@@ -311,10 +311,9 @@ it('preserves mutation failures and invalidates affected queries', async () => {
   expect(dialogs).toContain('const refreshed = await query.refetch()');
   expect(dialogs).toContain('setSelected(ids)');
   expect(dialogs).toContain('refreshed.isSuccess && refreshed.data');
-  expect(dialogs).toContain(
-    "errorCode(caught) === 'SETTINGS_PROJECTION_FAILED'",
-  );
+  expect(dialogs).toContain("code === 'SETTINGS_PROJECTION_FAILED' || !code");
   expect(dialogs).toContain('setReconciliationRequired(true)');
+  expect(dialogs).toContain('setSelected(new Set(confirmed))');
   expect(dialogs).toContain('setHydratedSkillId(refreshed.data.skillId)');
   expect(dialogs).toMatch(/query\.isError\s*\|\|\s*reconciliationRequired/);
   expect(dialogs.match(/skillInventoryQuery\.queryKey/g)).toHaveLength(4);
