@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "CARDFIX-1-T1 task start (ledger round): Codex sol@xhigh implements the whole task \u2014 affordances on pause stories, retry-and-ask (one-shot rerun in ask mode), real Pause job, provider callback consumers, tests. Anything to settle before it starts?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No \u2014 go"
+    }
+  ],
+  "at": "2026-08-31T11:03:04.193417+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
