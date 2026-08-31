@@ -118,6 +118,7 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
         });
         evidence.phase('discover-channel');
         channelId = await slackChannelIdByName(slack.userToken, CHANNEL_NAME);
+        const userId = await slackBotUserId(slack.userToken);
         const botUserId = await slackBotUserId(slack.botToken);
 
         evidence.phase('boot-runtime');
@@ -179,7 +180,7 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
           kind: 'group',
           display_name: CHANNEL_NAME,
           sender_policy: { allow: '*', mode: 'trigger' },
-          control_approvers: [],
+          control_approvers: [userId],
           installed_agents: {
             [AGENT_FOLDER]: {
               provider_account: PROVIDER_ACCOUNT_ID,
@@ -201,13 +202,14 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
             },
           },
         );
-        expect(written.status).toBe(200);
+        expect(written.status, JSON.stringify(written.body)).toBe(200);
         await harness.restart();
 
         evidence.phase('send-and-verify');
         const message = await sendSlackTestMessage({
           token: slack.userToken,
           channelId,
+          mentionUserId: botUserId,
         });
         rootTs = message.ts;
         const reply = await waitForSlackThreadReply({
