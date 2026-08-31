@@ -181,6 +181,27 @@ export async function handleBrowserSkillRoutes(
         appId,
         agentIds: agents.map((agent) => agent.id),
       });
+    if (
+      bindings.some(
+        (binding) =>
+          binding.skillId === skill.id && binding.status === 'active',
+      )
+    ) {
+      try {
+        await ctx.syncSettingsFromProjection(appId);
+      } catch (error) {
+        logger.error(
+          { err: error, appId, skillId: skill.id },
+          'Browser skill settings projection failed',
+        );
+        return browserError(
+          res,
+          500,
+          'SETTINGS_PROJECTION_FAILED',
+          'Skill was installed, but runtime settings could not be refreshed.',
+        );
+      }
+    }
     sendJson(res, 201, {
       skill: browserSkillResponse(skill, agents, bindings),
     });

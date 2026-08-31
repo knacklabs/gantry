@@ -7,7 +7,7 @@ import {
   PackageOpen,
   SearchX,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { PageState } from '../../../ui/compositions/page-state';
@@ -74,6 +74,22 @@ export function SkillsRoute() {
     [search.q, skills],
   );
   const selectedSkill = resolveSkillSelection(visibleSkills, search.skill);
+  useEffect(() => {
+    if (!inventoryQuery.isSuccess || !search.skill) {
+      return;
+    }
+    const selectedSkillId = selectedSkill?.id;
+    if (
+      selectedSkillId === search.skill ||
+      (!selectedSkillId && skills.some((skill) => skill.id === search.skill))
+    ) {
+      return;
+    }
+    void navigate({
+      replace: true,
+      search: (previous) => ({ ...previous, skill: selectedSkillId }),
+    });
+  }, [inventoryQuery.isSuccess, navigate, search.skill, selectedSkill, skills]);
   const [requestedFilePath, setRequestedFilePath] = useState<string>();
   const installTriggerRef = useRef<HTMLButtonElement>(null);
   const attachmentReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -155,6 +171,9 @@ export function SkillsRoute() {
       ) : null}
       {inventoryQuery.isError ? (
         <PageState
+          action={
+            <Button onClick={() => void inventoryQuery.refetch()}>Retry</Button>
+          }
           description="Refresh the page to try loading the inventory again."
           icon={<AlertTriangle aria-hidden="true" />}
           kind="error"
@@ -206,6 +225,8 @@ export function SkillsRoute() {
             files={filesQuery.data?.files}
             filesError={filesQuery.isError}
             filesLoading={filesQuery.isPending}
+            onFileRetry={() => void fileQuery.refetch()}
+            onFilesRetry={() => void filesQuery.refetch()}
             selectedFilePath={selectedFile?.path}
             skill={selectedSkill}
             tab={search.tab}
@@ -324,6 +345,8 @@ function SkillDetail({
   filesLoading,
   onManageAttachments,
   onFileSelect,
+  onFileRetry,
+  onFilesRetry,
   onTabChange,
   selectedFilePath,
   skill,
@@ -338,6 +361,8 @@ function SkillDetail({
   filesLoading: boolean;
   onManageAttachments: (trigger: HTMLButtonElement) => void;
   onFileSelect: (path: string) => void;
+  onFileRetry: () => void;
+  onFilesRetry: () => void;
   onTabChange: (tab: SkillTab) => void;
   selectedFilePath?: string;
   skill: BrowserSkill;
@@ -392,6 +417,8 @@ function SkillDetail({
             files={files}
             filesError={filesError}
             filesLoading={filesLoading}
+            onFileRetry={onFileRetry}
+            onFilesRetry={onFilesRetry}
             selectedFilePath={selectedFilePath}
             onFileSelect={onFileSelect}
           />
@@ -443,6 +470,8 @@ function FilesTab({
   filesError,
   filesLoading,
   onFileSelect,
+  onFileRetry,
+  onFilesRetry,
   selectedFilePath,
 }: {
   file?: BrowserSkillFileMetadata & { content: string | null };
@@ -452,6 +481,8 @@ function FilesTab({
   filesError: boolean;
   filesLoading: boolean;
   onFileSelect: (path: string) => void;
+  onFileRetry: () => void;
+  onFilesRetry: () => void;
   selectedFilePath?: string;
 }) {
   if (filesLoading) {
@@ -467,6 +498,7 @@ function FilesTab({
   if (filesError) {
     return (
       <PageState
+        action={<Button onClick={onFilesRetry}>Retry</Button>}
         description="The package file list is unavailable."
         icon={<AlertTriangle aria-hidden="true" />}
         kind="error"
@@ -514,7 +546,12 @@ function FilesTab({
           ))}
         </ul>
       </div>
-      <FilePreview error={fileError} file={file} loading={fileLoading} />
+      <FilePreview
+        error={fileError}
+        file={file}
+        loading={fileLoading}
+        onRetry={onFileRetry}
+      />
     </div>
   );
 }
@@ -523,10 +560,12 @@ function FilePreview({
   error,
   file,
   loading,
+  onRetry,
 }: {
   error: boolean;
   file?: BrowserSkillFileMetadata & { content: string | null };
   loading: boolean;
+  onRetry: () => void;
 }) {
   if (loading) {
     return (
@@ -541,7 +580,15 @@ function FilePreview({
   if (error || !file) {
     return (
       <div className="min-h-48 rounded-lg border border-danger/40 bg-danger-soft p-4 text-sm text-danger">
-        This file preview could not be loaded.
+        <p className="m-0">This file preview could not be loaded.</p>
+        <Button
+          className="mt-3"
+          onClick={onRetry}
+          size="sm"
+          variant="secondary"
+        >
+          Retry
+        </Button>
       </div>
     );
   }

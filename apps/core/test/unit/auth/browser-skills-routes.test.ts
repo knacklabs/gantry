@@ -357,6 +357,84 @@ it('installs a validated ZIP into inventory without attaching agents', async () 
   expect(ctx.syncSettingsFromProjection).not.toHaveBeenCalled();
 });
 
+it('projects settings after updating an attached skill', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    appId: 'app:one',
+    userId: 'user:admin',
+    role: 'administrator',
+    reauthenticatedAt: new Date().toISOString(),
+  });
+  parseSkillZipUpload.mockReturnValue({
+    fallbackName: 'browser-skill',
+    assets: [
+      {
+        path: 'SKILL.md',
+        content: Buffer.from('---\nname: Browser Skill\n---\n# Updated'),
+      },
+    ],
+  });
+  storage.repositories.skills.listSkills.mockResolvedValue([
+    {
+      id: 'skill:existing',
+      appId: 'app:one',
+      name: 'Browser Skill',
+      source: 'admin_uploaded',
+      status: 'installed',
+      promptRefs: [],
+      toolIds: [],
+      workflowRefs: [],
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+  ]);
+  storage.skillArtifacts.putSkillArtifact.mockResolvedValue({
+    storageType: 'object-store',
+    storageRef: 'private/storage/updated',
+    contentHash: 'sha256:updated',
+    sizeBytes: 42,
+  });
+  storage.repositories.agents.listAgents.mockResolvedValue([
+    {
+      id: 'agent:one',
+      appId: 'app:one',
+      name: 'Agent One',
+      status: 'active',
+      createdAt: NOW,
+      updatedAt: NOW,
+    },
+  ]);
+  storage.repositories.skills.listAgentSkillBindingsForAgents.mockResolvedValue(
+    [
+      {
+        id: 'binding:existing',
+        appId: 'app:one',
+        agentId: 'agent:one',
+        skillId: 'skill:existing',
+        status: 'active',
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    ],
+  );
+  const ctx = routeContext();
+  const res = response();
+
+  await handleBrowserSkillRoutes(
+    request('POST', Buffer.from('validated-zip'), {
+      'content-type': 'application/zip',
+      origin: settings.authentication.canonicalOrigin,
+    }),
+    res,
+    ctx as never,
+    '/ui/api/skills/install',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(201);
+  expect(ctx.syncSettingsFromProjection).toHaveBeenCalledOnce();
+  expect(ctx.syncSettingsFromProjection).toHaveBeenCalledWith('app:one');
+});
+
 it('requires a session and recent hosted reauthentication', async () => {
   activeSession.mockResolvedValue(null);
   const readResponse = response();

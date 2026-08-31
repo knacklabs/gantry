@@ -119,8 +119,14 @@ it('restores Skills URL state and responsive page states', () => {
     /search: \(previous\) => \(\{\s+\.\.\.previous,\s+tab\s*[,}]/,
   );
   expect(route).not.toMatch(/search:\s*\{\s*\.\.\.search/);
+  expect(route).toContain('replace: true');
+  expect(route).toContain('selectedSkillId === search.skill');
+  expect(route).toContain('skills.some((skill) => skill.id === search.skill)');
   expect(route).toContain('Loading skills');
   expect(route).toContain('Skills could not be loaded');
+  expect(route).toContain('inventoryQuery.refetch()');
+  expect(route).toContain('filesQuery.refetch()');
+  expect(route).toContain('fileQuery.refetch()');
   expect(route).toContain('No skills installed');
   expect(route).toContain('No skills match this search');
   expect(route).toContain('data-layout="responsive-split"');
