@@ -212,3 +212,8 @@ Serves acceptance criteria 2–5.
 - Tasks 2–3: focused web tests for navigation/count, URL restoration, search/empty/error states, lazy tabs, viewer/admin controls, warnings, attachment state, Agent Access links, keyboard/focus/live status, and narrow layout.
 - Run `npm run typecheck:web`, `npm run lint:web`, `npm run format:check:web`, `npm run test --workspace @gantry/web`, focused core unit/integration/Postgres tests, then `python3 factory/scripts/verify.py`.
 - Record automated evidence, run one three-lens autoreview pass to clean, and run the required functional checker against the real local console/API for install, inspect, attach/detach, disabled agents, next-run wording, and unchanged action authority.
+
+
+## Implementation Assumptions
+
+- Reopened T2 remains limited to replacing stale search-object spreads with functional search updaters for `q`, `skill`, and `tab`, strengthening the existing URL-state regression test, and rerunning the approved verification and live visual checks.

@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-31T10:58:01+00:00", "story": "SKILLS-WEB-1", "detail": "SKILLS-WEB-1-T2 automated checks pass, but live desktop and constrained-width validation is blocked: the shell sandbox denies localhost sockets and the browser security gate declined access to http://"}

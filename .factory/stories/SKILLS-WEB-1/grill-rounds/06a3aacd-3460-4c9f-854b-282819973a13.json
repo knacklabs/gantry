@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Reply yes to re-approve this correction.",
+      "options": [
+        "yes",
+        "no"
+      ],
+      "chosen": "yes"
+    }
+  ],
+  "at": "2026-08-31T10:30:30.456607+00:00",
+  "session_id": "codex-skills-web-1-t2-url-state-correction"
+}

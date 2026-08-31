@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-31T11:04:23+00:00", "story": "SKILLS-WEB-1", "detail": "S-0058-2272: Host-side live validation completed against rebuilt Node 24 runtime on com.gantry PID 24215. healthz=200; readyz database/migrations/settings pass with only baseline api_auth fail. Exact reproduction "}

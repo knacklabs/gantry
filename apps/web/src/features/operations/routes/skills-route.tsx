@@ -100,7 +100,10 @@ export function SkillsRoute() {
           onChange={(event) =>
             void navigate({
               replace: true,
-              search: { ...search, q: event.target.value },
+              search: (previous) => ({
+                ...previous,
+                q: event.target.value,
+              }),
             })
           }
           placeholder="Name, description, ID, source, or status"
@@ -156,7 +159,9 @@ export function SkillsRoute() {
             skills={visibleSkills}
             total={skills.length}
             onSelect={(skillId) =>
-              void navigate({ search: { ...search, skill: skillId } })
+              void navigate({
+                search: (previous) => ({ ...previous, skill: skillId }),
+              })
             }
           />
           <SkillDetail
@@ -170,7 +175,11 @@ export function SkillsRoute() {
             skill={selectedSkill}
             tab={search.tab}
             onFileSelect={setRequestedFilePath}
-            onTabChange={(tab) => void navigate({ search: { ...search, tab } })}
+            onTabChange={(tab) =>
+              void navigate({
+                search: (previous) => ({ ...previous, tab }),
+              })
+            }
           />
         </div>
       ) : null}

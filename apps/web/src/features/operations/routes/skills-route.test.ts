@@ -87,6 +87,14 @@ it('restores Skills URL state and responsive page states', () => {
   expect(filterSkills([skill], 'INSTALLED')).toEqual([skill]);
 
   const route = source('./skills-route.tsx');
+  expect(route).toMatch(/search: \(previous\) => \(\{\s+\.\.\.previous,\s+q:/);
+  expect(route).toMatch(
+    /search: \(previous\) => \(\{\s+\.\.\.previous,\s+skill:/,
+  );
+  expect(route).toMatch(
+    /search: \(previous\) => \(\{\s+\.\.\.previous,\s+tab\s*[,}]/,
+  );
+  expect(route).not.toMatch(/search:\s*\{\s*\.\.\.search/);
   expect(route).toContain('Loading skills');
   expect(route).toContain('Skills could not be loaded');
   expect(route).toContain('No skills installed');
