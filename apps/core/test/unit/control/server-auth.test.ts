@@ -22,7 +22,7 @@ import {
   getConfiguredAgentRuntime,
   syncRuntimeSettingsFromProjection,
 } from '@core/config/index.js';
-import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
+import { signExternalIngressEd25519Request } from '@core/application/external-ingress/signature.js';
 import { preflightModelProvider } from '@core/adapters/llm/model-provider-preflight.js';
 import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
@@ -563,9 +563,9 @@ function signIngressRequest(input: {
   const timestamp = input.timestamp ?? String(Date.now());
   const nonce = input.nonce ?? 'nonce-1';
   const path = input.path ?? `/v1/ingresses/${input.ingressId}/invoke`;
-  const signature = signExternalIngressRequest({
+  const signature = signExternalIngressEd25519Request({
     crypto: ingressSignatureCrypto,
-    secret: input.secret ?? 'ingress-secret',
+    privateKeyPem: 'dummy-private-key',
     method,
     path,
     timestamp,
