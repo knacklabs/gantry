@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0131-9363",
+  "profile": "quickfix",
+  "reason": "Live check bug: pause-card taps (Allow once / Pause job / Run now class) are rejected with 'Scheduler mutation source could not be verified' \u2014 the host card lane never registers a permission run restriction nor passes source provenance, so the SCHED-1 mutation-authority gate fails closed on every host-originated scheduler card action. Fix: register an interactive restriction for the lane's responseKeyId and pass matching sourceRunKind/sourceJobId/sourceRunId.",
+  "started_at": "2026-08-31T17:11:17+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
