@@ -2,64 +2,89 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "questions_asked": 3,
+  "questions_asked": 5,
   "gaps": [
-    "Compound-command pause card action set (0134 forbids durable grant).",
-    "Owner asked how the earlier flagged log findings are handled alongside CARDFIX-1."
+    "Family-breadth boundary for destructive binaries (R1a).",
+    "Whether one-card covers non-tool blockers (R1b).",
+    "Pause-job button fate and card route ownership after the prose-card removal (R2a/R2b).",
+    "Two draft errors proved by the four Codex sol@xhigh validation passes: compound Allow-once wording violated 0134/0144 (pipes are reformulation-only), and the risk-gated-family claim had no enforcement point (0121: autonomous runs are classifier-free; reviewed-rule matches return before rails)."
   ],
   "contradictions": [],
   "resolutions": [
-    "Ruled: Allow once for this run (interactive one-time ask-and-wait) + Pause job; never a durable-grant button; spec doc updated.",
-    "Ruled: two bounded stories \u2014 CARDFIX-1 first, then GRACE-1 carrying all six findings; spec Not-in-scope names GRACE-1.",
-    "Provider-neutral: affordances attach in the neutral layer and flow through the existing per-provider action renderers (owner directive)."
+    "R1a: family breadth for all simple external commands, risk-gated \u2014 deterministic rails evaluate the exact command before a family match is honored; a rail hit asks and permits Allow-once only (ratified R2c).",
+    "R1b: one canonical card for ALL need classes; every JobSetupActionShape gets a row/action mapping; the setup-pause prompt implementation folds into the job permission card.",
+    "R2a: Pause job button dropped \u2014 a blocked job is already paused; the neutral kind, callback variants and provider codecs are deleted with the prose card.",
+    "R2b: approver route alone owns the card; other notification routes see nothing until the terminal outcome.",
+    "R2c: both corrections ratified \u2014 pipes never get Allow (retry-and-ask stays the compound-row action for paused jobs); rails-before-family-match ordering change gets its own decision record.",
+    "All four validation passes folded into the spec: one shared family-rule synthesizer across the three grant lanes; canonical family shape is the existing trailing-star argv grammar plus a durable-validator amendment; Allow creates zero rerun barriers/triggers (kills the per-dead-priorRunId fanout); tap-time lease check returns live|late; notified_fingerprint ownership moves to card delivery; 0144 Reconsider rows exempt from collapse; family grants live in agent authority only (0106); the #462 interactive host lane is retained for Run now."
   ],
   "rounds": [
     {
-      "question": "CARDFIX-1 spec grill: for a job paused on a COMPOUND command (durable grant forbidden by 0134), which actions should the pause card offer?",
+      "question": "Spec grill R1a \u2014 family-breadth boundary: 'Allow curl \u21d2 curl with anything' is clear for network/read tools. Should the SAME family breadth apply to destructive binaries (rm, dd, git push --force, sudo\u2026), or do those stay exact-argv/per-ask?",
       "options": [
-        "Allow once + Pause job (Recommended)",
-        "Retry + Pause job only",
-        "Ask the agent to reformulate"
+        "Family for all, risk-gated (Recommended)",
+        "Family breadth for every binary",
+        "Family only for a safe list"
       ],
-      "chosen": "Allow once + Pause job (Recommended)"
+      "chosen": "Family for all, risk-gated (Recommended)"
     },
     {
-      "question": "Anything else to settle for CARDFIX-1 before I confirm the spec and hand it to Codex sol@xhigh (provider-neutral, one pass)?",
+      "question": "Spec grill R1b \u2014 does killing the 'Setup needed' message also apply to NON-tool blockers (missing credential, capability install, channel setup) that today carry grantable setup actions on that card?",
       "options": [
-        "No \u2014 go",
-        "Yes \u2014 I have a note"
+        "Yes \u2014 one card for all needs (Recommended)",
+        "No \u2014 tools only for now"
       ],
-      "chosen": "What about the earlier flagged issues and new issues from logs?"
+      "chosen": "Yes \u2014 one card for all needs (Recommended)"
     },
     {
-      "question": "Shape for the flagged issues: CARDFIX-1 now (buttons on pause cards, sol@xhigh), then GRACE-1 as its own story right after covering all six log findings (lost retry timer, silent channel drops, stale-prompt feedback, waiting-job reminders, expired-rows poisoning, provider-unknown cosmetic)?",
+      "question": "Grill R2a \u2014 the Pause job button (shipped in CARDFIX-1 on the prose card): keep it as an action on the canonical permission card, or drop it entirely (a job blocked on a need is already paused; Deny just leaves it paused)?",
       "options": [
-        "Yes \u2014 two stories, CARDFIX-1 first (Recommended)",
-        "One combined story",
-        "GRACE-1 first"
+        "Drop it (Recommended)",
+        "Keep Pause job on the card"
       ],
-      "chosen": "Yes \u2014 two stories, CARDFIX-1 first (Recommended)",
+      "chosen": "Drop it (Recommended)"
+    },
+    {
+      "question": "Grill R2b \u2014 who gets the card? Today prose notifications go to ALL configured notification routes, while permission prompts go only to the approver route. Under one-card, who sees it?",
+      "options": [
+        "Approver route only (Recommended)",
+        "Project to every route"
+      ],
+      "chosen": "Approver route only (Recommended)"
+    },
+    {
+      "question": "Grill R2c \u2014 ratify two corrections Codex proved against the code: (1) PIPED commands never get an Allow button at all (reformulation-only \u2014 0134/0144 already mandate this; my draft wrongly offered Allow-once); retry-and-ask remains the compound-row action for paused jobs. (2) 'Risk-gated family' needs a real mechanism: rails evaluate the exact command BEFORE a family match is honored; a rail hit asks, and that Allow is once-only.",
+      "options": [
+        "Ratify both (Recommended)",
+        "Discuss further"
+      ],
+      "chosen": "Ratify both (Recommended)",
       "frontier_empty": true
     }
   ],
   "citations": [
     {
-      "finding": "formatSchedulerSetupStory returns text only; no actionAffordances attach to pause deliveries",
-      "path": "apps/core/src/application/jobs/scheduler-setup-story.ts",
-      "line": 19
+      "finding": "handoff fanout: one Allow creates one trigger per dead prior run; triggers undispatchable",
+      "source": "apps/core/src/application/interactions/job-permission-provider-actions.ts:166; apps/core/src/application/interactions/job-permission-reconciler.ts:498; apps/core/src/jobs/execution-finalization.ts:192"
     },
     {
-      "finding": "live buttonless pause card for the compound denial (job card-check-2)",
-      "path": "apps/core/src/application/jobs/scheduler-setup-story.ts",
-      "line": 44
+      "finding": "CARDFIX-1 actions ride only the prose delivery; living card needs a live lease to attach",
+      "source": "apps/core/src/application/jobs/scheduler-setup-story.ts:55; apps/core/src/app/bootstrap/job-permission-durability-wiring.ts:215"
     },
     {
-      "finding": "compound RunCommand refused per-leaf authorization (0134)",
-      "path": "docs/decisions",
-      "line": 1
+      "finding": "notified_fingerprint and terminal-send suppression hang off the prose send",
+      "source": "apps/core/src/jobs/execution-readiness.ts:232; apps/core/src/jobs/execution-notifications.ts:396"
+    },
+    {
+      "finding": "family shape exists in matcher grammar; durable validator rejects it; three synthesis lanes",
+      "source": "apps/core/src/shared/tool-rule-matcher.ts:550; apps/core/src/shared/durable-access-policy.ts:219; apps/core/src/application/permissions/permission-suggestion-synthesis.ts:62"
+    },
+    {
+      "finding": "reviewed-rule matches return before rails; autonomous runs classifier-free",
+      "source": "apps/core/src/runtime/permission-decision-coordinator.ts:84; docs/decisions/0121-autodet-no-classifier-autonomous.md:24"
     }
   ],
-  "input_sha256": "49f0f68b22014e4de6b036216c7bf04fbd92c5a5da2dfb02ea57d780db1781ad",
-  "recorded_at": "2026-08-31T10:45:11+00:00",
-  "commit": "00e3f1f8348430fccce409e8c2e6b7fe7d65c426"
+  "input_sha256": "c4c507e626ac08e9ab3d50c8015c3cda55f646d66a7518f79803b18299b7cf0e",
+  "recorded_at": "2026-08-31T18:31:44+00:00",
+  "commit": "3588dc5f37b94d049f15aabb3aa8db48a0ea8d2f"
 }
