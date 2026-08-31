@@ -1,0 +1,12 @@
+--- apps/core/src/adapters/storage/postgres/schema/external-ingress.ts
++++ apps/core/src/adapters/storage/postgres/schema/external-ingress.ts
+@@ -23,7 +23,7 @@
+       .notNull()
+       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+     name: text('name').notNull(),
+-    signatureAlgorithm: text('signature_algorithm').notNull().default('hmac-sha256'),
+-    publicKey: text('public_key'),
++    signatureAlgorithm: text('signature_algorithm').notNull().default('ed25519'),
++    publicKey: text('public_key').notNull(),
+     enabled: boolean('enabled').notNull().default(true),
+     metadataJson: text('metadata_json').notNull().default('{}'),

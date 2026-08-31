@@ -1,5 +1,11 @@
 import fs from 'node:fs';
-import { createHash, createHmac, timingSafeEqual, sign, createPrivateKey } from 'node:crypto';
+import {
+  createHash,
+  createHmac,
+  timingSafeEqual,
+  sign,
+  createPrivateKey,
+} from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import net from 'node:net';
 import os from 'node:os';
@@ -212,7 +218,8 @@ const controlRepo = {
     appId: 'app-one',
     name: 'ingress-main',
     signatureAlgorithm: 'ed25519',
-    publicKey: '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
+    publicKey:
+      '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
     enabled: true,
     metadata: {
       targetPolicy: {
@@ -567,8 +574,12 @@ function signIngressRequest(input: {
   const path = input.path ?? `/v1/ingresses/${input.ingressId}/invoke`;
   const signature = signExternalIngressEd25519Request({
     crypto: ingressSignatureCrypto,
-    privateKeyPem: '-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHamHYYXeydH88t+YtbmslU3Yfg16V0UEODYvyAFMgvE\n-----END PRIVATE KEY-----\n',
-    privateKeySign: (key, payload) => sign(null, Buffer.from(payload, 'utf8'), createPrivateKey(key)).toString('base64'),
+    privateKeyPem:
+      '-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHamHYYXeydH88t+YtbmslU3Yfg16V0UEODYvyAFMgvE\n-----END PRIVATE KEY-----\n',
+    privateKeySign: (key, payload) =>
+      sign(null, Buffer.from(payload, 'utf8'), createPrivateKey(key)).toString(
+        'base64',
+      ),
     method,
     path,
     timestamp,
@@ -608,7 +619,8 @@ beforeEach(() => {
     appId: 'app-one',
     name: 'ingress-main',
     signatureAlgorithm: 'ed25519',
-    publicKey: '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
+    publicKey:
+      '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
     enabled: true,
     metadata: {
       targetPolicy: {
@@ -2213,7 +2225,8 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       name: 'ingress-main',
       signatureAlgorithm: 'ed25519',
-    publicKey: '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
       enabled: true,
       metadata: {
         targetPolicy: {
@@ -2373,7 +2386,8 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       name: 'ingress-main',
       signatureAlgorithm: 'ed25519',
-    publicKey: '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
       enabled: true,
       metadata: {
         targetPolicy: {
@@ -2499,7 +2513,8 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       name: 'ingress-main',
       signatureAlgorithm: 'ed25519',
-    publicKey: '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
       enabled: true,
       metadata: {
         targetPolicy: {
@@ -4808,7 +4823,8 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       name: 'ingress-main',
       signatureAlgorithm: 'ed25519',
-    publicKey: '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
       enabled: false,
       metadata: {},
       createdAt: '2026-04-24T00:00:00.000Z',

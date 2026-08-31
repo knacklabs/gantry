@@ -209,7 +209,10 @@ function makeModule(overrides?: {
     now: () => '2026-04-30T00:00:00.000Z',
 
     createInvocationId: () => 'invocation-new',
-    createKeyPair: () => ({ publicKeyPem: 'dummy-public-key', privateKeyPem: 'dummy-private-key' }),
+    createKeyPair: () => ({
+      publicKeyPem: 'dummy-public-key',
+      privateKeyPem: 'dummy-private-key',
+    }),
     signatureCrypto,
     perAppTriggerLimit: 5,
     perJobTriggerLimit: 2,

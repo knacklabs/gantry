@@ -1,0 +1,45 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": false,
+  "tasks": [
+    {
+      "id": "TASK-1",
+      "title": "Ed25519 Implementation",
+      "objective": "Implement the complete Ed25519 asymmetric ingress feature including schema, crypto, SDK, and tests.",
+      "acceptance_criteria": [
+        "The external_ingresses table natively supports signature_algorithm and public_key.",
+        "Ingress creation supports ed25519 mode and returns private key once.",
+        "Dual-mode verification seamlessly falls back to HMAC or Ed25519.",
+        "The @gantry/sdk supports Ed25519 signing options natively.",
+        "Tests prove tampering and stale timestamps fail."
+      ],
+      "write_scope": [
+        "apps/core/src/adapters/storage/postgres/schema/migrations/*.sql",
+        "apps/core/src/adapters/storage/postgres/schema/external-ingress.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/control-plane-external-ingress.postgres.ts",
+        "apps/core/src/application/external-ingress/signature.ts",
+        "apps/core/src/application/external-ingress/external-ingress-module.ts",
+        "apps/core/src/control/server/external-ingress-adapter.ts",
+        "apps/core/src/control/server/routes/external-ingress.ts",
+        "packages/sdk/src/ingress-signature.ts",
+        "packages/sdk/src/ingresses.ts",
+        "apps/core/test/unit/application/external-ingress/*.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "test1",
+          "path": "apps/core/test/unit/application/external-ingress/external-ingress-module.test.ts",
+          "command": "npx vitest run {path} -t \"{id}\" --reporter=junit --outputFile={report}"
+        }
+      ],
+      "reviewer_focus": "Ensure backwards compatibility and correct crypto operations.",
+      "dependencies": []
+    }
+  ],
+  "project": "",
+  "story": "EXTINGRESS-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/EXTINGRESS-1-ed25519-external-ingress.md",
+  "plan_sha256": "4423e1a20bd125d37eeab4e0c9c2226e3e786625c8810035385ca5d8f366f371",
+  "commit": "b8ca67c89c49c931381e3c48900a84f4252e62e8"
+}

@@ -102,6 +102,14 @@ export function verifyExternalIngressEd25519Signature(input: {
     rawBody: input.rawBody,
     bodyHash,
   });
+  console.log(
+    'VERIFY_PAYLOAD:',
+    payload,
+    '\nSIG:',
+    input.signature,
+    '\nPUB:',
+    input.publicKeyPem,
+  );
   return input.crypto.ed25519Verify(
     input.publicKeyPem,
     payload,
