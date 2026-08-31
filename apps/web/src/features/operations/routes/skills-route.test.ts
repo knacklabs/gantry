@@ -291,7 +291,9 @@ it('preserves mutation failures and invalidates affected queries', async () => {
   expect(dialogs).toContain('role="alert"');
   expect(dialogs).toContain('const refreshed = await query.refetch()');
   expect(dialogs).toContain('setSelected(ids)');
-  expect(dialogs).toContain('setSelected(new Set(confirmed))');
+  expect(dialogs).toContain('refreshed.isSuccess && refreshed.data');
+  expect(dialogs).toContain('setReconciliationRequired(true)');
+  expect(dialogs).toMatch(/query\.isError\s*\|\|\s*reconciliationRequired/);
   expect(dialogs.match(/skillInventoryQuery\.queryKey/g)).toHaveLength(4);
   expect(dialogs.match(/navigationSummaryQuery\.queryKey/g)).toHaveLength(4);
   expect(
@@ -317,6 +319,8 @@ it('keeps Skills dialogs accessible and constrained', () => {
   expect(dialogs).toContain('onCloseAutoFocus');
   expect(dialogs).toContain('onEscapeKeyDown');
   expect(dialogs).toContain('onInteractOutside');
+  expect(dialogs).toContain('successActionRef.current?.focus()');
+  expect(dialogs).toContain('doneRef.current?.focus()');
   expect(dialogs).toContain('max-h-[calc(100dvh-32px)]');
   expect(dialogs).toContain('w-[min(680px,calc(100vw-32px))]');
 });

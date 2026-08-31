@@ -63,6 +63,7 @@ export function SkillInstallDialog({
 }) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const successActionRef = useRef<HTMLButtonElement>(null);
   const [file, setFile] = useState<File>();
   const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string>();
@@ -74,6 +75,10 @@ export function SkillInstallDialog({
     setError(undefined);
     setInstalled(undefined);
   }, [open]);
+
+  useEffect(() => {
+    if (installed) successActionRef.current?.focus();
+  }, [installed]);
 
   function changeOpen(next: boolean) {
     if (!next && installing) return;
@@ -168,6 +173,7 @@ export function SkillInstallDialog({
                   onViewSkill(installed);
                   changeOpen(false);
                 }}
+                ref={successActionRef}
                 variant="secondary"
               >
                 View skill
@@ -275,6 +281,7 @@ export function SkillAttachmentsDialog({
 }) {
   const queryClient = useQueryClient();
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const doneRef = useRef<HTMLButtonElement>(null);
   const initializedSkillId = useRef<string | undefined>(undefined);
   const query = useQuery(skillAttachmentsQuery(skill?.id, open));
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -282,6 +289,7 @@ export function SkillAttachmentsDialog({
   const [hydratedSkillId, setHydratedSkillId] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const [reconciliationRequired, setReconciliationRequired] = useState(false);
   const [success, setSuccess] = useState<string>();
 
   useEffect(() => {
@@ -291,6 +299,7 @@ export function SkillAttachmentsDialog({
       setConfirmed(new Set());
       setHydratedSkillId(undefined);
       setError(undefined);
+      setReconciliationRequired(false);
       setSuccess(undefined);
       return;
     }
@@ -308,6 +317,10 @@ export function SkillAttachmentsDialog({
     setHydratedSkillId(query.data.skillId);
   }, [open, query.data, query.isError, query.isFetching]);
 
+  useEffect(() => {
+    if (success) doneRef.current?.focus();
+  }, [success]);
+
   function changeOpen(next: boolean) {
     if (!next && saving) return;
     if (!next) {
@@ -316,6 +329,7 @@ export function SkillAttachmentsDialog({
       setConfirmed(new Set());
       setHydratedSkillId(undefined);
       setError(undefined);
+      setReconciliationRequired(false);
       setSuccess(undefined);
     }
     onOpenChange(next);
@@ -358,12 +372,12 @@ export function SkillAttachmentsDialog({
       onSaved(skill, result.agents.filter((agent) => agent.attached).length);
     } catch (caught) {
       const refreshed = await query.refetch();
-      if (refreshed.data) {
+      if (refreshed.isSuccess && refreshed.data) {
         const ids = attachedIds(refreshed.data);
         setSelected(ids);
         setConfirmed(new Set(ids));
       } else {
-        setSelected(new Set(confirmed));
+        setReconciliationRequired(true);
       }
       await Promise.all([
         queryClient.invalidateQueries({
@@ -429,7 +443,16 @@ export function SkillAttachmentsDialog({
                 Confirmed attachments could not be loaded.
               </p>
               <Button
-                onClick={() => void query.refetch()}
+                onClick={() =>
+                  void query.refetch().then((refreshed) => {
+                    if (!refreshed.isSuccess || !refreshed.data) return;
+                    const ids = attachedIds(refreshed.data);
+                    setSelected(ids);
+                    setConfirmed(new Set(ids));
+                    setReconciliationRequired(false);
+                    setError(undefined);
+                  })
+                }
                 size="sm"
                 variant="secondary"
               >
@@ -509,10 +532,18 @@ export function SkillAttachmentsDialog({
               </Button>
             ) : null}
             {success ? (
-              <Button onClick={() => changeOpen(false)}>Done</Button>
+              <Button onClick={() => changeOpen(false)} ref={doneRef}>
+                Done
+              </Button>
             ) : (
               <Button
-                disabled={!skill || hydratedSkillId !== skill.id || saving}
+                disabled={
+                  !skill ||
+                  hydratedSkillId !== skill.id ||
+                  saving ||
+                  query.isError ||
+                  reconciliationRequired
+                }
                 onClick={() => void save()}
               >
                 {saving ? 'Saving…' : 'Save attachments'}
