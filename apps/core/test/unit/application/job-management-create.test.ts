@@ -119,6 +119,11 @@ describe('job creation', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
       expect.stringContaining('Approve Browser access, then resume the job.'),
+      expect.objectContaining({
+        actionAffordances: expect.arrayContaining([
+          expect.objectContaining({ kind: 'scheduler_pause_job' }),
+        ]),
+      }),
     );
 
     finishCardDelivery?.();

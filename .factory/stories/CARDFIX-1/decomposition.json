@@ -47,7 +47,11 @@
         "apps/core/src/channels/slack/channel-message-action-handler.ts",
         "apps/core/src/channels/discord/interactions.ts",
         "apps/core/src/channels/teams/message-actions.ts",
-        "apps/core/test/"
+        "apps/core/test/",
+        "apps/core/src/channels/slack/message-action-affordances.ts",
+        "apps/core/src/channels/telegram/message-action-affordances.ts",
+        "apps/core/src/channels/discord/components.ts",
+        "apps/core/src/channels/teams/cards.ts"
       ],
       "required_tests": [
         {
@@ -110,5 +114,5 @@
   "project": "",
   "plan_file": "plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md",
   "plan_sha256": "338bb17ef3117e40ed0c0bd9611ede808930aeb88f0365559ac83ee5e7c50dba",
-  "commit": "4ab7ac7b5e0eabdb8ec2def5e04d4abe12d5e3e5"
+  "commit": "886784c02f1b9884e1e042b37679a0f7ba89592f"
 }

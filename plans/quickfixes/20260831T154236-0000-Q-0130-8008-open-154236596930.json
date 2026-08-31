@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0130-8008",
+  "profile": "degraded",
+  "reason": "Companion outage continues. CARDFIX-1-T1 part G: carry the run-scoped interactive-ask override from the retry trigger into the spawned run (autoreview round-3 P1; S-0057 ruling).",
+  "started_at": "2026-08-31T15:42:36+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

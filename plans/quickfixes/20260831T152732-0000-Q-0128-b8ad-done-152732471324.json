@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0128-b8ad",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Companion outage continues. CARDFIX-1-T1 part E: autoreview P1 fix \u2014 atomic fingerprint-scoped one-shot for retry-and-ask (deterministic trigger/run ids, create-before-resume, enqueue-if-pending).",
+  "started_at": "2026-08-31T15:24:14+00:00",
+  "completed_at": "2026-08-31T15:27:32+00:00",
+  "files": []
+}

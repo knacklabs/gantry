@@ -1854,6 +1854,11 @@ describe('setup pause prompts', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:job-notifications',
       expect.stringContaining('Setup needed'),
+      expect.objectContaining({
+        actionAffordances: expect.arrayContaining([
+          expect.objectContaining({ kind: 'scheduler_pause_job' }),
+        ]),
+      }),
     );
     expect(sendMessage).not.toHaveBeenCalledWith(
       'sl:approver',
@@ -2114,6 +2119,11 @@ describe('setup pause prompts', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:job-notifications',
       expect.stringContaining('Setup needed'),
+      expect.objectContaining({
+        actionAffordances: expect.arrayContaining([
+          expect.objectContaining({ kind: 'scheduler_pause_job' }),
+        ]),
+      }),
     );
     expect(markJobSetupNotified).not.toHaveBeenCalled();
   });

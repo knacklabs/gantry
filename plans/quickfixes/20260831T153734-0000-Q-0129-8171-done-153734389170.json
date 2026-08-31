@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0129-8171",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Companion outage continues. CARDFIX-1-T1 part F: autoreview round-2 fixes \u2014 replayable retry (pending-trigger replay + restore-paused on enqueue failure), Telegram oversized-pause fallback dropped instead of dead button.",
+  "started_at": "2026-08-31T15:35:44+00:00",
+  "completed_at": "2026-08-31T15:37:34+00:00",
+  "files": []
+}

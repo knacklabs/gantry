@@ -17,6 +17,7 @@ const SLACK_SECTION_TEXT_MAX_LENGTH = 3000;
 const SCHEDULER_ACTION_KINDS = new Set<MessageActionAffordance['kind']>([
   'scheduler_run_now',
   'scheduler_pause_job',
+  'scheduler_retry_ask',
 ]);
 
 export function slackActionBlocks(text: string, options: MessageSendOptions) {
@@ -100,12 +101,14 @@ function slackActionValue(
         kind: action.kind,
         jobId:
           action.kind === 'scheduler_run_now' ||
-          action.kind === 'scheduler_pause_job'
+          action.kind === 'scheduler_pause_job' ||
+          action.kind === 'scheduler_retry_ask'
             ? action.jobId
             : '',
         runId:
           action.kind === 'scheduler_run_now' ||
-          action.kind === 'scheduler_pause_job'
+          action.kind === 'scheduler_pause_job' ||
+          action.kind === 'scheduler_retry_ask'
             ? (action.runId ?? null)
             : null,
         ...(providerAccountId ? { providerAccountId } : {}),

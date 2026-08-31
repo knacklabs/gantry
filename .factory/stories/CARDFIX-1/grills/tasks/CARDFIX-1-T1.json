@@ -17,7 +17,10 @@
     "apps/core/src/channels/telegram/callback-handlers.ts",
     "apps/core/src/channels/slack/channel-message-action-handler.ts",
     "apps/core/src/channels/discord/interactions.ts",
-    "apps/core/src/channels/teams/message-actions.ts"
+    "apps/core/src/channels/teams/message-actions.ts",
+    "apps/core/src/channels/slack/message-action-affordances.ts",
+    "apps/core/src/channels/discord/components.ts",
+    "apps/core/src/channels/teams/cards.ts"
   ],
   "current_flow": "formatSchedulerSetupStory returns text only; notifyJobSetupRequired delivers it through sendJobNotification which already forwards MessageSendOptions.actionAffordances (delivery.ts:152) \u2014 no call site attaches any. scheduler_pause_job renders on all providers but MessageActionCallbackInput has no variant, so every provider answers with guidance instead of pausing. The compound denial (0134) terminalizes the run into a buttonless pause story (live: job card-check-2). The approver-route exclusion (execution-readiness.ts:216) keeps the durable setup card and the notification route from double-delivering.",
   "criteria_map": {
@@ -31,20 +34,20 @@
     "scheduler_retry_ask affordance kind + scheduler_pause_job/scheduler_retry_ask callback variants (owner-ruled 2026-08-31: retry-and-ask one-shot rerun in ask mode; Pause made real)."
   ],
   "gaps": [
-    "CARDFIX-1-T1 task start (ledger round): Codex sol@xhigh implements the whole task \u2014 affordances on pause stories, retry-and-ask (one-shot rerun in ask mode), real Pause job, provider callback consumers, tests. Anything to settle before it starts?"
+    "CARDFIX-1-T1 re-start (ledger round): Codex asked for the four provider affordance renderer files in scope (Slack/Telegram message-action-affordances, Discord components, Teams cards) to encode the new retry-and-ask button \u2014 scope widened, everything else unchanged. Go again?"
   ],
   "contradictions": [],
   "resolutions": [
-    "Go: single bounded task, sol@xhigh, neutral layer only; signals over invented decisions if the per-run ask override needs a durable contract."
+    "Go: write_scope widened with the four renderer files (S-0058 resolved); trigger-metadata semantics for the per-run ask override stand (S-0057); neutral-only rule unchanged."
   ],
   "rounds": [
     {
-      "question": "CARDFIX-1-T1 task start (ledger round): Codex sol@xhigh implements the whole task \u2014 affordances on pause stories, retry-and-ask (one-shot rerun in ask mode), real Pause job, provider callback consumers, tests. Anything to settle before it starts?",
+      "question": "CARDFIX-1-T1 re-start (ledger round): Codex asked for the four provider affordance renderer files in scope (Slack/Telegram message-action-affordances, Discord components, Teams cards) to encode the new retry-and-ask button \u2014 scope widened, everything else unchanged. Go again?",
       "options": [
-        "No \u2014 go",
+        "No further notes \u2014 go",
         "Yes \u2014 I have a note"
       ],
-      "chosen": "No \u2014 go",
+      "chosen": "No further notes \u2014 go",
       "frontier_empty": true
     }
   ],
@@ -63,11 +66,11 @@
     }
   ],
   "owner_questions": [],
-  "input_sha256": "618ca0f683d21057588c8d2c9f3afebb17f5154ec0d2c3466f03aafb2e2f444e",
+  "input_sha256": "7e7a06b2348232aa3580bebbd38395b8f33e8db441c7591f8c892678b896bdba",
   "task_plan_sha256": "5d50cef06fa9f223278b1b39c3248aafca088a2415f9a2e53d9094c140eb8e38",
-  "recorded_at": "2026-08-31T11:04:52+00:00",
-  "commit": "5a446c5fb72af2de22de5026bf968a204b9c01b8",
+  "recorded_at": "2026-08-31T12:00:08+00:00",
+  "commit": "886784c02f1b9884e1e042b37679a0f7ba89592f",
   "approved_task_plan_sha256": "5d50cef06fa9f223278b1b39c3248aafca088a2415f9a2e53d9094c140eb8e38",
   "approved_by": "Ravi Kiran Vemula",
-  "approved_at": "2026-08-31T11:04:52+00:00"
+  "approved_at": "2026-08-31T12:00:08+00:00"
 }

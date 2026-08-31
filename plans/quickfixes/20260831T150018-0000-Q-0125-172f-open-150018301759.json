@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0125-172f",
+  "profile": "degraded",
+  "reason": "Companion outage continues (remote-compact 404). CARDFIX-1-T1 part B: JobManagementService wrapper + pause-story affordance attachment.",
+  "started_at": "2026-08-31T15:00:18+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

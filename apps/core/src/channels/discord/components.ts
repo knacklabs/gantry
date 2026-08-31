@@ -9,6 +9,8 @@ export const LIVE_STOP_CUSTOM_ID_PREFIX = 'gantry:live_stop:';
 export const SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX = 'gantry:scheduler_run_now:';
 export const SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX =
   'gantry:scheduler_pause_job:';
+export const SCHEDULER_RETRY_ASK_CUSTOM_ID_PREFIX =
+  'gantry:scheduler_retry_ask:';
 export const JOB_PERMISSION_CUSTOM_ID_PREFIX = 'jp:';
 export const PERMISSION_CUSTOM_ID_PREFIX = 'gantry:perm:';
 export const QUESTION_CUSTOM_ID_PREFIX = 'gantry:q:';
@@ -54,7 +56,8 @@ export function discordActionComponents(
     }
     if (
       (action.kind !== 'scheduler_run_now' &&
-        action.kind !== 'scheduler_pause_job') ||
+        action.kind !== 'scheduler_pause_job' &&
+        action.kind !== 'scheduler_retry_ask') ||
       !action.jobId.trim()
     ) {
       continue;
@@ -62,13 +65,15 @@ export function discordActionComponents(
     const prefix =
       action.kind === 'scheduler_run_now'
         ? SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX
-        : SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX;
+        : action.kind === 'scheduler_retry_ask'
+          ? SCHEDULER_RETRY_ASK_CUSTOM_ID_PREFIX
+          : SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX;
     const customId = `${prefix}${encodeURIComponent(action.jobId)}`;
     if (customId.length <= DISCORD_CUSTOM_ID_MAX_LENGTH) {
       buttons.push({
+        // CARDFIX-1: pause is a real action now; the label speaks for itself.
         style: action.kind === 'scheduler_pause_job' ? 2 : 1,
-        label:
-          action.kind === 'scheduler_pause_job' ? 'How to pause' : action.label,
+        label: action.label,
         custom_id: customId,
       });
     }

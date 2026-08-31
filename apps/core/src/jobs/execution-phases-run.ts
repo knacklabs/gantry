@@ -296,6 +296,10 @@ async function invokeActiveJobAgent(
       memoryUserId: context.memoryUserId,
       memoryDefaultScope: context.memoryDefaultScope!,
       isScheduledJob: true,
+      // scheduler_retry_ask: this one run asks interactively (job unchanged).
+      ...(context.eventState?.interactiveAskOverride
+        ? { permissionMode: 'ask' as const }
+        : {}),
       jobId: currentJob.id,
       jobName: currentJob.name,
       runId,

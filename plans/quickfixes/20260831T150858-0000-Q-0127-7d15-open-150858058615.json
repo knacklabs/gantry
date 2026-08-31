@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0127-7d15",
+  "profile": "degraded",
+  "reason": "Companion outage continues. CARDFIX-1-T1 part D: tests (stale assertions on intended changes + the three required leaf tests + provider render coverage).",
+  "started_at": "2026-08-31T15:08:58+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

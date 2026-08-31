@@ -4,7 +4,16 @@
     {
       "id": "CARDFIX-1-T1",
       "title": "Pause stories carry real actions: retry-and-ask + real Pause job, neutral layer",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-08-31T11:05:10+00:00",
+      "base_sha": "886784c02f1b9884e1e042b37679a0f7ba89592f",
+      "dirty_at_start": {
+        "plans/review-briefs/cardfix-1-pause-card-actions.md": {
+          "digest": "133103b1557d36506221a7b69e2e4947c3b9144444ef0f5543aaac9664afdf81",
+          "git": "? plans/review-briefs/cardfix-1-pause-card-actions.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "40d8bd0d5b9a484bb789ebdc035adcbb816444d15a92bef957917ec8b87408ef"
     }
   ]
 }

@@ -41,7 +41,7 @@ describe('provider affordance parity', () => {
       }),
       expect.objectContaining({
         custom_id: 'gantry:scheduler_pause_job:job-1',
-        label: 'How to pause',
+        label: 'Pause job',
       }),
     ]);
 
@@ -52,13 +52,49 @@ describe('provider affordance parity', () => {
       actionAffordances: schedulerActions,
     });
     expect(teams.actions).toHaveLength(2);
-    expect(teams.actions[1]).toMatchObject({ title: 'How to pause' });
+    expect(teams.actions[1]).toMatchObject({ title: 'Pause job' });
     expect(
       teams.actions.map((action) => readTeamsMessageAction(action.data)),
     ).toEqual([
       expect.objectContaining({ kind: 'scheduler_run_now', jobId: 'job-1' }),
       expect.objectContaining({ kind: 'scheduler_pause_job', jobId: 'job-1' }),
     ]);
+  });
+
+  it('renders scheduler_retry_ask on discord and teams like the other scheduler kinds', () => {
+    const retryAsk = [
+      {
+        kind: 'scheduler_retry_ask' as const,
+        label: 'Allow once for this run',
+        jobId: 'job-1',
+      },
+    ];
+    const discord = discordActionComponents({
+      actionAffordances: retryAsk,
+    }) as Array<{
+      components: Array<{ custom_id: string; label: string }>;
+    }>;
+    expect(discord.flatMap((row) => row.components)).toEqual([
+      expect.objectContaining({
+        custom_id: 'gantry:scheduler_retry_ask:job-1',
+        label: 'Allow once for this run',
+      }),
+    ]);
+    const teams = buildTeamsMessageCard({
+      text: 'Job needs attention.',
+      targetJid: 'teams:conversation-1',
+      threadId: 'thread-1',
+      actionAffordances: retryAsk,
+    });
+    expect(teams.actions).toHaveLength(1);
+    expect(teams.actions[0]).toMatchObject({
+      title: 'Allow once for this run',
+      verb: 'gantry.scheduler.retry_ask',
+    });
+    expect(readTeamsMessageAction(teams.actions[0].data)).toMatchObject({
+      kind: 'scheduler_retry_ask',
+      jobId: 'job-1',
+    });
   });
 
   it('splits and caps Discord scheduler affordances at five rows of five', () => {

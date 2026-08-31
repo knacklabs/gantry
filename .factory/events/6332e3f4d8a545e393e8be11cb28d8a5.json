@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-31T11:26:12+00:00", "story": "CARDFIX-1", "detail": "S-0058-4cf5: Accepted: write_scope widened with the four provider affordance renderer files (slack/message-action-affordances.ts, telegram/message-action-affordances.ts, discord/components.ts, teams/cards.ts) so s"}

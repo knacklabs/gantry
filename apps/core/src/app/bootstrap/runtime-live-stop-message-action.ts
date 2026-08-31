@@ -92,7 +92,24 @@ async function runSchedulerNowThroughIpc(
   },
   channelWiring: ChannelWiring,
 ): Promise<string> {
-  const taskId = `scheduler-run-now-${randomUUID()}`;
+  return runSchedulerTaskThroughIpc('scheduler_run_now', input, channelWiring);
+}
+
+// CARDFIX-1: pause cards carry real actions; both executors ride the same
+// authenticated task-IPC lane as run-now (the scheduler mutate handlers own
+// authorization, one-shot semantics and job access checks).
+async function runSchedulerTaskThroughIpc(
+  taskType: 'scheduler_run_now' | 'scheduler_pause_job' | 'scheduler_retry_ask',
+  input: {
+    jobId: string;
+    sourceAgentFolder: string;
+    originConversationJid: string;
+    authThreadId?: string;
+    conversationBindings: Record<string, ConversationRoute>;
+  },
+  channelWiring: ChannelWiring,
+): Promise<string> {
+  const taskId = `${taskType.replaceAll('_', '-')}-${randomUUID()}`;
   const ipcAuth = createIpcAuthEnvelope(
     input.sourceAgentFolder,
     input.authThreadId,
@@ -101,7 +118,7 @@ async function runSchedulerNowThroughIpc(
   try {
     await processTaskIpc(
       {
-        type: 'scheduler_run_now',
+        type: taskType,
         taskId,
         jobId: input.jobId,
         chatJid: input.originConversationJid,
@@ -218,8 +235,13 @@ export function registerLiveStopMessageAction(input: {
       decisionPolicy: 'same_channel',
     });
     if (!allowed) return;
-    if (action.kind === 'scheduler_run_now') {
-      if (!input.runSchedulerNow || !input.conversationBindings) return;
+    if (
+      action.kind === 'scheduler_run_now' ||
+      action.kind === 'scheduler_pause_job' ||
+      action.kind === 'scheduler_retry_ask'
+    ) {
+      if (!input.conversationBindings) return;
+      if (action.kind === 'scheduler_run_now' && !input.runSchedulerNow) return;
       const conversationBindings = input.conversationBindings();
       const sourceConversationJids = Object.entries(conversationBindings)
         .filter(([jid, route]) => {
@@ -232,14 +254,22 @@ export function registerLiveStopMessageAction(input: {
           );
         })
         .map(([jid]) => parseAgentThreadQueueKey(jid).chatJid);
-      const text = await input.runSchedulerNow({
+      const schedulerInput = {
         jobId: action.jobId,
         sourceAgentFolder,
         originConversationJid: action.conversationJid,
         authThreadId: action.threadId,
         conversationBindings,
         sourceConversationJids,
-      });
+      };
+      const text =
+        action.kind === 'scheduler_run_now'
+          ? await input.runSchedulerNow!(schedulerInput)
+          : await runSchedulerTaskThroughIpc(
+              action.kind,
+              schedulerInput,
+              input.channelWiring,
+            );
       await input.channelWiring.sendMessage(action.conversationJid, text, {
         durability: 'required',
         ...messageActionSendOptions(action.threadId, action.providerAccountId),

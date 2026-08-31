@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-08-31T11:14:03+00:00", "story": "CARDFIX-1", "detail": "CARDFIX-1-T1 retry-and-ask needs a trusted cross-process per-run ask override plus durable one-shot identity, but no such contract exists in scope; approve trigger metadata semantics or widen scope to"}

@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "CARDFIX-1-T1 re-start (ledger round): Codex asked for the four provider affordance renderer files in scope (Slack/Telegram message-action-affordances, Discord components, Teams cards) to encode the new retry-and-ask button \u2014 scope widened, everything else unchanged. Go again?",
+      "options": [
+        "No further notes \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": "No further notes \u2014 go"
+    }
+  ],
+  "at": "2026-08-31T11:59:44.659821+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

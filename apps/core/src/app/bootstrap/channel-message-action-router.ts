@@ -25,7 +25,13 @@ function isLiveStopActionTokenValid(
 }
 
 function isMessageActionValid(input: MessageActionCallbackInput): boolean {
-  if (input.kind === 'scheduler_run_now') return input.jobId.trim().length > 0;
+  if (
+    input.kind === 'scheduler_run_now' ||
+    input.kind === 'scheduler_pause_job' ||
+    input.kind === 'scheduler_retry_ask'
+  ) {
+    return input.jobId.trim().length > 0;
+  }
   if (input.kind === 'job_permission_decision') {
     return input.actionToken.trim().length > 0;
   }

@@ -45,7 +45,10 @@ import {
 } from './job-model-selection.js';
 // prettier-ignore
 import { requireJobControl, requireRuntimeEvents, requireTriggerQueue } from './job-management-require.js';
-import { runSchedulerJobNowFromMcp } from './job-management-run-now.js';
+import {
+  retrySchedulerJobWithAskFromMcp,
+  runSchedulerJobNowFromMcp,
+} from './job-management-run-now.js';
 // prettier-ignore
 import { listManagedDeadLetterRuns, listManagedJobEvents, listManagedJobRuns } from './job-management-read-queries.js';
 import { normalizeAccessRequirements } from './job-access-requirements.js';
@@ -496,6 +499,14 @@ export class JobManagementService {
     triggerId: string;
   }> {
     return runSchedulerJobNowFromMcp(this.deps, input);
+  }
+
+  async retryJobWithAskFromMcp(input: SchedulerRunNowInput): Promise<{
+    runId: string;
+    queued: boolean;
+    triggerId: string;
+  }> {
+    return retrySchedulerJobWithAskFromMcp(this.deps, input);
   }
 
   async waitForTrigger(input: ManagedJobTriggerWaitInput): Promise<{

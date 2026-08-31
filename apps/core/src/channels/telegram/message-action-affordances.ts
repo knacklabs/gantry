@@ -28,6 +28,7 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
 > = {
   scheduler_run_now: 'retry',
   scheduler_pause_job: 'pause',
+  scheduler_retry_ask: 'ask',
   live_turn_stop: '',
   job_permission_decision: '',
   // ponytail: memory_review_decision rendering lands in Task 6 (Telegram codec).
@@ -42,13 +43,23 @@ const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 function telegramSchedulerActionCallback(
   action: Extract<
     MessageActionAffordance,
-    { kind: 'scheduler_run_now' | 'scheduler_pause_job' }
+    {
+      kind: 'scheduler_run_now' | 'scheduler_pause_job' | 'scheduler_retry_ask';
+    }
   >,
 ): string | undefined {
-  if (action.kind !== 'scheduler_run_now') {
-    return `dl:${TELEGRAM_ACTION_CALLBACK_BY_KIND[action.kind]}`;
+  if (action.kind === 'scheduler_pause_job') {
+    // An oversized callback cannot carry the job id; drop the button rather
+    // than render a dead one (generated job ids stay far below the limit).
+    const callbackData = `dl:pause:${encodeURIComponent(action.jobId)}`;
+    return Buffer.byteLength(callbackData, 'utf8') <=
+      TELEGRAM_CALLBACK_DATA_MAX_BYTES
+      ? callbackData
+      : undefined;
   }
-  const callbackData = `r:${encodeURIComponent(action.jobId)}`;
+  const callbackData = `${
+    action.kind === 'scheduler_retry_ask' ? 'a' : 'r'
+  }:${encodeURIComponent(action.jobId)}`;
   return Buffer.byteLength(callbackData, 'utf8') <=
     TELEGRAM_CALLBACK_DATA_MAX_BYTES
     ? callbackData
@@ -80,7 +91,12 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
       const callbackData = telegramSchedulerActionCallback(
         action as Extract<
           MessageActionAffordance,
-          { kind: 'scheduler_run_now' | 'scheduler_pause_job' }
+          {
+            kind:
+              | 'scheduler_run_now'
+              | 'scheduler_pause_job'
+              | 'scheduler_retry_ask';
+          }
         >,
       );
       if (!callbackData) return null;

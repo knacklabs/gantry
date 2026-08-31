@@ -307,6 +307,48 @@ const schedulerRunNowHandler: TaskHandler = async (context) => {
   }
 };
 
+const schedulerRetryAskHandler: TaskHandler = async (context) => {
+  const { data, sourceAgentFolder } = context;
+  const { acceptData, reject } = createTaskResponder(
+    sourceAgentFolder,
+    data.taskId,
+    data.authThreadId,
+    data.responseKeyId,
+  );
+  if (rejectDisallowedSchedulerMutation(context, reject)) return;
+  const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
+  if (!jobId) {
+    reject('scheduler_retry_ask requires jobId.', 'invalid_request');
+    return;
+  }
+  const runId = randomUUID();
+  try {
+    const result = await makeRunNowJobService(context).retryJobWithAskFromMcp({
+      jobId,
+      access: schedulerAccessFromContext(context),
+      runId,
+    });
+    acceptData(
+      `Job resumed for one asking run (${jobId}); it will request permission in the channel.`,
+      {
+        run_id: result.runId,
+        queued: result.queued,
+        trigger_id: result.triggerId,
+      },
+    );
+  } catch (err) {
+    const mapped = mapApplicationError(
+      err,
+      'Failed to retry the scheduler job.',
+    );
+    logger.error(
+      { err, sourceAgentFolder, jobId },
+      'scheduler_retry_ask failed unexpectedly',
+    );
+    reject(mapped.message, mapped.code);
+  }
+};
+
 function formatSetupOutcome(job?: { setup_state?: unknown }): string {
   const setupState = job?.setup_state;
   if (!setupState || typeof setupState !== 'object') return '';
@@ -325,4 +367,5 @@ export const schedulerMutateTaskHandlers: Record<string, TaskHandler> = {
   scheduler_pause_job: schedulerPauseJobHandler,
   scheduler_resume_job: schedulerResumeJobHandler,
   scheduler_run_now: schedulerRunNowHandler,
+  scheduler_retry_ask: schedulerRetryAskHandler,
 };

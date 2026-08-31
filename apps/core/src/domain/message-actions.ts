@@ -3,6 +3,7 @@ import type { ObserverDigestMessageView } from './observer-digest-view.js';
 export type MessageActionAffordanceKind =
   | 'scheduler_run_now'
   | 'scheduler_pause_job'
+  | 'scheduler_retry_ask'
   | 'live_turn_stop'
   | 'job_permission_decision'
   | 'memory_review_decision'
@@ -21,7 +22,10 @@ export type ObserverFeedbackAction =
 
 export type MessageActionAffordance =
   | {
-      kind: 'scheduler_run_now' | 'scheduler_pause_job';
+      // scheduler_retry_ask: resume a setup-paused job for exactly one fresh
+      // run that asks interactively (the ask-and-wait card); nothing durable
+      // is granted (0134) and the pause transition is the consumed one-shot.
+      kind: 'scheduler_run_now' | 'scheduler_pause_job' | 'scheduler_retry_ask';
       label: string;
       jobId: string;
       runId?: string | null;
@@ -76,6 +80,22 @@ export type MessageActionCallbackInput =
       userId?: string;
       jobId: string;
       runId?: string | null;
+    }
+  | {
+      kind: 'scheduler_pause_job';
+      conversationJid: string;
+      providerAccountId?: string;
+      threadId?: string;
+      userId?: string;
+      jobId: string;
+    }
+  | {
+      kind: 'scheduler_retry_ask';
+      conversationJid: string;
+      providerAccountId?: string;
+      threadId?: string;
+      userId?: string;
+      jobId: string;
     }
   | {
       kind: 'job_permission_decision';

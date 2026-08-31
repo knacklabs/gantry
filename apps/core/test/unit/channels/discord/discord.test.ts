@@ -496,7 +496,7 @@ describe('DiscordChannel', () => {
                 {
                   type: 2,
                   style: 2,
-                  label: 'How to pause',
+                  label: 'Pause job',
                   custom_id: 'gantry:scheduler_pause_job:job-1',
                 },
               ],

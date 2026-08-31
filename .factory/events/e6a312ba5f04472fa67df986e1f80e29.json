@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-08-31T11:15:19+00:00", "story": "CARDFIX-1", "detail": "S-0057-83a8: Approved: trigger-metadata semantics, the minimal seam. The host-side authenticated trigger path carries, for exactly one run: an interactive-ask override (the run behaves as permissionMode ask) and t"}

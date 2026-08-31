@@ -1769,7 +1769,7 @@ describe('TeamsChannel adapter scaffold', () => {
             }),
             expect.objectContaining({
               type: 'Action.Execute',
-              title: 'How to pause',
+              title: 'Pause job',
               verb: 'gantry.scheduler.pause_job',
               data: expect.objectContaining({
                 action: 'message_action',

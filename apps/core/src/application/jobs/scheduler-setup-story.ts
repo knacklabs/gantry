@@ -2,6 +2,7 @@ import type {
   Job,
   JobSetupBlocker,
   JobSetupState,
+  MessageActionAffordance,
 } from '../../domain/types.js';
 import {
   formatJobSetupAction,
@@ -47,4 +48,38 @@ export function formatSchedulerSetupStory(input: {
     ...blockerLines,
     formatJobSetupAction(primaryBlocker?.action, primaryBlocker),
   ].join('\n');
+}
+
+// CARDFIX-1: a pause story is never delivered action-less. Retry-and-ask
+// resumes the job for one asking run (0134: nothing durable); Pause is real.
+export function setupStoryActionAffordances(input: {
+  job: Pick<Job, 'id' | 'name'>;
+  setupState: JobSetupState;
+  source?: SchedulerSetupStorySource;
+}): MessageActionAffordance[] {
+  const toolOnly =
+    input.setupState.blockers.length > 0 &&
+    input.setupState.blockers.every((blocker) => blocker.type === 'tool');
+  const retryLabel =
+    toolOnly &&
+    (input.source === 'permission_denied' ||
+      input.source === 'permission_timeout')
+      ? 'Allow once for this run'
+      : 'Retry setup check';
+  return [
+    ...(toolOnly
+      ? [
+          {
+            kind: 'scheduler_retry_ask' as const,
+            label: retryLabel,
+            jobId: input.job.id,
+          },
+        ]
+      : []),
+    {
+      kind: 'scheduler_pause_job' as const,
+      label: 'Pause job',
+      jobId: input.job.id,
+    },
+  ];
 }
