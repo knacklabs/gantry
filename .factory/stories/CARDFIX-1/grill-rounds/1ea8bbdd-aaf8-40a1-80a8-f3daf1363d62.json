@@ -1,0 +1,32 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "For piped/compound commands (0134): should Allow on the permission card mean 'Allow once \u2014 reruns now, nothing saved', or should we relax 0134 and save compound grants for future autonomous runs too?",
+      "options": [
+        "Allow once only (Recommended)",
+        "Relax 0134 \u2014 save it"
+      ],
+      "chosen": "Allow once only (Recommended)"
+    },
+    {
+      "question": "Scope: fold this single-surface consolidation (kill the Setup-needed card, late-tap = 'saved for future' reply) into the upcoming GRACE-1 story, or make it its own story first?",
+      "options": [
+        "One story: card simplification first (Recommended)",
+        "Fold into GRACE-1"
+      ],
+      "chosen": "One story: card simplification first (Recommended)"
+    },
+    {
+      "question": "When someone taps Allow after the run already died (ordinary grantable command): besides saving the grant and replying 'saved for future runs', should the job re-run immediately?",
+      "options": [
+        "Save + offer Run now button (Recommended)",
+        "Save + auto re-run",
+        "Save only"
+      ],
+      "chosen": "Save + offer Run now button (Recommended)"
+    }
+  ],
+  "at": "2026-08-31T17:48:34.247498+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

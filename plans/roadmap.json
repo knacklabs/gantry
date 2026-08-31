@@ -2485,8 +2485,26 @@
       "skill": "fullstack",
       "depends_on": [],
       "spec": "docs/specs/skills-web-ui.md"
+    },
+    {
+      "key": "CARDSIMPLE-1",
+      "title": "One permission surface, family-wide grants",
+      "story": "CARDSIMPLE-1",
+      "acceptance_criteria": [
+        "one canonical permission card is the only surface for every blocked-need class on all four providers",
+        "Allow records a shared-synthesizer family rule; rails gate the exact command; pipes never get Allow",
+        "late taps record the decision, reply once with Run now, and never fan out triggers",
+        "suites, tsc and architecture green"
+      ],
+      "order": 115,
+      "status": "pending",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/cardsimple-1-one-permission-surface.md"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-31T16:42:50+00:00"
+  "updated_at": "2026-08-31T18:35:43+00:00"
 }
