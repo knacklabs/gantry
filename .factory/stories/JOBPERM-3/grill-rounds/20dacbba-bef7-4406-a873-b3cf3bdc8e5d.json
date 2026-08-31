@@ -1,0 +1,24 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "CARDFIX-1 spec grill: for a job paused on a COMPOUND command (durable grant forbidden by 0134), which actions should the pause card offer?",
+      "options": [
+        "Allow once + Pause job (Recommended)",
+        "Retry + Pause job only",
+        "Ask the agent to reformulate"
+      ],
+      "chosen": "Allow once + Pause job (Recommended)"
+    },
+    {
+      "question": "Anything else to settle for CARDFIX-1 before I confirm the spec and hand it to Codex sol@xhigh (provider-neutral, one pass)?",
+      "options": [
+        "No \u2014 go",
+        "Yes \u2014 I have a note"
+      ],
+      "chosen": null
+    }
+  ],
+  "at": "2026-08-31T10:43:56.600110+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

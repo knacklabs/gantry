@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Shape for the flagged issues: CARDFIX-1 now (buttons on pause cards, sol@xhigh), then GRACE-1 as its own story right after covering all six log findings (lost retry timer, silent channel drops, stale-prompt feedback, waiting-job reminders, expired-rows poisoning, provider-unknown cosmetic)?",
+      "options": [
+        "Yes \u2014 two stories, CARDFIX-1 first (Recommended)",
+        "One combined story",
+        "GRACE-1 first"
+      ],
+      "chosen": "Yes \u2014 two stories, CARDFIX-1 first (Recommended)"
+    }
+  ],
+  "at": "2026-08-31T10:44:34.464239+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

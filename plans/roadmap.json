@@ -1315,13 +1315,13 @@
       "story": "As an operator, no job ever pauses into a dead end: every setup card offers at least one button - approve the exact scoped command it tried, approve the capability fix, or another concrete action - never prose alone.",
       "acceptance_criteria": [],
       "order": 61,
-      "status": "pending",
+      "status": "active",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
       "depends_on": [],
       "origin": "adhoc",
-      "spec_debt_reason": "Ravi's ruling (2026-08-12, third occurrence of buttonless cards): bare-RunCommand denials render non-grantable prose even though the exact denied leaf is known and a SCOPED RunCommand grant is supported; synthesize the scoped request_access suggestion so the card is always actionable"
+      "spec": "docs/specs/every-pause-card-carries-a-real-action.md"
     },
     {
       "key": "JOBFLOW-1",
@@ -2468,5 +2468,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-30T12:17:06+00:00"
+  "updated_at": "2026-08-31T10:45:34+00:00"
 }
