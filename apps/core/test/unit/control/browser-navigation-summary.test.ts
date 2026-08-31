@@ -11,6 +11,7 @@ const storage = vi.hoisted(() => ({
     agents: { listAgents: vi.fn(), summarizeNavigation: vi.fn() },
     agentConfigs: { getConfigVersion: vi.fn() },
     mcpServers: { listServers: vi.fn(), summarizeNavigation: vi.fn() },
+    skills: { listSkills: vi.fn(), summarizeNavigation: vi.fn() },
     modelCredentials: {},
   },
 }));
@@ -66,6 +67,8 @@ beforeEach(() => {
   storage.repositories.agentConfigs.getConfigVersion.mockReset();
   storage.repositories.mcpServers.listServers.mockReset();
   storage.repositories.mcpServers.summarizeNavigation.mockReset();
+  storage.repositories.skills.listSkills.mockReset();
+  storage.repositories.skills.summarizeNavigation.mockReset();
 });
 
 it('returns one redacted, app-scoped navigation summary', async () => {
@@ -80,6 +83,9 @@ it('returns one redacted, app-scoped navigation summary', async () => {
   storage.repositories.mcpServers.summarizeNavigation.mockResolvedValue({
     active: 1,
     disabled: 1,
+  });
+  storage.repositories.skills.summarizeNavigation.mockResolvedValue({
+    installed: 3,
   });
   listProviders.mockResolvedValue([
     { health: 'ready' },
@@ -103,6 +109,7 @@ it('returns one redacted, app-scoped navigation summary', async () => {
   expect(JSON.parse(res.body)).toEqual({
     agents: { total: 2, active: 1, disabled: 1, withoutRole: 1 },
     mcpServers: { active: 1, disabled: 1 },
+    skills: { installed: 3 },
     modelProviders: { ready: 1, missing: 1, disabled: 1 },
   });
 });

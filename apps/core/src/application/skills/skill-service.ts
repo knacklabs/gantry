@@ -191,6 +191,29 @@ export class SkillService {
     });
   }
 
+  replaceSkillAgentBindings(input: {
+    appId: AppId;
+    skillId: SkillId;
+    agentIds: readonly AgentId[];
+    now?: string;
+  }): Promise<AgentSkillBinding[]> {
+    if (input.agentIds.length > 100) {
+      throw new Error('A skill can be attached to at most 100 agents at once.');
+    }
+    if (new Set(input.agentIds).size !== input.agentIds.length) {
+      throw new Error('Agent ids must be distinct.');
+    }
+    if (!this.skills.replaceSkillAgentBindings) {
+      throw new Error('Atomic skill attachment replacement is unavailable.');
+    }
+    return this.skills.replaceSkillAgentBindings({
+      appId: input.appId,
+      skillId: input.skillId,
+      agentIds: input.agentIds,
+      updatedAt: input.now ?? nowIso(),
+    });
+  }
+
   async rollbackInstalledSkillBinding(input: {
     appId: AppId;
     agentId: AgentId;

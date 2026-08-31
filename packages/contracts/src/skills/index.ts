@@ -5,6 +5,8 @@ import {
   IsoDateTimeSchema,
 } from '../contract-primitives.js';
 
+export * from './browser-skills.dto.js';
+
 export const SkillActionPermissionResponseSchema = z.object({
   id: z.string(),
   capabilityId: z.string(),

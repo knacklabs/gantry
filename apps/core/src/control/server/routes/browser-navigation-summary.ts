@@ -41,16 +41,18 @@ export async function handleBrowserNavigationSummary(
 
   const storage = getRuntimeStorage();
   const appId = session.appId as AppId;
-  const [agents, servers, providers] = await Promise.all([
+  const [agents, servers, providers, skills] = await Promise.all([
     summarizeAgents(storage, appId),
     summarizeMcpServers(storage, appId),
     new ModelCredentialService(storage.repositories.modelCredentials).list({
       appId,
     }),
+    summarizeSkills(storage, appId),
   ]);
   sendJson(res, 200, {
     agents,
     mcpServers: servers,
+    skills,
     modelProviders: {
       ready: providers.filter((provider) => provider.health === 'ready').length,
       missing: providers.filter((provider) => provider.health === 'missing')
@@ -60,6 +62,20 @@ export async function handleBrowserNavigationSummary(
     },
   });
   return true;
+}
+
+async function summarizeSkills(
+  storage: ReturnType<typeof getRuntimeStorage>,
+  appId: AppId,
+) {
+  if (storage.repositories.skills.summarizeNavigation) {
+    return storage.repositories.skills.summarizeNavigation(appId);
+  }
+  const skills = await storage.repositories.skills.listSkills({
+    appId,
+    statuses: ['installed'],
+  });
+  return { installed: skills.length };
 }
 
 async function summarizeAgents(

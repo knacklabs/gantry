@@ -78,6 +78,10 @@ import {
   handleBrowserMcpServerRoutes,
   isBrowserMcpServerPath,
 } from './routes/browser-mcp-servers.js';
+import {
+  handleBrowserSkillRoutes,
+  isBrowserSkillsPath,
+} from './routes/browser-skills.controller.js';
 import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
@@ -160,7 +164,8 @@ function createControlRequestHandler(
         isBrowserNavigationSummaryPath(pathname) ||
         isBrowserAgentsPath(pathname) ||
         pathname.startsWith('/ui/api/model-providers') ||
-        isBrowserMcpServerPath(pathname)
+        isBrowserMcpServerPath(pathname) ||
+        isBrowserSkillsPath(pathname)
       ) {
         setNoStore(res);
         if (browserRequestHasBearer(req)) {
@@ -226,6 +231,11 @@ function createControlRequestHandler(
           pathname,
           getRuntimeSettingsForConfig(),
         ))
+      )
+        return;
+      const browserSettings = getRuntimeSettingsForConfig();
+      if (
+        await handleBrowserSkillRoutes(req, res, ctx, pathname, browserSettings)
       )
         return;
       if (await handleBrowserAuthRoutes(req, res, ctx, pathname)) return;

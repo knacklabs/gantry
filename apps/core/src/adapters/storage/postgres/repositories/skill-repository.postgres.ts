@@ -1,4 +1,14 @@
-import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  notInArray,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import type {
   AgentSkillAccessSnapshot,
@@ -75,6 +85,19 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
       .limit(1);
     const row = rows[0];
     return row ? this.mapSkill(row) : null;
+  }
+
+  async summarizeNavigation(appId: SkillCatalogItem['appId']) {
+    const [row] = await this.db
+      .select({ installed: count() })
+      .from(pgSchema.skillCatalogPostgres)
+      .where(
+        and(
+          eq(pgSchema.skillCatalogPostgres.appId, appId),
+          eq(pgSchema.skillCatalogPostgres.status, 'installed'),
+        ),
+      );
+    return { installed: Number(row?.installed ?? 0) };
   }
 
   async listSkills(input: {
@@ -252,6 +275,93 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
     agentIds: readonly AgentSkillBinding['agentId'][];
   }): Promise<AgentSkillBinding[]> {
     return this.listAgentSkillBindingRows(input);
+  }
+
+  async replaceSkillAgentBindings(input: {
+    appId: AgentSkillBinding['appId'];
+    skillId: AgentSkillBinding['skillId'];
+    agentIds: readonly AgentSkillBinding['agentId'][];
+    updatedAt: string;
+  }): Promise<AgentSkillBinding[]> {
+    if (
+      input.agentIds.length > 100 ||
+      new Set(input.agentIds).size !== input.agentIds.length
+    ) {
+      throw new Error('Skill attachments require up to 100 distinct agents.');
+    }
+    return this.db.transaction(async (tx) => {
+      const [skill] = await tx
+        .select({ status: pgSchema.skillCatalogPostgres.status })
+        .from(pgSchema.skillCatalogPostgres)
+        .where(
+          and(
+            eq(pgSchema.skillCatalogPostgres.id, input.skillId),
+            eq(pgSchema.skillCatalogPostgres.appId, input.appId),
+          ),
+        )
+        .for('update');
+      if (!skill || skill.status !== 'installed') {
+        throw new Error('Skill is not available for attachment.');
+      }
+
+      const agents = input.agentIds.length
+        ? await tx
+            .select({ id: pgSchema.agentsPostgres.id })
+            .from(pgSchema.agentsPostgres)
+            .where(
+              and(
+                eq(pgSchema.agentsPostgres.appId, input.appId),
+                inArray(pgSchema.agentsPostgres.id, [...input.agentIds]),
+              ),
+            )
+        : [];
+      if (agents.length !== input.agentIds.length) {
+        throw new Error('One or more agents are not available for attachment.');
+      }
+
+      await tx
+        .update(pgSchema.agentSkillBindingsPostgres)
+        .set({ status: 'disabled', updatedAt: input.updatedAt })
+        .where(
+          and(
+            eq(pgSchema.agentSkillBindingsPostgres.appId, input.appId),
+            eq(pgSchema.agentSkillBindingsPostgres.skillId, input.skillId),
+            eq(pgSchema.agentSkillBindingsPostgres.status, 'active'),
+            input.agentIds.length
+              ? notInArray(pgSchema.agentSkillBindingsPostgres.agentId, [
+                  ...input.agentIds,
+                ])
+              : undefined,
+          ),
+        );
+
+      if (input.agentIds.length === 0) return [];
+      const rows = await tx
+        .insert(pgSchema.agentSkillBindingsPostgres)
+        .values(
+          input.agentIds.map((agentId) => ({
+            id: `agent-skill-binding:${agentId}:${input.skillId}`,
+            appId: input.appId,
+            agentId,
+            skillId: input.skillId,
+            status: 'active',
+            createdAt: input.updatedAt,
+            updatedAt: input.updatedAt,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: pgSchema.agentSkillBindingsPostgres.id,
+          set: { status: 'active', updatedAt: input.updatedAt },
+        })
+        .returning();
+      const order = new Map(input.agentIds.map((id, index) => [id, index]));
+      return rows
+        .map((row) => this.mapBinding(row))
+        .sort(
+          (left, right) =>
+            (order.get(left.agentId) ?? 0) - (order.get(right.agentId) ?? 0),
+        );
+    });
   }
 
   private async listAgentSkillBindingRows(input: {
