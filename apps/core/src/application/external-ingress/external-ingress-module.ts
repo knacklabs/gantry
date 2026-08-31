@@ -10,6 +10,7 @@ import {
 import {
   type ExternalIngressSignaturePort,
   verifyExternalIngressRequestSignature,
+  verifyExternalIngressEd25519Signature,
 } from './signature.js';
 import {
   assertTargetAllowed,
@@ -28,6 +29,8 @@ type ExternalIngressRecord = {
   appId: string;
   name: string;
   secret: string;
+  signatureAlgorithm: string;
+  publicKey: string | null;
   enabled: boolean;
   metadata: unknown;
   createdAt: string;
@@ -39,6 +42,8 @@ type ExternalIngressControlPort = {
     appId: string;
     name: string;
     secret: string;
+    signatureAlgorithm?: string;
+    publicKey?: string | null;
     enabled?: boolean;
     metadata?: unknown;
   }): Promise<ExternalIngressRecord>;
@@ -53,6 +58,8 @@ type ExternalIngressControlPort = {
     patch: {
       name?: string;
       secret?: string;
+      signatureAlgorithm?: string;
+      publicKey?: string | null;
       enabled?: boolean;
       metadata?: unknown;
     },
@@ -135,6 +142,7 @@ export class ExternalIngressModule {
       jobs: JobManagementService;
       now: () => string;
       createSecret: () => string;
+      createKeyPair: () => { publicKeyPem: string; privateKeyPem: string };
       createInvocationId: () => string;
       signatureCrypto: ExternalIngressSignaturePort;
       consumeTriggerRateLimit?: (key: string, limit: number) => boolean;
@@ -148,16 +156,51 @@ export class ExternalIngressModule {
     name: string;
     enabled?: boolean;
     metadata?: unknown;
+    signatureAlgorithm?: string;
+    publicKey?: string;
   }) {
     if (!input.name.trim()) {
       throw new ApplicationError('INVALID_REQUEST', 'name is required');
     }
-    const secret = this.deps.createSecret();
+    const algorithm = input.signatureAlgorithm ?? 'ed25519';
+    if (algorithm !== 'hmac-sha256' && algorithm !== 'ed25519') {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'signatureAlgorithm must be hmac-sha256 or ed25519',
+      );
+    }
     const metadata = validateIngressMetadata(input.metadata ?? {});
+    if (algorithm === 'ed25519') {
+      const publicKey = input.publicKey?.trim() ?? null;
+      let privateKeyPem: string | undefined;
+      let storedPublicKey: string;
+      if (publicKey) {
+        storedPublicKey = publicKey;
+      } else {
+        const keyPair = this.deps.createKeyPair();
+        storedPublicKey = keyPair.publicKeyPem;
+        privateKeyPem = keyPair.privateKeyPem;
+      }
+      const ingress = await this.deps.control.createExternalIngress({
+        appId: input.appId,
+        name: input.name.trim(),
+        secret: 'ed25519:no-shared-secret',
+        signatureAlgorithm: 'ed25519',
+        publicKey: storedPublicKey,
+        enabled: input.enabled ?? true,
+        metadata,
+      });
+      return {
+        ...publicIngress(ingress),
+        ...(privateKeyPem ? { privateKey: privateKeyPem } : {}),
+      };
+    }
+    const secret = this.deps.createSecret();
     const ingress = await this.deps.control.createExternalIngress({
       appId: input.appId,
       name: input.name.trim(),
       secret,
+      signatureAlgorithm: 'hmac-sha256',
       enabled: input.enabled ?? true,
       metadata,
     });
@@ -199,6 +242,23 @@ export class ExternalIngressModule {
   }
 
   async rotate(input: { appId: string; ingressId: string }) {
+    const existing = await this.deps.control.getExternalIngressById(
+      input.ingressId,
+      input.appId,
+    );
+    if (!existing) throw new ApplicationError('NOT_FOUND', 'Ingress not found');
+    if (existing.signatureAlgorithm === 'ed25519') {
+      const keyPair = this.deps.createKeyPair();
+      const ingress = await this.deps.control.updateExternalIngress(
+        input.ingressId,
+        input.appId,
+        { publicKey: keyPair.publicKeyPem },
+      );
+      if (!ingress) {
+        throw new ApplicationError('NOT_FOUND', 'Ingress not found');
+      }
+      return { ...publicIngress(ingress), privateKey: keyPair.privateKeyPem };
+    }
     const secret = this.deps.createSecret();
     const ingress = await this.deps.control.updateExternalIngress(
       input.ingressId,
@@ -234,16 +294,28 @@ export class ExternalIngressModule {
     if (!ingress.enabled) {
       throw new ApplicationError('FORBIDDEN', 'Ingress is disabled');
     }
-    const ok = verifyExternalIngressRequestSignature({
-      crypto: this.deps.signatureCrypto,
-      secret: ingress.secret,
-      method: input.method,
-      path: input.path,
-      timestamp: input.timestamp,
-      nonce: input.nonce,
-      rawBody: input.rawBody,
-      signature: input.signature,
-    });
+    const ok =
+      ingress.signatureAlgorithm === 'ed25519' && ingress.publicKey
+        ? verifyExternalIngressEd25519Signature({
+            crypto: this.deps.signatureCrypto,
+            publicKeyPem: ingress.publicKey,
+            method: input.method,
+            path: input.path,
+            timestamp: input.timestamp,
+            nonce: input.nonce,
+            rawBody: input.rawBody,
+            signature: input.signature,
+          })
+        : verifyExternalIngressRequestSignature({
+            crypto: this.deps.signatureCrypto,
+            secret: ingress.secret,
+            method: input.method,
+            path: input.path,
+            timestamp: input.timestamp,
+            nonce: input.nonce,
+            rawBody: input.rawBody,
+            signature: input.signature,
+          });
     if (!ok) {
       throw new ApplicationError(
         'FORBIDDEN',
@@ -382,15 +454,27 @@ export class ExternalIngressModule {
     if (!ingress.enabled) {
       throw new ApplicationError('FORBIDDEN', 'Ingress is disabled');
     }
-    const ok = verifyExternalIngressRequestSignature({
-      crypto: this.deps.signatureCrypto,
-      secret: ingress.secret,
-      method: input.method,
-      path: input.path,
-      timestamp: input.timestamp,
-      nonce: input.nonce,
-      rawBody: input.rawBody,
-      signature: input.signature,
+    const ok =
+      ingress.signatureAlgorithm === 'ed25519' && ingress.publicKey
+        ? verifyExternalIngressEd25519Signature({
+            crypto: this.deps.signatureCrypto,
+            publicKeyPem: ingress.publicKey,
+            method: input.method,
+            path: input.path,
+            timestamp: input.timestamp,
+            nonce: input.nonce,
+            rawBody: input.rawBody,
+            signature: input.signature,
+          })
+        : verifyExternalIngressRequestSignature({
+            crypto: this.deps.signatureCrypto,
+            secret: ingress.secret,
+            method: input.method,
+            path: input.path,
+            timestamp: input.timestamp,
+            nonce: input.nonce,
+            rawBody: input.rawBody,
+            signature: input.signature,
     });
     if (!ok) {
       throw new ApplicationError(
@@ -629,6 +713,8 @@ function publicIngress(ingress: ExternalIngressRecord) {
     ingressId: ingress.ingressId,
     appId: ingress.appId,
     name: ingress.name,
+    signatureAlgorithm: ingress.signatureAlgorithm,
+    ...(ingress.publicKey ? { publicKey: ingress.publicKey } : {}),
     enabled: ingress.enabled,
     metadata: ingress.metadata,
     createdAt: ingress.createdAt,

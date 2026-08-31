@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, sign as cryptoSign, verify as cryptoVerify, timingSafeEqual } from 'node:crypto';
 
 import { nowMs } from './datetime.js';
 
@@ -51,6 +51,22 @@ export function signIngressRequest(input: {
   });
 }
 
+export function signIngressRequestEd25519(input: {
+  privateKeyPem: string;
+  method: string;
+  path: string;
+  timestamp: string;
+  nonce: string;
+  rawBody: string;
+}): string {
+  const { canonicalPayload } = buildIngressSignaturePayload(input);
+  return cryptoSign(
+    null,
+    Buffer.from(canonicalPayload, 'utf8'),
+    input.privateKeyPem,
+  ).toString('base64');
+}
+
 export function verifyIngressSignature(input: {
   secret: string;
   method: string;
@@ -83,4 +99,37 @@ export function verifyIngressSignature(input: {
   const left = Buffer.from(expected);
   const right = Buffer.from(input.signature);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export function verifyIngressSignatureEd25519(input: {
+  publicKeyPem: string;
+  method: string;
+  path: string;
+  timestamp: string;
+  nonce: string;
+  rawBody: string;
+  signature: string;
+  toleranceMs?: number;
+  nowMs?: number;
+}): boolean {
+  const timestampMs = Number(input.timestamp);
+  const toleranceMs = input.toleranceMs ?? 5 * 60_000;
+  if (
+    !Number.isFinite(timestampMs) ||
+    (toleranceMs >= 0 &&
+      Math.abs((input.nowMs ?? nowMs()) - timestampMs) > toleranceMs)
+  ) {
+    return false;
+  }
+  const { canonicalPayload } = buildIngressSignaturePayload(input);
+  try {
+    return cryptoVerify(
+      null,
+      Buffer.from(canonicalPayload, 'utf8'),
+      input.publicKeyPem,
+      Buffer.from(input.signature, 'base64'),
+    );
+  } catch {
+    return false;
+  }
 }

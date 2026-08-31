@@ -61,7 +61,7 @@ export function conversationMessageTarget(
 
 export function createIngressesClient(transport: TransportLike) {
   return {
-    create: (input: { name: string; enabled?: boolean; metadata?: unknown }) =>
+    create: (input: { name: string; enabled?: boolean; metadata?: unknown; signatureAlgorithm?: string; publicKey?: string }) =>
       transport.request<Record<string, unknown>>({
         method: 'POST',
         path: '/v1/ingresses',

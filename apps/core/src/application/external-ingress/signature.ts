@@ -4,6 +4,7 @@ export interface ExternalIngressSignaturePort {
   sha256(input: string): string;
   hmacSha256(secret: string, payload: string): string;
   constantTimeEqual(left: string, right: string): boolean;
+  ed25519Verify(publicKeyPem: string, payload: string, signatureBase64: string): boolean;
 }
 
 export interface ExternalIngressSignaturePayloadInput {
@@ -67,6 +68,32 @@ export function signExternalIngressRequest(input: {
   };
 }
 
+export function signExternalIngressEd25519Request(input: {
+  crypto: ExternalIngressSignaturePort;
+  privateKeySign: (privateKeyPem: string, payload: string) => string;
+  privateKeyPem: string;
+  method: string;
+  path: string;
+  timestamp: string;
+  nonce: string;
+  rawBody: string;
+}): { signature: string; bodyHash: string; payload: string } {
+  const bodyHash = input.crypto.sha256(input.rawBody);
+  const payload = buildExternalIngressSignaturePayload({
+    method: input.method,
+    path: input.path,
+    timestamp: input.timestamp,
+    nonce: input.nonce,
+    rawBody: input.rawBody,
+    bodyHash,
+  });
+  return {
+    signature: input.privateKeySign(input.privateKeyPem, payload),
+    bodyHash,
+    payload,
+  };
+}
+
 export function verifyExternalIngressRequestSignature(input: {
   crypto: ExternalIngressSignaturePort;
   secret: string;
@@ -98,4 +125,37 @@ export function verifyExternalIngressRequestSignature(input: {
     rawBody: input.rawBody,
   }).signature;
   return input.crypto.constantTimeEqual(expected, input.signature);
+}
+
+export function verifyExternalIngressEd25519Signature(input: {
+  crypto: ExternalIngressSignaturePort;
+  publicKeyPem: string;
+  method: string;
+  path: string;
+  timestamp: string;
+  nonce: string;
+  rawBody: string;
+  signature: string;
+  toleranceMs?: number;
+  nowMs?: number;
+}): boolean {
+  if (
+    !isExternalIngressTimestampFresh({
+      timestamp: input.timestamp,
+      toleranceMs: input.toleranceMs,
+      nowMs: input.nowMs,
+    })
+  ) {
+    return false;
+  }
+  const bodyHash = input.crypto.sha256(input.rawBody);
+  const payload = buildExternalIngressSignaturePayload({
+    method: input.method,
+    path: input.path,
+    timestamp: input.timestamp,
+    nonce: input.nonce,
+    rawBody: input.rawBody,
+    bodyHash,
+  });
+  return input.crypto.ed25519Verify(input.publicKeyPem, payload, input.signature);
 }

@@ -31,6 +31,8 @@ export class PostgresExternalIngressRepository {
     appId: string;
     name: string;
     secret: string;
+    signatureAlgorithm?: string;
+    publicKey?: string | null;
     enabled?: boolean;
     metadata?: unknown;
   }) {
@@ -48,6 +50,8 @@ export class PostgresExternalIngressRepository {
         appId: input.appId,
         name: input.name,
         secret: encryptExternalIngressSecret(input.secret, this.runtimeSecrets),
+        signatureAlgorithm: input.signatureAlgorithm ?? 'hmac-sha256',
+        publicKey: input.publicKey ?? null,
         enabled: input.enabled ?? true,
         metadataJson: JSON.stringify(input.metadata ?? {}),
         createdAt: now,
@@ -88,6 +92,8 @@ export class PostgresExternalIngressRepository {
     patch: {
       name?: string;
       secret?: string;
+      signatureAlgorithm?: string;
+      publicKey?: string | null;
       enabled?: boolean;
       metadata?: unknown;
     },
@@ -112,6 +118,8 @@ export class PostgresExternalIngressRepository {
           patch.secret !== undefined
             ? encryptExternalIngressSecret(patch.secret, this.runtimeSecrets)
             : existing.secret,
+        signatureAlgorithm: patch.signatureAlgorithm ?? existing.signatureAlgorithm,
+        publicKey: patch.publicKey !== undefined ? patch.publicKey : existing.publicKey,
         enabled: patch.enabled ?? existing.enabled,
         metadataJson:
           patch.metadata !== undefined
@@ -400,6 +408,8 @@ function mapExternalIngress(
     appId: string;
     name: string;
     secret: string;
+    signatureAlgorithm: string;
+    publicKey: string | null;
     enabled: boolean;
     metadataJson: string;
     createdAt: string;
@@ -412,6 +422,8 @@ function mapExternalIngress(
     appId: row.appId,
     name: row.name,
     secret: decryptExternalIngressSecret(row.secret, runtimeSecrets),
+    signatureAlgorithm: row.signatureAlgorithm,
+    publicKey: row.publicKey,
     enabled: row.enabled,
     metadata: parseJson(row.metadataJson, {}),
     createdAt: row.createdAt,
