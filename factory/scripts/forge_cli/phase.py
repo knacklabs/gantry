@@ -320,24 +320,35 @@ def cmd_next(args: argparse.Namespace) -> None:
                 elif frontier == "grill":
                     steps.append(
                         f"[dev] Grill the saved {task_id} plan with `/grill-me` "
-                        "(factory/prompts/griller.md --gate task): drive the rounds via "
-                        "AskUserQuestion, fold in the human's answers, re-grill until a "
-                        "round is clean; record the digest-bound pass. Only a clean "
-                        "grill makes the plan appear on the board. Do NOT ask for "
-                        "approval before the grill is clean."
+                        "(factory/prompts/griller.md --gate task). Because YOU authored "
+                        "the plan, EVERY round starts with a fresh read-only Codex "
+                        "cold-read (`gpt-5.6-terra` @ xhigh, via `/codex:rescue`) — not "
+                        "a Claude sub-agent, never inline — and you MUST actively WATCH "
+                        "that Codex run (it can pause on a signal awaiting you). Carry "
+                        "its findings into your own AskUserQuestion rounds, fold in the "
+                        "human's answers, re-run the Codex grill, and LOOP until a round "
+                        "is clean AND the plan is stable (no further edits). Record the "
+                        "digest-bound pass. Only a clean grill makes the plan appear on "
+                        "the board. Do NOT ask for approval before the grill converges."
                     )
                 elif frontier == "author-task-plan":
                     steps.append(
                         f"[dev] Author {task_id} in plan mode — do NOT present the plan "
                         "in chat. Save it silently: "
                         f"`./forge task plan save {task_id} --from <path>` (it stays "
-                        "hidden on the board until its grill is clean). Then grill it."
+                        "hidden on the board until its grill is clean), then grill it "
+                        "WITHOUT leaving plan mode (the plan-mode marker comes from "
+                        "editing the plan in plan mode, not from an ExitPlanMode prompt)."
                     )
                 elif frontier == "await-approval":
                     steps.append(
-                        f"[dev] The grilled {task_id} plan is now visible on the board — "
-                        "the human reviews it THERE (not in chat) and approves; then "
-                        f"record it: `./forge task approve {task_id} --by \"<name>\"`"
+                        f"[dev] The grilled {task_id} plan is now visible on the board. "
+                        "Ask for approval EXACTLY ONCE, and only after the grill has "
+                        "converged (a clean round AND the plan is final — no pending "
+                        "edits): the human reviews it THERE (not in chat) and approves; "
+                        f"then record it: `./forge task approve {task_id} --by \"<name>\"`. "
+                        "Do NOT approve after an intermediate grill — a later edit "
+                        "re-stales the approval and forces another round."
                     )
                 elif frontier == "stage-start":
                     steps.append(f"[dev] Start {task_id}: ./forge stage start {task_id}")

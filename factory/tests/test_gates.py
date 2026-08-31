@@ -10308,16 +10308,21 @@ def test_board_default_view_is_the_overview():
     assert '<body data-view="overview">' in page
     assert 'data-board-view="overview" aria-selected="true"' in page
     assert 'data-board-view="lifecycle" aria-selected="false"' in page
+    assert 'data-board-view="dependencies" aria-selected="false"' in page
     assert page.index('data-board-view="overview"') < page.index(
         'data-board-view="lifecycle"')
+    assert page.index('data-board-view="lifecycle"') < page.index(
+        'data-board-view="dependencies"')
     assert 'id="overview-view"' in page
     assert 'id="lifecycle-view" hidden' in page
+    assert 'id="dependencies-view" hidden' in page
     assert 'document.body.dataset.view = view' in page
     assert '$("overview-view").hidden = view !== "overview"' in page
     assert '$("lifecycle-view").hidden = view !== "lifecycle"' in page
-    # Both tabs stay in the tab order. A roving tabIndex without an
+    assert '$("dependencies-view").hidden = view !== "dependencies"' in page
+    # All tabs stay in the tab order. A roving tabIndex without an
     # ArrowLeft/ArrowRight handler stranded keyboard-only users in whichever
-    # view they picked first — with two tabs, keeping both focusable is the
+    # view they picked first — with three tabs, keeping all focusable is the
     # smaller fix than implementing the full tablist key protocol.
     assert "tabIndex" not in page
 
@@ -10327,14 +10332,14 @@ def test_board_default_view_is_the_overview():
     for existing_affordance in (
             "renderRunline(state)", "renderProgress(state)",
             "renderBanner(state)", "renderNext(state)", "renderColhead()",
-            "patchLanes(state)"):
+            "patchLanes(state)", "renderDag(state)"):
         assert existing_affordance in render
 
 
 def test_overview_is_the_project_brief():
     page = (HARNESS / "factory" / "board" / "index.html").read_text()
     overview = page[page.index("function renderOverview(state)"):
-                    page.index("function showBoardView(")]
+                    page.index("/* ═══ dependency DAG")]
 
     # The Overview is deliberately the high-level project brief ONLY. The other
     # three operational questions live on the Lifecycle (kanban) view now.
@@ -10347,13 +10352,298 @@ def test_overview_is_the_project_brief():
     assert not re.search(r"\b(?:wave|layer)\s*\d", overview, re.IGNORECASE)
 
 
+def test_dependency_view_is_an_authored_read_only_dag():
+    page = (HARNESS / "factory" / "board" / "index.html").read_text()
+    dag = page[page.index("function layoutDag("):
+               page.index("function showBoardView(")]
+
+    assert "Story dependency map" in page
+    assert "Every arrow is authored roadmap data" in page
+    assert 'role="region" aria-label="Interactive read-only story dependency map"' in page
+    assert 'data-dag-reset' in page and 'data-dag-fit' in page
+    assert 'data-dag-zoom="in"' in page
+    assert 'data-dag-open hidden' in page
+    assert 'id="dag-scene"' in page and 'class="dag-boot"' not in page
+    assert "globeVectors" in dag and "dagGlobeEdgePath" in dag
+    assert "playDagEntrance" in dag and 'classList.add("is-forming")' in dag
+    assert "story.depends_on || []" in dag
+    assert "layout.children.get(story.key)" in dag
+    assert "dagPathSets" in dag and "ancestors" in dag and "descendants" in dag
+    assert 'addEventListener("pointerenter"' in dag
+    assert 'addEventListener("pointerleave"' in dag
+    node_hover_handlers = dag[dag.index('node.addEventListener("pointerenter"'):
+                              dag.index('node.addEventListener("focus"')]
+    hover_state = dag[dag.index("function setDagHovered("):
+                      dag.index("function renderDag(")]
+    hover_style = page[page.index(".dag-node.is-hovered:not(.is-selected) {"):
+                       page.index(".dag-node.is-hovered:not(.is-selected)::before")]
+    hover_motion = page[page.index(".dag-node.is-hovered:not(.is-selected) {"):
+                        page.index("@keyframes dag-guide-form")]
+    signal_style = page[page.index(".dag-signal.is-upstream, .dag-signal.is-downstream {"):
+                        page.index(".dag-shell.is-forming .dag-edge")]
+    status_style = page[page.index(".dag-status {"):
+                        page.index(".dag-status b")]
+    mobile = page[page.index("@media (max-width: 620px)"):
+                  page.index("@media (prefers-reduced-motion: reduce)")]
+    mobile_status = mobile[mobile.index(".dag-status {"):
+                           mobile.index(".dag-actions")]
+    selection_state = dag[dag.index("function applyDagSelection("):
+                          dag.index("function setDagHovered(")]
+    node_dim_state = selection_state[
+        selection_state.index('node.classList.toggle("is-dim"'):
+        selection_state.index('node.setAttribute("aria-pressed"')]
+    click_motion = dag[dag.index("function playDagSelection("):
+                       dag.index("function selectDagNode(")]
+    assert "setDagHovered(story.key)" in node_hover_handlers
+    assert "setDagHovered(null, true)" in node_hover_handlers
+    assert "if (defer)" in hover_state and "setTimeout(commit" in hover_state
+    assert "transform: scale(" in hover_style and "translateY" not in hover_style
+    assert "&& !selected" in node_dim_state
+    assert ".dag-node-title" not in hover_motion
+    assert 'pathNode.querySelector(".dag-node-title")' in click_motion
+    assert "title.animate([" in click_motion
+    assert "drop-shadow" not in signal_style and "filter:" not in signal_style
+    assert "white-space: nowrap" in status_style
+    assert "overflow: hidden" in status_style and "text-overflow: ellipsis" in status_style
+    assert "min-height: 2.6em" in mobile_status
+    assert "-webkit-line-clamp: 2" in mobile_status and "white-space: normal" in mobile_status
+    assert 'addEventListener("focus"' in dag and 'addEventListener("blur"' in dag
+    assert "playDagSelection" in dag
+    assert "setPointerCapture" in dag and "rubberband" in dag and "springDagPan" in dag
+    assert "retargetDagZoom" in dag and "stepDagZoom" in dag
+    assert "requestAnimationFrame(stepDagZoom)" in dag
+    assert "event.deltaMode" in dag and "{passive: false}" in dag
+    assert "event.metaKey" not in dag and "event.ctrlKey" not in dag
+    assert 'node.addEventListener("dblclick"' in dag
+    assert 'if (DAG.mode !== "stories") return' in dag
+    assert 'openDagTaskView(story.key' in dag
+    assert 'node.addEventListener("keydown"' in dag
+    assert 'event.key !== "Enter"' in dag
+    assert 'openDagTaskView(story.key, false, node)' in dag
+    assert 'node.matches(":focus-visible")' in dag
+    assert 'focusDagStory(story.key, !REDUCE.matches, 220)' in dag
+    assert "if (REDUCE.matches)" in dag[dag.index("function retargetDagZoom("):
+                                              dag.index("function stepDagZoom(")]
+    assert "fetch(" not in dag
+    assert all(method not in page for method in (
+        "do_POST", "do_PUT", "do_PATCH", "do_DELETE"))
+    assert "prefers-reduced-motion: reduce" in page
+    assert "dag-cue" not in page and "⌘" not in page
+
+    node_template = dag[dag.index('node.innerHTML ='):
+                        dag.index('node.setAttribute("aria-label"')]
+    assert "dag-node-title" in node_template
+    assert "dag-node-status" not in node_template and "dag-node-wave" in node_template
+    assert 'kindLabel("STORY")' not in node_template
+    assert "dag-node-key" not in node_template and "dag-node-meta" not in node_template
+    assert '${kind} ${story.key}' in dag
+
+
+def test_dependency_entry_projects_the_same_graph_as_a_quarter_turn_3d_globe():
+    page = (HARNESS / "factory" / "board" / "index.html").read_text()
+    dag = page[page.index("function layoutDag("):
+               page.index("function showBoardView(")]
+    projection = dag[dag.index("function projectDagGlobePoint("):
+                     dag.index("function dagGlobeEdgePoints(")]
+    globe_frame = dag[dag.index("function renderDagGlobeFrame("):
+                      dag.index("function playDagEntrance(")]
+    entrance = dag[dag.index("function playDagEntrance("):
+                   dag.index("function focusDagStory(")]
+
+    # This is the authored story graph in a temporary spatial presentation,
+    # not a separate decorative orbital loader. Every story starts from a 3D
+    # sphere vector, and the frame renderer projects both its node and edges.
+    assert "const DAG_GLOBE_ROTATION_RADIANS = Math.PI / 2;" in page
+    assert "const DAG_GLOBE_ROTATION_RADIANS = Math.PI;" not in page
+    assert "const DAG_GLOBE_SPEED = 3;" in page
+    assert "const DAG_GLOBE_TOTAL_MS = (520 + 1480 + 920) / DAG_GLOBE_SPEED;" in page
+    assert "DAG_GLOBE_ROTATE_START_MS = DAG_GLOBE_TOTAL_MS * .08" in page
+    assert "DAG_GLOBE_UNFOLD_START_MS = DAG_GLOBE_TOTAL_MS * .62" in page
+    assert "DAG_GLOBE_ROTATE_MS = DAG_GLOBE_TOTAL_MS * .68" in page
+    assert "DAG_GLOBE_UNFOLD_MS = DAG_GLOBE_TOTAL_MS * .38" in page
+    assert "projectDagGlobePoint" in dag and "dagSlerp" in dag
+    assert "Math.cos" in projection and "Math.sin" in projection
+    assert "perspective" in projection and "depth" in projection
+    assert "turn * DAG_GLOBE_ROTATION_RADIANS" in projection
+    assert "Math.PI * 2" not in projection and "DAG_GLOBE_TURNS" not in page
+    assert "DAG.edges = layout.edges.map" in dag
+    assert "layout.globeVectors" in globe_frame
+    assert "DAG.nodes" in globe_frame and "DAG.edges" in globe_frame
+    assert "projectDagGlobePoint" in globe_frame
+    assert "dagGlobeEdgePoints" in globe_frame
+    assert 'edge.globe.setAttribute("d"' in globe_frame
+    assert "nodeUnfold" in globe_frame and "edgeUnfold" in globe_frame
+    assert "dagGlobeEdgeVectors" in dag
+    assert "edge.globeVectors || dagGlobeEdgeVectors(edge)" in dag
+    assert "globeVectors = dagGlobeEdgeVectors(edge)" in dag
+    assert "DAG_GLOBE_CURVE_STEPS" in dag and "dagCubicPath" in dag
+    assert 'node.style.willChange = "transform, opacity"' not in globe_frame
+    assert "node.style.filter" not in globe_frame
+    assert "Math.round(point.depth * 8)" in globe_frame
+    assert "(unfold - nodeDelay) / (1 - nodeDelay)" in globe_frame
+    assert "(unfold - edgeDelay) / (1 - edgeDelay)" in globe_frame
+    assert "var(--depth-duration" in page and "var(--edge-duration" in page
+    assert 'base.style.setProperty("--edge-duration"' in dag
+
+    # One bounded 0 → π/2 quarter-turn leads into a morph/unfold and the ordinary
+    # dependency camera; re-entering the tab may replay that same sequence.
+    assert "renderDagGlobeFrame" in entrance
+    assert "const rotationProgress = clamp" in entrance
+    assert "const rotation = dagEaseInOutCubic(rotationProgress)" in entrance
+    assert "turn: rotation" in entrance and "unfold" in entrance
+    assert "const total = DAG_GLOBE_TOTAL_MS" in entrance
+    assert "elapsed - DAG_GLOBE_ROTATE_START_MS" in entrance
+    assert "elapsed - DAG_GLOBE_UNFOLD_START_MS" in entrance
+    assert "requestAnimationFrame" in entrance
+    assert "landDagOnEntryTarget" in entrance
+    assert "selectDagEntryTarget" in entrance
+    assert "2π" not in entrance and "full revolution" not in entrance.lower()
+    assert "half-turn" not in entrance.lower() and "0 → π Y-axis" not in entrance
+
+    assert "dag-scene-orbit" not in page
+    assert 'class="dag-boot"' not in page
+
+
+def test_dependency_cards_use_full_surfaces_without_redundant_status_dots():
+    page = (HARNESS / "factory" / "board" / "index.html").read_text()
+    shipped = page[page.index('.dag-node[data-state="shipped"] {'):
+                   page.index('.dag-node[data-state="shipped"] .dag-node-title')]
+    building = page[page.index('.dag-node[data-state="building"] {'):
+                    page.index('.dag-node[data-state="building"] .dag-node-title')]
+    ready = page[page.index('.dag-node[data-state="ready"] {'):
+                 page.index('.dag-node[data-state="ready"] .dag-node-title')]
+    selected = page[page.index(".dag-node.is-selected {"):
+                    page.index(".dag-node.is-selected .dag-port")]
+
+    # State belongs to the whole card, not only its status dot. Selection adds
+    # an outline/scale while deliberately retaining that semantic fill.
+    assert all(token in page for token in (
+        "--done-surface:", "--active-surface:", "--ready-surface:"))
+    assert "background: var(--done-surface)" in shipped
+    assert "border-color: var(--shipped)" in shipped
+    assert "background: var(--active-surface)" in building
+    assert "border-color: var(--ready)" in building
+    assert "background: var(--ready-surface)" in ready
+    assert "border-color: var(--build)" in ready
+    assert "dag-node-status" not in page
+    assert "background" not in selected
+    assert "border-color: var(--accent)" in selected
+
+
+def test_dependency_entry_prefers_active_work_then_the_authoritative_frontier():
+    page = (HARNESS / "factory" / "board" / "index.html").read_text()
+    preferred = page[page.index("function preferredDagStory("):
+                     page.index("function dagTaskVisualState(")]
+    render = page[page.index("function renderDag(state)"):
+                  page.index("function dagTransform(")]
+    landing = page[page.index("function landDagOnEntryTarget("):
+                   page.index("function focusDagStory(")]
+    entrance = page[page.index("function playDagEntrance("):
+                    page.index("function focusDagStory(")]
+
+    # The raw run pointer is accepted only when it resolves to genuinely
+    # active, non-terminal work. Otherwise the server-derived frontier is the
+    # authoritative unlocked-story fallback.
+    assert "const runKey = run.issue_key || run.story" in preferred
+    assert "const runStory = byKey.get(runKey)" in preferred
+    assert 'runStory.status === "active"' in preferred
+    assert 'runStory.state !== "shipped"' in preferred
+    assert "!terminalPhases.has(run.phase)" in preferred
+    assert "const unlocked = (state.frontier || []).find" in preferred
+    assert "byKey.get(key)?.ready_to_plan" in preferred
+    assert preferred.index("return runStory.key") < preferred.index(
+        "const unlocked = (state.frontier || []).find")
+    assert "DAG.entryTarget = preferredDagStory(state, roadmapStories)" in render
+
+    # Both reduced-motion and animated entry land on and select that target,
+    # rather than merely framing the root of the roadmap.
+    assert "focusDagStory(DAG.entryTarget, animate, duration)" in landing
+    assert "DAG.selected = DAG.entryTarget" in landing
+    assert "applyDagSelection()" in landing
+    assert "landDagOnEntryTarget(false)" in entrance
+    assert "landDagOnEntryTarget(true, DAG_GLOBE_UNFOLD_MS)" in entrance
+    assert entrance.count("selectDagEntryTarget()") == 2
+
+
+def test_story_double_click_opens_a_task_graph_inside_the_same_read_only_shell():
+    page = (HARNESS / "factory" / "board" / "index.html").read_text()
+    dag = page[page.index("/* ═══ dependency DAG"):
+               page.index("function showBoardView(")]
+    node_click = dag[dag.index('node.addEventListener("click"'):
+                     dag.index("nodes.appendChild(node)")]
+    open_tasks = dag[dag.index("function openDagTaskView("):
+                     dag.index("function zoomDag(")]
+    chrome = dag[dag.index("function setDagLevelChrome("):
+                 dag.index("function setDagCameraDisabled(")]
+
+    assert page.count('id="dag-shell"') == 1
+    assert page.count('id="dag-viewport"') == 1
+    assert page.count('id="dag-world"') == 1
+    assert 'data-dag-back hidden' in page
+    assert 'node.addEventListener("click"' in node_click
+    assert 'selectDagNode(story.key' in node_click
+    assert 'node.addEventListener("dblclick"' in node_click
+    assert 'if (DAG.mode !== "stories") return' in node_click
+    assert 'openDagTaskView(story.key' in node_click
+    assert 'node.addEventListener("keydown"' in node_click
+    assert 'event.key !== "Enter"' in node_click
+    assert 'openDagTaskView(story.key, false, node)' in node_click
+    assert node_click.index('selectDagNode(story.key') < node_click.index(
+        'node.addEventListener("dblclick"')
+    assert 'swapDagLevel("tasks", key, animate, originNode)' in open_tasks
+    assert 'swapDagLevel("stories", null, animate)' in open_tasks
+    assert 'const returningToStories = DAG.mode === "stories" && Boolean(DAG.returnView)' in dag
+    assert 'DAG.mode === "stories" && !returningToStories' in dag
+    assert 'document.querySelector("[data-dag-back]").hidden = !isTasks' in chrome
+    assert 'DAG.mode === "tasks"' in chrome
+
+    # In-panel graph navigation is local state only. It neither navigates the
+    # browser nor introduces a mutating board request.
+    assert "location.href" not in dag and "location.assign" not in dag
+    assert "window.open" not in dag and "fetch(" not in dag
+    assert all(f'method: "{method}"' not in dag
+               for method in ("POST", "PUT", "PATCH", "DELETE"))
+
+
+def test_task_dag_uses_forge_task_states_and_effective_dependencies():
+    page = (HARNESS / "factory" / "board" / "index.html").read_text()
+    tasks = page[page.index("function dagTaskVisualState("):
+                 page.index("function layoutDag(")]
+    render = page[page.index("function renderDag(state)"):
+                  page.index("function dagTransform(")]
+    status = page[page.index("function updateDagStatus("):
+                  page.index("function applyDagSelection(")]
+
+    assert 'if (state === "done") return "shipped"' in tasks
+    assert 'if (state === "active" || state === "await-merge") return "building"' in tasks
+    assert "const tasks = story && story.tasks || []" in tasks
+    assert "return tasks.map((task, index)" in tasks
+    assert "state: dagTaskVisualState(task)" in tasks
+
+    # Forge treats explicit non-empty dependencies as authoritative. An
+    # omitted/empty list preserves decomposition order via the predecessor.
+    assert "const explicit = tasks[index].dependencies" in tasks
+    assert "Array.isArray(explicit) && explicit.length" in tasks
+    assert "return index ? [tasks[index - 1].id] : []" in tasks
+    assert "effectiveDagTaskDependencies(tasks, index)" in tasks
+    assert ".filter(key => ids.has(key))" in tasks
+
+    # Stories and tasks render through the same node factory, so the shipped
+    # and building card fills above apply at both levels.
+    assert 'DAG.mode === "tasks" ? taskDagItems(taskStory)' in render
+    assert "node.dataset.state = story.state" in render
+    assert 'node.dataset.kind = story.kind || "story"' in render
+    assert 'const isTasks = DAG.mode === "tasks"' in status
+    assert 'const noun = isTasks ? "task" : "story"' in status
+    assert 'const dependencyWord = isTasks ? "effective" : "authored"' in status
+    assert "do_PATCH" not in page
+
+
 def test_epic_story_and_task_are_explicitly_labelled():
     page = (HARNESS / "factory" / "board" / "index.html").read_text()
 
     make_lane = page[page.index("function makeLane("):
                      page.index("function rollCount(")]
-    overview = page[page.index("function renderOverview(state)"):
-                    page.index("function showBoardView(")]
     make_card = page[page.index("function makeCard("):
                      page.index("function makeLane(")]
     task_block = page[page.index("function taskBlock("):

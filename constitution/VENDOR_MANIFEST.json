@@ -1,5 +1,5 @@
 {
-  "harness_commit": "8dd743da52edec17dedb7819401a73bbc2d68468",
+  "harness_commit": "07f2148a51a2edf6a177436ad768478d188dc8c0",
   "files": {
     "factory/scripts/check_agents_hygiene.py": "63b5db9b788ebc55d3542af506566ab8d45ba7c7f588a6f93e78d3811d0003c4",
     "factory/scripts/check_board_complete.py": "75022051af7cc2928039641ba2ef1a5f31e45e6b5c1651e15c2213cca6c6a7a0",
@@ -32,7 +32,7 @@
     "factory/scripts/forge_cli/history.py": "075c317ff738d234898bced0cc8d44e86ef38e881d407e857b91a1d07b466978",
     "factory/scripts/forge_cli/lessons.py": "bc4366f711d96e5766fa2e55ed5f6534a7e7b866008d6ade5763b966bfc16dcc",
     "factory/scripts/forge_cli/outcome.py": "e0af7881c0967d13dc3bcd7da2b5bdd5d4450f0805d43fe2efc0202f12da4903",
-    "factory/scripts/forge_cli/phase.py": "878fb12fe163f279fc22a1ea7c4ad2461a933d7d71cf57fa64506be3d87f3b3e",
+    "factory/scripts/forge_cli/phase.py": "562f09b4876213836a419b720ef5bb69cb604577807c01907e88ab522a021160",
     "factory/scripts/forge_cli/plans.py": "fc171f2404eca2b9dcdc1f32c7e0fd40685a8984a38ad912f407f8d7925ed2ad",
     "factory/scripts/forge_cli/project.py": "3c97330a12c6e0de70004b04d8c39cf15a875f1542be63820b58b399ff91b520",
     "factory/scripts/forge_cli/quickfix.py": "a58e468d9cc8a89d7ffb45094807a05f4f275a2dbf88add9b827d6b854c59fb4",
@@ -78,7 +78,7 @@
     "factory/schemas/test-automated.json": "11872553dca48f269cd6cb67e144abadb8dd58e015d5bab169886731818ed9d2",
     "factory/schemas/test-functional.json": "5a8b8be9890ec497b69b2eb1fa1c2864be98a32b14806c5a80ce746722ae2126",
     "factory/prompts/decomposer.md": "f14cf1e705ff7380ff42743cb080b48b1ed3c93c4ffb0993495b3b8ab5fd2c9c",
-    "factory/prompts/griller.md": "7f02894a84e2871f5ac2b7674455f5506c0539aac7a475d8a2e51d058ef4f6c4",
+    "factory/prompts/griller.md": "2836b0a8c68709c3994f6e64db5a35f3fdb4267ac25442c4241234e58cec9fb5",
     "factory/prompts/harvester.md": "c480303df26ac22bac32e1627a94aa3b1c0ce2f4833827d7905e6aec1d1270ab",
     "factory/prompts/implementer.md": "48c61014335f7d75cc9ffdc0f864d3a42496a40e8eeca785cb3a0b088e94a8ef",
     "factory/prompts/planner.md": "8ddb6bebd20d2637ac496f0c52792eb73dcad33c1115b3b74992512ac06c0a6b",
