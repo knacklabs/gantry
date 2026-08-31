@@ -111,17 +111,112 @@
       "id": "SKILLS-WEB-1-T2",
       "title": "Skills inspection UI",
       "objective": "Build the read experience at /ui/skills: navigation, searchable split inventory/detail layout, validated URL state, Overview/Files/Actions/Agents tabs, lazy safe file preview, read-only action cards, and viewer-safe behavior.",
+      "user_facing": true,
       "acceptance_criteria": [
-        "/ui/skills appears under Configure with the installed-skill count and restores valid skill, q, and tab search state.",
-        "The split inventory/detail layout stacks on narrow screens and preserves loading, empty, search, and error states.",
+        "/ui/skills renders under the existing app shell and appears under Configure with a viewer-safe installed-skill count.",
+        "The route restores valid skill, q, and tab search state and falls back safely when a selected skill or tab is unavailable.",
+        "The split inventory/detail layout stacks on constrained screens and preserves loading, empty, search-empty, and error states.",
         "Viewers can inspect sanitized inventory, overview, files, actions, and attached agents without mutation controls.",
         "Files are loaded lazily; UTF-8 text previews render as inert text and binary files show metadata only.",
-        "Actions are read-only and attached-agent Manage access links route to the existing Agent Access tab."
+        "Actions include sanitized required credential names as read-only metadata, and attached-agent links route to the existing Agent Access tab."
       ],
       "dependencies": [
         "SKILLS-WEB-1-T1"
       ],
-      "epic_id": "capability-search"
+      "epic_id": "capability-search",
+      "write_scope": [
+        "packages/contracts/src/skills/browser-skills.dto.ts",
+        "apps/core/src/control/server/routes/browser-skills.mapper.ts",
+        "apps/core/src/control/server/routes/browser-navigation-summary.ts",
+        "apps/core/test/unit/auth/browser-skills-routes.test.ts",
+        "apps/core/test/unit/control/browser-navigation-summary.test.ts",
+        "apps/web/src/app/app-navigation.tsx",
+        "apps/web/src/app/routes/operations-routes.ts",
+        "apps/web/src/features/navigation/navigation-summary-query.ts",
+        "apps/web/src/features/operations/operations-search.ts",
+        "apps/web/src/features/operations/operations-queries.ts",
+        "apps/web/src/features/operations/skills-queries.ts",
+        "apps/web/src/features/operations/routes/skills-route.tsx",
+        "apps/web/src/features/operations/routes/skills-route.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "returns only a viewer-safe Skills navigation count",
+          "path": "apps/core/test/unit/control/browser-navigation-summary.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "maps required credential names without secret values",
+          "path": "apps/core/test/unit/auth/browser-skills-routes.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "renders Skills navigation and count contract",
+          "path": "apps/web/src/features/operations/routes/skills-route.test.ts",
+          "command": "FORGE_JUNIT=1 npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "restores Skills URL state and responsive page states",
+          "path": "apps/web/src/features/operations/routes/skills-route.test.ts",
+          "command": "FORGE_JUNIT=1 npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps Skills inspection read only and lazy with Agent Access links",
+          "path": "apps/web/src/features/operations/routes/skills-route.test.ts",
+          "command": "FORGE_JUNIT=1 npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run test:unit -- apps/core/test/unit/auth/browser-skills-routes.test.ts apps/core/test/unit/control/browser-navigation-summary.test.ts",
+        "npm run typecheck:web",
+        "npx vitest run -c apps/web/vitest.config.ts --root . apps/web/src/features/operations/routes/skills-route.test.ts",
+        "npm run lint:web",
+        "npm run format:check:web"
+      ],
+      "plan_contracts": [
+        {
+          "id": "SKILLS-WEB-1-T2-AC1",
+          "statement": "/ui/skills renders under the existing app shell and appears under Configure with a viewer-safe installed-skill count.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-2-skills-inspection-ui"
+        },
+        {
+          "id": "SKILLS-WEB-1-T2-AC2",
+          "statement": "The route restores valid skill, q, and tab search state and falls back safely when a selected skill or tab is unavailable.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-2-skills-inspection-ui"
+        },
+        {
+          "id": "SKILLS-WEB-1-T2-AC3",
+          "statement": "The split inventory/detail layout stacks on constrained screens and preserves loading, empty, search-empty, and error states.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-2-skills-inspection-ui"
+        },
+        {
+          "id": "SKILLS-WEB-1-T2-AC4",
+          "statement": "Viewers can inspect sanitized inventory, overview, files, actions, and attached agents without mutation controls.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-2-skills-inspection-ui"
+        },
+        {
+          "id": "SKILLS-WEB-1-T2-AC5",
+          "statement": "Files are loaded lazily; UTF-8 text previews render as inert text and binary files show metadata only.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-2-skills-inspection-ui"
+        },
+        {
+          "id": "SKILLS-WEB-1-T2-AC6",
+          "statement": "Actions include sanitized required credential names as read-only metadata, and attached-agent links route to the existing Agent Access tab.",
+          "source": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md#task-2-skills-inspection-ui"
+        }
+      ],
+      "reviewer_focus": [
+        "Load-bearing references: constitution/09-agent-conduct.md, constitution/pnp-api-standards.md, and docs/architecture/web-ui-foundation.md.",
+        "Read-facade correction: viewers receive only the installed Skills count from navigation summary, and action metadata exposes credential names but never values, references, or secret material.",
+        "Task-specific seam: route/query state, inventory filtering, tab rendering, and lazy file reads must remain separable so T3 can add dialogs without rewriting the inspection page.",
+        "Authority boundary: attachment does not grant declared-action authority; actions stay read-only and Agent Access remains the only authorization path.",
+        "Design attestation: apply emil-design-eng and frontend-design using existing primitives, visible keyboard focus, stable responsive dimensions, and restrained motion without a new visual system."
+      ],
+      "review_budget": {
+        "max_changed_files": 13,
+        "max_changed_lines": 1700,
+        "reason": "One read-only UI slice plus two narrow T1 read-facade corrections: viewer-safe Skills count and sanitized credential-name metadata; administrator workflows remain T3."
+      }
     },
     {
       "id": "SKILLS-WEB-1-T3",
@@ -148,5 +243,5 @@
   "epic": "capability-search",
   "plan_file": "plans/active/SKILLS-WEB-1-skills-inventory-and-agent-attachment-web-ui.md",
   "plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
-  "commit": "e4dd58a5f7c8b9ea790ef705b467f160f3cfcc36"
+  "commit": "096d2a6778db0a471534cefdda9dea7b452656c4"
 }

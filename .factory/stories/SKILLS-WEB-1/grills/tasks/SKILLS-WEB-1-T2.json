@@ -1,0 +1,66 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Viewer navigation summary returns only the installed Skills count unless the session has administrator scope.",
+    "Browser action metadata includes sanitized credential names without values, references, or secret material.",
+    "Named backend and web tests now falsify every T2 acceptance criterion."
+  ],
+  "inspected_refs": [
+    "docs/specs/skills-web-ui.md",
+    ".factory/stories/SKILLS-WEB-1/decomposition.json",
+    "apps/core/src/control/server/routes/browser-navigation-summary.ts",
+    "packages/contracts/src/skills/browser-skills.dto.ts",
+    "apps/web/src/app/app-navigation.tsx"
+  ],
+  "current_flow": "T1 serves sanitized browser skill inventory and artifacts. The amended T2 owns two narrow read-facade corrections plus the read-only React page; T3 alone owns install and attachment mutations.",
+  "criteria_map": {
+    "/ui/skills renders under the existing app shell and appears under Configure with a viewer-safe installed-skill count.": "The navigation-summary route test proves the viewer-only Skills count, and the web navigation test proves route and badge wiring.",
+    "The route restores valid skill, q, and tab search state and falls back safely when a selected skill or tab is unavailable.": "The named URL-state web test covers valid restoration and invalid selection/tab fallback.",
+    "The split inventory/detail layout stacks on constrained screens and preserves loading, empty, search-empty, and error states.": "The named responsive page-state web test covers layout classes and every state contract, followed by real-runtime visual validation.",
+    "Viewers can inspect sanitized inventory, overview, files, actions, and attached agents without mutation controls.": "The read-only inspection web test covers every tab and absence of mutation controls for viewer inventory.",
+    "Files are loaded lazily; UTF-8 text previews render as inert text and binary files show metadata only.": "The lazy inspection web test proves disabled queries before selection, React text rendering, and binary metadata-only output.",
+    "Actions include sanitized required credential names as read-only metadata, and attached-agent links route to the existing Agent Access tab.": "The backend mapper test proves sanitized credential names, and the web inspection test proves read-only action rendering and access-tab links."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "None"
+  ],
+  "rounds": [
+    {
+      "question": "Approve this T2 amendment?",
+      "options": [
+        "Approve the amendment (Recommended)",
+        "Use a separate backend task"
+      ],
+      "chosen": "Approve the amendment (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The amended write scope owns the viewer-safe navigation count and sanitized credential-name metadata.",
+      "source": ".factory/stories/SKILLS-WEB-1/decomposition.json:127"
+    },
+    {
+      "finding": "The expanded required tests cover backend facade corrections, URL state, responsive states, lazy preview, and Agent Access links.",
+      "source": ".factory/stories/SKILLS-WEB-1/decomposition.json:142"
+    },
+    {
+      "finding": "Administrator install and attachment mutations remain exclusively in T3.",
+      "source": ".factory/stories/SKILLS-WEB-1/decomposition.json:215"
+    }
+  ],
+  "open_items": [],
+  "task_id": "SKILLS-WEB-1-T2",
+  "input_sha256": "1ef8da67777cf7eb8eec2674eee7936d396513e76b0e663678409cb39088627f",
+  "task_plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
+  "recorded_at": "2026-08-31T09:37:20+00:00",
+  "commit": "096d2a6778db0a471534cefdda9dea7b452656c4",
+  "approved_task_plan_sha256": "798504a6c86abb09491fed488b5f0fd5cc36ad6d5c1074fe7a009a94a91d4210",
+  "approved_by": "User",
+  "approved_at": "2026-08-31T09:37:20+00:00"
+}

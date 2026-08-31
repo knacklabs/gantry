@@ -34,13 +34,25 @@ export async function handleBrowserNavigationSummary(
     sendError(res, 401, 'UNAUTHORIZED', 'Sign in is required.');
     return true;
   }
-  if (!browserRoleAllowsScope(session.role as ConsoleRole, 'agents:admin')) {
+  const role = session.role as ConsoleRole;
+  const canSeeAdministratorCounts = browserRoleAllowsScope(
+    role,
+    'agents:admin',
+  );
+  if (
+    !canSeeAdministratorCounts &&
+    !browserRoleAllowsScope(role, 'skills:read')
+  ) {
     sendError(res, 403, 'FORBIDDEN', 'Administrator access is required.');
     return true;
   }
 
   const storage = getRuntimeStorage();
   const appId = session.appId as AppId;
+  if (!canSeeAdministratorCounts) {
+    sendJson(res, 200, { skills: await summarizeSkills(storage, appId) });
+    return true;
+  }
   const [agents, servers, providers, skills] = await Promise.all([
     summarizeAgents(storage, appId),
     summarizeMcpServers(storage, appId),

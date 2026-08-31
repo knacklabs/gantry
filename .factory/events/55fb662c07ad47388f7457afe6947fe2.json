@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-08-31T09:32:38+00:00", "story": "SKILLS-WEB-1", "detail": "The required T2 web Vitest commands resolve root to /Users/caw/Desktop and discover zero tests; correcting the command or config is outside the approved write scope."}

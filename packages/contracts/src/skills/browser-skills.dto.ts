@@ -11,6 +11,7 @@ export const BrowserSkillActionResponseSchema = z
     can: z.string(),
     cannot: z.string(),
     networkHosts: z.array(z.string()),
+    requiredCredentialNames: z.array(z.string()),
   })
   .strict();
 export type BrowserSkillActionResponse = z.infer<

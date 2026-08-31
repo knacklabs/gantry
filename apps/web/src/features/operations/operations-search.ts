@@ -3,6 +3,15 @@ import { z } from 'zod';
 const page = z.coerce.number().int().min(1).catch(1);
 const descending = z.coerce.boolean().catch(false);
 
+export const skillTabs = ['overview', 'files', 'actions', 'agents'] as const;
+export type SkillTab = (typeof skillTabs)[number];
+
+export const skillsSearchSchema = z.object({
+  skill: z.string().optional().catch(undefined),
+  q: z.string().catch(''),
+  tab: z.enum(skillTabs).catch('overview'),
+});
+
 export const providerSearchSchema = z.object({
   q: z.string().catch(''),
   status: z.enum(['all', 'ready', 'attention', 'disabled']).catch('all'),

@@ -7,6 +7,11 @@ export const operationsQueryKeys = {
   all: ['operations'] as const,
   providers: () => [...operationsQueryKeys.all, 'providers'] as const,
   mcpServers: () => [...operationsQueryKeys.all, 'mcp-servers'] as const,
+  skills: () => [...operationsQueryKeys.all, 'skills'] as const,
+  skillFiles: (skillId: string) =>
+    [...operationsQueryKeys.skills(), skillId, 'files'] as const,
+  skillFile: (skillId: string, path: string) =>
+    [...operationsQueryKeys.skillFiles(skillId), path] as const,
   conversations: () => [...operationsQueryKeys.all, 'conversations'] as const,
   interactions: () => [...operationsQueryKeys.all, 'interactions'] as const,
   diagnostics: () => [...operationsQueryKeys.all, 'diagnostics'] as const,

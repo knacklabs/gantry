@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   MessagesSquare,
   MessageCircle,
+  PackageCheck,
   PlugZap,
   Gauge,
   ExternalLink,
@@ -46,6 +47,7 @@ const navigation = [
     items: [
       { to: '/providers', label: 'Model providers', icon: PlugZap },
       { to: '/mcp-servers', label: 'MCP servers', icon: Boxes },
+      { to: '/skills', label: 'Skills', icon: PackageCheck },
     ],
   },
   {
@@ -177,7 +179,8 @@ function NavigationCount({
     return pending &&
       (item === '/agents' ||
         item === '/mcp-servers' ||
-        item === '/providers') ? (
+        item === '/providers' ||
+        item === '/skills') ? (
       <span
         aria-hidden="true"
         className="ml-auto h-4 w-5 animate-pulse rounded-full bg-surface-muted"
@@ -207,7 +210,7 @@ function NavigationCount({
 
 function navigationCountDetails(item: string, summary?: NavigationSummary) {
   if (!summary) return null;
-  if (item === '/agents') {
+  if (item === '/agents' && summary.agents) {
     return {
       count: summary.agents.total,
       lines: [
@@ -220,7 +223,7 @@ function navigationCountDetails(item: string, summary?: NavigationSummary) {
       ],
     };
   }
-  if (item === '/mcp-servers') {
+  if (item === '/mcp-servers' && summary.mcpServers) {
     return {
       count: summary.mcpServers.active,
       lines: [
@@ -229,7 +232,7 @@ function navigationCountDetails(item: string, summary?: NavigationSummary) {
       ],
     };
   }
-  if (item === '/providers') {
+  if (item === '/providers' && summary.modelProviders) {
     return {
       count: summary.modelProviders.ready,
       lines: [
@@ -237,6 +240,13 @@ function navigationCountDetails(item: string, summary?: NavigationSummary) {
         `${summary.modelProviders.missing} need credentials`,
         `${summary.modelProviders.disabled} disabled`,
       ],
+    };
+  }
+  if (item === '/skills') {
+    const installed = summary.skills.installed;
+    return {
+      count: installed,
+      lines: [`${installed} installed skill${installed === 1 ? '' : 's'}`],
     };
   }
   return null;

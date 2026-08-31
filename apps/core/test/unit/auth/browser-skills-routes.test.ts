@@ -84,7 +84,7 @@ beforeEach(() => {
   vi.resetAllMocks();
 });
 
-it('redacts skill inventory and rejects viewer mutations', async () => {
+it('maps required credential names without secret values', async () => {
   const viewer = {
     appId: 'app:one',
     userId: 'user:viewer',
@@ -125,6 +125,7 @@ it('redacts skill inventory and rejects viewer mutations', async () => {
           can: 'Read approved records.',
           cannot: 'Read unrelated records.',
           requiredEnvVars: ['PRIVATE_ACCESS_TOKEN'],
+          credentialValues: { PRIVATE_ACCESS_TOKEN: 'super-secret-value' },
           commandTemplates: ['skills/safe/read.py *'],
           networkHosts: ['api.example.com:443'],
         },
@@ -173,9 +174,10 @@ it('redacts skill inventory and rejects viewer mutations', async () => {
   });
   expect(inventory.skills[0]?.actions[0]).toMatchObject({
     capabilityId: 'skill.safe.read',
+    requiredCredentialNames: ['PRIVATE_ACCESS_TOKEN'],
   });
   expect(inventoryResponse.body).not.toMatch(
-    /private\/storage\/ref|private-hash|PRIVATE_ACCESS_TOKEN|commandTemplates|createdBy|promptRefs/,
+    /private\/storage\/ref|private-hash|super-secret-value|credentialValues|commandTemplates|createdBy|promptRefs/,
   );
 
   const installResponse = response();

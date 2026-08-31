@@ -41,6 +41,7 @@ export function browserSkillResponse(
       can: action.can,
       cannot: action.cannot,
       networkHosts: action.networkHosts ?? [],
+      requiredCredentialNames: action.requiredEnvVars ?? [],
     })),
     attachedAgents: agents
       .filter((agent) => attachedAgentIds.has(agent.id))
