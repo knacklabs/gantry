@@ -2,7 +2,6 @@ import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 
 export interface ExternalIngressSignaturePort {
   sha256(input: string): string;
-  hmacSha256(secret: string, payload: string): string;
   constantTimeEqual(left: string, right: string): boolean;
   ed25519Verify(publicKeyPem: string, payload: string, signatureBase64: string): boolean;
 }
@@ -62,7 +61,6 @@ export function signExternalIngressRequest(input: {
     bodyHash,
   });
   return {
-    signature: input.crypto.hmacSha256(input.secret, payload),
     bodyHash,
     payload,
   };

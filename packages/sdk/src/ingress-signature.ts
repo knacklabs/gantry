@@ -1,5 +1,4 @@
-import { createHash, createHmac, sign as cryptoSign, verify as cryptoVerify, timingSafeEqual } from 'node:crypto';
-
+import { createHash, sign as cryptoSign, verify as cryptoVerify } from 'node:crypto';
 import { nowMs } from './datetime.js';
 
 export interface IngressSignaturePayloadInput {
@@ -30,27 +29,6 @@ export function buildIngressSignaturePayload(
   };
 }
 
-export function signIngressSignaturePayload(input: {
-  secret: string;
-  payload: string;
-}): string {
-  return createHmac('sha256', input.secret).update(input.payload).digest('hex');
-}
-
-export function signIngressRequest(input: {
-  secret: string;
-  method: string;
-  path: string;
-  timestamp: string;
-  nonce: string;
-  rawBody: string;
-}): string {
-  return signIngressSignaturePayload({
-    secret: input.secret,
-    payload: buildIngressSignaturePayload(input).canonicalPayload,
-  });
-}
-
 export function signIngressRequestEd25519(input: {
   privateKeyPem: string;
   method: string;
@@ -65,40 +43,6 @@ export function signIngressRequestEd25519(input: {
     Buffer.from(canonicalPayload, 'utf8'),
     input.privateKeyPem,
   ).toString('base64');
-}
-
-export function verifyIngressSignature(input: {
-  secret: string;
-  method: string;
-  path: string;
-  timestamp: string;
-  nonce: string;
-  rawBody: string;
-  signature: string;
-  toleranceMs?: number;
-  nowMs?: number;
-}): boolean {
-  const timestampMs = Number(input.timestamp);
-  const toleranceMs = input.toleranceMs ?? 5 * 60_000;
-  if (
-    !Number.isFinite(timestampMs) ||
-    (toleranceMs >= 0 &&
-      Math.abs((input.nowMs ?? nowMs()) - timestampMs) > toleranceMs)
-  ) {
-    return false;
-  }
-
-  const expected = signIngressRequest({
-    secret: input.secret,
-    method: input.method,
-    path: input.path,
-    timestamp: input.timestamp,
-    nonce: input.nonce,
-    rawBody: input.rawBody,
-  });
-  const left = Buffer.from(expected);
-  const right = Buffer.from(input.signature);
-  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 export function verifyIngressSignatureEd25519(input: {

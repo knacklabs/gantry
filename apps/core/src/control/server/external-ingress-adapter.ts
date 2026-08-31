@@ -185,7 +185,6 @@ export function createExternalIngressModule(
       : undefined,
     jobs: ctx.jobManagement,
     now: nowIso,
-    createSecret: () => randomBytes(32).toString('hex'),
     createKeyPair: () => {
       const { publicKey, privateKey } = generateKeyPairSync('ed25519');
       return {
@@ -260,9 +259,6 @@ export async function invokeExternalIngressForControl(
 const nodeSignatureCrypto = {
   sha256(input: string): string {
     return createHash('sha256').update(input).digest('hex');
-  },
-  hmacSha256(secret: string, payload: string): string {
-    return createHmac('sha256', secret).update(payload).digest('hex');
   },
   constantTimeEqual(left: string, right: string): boolean {
     const leftBuffer = Buffer.from(left);
