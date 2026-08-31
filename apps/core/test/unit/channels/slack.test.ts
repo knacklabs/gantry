@@ -4827,9 +4827,15 @@ describe('Slack channel', () => {
     expect(
       payload.blocks[1].elements.map((button: any) => button.text.text),
     ).toEqual(['Retry now', 'Pause job']);
+    // Slack rejects duplicate action_ids within one actions block
+    // (invalid_blocks) — every button must carry a unique id.
+    const ids = payload.blocks[1].elements.map(
+      (button: any) => button.action_id,
+    );
+    expect(new Set(ids).size).toBe(ids.length);
     expect(payload.blocks[1].elements[0]).toEqual(
       expect.objectContaining({
-        action_id: 'gantry_message_action',
+        action_id: 'gantry_message_action:0',
         value: expect.stringContaining('"kind":"scheduler_run_now"'),
       }),
     );
@@ -4843,9 +4849,7 @@ describe('Slack channel', () => {
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
 
-    const actionHandler = appRef.current.actionHandlers.get(
-      'gantry_message_action',
-    );
+    const actionHandler = slackActionHandler('gantry_message_action:0');
     expect(actionHandler).toBeDefined();
     const ack = vi.fn();
     await actionHandler({
@@ -4893,9 +4897,7 @@ describe('Slack channel', () => {
     };
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
-    const actionHandler = appRef.current.actionHandlers.get(
-      'gantry_message_action',
-    );
+    const actionHandler = slackActionHandler('gantry_message_action:0');
     const ack = vi.fn();
     await actionHandler({
       ack,
@@ -5011,9 +5013,7 @@ describe('Slack channel', () => {
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
 
-    const actionHandler = appRef.current.actionHandlers.get(
-      'gantry_message_action',
-    );
+    const actionHandler = slackActionHandler('gantry_message_action:0');
     expect(actionHandler).toBeDefined();
     const ack = vi.fn();
     await actionHandler({

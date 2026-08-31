@@ -241,7 +241,7 @@ describe('slackReviewMessageBlocks', () => {
       elements: Array<{ action_id: string; value: string }>;
     };
     expect(actions.elements).toHaveLength(3);
-    expect(actions.elements[0].action_id).toBe('gantry_message_action');
+    expect(actions.elements[0].action_id).toBe('gantry_message_action:0');
     const payload = JSON.parse(actions.elements[0].value);
     expect(payload).toMatchObject({
       kind: 'memory_review_decision',

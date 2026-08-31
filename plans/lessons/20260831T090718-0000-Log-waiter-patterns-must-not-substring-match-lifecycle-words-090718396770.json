@@ -1,0 +1,12 @@
+{
+  "topic": "Log-waiter patterns must not substring-match lifecycle words",
+  "lesson": "A monitor waiting for a run's end matched 'completed' inside 'send complete' and fired early, triggering a service restart while the run may still have been live. Anchor such greps to the exact terminal phrases (word boundaries or the structured status field), and prefer the DB status over log text for terminal states.",
+  "source": "session b4051e43 2026-08-31",
+  "applies_to": [
+    "~/gantry/logs/**",
+    "factory/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-08-31T09:07:18+00:00"
+}

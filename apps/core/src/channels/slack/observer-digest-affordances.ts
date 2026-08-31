@@ -81,9 +81,9 @@ function slackInsightBlocks(
     });
     return blocks;
   }
-  const elements = insight.affordances.map((affordance) => ({
+  const elements = insight.affordances.map((affordance, index) => ({
     type: 'button',
-    action_id: 'gantry_message_action',
+    action_id: `gantry_message_action:${index}`,
     text: {
       type: 'plain_text',
       text: truncateSlackButtonLabel(affordance.label),

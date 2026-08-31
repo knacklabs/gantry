@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0123-8de2",
+  "profile": "quickfix",
+  "reason": "Production bug: Slack job permission cards fail with invalid_blocks because every button shares action_id 'gantry_message_action' and Slack rejects duplicate action_ids in one actions block; first live two-button Slack card (job-card-check-2, delivery c6202616) exhausted both attempts and parked the run. Fix: index-suffixed action ids + prefix-regex listener + test.",
+  "started_at": "2026-08-31T10:14:27+00:00",
+  "completed_at": "2026-08-31T10:18:43+00:00",
+  "files": []
+}

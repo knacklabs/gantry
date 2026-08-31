@@ -123,12 +123,14 @@ export function slackMessageActionBlocks(
   options: { actionOnly?: boolean; providerAccountId?: string } = {},
 ): Array<Record<string, unknown>> | undefined {
   const elements = (actions ?? [])
-    .map((action) => {
+    .map((action, index) => {
       const value = slackActionValue(action, options.providerAccountId);
       if (!value) return null;
       return {
         type: 'button',
-        action_id: 'gantry_message_action',
+        // Slack rejects duplicate action_ids within one actions block
+        // (invalid_blocks), so every button gets an index-suffixed id.
+        action_id: `gantry_message_action:${index}`,
         text: {
           type: 'plain_text',
           text: truncateSlackButtonLabel(action.label),
@@ -242,9 +244,9 @@ export function slackReviewMessageBlocks(
       elements: [{ type: 'mrkdwn', text: escapeSlackMrkdwn(morePending) }],
     });
   }
-  const elements = view.affordances.map((affordance) => ({
+  const elements = view.affordances.map((affordance, index) => ({
     type: 'button',
-    action_id: 'gantry_message_action',
+    action_id: `gantry_message_action:${index}`,
     text: {
       type: 'plain_text',
       text: truncateSlackButtonLabel(affordance.label),
