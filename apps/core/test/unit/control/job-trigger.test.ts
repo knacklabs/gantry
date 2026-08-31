@@ -9,16 +9,21 @@ const configMocks = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock('@core/config/index.js', () => ({
-  GANTRY_HOME: '/tmp/gantry-control-test-home',
-  getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
-  syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
-  getSelectedAgentHarness: vi.fn(() => 'auto'),
-  getDefaultModelConfig: configMocks.getDefaultModelConfig,
-  getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
-  patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
-  configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
-}));
+vi.mock('@core/config/index.js', async () => {
+  const { createDefaultRuntimeSettings } =
+    await import('@core/config/settings/runtime-settings.js');
+  return {
+    GANTRY_HOME: '/tmp/gantry-control-test-home',
+    getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
+    getRuntimeSettingsForConfig: vi.fn(createDefaultRuntimeSettings),
+    syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
+    getSelectedAgentHarness: vi.fn(() => 'auto'),
+    getDefaultModelConfig: configMocks.getDefaultModelConfig,
+    getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
+    patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
+    configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
+  };
+});
 
 const schedulerMocks = vi.hoisted(() => ({
   enqueueJobTrigger: vi.fn(async () => undefined),
