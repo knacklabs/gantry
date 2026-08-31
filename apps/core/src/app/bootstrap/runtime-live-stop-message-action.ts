@@ -6,6 +6,10 @@ import {
   createIpcAuthEnvelope,
   revokeIpcResponseSigningKey,
 } from '../../runtime/ipc-auth.js';
+import {
+  registerPermissionRunRestriction,
+  unregisterPermissionRunRestriction,
+} from '../../runtime/permission-decision-coordinator.js';
 import { taskIpcResponsePath } from '../../jobs/ipc-shared.js';
 import type { IpcDeps } from '../../runtime/ipc-domain-types.js';
 import { requestSchedulerSync } from '../../jobs/scheduler.js';
@@ -115,6 +119,18 @@ async function runSchedulerTaskThroughIpc(
     input.authThreadId,
   );
   const responsePath = taskIpcResponsePath(input.sourceAgentFolder, taskId);
+  // The scheduler mutation-authority gate verifies source provenance against a
+  // registered run restriction. This lane is host-originated (a human tapped a
+  // card; the same-channel approver gate already passed), so register an
+  // interactive restriction for this one task and present matching provenance.
+  registerPermissionRunRestriction({
+    sourceAgentFolder: input.sourceAgentFolder,
+    responseKeyId: ipcAuth.responseKeyId,
+    hideAuthorityTools: false,
+    runKind: 'interactive',
+    jobId: input.jobId,
+    runId: taskId,
+  });
   try {
     await processTaskIpc(
       {
@@ -125,6 +141,9 @@ async function runSchedulerTaskThroughIpc(
         targetJid: input.originConversationJid,
         authThreadId: input.authThreadId,
         responseKeyId: ipcAuth.responseKeyId,
+        sourceRunKind: 'interactive',
+        sourceJobId: input.jobId,
+        sourceRunId: taskId,
       },
       input.sourceAgentFolder,
       {
@@ -158,6 +177,10 @@ async function runSchedulerTaskThroughIpc(
     }
     return result.message || `Scheduler job queued (${input.jobId}).`;
   } finally {
+    unregisterPermissionRunRestriction({
+      sourceAgentFolder: input.sourceAgentFolder,
+      responseKeyId: ipcAuth.responseKeyId,
+    });
     await fs.unlink(responsePath).catch(() => undefined);
     revokeIpcResponseSigningKey(
       ipcAuth.responseKeyId,

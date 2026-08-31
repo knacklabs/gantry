@@ -15,6 +15,7 @@ import { JobManagementService } from '@core/application/jobs/job-management-serv
 import { SETUP_REQUIRED_PAUSE_REASON } from '@core/application/jobs/job-readiness-service.js';
 import { runtimeJobSchedulePlanner } from '@core/jobs/job-schedule-planner.js';
 import { writeTaskIpcResponse } from '@core/jobs/ipc-shared.js';
+import { permissionRunRestriction } from '@core/runtime/permission-decision-coordinator.js';
 
 function makeJob(overrides: Record<string, unknown> = {}) {
   return {
@@ -254,5 +255,83 @@ describe('scheduler message actions (CARDFIX-1)', () => {
       jobId: 'job-1',
     });
     expect(processTaskIpcMock).not.toHaveBeenCalled();
+  });
+
+  it('host card taps present verifiable interactive provenance to the mutation-authority gate', async () => {
+    let observed: {
+      data?: Record<string, unknown>;
+      restriction?: unknown;
+      responseKeyId?: string;
+    } = {};
+    processTaskIpcMock.mockImplementation(
+      async (
+        data: {
+          taskId?: string;
+          authThreadId?: string;
+          responseKeyId?: string;
+        },
+        sourceAgentFolder: string,
+      ) => {
+        observed = {
+          data: data as Record<string, unknown>,
+          responseKeyId: data.responseKeyId,
+          restriction: data.responseKeyId
+            ? permissionRunRestriction({
+                sourceAgentFolder,
+                responseKeyId: data.responseKeyId,
+              })
+            : undefined,
+        };
+        writeTaskIpcResponse(
+          sourceAgentFolder,
+          data.taskId,
+          { ok: true, message: 'queued' },
+          data.authThreadId,
+          data.responseKeyId,
+        );
+      },
+    );
+    let handler: any;
+    const channelWiring = {
+      setMessageActionHandler: vi.fn((next: unknown) => {
+        handler = next;
+      }),
+      isControlApproverAllowed: vi.fn(async () => true),
+      sendMessage: vi.fn(async () => undefined),
+    };
+    registerRuntimeLiveStopMessageAction(
+      channelWiring as never,
+      {
+        getConversationRoutes: () => ({
+          'sl:C123': { folder: 'main_agent' },
+        }),
+      } as never,
+      { stopGroup: vi.fn() },
+    );
+    await handler?.({
+      kind: 'scheduler_retry_ask',
+      conversationJid: 'sl:C123',
+      userId: 'U123',
+      jobId: 'job-1',
+    });
+    // The gate compares data.sourceRun* against the restriction registered for
+    // (sourceAgentFolder, responseKeyId); both sides must exist and match.
+    expect(observed.data).toMatchObject({
+      sourceRunKind: 'interactive',
+      sourceJobId: 'job-1',
+    });
+    expect(observed.data?.sourceRunId).toBe(observed.data?.taskId);
+    expect(observed.restriction).toMatchObject({
+      runKind: 'interactive',
+      jobId: 'job-1',
+      runId: observed.data?.taskId,
+    });
+    // The one-task restriction is unregistered once the tap settles.
+    expect(
+      permissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId: observed.responseKeyId as string,
+      }),
+    ).toBeUndefined();
   });
 });
