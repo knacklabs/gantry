@@ -26,7 +26,7 @@ export function slackBrainReviewBlocks(
     },
   ];
   const elements = view.buttons
-    .map((button) => {
+    .map((button, index) => {
       const value = JSON.stringify({
         kind: 'brain_dream_review_decision',
         reviewId: view.reviewId,
@@ -40,7 +40,7 @@ export function slackBrainReviewBlocks(
       }
       return {
         type: 'button',
-        action_id: 'gantry_message_action',
+        action_id: `gantry_message_action:${index}`,
         text: {
           type: 'plain_text',
           text: truncateSlackButtonLabel(button.label),

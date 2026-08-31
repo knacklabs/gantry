@@ -18,7 +18,10 @@ const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
 ]);
 
 type SlackAppLike = {
-  action: (name: string, handler: (args: any) => Promise<void>) => void;
+  action: (
+    name: string | RegExp,
+    handler: (args: any) => Promise<void>,
+  ) => void;
   client: {
     chat: {
       postEphemeral: (input: any) => Promise<unknown>;
@@ -50,7 +53,10 @@ export function registerSlackMessageActionHandler(
     providerAccountId?: string;
   },
 ): void {
-  app.action('gantry_message_action', async (args: any) => {
+  // Buttons carry index-suffixed ids (gantry_message_action:<i>) because
+  // Slack rejects duplicate action_ids in one block; the bare id still
+  // matches for any legacy message that predates the suffix.
+  app.action(/^gantry_message_action(:\d+)?$/, async (args: any) => {
     const action = args.action as { value?: string };
     const body = args.body as {
       channel?: { id?: string };
