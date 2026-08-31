@@ -8,7 +8,7 @@ import { signExternalIngressRequest } from '@core/application/external-ingress/s
 
 const signatureCrypto = {
   sha256: (input: string) => createHash('sha256').update(input).digest('hex'),
-  
+
   constantTimeEqual: (left: string, right: string) => {
     const leftBuffer = Buffer.from(left);
     const rightBuffer = Buffer.from(right);
@@ -20,7 +20,7 @@ const signatureCrypto = {
 };
 
 function signedInvokeInput(input: {
-    ingressId?: string;
+  ingressId?: string;
   rawBody: string;
   method?: string;
   nonce?: string;
@@ -34,7 +34,7 @@ function signedInvokeInput(input: {
   const path = input.path ?? `/v1/ingresses/${ingressId}/invoke`;
   const signature = signExternalIngressRequest({
     crypto: signatureCrypto,
-        method,
+    method,
     path,
     timestamp,
     nonce,
@@ -64,7 +64,7 @@ function makeModule(overrides?: {
       ingressId: 'ingress-created',
       appId: input.appId,
       name: input.name,
-            enabled: input.enabled ?? true,
+      enabled: input.enabled ?? true,
       metadata: input.metadata ?? {},
       createdAt: '2026-04-30T00:00:00.000Z',
       updatedAt: '2026-04-30T00:00:00.000Z',
@@ -199,7 +199,7 @@ function makeModule(overrides?: {
     conversationProviderMessages: conversationProviderMessages as never,
     jobs: jobs as never,
     now: () => '2026-04-30T00:00:00.000Z',
-    
+
     createInvocationId: () => 'invocation-new',
     signatureCrypto,
     perAppTriggerLimit: 5,
@@ -271,8 +271,7 @@ describe('ExternalIngressModule', () => {
           },
         },
       }),
-    ).resolves.toMatchObject({
-      });
+    ).resolves.toMatchObject({});
     expect(control.createExternalIngress).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({
@@ -356,7 +355,8 @@ describe('ExternalIngressModule', () => {
     const rawBody = JSON.stringify({
       target: { kind: 'job_trigger', jobId: 'job-1' },
     });
-    const request = signedInvokeInput({ rawBody,
+    const request = signedInvokeInput({
+      rawBody,
       timestamp: String(Date.now() - 10 * 60_000),
     });
 
@@ -447,8 +447,7 @@ describe('ExternalIngressModule', () => {
         message: 'hello',
       },
     });
-    const request = signedInvokeInput({ rawBody,
-    });
+    const request = signedInvokeInput({ rawBody });
 
     await expect(module.invoke(request)).rejects.toMatchObject({
       code: 'FORBIDDEN',
@@ -488,9 +487,7 @@ describe('ExternalIngressModule', () => {
         jobId: 'job-1',
       },
     });
-    const request = signedInvokeInput({ rawBody,
-      nonce: 'nonce-2',
-    });
+    const request = signedInvokeInput({ rawBody, nonce: 'nonce-2' });
 
     await expect(module.invoke(request)).resolves.toEqual({
       invocationId: 'invocation-existing',
@@ -527,9 +524,7 @@ describe('ExternalIngressModule', () => {
       },
       idempotencyKey: 'idem-reused',
     });
-    const request = signedInvokeInput({ rawBody,
-      nonce: 'nonce-reused',
-    });
+    const request = signedInvokeInput({ rawBody, nonce: 'nonce-reused' });
 
     await expect(module.invoke(request)).rejects.toMatchObject({
       code: 'CONFLICT',
@@ -549,9 +544,7 @@ describe('ExternalIngressModule', () => {
         threadId: 'thread-1',
       },
     });
-    const request = signedInvokeInput({ rawBody,
-      nonce: 'nonce-3',
-    });
+    const request = signedInvokeInput({ rawBody, nonce: 'nonce-3' });
 
     const result = await module.invoke(request);
     expect(result).toMatchObject({
@@ -647,7 +640,8 @@ describe('ExternalIngressModule', () => {
         senderName: 'CRM Worker',
       },
     });
-    const request = signedInvokeInput({ rawBody,
+    const request = signedInvokeInput({
+      rawBody,
       nonce: 'nonce-conversation-message',
     });
 
@@ -712,7 +706,8 @@ describe('ExternalIngressModule', () => {
         message: 'launch now',
       },
     });
-    const request = signedInvokeInput({ rawBody,
+    const request = signedInvokeInput({
+      rawBody,
       nonce: 'nonce-conversation-agent-policy-missing',
     });
 
@@ -741,7 +736,8 @@ describe('ExternalIngressModule', () => {
         message: 'launch now',
       },
     });
-    const request = signedInvokeInput({ rawBody,
+    const request = signedInvokeInput({
+      rawBody,
       nonce: 'nonce-conversation-agent-policy-deny',
     });
 
@@ -774,7 +770,8 @@ describe('ExternalIngressModule', () => {
     });
 
     const result = await module.invoke(
-      signedInvokeInput({ rawBody,
+      signedInvokeInput({
+        rawBody,
         nonce: 'nonce-conversation-provider-projection',
       }),
     );
@@ -814,7 +811,8 @@ describe('ExternalIngressModule', () => {
         message: 'launch now',
       },
     });
-    const request = signedInvokeInput({ rawBody,
+    const request = signedInvokeInput({
+      rawBody,
       nonce: 'nonce-conversation-policy-deny',
     });
 
@@ -841,9 +839,7 @@ describe('ExternalIngressModule', () => {
         message: 'launch now',
       },
     });
-    const request = signedInvokeInput({ rawBody,
-      nonce: 'nonce-policy-deny',
-    });
+    const request = signedInvokeInput({ rawBody, nonce: 'nonce-policy-deny' });
 
     await expect(module.invoke(request)).rejects.toMatchObject({
       code: 'FORBIDDEN',
@@ -870,7 +866,8 @@ describe('ExternalIngressModule', () => {
         message: 'launch now',
       },
     });
-    const request = signedInvokeInput({ rawBody,
+    const request = signedInvokeInput({
+      rawBody,
       nonce: 'nonce-session-policy',
     });
 
@@ -897,7 +894,8 @@ describe('ExternalIngressModule', () => {
         message: 'launch now',
       },
     });
-    const request = signedInvokeInput({ rawBody,
+    const request = signedInvokeInput({
+      rawBody,
       nonce: 'nonce-dispatch-fail',
     });
 
@@ -914,7 +912,8 @@ describe('ExternalIngressModule', () => {
   it('uses ingressId when reading signed wait invocations', async () => {
     const { module, control } = makeModule();
     const rawBody = JSON.stringify({ invocationId: 'invocation-1' });
-    const request = signedInvokeInput({ rawBody,
+    const request = signedInvokeInput({
+      rawBody,
       path: '/v1/ingresses/ingress-1/wait',
       nonce: 'nonce-wait',
     });

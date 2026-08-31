@@ -31,7 +31,7 @@ export class PostgresExternalIngressRepository {
     appId: string;
     name: string;
     signatureAlgorithm?: string;
-    publicKey?: string | null;
+    publicKey: string;
     enabled?: boolean;
     metadata?: unknown;
   }) {
@@ -48,9 +48,9 @@ export class PostgresExternalIngressRepository {
         ingressId: input.ingressId ?? randomUUID(),
         appId: input.appId,
         name: input.name,
-        secret: encryptExternalIngressSecret(input.secret, this.runtimeSecrets),
+
         signatureAlgorithm: input.signatureAlgorithm ?? 'hmac-sha256',
-        publicKey: input.publicKey ?? null,
+        publicKey: input.publicKey,
         enabled: input.enabled ?? true,
         metadataJson: JSON.stringify(input.metadata ?? {}),
         createdAt: now,
@@ -90,9 +90,9 @@ export class PostgresExternalIngressRepository {
     appId: string,
     patch: {
       name?: string;
-      secret?: string;
+
       signatureAlgorithm?: string;
-      publicKey?: string | null;
+      publicKey?: string;
       enabled?: boolean;
       metadata?: unknown;
     },
@@ -113,12 +113,11 @@ export class PostgresExternalIngressRepository {
       .update(pgSchema.externalIngressesPostgres)
       .set({
         name: patch.name ?? existing.name,
-        secret:
-          patch.secret !== undefined
-            ? encryptExternalIngressSecret(patch.secret, this.runtimeSecrets)
-            : existing.secret,
-        signatureAlgorithm: patch.signatureAlgorithm ?? existing.signatureAlgorithm,
-        publicKey: patch.publicKey !== undefined ? patch.publicKey : existing.publicKey,
+
+        signatureAlgorithm:
+          patch.signatureAlgorithm ?? existing.signatureAlgorithm,
+        publicKey:
+          patch.publicKey !== undefined ? patch.publicKey : existing.publicKey,
         enabled: patch.enabled ?? existing.enabled,
         metadataJson:
           patch.metadata !== undefined
@@ -407,7 +406,7 @@ function mapExternalIngress(
     appId: string;
     name: string;
     signatureAlgorithm: string;
-    publicKey: string | null;
+    publicKey: string;
     enabled: boolean;
     metadataJson: string;
     createdAt: string;
@@ -427,11 +426,6 @@ function mapExternalIngress(
     updatedAt: row.updatedAt,
   };
 }
-
-
-
-
-
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;

@@ -57,7 +57,9 @@ describe('external ingress Ed25519 signature helpers', () => {
   it('accepts a valid Ed25519 signature', () => {
     const { publicKeyPem, privateKeyPem } = generateTestKeyPair();
     const timestamp = String(Date.now());
-    const rawBody = JSON.stringify({ target: { kind: 'session_message', message: 'hello' } });
+    const rawBody = JSON.stringify({
+      target: { kind: 'session_message', message: 'hello' },
+    });
 
     const { signature } = signExternalIngressEd25519Request({
       crypto: cryptoPort,
@@ -89,7 +91,9 @@ describe('external ingress Ed25519 signature helpers', () => {
   it('rejects an Ed25519 signature with tampered body', () => {
     const { publicKeyPem, privateKeyPem } = generateTestKeyPair();
     const timestamp = String(Date.now());
-    const rawBody = JSON.stringify({ target: { kind: 'session_message', message: 'hello' } });
+    const rawBody = JSON.stringify({
+      target: { kind: 'session_message', message: 'hello' },
+    });
 
     const { signature } = signExternalIngressEd25519Request({
       crypto: cryptoPort,
@@ -110,7 +114,9 @@ describe('external ingress Ed25519 signature helpers', () => {
       path: '/v1/ingresses/ing-1/invoke',
       timestamp,
       nonce: 'nonce-1',
-      rawBody: JSON.stringify({ target: { kind: 'session_message', message: 'tampered' } }),
+      rawBody: JSON.stringify({
+        target: { kind: 'session_message', message: 'tampered' },
+      }),
       signature,
       nowMs: Date.now(),
     });

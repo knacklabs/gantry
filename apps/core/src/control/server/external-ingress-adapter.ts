@@ -188,8 +188,12 @@ export function createExternalIngressModule(
     createKeyPair: () => {
       const { publicKey, privateKey } = generateKeyPairSync('ed25519');
       return {
-        publicKeyPem: publicKey.export({ format: 'pem', type: 'spki' }).toString(),
-        privateKeyPem: privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
+        publicKeyPem: publicKey
+          .export({ format: 'pem', type: 'spki' })
+          .toString(),
+        privateKeyPem: privateKey
+          .export({ format: 'pem', type: 'pkcs8' })
+          .toString(),
       };
     },
     createInvocationId: randomUUID,
@@ -268,7 +272,11 @@ const nodeSignatureCrypto = {
       timingSafeEqual(leftBuffer, rightBuffer)
     );
   },
-  ed25519Verify(publicKeyPem: string, payload: string, signatureBase64: string): boolean {
+  ed25519Verify(
+    publicKeyPem: string,
+    payload: string,
+    signatureBase64: string,
+  ): boolean {
     try {
       return cryptoVerify(
         null,

@@ -28,7 +28,7 @@ type ExternalIngressRecord = {
   appId: string;
   name: string;
   signatureAlgorithm: string;
-  publicKey: string | null;
+  publicKey: string;
   enabled: boolean;
   metadata: unknown;
   createdAt: string;
@@ -40,7 +40,7 @@ type ExternalIngressControlPort = {
     appId: string;
     name: string;
     signatureAlgorithm?: string;
-    publicKey?: string | null;
+    publicKey?: string;
     enabled?: boolean;
     metadata?: unknown;
   }): Promise<ExternalIngressRecord>;
@@ -55,7 +55,7 @@ type ExternalIngressControlPort = {
     patch: {
       name?: string;
       signatureAlgorithm?: string;
-      publicKey?: string | null;
+      publicKey?: string;
       enabled?: boolean;
       metadata?: unknown;
     },
@@ -234,14 +234,6 @@ export class ExternalIngressModule {
       }
       return { ...publicIngress(ingress), privateKey: keyPair.privateKeyPem };
     }
-    const secret = this.deps.createSecret();
-    const ingress = await this.deps.control.updateExternalIngress(
-      input.ingressId,
-      input.appId,
-      { secret },
-    );
-    if (!ingress) throw new ApplicationError('NOT_FOUND', 'Ingress not found');
-    return { ...publicIngress(ingress), secret };
   }
 
   async delete(input: { appId: string; ingressId: string }) {
@@ -269,19 +261,18 @@ export class ExternalIngressModule {
     if (!ingress.enabled) {
       throw new ApplicationError('FORBIDDEN', 'Ingress is disabled');
     }
-    const ok =
-      ingress.publicKey
-        ? verifyExternalIngressEd25519Signature({
-            crypto: this.deps.signatureCrypto,
-            publicKeyPem: ingress.publicKey,
-            method: input.method,
-            path: input.path,
-            timestamp: input.timestamp,
-            nonce: input.nonce,
-            rawBody: input.rawBody,
-            signature: input.signature,
-          })
-        : false;
+    const ok = ingress.publicKey
+      ? verifyExternalIngressEd25519Signature({
+          crypto: this.deps.signatureCrypto,
+          publicKeyPem: ingress.publicKey,
+          method: input.method,
+          path: input.path,
+          timestamp: input.timestamp,
+          nonce: input.nonce,
+          rawBody: input.rawBody,
+          signature: input.signature,
+        })
+      : false;
     if (!ok) {
       throw new ApplicationError(
         'FORBIDDEN',
@@ -432,16 +423,7 @@ export class ExternalIngressModule {
             rawBody: input.rawBody,
             signature: input.signature,
           })
-        : verifyExternalIngressRequestSignature({
-            crypto: this.deps.signatureCrypto,
-            secret: ingress.secret,
-            method: input.method,
-            path: input.path,
-            timestamp: input.timestamp,
-            nonce: input.nonce,
-            rawBody: input.rawBody,
-            signature: input.signature,
-    });
+        : false;
     if (!ok) {
       throw new ApplicationError(
         'FORBIDDEN',

@@ -3,7 +3,11 @@ import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 export interface ExternalIngressSignaturePort {
   sha256(input: string): string;
   constantTimeEqual(left: string, right: string): boolean;
-  ed25519Verify(publicKeyPem: string, payload: string, signatureBase64: string): boolean;
+  ed25519Verify(
+    publicKeyPem: string,
+    payload: string,
+    signatureBase64: string,
+  ): boolean;
 }
 
 export interface ExternalIngressSignaturePayloadInput {
@@ -42,30 +46,6 @@ export function isExternalIngressTimestampFresh(input: {
   );
 }
 
-export function signExternalIngressRequest(input: {
-  crypto: ExternalIngressSignaturePort;
-  secret: string;
-  method: string;
-  path: string;
-  timestamp: string;
-  nonce: string;
-  rawBody: string;
-}): { signature: string; bodyHash: string; payload: string } {
-  const bodyHash = input.crypto.sha256(input.rawBody);
-  const payload = buildExternalIngressSignaturePayload({
-    method: input.method,
-    path: input.path,
-    timestamp: input.timestamp,
-    nonce: input.nonce,
-    rawBody: input.rawBody,
-    bodyHash,
-  });
-  return {
-    bodyHash,
-    payload,
-  };
-}
-
 export function signExternalIngressEd25519Request(input: {
   crypto: ExternalIngressSignaturePort;
   privateKeySign: (privateKeyPem: string, payload: string) => string;
@@ -90,39 +70,6 @@ export function signExternalIngressEd25519Request(input: {
     bodyHash,
     payload,
   };
-}
-
-export function verifyExternalIngressRequestSignature(input: {
-  crypto: ExternalIngressSignaturePort;
-  secret: string;
-  method: string;
-  path: string;
-  timestamp: string;
-  nonce: string;
-  rawBody: string;
-  signature: string;
-  toleranceMs?: number;
-  nowMs?: number;
-}): boolean {
-  if (
-    !isExternalIngressTimestampFresh({
-      timestamp: input.timestamp,
-      toleranceMs: input.toleranceMs,
-      nowMs: input.nowMs,
-    })
-  ) {
-    return false;
-  }
-  const expected = signExternalIngressRequest({
-    crypto: input.crypto,
-    secret: input.secret,
-    method: input.method,
-    path: input.path,
-    timestamp: input.timestamp,
-    nonce: input.nonce,
-    rawBody: input.rawBody,
-  }).signature;
-  return input.crypto.constantTimeEqual(expected, input.signature);
 }
 
 export function verifyExternalIngressEd25519Signature(input: {
@@ -155,5 +102,9 @@ export function verifyExternalIngressEd25519Signature(input: {
     rawBody: input.rawBody,
     bodyHash,
   });
-  return input.crypto.ed25519Verify(input.publicKeyPem, payload, input.signature);
+  return input.crypto.ed25519Verify(
+    input.publicKeyPem,
+    payload,
+    input.signature,
+  );
 }

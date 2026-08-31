@@ -1,4 +1,8 @@
-import { createHash, sign as cryptoSign, verify as cryptoVerify } from 'node:crypto';
+import {
+  createHash,
+  sign as cryptoSign,
+  verify as cryptoVerify,
+} from 'node:crypto';
 import { nowMs } from './datetime.js';
 
 export interface IngressSignaturePayloadInput {

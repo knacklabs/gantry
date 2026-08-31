@@ -18,7 +18,9 @@ export const externalIngressesPostgres = pgTable(
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    signatureAlgorithm: text('signature_algorithm').notNull().default('ed25519'),
+    signatureAlgorithm: text('signature_algorithm')
+      .notNull()
+      .default('ed25519'),
     publicKey: text('public_key').notNull(),
     enabled: boolean('enabled').notNull().default(true),
     metadataJson: text('metadata_json').notNull().default('{}'),
