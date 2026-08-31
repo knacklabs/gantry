@@ -2484,7 +2484,7 @@
       "epic": "capability-search",
       "skill": "fullstack",
       "depends_on": [],
-      "spec": "docs/specs/skills-web-ui.md",
+      "spec": "docs/specs/skills-web-ui.md"
     },
     {
       "key": "CARDSIMPLE-1",
