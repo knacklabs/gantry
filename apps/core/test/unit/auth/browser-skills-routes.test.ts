@@ -513,6 +513,7 @@ it('returns only verified app-scoped file bytes and sanitizes failures', async (
     assets: [
       { path: 'SKILL.md', content: Buffer.from('# Safe skill') },
       { path: 'asset.bin', content: Buffer.from([0xff, 0xfe, 0xfd]) },
+      { path: 'control.bin', content: Buffer.from([0x00, 0x01, 0x02]) },
     ],
   };
   storage.repositories.skills.getSkill.mockResolvedValue({
@@ -554,6 +555,19 @@ it('returns only verified app-scoped file bytes and sanitizes failures', async (
     isText: false,
     content: null,
   });
+
+  const controlResponse = response();
+  await handleBrowserSkillRoutes(
+    request('GET'),
+    controlResponse,
+    routeContext() as never,
+    '/ui/api/skills/skill%3Aone/files/control.bin',
+    settings,
+  );
+  expect(controlResponse.statusCode).toBe(200);
+  expect(
+    BrowserSkillFileResponseSchema.parse(JSON.parse(controlResponse.body)).file,
+  ).toMatchObject({ path: 'control.bin', isText: false, content: null });
 
   storage.skillArtifacts.getSkillArtifact.mockResolvedValue({
     assets: [{ path: 'SKILL.md', content: Buffer.from('tampered') }],

@@ -13,6 +13,18 @@ import type {
 } from '../../../domain/skills/skills.js';
 import type { SkillArtifactAsset } from '../../../domain/ports/skill-artifact-store.js';
 
+function isTextFile(content: Uint8Array): boolean {
+  return (
+    isUtf8(content) &&
+    !content.some(
+      (byte) =>
+        byte === 0 ||
+        (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) ||
+        byte === 0x7f,
+    )
+  );
+}
+
 export function browserSkillResponse(
   skill: SkillCatalogItem,
   agents: readonly Agent[],
@@ -79,7 +91,7 @@ export function browserSkillFileMetadata(
     path: asset.path,
     contentType: asset.contentType ?? null,
     sizeBytes: content.byteLength,
-    isText: isUtf8(content),
+    isText: isTextFile(content),
   };
 }
 

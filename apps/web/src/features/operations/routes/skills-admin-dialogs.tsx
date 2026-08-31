@@ -101,6 +101,15 @@ export function SkillInstallDialog({
       ]);
       setInstalled(skill);
     } catch (caught) {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: skillInventoryQuery.queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: navigationSummaryQuery.queryKey,
+        }),
+        queryClient.invalidateQueries({ queryKey: agentQueryKeys.all }),
+      ]);
       setError(
         messageFor(caught, 'The skill ZIP could not be installed. Try again.'),
       );

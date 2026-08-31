@@ -205,6 +205,7 @@ it('supports administrator ZIP installation without automatic attachment', async
   expect(dialogs).toContain('Attach agents');
   expect(dialogs).toContain('...skill.attachedAgents.map((agent) =>');
   expect(dialogs).toContain("agentQueryKeys.all, 'sources', agent.id");
+  expect(dialogs).toContain('queryKey: agentQueryKeys.all');
 });
 
 it('replaces the complete attachment set and keeps disabled agents selectable', async () => {
@@ -291,8 +292,8 @@ it('preserves mutation failures and invalidates affected queries', async () => {
   expect(dialogs).toContain('const refreshed = await query.refetch()');
   expect(dialogs).toContain('setSelected(ids)');
   expect(dialogs).toContain('setSelected(new Set(confirmed))');
-  expect(dialogs.match(/skillInventoryQuery\.queryKey/g)).toHaveLength(3);
-  expect(dialogs.match(/navigationSummaryQuery\.queryKey/g)).toHaveLength(3);
+  expect(dialogs.match(/skillInventoryQuery\.queryKey/g)).toHaveLength(4);
+  expect(dialogs.match(/navigationSummaryQuery\.queryKey/g)).toHaveLength(4);
   expect(
     dialogs.match(/agentQueryKeys\.all, 'sources', agentId/g),
   ).toHaveLength(2);
