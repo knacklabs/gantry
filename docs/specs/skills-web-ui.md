@@ -9,7 +9,7 @@ saved: 2026-08-31T05:41:53+00:00
 
 Date: 2026-08-31
 
-## Summary
+## Why
 
 Gantry will add a live Skills management page at `/ui/skills`. A Skill is an app-scoped installed instruction package. It may be attached to agents, while any actions declared by the package remain separately authorized capabilities.
 
@@ -54,7 +54,7 @@ Add `Skills` under Configure in the main navigation. Its count is the number of 
 
 Invalid values fall back to the first matching skill and the Overview tab. When no skill matches, the detail panel shows no selection. At narrow widths, the inventory stacks above the detail panel so the page remains usable instead of blocking mobile users.
 
-## Exact UX Contract
+## Behaviour
 
 ### Header and inventory
 
@@ -190,7 +190,7 @@ Inventory search is local over the loaded installed-skill list. File content is 
 - Retry repeats only the failed query.
 - Stale selected skill IDs are removed from the URL after the inventory confirms they are unavailable.
 
-## Acceptance Criteria
+## Acceptance criteria
 
 1. `/ui/skills` appears under Configure and restores `skill`, `q`, and `tab` state from the URL.
 2. The split layout stacks at narrow widths and remains keyboard accessible.
