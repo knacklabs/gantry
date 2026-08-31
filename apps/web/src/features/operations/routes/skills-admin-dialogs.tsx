@@ -309,19 +309,27 @@ export function SkillAttachmentsDialog({
       setSuccess(undefined);
       return;
     }
-    if (
-      !query.data ||
-      query.isFetching ||
-      query.isError ||
-      initializedSkillId.current === query.data.skillId
-    )
-      return;
+    if (!query.data || query.isFetching || query.isError) return;
     const ids = attachedIds(query.data);
+    if (initializedSkillId.current === query.data.skillId) {
+      if (reconciliationRequired) {
+        setSelected(ids);
+        setConfirmed(new Set(ids));
+        setReconciliationRequired(false);
+      }
+      return;
+    }
     initializedSkillId.current = query.data.skillId;
     setSelected(ids);
     setConfirmed(new Set(ids));
     setHydratedSkillId(query.data.skillId);
-  }, [open, query.data, query.isError, query.isFetching]);
+  }, [
+    open,
+    query.data,
+    query.isError,
+    query.isFetching,
+    reconciliationRequired,
+  ]);
 
   useEffect(() => {
     if (success) doneRef.current?.focus();

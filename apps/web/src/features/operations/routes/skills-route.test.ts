@@ -313,6 +313,8 @@ it('preserves mutation failures and invalidates affected queries', async () => {
   expect(dialogs).toContain('refreshed.isSuccess && refreshed.data');
   expect(dialogs).toContain("code === 'SETTINGS_PROJECTION_FAILED' || !code");
   expect(dialogs).toContain('setReconciliationRequired(true)');
+  expect(dialogs).toContain('if (reconciliationRequired) {');
+  expect(dialogs).toContain('setReconciliationRequired(false)');
   expect(dialogs).toContain('setSelected(new Set(confirmed))');
   expect(dialogs).toContain('setHydratedSkillId(refreshed.data.skillId)');
   expect(dialogs).toMatch(/query\.isError\s*\|\|\s*reconciliationRequired/);
