@@ -142,17 +142,28 @@ export async function handleBrowserSkillRoutes(
       );
     }
     const appId = session.appId as AppId;
-    let skill: SkillCatalogItem;
+    let uploaded: ReturnType<typeof parseSkillZipUpload>;
+    let name: string;
     try {
-      const uploaded = parseSkillZipUpload(request.data);
+      uploaded = parseSkillZipUpload(request.data);
       const markdown = uploaded.assets.find(
         (asset) => asset.path === 'SKILL.md',
       );
-      const name = markdown
+      name = markdown
         ? (readSkillFrontmatterName(
             Buffer.from(markdown.content).toString('utf-8'),
           ) ?? uploaded.fallbackName)
         : uploaded.fallbackName;
+    } catch {
+      return browserError(
+        res,
+        400,
+        'INVALID_SKILL_PACKAGE',
+        'The skill ZIP could not be installed.',
+      );
+    }
+    let skill: SkillCatalogItem;
+    try {
       skill = await withSkillMaterializationLock(
         skillMaterializationLockKey(
           appId,
@@ -166,11 +177,12 @@ export async function handleBrowserSkillRoutes(
             assets: uploaded.assets,
           }),
       );
-    } catch {
+    } catch (error) {
+      logger.error({ err: error, appId }, 'Browser skill installation failed');
       return browserError(
         res,
-        400,
-        'INVALID_SKILL_PACKAGE',
+        500,
+        'SKILL_INSTALL_FAILED',
         'The skill ZIP could not be installed.',
       );
     }

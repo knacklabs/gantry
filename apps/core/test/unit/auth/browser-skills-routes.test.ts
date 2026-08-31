@@ -357,6 +357,39 @@ it('installs a validated ZIP into inventory without attaching agents', async () 
   expect(ctx.syncSettingsFromProjection).not.toHaveBeenCalled();
 });
 
+it('sanitizes operational skill-install failures as server errors', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    appId: 'app:one',
+    userId: 'user:admin',
+    role: 'administrator',
+    reauthenticatedAt: new Date().toISOString(),
+  });
+  parseSkillZipUpload.mockReturnValue({
+    fallbackName: 'uploaded-skill',
+    assets: [{ path: 'SKILL.md', content: Buffer.from('# Browser Skill') }],
+  });
+  storage.repositories.skills.listSkills.mockResolvedValue([]);
+  storage.skillArtifacts.putSkillArtifact.mockRejectedValue(
+    new Error('private object-store credentials failed'),
+  );
+  const res = response();
+
+  await handleBrowserSkillRoutes(
+    request('POST', Buffer.from('validated-zip'), {
+      'content-type': 'application/zip',
+      origin: settings.authentication.canonicalOrigin,
+    }),
+    res,
+    routeContext() as never,
+    '/ui/api/skills/install',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(500);
+  expect(res.body).toContain('SKILL_INSTALL_FAILED');
+  expect(res.body).not.toContain('private object-store credentials');
+});
+
 it('projects settings after updating an attached skill', async () => {
   requireBrowserMutationSession.mockResolvedValue({
     appId: 'app:one',
