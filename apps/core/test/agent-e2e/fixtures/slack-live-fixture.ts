@@ -33,21 +33,30 @@ async function slackApi<T extends SlackApiEnvelope>(
   method: string,
   body?: Record<string, unknown>,
 ): Promise<T> {
-  const response = await fetch(`https://slack.com/api/${method}`, {
-    method: body ? 'POST' : 'GET',
-    headers: {
-      authorization: `Bearer ${token}`,
-      ...(body ? { 'content-type': 'application/json; charset=utf-8' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const payload = (await response.json()) as T;
-  if (!response.ok || payload.ok !== true) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(`https://slack.com/api/${method}`, {
+      method: body ? 'POST' : 'GET',
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body ? { 'content-type': 'application/json; charset=utf-8' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const payload = (await response.json()) as T;
+    if (response.ok && payload.ok === true) return payload;
+    if (payload.error === 'ratelimited' && attempt < 2) {
+      const retryAfterSeconds = Number(response.headers.get('retry-after'));
+      const delayMs = Number.isFinite(retryAfterSeconds)
+        ? Math.max(1, retryAfterSeconds) * 1_000
+        : 30_000;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      continue;
+    }
     throw new Error(
       `Slack ${method} failed: ${payload.error ?? response.status}`,
     );
   }
-  return payload;
+  throw new Error(`Slack ${method} rate-limit retry was exhausted`);
 }
 
 export async function slackBotUserId(token: string): Promise<string> {
@@ -84,8 +93,10 @@ export async function slackChannelIdByName(
 export async function sendSlackTestMessage(input: {
   token: string;
   channelId: string;
+  mentionUserId?: string;
 }): Promise<{ ts: string; text: string }> {
-  const text = `[gantry-e2e:${randomUUID()}] Reply with one short sentence confirming you received this message.`;
+  const mention = input.mentionUserId ? `<@${input.mentionUserId}> ` : '';
+  const text = `${mention}[gantry-e2e:${randomUUID()}] Reply with one short sentence confirming you received this message.`;
   const result = await slackApi<{ ts?: string }>(
     input.token,
     'chat.postMessage',
