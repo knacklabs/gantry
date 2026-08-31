@@ -51,7 +51,7 @@ export type BrowserSkillAttachments = {
   agents: BrowserSkillAttachmentAgent[];
 };
 
-type BrowserError = { error?: { message?: string } };
+type BrowserError = { error?: { code?: string; message?: string } };
 
 async function responseBody<T>(
   response: Response,
@@ -62,7 +62,10 @@ async function responseBody<T>(
     | BrowserError
     | null;
   if (!response.ok || !body) {
-    throw new Error((body as BrowserError | null)?.error?.message ?? fallback);
+    const error = (body as BrowserError | null)?.error;
+    throw Object.assign(new Error(error?.message ?? fallback), {
+      code: error?.code,
+    });
   }
   return body as T;
 }

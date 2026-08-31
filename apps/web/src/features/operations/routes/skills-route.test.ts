@@ -280,6 +280,25 @@ it('preserves mutation failures and invalidates affected queries', async () => {
     replaceSkillAttachments(skill.id, ['agent:one']),
   ).rejects.toThrow('Confirmed failure message.');
 
+  browserAuth.browserFetch.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        error: {
+          code: 'SETTINGS_PROJECTION_FAILED',
+          message: 'Settings could not be refreshed.',
+        },
+      }),
+      { status: 500, headers: { 'content-type': 'application/json' } },
+    ),
+  );
+  let projectionError: unknown;
+  try {
+    await replaceSkillAttachments(skill.id, ['agent:one']);
+  } catch (caught) {
+    projectionError = caught;
+  }
+  expect(projectionError).toMatchObject({ code: 'SETTINGS_PROJECTION_FAILED' });
+
   const dialogs = source('./skills-admin-dialogs.tsx');
   expect(dialogs).toContain('query.isFetching');
   expect(dialogs).toContain('query.isError');
@@ -292,7 +311,11 @@ it('preserves mutation failures and invalidates affected queries', async () => {
   expect(dialogs).toContain('const refreshed = await query.refetch()');
   expect(dialogs).toContain('setSelected(ids)');
   expect(dialogs).toContain('refreshed.isSuccess && refreshed.data');
+  expect(dialogs).toContain(
+    "errorCode(caught) === 'SETTINGS_PROJECTION_FAILED'",
+  );
   expect(dialogs).toContain('setReconciliationRequired(true)');
+  expect(dialogs).toContain('setHydratedSkillId(refreshed.data.skillId)');
   expect(dialogs).toMatch(/query\.isError\s*\|\|\s*reconciliationRequired/);
   expect(dialogs.match(/skillInventoryQuery\.queryKey/g)).toHaveLength(4);
   expect(dialogs.match(/navigationSummaryQuery\.queryKey/g)).toHaveLength(4);

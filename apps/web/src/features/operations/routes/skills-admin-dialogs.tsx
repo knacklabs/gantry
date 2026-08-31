@@ -28,6 +28,12 @@ function messageFor(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function errorCode(error: unknown): string | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const code = (error as Error & { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
 function attachedIds(data: BrowserSkillAttachments): Set<string> {
   return new Set(
     data.agents.filter((agent) => agent.attached).map((agent) => agent.id),
@@ -371,13 +377,15 @@ export function SkillAttachmentsDialog({
       setSuccess('Attachments saved. Changes apply on each agent’s next run.');
       onSaved(skill, result.agents.filter((agent) => agent.attached).length);
     } catch (caught) {
-      const refreshed = await query.refetch();
-      if (refreshed.isSuccess && refreshed.data) {
-        const ids = attachedIds(refreshed.data);
-        setSelected(ids);
-        setConfirmed(new Set(ids));
-      } else {
-        setReconciliationRequired(true);
+      if (errorCode(caught) === 'SETTINGS_PROJECTION_FAILED') {
+        const refreshed = await query.refetch();
+        if (refreshed.isSuccess && refreshed.data) {
+          const ids = attachedIds(refreshed.data);
+          setSelected(ids);
+          setConfirmed(new Set(ids));
+        } else {
+          setReconciliationRequired(true);
+        }
       }
       await Promise.all([
         queryClient.invalidateQueries({
@@ -449,6 +457,8 @@ export function SkillAttachmentsDialog({
                     const ids = attachedIds(refreshed.data);
                     setSelected(ids);
                     setConfirmed(new Set(ids));
+                    initializedSkillId.current = refreshed.data.skillId;
+                    setHydratedSkillId(refreshed.data.skillId);
                     setReconciliationRequired(false);
                     setError(undefined);
                   })
