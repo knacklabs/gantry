@@ -85,6 +85,7 @@
     "test:e2e:postgres": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.e2e.postgres.config.ts",
     "test:e2e:agent:hermetic": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.agent-e2e.config.ts",
     "test:e2e:agent:turn": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.agent-e2e.config.ts apps/core/test/agent-e2e/scenarios/haiku-turn.agent-e2e.test.ts",
+    "test:e2e:agent:slack": "node scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.agent-e2e.slack.config.ts",
     "test:watch": "npm run build:contracts && vitest -c vitest.config.ts"
   },
   "dependencies": {

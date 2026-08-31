@@ -193,7 +193,7 @@ Legend: ✅ covered (cite) · ◐ partial (covered seam plus named gap) · 🔨 
 
 | Scenario                                                                                      | Layer    | Status                                                                   |
 | --------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------ |
-| Real user-pattern message → agent turn → outbound reply in channel                            | e2e-live | 🏷                                                                       |
+| Real user-pattern message → agent turn → outbound reply in channel                            | e2e-live | 🔨 `slack-live.agent-e2e.live.test.ts` (protected local/nightly lane)    |
 | Permission block renders (header/context structure); approve callback → tool proceeds + audit | e2e-live | 🏷 (needs real-user or signed-callback fixture — constraint per round-3) |
 | Attachment delivered in channel                                                               | e2e-live | 🏷                                                                       |
 
