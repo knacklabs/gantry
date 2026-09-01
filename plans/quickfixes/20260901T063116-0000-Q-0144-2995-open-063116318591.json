@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0144-2995",
+  "profile": "quickfix",
+  "reason": "size budget: move familyScopeCoverageLine helper from permission-interaction.ts (721/700) to permission-tool-input-format.ts",
+  "started_at": "2026-09-01T06:31:16+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
