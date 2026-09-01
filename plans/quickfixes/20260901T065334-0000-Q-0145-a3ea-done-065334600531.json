@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0145-a3ea",
+  "profile": "quickfix",
+  "reason": "re-vendor harness to symphony-forge 6e4d95e (ceremony-target pointer #153 + ponytail discipline #152)",
+  "started_at": "2026-09-01T06:53:15+00:00",
+  "completed_at": "2026-09-01T06:53:34+00:00",
+  "files": []
+}

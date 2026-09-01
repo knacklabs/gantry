@@ -34,6 +34,20 @@ Rules:
   This holds in EVERY environment, including a sandbox/worktree with no network
   (`constitution/` is vendored on disk, always readable); any subagent you spawn
   inherits this instruction.
+- **Ponytail — minimal-diff discipline, held strictly (not a mechanical gate).**
+  LOAD and RUN the `ponytail` skill from your Codex skills dir
+  (`~/.codex/skills/ponytail`); your brief also inlines it in full as the binding
+  floor. Every line you write or edit follows the ponytail ladder: understand and
+  TRACE the affected code first, then stop at the
+  first rung that works — does it need to exist (YAGNI)? already in the codebase?
+  stdlib? a native platform feature? an already-installed dependency? one line?
+  only then the minimum viable code. Shortest diff, shortest explanation. Lazy,
+  NOT negligent: never simplify away trust-boundary validation, data-loss
+  handling, security, accessibility, explicitly-requested functionality, or the
+  runnable self-check. Mark a deliberate corner cut with an inline
+  `ponytail: <limitation>, <upgrade path>` comment. Ponytail trims speculative
+  code; it never overrides the constitution's mandated structure. Any subagent
+  you spawn inherits this too.
 - Scope is limited to the assigned leaf task and file ownership.
 - **One stage at a time (WORKFLOW.md Stage Loop).** Your leaf task is already
   active before you receive the brief. Implement only that task, run focused

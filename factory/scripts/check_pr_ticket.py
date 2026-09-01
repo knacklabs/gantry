@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Require a pull request to declare every completed work record."""
+"""Require a pull request to declare every completed work record.
+
+Client repos: a PR must complete a roadmap story, task, or work window. The
+harness-SOURCE repo (which defines that machinery) is exempt from needing a
+completed record — its own development PRs complete no client story and are
+tracked by a `Ticket:` line or a feat/<key>- branch instead.
+"""
 from __future__ import annotations
 
 import argparse
@@ -10,6 +16,7 @@ import sys
 from pathlib import Path
 
 from factory_lib import repo_root
+from forge_cli.repo_kind import is_harness_source_repo
 from forge_cli.scaffold import (
     COPY_CLAUDE, COPY_TREES, COPY_WORKFLOWS, DOC_CONTRACTS,
 )
@@ -239,6 +246,27 @@ def main() -> int:
                 "no ticket."
             )
             return 0
+        # The harness-SOURCE repo defines the roadmap/quickfix machinery, so its
+        # own development PRs complete no CLIENT roadmap story — the premise this
+        # gate enforces everywhere else. Track them by ticket reference instead
+        # (a `Ticket:` line — a PR number or issue key — or a feat/<key>- branch),
+        # mirroring the re-vendor exemption. Client repos are unchanged: they
+        # still need a completed work record below.
+        if is_harness_source_repo(root):
+            if candidates:
+                print(
+                    "PR ticket check OK: harness-source development PR — this "
+                    "repo defines the roadmap/quickfix machinery, so its own PRs "
+                    "complete no client story; tracked by ticket(s): "
+                    f"{', '.join(sorted(candidates))}."
+                )
+                return 0
+            print(
+                "PR ticket check FAILED: a harness-source development PR needs a "
+                "`Ticket:` line (a PR number or issue key) in the body, or a "
+                "feat/<key>- branch — this repo completes no client roadmap story."
+            )
+            return 1
         print(
             "PR ticket check FAILED: no completed work record in "
             f"{args.base}..HEAD — a PR must complete a roadmap story (done-flip "

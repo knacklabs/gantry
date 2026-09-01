@@ -6117,6 +6117,29 @@ def test_record_task_grill_binds_derived_digest(repo):
     assert recorded["input_sha256"] == grounding_digest(repo, task)
 
 
+def test_board_survives_active_story_whose_approved_plan_is_gone(repo):
+    # A shipped/archived story can remain the active run pointer while its
+    # approved plan has moved out of plans/active/ (its task-plan + grill still
+    # exist). grounding_digest then raises SystemExit; the read-only board's
+    # task_rows/aggregate_state must degrade (grill = not-fresh), not crash the
+    # /api/state response and strand the connection pill on "connecting".
+    from factory_lib import task_rows
+    from forge_cli.board import aggregate_state
+
+    task = STAGE_TASK
+    seed_task_grill_frontier(repo, task)
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
+    assert task_rows(repo)  # sanity: rows build while the plan is present
+
+    (repo / "plans" / "active" / "TEST-1-test-plan.md").unlink()
+
+    rows = task_rows(repo)  # must NOT raise SystemExit
+    assert isinstance(rows, list)
+    assert not any(row.get("fresh") for row in rows)
+    assert isinstance(aggregate_state(repo), dict)  # /api/state stays 200
+
+
 def test_grounding_digest_staleness_matrix(repo):
     task = STAGE_TASK
     seed_task_grill_frontier(repo, task)
@@ -9191,6 +9214,35 @@ def test_check_pr_ticket_fails_no_ticket(repo):
     code, out = check_pr_ticket(repo, base, "chore/unlinked")
 
     assert code != 0 and "no ticket was found" in out, out
+
+
+def test_check_pr_ticket_harness_source_dev_accepts_ticket(repo):
+    # The harness-SOURCE repo defines the roadmap/quickfix machinery, so its own
+    # development PRs complete no client story; a `Ticket:` line tracks them.
+    (repo / ".factory").mkdir(exist_ok=True)
+    (repo / ".factory" / "harness-source.json").write_text("{}\n")
+    base = pr_ticket_base(repo)
+    (repo / "factory" / "scripts" / "verify.py").write_text("# harness change\n")
+    git(repo, "add", "factory/scripts/verify.py")
+    git(repo, "commit", "-q", "-m", "feat: harness change")
+
+    code, out = check_pr_ticket(
+        repo, base, "feat/ponytail-and-cyclomatic", body="Ticket: 152\n")
+
+    assert code == 0 and "harness-source development PR" in out, out
+
+
+def test_check_pr_ticket_harness_source_dev_requires_a_ticket(repo):
+    (repo / ".factory").mkdir(exist_ok=True)
+    (repo / ".factory" / "harness-source.json").write_text("{}\n")
+    base = pr_ticket_base(repo)
+    (repo / "factory" / "scripts" / "verify.py").write_text("# harness change\n")
+    git(repo, "add", "factory/scripts/verify.py")
+    git(repo, "commit", "-q", "-m", "feat: harness change")
+
+    code, out = check_pr_ticket(repo, base, "chore/no-ticket")
+
+    assert code != 0 and "harness-source development PR needs a" in out, out
 
 
 def test_check_pr_ticket_fails_missing_done_flip(repo):
@@ -17461,7 +17513,7 @@ def test_init_vendors_only_the_harness_owned_skill_not_a_source_decoy(
     ))
 
     assert {
-        str(path.relative_to(target / ".claude"))
+        path.relative_to(target / ".claude").as_posix()
         for path in (target / ".claude").rglob("*") if path.is_file()
     } == {"CLAUDE.md", "settings.json", "skills/forge/SKILL.md"}
     assert {
@@ -18692,3 +18744,47 @@ def test_forge_deps_lock_detects_manager_and_guards(tmp_path):
     (only_pkg / "package.json").write_text("{}", encoding="utf-8")
     with pytest.raises(SystemExit):
         cmd_lock(argparse.Namespace(repo=str(only_pkg)))
+
+
+def test_ceremony_target_redirects_rounds_and_markers(repo, tmp_path):
+    # A second full factory checkout is the ceremony target.
+    target = tmp_path / "sibling"
+    proc = subprocess.run(
+        [sys.executable, str(HARNESS / "factory" / "scripts" / "forge.py"),
+         "init", "--name", "sibling", "--target", str(target)],
+        capture_output=True, text=True,
+        env={**os.environ, "GIT_CONFIG_COUNT": "1",
+             "GIT_CONFIG_KEY_0": "gc.auto", "GIT_CONFIG_VALUE_0": "0"},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    code, out = run(repo, "forge.py", "ceremony", "target", "set", str(target))
+    assert code == 0, out
+    code, out = log_grill_rounds(repo, grill_rounds("spec", 1))
+    assert code == 0, out
+    session_rounds = list((repo / ".factory").rglob("grill-rounds/*.json"))
+    target_rounds = list((target / ".factory").rglob("grill-rounds/*.json"))
+    assert not session_rounds, "round leaked into the session checkout"
+    assert len(target_rounds) == 1, "round did not reach the ceremony target"
+
+    # Clearing the pointer restores self-ledgering.
+    code, out = run(repo, "forge.py", "ceremony", "target", "clear")
+    assert code == 0, out
+    code, out = log_grill_rounds(repo, grill_rounds("spec", 1))
+    assert code == 0, out
+    assert len(list((repo / ".factory").rglob("grill-rounds/*.json"))) == 1
+    assert len(list((target / ".factory").rglob("grill-rounds/*.json"))) == 1
+
+    # A stale pointer fails OPEN to the session checkout (evidence never drops).
+    (repo / ".factory" / "ceremony-target").write_text(str(tmp_path / "gone"), encoding="utf-8")
+    code, out = log_grill_rounds(repo, grill_rounds("spec", 1))
+    assert code == 0, out
+    assert len(list((repo / ".factory").rglob("grill-rounds/*.json"))) == 2
+
+    # The CLI refuses self-pointing and non-factory targets.
+    code, out = run(repo, "forge.py", "ceremony", "target", "set", str(repo))
+    assert code != 0 and "DIFFERENT checkout" in out
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    code, out = run(repo, "forge.py", "ceremony", "target", "set", str(bare))
+    assert code != 0 and "not an adopted factory repo" in out

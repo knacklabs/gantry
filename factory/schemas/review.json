@@ -26,6 +26,6 @@
   "ranges": {
     "score": [0, 10]
   },
-  "findings_note": "Finding entries SHOULD be objects {category: kebab-case defect class, area: module/dir, summary} so `forge findings patterns` can cluster recurring classes across tasks; plain strings are accepted but cluster on exact text only.",
+  "findings_note": "Finding entries SHOULD be objects {category: kebab-case defect class, area: module/dir, summary} so `forge findings patterns` can cluster recurring classes across tasks; plain strings are accepted but cluster on exact text only. The quality lens ALWAYS assesses cyclomatic complexity: excessively tangled control flow is a blocking finding under the stable `cyclomatic-complexity` category (see factory/prompts/reviewer.md).",
   "contract_verdicts_note": "Quality reviews for decompositions that declare plan_contracts require entries {contract_id, verdict: implemented|partial|missing, evidence}; evidence is a non-empty file:line explanation."
 }
