@@ -75,10 +75,13 @@ export interface SettingsImportValidationResult {
   settings: RuntimeSettings;
   /** Path-level error strings, identical for the YAML and API surfaces. */
   errors: string[];
+  /** Tolerated findings (stored rule grants a tightened validator rejects). */
+  warnings?: string[];
 }
 
 export interface SettingsImportServiceDeps {
   runtimeHome: string;
+  logWarn?: (context: Record<string, unknown>, message: string) => void;
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
   appId?: AppId;
@@ -127,7 +130,34 @@ export async function validateSettingsForImport(
   const invalidReferences =
     await service.validateCapabilityReferences(settings);
   errors.push(...invalidReferences);
-  return { ok: errors.length === 0, settings, errors };
+  const { hardErrors, warnings } = partitionStoredRuleCapabilityErrors(errors);
+  if (warnings.length > 0) {
+    deps.logWarn?.(
+      { warnings },
+      'settings import tolerated stored capability rules the current validator rejects; they stay subject to decision-time policy',
+    );
+  }
+  return { ok: hardErrors.length === 0, settings, errors: hardErrors, warnings };
+}
+
+// Stored RunCommand grants are machine-minted (Allow for future), so a later,
+// stricter validator can retroactively reject entries that were legal when
+// granted. That must never make settings unloadable (it crash-loops startup);
+// the rules stay in settings and remain subject to decision-time rails and
+// guards. Hand-authored capability ids keep strict rejection. String-keyed on
+// the two per-entry error shapes because both validators emit flat strings.
+export function partitionStoredRuleCapabilityErrors(errors: string[]): {
+  hardErrors: string[];
+  warnings: string[];
+} {
+  const storedRulePattern =
+    /contains (?:invalid|unavailable) capability "?RunCommand\(/;
+  const hardErrors: string[] = [];
+  const warnings: string[] = [];
+  for (const error of errors) {
+    (storedRulePattern.test(error) ? warnings : hardErrors).push(error);
+  }
+  return { hardErrors, warnings };
 }
 
 type RecoveryRevisionMirror = {
