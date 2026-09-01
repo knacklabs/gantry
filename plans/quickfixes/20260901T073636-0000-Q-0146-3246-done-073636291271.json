@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0146-3246",
+  "profile": "quickfix",
+  "reason": "layering: partitionStoredRuleCapabilityErrors moves to shared so bootstrap does not add a runtime-to-config import",
+  "started_at": "2026-09-01T07:34:10+00:00",
+  "completed_at": "2026-09-01T07:36:36+00:00",
+  "files": []
+}
