@@ -4,7 +4,7 @@
     {
       "id": "CARDSIMPLE-1-T1",
       "title": "Family-wide grants \u2014 minimum version",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-09-01T03:55:02+00:00",
       "base_sha": "5ae8ad5f584469dc6621ed0e9b1d0b61e773d58f",
       "dirty_at_start": {
@@ -21,7 +21,17 @@
           "git": "1 A. N... 000000 100644 100644 0000000000000000000000000000000000000000 7bc24bda6553c13c421cf1389b33ae3d57299c2e plans/review-briefs/cardsimple-1-t1-family-grants.md\u0000\u0000100644 7bc24bda6553c13c421cf1389b33ae3d57299c2e 0\tplans/review-briefs/cardsimple-1-t1-family-grants.md\u0000\u0000H plans/review-briefs/cardsimple-1-t1-family-grants.md\u0000"
         }
       },
-      "task_sha256": "4dc787745daf5da560cde4c10ba6087c33c811a50db61af7aec697bb5290bba1"
+      "task_sha256": "4dc787745daf5da560cde4c10ba6087c33c811a50db61af7aec697bb5290bba1",
+      "local_review_stamp": {
+        "stage_id": "CARDSIMPLE-1-T1",
+        "task_sha256": "4dc787745daf5da560cde4c10ba6087c33c811a50db61af7aec697bb5290bba1",
+        "brief_sha256": "2fdfe109eaf4fd4fa32265b5a92c2271cd77aa06508d1449f7272031ccdd6b69",
+        "base_sha": "5ae8ad5f584469dc6621ed0e9b1d0b61e773d58f",
+        "product_tree_digest": "9b529702cd2551630a0bd1ecf1e04222c07083924041a005b1ecf5cc32c321f9",
+        "recorded_at": "2026-09-01T05:26:06+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-09-01T05:26:46+00:00"
     }
   ]
 }

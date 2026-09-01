@@ -1,0 +1,7 @@
+{
+  "generated_by": "implementer",
+  "outcome": "Allowing a command once now settles its whole family: approve curl for one URL and future runs of curl with any arguments proceed without asking, on every lane that mints permission rules. Piped commands still never get an Allow button, dangerous variants inside an allowed family still ask (and only for that one run), and scripts or environment-dependent paths can never become broad grants. Exact rules and capability grants behave exactly as before \u2014 the only visible change is fewer permission prompts.",
+  "issue": "CARDSIMPLE-1",
+  "commit": "15b87e9fff7ea92d93f8cb0c547a7fc28586629a",
+  "recorded_at": "2026-09-01T05:30:28+00:00"
+}

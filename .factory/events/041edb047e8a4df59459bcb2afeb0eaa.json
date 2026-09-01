@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-01T05:16:47+00:00", "story": "CARDSIMPLE-1", "detail": "CARDSIMPLE-1-T1 is already committed at 15b87e9ff with 22 review-budget files and 762 changed lines under apps/core/src, apps/core/test, and docs/decisions; the current brief caps review at 20 files, "}

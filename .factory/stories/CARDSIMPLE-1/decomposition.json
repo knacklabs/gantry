@@ -53,9 +53,9 @@
         "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts"
       ],
       "review_budget": {
-        "max_changed_files": 20,
+        "max_changed_files": 24,
         "max_changed_lines": 800,
-        "reason": "S-0063: beyond the planned 15 implementation/test/decision files, the newly valid family shapes ripple into existing agent-capability-administration and permission-classifier test expectations (RunCommand(npm *) / canonical RunCommand(cat *)); 20 gives finish-green headroom without dropping required coverage."
+        "reason": "S-0063 ripple plus the six-round autoreview loop: script-family, SDK-suppression and expansion-literal fixes each added regression tests (family-rule-synthesis, coordinator, durable-access, runner suites) \u2014 measured 22 files / 762 lines at commit 15b87e9ff, all inside the approved contract."
       },
       "reviewer_focus": [
         "Family-only: rails run solely when isFamilyRule; exact reviewed rules and capability grants byte-for-byte unchanged (the early return is preserved for them).",
@@ -88,5 +88,5 @@
   ],
   "project": "",
   "plan_sha256": "e48db0771d7d8552362261d46f34a0b1144e31fd5f53d0d3a55233430127e33f",
-  "commit": "5ae8ad5f584469dc6621ed0e9b1d0b61e773d58f"
+  "commit": "15b87e9fff7ea92d93f8cb0c547a7fc28586629a"
 }

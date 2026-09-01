@@ -1,0 +1,50 @@
+{
+  "generated_by": "autoreview",
+  "score": 9,
+  "recommendation": "approve",
+  "skills_used": [
+    "review-animations"
+  ],
+  "reviewed_scope": [
+    "apps/core/src/shared/family-rule-synthesis.ts",
+    "apps/core/src/shared/durable-access-policy.ts",
+    "apps/core/src/shared/tool-execution-policy-service.ts",
+    "apps/core/src/application/permissions/permission-suggestion-synthesis.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-suggestions.ts",
+    "apps/core/src/shared/autonomous-bash-recovery-rule.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "docs/decisions/0152-family-match-provisional-to-rails.md",
+    "apps/core/test/unit/shared/family-rule-synthesis.test.ts",
+    "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+    "apps/core/test/unit/shared/durable-access-policy.test.ts",
+    "apps/core/test/unit/shared/tool-execution-policy-service.test.ts",
+    "apps/core/test/integration/permission-durable-authority.postgres.integration.test.ts"
+  ],
+  "residual_risks": [
+    "Two compact-404 deaths interrupted the Codex runs; the 17-file implementation was completed by Codex, ONE test-expectation flip (the exact-argv policy pin in permission-durable-authority) was host-edited under plan-authorized degraded window Q-0133-171d, and autoreview round-1's two P1s were host-fixed under window Q-0134-4de9: the family predicate now rejects all canonical script-leaf argv0 forms (isPythonScriptPath \u2014 /workspace/report.py and bare report.py can never become families), and the SDK lane canonicalizes supplied suggestions through the shared synthesizer when toolInput is absent (a supplied pipe still yields nothing). Round-2's P1 fixed under window Q-0135-6394: the SDK fallback engages ONLY when toolInput carries no command \u2014 a present command rejected by canonical synthesis stays rejected even with a paired safe SDK suggestion (bypass regression test added). Round-3 P1 fixed under window Q-0136: the SDK fallback is all-or-nothing \u2014 any supplied content the synthesizer rejects suppresses Allow for the whole set (mixed-set regression added). Round-3 P2 REJECTED with contract evidence: the recorded task plan pins the family predicate to 'a bare command word or absolute path' \u2014 relative argv0 paths are excluded by design because they resolve per-cwd, so a relative family rule could match a different binary in another working directory; exact-argv rules remain available for them. Round-4 P1 fixed under window Q-0137: absolute family executables must match a positive literal allowlist \u2014 shell-expansion tokens (/$TOOL, braces, backticks) are rejected before minting or admitting a family (regressions added). Round-5 P1 fixed by DELETION under window Q-0138: the SDK-only canonicalization fallback is removed entirely \u2014 a persistent family is only offerable for a command whose exact input the rails can inspect, so SDK-only suggestions yield no persistent suggestion (ask + Allow-once remain); this also subsumes the round-2/3 fallback machinery (helpers deleted). Round-5 P2 REJECTED as intentional conservatism: quoted/Unicode absolute paths keep exact-argv rules; the positive-literal allowlist is deliberate (deferred widening \u2014 when a real spaces/Unicode executable path needs a family).",
+    "The lane-parity cross-product is deliberately deferred (when: a lane acquires distinct synthesis policy); coverage is the single synthesizer test plus one smoke per lane.",
+    "review-animations lens applied: zero animation/motion code in the diff (permission engine + tests only). Verdict: approve \u2014 no findings."
+  ],
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "CARDSIMPLE-1-AC2",
+      "verdict": "implemented",
+      "evidence": "Shared synthesizer (family-rule-synthesis.ts) is the sole rule source in all three lanes (host commandRules, SDK-supplied+inference, autonomous recovery per-leaf); the durable validator admits exactly the literal-argv0 family shape while script-leaf forms stay rejected (durable-access-policy.test.ts updated with flipped broad-prefix + script-shape regressions); isFamilyRule threads additively and the coordinator runs rails on the exact command only for family matches, forcing allow_once|cancel at the single seam incl. the inline-lane tail fix; live proof: permission-durable-authority.postgres 'allow_persistent_rule persists the family rule\u2026' \u2014 a different-args invocation of the same argv0 auto-allows, a different executable and a second agent do not."
+    },
+    {
+      "contract_id": "CARDSIMPLE-1-AC4",
+      "verdict": "implemented",
+      "evidence": "2026-09-01: tsc clean; check:architecture passed; FULL unit sweep 687 files / 9120 tests green; Postgres decision suites 16/16 (decision-chain, decision-memory, durable-authority) host-side; decision record 0152-family-match-provisional-to-rails.md amends 0040 narrowly and links 0121/0144/JOBPERM-2 as compatible-unchanged."
+    }
+  ],
+  "summary": "Autoreview (codex gpt-5.6-sol@high) SIX rounds on the CARDSIMPLE-1-T1 local diff, brief-pinned to AC2/AC4. Round-1 P1s fixed (script-leaf argv0 can never family; SDK canonicalization), round-2 P1 fixed (present-command rejection cannot be resurrected), round-3 P1 fixed all-or-nothing / P2 rejected on the recorded contract (relative argv0 excluded by design), round-4 P1 fixed (positive-literal absolute paths), round-5 P1 fixed by deleting the SDK-only fallback entirely (persistent families require a rails-inspectable exact command) / P2 rejected as intentional conservatism. Round 6 CLEAN: patch is correct (0.86). Final tree: tsc clean, check:architecture passed, full unit sweep 687 files / 9123 tests, Postgres decision suites 16/16 incl. the flipped family-contract durable-authority proof.",
+  "aspect": "performance",
+  "review_run_id": "dce8c8e20c82ad7372a10c9b42a031e290ab3cc93e2d8b2ac4ce69b4c3bc8171",
+  "brief_sha256": "68637e080b2203d82221abb29d0a94f38565bf3bf340adc77d7c7503c480122d",
+  "branch_diff_digest": "d314ecd7efdb637f543c7c564d9a381dc0eb6341293c9238c6658a2ccc2d884a",
+  "recorded_at": "2026-09-01T05:13:08+00:00",
+  "commit": "15b87e9fff7ea92d93f8cb0c547a7fc28586629a"
+}

@@ -2497,12 +2497,15 @@
         "suites, tsc and architecture green"
       ],
       "order": 115,
-      "status": "active",
+      "status": "done",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
       "depends_on": [],
-      "spec": "docs/specs/cardsimple-1-one-permission-surface.md"
+      "spec": "docs/specs/cardsimple-1-one-permission-surface.md",
+      "completed_at": "2026-09-01T05:30:29+00:00",
+      "history": ".factory/stories/CARDSIMPLE-1/",
+      "outcome": "Allowing a command once now settles its whole family: approve curl for one URL and future runs of curl with any arguments proceed without asking, on every lane that mints permission rules. Piped commands still never get an Allow button, dangerous variants inside an allowed family still ask (and only for that one run), and scripts or environment-dependent paths can never become broad grants. Exact rules and capability grants behave exactly as before \u2014 the only visible change is fewer permission prompts."
     },
     {
       "key": "ASKFLOOR-1",
@@ -2566,5 +2569,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-09-01T03:52:14+00:00"
+  "updated_at": "2026-09-01T05:30:29+00:00"
 }
