@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0148-2f7d",
+  "profile": "quickfix",
+  "reason": "image lane red on main: apply security upgrades in the runtime apt layer (libexpat CVE-2026-56408)",
+  "started_at": "2026-09-01T07:28:20+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
