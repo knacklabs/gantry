@@ -13,6 +13,7 @@ from factory_lib import (
     dump_json,
     evidence_path,
     plan_body_digest,
+    read_ceremony_target,
     read_stdin_utf8,
     repo_root,
     validate_payload,
@@ -123,6 +124,11 @@ def main() -> None:
         if not isinstance(payload, dict):
             return
         root = repo_root()
+        # An orchestrator-declared ceremony target (a sibling worktree being
+        # driven from this session) receives the rounds/markers natively so its
+        # own gate recorders can validate them; a stale or invalid pointer
+        # falls back to this checkout rather than dropping evidence.
+        root = read_ceremony_target(root) or root
         story = _active_story_key(root) or None
         tool = payload.get("tool_name")
         if tool in WRITE_TOOLS and payload.get("permission_mode") == "plan":

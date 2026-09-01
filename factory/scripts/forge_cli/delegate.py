@@ -945,6 +945,28 @@ CONSTITUTION_BRIEF = (
 )
 
 
+PONYTAIL_BRIEF = (
+    "Ponytail is the BINDING minimal-diff coding discipline for every line you "
+    "write or edit — hold it strictly, but it is a habit, not a mechanical gate. "
+    "Understand the problem and TRACE the affected code first, then climb this "
+    "ladder and STOP at the first rung that works: (1) does it need to exist at "
+    "all? skip speculative features (YAGNI); (2) already in this codebase? reuse "
+    "it; (3) does the stdlib provide it? use it; (4) a native platform feature? "
+    "prefer it; (5) an already-installed dependency? use it before adding one; "
+    "(6) can it be one line? one line beats fifty; (7) only then, the minimum "
+    "viable code that solves the ACTUAL problem. Shortest diff, shortest "
+    "explanation.\n\n"
+    "Lazy, NOT negligent — NEVER simplify away trust-boundary/input validation, "
+    "error handling that prevents data loss, security, accessibility basics, "
+    "explicitly-requested functionality, hardware calibration knobs, or the one "
+    "runnable self-check for non-trivial logic. Mark a deliberate corner cut with "
+    "an inline `ponytail: <limitation>, <upgrade path if scale matters>` comment "
+    "so it can be harvested later. Ponytail trims SPECULATIVE code; it NEVER "
+    "overrides the constitution's mandated structure (modules, DTOs, the response "
+    "envelope, provider pattern) — that structure is law, not bloat."
+)
+
+
 def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
                   story: str) -> str:
     scope = task.get("write_scope") or []
@@ -974,6 +996,13 @@ def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
     ]
     body = "\n".join(lines) + "\n"
     body += _section("Constitution — coding standards (BINDING)", CONSTITUTION_BRIEF)
+    body += _section(
+        "Ponytail — minimal-diff coding discipline (BINDING)",
+        "LOAD and RUN the `ponytail` skill from your Codex skills dir "
+        "(`~/.codex/skills/ponytail`, installed by `./forge doctor --fix`) and hold "
+        "it on every line you write or edit. Its rules are reproduced below as the "
+        "binding floor in case your runtime cannot load it:\n\n"
+        + (_skill_text("ponytail") or PONYTAIL_BRIEF))
     body += _section("Objective", task.get("objective", ""))
     body += _section("Acceptance criteria", "\n".join(
         f"- {c}" for c in task.get("acceptance_criteria") or []))

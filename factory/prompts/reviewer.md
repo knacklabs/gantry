@@ -70,6 +70,17 @@ Procedure:
      a single trivial implementation, constants for values used once, or code
      duplicating stdlib/platform features. Constitution-mandated structure
      (modules, DTOs, the response envelope, provider pattern) is never a finding.
+     **Ponytail conformance — the minimal-diff discipline is enforced at REVIEW,
+     not only at write.** The implementer is bound to the ponytail ladder
+     (necessity/YAGNI → reuse what exists → stdlib → native platform feature →
+     an already-installed dependency → one line → minimum viable code); flag a
+     diff that breaks it — a new dependency where the stdlib or an installed one
+     suffices, a reimplementation of an existing helper, speculative flexibility,
+     or a sprawling change where a surgical one would do — as an
+     `over-engineering` finding. Lazy is NOT negligent: a diff that drops
+     required input/trust-boundary validation, error handling, security, or
+     accessibility to look smaller is the OPPOSITE finding — a blocking gap,
+     never waved through as "minimal".
      **Conversely, the constitution's coding standards are LAW, and code that
      VIOLATES them IS a finding** under a stable `constitution-conformance`
      category. Read `constitution/README.md` and the references its index maps to
@@ -85,6 +96,15 @@ Procedure:
      `reviewer_focus` citations — the constitution, not your taste, is the standard
      (do not impose an invented layout beyond it). This holds whichever engine runs
      the lens and in any environment: `constitution/` is on disk, always readable.
+     **Cyclomatic complexity — assess EVERY review, no exceptions.** Measure the
+     branching complexity of each function/method the diff adds or changes; any
+     whose control flow is excessively tangled (roughly >10 independent paths —
+     deep nesting, long if/elif/switch chains, compound boolean conditions) is a
+     BLOCKING finding under a stable `cyclomatic-complexity` category, naming the
+     decomposition it needs (guard clauses, extracted helpers, table/polymorphic
+     dispatch). Flag genuinely knotted control flow, never mere file or line
+     count — constitution-mandated structure is never the target, and a run of
+     simple sequential statements is not complexity.
      When the decomposition has `user_facing: true`, loading the
      `review-animations` skill as input to this lens is MANDATORY
      (easing/duration/spring choices, reduced-motion) — attest it in each
