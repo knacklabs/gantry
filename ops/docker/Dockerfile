@@ -70,6 +70,10 @@ ENV NODE_ENV=production \
 # package installs belong to a future bake lane, see TODOS.md) and the Go
 # toolchain (Go-built tools ship as binaries: add the binary here per tool).
 RUN apt-get update \
+    # Pull in pending Debian security updates for base-image packages; the
+    # digest-pinned base goes stale between upstream rebuilds (e.g. libexpat1
+    # CVE-2026-56408 failed the Trivy gate before its base refresh).
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
       python3 \
       python3-venv \
