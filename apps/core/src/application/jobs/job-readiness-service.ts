@@ -46,6 +46,7 @@ import {
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { toolRuleCoversRule } from '../../shared/tool-rule-matcher.js';
 import {
   catalogSemanticCapabilityDefinition,
   capabilityRequirementSetupAction,
@@ -390,9 +391,14 @@ function capabilityRequirementBlocker(input: {
       ),
     };
   }
+  const requiredRule = `${RUN_COMMAND_TOOL_NAME}(${rule})`;
   if (
     rule &&
-    input.effectiveAllowedTools.includes(`${RUN_COMMAND_TOOL_NAME}(${rule})`)
+    input.effectiveAllowedTools.some(
+      (allowedRule) =>
+        allowedRule === requiredRule ||
+        toolRuleCoversRule(allowedRule, requiredRule),
+    )
   ) {
     return null;
   }
