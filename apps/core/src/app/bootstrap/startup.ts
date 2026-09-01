@@ -1,3 +1,4 @@
+import { partitionStoredRuleCapabilityErrors } from '../../shared/stored-rule-capability-errors.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -164,9 +165,18 @@ export async function runStartup(
       repositories: storage.repositories,
     });
     const reconcile = await desiredState.reconcile(runtimeSettings);
-    if (reconcile.invalidReferences.length > 0) {
+    const invalidReferences = partitionStoredRuleCapabilityErrors(
+      reconcile.invalidReferences,
+    );
+    if (invalidReferences.warnings.length > 0) {
+      resolved.logger.warn(
+        { warnings: invalidReferences.warnings },
+        'Settings desired state tolerated stored capability rules the current validator rejects',
+      );
+    }
+    if (invalidReferences.hardErrors.length > 0) {
       throw new Error(
-        `settings desired state contains invalid references:\n${reconcile.invalidReferences.join('\n')}`,
+        `settings desired state contains invalid references:\n${invalidReferences.hardErrors.join('\n')}`,
       );
     }
     if (reconcile.applied.length > 0 || reconcile.skipped.length > 0) {

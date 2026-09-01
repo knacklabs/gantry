@@ -75,14 +75,21 @@ export interface SettingsImportValidationResult {
   settings: RuntimeSettings;
   /** Path-level error strings, identical for the YAML and API surfaces. */
   errors: string[];
+  /** Tolerated findings (stored rule grants a tightened validator rejects). */
+  warnings?: string[];
 }
 
 export interface SettingsImportServiceDeps {
   runtimeHome: string;
+  logWarn?: (context: Record<string, unknown>, message: string) => void;
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
   appId?: AppId;
 }
+
+import { partitionStoredRuleCapabilityErrors } from '../../shared/stored-rule-capability-errors.js';
+
+export { partitionStoredRuleCapabilityErrors };
 
 export class SettingsRevisionConflictError extends Error {
   readonly expectedRevision: number;
@@ -127,7 +134,19 @@ export async function validateSettingsForImport(
   const invalidReferences =
     await service.validateCapabilityReferences(settings);
   errors.push(...invalidReferences);
-  return { ok: errors.length === 0, settings, errors };
+  const { hardErrors, warnings } = partitionStoredRuleCapabilityErrors(errors);
+  if (warnings.length > 0) {
+    deps.logWarn?.(
+      { warnings },
+      'settings import tolerated stored capability rules the current validator rejects; they stay subject to decision-time policy',
+    );
+  }
+  return {
+    ok: hardErrors.length === 0,
+    settings,
+    errors: hardErrors,
+    warnings,
+  };
 }
 
 type RecoveryRevisionMirror = {

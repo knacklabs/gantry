@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0146-7cf8",
+  "profile": "quickfix",
+  "reason": "runtime settings validation: capability rule entries demote to warnings at the shared validator so every load path tolerates stored grants",
+  "started_at": "2026-09-01T07:13:12+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

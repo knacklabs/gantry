@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0146-5dea",
+  "profile": "quickfix",
+  "reason": "settings import warn-and-skip for stored capability rules",
+  "started_at": "2026-09-01T07:05:31+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

@@ -1,3 +1,4 @@
+import { partitionStoredRuleCapabilityErrors } from '../../shared/stored-rule-capability-errors.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { AgentId } from '../../domain/agent/agent.js';
 import {
@@ -121,9 +122,15 @@ export async function applyRuntimeSettingsDesiredState(input: {
       expectedMcpBindingAgentIds,
       expectedMcpBindings: input.expectedMcpBindings,
     });
-    if (reconcile.invalidReferences.length > 0) {
+    // Stored RunCommand grants a tightened validator rejects are tolerated on
+    // every load path (they crash-loop startup otherwise); other invalid
+    // references stay hard.
+    const invalidReferences = partitionStoredRuleCapabilityErrors(
+      reconcile.invalidReferences,
+    );
+    if (invalidReferences.hardErrors.length > 0) {
       throw new Error(
-        `settings desired state contains invalid references:\n${reconcile.invalidReferences.join('\n')}`,
+        `settings desired state contains invalid references:\n${invalidReferences.hardErrors.join('\n')}`,
       );
     }
     forwardReconcileApplied = true;

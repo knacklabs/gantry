@@ -2493,7 +2493,7 @@ agents:
     }
   });
 
-  it('rejects generated runtime skill paths in settings validation', () => {
+  it('demotes generated runtime skill path grants to warnings in settings validation', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {
       name: 'Main',
@@ -2514,9 +2514,14 @@ agents:
       settings,
     );
 
-    expect(result.ok).toBe(false);
-    expect(result.failure?.details.join('\n')).toContain(
+    // Stored RunCommand grants never make settings unloadable (startup would
+    // crash-loop); the rejection reason surfaces as a warning instead and the
+    // rule stays subject to decision-time policy.
+    expect(result.warnings?.join('\n')).toContain(
       'Persistent RunCommand rules cannot reference generated runtime skill paths',
+    );
+    expect(result.failure?.details.join('\n') ?? '').not.toContain(
+      'generated runtime skill paths',
     );
   });
 
