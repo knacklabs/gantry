@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0152-6658",
+  "profile": "quickfix",
+  "reason": "flip runtime configured-agent-tools stale-wildcard test to drop-contract (sibling of Q-0151)",
+  "started_at": "2026-09-01T08:55:27+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
