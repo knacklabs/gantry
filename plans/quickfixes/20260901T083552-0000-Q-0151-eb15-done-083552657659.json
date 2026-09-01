@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0151-eb15",
+  "profile": "quickfix",
+  "reason": "LIVE regression: one stale RunCommand grant throws in resolveAgentToolRuntimePolicy \u2192 caught as undefined \u2192 ALL grants for that agent stop applying; drop invalid RunCommand rules from projection instead",
+  "started_at": "2026-09-01T08:34:28+00:00",
+  "completed_at": "2026-09-01T08:35:52+00:00",
+  "files": []
+}

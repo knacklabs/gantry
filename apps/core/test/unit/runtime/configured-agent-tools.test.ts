@@ -582,7 +582,11 @@ describe('configured agent tools', () => {
     ).rejects.toThrow('wildcard grants are not supported');
   });
 
-  it('fails closed for stale active RunCommand wildcard bindings', async () => {
+  it('drops a stale active over-broad RunCommand binding instead of failing closed', async () => {
+    // A stale/over-broad RunCommand grant is dropped from the projection (it
+    // grants nothing - the command re-asks) rather than throwing: throwing
+    // would take down every other durable grant for the agent via the caller's
+    // catch-to-undefined. Structural rejections (SDK sandbox, MCP) still throw.
     const repository = {
       listAgentToolBindings: async () => [
         {
@@ -602,7 +606,7 @@ describe('configured agent tools', () => {
         appId: 'default',
         agentId: 'agent:one',
       }),
-    ).rejects.toThrow('Persistent RunCommand scope is too broad');
+    ).resolves.toEqual([]);
   });
 
   it('fails closed for stale active SDK sandbox network bindings', async () => {

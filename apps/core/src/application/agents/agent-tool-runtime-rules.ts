@@ -174,14 +174,30 @@ function projectAgentToolRuntimePolicy(input: {
         })
       : [];
   });
+  // Stored RunCommand grants are machine-minted (Allow for future); a later,
+  // stricter durable-rule validator can retroactively reject one (e.g. an npx
+  // wildcard after the family hardening). Dropping just that rule keeps the
+  // agent's OTHER grants projecting — throwing here would make the whole
+  // policy resolution fail, and the caller swallows that to `undefined`, so a
+  // single stale grant would silently disable EVERY durable grant for the
+  // agent. A dropped rule simply grants nothing durable (the command re-asks),
+  // which is the intended fail-closed behavior. Structural MCP/browser/
+  // semantic rejections below still throw.
+  const projectedRules = rules.filter(
+    (rule) =>
+      !(
+        rule.startsWith('RunCommand(') &&
+        !validateReadableAgentToolRule(rule).ok
+      ),
+  );
   validateAgentToolRuntimeRules({
-    rules,
+    rules: projectedRules,
     errorSubject: input.errorSubject,
     allowProjectedThirdPartyMcpTools: true,
     makeError: input.makeError,
   });
   return {
-    rules,
+    rules: projectedRules,
     runtimeAccess,
     semanticCapabilities,
     reviewedMcpReadBindings: reviewedMcpReadBindingsForRuntimeAccess({

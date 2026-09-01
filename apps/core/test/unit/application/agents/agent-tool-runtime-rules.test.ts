@@ -37,4 +37,35 @@ describe('resolveAgentToolRuntimePolicy', () => {
     expect(sharedPolicy.rules).toEqual(['WebSearch']);
     expect(getTool).not.toHaveBeenCalledWith('tool:bob');
   });
+
+  it("drops a stale RunCommand grant a stricter validator rejects without losing the agent's other grants", async () => {
+    // Regression: a stored `RunCommand(npx remotion *)` grant (valid when
+    // minted, rejected after the npx family hardening) must not throw and take
+    // down every other durable grant for the agent.
+    const tools = new Map<string, { appId: string; name: string }>([
+      ['tool:curl', { appId: 'app:test', name: 'RunCommand(curl *)' }],
+      ['tool:npx', { appId: 'app:test', name: 'RunCommand(npx remotion *)' }],
+      ['tool:web', { appId: 'app:test', name: 'WebSearch' }],
+    ]);
+    const getTool = vi.fn(async (toolId: string) => tools.get(toolId) ?? null);
+    const repository = {
+      listAgentToolBindings: vi.fn(async () => [
+        { status: 'active', toolId: 'tool:curl', personId: null },
+        { status: 'active', toolId: 'tool:npx', personId: null },
+        { status: 'active', toolId: 'tool:web', personId: null },
+      ]),
+      getTool,
+    };
+
+    const policy = await resolveAgentToolRuntimePolicy({
+      repository: repository as never,
+      appId: 'app:test',
+      agentId: 'agent:test',
+      errorSubject: 'Configured agent tool',
+    });
+
+    // Valid grants survive; the invalid npx family grant is dropped (so npx
+    // re-asks) rather than throwing and nuking the whole policy.
+    expect(policy.rules).toEqual(['RunCommand(curl *)', 'WebSearch']);
+  });
 });

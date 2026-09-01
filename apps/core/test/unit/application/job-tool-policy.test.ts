@@ -123,15 +123,19 @@ describe('job tool policy', () => {
     ).rejects.toThrowError(/wildcard grants are not supported/);
   });
 
-  it('rejects stale inherited RunCommand wildcard rules from agent tool bindings', async () => {
-    await expect(
-      resolveJobToolPolicy({
-        job: makeJob(),
-        appId: 'default',
-        agentId: 'agent:team',
-        toolRepository: toolRepositoryFor(['RunCommand(*)']),
-      }),
-    ).rejects.toThrowError(/Persistent RunCommand scope is too broad/);
+  it('drops stale inherited over-broad RunCommand rules instead of failing the whole policy', async () => {
+    // A stale/over-broad RunCommand grant (e.g. RunCommand(*)) is now dropped
+    // from the projection rather than throwing: throwing would take down every
+    // other durable grant for the agent (the caller swallows it to undefined).
+    // Dropped means it grants nothing — the command re-asks (fail-closed).
+    const policy = await resolveJobToolPolicy({
+      job: makeJob(),
+      appId: 'default',
+      agentId: 'agent:team',
+      toolRepository: toolRepositoryFor(['RunCommand(*)']),
+    });
+    expect(policy.effectiveAllowedTools).not.toContain('RunCommand(*)');
+    expect(policy.effectiveAllowedTools).toEqual([]);
   });
 
   it('rejects stale inherited third-party MCP wildcard rules from agent tool bindings', async () => {
