@@ -17,6 +17,20 @@ describe('host permission suggestion synthesis', () => {
     expect(permissionSuggestionKey('main_agent', suggestions)).toBeUndefined();
   });
 
+  it('keys promotion history on the complete synthesized rule set', () => {
+    const key = (command: string) =>
+      permissionSuggestionKey(
+        'main_agent',
+        synthesizeHostPermissionSuggestions('Bash', { command }),
+      );
+    // Single-rule keys keep their existing shape.
+    expect(key('npm test')).toBe('main_agent|RunCommand(npm *)');
+    // Compounds sharing a first rule must NOT collide.
+    expect(key('npm test && git push')).not.toBe(key('npm test && curl -s https://x.test'));
+    // Leaf order does not split history.
+    expect(key('npm test && git push')).toBe(key('git push && npm test'));
+  });
+
   it('derives validated RunCommand rules for Bash and drops invalid commands', () => {
     const suggestions = synthesizeHostPermissionSuggestions('Bash', {
       command: 'npm test -- --runInBand',

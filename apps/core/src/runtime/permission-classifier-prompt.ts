@@ -52,10 +52,12 @@ export function classifierUserPayload(input: {
 }): string {
   const operatorContext = [
     ...(input.recentlyApprovedExactToolShape
-      ? ['the operator recently approved this exact tool shape repeatedly']
+      ? [
+          'the operator recently approved requests in this permission scope repeatedly',
+        ]
       : []),
     ...(input.recentlyDeniedExactToolShape
-      ? ['the operator recently denied this exact tool shape']
+      ? ['the operator recently denied requests in this permission scope']
       : []),
   ];
   return JSON.stringify({

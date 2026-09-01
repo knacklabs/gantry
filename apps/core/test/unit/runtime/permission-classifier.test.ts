@@ -320,7 +320,7 @@ describe('permission classifier verdict client', () => {
     });
 
     expect(query.mock.calls[0]?.[0].prompt).toContain(
-      'the operator recently denied this exact tool shape',
+      'the operator recently denied requests in this permission scope',
     );
   });
 
@@ -331,7 +331,7 @@ describe('permission classifier verdict client', () => {
     });
 
     expect(query.mock.calls[0]?.[0].prompt).toContain(
-      'the operator recently approved this exact tool shape repeatedly',
+      'the operator recently approved requests in this permission scope repeatedly',
     );
   });
 

@@ -49,9 +49,20 @@ export function permissionSuggestionKey(
   agentFolder: string,
   suggestions: PermissionApprovalRequest['suggestions'],
 ): string | undefined {
-  const firstRule = permissionUpdateAllowedToolRules(suggestions)[0]?.trim();
+  // Key on the COMPLETE ordered-normalized rule set: a compound like
+  // `npm test && git push` must not share promotion/denial history with
+  // `npm test && curl ...` just because the first synthesized rule matches.
+  const rules = [
+    ...new Set(
+      permissionUpdateAllowedToolRules(suggestions)
+        .map((rule) => rule.trim())
+        .filter(Boolean),
+    ),
+  ].sort();
   const folder = agentFolder.trim();
-  return folder && firstRule ? `${folder}|${firstRule}` : undefined;
+  return folder && rules.length > 0
+    ? `${folder}|${rules.join('&')}`
+    : undefined;
 }
 
 function commandRules(toolInput: unknown): string[] {
