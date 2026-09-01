@@ -45,7 +45,7 @@
       "source": "docs/decisions/0124-bounded-durable-card-delivery.md"
     }
   ],
-  "input_sha256": "92bf3de128f94e16941583b7d05c5c06bf1ce9dfa5a0e50cc3b7bc485a749a16",
-  "recorded_at": "2026-09-01T02:43:33+00:00",
-  "commit": "da7acd33dfa5531f81f374969eb899728305f34d"
+  "input_sha256": "25e1003cc2f80cc1d13936f25b1a243d86cae5466d6d3c4171655854548044e4",
+  "recorded_at": "2026-09-01T03:25:12+00:00",
+  "commit": "8fe8438dd2cf76206fbf2c73bb40378358a912b9"
 }

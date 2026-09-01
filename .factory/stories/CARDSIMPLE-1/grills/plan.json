@@ -14,7 +14,8 @@
     "RULED (round): decision 0134 accepted (recorded, confirmed_by Ravi Kiran Vemula) and added to decisions_reviewed.",
     "Round 2 contradictions fixed: explicit family-only rails algorithm; the two once cases; 0134 recorded accepted.",
     "Round 3 terra@xhigh cold-read (plans/exploration/cardsimple-1-pg-r3.md): CLEAN \u2014 no build-changing findings.",
-    "RULED (round): plan approved at convergence; single approval after clean round per the #148 grill contract."
+    "RULED (round): plan approved at convergence; single approval after clean round per the #148 grill contract.",
+    "Simplicity loop 2026-09-01 (owner-ordered): four sol@xhigh rounds cut 14 mechanisms and deferred 5 (isFamilyRule boolean, coordinator-only seam, one narrow 0040 amendment, 0124 machinery as delivery authority via the existing raise seam, one opId idempotency via the CARDFIX-1 pattern); final verdict SIMPLE ENOUGH; owner approved the slim plan (ledgered convergence round)."
   ],
   "rounds": [
     {
@@ -61,7 +62,7 @@
       "source": "docs/decisions/0040-permission-execution-two-axis-model.md:24"
     }
   ],
-  "input_sha256": "b3bf5f7b60af922ea5da9a718a6db39531aef62b66a15d101ddf5b773ca3354e",
-  "recorded_at": "2026-09-01T02:43:19+00:00",
-  "commit": "da7acd33dfa5531f81f374969eb899728305f34d"
+  "input_sha256": "791eec3531ea58960bac404cbd751f92205a540309fb7048f7540177e7f355ae",
+  "recorded_at": "2026-09-01T03:25:12+00:00",
+  "commit": "8fe8438dd2cf76206fbf2c73bb40378358a912b9"
 }

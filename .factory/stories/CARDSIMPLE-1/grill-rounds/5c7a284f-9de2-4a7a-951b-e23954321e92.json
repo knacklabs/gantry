@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Parallel worktrees for CARDSIMPLE-1: the harness only parallelizes STORIES, not one story's tasks (intra-story = symphony-forge #145 stage B, deferred for its evidence-merge risk). How do you want the parallelism?",
+      "options": [
+        "Pipeline overlap (Recommended)",
+        "Build #145 stage B first",
+        "Split into two stories"
+      ],
+      "chosen": "Split into two stories"
+    }
+  ],
+  "at": "2026-09-01T03:51:33.321742+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

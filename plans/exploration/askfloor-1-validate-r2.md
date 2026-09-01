@@ -1,0 +1,5 @@
+# ASKFLOOR-1 spec validation — round 2 (read-only, no edits, keep it SHORT)
+
+Round 1 found six issues in `docs/specs/askfloor-1-judge-actually-judges.md`; all were folded: send_message and its AC removed (0052 birthright already covers complete input; 0052/0121 cited as governing, destination-bearing variant explicitly out of scope pending its own decision); the closed browser matrix with the exact low set (status, inspect modes, wait_for, screenshot) and unknown/malformed ⇒ ask plus an exhaustive per-verb test; read-only additions as enumerated (tool, action, predicate, capability) bindings feeding an AUTO-ONLY native-risk input rather than any shared-gate widening; AC3 rewritten as explicit invariance tests including the inline-scheduled regression at inline-agent-loop-tools.ts:408; no new decision record (pure 0043 calibration).
+
+Verify the fold is coherent and hunt ONE more time for anything that would change what an implementer builds. Then the final verdict: "IMPLEMENTABLE AS WRITTEN" or the remaining items. No edits anywhere.

@@ -1,34 +1,10 @@
 {
-  "issue": "CARDFIX-1",
+  "issue": "CARDSIMPLE-1",
   "stages": [
     {
-      "id": "CARDFIX-1-T1",
-      "title": "Pause stories carry real actions: retry-and-ask + real Pause job, neutral layer",
-      "status": "done",
-      "started_at": "2026-08-31T11:05:10+00:00",
-      "base_sha": "886784c02f1b9884e1e042b37679a0f7ba89592f",
-      "dirty_at_start": {
-        "plans/review-briefs/cardfix-1-pause-card-actions.md": {
-          "digest": "133103b1557d36506221a7b69e2e4947c3b9144444ef0f5543aaac9664afdf81",
-          "git": "? plans/review-briefs/cardfix-1-pause-card-actions.md\u0000\u0000\u0000"
-        }
-      },
-      "task_sha256": "229b29fa8f76c88d04dbc45f8fbb1fdb9edfa53730e8d7e50093bbea59d8bc70",
-      "local_review_stamp": {
-        "stage_id": "CARDFIX-1-T1",
-        "task_sha256": "229b29fa8f76c88d04dbc45f8fbb1fdb9edfa53730e8d7e50093bbea59d8bc70",
-        "brief_sha256": "96ebf8f047c538045855820617bf031db88c6a9e971b37fe304d68b7960b23ff",
-        "base_sha": "886784c02f1b9884e1e042b37679a0f7ba89592f",
-        "product_tree_digest": "e5f064548d9588787dd90969441d6ea8d2d315d3a1139f96883fd3c8187f21b9",
-        "recorded_at": "2026-08-31T16:37:18+00:00",
-        "generated_by": "autoreview"
-      },
-      "completed_at": "2026-08-31T16:38:02+00:00",
-      "contract_changed": {
-        "at": "2026-08-31T16:38:02+00:00",
-        "from": "40d8bd0d5b9a484bb789ebdc035adcbb816444d15a92bef957917ec8b87408ef",
-        "to": "229b29fa8f76c88d04dbc45f8fbb1fdb9edfa53730e8d7e50093bbea59d8bc70"
-      }
+      "id": "CARDSIMPLE-1-T1",
+      "title": "Family-wide grants \u2014 minimum version",
+      "status": "pending"
     }
   ]
 }
