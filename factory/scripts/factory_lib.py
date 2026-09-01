@@ -39,6 +39,48 @@ def repo_root() -> Path:
     return Path(out.stdout.strip())
 
 
+CEREMONY_POINTER_NAME = "ceremony-target"
+
+
+def ceremony_pointer_path(root: Path) -> Path:
+    return root / ".factory" / CEREMONY_POINTER_NAME
+
+
+def read_ceremony_target(root: Path) -> Path | None:
+    """The validated ceremony-target checkout for ``root``, or None.
+
+    `forge ceremony target set` points one session's interactive ceremony
+    (AskUserQuestion grill rounds, plan-mode markers) at a sibling worktree so
+    a single session can orchestrate a second story there. Fail-open to the
+    session checkout: a missing, unreadable, relative, self-pointing or
+    non-factory target yields None so evidence is never dropped.
+    """
+    try:
+        raw = ceremony_pointer_path(root).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    target = Path(raw)
+    if not target.is_absolute():
+        return None
+    try:
+        resolved = target.resolve()
+        session = root.resolve()
+    except OSError:
+        return None
+    if resolved == session:
+        return None
+    if not (resolved / ".factory").is_dir():
+        return None
+    if not (resolved / "factory" / "schemas").is_dir():
+        # A bare .factory without the harness schemas would make hook-side
+        # validation fail and silently DROP evidence — only a full factory
+        # checkout qualifies as a ceremony target.
+        return None
+    return resolved
+
+
 def vendored_client(root: Path) -> bool:
     """True when this repo VENDORED the harness — factory/ and the vendored
     adapters/canon are infrastructure a `forge upgrade` may rewrite mid-task, not
@@ -1593,10 +1635,20 @@ def _task_grill_fresh(root: Path, task: dict, grill: dict) -> bool:
     plan_provenance_ok = (
         grill.get("task_plan_sha256") == plan_digest_without_assumptions(plan)
     )
+    try:
+        grounding = grounding_digest(root, task)
+    except SystemExit:
+        # The approved story plan is gone — e.g. a shipped or archived story
+        # whose plan moved out of plans/active/. A grill cannot be "fresh"
+        # against a plan that no longer exists, and read-only callers (the
+        # board's /api/state, `forge next`) must degrade, not crash. Gate
+        # callers that require the plan call grounding_digest directly and
+        # still raise.
+        return False
     return bool(
         grill.get("verdict") == "pass"
         and grill.get("commit")
-        and grill.get("input_sha256") == grounding_digest(root, task)
+        and grill.get("input_sha256") == grounding
         and plan_provenance_ok
     )
 

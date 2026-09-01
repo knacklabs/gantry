@@ -62,6 +62,7 @@ from forge_cli import sanitise as sanitise_mod
 from forge_cli import stages as stages_mod
 from forge_cli import gstack as gstack_mod
 from forge_cli import history as history_mod
+from forge_cli import ceremony as ceremony_mod
 from forge_cli import signal as signal_mod
 from forge_cli import (
     decisions, doctor, phase, plans, roadmap, scaffold, specs,
@@ -552,6 +553,18 @@ def main() -> None:
                                help="cluster recorded findings by class; recurring = refactor signal")
     p_fp.add_argument("--repo")
     p_fp.set_defaults(func=findings_mod.cmd_patterns)
+
+    p_cer = sub.add_parser("ceremony", help="point this session's grill rounds / plan markers at a sibling worktree")
+    cer_sub = p_cer.add_subparsers(dest="ceremony_command", required=True)
+    p_ct = cer_sub.add_parser("target", help="set/show/clear the ceremony target checkout")
+    ct_sub = p_ct.add_subparsers(dest="target_command", required=True)
+    p_cts = ct_sub.add_parser("set", help="ledger rounds/markers into this sibling factory checkout")
+    p_cts.add_argument("path", help="absolute (or cwd-relative) path to the target worktree")
+    p_cts.set_defaults(func=ceremony_mod.cmd_target)
+    p_ctw = ct_sub.add_parser("show", help="print the current ceremony target")
+    p_ctw.set_defaults(func=ceremony_mod.cmd_target)
+    p_ctc = ct_sub.add_parser("clear", help="revert to ledgering in this checkout")
+    p_ctc.set_defaults(func=ceremony_mod.cmd_target)
 
     p_sig = sub.add_parser("signal", help="worker→orchestrator event channel (.factory/signals.jsonl)")
     sig_sub = p_sig.add_subparsers(dest="signal_command", required=True)

@@ -1497,16 +1497,28 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     # across .claude/CLAUDE.md, griller.md, planner.md, phase.py, harness.yaml).
     # It ships in Matt Pocock's skills pack, so --fix installs the pack.
     grill_me = home / ".claude" / "skills" / "grill-me"
+    grill_me_codex = home / ".codex" / "skills" / "grill-me"
     if not grill_me.is_dir() and args.fix:
         print("[fix ] installing the /grill-me skill (mattpocock/skills) ...")
         run_quiet(["npx", "-y", "skills", "add", "mattpocock/skills",
                    "-g", "--copy", "--all"])
+    # Codex loads its OWN skills dir (~/.codex/skills), not ~/.claude/skills, so
+    # mirror grill-me across: the read-only Codex cold-reader then RUNS it as a
+    # native skill, not only via the griller.md contract.
+    if (args.fix and (grill_me / "SKILL.md").is_file()
+            and not (grill_me_codex / "SKILL.md").is_file()):
+        print("[fix ] mirroring grill-me into ~/.codex/skills ...")
+        grill_me_codex.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(grill_me, grill_me_codex, dirs_exist_ok=True)
+    grill_me_ok = ((grill_me / "SKILL.md").is_file()
+                   and (grill_me_codex / "SKILL.md").is_file())
     checks.append(_check(
-        "grill-me skill",
-        grill_me.is_dir(),
-        str(grill_me) if grill_me.is_dir() else "not installed",
-        "`npx -y skills add mattpocock/skills -g --copy --all` "
-        "(the /grill-me grill skill the plan/task gates require) — or rerun with --fix",
+        "grill-me skill (both runtimes)",
+        grill_me_ok,
+        "installed" if grill_me_ok else "not installed",
+        "`npx -y skills add mattpocock/skills -g --copy --all`, then mirror it "
+        "into ~/.codex/skills/grill-me so Codex loads it (the grill skill the "
+        "plan/task gates require) — or rerun with --fix",
     ))
 
     # Merge gate: scaffold-check must be a REQUIRED status check on the
@@ -1561,19 +1573,45 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             required=False,
         ))
 
-    ponytail_cache = home / ".claude" / "plugins" / "cache"
+    # ponytail is the minimal-diff coding discipline EVERY code writer/editor
+    # follows. It ships as a plugin repo, but the skill itself is
+    # skills/ponytail/SKILL.md — install THAT into BOTH runtimes' skill dirs so
+    # Claude AND the Codex delegate load and RUN it natively (the implementer
+    # brief also inlines the same rules as the binding offline floor).
+    ponytail_homes = [home / ".claude" / "skills" / "ponytail",
+                      home / ".codex" / "skills" / "ponytail"]
 
     def ponytail_ok() -> bool:
-        return ponytail_cache.is_dir() and any(ponytail_cache.glob("*ponytail*"))
+        return all((d / "SKILL.md").is_file() for d in ponytail_homes)
+
+    if not ponytail_ok() and args.fix:
+        print("[fix ] installing the ponytail skill for both runtimes ...")
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _ = run_quiet([
+                "git", "clone", "--depth", "1",
+                "https://github.com/DietrichGebert/ponytail.git", tmp,
+            ])
+            src = Path(tmp) / "skills" / "ponytail"
+            # Gate the copy on the actual SKILL.md, not just the directory: a
+            # partial or failed clone must leave the row RED, never a
+            # half-install that reads as ready.
+            if code == 0 and (src / "SKILL.md").is_file():
+                for dest in ponytail_homes:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(src, dest, dirs_exist_ok=True)
+            else:
+                print("[warn] ponytail install failed (clone or SKILL.md "
+                      "missing) — the implementer brief still carries the "
+                      "discipline inline, but native loading is unavailable.")
 
     checks.append(_check(
-        "ponytail plugin",
+        "ponytail skill (both runtimes)",
         ponytail_ok(),
         "installed" if ponytail_ok() else "not installed",
-        "`claude plugin marketplace add https://github.com/DietrichGebert/ponytail && "
-        "claude plugin install ponytail@ponytail` "
-        "(prototype phase 0b only — see harness.yaml)",
-        required=False,
+        "clone https://github.com/DietrichGebert/ponytail and copy skills/ponytail "
+        "into ~/.claude/skills/ AND ~/.codex/skills/ so both runtimes load it "
+        "(the minimal-diff coding discipline every implementer follows) — "
+        "or rerun with --fix",
     ))
 
     width = max(len(c["name"]) for c in checks)
