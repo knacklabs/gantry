@@ -6,14 +6,9 @@ import {
   publicGantryToolNameForSdkTool,
   RUN_COMMAND_TOOL_NAME,
 } from '../../shared/agent-tool-references.js';
-import {
-  normalizeBashLeafRuleContent,
-  nonDurableBashLeafReason,
-  parseBashCommand,
-} from '../../shared/bash-command-parser.js';
 import { containsGeneratedRuntimeSkillPath } from '../../shared/generated-runtime-paths.js';
+import { synthesizeFamilyRunCommandRuleContents } from '../../shared/family-rule-synthesis.js';
 import { permissionUpdateAllowedToolRules } from '../../shared/permission-tool-rules.js';
-import { normalizeRuntimeOwnedBashCommandForMatching } from '../../shared/tool-rule-matcher.js';
 import { validatePersistentRule } from './permission-management-service.js';
 
 export function synthesizeHostPermissionSuggestions(
@@ -66,26 +61,7 @@ function commandRules(toolInput: unknown): string[] {
   if (typeof command !== 'string') return [];
   const rawCommand = command.trim();
   if (containsGeneratedRuntimeSkillPath(rawCommand)) return [];
-  const normalized = normalizeRuntimeOwnedBashCommandForMatching(rawCommand);
-  if (!normalized || normalized.length > 2_048) return [];
-  const parsed = parseBashCommand(normalized);
-  if (!parsed.ok) return [];
-  if (parsed.piped) return [];
-  if (
-    parsed.leaves.some(
-      (leaf) =>
-        leaf.redirects.some((redirect) => redirect.destructive) ||
-        Boolean(nonDurableBashLeafReason(leaf)),
-    )
-  ) {
-    return [];
-  }
-  return [
-    ...new Set(
-      parsed.leaves.flatMap((leaf) => {
-        const rule = normalizeBashLeafRuleContent(leaf);
-        return rule ? [`${RUN_COMMAND_TOOL_NAME}(${rule})`] : [];
-      }),
-    ),
-  ];
+  return synthesizeFamilyRunCommandRuleContents(rawCommand).map(
+    (rule) => `${RUN_COMMAND_TOOL_NAME}(${rule})`,
+  );
 }

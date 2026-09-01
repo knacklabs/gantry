@@ -429,18 +429,25 @@ export function createInlineCoreTools(
               workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
               reviewedMcpReadBindings,
               yoloMode: permissionSettings.permissions.yoloMode,
-              suggestions,
+              suggestions: request.suggestions,
               ...(promotion ? { promotion } : {}),
               classifierConfig: permissionRuntimeConfig,
               signal: context?.signal,
               publishRuntimeEvent: deps.publishRuntimeEvent,
               classifierConsult: deps.classifierConsult,
             });
-            if (classifierDecision?.decision === 'allow')
+            if (
+              classifierDecision?.decision === 'allow' &&
+              !request.decisionOptions?.length
+            )
               // prettier-ignore
               return decisionForMode(request, 'allow_once', 'auto_classifier', 'machine');
           }
-          if (run.permissionMode !== 'ask' && run.isScheduledJob === true) {
+          if (
+            !request.decisionOptions?.length &&
+            run.permissionMode !== 'ask' &&
+            run.isScheduledJob === true
+          ) {
             return {
               ...decisionForMode(request, 'cancel', 'runtime', 'machine'),
               reason: classifierDecision
@@ -450,7 +457,7 @@ export function createInlineCoreTools(
           }
           const effectiveSuggestions = classifierDecision?.denylistHit
             ? undefined
-            : suggestions;
+            : request.suggestions;
           const promotionHintCount = classifierDecision?.denylistHit
             ? undefined
             : (classifierDecision?.promotionHintCount ??
@@ -460,11 +467,11 @@ export function createInlineCoreTools(
                 agentFolder: laneInput.group.folder,
                 canonicalToolName: name,
                 toolInput,
-                suggestions,
+                suggestions: effectiveSuggestions,
               })));
           request.suggestions = effectiveSuggestions;
           request.promotionHintCount = promotionHintCount;
-          request.decisionOptions = effectiveSuggestions
+          request.decisionOptions ??= effectiveSuggestions
             ? promotionHintCount
               ? ['allow_persistent_rule', 'allow_once', 'cancel']
               : ['allow_once', 'allow_persistent_rule', 'cancel']

@@ -1823,7 +1823,7 @@ describe('agent-runner IPC lifecycle', () => {
               rules: [
                 {
                   toolName: 'RunCommand',
-                  ruleContent: 'npm test --runInBand',
+                  ruleContent: 'npm *',
                 },
               ],
             },
@@ -2378,7 +2378,7 @@ describe('agent-runner IPC lifecycle', () => {
           rules: [
             {
               toolName: 'RunCommand',
-              ruleContent: 'npm test',
+              ruleContent: 'npm *',
             },
           ],
         },
@@ -3041,7 +3041,7 @@ describe('agent-runner IPC lifecycle', () => {
           rules: [
             {
               toolName: 'RunCommand',
-              ruleContent: 'npm test',
+              ruleContent: 'npm *',
             },
           ],
         },

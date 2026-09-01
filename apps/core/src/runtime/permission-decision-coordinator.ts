@@ -27,6 +27,9 @@ export type DeterministicPermissionRails = (
   input: PermissionDeterministicRailsInput,
 ) => PermissionDeterministicRailDecision | undefined;
 
+export const FAMILY_RULE_RAIL_HIT_REASON =
+  'A command-family grant matched, but deterministic safety rails require approval for this exact command.';
+
 export interface CoordinatePermissionDecisionInput {
   request: PermissionApprovalRequest;
   hardDenyReason?: string;
@@ -85,7 +88,10 @@ export async function coordinatePermissionDecision(
     typeof input.reviewedRuleDecision === 'function'
       ? await input.reviewedRuleDecision()
       : input.reviewedRuleDecision;
-  if (reviewedRuleDecision?.status === 'allow') {
+  if (
+    reviewedRuleDecision?.status === 'allow' &&
+    reviewedRuleDecision.isFamilyRule !== true
+  ) {
     input.request.decisionReason = reviewedRuleDecision.reason;
     return {
       ...decisionForMode(
@@ -97,7 +103,7 @@ export async function coordinatePermissionDecision(
       reason: reviewedRuleDecision.reason,
     };
   }
-  if (reviewedRuleDecision) {
+  if (reviewedRuleDecision && reviewedRuleDecision.status !== 'allow') {
     input.request.decisionReason = reviewedRuleDecision.reason;
     input.request.closestRule = reviewedRuleDecision.closestRule;
   }
@@ -108,6 +114,27 @@ export async function coordinatePermissionDecision(
     ...input.deterministicRailsInput,
   };
   const railDecision = railFn(railsInput);
+  if (reviewedRuleDecision?.status === 'allow') {
+    if (!railDecision) {
+      input.request.decisionReason = reviewedRuleDecision.reason;
+      return {
+        ...decisionForMode(
+          input.request,
+          'allow_once',
+          'reviewed_rule',
+          'machine',
+        ),
+        reason: reviewedRuleDecision.reason,
+      };
+    }
+    if (railDecision.railOutcome === 'ask') {
+      input.request.suggestions = [];
+      input.request.decisionOptions = ['allow_once', 'cancel'];
+      input.request.decisionReason = `${FAMILY_RULE_RAIL_HIT_REASON} ${railDecision.reason}`;
+      return input.tail();
+    }
+    return railDecision;
+  }
   // Rails re-run on EVERY call, BEFORE any cache read (re-run-every-hit): a
   // deny/allow floor wins unchanged, and an ask-floor overrides even a cached
   // allow — so the cache is consulted ONLY when rails fall through entirely.

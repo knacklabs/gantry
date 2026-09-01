@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0137-055e",
+  "profile": "degraded",
+  "reason": "CARDSIMPLE-1-T1 autoreview round-4 P1: absolute family executables must be POSITIVELY literal \u2014 argv0 tokens containing shell expansions/substitutions (/$TOOL, braces, backticks) are rejected before minting or admitting a family, since they resolve per-environment to different binaries and blind the rails.",
+  "started_at": "2026-09-01T04:57:37+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

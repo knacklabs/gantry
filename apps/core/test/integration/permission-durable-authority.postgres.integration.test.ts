@@ -306,15 +306,16 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
     );
   }
 
-  it('allow_persistent_rule persists the exact argv-leaf rule via the settings mirror, auto-allows only that leaf for only that agent, and survives restart reconciliation', async () => {
+  it('allow_persistent_rule persists the family rule via the settings mirror, auto-allows the argv0 family for only that agent, and survives restart reconciliation', async () => {
     const command = '/usr/local/bin/report-status --daily';
     const request = makeRequest('req-perm-durable-future', command);
     const [expectedRule] = permissionUpdateAllowedToolRules(
       request.suggestions,
     );
-    // The EXACT rule derived from the input command: a regression that widens
-    // it (e.g. `RunCommand(/usr/local/bin/report-status *)`) fails here.
-    expect(expectedRule).toBe(`RunCommand(${command})`);
+    // The FAMILY rule derived from the input command (CARDSIMPLE-1, decision
+    // 0152): a regression that narrows it back to the exact argv
+    // (e.g. `RunCommand(/usr/local/bin/report-status --daily)`) fails here.
+    expect(expectedRule).toBe('RunCommand(/usr/local/bin/report-status *)');
 
     // Precondition: nothing allows this command before the decision, even
     // after a full restart reconciliation.
@@ -359,16 +360,16 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
     });
     expect(evaluation.allowed).toBe(true);
 
-    // Argv-leaf scope: the SAME executable with different arguments is still
-    // not allowed (the rule is not an executable-wide grant)...
+    // Family scope: the SAME executable with different arguments is now
+    // ALLOWED — one Allow settles the argv0 family (CARDSIMPLE-1's feature)...
     expect(
       evaluateAutonomousToolUse({
         rules: rules ?? [],
         toolName: 'Bash',
         toolInput: { command: '/usr/local/bin/report-status --monthly' },
       }).allowed,
-    ).toBe(false);
-    // ...and neither is a different executable.
+    ).toBe(true);
+    // ...but a different executable is still not allowed.
     expect(
       evaluateAutonomousToolUse({
         rules: rules ?? [],

@@ -636,7 +636,7 @@ function normalizeScriptLeafRuleContent(
   return `${normalizeBashArg(scriptArg)} *`;
 }
 
-function isPythonScriptPath(value: string): boolean {
+export function isPythonScriptPath(value: string): boolean {
   return value.endsWith('.py');
 }
 

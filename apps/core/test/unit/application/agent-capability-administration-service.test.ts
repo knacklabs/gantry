@@ -534,11 +534,8 @@ describe('AgentCapabilityAdministrationService', () => {
     );
   });
 
-  it('rejects broad and secret-bearing RunCommand selections', async () => {
+  it('rejects secret-bearing RunCommand selections', async () => {
     for (const capabilityId of [
-      'RunCommand(npm *)',
-      'RunCommand(curl *)',
-      'RunCommand(git *)',
       'RunCommand(skills/poster/post.py --token sk-abcdefghij0123456789abcd)',
       'RunCommand(/tmp/run/.llm-runtime/claude/skills/poster/post.py *)',
     ]) {

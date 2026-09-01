@@ -29,6 +29,7 @@ import {
   containsGeneratedRuntimeSkillPath,
   GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
 } from './generated-runtime-paths.js';
+import { isFamilyRunCommandRuleContent } from './family-rule-synthesis.js';
 import type { SemanticCapabilityDefinition } from './semantic-capabilities.js';
 import { parseSemanticCapabilityRule } from './semantic-capability-ids.js';
 import {
@@ -216,9 +217,11 @@ export function validateDurableAccessRule(
     if (wildcardSensitiveReason) {
       return { ok: false, reason: wildcardSensitiveReason };
     }
-    const broadCommandReason = parsed.leaves
-      .map(broadPersistentRunCommandReason)
-      .find((reason): reason is string => Boolean(reason));
+    const broadCommandReason = isFamilyRunCommandRuleContent(scoped.scope)
+      ? undefined
+      : parsed.leaves
+          .map(broadPersistentRunCommandReason)
+          .find((reason): reason is string => Boolean(reason));
     if (broadCommandReason) {
       return {
         ok: false,

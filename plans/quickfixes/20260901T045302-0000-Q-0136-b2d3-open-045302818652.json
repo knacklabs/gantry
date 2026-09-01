@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0136-b2d3",
+  "profile": "degraded",
+  "reason": "CARDSIMPLE-1-T1 autoreview round-3 P1: the SDK-supplied fallback must be all-or-nothing \u2014 one rule array describes one request, so any supplied content the shared synthesizer rejects (pipe/exclusion) suppresses Allow for the WHOLE set instead of leaf-filtering.",
+  "started_at": "2026-09-01T04:53:02+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

@@ -1216,27 +1216,35 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
   });
 
-  it('rejects broad durable request_access run_command fallbacks before queuing review', async () => {
+  it('submits durable family request_access run_command reviews', async () => {
     const fixture = createMcpFixture();
 
-    const result = await runMcpFixture(
-      fixture,
-      'request_access',
-      {
-        target: { kind: 'run_command', argvPattern: 'gh *' },
-        reason: 'Run GitHub commands on schedule.',
-      },
-      { TEST_MCP_AUTO_RESPOND_TASKS: '0' },
-    );
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'run_command', argvPattern: 'gh *' },
+      reason: 'Run GitHub commands on schedule.',
+    });
 
     expect(result.exitCode, result.stderr).toBe(0);
-    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.isError).toBe(true);
-    expect(record.result.content[0].text).toContain(
-      'Invalid durable run_command access request',
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
     );
-    const taskDir = path.join(fixture.ipcDir, 'tasks');
-    expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      targetJid: 'tg:team',
+      chatJid: 'tg:team',
+      payload: {
+        permissionKind: 'tool',
+        toolName: 'RunCommand',
+        rule: 'gh *',
+        temporaryOnly: false,
+        reason: 'Run GitHub commands on schedule.',
+      },
+    });
   });
 
   it('shows selected MCP capabilities as ready sources', async () => {

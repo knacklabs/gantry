@@ -36,6 +36,7 @@ import {
   autonomousBashAuthorityAddition,
   autonomousBashRecoveryMessage,
 } from './autonomous-bash-recovery-rule.js';
+import { matchedFamilyRule as familyMatch } from './family-rule-synthesis.js';
 
 export type ToolExecutionOrigin =
   | 'sdk'
@@ -102,6 +103,7 @@ export interface ToolPolicyDecision {
   };
   recoveryAction?: string;
   matchedRule?: string;
+  isFamilyRule?: true;
   closestRule?: {
     rule: string;
     reason: string;
@@ -222,6 +224,7 @@ export class ToolExecutionPolicyService {
             ? `Allowed by selected capability ${capabilityId}.`
             : `Allowed by autonomous tool rule ${toolPolicy.matchedRule}.`,
           matchedRule: toolPolicy.matchedRule,
+          isFamilyRule: familyMatch(toolPolicy, resolved.capabilityByRule),
         });
       }
       return decision(input.request, 'deny', {
@@ -253,6 +256,7 @@ export class ToolExecutionPolicyService {
             ? `Allowed by selected capability ${capabilityId}.`
             : `Allowed by selected capability rule ${toolPolicy.matchedRule}.`,
           matchedRule: toolPolicy.matchedRule,
+          isFamilyRule: familyMatch(toolPolicy, resolved.capabilityByRule),
         });
       }
       return decision(input.request, 'not_applicable', {
@@ -468,6 +472,7 @@ function decision(
     reason: string;
     recoveryAction?: string;
     matchedRule?: string;
+    isFamilyRule?: true;
     closestRule?: ToolPolicyDecision['closestRule'];
   },
 ): ToolPolicyDecision {
@@ -490,6 +495,7 @@ function decision(
       ? { recoveryAction: options.recoveryAction }
       : {}),
     ...(options.matchedRule ? { matchedRule: options.matchedRule } : {}),
+    ...(options.isFamilyRule ? { isFamilyRule: true } : {}),
     ...(options.closestRule ? { closestRule: options.closestRule } : {}),
   };
 }

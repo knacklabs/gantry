@@ -26,9 +26,7 @@ describe('host permission suggestion synthesis', () => {
         type: 'addRules',
         behavior: 'allow',
         destination: 'session',
-        rules: [
-          { toolName: 'RunCommand', ruleContent: 'npm test -- --runInBand' },
-        ],
+        rules: [{ toolName: 'RunCommand', ruleContent: 'npm *' }],
       },
     ]);
     expect(
@@ -61,6 +59,6 @@ describe('host permission suggestion synthesis', () => {
           command: 'npm test && git status',
         }),
       ),
-    ).toEqual(['RunCommand(npm test)', 'RunCommand(git status)']);
+    ).toEqual(['RunCommand(npm *)', 'RunCommand(git *)']);
   });
 });

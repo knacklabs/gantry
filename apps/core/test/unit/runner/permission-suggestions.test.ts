@@ -62,16 +62,83 @@ describe('scheduledPermissionSuggestions', () => {
             rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
           },
         ],
-        {},
+        { toolInput: { command: 'npm test' } },
       ),
     ).toEqual([
       {
         type: 'addRules',
         behavior: 'allow',
         destination: 'session',
-        rules: [{ toolName: 'RunCommand', ruleContent: 'npm test' }],
+        rules: [{ toolName: 'RunCommand', ruleContent: 'npm *' }],
       },
     ]);
+  });
+
+  it('offers no persistent suggestion when the SDK suggestion is the only command representation', () => {
+    // No inspectable exact command ⇒ no durable family may be offered
+    // (autoreview rounds 2-5, windows Q-0134..Q-0138): the request still
+    // asks and Allow-once remains available.
+    expect(
+      scheduledPermissionSuggestions(
+        'Bash',
+        [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+          },
+        ],
+        {},
+      ),
+    ).toBeUndefined();
+    // A REJECTED present command cannot be resurrected by a paired safe SDK
+    // suggestion (autoreview round 2): the pipe boundary holds.
+    expect(
+      scheduledPermissionSuggestions(
+        'Bash',
+        [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+          },
+        ],
+        { toolInput: { command: 'npm test | tee report.txt' } },
+      ),
+    ).toBeUndefined();
+    // A MIXED supplied set is all-or-nothing (autoreview round 3): one bad
+    // command suppresses Allow for the whole request.
+    expect(
+      scheduledPermissionSuggestions(
+        'Bash',
+        [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [
+              { toolName: 'Bash', ruleContent: 'npm test | tee out' },
+              { toolName: 'Bash', ruleContent: 'echo ok' },
+            ],
+          },
+        ],
+        {},
+      ),
+    ).toBeUndefined();
+    // A supplied pipe with no toolInput still yields nothing.
+    expect(
+      scheduledPermissionSuggestions(
+        'Bash',
+        [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'Bash', ruleContent: 'npm test | tee out' }],
+          },
+        ],
+        {},
+      ),
+    ).toBeUndefined();
   });
 
   it('offers a persistent suggestion for an exact non-authority Gantry tool', () => {
@@ -174,9 +241,7 @@ describe('scheduledPermissionSuggestions', () => {
         type: 'addRules',
         behavior: 'allow',
         destination: 'session',
-        rules: [
-          { toolName: 'RunCommand', ruleContent: 'npm test -- --runInBand' },
-        ],
+        rules: [{ toolName: 'RunCommand', ruleContent: 'npm *' }],
       },
     ]);
 
@@ -195,7 +260,7 @@ describe('scheduledPermissionSuggestions', () => {
         rules: [
           {
             toolName: 'RunCommand',
-            ruleContent: '/opt/homebrew/bin/acme records get leads --json',
+            ruleContent: '/opt/homebrew/bin/acme *',
           },
         ],
       },
