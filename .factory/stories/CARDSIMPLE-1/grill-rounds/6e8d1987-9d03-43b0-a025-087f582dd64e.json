@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Requirements grill (cold-read finding 3) \u2014 the rails-before-rules ordering change: apply it ONLY to the new family rules, or to every reviewed rule? Either way the new decision record explicitly amends 0121/0144's approval-permanence wording for the rail-hit case.",
+      "options": [
+        "Family matches only (Recommended)",
+        "All reviewed rules"
+      ],
+      "chosen": "Family matches only (Recommended)"
+    },
+    {
+      "question": "Requirements grill (cold-read finding 4) \u2014 late DENY (tap after the run died): what does the card do?",
+      "options": [
+        "Denial receipt + keep Reconsider (Recommended)",
+        "Same as late Allow"
+      ],
+      "chosen": "Denial receipt + keep Reconsider (Recommended)"
+    }
+  ],
+  "at": "2026-09-01T00:17:16.084443+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

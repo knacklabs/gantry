@@ -1,0 +1,51 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "issue": "CARDSIMPLE-1",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "gaps": [
+    "Cold-read (terra@xhigh, plans/exploration/cardsimple-1-req-grill.md) findings: stale notified_fingerprint locator; AC1 vocabulary did not match the real JobSetupActionShape union; rails-ordering conflicted with 0121/0144 approval permanence without an explicit amendment and with ambiguous scope; late Deny contradicted the one-receipt rule vs 0144 Reconsider; delivery-exhaustion retry was underspecified vs 0124; AC1 lacked approver-route-exclusivity and durable-identity-through-recovery cases; Not-in-scope did not exclude non-job cards."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Locator fixed (execution-readiness.ts:245).",
+    "AC1 matrix redefined over the real unions: action shapes approve_grant|fix_proposal|instruction x blocker types tool/credential/browser/MCP/local-CLI; compound is a RunCommand content case.",
+    "RULED (round): rails precede ONLY RunCommand family-rule matches; exact reviewed rules and capability grants unchanged; the new decision record explicitly amends 0121/0144 approval-permanence wording for the family rail-hit case.",
+    "RULED (round): late Deny = one denial receipt, no Run now, denied row stays/re-renders with one-tap Reconsider (0144 shape); late Allow keeps receipt + Run now.",
+    "Delivery keeps 0124 bounded automatic retries; post-exhaustion recovery is operator-initiated under the SAME durable prompt identity.",
+    "AC1 gains non-approver-routes-silent and one-identity-through-recovery cases; Not-in-scope now excludes non-job/live-chat permission cards."
+  ],
+  "rounds": [
+    {
+      "question": "Requirements grill (cold-read finding 4) \u2014 late DENY (tap after the run died): what does the card do?",
+      "options": [
+        "Denial receipt + keep Reconsider (Recommended)",
+        "Same as late Allow"
+      ],
+      "chosen": "Denial receipt + keep Reconsider (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "JobSetupActionShape union is approve_grant|fix_proposal|instruction; blocker types are a separate axis",
+      "source": "apps/core/src/shared/job-setup-action.ts:17; apps/core/src/domain/job-types.ts:74"
+    },
+    {
+      "finding": "notified_fingerprint write moved",
+      "source": "apps/core/src/jobs/execution-readiness.ts:245"
+    },
+    {
+      "finding": "reviewed-rule matches return before rails today",
+      "source": "apps/core/src/runtime/permission-decision-coordinator.ts:84"
+    },
+    {
+      "finding": "bounded delivery contract",
+      "source": "docs/decisions/0124-bounded-durable-card-delivery.md"
+    }
+  ],
+  "input_sha256": "92bf3de128f94e16941583b7d05c5c06bf1ce9dfa5a0e50cc3b7bc485a749a16",
+  "recorded_at": "2026-09-01T02:43:33+00:00",
+  "commit": "da7acd33dfa5531f81f374969eb899728305f34d"
+}

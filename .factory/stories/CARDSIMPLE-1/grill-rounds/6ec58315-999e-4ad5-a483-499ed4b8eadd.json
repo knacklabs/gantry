@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Plan grill convergence \u2014 round 2's three contradictions are fixed (family-only rails algorithm explicit, the two `once` cases, 0134 recorded accepted) and the round-3 terra cold-read returned CLEAN. Approve the CARDSIMPLE-1 plan (T1 family grants \u2225 T2 canonical card \u2192 T3 late tap) so I record the grill, save the plan, and cut the decomposition?",
+      "options": [
+        "Approve \u2014 go (Recommended)",
+        "I have a note"
+      ],
+      "chosen": "Approve \u2014 go (Recommended)"
+    }
+  ],
+  "at": "2026-09-01T02:42:40.426486+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

@@ -2497,7 +2497,7 @@
         "suites, tsc and architecture green"
       ],
       "order": 115,
-      "status": "pending",
+      "status": "active",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
@@ -2506,5 +2506,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-31T18:35:43+00:00"
+  "updated_at": "2026-08-31T20:34:04+00:00"
 }
