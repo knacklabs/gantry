@@ -352,7 +352,7 @@ maybeDescribe('session interaction response API (Postgres)', () => {
     const [expectedRule] = permissionUpdateAllowedToolRules(
       request.suggestions,
     );
-    expect(expectedRule).toBe(`RunCommand(${command})`);
+    expect(expectedRule).toBe('RunCommand(/usr/local/bin/report-status *)');
     await drivePendingPermission(request);
 
     const result = await respond('req-iresp-future', 'allow_future');
