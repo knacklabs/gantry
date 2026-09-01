@@ -24,6 +24,7 @@ import {
 } from '../shared/semantic-capabilities.js';
 import { parseSemanticCapabilityRule } from '../shared/semantic-capability-ids.js';
 import { firstPersistentRule } from '../domain/permission-decision.js';
+import { isFamilyRunCommandRule } from '../shared/family-rule-synthesis.js';
 import {
   buildPermissionPromptFullView,
   formatInteractionDetailLine as formatPromptInteractionDetailLine,
@@ -124,6 +125,8 @@ export function formatPermissionPromptText(
     lines.push(
       `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
     );
+  const familyScopeLine = familyScopeCoverageLine(request);
+  if (familyScopeLine) lines.push(familyScopeLine);
   lines.push('', ...formatPermissionContextLines(request));
   lines.push(permissionPromptWaitLine(Boolean(request.jobId), timeoutMinutes));
   return limitPermissionMessage(lines.join('\n'));
@@ -438,6 +441,8 @@ function formatInteractionPermissionPrompt(
       ),
     );
   }
+  const familyScopeLine = familyScopeCoverageLine(request);
+  if (familyScopeLine) lines.push(familyScopeLine);
   lines.push('', ...formatPermissionContextLines(request));
   lines.push(permissionPromptWaitLine(Boolean(request.jobId), timeoutMinutes));
   return limitPermissionMessage(
@@ -474,6 +479,8 @@ function formatSemanticPermissionPrompt(
   }
   const networkLine = semanticCapabilityNetworkLine(definition);
   if (networkLine) lines.push(networkLine);
+  const familyScopeLine = familyScopeCoverageLine(request);
+  if (familyScopeLine) lines.push(familyScopeLine);
   lines.push('', ...formatPermissionContextLines(request));
   lines.push(permissionPromptWaitLine(Boolean(request.jobId), timeoutMinutes));
   return limitPermissionMessage(lines.join('\n'));
@@ -635,6 +642,21 @@ function userFacingToolLabel(toolName: string | undefined): string | undefined {
     return `${humanizeMcpServerName(publicName)} tool access`;
   }
   return undefined;
+}
+
+// The immediate action shows the exact command, but "Allow for future"
+// persists the broader command-family rule - say so on the card instead of
+// widening authority silently. Null for non-family rules, so non-command and
+// semantic prompts are untouched.
+function familyScopeCoverageLine(
+  request: PermissionApprovalRequest,
+): string | null {
+  if (!permissionCommand(request)) return null;
+  const rule = firstPersistentRule(request);
+  if (!rule || !isFamilyRunCommandRule(rule)) return null;
+  const scoped = parseReadableScopedToolRule(rule);
+  if (!scoped) return null;
+  return `Allow for future covers: ${sanitizePermissionText(scoped.scope, 120, 40)}`;
 }
 
 function permissionCommand(request: PermissionApprovalRequest): string | null {
