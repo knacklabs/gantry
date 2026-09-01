@@ -7,7 +7,6 @@ import type {
   JobSemanticCheckpointPayload,
   JobSemanticCheckpointRepository,
 } from '../../../../domain/ports/job-semantic-checkpoints.js';
-import { JOB_SEMANTIC_CHECKPOINT_MILESTONES } from '../../../../domain/ports/job-semantic-checkpoints.js';
 import { jobArtifactScope } from '../../../../domain/ports/job-semantic-checkpoints.js';
 import { stableSha256Json } from '../../../../shared/stable-hash.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
@@ -17,18 +16,9 @@ import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 type CheckpointRow =
   typeof pgSchema.jobSemanticCheckpointsPostgres.$inferSelect;
 
-const MILESTONES = new Set<string>(JOB_SEMANTIC_CHECKPOINT_MILESTONES);
 const MAX_ARTIFACT_REFS = 64;
 const MAX_SAFE_PHASE_CHARS = 120;
 const MAX_NEXT_ACTION_CHARS = 2_000;
-const REQUIRED_ARTIFACT_KINDS: Partial<
-  Record<JobSemanticCheckpointMilestone, readonly string[]>
-> = {
-  inventory_completed: ['observation_inventory'],
-  candidate_created: ['recipe_candidate'],
-  candidate_repaired: ['recipe_candidate'],
-  test_plan_created: ['observation_inventory', 'recipe_candidate', 'test_plan'],
-};
 
 export class InvalidJobSemanticCheckpointError extends Error {
   constructor(message: string) {
@@ -59,9 +49,9 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
     payload: JobSemanticCheckpointPayload;
     now?: string;
   }): Promise<AppendJobSemanticCheckpointResult> {
-    if (!MILESTONES.has(input.milestone)) {
+    if (!/^[a-z][a-z0-9_.-]{0,119}$/u.test(input.milestone)) {
       throw new InvalidJobSemanticCheckpointError(
-        `Unsupported semantic checkpoint milestone: ${input.milestone}`,
+        `Invalid semantic checkpoint milestone: ${input.milestone}`,
       );
     }
     let payload = normalizePayload(input.payload);
@@ -159,8 +149,6 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
         return { outcome: 'sequence_conflict', latestSequence };
       }
 
-      assertMilestoneArtifacts(input.milestone, payload);
-
       const sequence = latestSequence + 1;
       const payloadHash = checkpointHash({
         id: input.id,
@@ -230,19 +218,11 @@ export class PostgresJobSemanticCheckpointRepository implements JobSemanticCheck
 }
 
 export function assertMilestoneArtifacts(
-  milestone: JobSemanticCheckpointMilestone,
-  payload: JobSemanticCheckpointPayload,
+  _milestone: JobSemanticCheckpointMilestone,
+  _payload: JobSemanticCheckpointPayload,
 ): void {
-  const requiredKinds = REQUIRED_ARTIFACT_KINDS[milestone] ?? [];
-  const actualKinds = new Set(
-    payload.artifactRefs.map((reference) => reference.kind),
-  );
-  const missingKinds = requiredKinds.filter((kind) => !actualKinds.has(kind));
-  if (missingKinds.length > 0) {
-    throw new InvalidJobSemanticCheckpointError(
-      `${milestone} requires immutable artifact kinds: ${missingKinds.join(', ')}.`,
-    );
-  }
+  // Product-specific artifact closure is validated by the registered
+  // checkpoint schema and the owning external capability/compiler.
 }
 
 function jobScopeClause(input: {
@@ -381,7 +361,7 @@ function checkpointHash(
 }
 
 function toCheckpoint(row: CheckpointRow): JobSemanticCheckpoint {
-  if (!MILESTONES.has(row.milestone)) {
+  if (!/^[a-z][a-z0-9_.-]{0,99}$/u.test(row.milestone)) {
     throw new CorruptJobSemanticCheckpointError(row.id);
   }
   const payload = normalizePayload(

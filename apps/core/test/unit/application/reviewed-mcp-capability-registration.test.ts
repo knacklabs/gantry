@@ -132,4 +132,84 @@ describe('reviewed MCP capability registration', () => {
       }),
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
   });
+
+  it('allows an explicitly versioned forward contract upgrade', async () => {
+    const current = { ...capability, version: '2' };
+    const next = { ...capability, version: '3', can: 'Read reviewed public websites.' };
+    const existing = {
+      id: 'tool:capability:firecrawl.scrape',
+      appId: 'manipal',
+      name: 'capability:firecrawl.scrape',
+      status: 'active',
+      selectable: true,
+      inputSchema: {
+        format: 'gantry.semantic-capability.v1',
+        schema: current,
+      },
+    };
+    const saveTool = vi.fn(async (value) => value);
+    const tools = {
+      listTools: vi.fn(async () => [existing]),
+      saveTool,
+    } as unknown as ToolCatalogRepository;
+    const mcpServers = {
+      getServerByName: vi.fn(async () => ({
+        id: 'mcp:firecrawl',
+        appId: 'manipal',
+        name: 'firecrawl',
+        status: 'active',
+        allowedToolPatterns: ['firecrawl_scrape'],
+      })),
+      appendAuditEvent: vi.fn(),
+    } as unknown as McpServerRepository;
+
+    await expect(
+      registerReviewedMcpCapability({
+        appId: 'manipal' as never,
+        capability: next,
+        repositories: { mcpServers, tools },
+        now: '2026-08-29T00:00:00.000Z',
+      }),
+    ).resolves.toMatchObject({
+      inputSchema: { schema: { version: '3' } },
+    });
+    expect(saveTool).toHaveBeenCalledOnce();
+  });
+
+  it('keeps same-version contract mutation immutable', async () => {
+    const current = { ...capability, version: '2' };
+    const existing = {
+      id: 'tool:capability:firecrawl.scrape',
+      appId: 'manipal',
+      name: 'capability:firecrawl.scrape',
+      status: 'active',
+      selectable: true,
+      inputSchema: {
+        format: 'gantry.semantic-capability.v1',
+        schema: current,
+      },
+    };
+    const tools = {
+      listTools: vi.fn(async () => [existing]),
+    } as unknown as ToolCatalogRepository;
+    const mcpServers = {
+      getServerByName: vi.fn(async () => ({
+        id: 'mcp:firecrawl',
+        appId: 'manipal',
+        name: 'firecrawl',
+        status: 'active',
+        allowedToolPatterns: ['firecrawl_scrape'],
+      })),
+      appendAuditEvent: vi.fn(),
+    } as unknown as McpServerRepository;
+
+    await expect(
+      registerReviewedMcpCapability({
+        appId: 'manipal' as never,
+        capability: { ...current, can: 'Changed without a version bump.' },
+        repositories: { mcpServers, tools },
+        now: '2026-08-29T00:00:00.000Z',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
 });

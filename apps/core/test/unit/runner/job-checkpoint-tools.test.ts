@@ -59,6 +59,25 @@ const checkpoint = {
   cumulativeRuntimeMs: 1_000,
 };
 
+const captchaInteraction = () => ({
+  toolName: 'website_recipe_request_human',
+  toolInput: {
+    version: 2,
+    requestId: 'request-1',
+    attemptId: 'attempt-1',
+    type: 'captcha',
+    reason: 'Automatic attempts exhausted.',
+    checkpointRef: null,
+    automaticAttemptEvidenceRef: null,
+    permissionScope: { origin: null, methods: [] },
+    evidenceRefs: [],
+  },
+  browserChallenge: {
+    challengeId: 'captcha-1',
+    answerResultField: 'humanAnswer',
+  },
+});
+
 describe('job checkpoint MCP tools', () => {
   beforeEach(() => {
     waitForTaskResponse.mockReset();
@@ -66,11 +85,16 @@ describe('job checkpoint MCP tools', () => {
     submitTaskLifecycleDataRequest.mockReset();
     settleCaptchaChallenge.mockReset();
     captchaEvidenceForChallenge.mockReset();
-    captchaEvidenceForChallenge.mockReturnValue(null);
+    captchaEvidenceForChallenge.mockReturnValue({
+      challengeId: 'captcha-1',
+      challengeFingerprint: `sha256:${'a'.repeat(64)}`,
+      screenshotEvidenceRef: 'file-artifact:image',
+      automaticAttemptEvidenceRef: 'file-artifact:attempt',
+    });
     handleFileToolAction.mockReset();
   });
 
-  it('defaults protocol bookkeeping for an agent-authored CAPTCHA interaction', () => {
+  it('accepts an opaque caller-tool payload with an optional browser binding', () => {
     const server = new TestMcpServer();
     registerJobCheckpointTools(server as never);
     const schema = z.object(
@@ -79,34 +103,42 @@ describe('job checkpoint MCP tools', () => {
 
     const parsed = schema.parse({
       ...checkpoint,
-      humanInteraction: {
-        requestId: 'request-1',
-        attemptId: 'attempt-1',
-        type: 'captcha',
-        reason: 'Automatic attempts exhausted.',
-        captchaChallengeId: 'captcha-1',
-        challengeFingerprint: `sha256:${'a'.repeat(64)}`,
-        automaticAttemptEvidenceRef: 'file-artifact:attempt',
-        permissionScope: { origin: null, methods: [] },
-      },
+      humanInteraction: captchaInteraction(),
     });
 
-    expect(parsed.humanInteraction).toMatchObject({
-      version: 2,
-      checkpointRef: null,
-      evidenceRefs: [],
-    });
+    expect(parsed.humanInteraction).toEqual(captchaInteraction());
   });
 
-  it('rejects a non-atomic human_wait checkpoint', async () => {
+  it('accepts explicit nulls for absent generic checkpoint references', () => {
+    const server = new TestMcpServer();
+    registerJobCheckpointTools(server as never);
+    const schema = z.object(
+      server.schemas.get('job_checkpoint_save') as z.ZodRawShape,
+    );
+
+    const parsed = schema.parse({
+      ...checkpoint,
+      evaluatorInvocationRef: null,
+      pendingInteractionRef: null,
+    });
+
+    expect(parsed.evaluatorInvocationRef).toBeNull();
+    expect(parsed.pendingInteractionRef).toBeNull();
+  });
+
+  it('saves an ordinary checkpoint without opening an interaction', async () => {
+    waitForTaskResponse.mockResolvedValueOnce({
+      ok: true,
+      data: { id: 'checkpoint-2', sequence: 2, milestone: 'human_wait' },
+    });
     const server = new TestMcpServer();
     registerJobCheckpointTools(server as never);
 
     const result = await server.tools.get('job_checkpoint_save')?.(checkpoint);
 
     expect(result.isError).not.toBe(true);
-    expect(JSON.stringify(result)).toContain('retryable');
-    expect(writeIpcFile).not.toHaveBeenCalled();
+    expect(writeIpcFile).toHaveBeenCalledOnce();
+    expect(submitTaskLifecycleDataRequest).not.toHaveBeenCalled();
   });
 
   it('creates the typed interaction and settles CAPTCHA without exposing the answer', async () => {
@@ -126,19 +158,7 @@ describe('job checkpoint MCP tools', () => {
 
     const result = await server.tools.get('job_checkpoint_save')?.({
       ...checkpoint,
-      humanInteraction: {
-        version: 2,
-        requestId: 'request-1',
-        attemptId: 'attempt-1',
-        type: 'captcha',
-        reason: 'Automatic attempts exhausted.',
-        checkpointRef: null,
-        captchaChallengeId: 'captcha-1',
-        challengeFingerprint: `sha256:${'a'.repeat(64)}`,
-        automaticAttemptEvidenceRef: 'file-artifact:attempt',
-        permissionScope: { origin: null, methods: [] },
-        evidenceRefs: ['file-artifact:image'],
-      },
+      humanInteraction: captchaInteraction(),
     });
 
     expect(submitTaskLifecycleDataRequest).toHaveBeenCalledWith(
@@ -158,7 +178,9 @@ describe('job checkpoint MCP tools', () => {
       '/tmp/tasks',
       expect.objectContaining({
         payload: expect.objectContaining({
-          idempotencyKey: expect.stringMatching(/^captcha:[a-f0-9]{64}$/u),
+          idempotencyKey: expect.stringMatching(
+            /^browser-challenge:[a-f0-9]{64}$/u,
+          ),
           pendingInteractionRef: expect.stringMatching(
             /^interaction_[0-9a-f-]{36}$/u,
           ),
@@ -202,19 +224,7 @@ describe('job checkpoint MCP tools', () => {
 
     await server.tools.get('job_checkpoint_save')?.({
       ...checkpoint,
-      humanInteraction: {
-        version: 2,
-        requestId: 'request-1',
-        attemptId: 'attempt-1',
-        type: 'captcha',
-        reason: 'Automatic attempts exhausted.',
-        checkpointRef: null,
-        captchaChallengeId: 'captcha-1',
-        challengeFingerprint: `sha256:${'a'.repeat(64)}`,
-        automaticAttemptEvidenceRef: 'file-artifact:attempt',
-        permissionScope: { origin: null, methods: [] },
-        evidenceRefs: ['file-artifact:image'],
-      },
+      humanInteraction: captchaInteraction(),
     });
 
     expect(submitTaskLifecycleDataRequest).toHaveBeenCalledWith(
@@ -226,7 +236,7 @@ describe('job checkpoint MCP tools', () => {
     );
   });
 
-  it('keeps repairable CAPTCHA validation feedback inside the agent loop', async () => {
+  it('keeps repairable caller-resolution feedback inside the agent loop', async () => {
     waitForTaskResponse.mockResolvedValueOnce({
       ok: true,
       data: {
@@ -262,19 +272,7 @@ describe('job checkpoint MCP tools', () => {
 
     const result = await server.tools.get('job_checkpoint_save')?.({
       ...checkpoint,
-      humanInteraction: {
-        version: 2,
-        requestId: 'request-1',
-        attemptId: 'attempt-1',
-        type: 'captcha',
-        reason: 'Automatic attempts exhausted.',
-        checkpointRef: null,
-        captchaChallengeId: 'captcha-1',
-        challengeFingerprint: `sha256:${'a'.repeat(64)}`,
-        automaticAttemptEvidenceRef: 'file-artifact:attempt',
-        permissionScope: { origin: null, methods: [] },
-        evidenceRefs: ['file-artifact:image'],
-      },
+      humanInteraction: captchaInteraction(),
     });
 
     expect(result.isError).not.toBe(true);
@@ -287,7 +285,7 @@ describe('job checkpoint MCP tools', () => {
       '/tmp/tasks',
       expect.objectContaining({
         payload: expect.objectContaining({
-          milestone: 'needs_review',
+          milestone: 'interaction_resolution_failed',
           expectedPreviousSequence: 2,
         }),
       }),
@@ -315,12 +313,16 @@ describe('job checkpoint MCP tools', () => {
     expect(JSON.stringify(result)).toContain('retryable');
   });
 
-  it('prevents a candidate from crossing an unresolved CAPTCHA inventory', async () => {
+  it('leaves product artifact semantics to the caller-owned checkpoint schema', async () => {
     handleFileToolAction.mockResolvedValueOnce(
       JSON.stringify({
         claims: [{ capability: 'captcha', status: 'blocked' }],
       }),
     );
+    waitForTaskResponse.mockResolvedValueOnce({
+      ok: true,
+      data: { outcome: 'persisted', checkpoint: { sequence: 2 } },
+    });
     const server = new TestMcpServer();
     registerJobCheckpointTools(server as never);
 
@@ -338,8 +340,7 @@ describe('job checkpoint MCP tools', () => {
     });
 
     expect(result.isError).not.toBe(true);
-    expect(JSON.stringify(result)).toContain('browser_captcha_challenge');
-    expect(writeIpcFile).not.toHaveBeenCalled();
+    expect(writeIpcFile).toHaveBeenCalledOnce();
   });
 
   it('allows an unresolved CAPTCHA review after four validated automatic attempts', async () => {
@@ -415,7 +416,7 @@ describe('job checkpoint MCP tools', () => {
     expect(writeIpcFile).toHaveBeenCalledOnce();
   });
 
-  it('requires typed success evidence when an inventory says CAPTCHA was observed', async () => {
+  it('does not interpret product-specific success evidence in the generic runtime', async () => {
     handleFileToolAction
       .mockResolvedValueOnce(
         JSON.stringify({
@@ -425,6 +426,10 @@ describe('job checkpoint MCP tools', () => {
       .mockResolvedValueOnce(
         JSON.stringify({ outcome: 'submitted', attemptNumber: 1 }),
       );
+    waitForTaskResponse.mockResolvedValueOnce({
+      ok: true,
+      data: { outcome: 'persisted', checkpoint: { sequence: 2 } },
+    });
     const server = new TestMcpServer();
     registerJobCheckpointTools(server as never);
 
@@ -447,13 +452,7 @@ describe('job checkpoint MCP tools', () => {
     });
 
     expect(result.isError).not.toBe(true);
-    expect(JSON.stringify(result)).toContain('solved_automatic');
-    expect(JSON.stringify(result)).toContain('job_checkpoint_status');
-    expect(JSON.stringify(result)).toContain('carry forward');
-    expect(JSON.stringify(result)).toContain(
-      'only when no valid solved artifact exists',
-    );
-    expect(writeIpcFile).not.toHaveBeenCalled();
+    expect(writeIpcFile).toHaveBeenCalledOnce();
   });
 
   it('allows a CAPTCHA-observed candidate with typed solved evidence', async () => {

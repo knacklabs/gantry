@@ -36,7 +36,11 @@ import {
 import { type IpcDomainContext } from './ipc-domain-types.js';
 import { resolveBrowserFileAttachPayload } from './browser-file-attach-source.js';
 import { markBrowserProfileActivity } from './browser-profile-sync.js';
-import { ensureBrowserNetworkPolicy } from './browser-network-policy.js';
+import {
+  clearBrowserNetworkPolicyNavigationDenial,
+  ensureBrowserNetworkPolicy,
+  lastBrowserNetworkPolicyNavigationDenial,
+} from './browser-network-policy.js';
 
 interface BrowserRequest {
   requestId: string;
@@ -68,7 +72,7 @@ type BrowserContext = Pick<
   timeoutMs?: number;
   deadlineAtMs?: number;
   allowedNetworkHosts?: readonly string[];
-  browserPolicy?: 'recipe_authoring';
+  browserPolicy?: 'public_readonly_research';
 };
 const MIN_BROWSER_BACKEND_TIMEOUT_MS = 1_000;
 const MAX_BROWSER_RESIZE_DIMENSION = 8_192;
@@ -86,6 +90,13 @@ const POINTER_ACTIONS = new Set<BrowserBackendAction>([
 const FOREGROUND_BEFORE_DISPATCH_ACTIONS = new Set<BrowserBackendAction>([
   ...POINTER_ACTIONS,
   'screenshot',
+]);
+const MAY_START_NAVIGATION_ACTIONS = new Set<BrowserBackendAction>([
+  'navigate',
+  'click',
+  'press_key',
+  'select_option',
+  'fill_form',
 ]);
 
 interface BrowserIpcDeadline {
@@ -339,11 +350,11 @@ async function handleBrowserToolActionInner(
     deadlineAtMs: deadline.deadlineAtMs,
   });
   if (
-    context.browserPolicy === 'recipe_authoring' &&
+    context.browserPolicy === 'public_readonly_research' &&
     (context.allowedNetworkHosts?.length ?? 0) === 0
   ) {
     throw new Error(
-      'Website recipe authoring requires at least one approved network host.',
+      'Public read-only browsing requires at least one approved network host.',
     );
   }
   if (session.port) {
@@ -351,7 +362,7 @@ async function handleBrowserToolActionInner(
       port: session.port,
       allowedHosts: context.allowedNetworkHosts ?? [],
       allowPublicNavigationDiscovery:
-        context.browserPolicy === 'recipe_authoring',
+        context.browserPolicy === 'public_readonly_research',
     });
   }
   if (request.action === 'resize') {
@@ -427,6 +438,9 @@ async function handleBrowserToolActionInner(
     policy: context.browserPolicy,
   });
   markProfileTouched?.();
+  if (session.port && MAY_START_NAVIGATION_ACTIONS.has(request.action)) {
+    clearBrowserNetworkPolicyNavigationDenial(session.port);
+  }
   let result: unknown;
   try {
     result = await context.callBrowserTool({
@@ -443,6 +457,18 @@ async function handleBrowserToolActionInner(
     }
     throw err;
   }
+  const resultText = browserToolResultText(result);
+  if (resultText?.includes('ERR_BLOCKED_BY_CLIENT')) {
+    const denial = session.port
+      ? lastBrowserNetworkPolicyNavigationDenial(session.port)
+      : undefined;
+    return {
+      ok: false,
+      error: denial
+        ? `Browser navigation blocked by Gantry network policy (${denial.reason}): ${denial.url}`
+        : 'Browser navigation failed with ERR_BLOCKED_BY_CLIENT; Gantry network policy recorded no navigation denial.',
+    };
+  }
   return { ok: true, data: result };
 }
 
@@ -456,16 +482,16 @@ function browserBackendTimedOut(err: unknown): boolean {
   return false;
 }
 
-const RECIPE_BROWSER_INTENTS = new Set([
-  'listing',
-  'pagination',
-  'filter',
-  'detail',
-  'document',
-  'modal_close',
+const PUBLIC_RESEARCH_INTENTS = new Set([
+  'browse',
+  'paginate',
+  'search',
+  'inspect',
+  'download',
+  'close_overlay',
   'captcha',
 ]);
-const RECIPE_FORBIDDEN_ACTIONS = new Set<BrowserBackendAction>([
+const PUBLIC_RESEARCH_FORBIDDEN_ACTIONS = new Set<BrowserBackendAction>([
   'evaluate',
   'file_upload',
   'file_attach',
@@ -473,50 +499,89 @@ const RECIPE_FORBIDDEN_ACTIONS = new Set<BrowserBackendAction>([
   'drop',
   'handle_dialog',
 ]);
-const RECIPE_MUTATING_ACTIONS = new Set<BrowserBackendAction>([
+const PUBLIC_RESEARCH_MUTATING_ACTIONS = new Set<BrowserBackendAction>([
   'click',
   'type',
   'press_key',
   'select_option',
   'fill_form',
 ]);
-const PROHIBITED_RECIPE_TARGET =
-  /(login|log[-_ ]?in|sign[-_ ]?in|register|account|password|purchase|checkout|payment|upload|apply|application|submit[-_ ]?(bid|tender)|place[-_ ]?bid)/iu;
+const PROHIBITED_PUBLIC_RESEARCH_TARGET =
+  /(login|log[-_ ]?in|sign[-_ ]?in|register|account|password|purchase|checkout|payment|upload|apply|application|submit|place[-_ ]?(bid|order))/iu;
 
 export function enforceBrowserMutationPolicy(input: {
   publicToolName?: string;
   action: BrowserBackendAction;
   payload: Record<string, unknown>;
-  policy?: 'recipe_authoring';
+  policy?: 'public_readonly_research';
 }): Record<string, unknown> {
-  const { recipe_intent: rawIntent, ...payload } = input.payload;
-  if (input.policy !== 'recipe_authoring') return payload;
+  if (
+    input.publicToolName === 'browser_inspect' &&
+    input.action === 'evaluate'
+  ) {
+    return trustedElementInspectionPayload(input.payload);
+  }
+  const { research_intent: rawIntent, ...payload } = input.payload;
+  if (input.policy !== 'public_readonly_research') return payload;
   if (
     input.publicToolName === 'browser_captcha_challenge' ||
     input.publicToolName === 'browser_captcha_settle'
   ) {
     return payload;
   }
-  if (RECIPE_FORBIDDEN_ACTIONS.has(input.action)) {
-    throw new Error(
-      `${input.action} is prohibited during website recipe authoring.`,
-    );
+  if (PUBLIC_RESEARCH_FORBIDDEN_ACTIONS.has(input.action)) {
+    throw new Error(`${input.action} is prohibited by the runtime profile.`);
   }
   const intent = typeof rawIntent === 'string' ? rawIntent.trim() : '';
   if (
-    RECIPE_MUTATING_ACTIONS.has(input.action) &&
-    !RECIPE_BROWSER_INTENTS.has(intent)
+    PUBLIC_RESEARCH_MUTATING_ACTIONS.has(input.action) &&
+    !PUBLIC_RESEARCH_INTENTS.has(intent)
   ) {
     throw new Error(
-      `${input.action} requires a typed recipe_intent during website recipe authoring.`,
+      `${input.action} requires a typed research_intent under this runtime profile.`,
     );
   }
-  if (PROHIBITED_RECIPE_TARGET.test(JSON.stringify(payload))) {
+  if (PROHIBITED_PUBLIC_RESEARCH_TARGET.test(JSON.stringify(payload))) {
     throw new Error(
-      'Authentication, account, upload, purchase, application, and tender-submission controls are prohibited during website recipe authoring.',
+      'Authentication, account, upload, purchase, application, and submission controls are prohibited by this runtime profile.',
     );
   }
   return payload;
+}
+
+function trustedElementInspectionPayload(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const keys = Object.keys(payload).sort();
+  if (
+    keys.length !== 2 ||
+    keys[0] !== 'inspect_mode' ||
+    keys[1] !== 'selector' ||
+    payload.inspect_mode !== 'elements'
+  ) {
+    throw new Error('Invalid trusted browser element inspection payload.');
+  }
+  const selector =
+    typeof payload.selector === 'string' ? payload.selector.trim() : '';
+  if (!selector || selector.length > 2_000 || selector.includes('\0')) {
+    throw new Error('Browser element inspection requires a valid CSS selector.');
+  }
+  return {
+    target: 'body',
+    function: [
+      '(root) => Array.from(root.ownerDocument.querySelectorAll(',
+      JSON.stringify(selector),
+      ')).slice(0, 50).map((element) => {',
+      'const html = element;',
+      'const style = globalThis.getComputedStyle(html);',
+      'const rect = html.getBoundingClientRect();',
+      'const attributes = {};',
+      'for (const attribute of Array.from(html.attributes).slice(0, 30)) attributes[attribute.name] = attribute.value;',
+      "const value = 'value' in html ? String(html.value ?? '') : null;",
+      'return { tag: html.tagName.toLowerCase(), text: (html.textContent ?? "").trim().slice(0, 500), value, attributes, visible: !html.hidden && style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || 1) !== 0 && rect.width > 0 && rect.height > 0, disabled: Boolean(html.disabled) || html.getAttribute("aria-disabled") === "true" };',
+      '})',
+    ].join(''),
+  };
 }
 
 async function handleBrowserToolAction(

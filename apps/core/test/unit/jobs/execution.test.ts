@@ -3083,6 +3083,88 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('retries transient CDP startup timeouts before starting the runner', async () => {
+    const job = makeJob({
+      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+    });
+    const opsRepository = makeOpsRepository(job);
+    const toolRepository = makeToolRepository(['Browser']);
+    const openBrowserSession = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('CDP HTTP GET /json/list timed out'))
+      .mockRejectedValueOnce(
+        new Error('CDP HTTP GET /json/version timed out'),
+      )
+      .mockResolvedValueOnce({
+        profile: 'gantry',
+        profileName: 'gantry',
+        running: true,
+        cdpReady: true,
+        pid: 123,
+        port: 456,
+      });
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'browser done after retry',
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        getToolRepository: () => toolRepository as never,
+        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+        openBrowserSession,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(openBrowserSession).toHaveBeenCalledTimes(3);
+    expect(runAgent).toHaveBeenCalledOnce();
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'completed',
+      'browser done after retry',
+      null,
+    );
+  });
+
+  it('does not retry a non-transient browser setup failure', async () => {
+    const job = makeJob({
+      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+    });
+    const opsRepository = makeOpsRepository(job);
+    const toolRepository = makeToolRepository(['Browser']);
+    const openBrowserSession = vi.fn(async () => {
+      throw new Error('Browser profile lease lost for gantry');
+    });
+    const runAgent = vi.fn();
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        getToolRepository: () => toolRepository as never,
+        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+        openBrowserSession,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(openBrowserSession).toHaveBeenCalledOnce();
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
   it('keeps Browser activity diagnostics when a required-Browser run fails later', async () => {
     const job = makeJob({
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],

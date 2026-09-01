@@ -10,11 +10,11 @@ import {
   resolveAgentToolRuntimeRules,
 } from '../agents/agent-tool-runtime-rules.js';
 import type { CapabilityRuntimeAccess } from '../../shared/capability-runtime-access.js';
-import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import {
   assertHostAccessSnapshot,
   type AgentAccessSnapshot,
 } from '../agent-execution/agent-access-snapshot.js';
+import { requireRegisteredRuntimeProfile } from '../../shared/registered-runtime-profiles.js';
 
 export interface JobToolPolicyResolution {
   inheritedTools: string[];
@@ -22,24 +22,17 @@ export interface JobToolPolicyResolution {
   runtimeAccess: CapabilityRuntimeAccess[];
 }
 
-const RECIPE_MILESTONE_TOOL_RULES = [
-  'mcp__gantry__file',
-  'mcp__gantry__job_checkpoint_status',
-  'mcp__gantry__job_checkpoint_save',
-] as const;
-
-export function addSemanticJobToolRules(
+export function addRuntimeProfileToolRules(
   policy: JobToolPolicyResolution,
-  capabilities: readonly SemanticCapabilityDefinition[],
+  runtimeProfile: NonNullable<Job['agent_task']>['runtimeProfile'],
 ): JobToolPolicyResolution {
-  if (!capabilities.some((capability) =>
-    capability.capabilityId === 'manipal.website-recipe-evaluator' &&
-    capability.version === '1')) return policy;
+  const profile = requireRegisteredRuntimeProfile(runtimeProfile);
+  if (!profile) return policy;
   return {
     ...policy,
     effectiveAllowedTools: mergeUnique([
       ...policy.effectiveAllowedTools,
-      ...RECIPE_MILESTONE_TOOL_RULES,
+      ...profile.additionalToolRules,
     ]),
   };
 }

@@ -54,7 +54,7 @@ const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
 const REMOVED_NATIVE_SUBAGENT_TOOL =
   /^Task(Create|Get|List|Output|Stop|Update)?$/;
-const RECIPE_MILESTONE_TOOLS = new Set([
+const DURABLE_EXECUTION_TOOLS = new Set([
   'mcp__gantry__file',
   'mcp__gantry__job_checkpoint_status',
   'mcp__gantry__job_checkpoint_save',
@@ -134,7 +134,7 @@ export function createCanUseToolCallback(
     ...(input.agentInput.allowedTools?.includes('AgentDelegation')
       ? ['AgentDelegation']
       : []),
-    ...recipeMilestoneToolRules(input.agentInput),
+    ...durableExecutionToolRules(input.agentInput),
     ...readExternalMcpAllowedTools(),
     ...readLiveToolRules({
       ipcDir: process.env.GANTRY_IPC_DIR,
@@ -446,7 +446,7 @@ export function createCanUseToolCallback(
       if (
         !yoloDenylistMatch &&
         toolDecision.status === 'allow' &&
-        (RECIPE_MILESTONE_TOOLS.has(toolName) ||
+        (DURABLE_EXECUTION_TOOLS.has(toolName) ||
           toolName === 'mcp__gantry__delegate_task' ||
           toolName === 'mcp__gantry__task_cancel' ||
           toolName === 'mcp__gantry__task_get' ||
@@ -713,17 +713,12 @@ export function createCanUseToolCallback(
   };
 }
 
-function recipeMilestoneToolRules(
-  agentInput: AgentRunnerInput,
-): string[] {
-  const isRecipeJob = agentInput.semanticCapabilities?.some(
-    (capability) =>
-      capability.capabilityId === 'manipal.website-recipe-evaluator' &&
-      capability.version === '1',
-  );
-  if (!isRecipeJob) return [];
+function durableExecutionToolRules(agentInput: AgentRunnerInput): string[] {
+  if (agentInput.callerResolvedTools?.includeDurableExecutionTools !== true) {
+    return [];
+  }
   return (agentInput.allowedTools ?? []).filter((tool) =>
-    RECIPE_MILESTONE_TOOLS.has(tool),
+    DURABLE_EXECUTION_TOOLS.has(tool),
   );
 }
 

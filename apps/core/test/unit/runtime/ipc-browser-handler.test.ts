@@ -50,6 +50,8 @@ vi.mock('@core/runtime/browser-network-policy.js', async (importOriginal) => {
   return {
     ...original,
     ensureBrowserNetworkPolicy: vi.fn(async () => undefined),
+    clearBrowserNetworkPolicyNavigationDenial: vi.fn(),
+    lastBrowserNetworkPolicyNavigationDenial: vi.fn(),
   };
 });
 
@@ -74,44 +76,48 @@ import {
   ensureBrowserTarget,
   foregroundBrowserTarget,
 } from '@core/runtime/browser-cdp-targets.js';
+import {
+  clearBrowserNetworkPolicyNavigationDenial,
+  lastBrowserNetworkPolicyNavigationDenial,
+} from '@core/runtime/browser-network-policy.js';
 function fileMode(filePath: string): number {
   return fs.statSync(filePath).mode & 0o777;
 }
 
 describe('ipc-browser-handler', () => {
-  it('allows only typed read-oriented mutations in recipe-authoring runs', () => {
+  it('allows only typed read-oriented mutations in public research runs', () => {
     expect(
       enforceBrowserMutationPolicy({
         action: 'click',
         publicToolName: 'browser_act',
-        policy: 'recipe_authoring',
-        payload: { target: '.next', recipe_intent: 'pagination' },
+        policy: 'public_readonly_research',
+        payload: { target: '.next', research_intent: 'paginate' },
       }),
     ).toEqual({ target: '.next' });
     expect(() =>
       enforceBrowserMutationPolicy({
         action: 'click',
         publicToolName: 'browser_act',
-        policy: 'recipe_authoring',
-        payload: { target: '#submit-tender', recipe_intent: 'detail' },
+        policy: 'public_readonly_research',
+        payload: { target: '#submit', research_intent: 'inspect' },
       }),
-    ).toThrow('tender-submission controls are prohibited');
+    ).toThrow('submission controls are prohibited');
     expect(() =>
       enforceBrowserMutationPolicy({
         action: 'file_attach',
         publicToolName: 'browser_act',
-        policy: 'recipe_authoring',
+        policy: 'public_readonly_research',
         payload: { target: '#file' },
       }),
-    ).toThrow('prohibited during website recipe authoring');
+    ).toThrow('prohibited by the runtime profile');
     expect(() =>
       enforceBrowserMutationPolicy({
         action: 'type',
         publicToolName: 'browser_act',
-        policy: 'recipe_authoring',
+        policy: 'public_readonly_research',
         payload: { target: '#query', text: 'roads' },
       }),
-    ).toThrow('requires a typed recipe_intent');
+    ).toThrow('requires a typed research_intent');
   });
 
   it('allows trusted CAPTCHA tools to inspect and operate their bound controls', () => {
@@ -119,7 +125,7 @@ describe('ipc-browser-handler', () => {
       enforceBrowserMutationPolicy({
         action: 'evaluate',
         publicToolName: 'browser_captcha_challenge',
-        policy: 'recipe_authoring',
+        policy: 'public_readonly_research',
         payload: { target: '#captcha', function: '() => true' },
       }),
     ).toEqual({ target: '#captcha', function: '() => true' });
@@ -127,10 +133,39 @@ describe('ipc-browser-handler', () => {
       enforceBrowserMutationPolicy({
         action: 'type',
         publicToolName: 'browser_captcha_settle',
-        policy: 'recipe_authoring',
+        policy: 'public_readonly_research',
         payload: { target: '#captcha-input', text: 'ephemeral-answer' },
       }),
     ).toEqual({ target: '#captcha-input', text: 'ephemeral-answer' });
+  });
+
+  it('expands typed element inspection inside the trusted host boundary', () => {
+    const payload = enforceBrowserMutationPolicy({
+      action: 'evaluate',
+      publicToolName: 'browser_inspect',
+      policy: 'public_readonly_research',
+      payload: {
+        inspect_mode: 'elements',
+        selector: 'input[type="hidden"]',
+      },
+    });
+
+    expect(payload).toMatchObject({
+      target: 'body',
+      function: expect.stringContaining('input[type=\\"hidden\\"]'),
+    });
+    expect(() =>
+      enforceBrowserMutationPolicy({
+        action: 'evaluate',
+        publicToolName: 'browser_inspect',
+        policy: 'public_readonly_research',
+        payload: {
+          inspect_mode: 'elements',
+          selector: 'body',
+          function: '() => globalThis.document.cookie',
+        },
+      }),
+    ).toThrow('Invalid trusted browser element inspection payload');
   });
 
   let tempDir: string;
@@ -253,7 +288,9 @@ describe('ipc-browser-handler', () => {
     });
     expect(callBrowserTool).toHaveBeenCalledWith(
       expect.objectContaining({
-        fileAccessRoot: expect.stringContaining('/sessions/main/extra'),
+        fileAccessRoot: expect.stringContaining(
+          path.join('sessions', 'main', 'extra'),
+        ),
         toolName: 'navigate',
         arguments: { url: 'https://example.test' },
       }),
@@ -624,6 +661,47 @@ describe('ipc-browser-handler', () => {
     expect(close.ok).toBe(true);
     expect(getBrowserStatus).toHaveBeenCalledWith('c-main-abc123abc123');
     expect(closeBrowser).toHaveBeenCalledWith('c-main-abc123abc123');
+  });
+
+  it('returns the recorded network-policy denial instead of a generic Chromium error', async () => {
+    vi.mocked(ensureBrowserReady).mockResolvedValue({
+      profile: 'c-main-abc123abc123',
+      profileName: 'c-main-abc123abc123',
+      running: true,
+      cdpReady: true,
+      port: 9333,
+      targetId: 'content-target',
+      headless: false,
+    });
+    vi.mocked(lastBrowserNetworkPolicyNavigationDenial).mockReturnValue({
+      reason: 'navigation_host_not_allowed',
+      url: 'https://www.example.test/tenders',
+    });
+
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-policy-denial',
+        action: 'navigate',
+        payload: { url: 'https://www.example.test/tenders' },
+      },
+      {
+        sourceAgentFolder: 'main',
+        browserProfileName: 'c-main-abc123abc123',
+        browserIpcAuthorized: true,
+        callBrowserTool: vi.fn(async () => ({
+          content: [{ type: 'text', text: 'net::ERR_BLOCKED_BY_CLIENT' }],
+        })),
+      },
+    );
+
+    expect(clearBrowserNetworkPolicyNavigationDenial).toHaveBeenCalledWith(
+      9333,
+    );
+    expect(response).toEqual({
+      ok: false,
+      error:
+        'Browser navigation blocked by Gantry network policy (navigation_host_not_allowed): https://www.example.test/tenders',
+    });
   });
 
   it('meters URL-less actions against the backend current tab after in-page navigation', async () => {
@@ -1857,8 +1935,10 @@ describe('ipc-browser-handler', () => {
       ok: true,
       data: { running: true },
     });
-    expect(fileMode(path.dirname(responsePath))).toBe(0o700);
-    expect(fileMode(responsePath)).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(fileMode(path.dirname(responsePath))).toBe(0o700);
+      expect(fileMode(responsePath)).toBe(0o600);
+    }
     expect(getBrowserStatus).not.toHaveBeenCalled();
   });
 

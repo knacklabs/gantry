@@ -53,6 +53,7 @@ import { MAX_MCP_TOOL_RESULT_CHARS } from '@core/application/mcp/mcp-tool-output
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { resolvePinnedPublicMcpAddress } from '@core/shared/dns-pinned-fetch.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
+import { stableSha256Json } from '@core/shared/stable-hash.js';
 
 beforeEach(() => {
   // Re-establish constructor implementations so the SDK client/transport mocks
@@ -1230,6 +1231,165 @@ describe('McpToolProxy', () => {
     ).rejects.toThrow(
       'MCP tool is not approved for this agent: mcp__github__delete_repository',
     );
+  });
+
+  it('preflights external capability input against the exact reviewed schema', async () => {
+    vi.useFakeTimers();
+    const inputSchema = reviewedCreateIssueInputSchema();
+    mockCreateIssueToolDetail({ inputSchema });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: externalCapabilityToolRepository(inputSchema),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    await expect(
+      proxy.preflightExternalCapabilityCall({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+        capabilityId: 'github.create_issue@1',
+        arguments: { title: 'Bug' },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      operation: {
+        executionMode: 'sync',
+        requiresActiveJob: false,
+      },
+    });
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
+  });
+
+  it('returns bounded redacted diagnostics for invalid external capability input', async () => {
+    vi.useFakeTimers();
+    const inputSchema = reviewedCreateIssueInputSchema();
+    mockCreateIssueToolDetail({ inputSchema });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: externalCapabilityToolRepository(inputSchema),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+    const secretValue = 'must-never-appear-in-diagnostics';
+    const extras = Object.fromEntries(
+      Array.from({ length: 25 }, (_, index) => [`unexpected${index}`, index]),
+    );
+
+    const result = await proxy.preflightExternalCapabilityCall({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      serverName: 'github',
+      toolName: 'create_issue',
+      capabilityId: 'github.create_issue@1',
+      arguments: { title: 42, secretValue, ...extras },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'CAPABILITY_INPUT_SCHEMA_INVALID',
+      repairable: true,
+      retryable: false,
+      retrySamePayload: false,
+    });
+    if (result.ok) throw new Error('Expected structural rejection.');
+    expect(result.diagnostics).toHaveLength(20);
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          instancePath: '/title',
+          keyword: 'invalid_type',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(result)).not.toContain(secretValue);
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the live input schema drifts from the reviewed schema', async () => {
+    vi.useFakeTimers();
+    const inputSchema = reviewedCreateIssueInputSchema();
+    mockCreateIssueToolDetail({
+      inputSchema: {
+        ...inputSchema,
+        required: ['title', 'repository'],
+      },
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: externalCapabilityToolRepository(inputSchema),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    await expect(
+      proxy.preflightExternalCapabilityCall({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+        capabilityId: 'github.create_issue@1',
+        arguments: { title: 'Bug' },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'CAPABILITY_SCHEMA_DRIFT',
+      repairable: false,
+      retrySamePayload: false,
+    });
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the exact capability operation has no reviewed schema', async () => {
+    const proxy = new McpToolProxy(mcpRepository(), {
+      tools: toolRepository(),
+    });
+
+    await expect(
+      proxy.preflightExternalCapabilityCall({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+        capabilityId: 'github.create_issue@1',
+        arguments: { title: 'Bug' },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'CAPABILITY_INPUT_SCHEMA_UNAVAILABLE',
+      repairable: false,
+      retrySamePayload: false,
+    });
+    expect(mcpSdkMocks.Client).not.toHaveBeenCalled();
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
+  });
+
+  it('returns the reviewed capability reference when the model supplies the wrong version', async () => {
+    const inputSchema = reviewedCreateIssueInputSchema();
+    const proxy = new McpToolProxy(mcpRepository(), {
+      tools: externalCapabilityToolRepository(inputSchema),
+    });
+
+    await expect(
+      proxy.preflightExternalCapabilityCall({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+        capabilityId: 'github.create_issue@0',
+        arguments: { title: 'Bug' },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'CAPABILITY_REFERENCE_MISMATCH',
+      repairable: true,
+      retrySamePayload: false,
+      message: expect.stringContaining('github.create_issue@1'),
+    });
+    expect(mcpSdkMocks.Client).not.toHaveBeenCalled();
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
   });
 
   it('authorizes a routed MCP binding only in its conversation and thread', async () => {
@@ -2505,6 +2665,68 @@ function toolRepository() {
           kind: 'mcp_pattern',
           mcpServer: 'github',
           mcpToolPatterns: ['create_issue'],
+        },
+      ],
+    }),
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+  };
+  return {
+    listAgentToolBindings: async () => [
+      {
+        id: 'agent-tool-binding:github-create-issue',
+        appId: 'app-one',
+        agentId: 'agent-one',
+        toolId: tool.id,
+        status: 'active',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+    ],
+    getTool: async (id: string) => (id === tool.id ? tool : null),
+  } as never;
+}
+
+function reviewedCreateIssueInputSchema() {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['title'],
+    properties: {
+      title: { type: 'string', minLength: 1 },
+    },
+  };
+}
+
+function externalCapabilityToolRepository(
+  inputSchema: ReturnType<typeof reviewedCreateIssueInputSchema>,
+) {
+  const tool = {
+    id: 'tool:github-create-issue',
+    appId: 'app-one',
+    name: 'capability:github.create_issue',
+    inputSchema: semanticCapabilityInputSchema({
+      capabilityId: 'github.create_issue',
+      version: '1',
+      displayName: 'GitHub create issue',
+      category: 'mcp',
+      risk: 'write',
+      can: 'Create a GitHub issue.',
+      cannot: 'Call unrelated GitHub MCP tools.',
+      credentialSource: 'none',
+      implementationBindings: [
+        {
+          kind: 'mcp_pattern',
+          mcpServer: 'github',
+          mcpToolPatterns: ['create_issue'],
+        },
+      ],
+      operations: [
+        {
+          mcpTool: 'mcp__github__create_issue',
+          schemaDialect: 'json-schema-draft-07',
+          inputSchema,
+          inputSchemaDigest: `sha256:${stableSha256Json(inputSchema)}`,
         },
       ],
     }),

@@ -82,6 +82,11 @@ export interface AgentInput {
   selectedSkillDisplays?: string[];
   attachedMcpSourceIds?: string[];
   semanticCapabilities?: SemanticCapabilityDefinition[];
+  runtimeProfile?: { id: string; version: string };
+  checkpointContract?: {
+    schema: Record<string, unknown>;
+    schemaDigest: string;
+  };
   capabilityCatalog?: AgentPromptCapabilityCatalog;
   providerSessionAccessFingerprint?: string;
   hideAuthorityTools?: boolean;

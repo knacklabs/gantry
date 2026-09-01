@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   const config = SandboxRuntimeConfigSchema.parse(
     JSON.parse(fs.readFileSync(configPath, 'utf8')),
   );
-  await SandboxManager.initialize(config, sandboxRuntimeAskCallback(config));
+  await initializeSandboxRuntimeWithRetry(config);
   const sandboxedCommand = await SandboxManager.wrapWithSandbox(
     [command, ...args].map(shellQuote).join(' '),
   );
@@ -51,6 +51,53 @@ async function main(): Promise<void> {
   });
   process.on('SIGINT', () => child.kill('SIGINT'));
   process.on('SIGTERM', () => child.kill('SIGTERM'));
+}
+
+const SANDBOX_INITIALIZATION_MAX_ATTEMPTS = 3;
+
+export async function initializeSandboxRuntimeWithRetry(
+  config: SandboxRuntimeConfig,
+  dependencies: {
+    initialize?: typeof SandboxManager.initialize;
+    reset?: typeof SandboxManager.reset;
+    wait?: (delayMs: number) => Promise<void>;
+  } = {},
+): Promise<void> {
+  const initialize =
+    dependencies.initialize ?? SandboxManager.initialize.bind(SandboxManager);
+  const reset = dependencies.reset ?? SandboxManager.reset.bind(SandboxManager);
+  const wait =
+    dependencies.wait ??
+    ((delayMs: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+
+  for (
+    let attempt = 1;
+    attempt <= SANDBOX_INITIALIZATION_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      await initialize(config, sandboxRuntimeAskCallback(config));
+      return;
+    } catch (error) {
+      if (
+        !isRetryableSandboxInitializationError(error) ||
+        attempt === SANDBOX_INITIALIZATION_MAX_ATTEMPTS
+      ) {
+        throw error;
+      }
+      await reset();
+      await wait(250 * 2 ** (attempt - 1));
+    }
+  }
+}
+
+export function isRetryableSandboxInitializationError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('Failed to create bridge sockets') ||
+    message.includes('Linux bridge process died unexpectedly')
+  );
 }
 
 function shellQuote(value: string): string {

@@ -1841,6 +1841,7 @@ describe('Agent.Tender job task contract', () => {
           maxInteractions: 1,
           interactionTimeoutMs: 30_000,
           allowSelectedMcpToolCalls: true,
+          includeDurableExecutionTools: true,
         },
       },
     });
@@ -1848,6 +1849,9 @@ describe('Agent.Tender job task contract', () => {
     expect(parsed.agentTask?.callerResolvedTools?.tools).toEqual([]);
     expect(
       parsed.agentTask?.callerResolvedTools?.allowSelectedMcpToolCalls,
+    ).toBe(true);
+    expect(
+      parsed.agentTask?.callerResolvedTools?.includeDurableExecutionTools,
     ).toBe(true);
   });
 

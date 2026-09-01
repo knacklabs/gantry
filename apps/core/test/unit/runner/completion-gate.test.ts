@@ -24,7 +24,7 @@ describe('CompletionGate', () => {
       interactionTimeoutMs: 90_000,
     });
 
-    await expect(gate.check()).resolves.toEqual({
+    await expect(gate.check('{"status":"ready"}')).resolves.toEqual({
       decision: 'accept',
       progressToken: 'covered-all',
     });
@@ -32,7 +32,10 @@ describe('CompletionGate', () => {
       type: 'caller_resolved_tool',
       payload: {
         toolName: 'validate_completion',
-        toolInput: { completionAttempt: 1 },
+        toolInput: {
+          completionAttempt: 1,
+          proposedResult: { status: 'ready' },
+        },
       },
       responseTimeoutMs: 95_000,
     });
@@ -53,9 +56,9 @@ describe('CompletionGate', () => {
       interactionTimeoutMs: 90_000,
     });
 
-    await expect(gate.check()).resolves.toMatchObject({ decision: 'continue' });
-    await expect(gate.check()).resolves.toMatchObject({ decision: 'continue' });
-    await expect(gate.check()).rejects.toThrow(
+    await expect(gate.check(null)).resolves.toMatchObject({ decision: 'continue' });
+    await expect(gate.check(null)).resolves.toMatchObject({ decision: 'continue' });
+    await expect(gate.check(null)).rejects.toThrow(
       'repeated continuations without progress',
     );
   });

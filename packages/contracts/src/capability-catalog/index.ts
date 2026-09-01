@@ -33,6 +33,38 @@ export const ReviewedMcpCapabilityManifestSchema = z
           .strict(),
       )
       .min(1),
+    operations: z
+      .array(
+        z
+          .object({
+            mcpTool: z.string().trim().min(1),
+            schemaDialect: z.literal('json-schema-draft-07'),
+            inputSchema: z.record(z.string(), z.unknown()),
+            inputSchemaDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+            resultEnvelopeSchema: z.record(z.string(), z.unknown()).optional(),
+            resultEnvelopeSchemaDigest: z
+              .string()
+              .regex(/^sha256:[a-f0-9]{64}$/)
+              .optional(),
+            executionMode: z.enum(['sync', 'durable_async']).optional(),
+            requiresActiveJob: z.boolean().optional(),
+            deadlineMs: z.number().int().min(1_000).max(86_400_000).optional(),
+            suspensionCheckpoint: z
+              .object({
+                milestone: z.string().trim().min(1).max(120),
+                payloadPatch: z.record(z.string(), z.unknown()),
+                invocationRefPath: z
+                  .array(z.string().trim().min(1).max(120))
+                  .min(1)
+                  .max(16),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .optional(),
   })
   .strict();
 export type ReviewedMcpCapabilityManifest = z.infer<

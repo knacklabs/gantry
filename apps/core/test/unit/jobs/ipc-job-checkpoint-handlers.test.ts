@@ -9,11 +9,7 @@ vi.mock('@core/jobs/ipc-shared.js', async (importOriginal) => {
     await importOriginal<typeof import('@core/jobs/ipc-shared.js')>();
   return {
     ...original,
-    createTaskResponder: () => ({
-      accept: vi.fn(),
-      acceptData,
-      reject,
-    }),
+    createTaskResponder: () => ({ accept: vi.fn(), acceptData, reject }),
   };
 });
 vi.mock(
@@ -22,11 +18,65 @@ vi.mock(
 );
 
 import { jobCheckpointTaskHandlers } from '@core/jobs/ipc-job-checkpoint-handlers.js';
-import {
-  observationEvidenceRefsMissingFromCheckpoint,
-  websiteRecipeTestPlanShapeError,
-} from '@core/jobs/ipc-job-checkpoint-handlers.js';
-import { FileArtifactNotFoundError } from '@core/domain/file-artifacts/file-artifact.js';
+import { stableSha256Json } from '@core/shared/stable-hash.js';
+
+const schema = {
+  type: 'object',
+  properties: {
+    safePhase: { type: 'string', minLength: 1 },
+    artifactRefs: { type: 'array' },
+    evaluatorInvocationRef: { type: ['string', 'null'] },
+    pendingInteractionRef: { type: ['string', 'null'] },
+    nextAction: { type: 'string', minLength: 1 },
+    cumulativeRuntimeMs: { type: 'integer', minimum: 0 },
+  },
+  required: [
+    'safePhase',
+    'artifactRefs',
+    'evaluatorInvocationRef',
+    'pendingInteractionRef',
+    'nextAction',
+    'cumulativeRuntimeMs',
+  ],
+  additionalProperties: false,
+};
+
+const baseData = {
+  appId: 'app-1',
+  jobId: 'job-1',
+  runId: 'run-1',
+  sourceJobId: 'job-1',
+  sourceRunId: 'run-1',
+  runLeaseToken: 'lease-1',
+  runLeaseFencingVersion: 1,
+};
+
+function job() {
+  return {
+    id: 'job-1',
+    agent_task: {
+      checkpointContract: {
+        schema,
+        schemaDigest: `sha256:${stableSha256Json(schema)}`,
+      },
+    },
+  };
+}
+
+function savePayload(overrides: Record<string, unknown> = {}) {
+  return {
+    idempotencyKey: 'boundary-1',
+    expectedPreviousSequence: 0,
+    milestone: 'phase_completed',
+    safePhase: 'phase:completed',
+    artifactRefs: [],
+    evaluatorInvocationRef: null,
+    pendingInteractionRef: null,
+    nextAction: 'Continue with the next phase.',
+    cumulativeRuntimeMs: 1_000,
+    ...overrides,
+  };
+}
 
 describe('job checkpoint IPC handlers', () => {
   beforeEach(() => {
@@ -35,557 +85,57 @@ describe('job checkpoint IPC handlers', () => {
     activeLease.mockReset().mockResolvedValue(true);
   });
 
-  it('loads the job-wide checkpoint only for the authenticated active run', async () => {
+  it('loads the latest job-scoped checkpoint for an active lease', async () => {
     const getLatestCheckpoint = vi.fn(async () => ({ sequence: 2 }));
     await jobCheckpointTaskHandlers.job_checkpoint_status?.({
-      data: {
-        type: 'job_checkpoint_status',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-2',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-2',
-        runLeaseToken: 'lease-2',
-        runLeaseFencingVersion: 2,
-      },
-      sourceAgentFolder: 'recipe_agent',
+      data: { ...baseData, type: 'job_checkpoint_status' },
+      sourceAgentFolder: 'agent-folder',
       sourceAgentFolderJids: [],
       conversationBindings: {},
       deps: {
-        getJobSemanticCheckpointRepository: () => ({
-          getLatestCheckpoint,
-        }),
+        getJobSemanticCheckpointRepository: () => ({ getLatestCheckpoint }),
       },
     } as never);
 
     expect(getLatestCheckpoint).toHaveBeenCalledWith({
       appId: 'app-1',
-      agentId: 'agent:recipe_agent',
+      agentId: 'agent:agent-folder',
       jobId: 'job-1',
     });
     expect(acceptData).toHaveBeenCalledWith(
       'Job checkpoint loaded.',
-      expect.objectContaining({
-        artifactScope: expect.stringMatching(/^job-/u),
-        checkpoint: { sequence: 2 },
-      }),
+      expect.objectContaining({ checkpoint: { sequence: 2 } }),
     );
   });
 
-  it('rejects stale or cross-job checkpoint requests before repository access', async () => {
-    const getLatestCheckpoint = vi.fn();
-    await jobCheckpointTaskHandlers.job_checkpoint_status?.({
-      data: {
-        type: 'job_checkpoint_status',
-        appId: 'app-1',
-        jobId: 'job-forged',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
-        getJobSemanticCheckpointRepository: () => ({
-          getLatestCheckpoint,
-        }),
-      },
-    } as never);
-
-    expect(reject).toHaveBeenCalledWith(
-      'Job checkpoints require the authenticated scheduled job and run.',
-      'forbidden',
-    );
-    expect(getLatestCheckpoint).not.toHaveBeenCalled();
-  });
-
-  it('marks a prior-run needs-review diagnosis for current-run revalidation', async () => {
-    const checkpoint = {
-      sequence: 2,
-      milestone: 'needs_review',
-      runId: 'run-1',
-    };
-    await jobCheckpointTaskHandlers.job_checkpoint_status?.({
-      data: {
-        type: 'job_checkpoint_status',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-2',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-2',
-        runLeaseToken: 'lease-2',
-        runLeaseFencingVersion: 2,
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
-        getJobSemanticCheckpointRepository: () => ({
-          getLatestCheckpoint: vi.fn(async () => checkpoint),
-        }),
-      },
-    } as never);
-
-    expect(acceptData).toHaveBeenCalledWith(
-      'Job checkpoint loaded.',
-      expect.objectContaining({
-        checkpoint,
-        resumeDirective: expect.stringContaining('Revalidate its blocker'),
-      }),
-    );
-  });
-
-  it('requires fresh revalidation for a human wait from a prior run', async () => {
-    const checkpoint = {
-      sequence: 3,
-      milestone: 'human_wait',
-      runId: 'run-1',
-      payload: { pendingInteractionRef: 'captcha-1' },
-    };
-    await jobCheckpointTaskHandlers.job_checkpoint_status?.({
-      data: {
-        type: 'job_checkpoint_status',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-2',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-2',
-        runLeaseToken: 'lease-2',
-        runLeaseFencingVersion: 2,
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
-        getJobSemanticCheckpointRepository: () => ({
-          getLatestCheckpoint: vi.fn(async () => checkpoint),
-        }),
-      },
-    } as never);
-
-    expect(acceptData).toHaveBeenCalledWith(
-      'Job checkpoint loaded.',
-      expect.objectContaining({
-        resumeDirective: expect.stringMatching(
-          /historical.*cannot be resumed.*fresh automatic attempts.*new atomic human_wait/su,
-        ),
-      }),
-    );
-  });
-
-  it('recognizes pendingInteractionRef as proof of an atomic human wait in the active run', async () => {
-    const checkpoint = {
-      sequence: 3,
-      milestone: 'human_wait',
-      runId: 'run-2',
-      payload: { pendingInteractionRef: 'captcha-1' },
-    };
-    await jobCheckpointTaskHandlers.job_checkpoint_status?.({
-      data: {
-        type: 'job_checkpoint_status',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-2',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-2',
-        runLeaseToken: 'lease-2',
-        runLeaseFencingVersion: 2,
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
-        getJobSemanticCheckpointRepository: () => ({
-          getLatestCheckpoint: vi.fn(async () => checkpoint),
-        }),
-      },
-    } as never);
-
-    expect(acceptData).toHaveBeenCalledWith(
-      'Job checkpoint loaded.',
-      expect.objectContaining({
-        resumeDirective: expect.stringContaining('durable proof'),
-      }),
-    );
-  });
-
-  it('publishes a persisted semantic checkpoint through the existing task event stream', async () => {
-    const publishRuntimeEvent = vi.fn();
-    const checkpoint = {
-      id: 'checkpoint-1',
-      sequence: 1,
-      payloadHash: 'sha256:checkpoint',
-      milestone: 'inventory_completed',
-      payload: {
-        safePhase: 'inventory',
-        artifactRefs: [],
-        nextAction: 'Draft candidate',
-        cumulativeRuntimeMs: 4_000,
-      },
-    };
-    await jobCheckpointTaskHandlers.job_checkpoint_save?.({
-      data: {
-        type: 'job_checkpoint_save',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          idempotencyKey: 'inventory-1',
-          expectedPreviousSequence: 0,
-          milestone: 'inventory_completed',
-          safePhase: 'inventory',
-          artifactRefs: [],
-          nextAction: 'Draft candidate',
-          cumulativeRuntimeMs: 4_000,
-        },
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
-        getJobSemanticCheckpointRepository: () => ({
-          appendCheckpoint: vi.fn(async () => ({
-            outcome: 'persisted',
-            checkpoint,
-          })),
-        }),
-        publishRuntimeEvent,
-      },
-    } as never);
-
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        eventType: 'task.updated',
-        jobId: 'job-1',
-        payload: { type: 'job_checkpoint_saved', checkpoint },
-      }),
-    );
-  });
-
-  it('rejects model-authored evaluation_submitted checkpoints', async () => {
-    const appendCheckpoint = vi.fn();
-    await jobCheckpointTaskHandlers.job_checkpoint_save?.({
-      data: {
-        type: 'job_checkpoint_save',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          idempotencyKey: 'forged-submission',
-          expectedPreviousSequence: 1,
-          milestone: 'evaluation_submitted',
-          safePhase: 'evaluation_ready',
-          artifactRefs: [],
-          nextAction: 'Analyze old result',
-          cumulativeRuntimeMs: 5_000,
-        },
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
-        getJobSemanticCheckpointRepository: () => ({ appendCheckpoint }),
-      },
-    } as never);
-
-    expect(appendCheckpoint).not.toHaveBeenCalled();
-    expect(reject).toHaveBeenCalledWith(
-      expect.stringContaining('runtime-owned'),
-      'invalid_checkpoint',
-      [expect.stringContaining('test_plan_created')],
-    );
-  });
-
-  it('rejects evaluation analysis without the latest runtime-owned invocation', async () => {
-    const appendCheckpoint = vi.fn();
-    const getLatestCheckpoint = vi.fn(async () => ({
-      milestone: 'test_plan_created',
-      payload: { evaluatorInvocationRef: null },
+  it('validates and stores an opaque payload against the job-pinned schema', async () => {
+    const checkpoint = { id: 'checkpoint-1', sequence: 1 };
+    const appendCheckpoint = vi.fn(async () => ({
+      outcome: 'persisted' as const,
+      checkpoint,
     }));
     await jobCheckpointTaskHandlers.job_checkpoint_save?.({
       data: {
+        ...baseData,
         type: 'job_checkpoint_save',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          idempotencyKey: 'stale-analysis',
-          expectedPreviousSequence: 1,
-          milestone: 'evaluation_analyzed',
-          safePhase: 'evaluation_analyzed_needs_review',
-          artifactRefs: [],
-          evaluatorInvocationRef: 'invocation:historical',
-          nextAction: 'Finalize stale result',
-          cumulativeRuntimeMs: 5_000,
-        },
+        payload: savePayload(),
       },
-      sourceAgentFolder: 'recipe_agent',
+      sourceAgentFolder: 'agent-folder',
       sourceAgentFolderJids: [],
       conversationBindings: {},
       deps: {
-        getJobSemanticCheckpointRepository: () => ({
-          appendCheckpoint,
-          getLatestCheckpoint,
-        }),
-      },
-    } as never);
-
-    expect(appendCheckpoint).not.toHaveBeenCalled();
-    expect(reject).toHaveBeenCalledWith(
-      expect.stringContaining('EVALUATION_PROOF_POLICY_STALE'),
-      'invalid_checkpoint',
-      expect.arrayContaining([expect.stringContaining('historical')]),
-    );
-  });
-
-  it('rejects a checkpoint that omits evidence referenced by its inventory', async () => {
-    const appendCheckpoint = vi.fn();
-    await jobCheckpointTaskHandlers.job_checkpoint_save?.({
-      data: {
-        type: 'job_checkpoint_save',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          idempotencyKey: 'inventory-closure-1',
-          expectedPreviousSequence: 0,
-          milestone: 'inventory_completed',
-          safePhase: 'inventory',
-          artifactRefs: [
-            {
-              artifactId: 'file-artifact:inventory',
-              contentHash: `sha256:${'a'.repeat(64)}`,
-              kind: 'observation_inventory',
-            },
-          ],
-          nextAction: 'Draft candidate',
-          cumulativeRuntimeMs: 4_000,
-        },
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
-        getFileArtifactStore: () => ({
-          readFileArtifact: vi.fn(async () => ({
-            artifact: {},
-            content: JSON.stringify({
-              claims: [{ evidenceRefs: ['file-artifact:listing-proof'] }],
-            }),
-          })),
-        }),
-        getJobSemanticCheckpointRepository: () => ({ appendCheckpoint }),
-      },
-    } as never);
-
-    expect(appendCheckpoint).not.toHaveBeenCalled();
-    expect(reject).toHaveBeenCalledWith(
-      expect.stringContaining('file-artifact:listing-proof'),
-      'invalid_checkpoint',
-      [expect.stringContaining('Do not re-browse')],
-    );
-  });
-
-  it('rejects a missing observation inventory without crashing the run', async () => {
-    const appendCheckpoint = vi.fn();
-    await jobCheckpointTaskHandlers.job_checkpoint_save?.({
-      data: {
-        type: 'job_checkpoint_save',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          idempotencyKey: 'missing-inventory-1',
-          expectedPreviousSequence: 0,
-          milestone: 'inventory_completed',
-          safePhase: 'inventory',
-          artifactRefs: [
-            {
-              artifactId: 'file-artifact:missing-inventory',
-              contentHash: `sha256:${'a'.repeat(64)}`,
-              kind: 'observation_inventory',
-            },
-          ],
-          nextAction: 'Draft candidate',
-          cumulativeRuntimeMs: 4_000,
-        },
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
-        getFileArtifactStore: () => ({
-          readFileArtifact: vi.fn(async () => {
-            throw new FileArtifactNotFoundError();
-          }),
-        }),
-        getJobSemanticCheckpointRepository: () => ({ appendCheckpoint }),
-      },
-    } as never);
-
-    expect(appendCheckpoint).not.toHaveBeenCalled();
-    expect(reject).toHaveBeenCalledWith(
-      expect.stringContaining('file-artifact:missing-inventory'),
-      'invalid_checkpoint',
-      [expect.stringContaining('file action="write"')],
-    );
-  });
-
-  it('computes inventory evidence closure without duplicate missing refs', () => {
-    expect(
-      observationEvidenceRefsMissingFromCheckpoint(
-        JSON.stringify({
-          claims: [
-            { evidenceRefs: ['file-artifact:kept', 'file-artifact:missing'] },
-            { evidenceRefs: ['file-artifact:missing'] },
-          ],
-        }),
-        new Set(['file-artifact:kept']),
-      ),
-    ).toEqual(['file-artifact:missing']);
-  });
-
-  it('rejects array-shaped website recipe test plans before checkpointing', async () => {
-    const appendCheckpoint = vi.fn();
-    await jobCheckpointTaskHandlers.job_checkpoint_save?.({
-      data: {
-        type: 'job_checkpoint_save',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          idempotencyKey: 'invalid-test-plan-1',
-          expectedPreviousSequence: 1,
-          milestone: 'test_plan_created',
-          safePhase: 'evaluation_ready',
-          artifactRefs: [
-            {
-              artifactId: 'file-artifact:test-plan',
-              contentHash: `sha256:${'a'.repeat(64)}`,
-              kind: 'test_plan',
-            },
-          ],
-          nextAction: 'Submit evaluation',
-          cumulativeRuntimeMs: 5_000,
-        },
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
-        getFileArtifactStore: () => ({
-          readFileArtifact: vi.fn(async () => ({
-            artifact: {},
-            content: JSON.stringify([
-              { id: 'case-1', version: 'website_recipe.test_plan@2' },
-            ]),
-          })),
-        }),
-        getJobSemanticCheckpointRepository: () => ({ appendCheckpoint }),
-      },
-    } as never);
-
-    expect(appendCheckpoint).not.toHaveBeenCalled();
-    expect(reject).toHaveBeenCalledWith(
-      expect.stringContaining('top-level object'),
-      'invalid_checkpoint',
-      [expect.stringContaining('cases is the only array')],
-    );
-  });
-
-  it('accepts only the versioned top-level website recipe test-plan shape', () => {
-    expect(
-      websiteRecipeTestPlanShapeError(
-        JSON.stringify({
-          version: 'website_recipe.test_plan@2',
-          cases: [],
-        }),
-      ),
-    ).toBeNull();
-    expect(
-      websiteRecipeTestPlanShapeError(JSON.stringify({ cases: [] })),
-    ).toContain('top-level version');
-  });
-
-  it('rebases one atomic human-wait save after a sequence conflict', async () => {
-    const checkpoint = {
-      id: 'checkpoint-3',
-      sequence: 3,
-      payloadHash: 'sha256:checkpoint',
-      milestone: 'human_wait',
-      payload: {
-        safePhase: 'human_wait',
-        artifactRefs: [],
-        nextAction: 'Await CAPTCHA answer',
-        cumulativeRuntimeMs: 10_000,
-      },
-    };
-    const appendCheckpoint = vi
-      .fn()
-      .mockResolvedValueOnce({
-        outcome: 'sequence_conflict',
-        latestSequence: 2,
-      })
-      .mockResolvedValueOnce({ outcome: 'persisted', checkpoint });
-    await jobCheckpointTaskHandlers.job_checkpoint_save?.({
-      data: {
-        type: 'job_checkpoint_save',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-2',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-2',
-        runLeaseToken: 'lease-2',
-        runLeaseFencingVersion: 2,
-        payload: {
-          idempotencyKey: 'captcha-wait-1',
-          expectedPreviousSequence: 0,
-          milestone: 'human_wait',
-          safePhase: 'human_wait',
-          artifactRefs: [],
-          pendingInteractionRef: 'captcha-1',
-          humanInteraction: { type: 'captcha' },
-          nextAction: 'Await CAPTCHA answer',
-          cumulativeRuntimeMs: 10_000,
-        },
-      },
-      sourceAgentFolder: 'recipe_agent',
-      sourceAgentFolderJids: [],
-      conversationBindings: {},
-      deps: {
+        opsRepository: { getJobById: vi.fn(async () => job()) },
         getJobSemanticCheckpointRepository: () => ({ appendCheckpoint }),
         publishRuntimeEvent: vi.fn(),
       },
     } as never);
 
-    expect(appendCheckpoint).toHaveBeenCalledTimes(2);
-    expect(appendCheckpoint.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({ expectedPreviousSequence: 2 }),
+    expect(appendCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        milestone: 'phase_completed',
+        expectedPreviousSequence: 0,
+        payload: expect.objectContaining({ safePhase: 'phase:completed' }),
+      }),
     );
     expect(acceptData).toHaveBeenCalledWith(
       'Job checkpoint request completed.',
@@ -593,101 +143,65 @@ describe('job checkpoint IPC handlers', () => {
     );
   });
 
-  it('rejects a direct human-wait checkpoint without an atomic interaction reference', async () => {
+  it('returns every structural schema issue without invoking storage', async () => {
     const appendCheckpoint = vi.fn();
     await jobCheckpointTaskHandlers.job_checkpoint_save?.({
       data: {
+        ...baseData,
         type: 'job_checkpoint_save',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          idempotencyKey: 'captcha-wait-direct',
-          expectedPreviousSequence: 0,
-          milestone: 'human_wait',
-          safePhase: 'human_wait',
-          artifactRefs: [],
-          nextAction: 'Await CAPTCHA answer',
-          cumulativeRuntimeMs: 10_000,
-        },
+        payload: savePayload({ safePhase: '', cumulativeRuntimeMs: -1 }),
       },
-      sourceAgentFolder: 'recipe_agent',
+      sourceAgentFolder: 'agent-folder',
       sourceAgentFolderJids: [],
       conversationBindings: {},
       deps: {
+        opsRepository: { getJobById: vi.fn(async () => job()) },
         getJobSemanticCheckpointRepository: () => ({ appendCheckpoint }),
       },
     } as never);
 
     expect(appendCheckpoint).not.toHaveBeenCalled();
     expect(reject).toHaveBeenCalledWith(
-      expect.stringContaining('atomic human-interaction tool'),
+      'Checkpoint payload does not match the registered schema.',
       'invalid_checkpoint',
-      [expect.stringContaining('job_checkpoint_save')],
+      expect.arrayContaining([
+        expect.stringContaining('safePhase'),
+        expect.stringContaining('cumulativeRuntimeMs'),
+      ]),
     );
   });
 
-  it('returns authoritative artifact references when a checkpoint is invalid', async () => {
-    const invalidCheckpoint = Object.assign(
-      new Error('Artifact hash does not match.'),
-      {
-        name: 'InvalidJobSemanticCheckpointError',
-      },
-    );
-    const artifactRefs = [
-      {
-        artifactId: 'file-artifact-1',
-        contentHash: `sha256:${'a'.repeat(64)}`,
-        kind: 'recipe_candidate',
-      },
-    ];
+  it('fails closed when the registered schema digest drifts', async () => {
     await jobCheckpointTaskHandlers.job_checkpoint_save?.({
       data: {
+        ...baseData,
         type: 'job_checkpoint_save',
-        appId: 'app-1',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          idempotencyKey: 'candidate-2',
-          expectedPreviousSequence: 1,
-          milestone: 'candidate_repaired',
-          safePhase: 'candidate',
-          artifactRefs,
-          nextAction: 'Save repaired candidate',
-          cumulativeRuntimeMs: 5_000,
-        },
+        payload: savePayload(),
       },
-      sourceAgentFolder: 'recipe_agent',
+      sourceAgentFolder: 'agent-folder',
       sourceAgentFolderJids: [],
       conversationBindings: {},
       deps: {
-        getJobSemanticCheckpointRepository: () => ({
-          appendCheckpoint: vi.fn(async () => {
-            throw invalidCheckpoint;
-          }),
-          getLatestCheckpoint: vi.fn(async () => ({
-            sequence: 1,
-            payload: { artifactRefs },
+        opsRepository: {
+          getJobById: vi.fn(async () => ({
+            ...job(),
+            agent_task: {
+              checkpointContract: {
+                schema,
+                schemaDigest: `sha256:${'0'.repeat(64)}`,
+              },
+            },
           })),
+        },
+        getJobSemanticCheckpointRepository: () => ({
+          appendCheckpoint: vi.fn(),
         }),
       },
     } as never);
 
     expect(reject).toHaveBeenCalledWith(
-      'Artifact hash does not match.',
-      'invalid_checkpoint',
-      [
-        'latestSequence=1',
-        `authoritativeArtifactRefs=${JSON.stringify(artifactRefs)}`,
-      ],
+      'The registered checkpoint schema digest has drifted.',
+      'forbidden',
     );
   });
 });

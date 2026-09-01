@@ -1,4 +1,5 @@
 import path from 'path';
+import { z } from 'zod';
 
 import { publishInvalidMcpToolRequestAudit } from '../application/mcp/mcp-tool-audit.js';
 import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
@@ -9,13 +10,10 @@ import {
   toPublicAsyncTaskDto,
   type AsyncTaskRepository,
 } from '../domain/ports/async-tasks.js';
-import type {
-  JobCheckpointArtifactReference,
-  JobSemanticCheckpoint,
-} from '../domain/ports/job-semantic-checkpoints.js';
 import { jobArtifactScope } from '../domain/ports/job-semantic-checkpoints.js';
-import type { FileArtifactId } from '../domain/file-artifacts/file-artifact.js';
+import type { JobSemanticCheckpointPayload } from '../domain/ports/job-semantic-checkpoints.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import type { FileArtifactId } from '../domain/file-artifacts/file-artifact.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
 import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
@@ -36,7 +34,6 @@ import { ExternalCapabilityTaskService } from '../application/capabilities/exter
 import { suspendForExternalCapability } from './external-capability-suspension.js';
 import { notifyAsyncTaskChange } from './async-task-change-waiter.js';
 import { stableSha256Json } from '../shared/stable-hash.js';
-import { bindWebsiteRecipeHumanIdentity } from './website-recipe-identity-binding.js';
 type CreateMcpProxyForSourceGroup = (input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
@@ -47,6 +44,11 @@ type CreateMcpProxyForSourceGroup = (input: {
   runHandle?: string;
   runId?: string;
 }) => Promise<McpToolProxy>;
+
+const JSON_ARTIFACT_INCLUDE_KEY = '$gantryArtifactJson';
+const MAX_EXTERNAL_CAPABILITY_ARGUMENT_BYTES = 10 * 1024 * 1024;
+const MAX_EXTERNAL_CAPABILITY_ARTIFACT_INCLUDES = 64;
+const MAX_EXTERNAL_CAPABILITY_ARTIFACT_DEPTH = 16;
 export function createMcpToolHandlers(
   createMcpProxyForSourceGroup: CreateMcpProxyForSourceGroup,
 ): {
@@ -128,10 +130,14 @@ function externalCapabilityCallToolHandler(
       directArguments: input.arguments,
     });
     if (artifactArguments.error) {
-      reject(artifactArguments.error, 'invalid_request');
+      acceptData(
+        artifactArguments.error.message,
+        artifactArguments.error,
+        artifactArguments.error.code,
+      );
       return;
     }
-    let resolvedArguments = artifactArguments.arguments ?? input.arguments;
+    const resolvedArguments = artifactArguments.arguments ?? input.arguments;
     if (
       !input.serverName ||
       !input.toolName ||
@@ -146,16 +152,22 @@ function externalCapabilityCallToolHandler(
       );
       return;
     }
-    if (isWebsiteRecipeEvaluationSubmit(capabilityId, input.toolName)) {
-      const job = deps.opsRepository
-        ? await deps.opsRepository.getJobById(jobId)
-        : null;
-      resolvedArguments = bindWebsiteRecipeHumanIdentity(
-        resolvedArguments,
-        job?.prompt,
+    const expandedArguments = await expandExternalCapabilityArtifactIncludes({
+      context,
+      appId: data.appId,
+      agentId: agentIdForMcpTask(data, sourceAgentFolder),
+      jobId,
+      value: resolvedArguments,
+    });
+    if (expandedArguments.error) {
+      acceptData(
+        expandedArguments.error.message,
+        expandedArguments.error,
+        expandedArguments.error.code,
       );
+      return;
     }
-    if (Object.hasOwn(resolvedArguments, '_gantryCapabilityTask')) {
+    if (Object.hasOwn(expandedArguments.arguments, '_gantryCapabilityTask')) {
       reject(
         '_gantryCapabilityTask is reserved for Gantry.',
         'invalid_request',
@@ -175,27 +187,63 @@ function externalCapabilityCallToolHandler(
       return;
     }
     const agentId = agentIdForMcpTask(data, sourceAgentFolder);
-    const proxy = await createMcpProxyForSourceGroup({
-      appId: data.appId as never,
-      agentId,
-      ...routeScope,
-      deps,
-      ipcDir: context.ipcBaseDir
-        ? path.join(context.ipcBaseDir, sourceAgentFolder)
-        : undefined,
-      runHandle: data.runHandle,
-      runId,
-    });
-    const args = resolvedArguments;
-    await proxy.assertToolAllowed({
-      appId: data.appId as never,
-      agentId,
-      ...routeScope,
-      serverName: input.serverName,
-      toolName: input.toolName,
-      arguments: args,
-    });
-    if (isWebsiteRecipeCompile(capabilityId, input.toolName)) {
+    const args = expandedArguments.arguments;
+    let proxy: McpToolProxy;
+    let preflight: Awaited<
+      ReturnType<McpToolProxy['preflightExternalCapabilityCall']>
+    >;
+    try {
+      proxy = await createMcpProxyForSourceGroup({
+        appId: data.appId as never,
+        agentId,
+        ...routeScope,
+        deps,
+        ipcDir: context.ipcBaseDir
+          ? path.join(context.ipcBaseDir, sourceAgentFolder)
+          : undefined,
+        runHandle: data.runHandle,
+        runId,
+      });
+      preflight = await proxy.preflightExternalCapabilityCall({
+        appId: data.appId as never,
+        agentId,
+        ...routeScope,
+        serverName: input.serverName,
+        toolName: input.toolName,
+        arguments: args,
+        capabilityId,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'External capability preflight is temporarily unavailable.';
+      acceptData(
+        message,
+        {
+          status: 'rejected',
+          code: 'CAPABILITY_PREFLIGHT_UNAVAILABLE',
+          message,
+          repairable: true,
+          retryable: true,
+          retrySamePayload: true,
+          diagnostics: [
+            {
+              instancePath: '$',
+              keyword: 'capability_preflight',
+              message,
+            },
+          ],
+        },
+        'CAPABILITY_PREFLIGHT_UNAVAILABLE',
+      );
+      return;
+    }
+    if (!preflight.ok) {
+      acceptData(preflight.message, preflight, preflight.code);
+      return;
+    }
+    if (preflight.operation.executionMode === 'sync') {
       try {
         const result = await proxy.callTool({
           appId: data.appId as never,
@@ -205,11 +253,23 @@ function externalCapabilityCallToolHandler(
           toolName: input.toolName,
           arguments: args,
           authorizationArguments: args,
+          timeoutMs: preflight.operation.deadlineMs,
         });
-        const compilation = websiteRecipeCompilationFromMcpResult(result);
+        const resultEnvelope = validateExternalCapabilityResultEnvelope(
+          result,
+          preflight.operation.resultEnvelopeSchema,
+        );
+        if (!resultEnvelope.ok) {
+          acceptData(
+            resultEnvelope.message,
+            resultEnvelope,
+            resultEnvelope.code,
+          );
+          return;
+        }
         acceptData('External capability completed synchronously.', {
           status: 'completed',
-          ...compilation,
+          result: resultEnvelope.value,
         });
       } catch (error) {
         reject(
@@ -221,16 +281,6 @@ function externalCapabilityCallToolHandler(
       }
       return;
     }
-    if (
-      capabilityId === 'manipal.website-recipe-evaluator@1' &&
-      !isWebsiteRecipeEvaluationSubmit(capabilityId, input.toolName)
-    ) {
-      reject(
-        'Unsupported website recipe evaluator operation.',
-        'invalid_request',
-      );
-      return;
-    }
     const repository = deps.getAsyncTaskRepository?.();
     if (!repository) {
       reject(
@@ -240,58 +290,6 @@ function externalCapabilityCallToolHandler(
       return;
     }
     const invocationRef = `invocation:${idempotencyKey}`;
-    const checkpointRepository = deps.getJobSemanticCheckpointRepository?.();
-    let submissionCheckpoint: JobSemanticCheckpoint | null = null;
-    if (isWebsiteRecipeEvaluationSubmit(capabilityId, input.toolName)) {
-      if (!checkpointRepository) {
-        reject('Durable job checkpoints are unavailable.', 'unavailable');
-        return;
-      }
-      submissionCheckpoint = await checkpointRepository.getLatestCheckpoint({
-        appId: data.appId,
-        agentId,
-        jobId,
-      });
-      if (
-        !submissionCheckpoint ||
-        !isEvaluationSubmissionReady(submissionCheckpoint, invocationRef)
-      ) {
-        reject(
-          'Save the compiler-backed test plan checkpoint before evaluator submission.',
-          'checkpoint_required',
-        );
-        return;
-      }
-      const previousCheckpoint =
-        submissionCheckpoint.sequence > 1
-          ? await checkpointRepository.getCheckpoint({
-              appId: data.appId,
-              agentId,
-              jobId,
-              sequence: submissionCheckpoint.sequence - 1,
-            })
-          : null;
-      if (
-        isUnchangedSameRunEvaluationSubmission(
-          submissionCheckpoint,
-          previousCheckpoint,
-        )
-      ) {
-        reject(
-          'UNCHANGED_FAILED_EVALUATION: this run already analyzed the same evaluation-submit content. Make a material candidate or test-plan repair, or save needs_review_proof_incomplete; a new checkpoint or idempotency key alone is not a repair.',
-          'invalid_request',
-        );
-        return;
-      }
-      const evidenceBinding = evaluationObservationEvidenceBinding(
-        resolvedArguments,
-        submissionCheckpoint,
-      );
-      if (!evidenceBinding.valid) {
-        reject(evidenceBinding.message, evidenceBinding.code);
-        return;
-      }
-    }
     const service = new ExternalCapabilityTaskService(repository, () =>
       notifyAsyncTaskChange(repository),
     );
@@ -310,7 +308,7 @@ function externalCapabilityCallToolHandler(
     });
     try {
       if (acceptance.created) {
-        await proxy.callTool({
+        const result = await proxy.callTool({
           appId: data.appId as never,
           agentId,
           ...routeScope,
@@ -324,86 +322,96 @@ function externalCapabilityCallToolHandler(
             },
           },
           authorizationArguments: args,
+          timeoutMs: preflight.operation.deadlineMs,
         });
+        const resultEnvelope = validateExternalCapabilityResultEnvelope(
+          result,
+          preflight.operation.resultEnvelopeSchema,
+        );
+        if (!resultEnvelope.ok) {
+          throw new Error(resultEnvelope.message);
+        }
       }
     } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'External capability submission failed.';
       if (acceptance.completionToken) {
         await service.cancel({
           appId: data.appId,
           taskId: acceptance.taskId,
           completionToken: acceptance.completionToken,
           cancellationId: `submit-failed:${data.taskId ?? acceptance.taskId}`,
-          reason:
-            error instanceof Error
-              ? error.message
-              : 'External capability submission failed.',
+          reason: message,
         });
       }
-      reject(
-        error instanceof Error
-          ? error.message
-          : 'External capability submission failed.',
-        'mcp_proxy_failed',
+      acceptData(
+        message,
+        {
+          status: 'rejected',
+          code: 'CAPABILITY_SUBMISSION_REJECTED',
+          message,
+          repairable: true,
+          retryable: true,
+          retrySamePayload: false,
+          diagnostics: [
+            {
+              instancePath: '$',
+              keyword: 'capability_submission',
+              message,
+            },
+          ],
+        },
+        'CAPABILITY_SUBMISSION_REJECTED',
       );
       return;
     }
     if (
-      checkpointRepository &&
-      submissionCheckpoint &&
-      isPreparedEvaluationSubmissionCheckpoint(submissionCheckpoint)
+      acceptance.status === 'waiting_external' &&
+      preflight.operation.suspensionCheckpoint
     ) {
-      const checkpointResult = await checkpointRepository.appendCheckpoint({
-        id: `job-checkpoint-${stableSha256Json({ jobId, invocationRef }).slice(0, 48)}`,
+      const checkpoint = await persistExternalCapabilitySuspensionCheckpoint({
+        context,
         appId: data.appId,
         agentId,
         jobId,
         runId,
         leaseToken: data.runLeaseToken ?? '',
-        expectedPreviousSequence: submissionCheckpoint.sequence,
-        milestone: 'evaluation_submitted',
-        payload: {
-          safePhase: 'evaluation_submitted',
-          artifactRefs: replaceEvaluationArgumentsArtifact(
-            submissionCheckpoint.payload.artifactRefs,
-            artifactArguments.artifactRef,
-          ),
-          evaluatorInvocationRef: invocationRef,
-          pendingInteractionRef: null,
-          nextAction: 'Await the complete evaluator result.',
-          cumulativeRuntimeMs: submissionCheckpoint.payload.cumulativeRuntimeMs,
-        },
+        invocationRef,
+        contract: preflight.operation.suspensionCheckpoint,
       });
-      if (
-        checkpointResult.outcome !== 'persisted' &&
-        checkpointResult.outcome !== 'replayed'
-      ) {
+      if (!checkpoint.ok) {
         if (acceptance.completionToken) {
           await service.cancel({
             appId: data.appId,
             taskId: acceptance.taskId,
             completionToken: acceptance.completionToken,
             cancellationId: `checkpoint-failed:${data.taskId ?? acceptance.taskId}`,
-            reason: 'Evaluator submission checkpoint was fenced.',
+            reason: checkpoint.message,
           });
         }
-        reject(
-          'Evaluator submission was accepted, but its semantic checkpoint was fenced.',
-          'checkpoint_conflict',
+        acceptData(
+          checkpoint.message,
+          {
+            status: 'rejected',
+            code: checkpoint.code,
+            message: checkpoint.message,
+            repairable: false,
+            retryable: true,
+            retrySamePayload: true,
+            diagnostics: [
+              {
+                instancePath: '$',
+                keyword: 'suspension_checkpoint',
+                message: checkpoint.message,
+              },
+            ],
+          },
+          checkpoint.code,
         );
         return;
       }
-      await deps.publishRuntimeEvent?.({
-        appId: data.appId as never,
-        agentId,
-        runId: runId as never,
-        jobId: jobId as never,
-        eventType: RUNTIME_EVENT_TYPES.TASK_UPDATED,
-        actor: 'gantry-runtime',
-        payload: {
-          type: 'job_checkpoint_saved',
-          checkpoint: checkpointResult.checkpoint,
-        },
-      });
     }
     acceptData('External capability accepted; the job is suspending.', {
       taskId: acceptance.taskId,
@@ -415,22 +423,200 @@ function externalCapabilityCallToolHandler(
   };
 }
 
-export function isUnchangedSameRunEvaluationSubmission(
-  submission: JobSemanticCheckpoint,
-  previous: JobSemanticCheckpoint | null,
+async function persistExternalCapabilitySuspensionCheckpoint(input: {
+  context: TaskContext;
+  appId: string;
+  agentId: ReturnType<typeof agentIdForMcpTask>;
+  jobId: string;
+  runId: string;
+  leaseToken: string;
+  invocationRef: string;
+  contract: {
+    milestone: string;
+    payloadPatch: Record<string, unknown>;
+    invocationRefPath: string[];
+  };
+}): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      code: 'CAPABILITY_CHECKPOINT_UNAVAILABLE' | 'CAPABILITY_CHECKPOINT_REJECTED';
+      message: string;
+    }
+> {
+  const repository =
+    input.context.deps.getJobSemanticCheckpointRepository?.();
+  const job = input.context.deps.opsRepository
+    ? await input.context.deps.opsRepository.getJobById(input.jobId)
+    : null;
+  const checkpointContract = job?.agent_task?.checkpointContract;
+  if (!repository || !checkpointContract) {
+    return {
+      ok: false,
+      code: 'CAPABILITY_CHECKPOINT_UNAVAILABLE',
+      message:
+        'The durable capability requires a registered checkpoint contract and checkpoint repository.',
+    };
+  }
+  if (
+    checkpointContract.schemaDigest !==
+    `sha256:${stableSha256Json(checkpointContract.schema)}`
+  ) {
+    return {
+      ok: false,
+      code: 'CAPABILITY_CHECKPOINT_REJECTED',
+      message: 'The registered checkpoint schema digest has drifted.',
+    };
+  }
+  const latest = await repository.getLatestCheckpoint({
+    appId: input.appId,
+    agentId: input.agentId,
+    jobId: input.jobId,
+  });
+  if (!latest) {
+    return {
+      ok: false,
+      code: 'CAPABILITY_CHECKPOINT_REJECTED',
+      message:
+        'The durable capability requires a prior semantic checkpoint before suspension.',
+    };
+  }
+  const payload = structuredClone(latest.payload) as unknown as Record<
+    string,
+    unknown
+  >;
+  Object.assign(payload, structuredClone(input.contract.payloadPatch));
+  if (
+    !setCheckpointPath(
+      payload,
+      input.contract.invocationRefPath,
+      input.invocationRef,
+    )
+  ) {
+    return {
+      ok: false,
+      code: 'CAPABILITY_CHECKPOINT_REJECTED',
+      message: 'The suspension checkpoint invocationRefPath is unsafe.',
+    };
+  }
+  const validation = z.fromJSONSchema(checkpointContract.schema).safeParse(payload);
+  if (!validation.success) {
+    return {
+      ok: false,
+      code: 'CAPABILITY_CHECKPOINT_REJECTED',
+      message: `The suspension checkpoint violates the registered checkpoint schema: ${validation.error.issues
+        .map((issue) => `${issue.path.join('.') || '$'}: ${issue.message}`)
+        .join('; ')}`,
+    };
+  }
+  const result = await repository.appendCheckpoint({
+    id: `job-checkpoint-${stableSha256Json({
+      jobId: input.jobId,
+      invocationRef: input.invocationRef,
+      milestone: input.contract.milestone,
+    }).slice(0, 48)}`,
+    appId: input.appId,
+    agentId: input.agentId,
+    jobId: input.jobId,
+    runId: input.runId,
+    leaseToken: input.leaseToken,
+    expectedPreviousSequence: latest.sequence,
+    milestone: input.contract.milestone,
+    payload: validation.data as JobSemanticCheckpointPayload,
+  });
+  if (result.outcome !== 'persisted' && result.outcome !== 'replayed') {
+    return {
+      ok: false,
+      code: 'CAPABILITY_CHECKPOINT_REJECTED',
+      message: `The suspension checkpoint was not persisted (${result.outcome}).`,
+    };
+  }
+  await input.context.deps.publishRuntimeEvent?.({
+    appId: input.appId as never,
+    agentId: input.agentId,
+    runId: input.runId as never,
+    jobId: input.jobId as never,
+    eventType: RUNTIME_EVENT_TYPES.TASK_UPDATED,
+    actor: 'gantry-runtime',
+    payload: {
+      type: 'job_checkpoint_saved',
+      checkpoint: result.checkpoint,
+    },
+  });
+  return { ok: true };
+}
+
+function setCheckpointPath(
+  root: Record<string, unknown>,
+  pathParts: string[],
+  value: string,
 ): boolean {
   if (
-    previous?.milestone !== 'evaluation_analyzed' ||
-    previous.runId !== submission.runId
+    pathParts.length === 0 ||
+    pathParts.some((part) =>
+      ['__proto__', 'prototype', 'constructor'].includes(part),
+    )
   ) {
     return false;
   }
-  const contentHashFor = (checkpoint: JobSemanticCheckpoint, kind: string) =>
-    checkpoint.payload.artifactRefs.find((reference) => reference.kind === kind)
-      ?.contentHash;
-  const current = contentHashFor(submission, 'evaluation_submit_args');
-  const analyzed = contentHashFor(previous, 'evaluation_submit_args');
-  return Boolean(current && analyzed && current === analyzed);
+  let target = root;
+  for (const part of pathParts.slice(0, -1)) {
+    const child = target[part];
+    if (!child || typeof child !== 'object' || Array.isArray(child)) {
+      target[part] = {};
+    }
+    target = target[part] as Record<string, unknown>;
+  }
+  target[pathParts.at(-1)!] = value;
+  return true;
+}
+
+function validateExternalCapabilityResultEnvelope(
+  result: unknown,
+  schema: Record<string, unknown> | undefined,
+):
+  | { ok: true; value: unknown }
+  | {
+      ok: false;
+      code: 'external_capability_result_invalid';
+      message: string;
+      details: string[];
+    } {
+  const value = externalCapabilityStructuredContent(result);
+  if (!schema) return { ok: true, value };
+  const parsed = z.fromJSONSchema(schema).safeParse(value);
+  if (parsed.success) return { ok: true, value: parsed.data };
+  const details = parsed.error.issues.map(
+    (issue) => `${issue.path.join('.') || '$'}: ${issue.message}`,
+  );
+  return {
+    ok: false,
+    code: 'external_capability_result_invalid',
+    message: `External capability returned a result that violates its pinned result schema: ${details.join('; ')}`,
+    details,
+  };
+}
+
+function externalCapabilityStructuredContent(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return result;
+  }
+  const record = result as Record<string, unknown>;
+  if (record.structuredContent !== undefined) return record.structuredContent;
+  const content = Array.isArray(record.content) ? record.content : [];
+  const text = content
+    .map((item) =>
+      item && typeof item === 'object' && !Array.isArray(item)
+        ? (item as Record<string, unknown>).text
+        : undefined,
+    )
+    .find((item): item is string => typeof item === 'string');
+  if (!text) return result;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return result;
+  }
 }
 
 async function readExternalCapabilityArgumentsArtifact(input: {
@@ -443,10 +629,24 @@ async function readExternalCapabilityArgumentsArtifact(input: {
 }): Promise<
   | {
       arguments?: Record<string, unknown>;
-      artifactRef?: JobCheckpointArtifactReference;
       error?: undefined;
     }
-  | { arguments?: undefined; artifactRef?: undefined; error: string }
+  | {
+      arguments?: undefined;
+      error: {
+        status: 'rejected';
+        code: string;
+        message: string;
+        repairable: boolean;
+        retryable: boolean;
+        retrySamePayload: boolean;
+        diagnostics: Array<{
+          instancePath: '$';
+          keyword: 'artifact';
+          message: string;
+        }>;
+      };
+    }
 > {
   const rawArtifactId = toTrimmedString(input.payload.argumentsArtifactId, {
     maxLen: 80,
@@ -454,15 +654,30 @@ async function readExternalCapabilityArgumentsArtifact(input: {
   if (!rawArtifactId) return {};
   if (input.directArguments) {
     return {
-      error:
+      error: externalCapabilityArgumentsArtifactError(
+        'CAPABILITY_ARGUMENTS_SOURCE_INVALID',
         'arguments and argumentsArtifactId are mutually exclusive; submit exactly one.',
+      ),
     };
   }
   if (!/^file-artifact:[0-9a-f-]{36}$/iu.test(rawArtifactId)) {
-    return { error: 'argumentsArtifactId must be a FileArtifact identifier.' };
+    return {
+      error: externalCapabilityArgumentsArtifactError(
+        'CAPABILITY_ARGUMENTS_ARTIFACT_INVALID',
+        'argumentsArtifactId must be a FileArtifact identifier.',
+      ),
+    };
   }
   const store = input.context.deps.getFileArtifactStore?.();
-  if (!store) return { error: 'FileArtifact storage is unavailable.' };
+  if (!store) {
+    return {
+      error: externalCapabilityArgumentsArtifactError(
+        'CAPABILITY_ARGUMENTS_ARTIFACT_UNAVAILABLE',
+        'FileArtifact storage is unavailable.',
+        true,
+      ),
+    };
+  }
   try {
     const { artifact, content } = await store.readFileArtifact({
       id: rawArtifactId as FileArtifactId,
@@ -471,277 +686,230 @@ async function readExternalCapabilityArgumentsArtifact(input: {
     });
     if (artifact.virtualScope !== jobArtifactScope(input.jobId)) {
       return {
-        error:
+        error: externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_ARTIFACT_SCOPE_INVALID',
           'argumentsArtifactId must belong to the authenticated scheduled job.',
+        ),
       };
     }
     if (artifact.sizeBytes > 10 * 1024 * 1024) {
-      return { error: 'External capability arguments exceed 10 MiB.' };
+      return {
+        error: externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_ARTIFACT_TOO_LARGE',
+          'External capability arguments exceed 10 MiB.',
+        ),
+      };
     }
     const text =
       typeof content === 'string'
         ? content
         : Buffer.from(content).toString('utf8');
-    const parsed = JSON.parse(text) as unknown;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text) as unknown;
+    } catch {
+      return {
+        error: externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_PARSE_INVALID',
+          'External capability arguments FileArtifact must contain valid JSON. Rewrite the artifact and retry with a new idempotency key.',
+        ),
+      };
+    }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return {
-        error:
+        error: externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_PARSE_INVALID',
           'External capability arguments FileArtifact must contain one JSON object.',
+        ),
       };
     }
     return {
       arguments: parsed as Record<string, unknown>,
-      artifactRef: {
-        artifactId: artifact.id,
-        contentHash: artifact.contentHash,
-        kind: 'evaluation_submit_args',
-      },
     };
   } catch {
     return {
-      error:
-        'Unable to read or parse the external capability arguments FileArtifact.',
+      error: externalCapabilityArgumentsArtifactError(
+        'CAPABILITY_ARGUMENTS_ARTIFACT_READ_FAILED',
+        'Unable to read the external capability arguments FileArtifact.',
+        true,
+      ),
     };
   }
 }
 
-function replaceEvaluationArgumentsArtifact(
-  artifactRefs: readonly JobCheckpointArtifactReference[],
-  submittedArtifact?: JobCheckpointArtifactReference,
-): JobCheckpointArtifactReference[] {
-  if (!submittedArtifact) return [...artifactRefs];
-  return [
-    ...artifactRefs.filter(
-      (reference) => reference.kind !== 'evaluation_submit_args',
-    ),
-    submittedArtifact,
-  ];
-}
-
-function isWebsiteRecipeEvaluationSubmit(
-  capabilityId: string,
-  operation: string,
-): boolean {
-  return (
-    capabilityId === 'manipal.website-recipe-evaluator@1' &&
-    (operation === 'evaluation.submit' || operation === 'evaluation_submit')
-  );
-}
-
-function isWebsiteRecipeCompile(
-  capabilityId: string,
-  operation: string,
-): boolean {
-  return (
-    capabilityId === 'manipal.website-recipe-evaluator@1' &&
-    operation === 'recipe_compile'
-  );
-}
-
-export function websiteRecipeCompilationFromMcpResult(
-  result: unknown,
-): Record<string, unknown> {
-  const envelope = objectRecord(result);
-  if (envelope?.isError === true) {
-    throw new Error(mcpResultText(envelope) ?? 'Recipe compilation failed.');
-  }
-  const compilation =
-    objectRecord(envelope?.structuredContent) ??
-    parsedMcpResultText(envelope) ??
-    envelope;
-  if (compilation?.status === 'rejected') {
-    const code =
-      typeof compilation.code === 'string'
-        ? compilation.code
-        : 'RECIPE_SCHEMA_INVALID';
-    const message =
-      typeof compilation.message === 'string'
-        ? compilation.message
-        : 'Recipe compilation rejected the candidate.';
-    throw new Error(`${code}: ${message}`);
-  }
-  if (
-    compilation?.status !== 'compiled' ||
-    !objectRecord(compilation.binding) ||
-    typeof compilation.recipeSha256 !== 'string' ||
-    typeof compilation.observationInventorySha256 !== 'string' ||
-    typeof compilation.coverageManifestSha256 !== 'string' ||
-    !objectRecord(compilation.coverageManifest)
-  ) {
-    throw new Error('Recipe compiler returned no canonical compiled payload.');
-  }
-  return compilation;
-}
-
-function parsedMcpResultText(
-  envelope: Record<string, unknown> | null,
-): Record<string, unknown> | null {
-  const text = mcpResultText(envelope);
-  if (!text) return null;
-  try {
-    return objectRecord(JSON.parse(text));
-  } catch {
-    return null;
-  }
-}
-
-function mcpResultText(
-  envelope: Record<string, unknown> | null,
-): string | null {
-  const content = Array.isArray(envelope?.content) ? envelope.content : [];
-  for (const entry of content) {
-    const item = objectRecord(entry);
-    if (item?.type === 'text' && typeof item.text === 'string') {
-      return item.text;
-    }
-  }
-  return null;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-export function isEvaluationSubmissionReady(
-  checkpoint: JobSemanticCheckpoint | null,
-  invocationRef: string,
-): boolean {
-  const artifactKinds = new Set(
-    checkpoint?.payload.artifactRefs.map((reference) => reference.kind) ?? [],
-  );
-  const recoverableTransportFailure =
-    checkpoint?.milestone === 'evaluation_analyzed' &&
-    checkpoint.payload.evaluatorInvocationRef === null &&
-    [
-      'recipe_candidate',
-      'observation_inventory',
-      'test_plan',
-      'evaluation_submit_args',
-    ].every((kind) => artifactKinds.has(kind));
-  const preparedSubmission = checkpoint
-    ? isPreparedEvaluationSubmissionCheckpoint(checkpoint)
-    : false;
-
-  return (
-    checkpoint?.milestone === 'test_plan_created' ||
-    preparedSubmission ||
-    (checkpoint?.milestone === 'evaluation_submitted' &&
-      checkpoint.payload.evaluatorInvocationRef === invocationRef) ||
-    recoverableTransportFailure
-  );
-}
-
-function isPreparedEvaluationSubmissionCheckpoint(
-  checkpoint: JobSemanticCheckpoint,
-): boolean {
-  if (checkpoint.milestone === 'test_plan_created') return true;
-  const artifactKinds = new Set(
-    checkpoint.payload.artifactRefs.map((reference) => reference.kind),
-  );
-  // `evaluation_submitted` + `evaluation_ready` is accepted only as a
-  // compatibility bridge for checkpoints written before the runtime-owned
-  // submission gate was introduced. New model-authored checkpoints must use
-  // test_plan_created; the checkpoint handler rejects direct
-  // evaluation_submitted saves.
-  const readyMilestone =
-    checkpoint.milestone === 'candidate_created' ||
-    checkpoint.milestone === 'evaluation_submitted';
-  return (
-    readyMilestone &&
-    checkpoint.payload.safePhase === 'evaluation_ready' &&
-    checkpoint.payload.evaluatorInvocationRef === null &&
-    [
-      'recipe_candidate',
-      'observation_inventory',
-      'test_plan',
-      'evaluation_submit_args',
-    ].every((kind) => artifactKinds.has(kind))
-  );
-}
-
-function evaluationObservationEvidenceBinding(
-  args: Record<string, unknown>,
-  checkpoint: JobSemanticCheckpoint,
-):
-  | { valid: true }
+async function expandExternalCapabilityArtifactIncludes(input: {
+  context: TaskContext;
+  appId: string;
+  agentId: ReturnType<typeof agentIdForMcpTask>;
+  jobId: string;
+  value: Record<string, unknown>;
+}): Promise<
+  | { arguments: Record<string, unknown>; error?: undefined }
   | {
-      valid: false;
-      message: string;
-      code: 'invalid_request' | 'checkpoint_required';
-    } {
-  const units = Array.isArray(args.units) ? args.units : [args];
-  if (units.length === 0) {
-    return {
-      valid: false,
-      message: 'Recipe evaluation requires at least one observation inventory.',
-      code: 'invalid_request',
-    };
-  }
+      arguments?: undefined;
+      error: ReturnType<typeof externalCapabilityArgumentsArtifactError>;
+    }
+> {
+  const store = input.context.deps.getFileArtifactStore?.();
+  let includeCount = 0;
+  let expandedBytes = Buffer.byteLength(JSON.stringify(input.value), 'utf8');
 
-  for (const unit of units) {
-    if (!isRecord(unit) || !isRecord(unit.observationInventory)) {
+  const expand = async (
+    value: unknown,
+    depth: number,
+    ancestors: ReadonlySet<string>,
+  ): Promise<unknown> => {
+    if (depth > MAX_EXTERNAL_CAPABILITY_ARTIFACT_DEPTH) {
+      throw externalCapabilityArgumentsArtifactError(
+        'CAPABILITY_ARGUMENTS_ARTIFACT_DEPTH_EXCEEDED',
+        `Nested ${JSON_ARTIFACT_INCLUDE_KEY} directives exceed the maximum depth of ${MAX_EXTERNAL_CAPABILITY_ARTIFACT_DEPTH}.`,
+      );
+    }
+    if (isJsonArtifactInclude(value)) {
+      if (!store) {
+        throw externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_ARTIFACT_UNAVAILABLE',
+          'FileArtifact storage is unavailable.',
+          true,
+        );
+      }
+      includeCount += 1;
+      if (includeCount > MAX_EXTERNAL_CAPABILITY_ARTIFACT_INCLUDES) {
+        throw externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_ARTIFACT_INCLUDE_LIMIT_EXCEEDED',
+          `External capability arguments may include at most ${MAX_EXTERNAL_CAPABILITY_ARTIFACT_INCLUDES} JSON artifacts.`,
+        );
+      }
+      const artifactId = value[JSON_ARTIFACT_INCLUDE_KEY];
+      if (!/^file-artifact:[0-9a-f-]{36}$/iu.test(artifactId)) {
+        throw externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_ARTIFACT_INVALID',
+          `${JSON_ARTIFACT_INCLUDE_KEY} must contain a FileArtifact identifier.`,
+        );
+      }
+      if (ancestors.has(artifactId)) {
+        throw externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_ARTIFACT_CYCLE',
+          `Nested ${JSON_ARTIFACT_INCLUDE_KEY} directives must not form a cycle.`,
+        );
+      }
+      const { artifact, content } = await store.readFileArtifact({
+        id: artifactId as FileArtifactId,
+        appId: input.appId,
+        agentId: input.agentId,
+      });
+      if (artifact.virtualScope !== jobArtifactScope(input.jobId)) {
+        throw externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_ARTIFACT_SCOPE_INVALID',
+          `${JSON_ARTIFACT_INCLUDE_KEY} must reference an artifact owned by the authenticated scheduled job.`,
+        );
+      }
+      const text =
+        typeof content === 'string'
+          ? content
+          : Buffer.from(content).toString('utf8');
+      expandedBytes += Buffer.byteLength(text, 'utf8');
+      if (expandedBytes > MAX_EXTERNAL_CAPABILITY_ARGUMENT_BYTES) {
+        throw externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_ARTIFACT_TOO_LARGE',
+          'Expanded external capability arguments exceed 10 MiB.',
+        );
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text) as unknown;
+      } catch {
+        throw externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_PARSE_INVALID',
+          `${JSON_ARTIFACT_INCLUDE_KEY} must reference an artifact containing valid JSON.`,
+        );
+      }
+      return expand(
+        parsed,
+        depth + 1,
+        new Set([...ancestors, artifactId]),
+      );
+    }
+    if (Array.isArray(value)) {
+      const expanded: unknown[] = [];
+      for (const item of value) expanded.push(await expand(item, depth, ancestors));
+      return expanded;
+    }
+    if (value && typeof value === 'object') {
+      const expanded: Record<string, unknown> = {};
+      for (const [key, item] of Object.entries(value)) {
+        expanded[key] = await expand(item, depth, ancestors);
+      }
+      return expanded;
+    }
+    return value;
+  };
+
+  try {
+    const expanded = await expand(input.value, 0, new Set());
+    if (!expanded || typeof expanded !== 'object' || Array.isArray(expanded)) {
       return {
-        valid: false,
-        message:
-          'Every recipe evaluation unit requires its observation inventory.',
-        code: 'invalid_request',
+        error: externalCapabilityArgumentsArtifactError(
+          'CAPABILITY_ARGUMENTS_PARSE_INVALID',
+          'Expanded external capability arguments must contain one JSON object.',
+        ),
       };
     }
-    const claims = unit.observationInventory.claims;
-    if (!Array.isArray(claims)) {
-      return {
-        valid: false,
-        message: 'Every observation inventory requires claims.',
-        code: 'invalid_request',
-      };
+    return { arguments: expanded as Record<string, unknown> };
+  } catch (error) {
+    if (isExternalCapabilityArgumentsArtifactError(error)) {
+      return { error };
     }
-    for (const claim of claims) {
-      if (!isRecord(claim) || !Array.isArray(claim.evidenceRefs)) {
-        return {
-          valid: false,
-          message: 'Every observation claim requires evidenceRefs.',
-          code: 'invalid_request',
-        };
-      }
-      for (const evidenceRef of claim.evidenceRefs) {
-        if (
-          typeof evidenceRef !== 'string' ||
-          evidenceRef.trim().length === 0
-        ) {
-          return {
-            valid: false,
-            message:
-              'Observation evidence references must be non-empty strings.',
-            code: 'invalid_request',
-          };
-        }
-      }
-    }
-  }
-
-  const checkpointedArtifactKinds = new Set(
-    checkpoint.payload.artifactRefs.map((reference) => reference.kind),
-  );
-  const missingKinds = [
-    'observation_inventory',
-    'recipe_candidate',
-    'test_plan',
-  ].filter((kind) => !checkpointedArtifactKinds.has(kind));
-  if (missingKinds.length > 0) {
     return {
-      valid: false,
-      message:
-        'Save the observation inventory, recipe candidate, and test plan artifacts before evaluator submission.',
-      code: 'checkpoint_required',
+      error: externalCapabilityArgumentsArtifactError(
+        'CAPABILITY_ARGUMENTS_ARTIFACT_READ_FAILED',
+        'Unable to expand an external capability arguments FileArtifact.',
+        true,
+      ),
     };
   }
-  return { valid: true };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function isJsonArtifactInclude(
+  value: unknown,
+): value is Record<typeof JSON_ARTIFACT_INCLUDE_KEY, string> {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 1 &&
+      typeof (value as Record<string, unknown>)[JSON_ARTIFACT_INCLUDE_KEY] ===
+        'string',
+  );
+}
+
+function isExternalCapabilityArgumentsArtifactError(
+  value: unknown,
+): value is ReturnType<typeof externalCapabilityArgumentsArtifactError> {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      (value as Record<string, unknown>).status === 'rejected' &&
+      typeof (value as Record<string, unknown>).code === 'string',
+  );
+}
+
+function externalCapabilityArgumentsArtifactError(
+  code: string,
+  message: string,
+  retrySamePayload = false,
+) {
+  return {
+    status: 'rejected' as const,
+    code,
+    message,
+    repairable: true,
+    retryable: retrySamePayload,
+    retrySamePayload,
+    diagnostics: [
+      { instancePath: '$' as const, keyword: 'artifact' as const, message },
+    ],
+  };
 }
 
 function mcpSearchToolsHandler(

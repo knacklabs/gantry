@@ -130,6 +130,28 @@ FORBIDDEN_RUNTIME_RUNNER_MATERIALIZATION_PATTERNS = (
     ),
 )
 
+FORBIDDEN_PRODUCT_RUNTIME_TERMS = (
+    "manipal.website-recipe",
+    "manipal.website_recipe",
+    "website_recipe_request_human",
+    "validate_website_recipe_completion",
+    "manipal-tender-website-recipe",
+)
+
+
+def check_forbidden_product_runtime_terms(
+    production_files: list[Path], root: Path
+) -> list[str]:
+    issues: list[str] = []
+    for source in production_files:
+        text = source.read_text(encoding="utf-8")
+        for term in FORBIDDEN_PRODUCT_RUNTIME_TERMS:
+            if term in text:
+                issues.append(
+                    f"{source.relative_to(root).as_posix()}: product-specific runtime term {term!r}"
+                )
+    return issues
+
 FORBIDDEN_IPC_CONTRACT_FILES = (
     "apps/core/src/memory/memory-ipc-contract.ts",
     "apps/core/src/runtime/browser-ipc-contract.ts",

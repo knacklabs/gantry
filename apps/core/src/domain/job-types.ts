@@ -100,16 +100,23 @@ export interface JobAgentTask {
       name: string;
       description: string;
       inputSchema: Record<string, unknown>;
+      sensitiveResultFields?: string[];
     }>;
     maxInteractions: number;
     interactionTimeoutMs: number;
     allowSelectedMcpToolCalls?: boolean;
+    includeDurableExecutionTools?: boolean;
   };
   completionGate?: {
     toolName: string;
     maxNoProgressContinuations: number;
   };
   executionPolicy: { totalTimeoutMs: number };
+  runtimeProfile?: { id: string; version: string };
+  checkpointContract?: {
+    schema: Record<string, unknown>;
+    schemaDigest: string;
+  };
   browserAllowedNetworkHosts?: string[];
   modelControls?: {
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';

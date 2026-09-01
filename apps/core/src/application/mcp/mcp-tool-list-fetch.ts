@@ -7,6 +7,9 @@ const MAX_MCP_REMOTE_TOOL_NAME_LENGTH = 512;
 const MAX_MCP_REMOTE_TOOL_DESCRIPTION_LENGTH = 8 * 1024;
 const MAX_MCP_REMOTE_METADATA_COLLECTION_SIZE = 80;
 const MAX_MCP_REMOTE_METADATA_DEPTH = 8;
+const MAX_MCP_REMOTE_SCHEMA_DEPTH = 32;
+const MAX_MCP_REMOTE_SCHEMA_NODES = 10_000;
+const MAX_MCP_REMOTE_SCHEMA_BYTES = 48 * 1024;
 const MCP_REMOTE_METADATA_STRING_LADDER = [2048, 512, 128, 0] as const;
 
 export type McpListedToolMetadata = {
@@ -116,20 +119,56 @@ function normalizeRemoteMcpTool(
     name,
     ...(description ? { description } : {}),
   };
+  const inputSchema = exactBoundedRemoteSchema(record.inputSchema);
+  const outputSchema = exactBoundedRemoteSchema(record.outputSchema);
+  const metadata = { ...record };
+  if (inputSchema) delete metadata.inputSchema;
+  if (outputSchema) delete metadata.outputSchema;
   for (const maxStringChars of MCP_REMOTE_METADATA_STRING_LADDER) {
-    const bounded = boundRemoteMcpMetadata(record, maxStringChars, 0);
+    const bounded = boundRemoteMcpMetadata(metadata, maxStringChars, 0);
     if (!bounded || typeof bounded !== 'object' || Array.isArray(bounded)) {
       continue;
     }
     const candidate = {
       ...(bounded as Record<string, unknown>),
       ...base,
+      ...(inputSchema ? { inputSchema } : {}),
+      ...(outputSchema ? { outputSchema } : {}),
     } as McpListedToolMetadata;
     if (approximateBytes(candidate) <= MAX_MCP_REMOTE_TOOL_METADATA_BYTES) {
       return candidate;
     }
   }
-  return { ...base, metadataTruncated: true };
+  return {
+    ...base,
+    ...(inputSchema ? { inputSchema } : {}),
+    ...(outputSchema ? { outputSchema } : {}),
+    metadataTruncated: true,
+  };
+}
+
+function exactBoundedRemoteSchema(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  if (approximateBytes(value) > MAX_MCP_REMOTE_SCHEMA_BYTES) return undefined;
+  let nodes = 0;
+  const visit = (current: unknown, depth: number): boolean => {
+    nodes += 1;
+    if (nodes > MAX_MCP_REMOTE_SCHEMA_NODES || depth > MAX_MCP_REMOTE_SCHEMA_DEPTH) {
+      return false;
+    }
+    if (!current || typeof current !== 'object') return true;
+    if (Array.isArray(current)) {
+      return current.every((child) => visit(child, depth + 1));
+    }
+    return Object.values(current as Record<string, unknown>).every((child) =>
+      visit(child, depth + 1),
+    );
+  };
+  return visit(value, 0) ? (value as Record<string, unknown>) : undefined;
 }
 
 function normalizeRemoteString(

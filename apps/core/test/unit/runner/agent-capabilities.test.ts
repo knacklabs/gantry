@@ -1215,44 +1215,46 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).not.toContain('mcp__gantry__delegate_task');
   });
 
-  it('projects the bounded recipe authoring tools beside caller-resolved interactions', () => {
+  it('projects durable execution tools only when the caller contract selects them', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
-      chatJid: 'app:manipal-tender-copilot:website-recipe',
-      workspaceFolder: 'website_recipe',
+      chatJid: 'app:example:external-evaluation',
+      workspaceFolder: 'external_evaluation',
       isScheduledJob: true,
+      browserProfileName: 'public_readonly_research',
       configuredAllowedTools: [
         'Browser',
         'WebSearch',
         'AgentDelegation',
       ],
       semanticCapabilities: [{
-        capabilityId: 'manipal.website-recipe-evaluator',
+        capabilityId: 'example.external-evaluator',
         version: '1',
-        displayName: 'Manipal Website Recipe Evaluator',
-        category: 'website_recipe',
+        displayName: 'Example External Evaluator',
+        category: 'evaluation',
         risk: 'write',
-        can: 'Compile and evaluate recipes.',
-        cannot: 'Browse or activate recipes.',
+        can: 'Validate and evaluate an artifact.',
+        cannot: 'Browse or activate application data.',
         credentialSource: 'configured_access',
         implementationBindings: [{
           kind: 'mcp_pattern',
-          mcpServer: 'manipal-website-recipe',
-          mcpToolPatterns: ['recipe_compile', 'evaluation_submit'],
+          mcpServer: 'example-evaluator',
+          mcpToolPatterns: ['compile', 'submit'],
         }],
       }],
       callerResolvedTools: {
         sessionId: 'session-1',
         tools: [
           {
-            name: 'resolve_recipe_interaction',
-            description: 'Resolve a pending recipe interaction.',
+            name: 'resolve_external_interaction',
+            description: 'Resolve a pending external interaction.',
             inputSchema: { type: 'object' },
           },
         ],
         maxInteractions: 20,
         interactionTimeoutMs: 30_000,
         allowSelectedMcpToolCalls: true,
+        includeDurableExecutionTools: true,
       },
     });
 
@@ -1270,7 +1272,7 @@ describe('agent capability composition', () => {
       'job_checkpoint_save',
       'mcp_call_tool',
       'external_capability_call',
-      'resolve_recipe_interaction',
+      'resolve_external_interaction',
     ]));
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
     expect(profile.allowedTools).toContain('mcp__gantry__file');
@@ -1282,7 +1284,7 @@ describe('agent capability composition', () => {
     );
     expect(profile.availableTools).toContain('mcp__gantry__mcp_call_tool');
     expect(profile.allowedTools).toContain(
-      'mcp__gantry__resolve_recipe_interaction',
+      'mcp__gantry__resolve_external_interaction',
     );
     expect(profile.allowedTools).not.toContain('mcp__gantry__mcp_list_tools');
     expect(profile.allowedTools).not.toContain('mcp__gantry__mcp_search_tools');

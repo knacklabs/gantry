@@ -79,7 +79,7 @@ import {
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
 import {
-  browserPolicyFromSemanticCapabilities,
+  browserPolicyFromRuntimeProfile,
   configureSpawnAsyncCommandSandboxPolicy,
 } from './async-command-sandbox-policy.js';
 import { validateAgentPreSpawnAdmission } from './agent-spawn-admission.js';
@@ -587,14 +587,15 @@ async function spawnAgentWithContext(
       pickSafeHostEnv,
       pickPreparedExecutionEnv,
     });
-    const websiteRecipeEvaluatorBound = input.semanticCapabilities?.some(
+    const hasDurableExternalOperation = input.semanticCapabilities?.some(
       (capability) =>
-        capability.capabilityId === 'manipal.website-recipe-evaluator' &&
-        capability.version === '1',
+        capability.operations?.some(
+          (operation) => operation.executionMode === 'durable_async',
+        ),
     );
     if (
       options?.asyncTaskRepositoryAvailable === true &&
-      !websiteRecipeEvaluatorBound
+      !hasDurableExternalOperation
     ) {
       env.GANTRY_ASYNC_TASK_TOOLS_ENABLED = '1';
     } else {
@@ -725,9 +726,7 @@ async function spawnAgentWithContext(
       gatewayAllowedNetworkHosts:
         sandboxRuntimeNetwork.networkProjection.allowedNetworkHosts,
       fallbackAllowedNetworkHosts: sandboxAllowedNetworkHosts,
-      browserPolicy: browserPolicyFromSemanticCapabilities(
-        input.semanticCapabilities,
-      ),
+      browserPolicy: browserPolicyFromRuntimeProfile(input.runtimeProfile),
       resourceLimits: runtimeSandbox.resourceLimits,
       callerResolvedTools: input.callerResolvedTools,
     });

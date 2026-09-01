@@ -7,6 +7,7 @@ import {
   semanticCapabilityRuntimeRules,
   validateSemanticCapabilityDefinition,
 } from '@core/shared/semantic-capabilities.js';
+import { stableSha256Json } from '@core/shared/stable-hash.js';
 
 function localCliCapability(
   overrides: {
@@ -413,6 +414,95 @@ describe('reviewed MCP pattern bindings', () => {
       'mcp__github__search_*',
       'mcp__github__get_repository',
     ]);
+  });
+
+  it('accepts a bounded operation schema covered by the reviewed MCP binding', () => {
+    const inputSchema = {
+      type: 'object',
+      additionalProperties: false,
+      required: ['query'],
+      properties: { query: { type: 'string' } },
+    };
+
+    expect(
+      validateSemanticCapabilityDefinition({
+        ...mcpPatternCapability({
+          kind: 'mcp_pattern',
+          mcpServer: 'github',
+          mcpToolPatterns: ['search_repositories'],
+        }),
+        operations: [
+          {
+            mcpTool: 'mcp__github__search_repositories',
+            schemaDialect: 'json-schema-draft-07',
+            inputSchema,
+            inputSchemaDigest: `sha256:${stableSha256Json(inputSchema)}`,
+          },
+        ],
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it('rejects operation schema digest, binding, and remote-reference violations', () => {
+    const inputSchema = {
+      type: 'object',
+      properties: { query: { type: 'string' } },
+    };
+    const operation = {
+      mcpTool: 'mcp__github__search_repositories',
+      schemaDialect: 'json-schema-draft-07' as const,
+      inputSchema,
+      inputSchemaDigest: `sha256:${stableSha256Json(inputSchema)}`,
+    };
+    const exactCapability = mcpPatternCapability({
+      kind: 'mcp_pattern',
+      mcpServer: 'github',
+      mcpToolPatterns: ['search_repositories'],
+    });
+
+    expect(
+      validateSemanticCapabilityDefinition({
+        ...exactCapability,
+        operations: [
+          { ...operation, inputSchemaDigest: `sha256:${'0'.repeat(64)}` },
+        ],
+      }),
+    ).toEqual({
+      ok: false,
+      reason:
+        'Capability operation schema digest does not match: mcp__github__search_repositories',
+    });
+    expect(
+      validateSemanticCapabilityDefinition({
+        ...exactCapability,
+        operations: [{ ...operation, mcpTool: 'mcp__linear__search_issues' }],
+      }),
+    ).toEqual({
+      ok: false,
+      reason:
+        'Capability operation is not covered by an exact implementation binding: mcp__linear__search_issues',
+    });
+    const remoteReferenceSchema = {
+      type: 'object',
+      properties: {
+        query: { $ref: 'https://schemas.example.test/query.json' },
+      },
+    };
+    expect(
+      validateSemanticCapabilityDefinition({
+        ...exactCapability,
+        operations: [
+          {
+            ...operation,
+            inputSchema: remoteReferenceSchema,
+            inputSchemaDigest: `sha256:${stableSha256Json(remoteReferenceSchema)}`,
+          },
+        ],
+      }),
+    ).toEqual({
+      ok: false,
+      reason: 'Capability operation inputSchema cannot use remote references.',
+    });
   });
 
   it('rejects pattern bindings without reviewed patterns', () => {

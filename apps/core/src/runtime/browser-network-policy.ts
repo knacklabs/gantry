@@ -14,6 +14,26 @@ const policies = new Map<
 >();
 const pending = new Map<number, Promise<void>>();
 const publicHostCache = new Map<string, number>();
+const navigationDenials = new Map<
+  number,
+  { url: string; reason: BrowserNetworkPolicyDenialReason }
+>();
+
+export type BrowserNetworkPolicyDenialReason =
+  | 'invalid_url'
+  | 'unsupported_protocol'
+  | 'navigation_host_not_allowed'
+  | 'non_public_address';
+
+export function lastBrowserNetworkPolicyNavigationDenial(
+  port: number,
+): { url: string; reason: BrowserNetworkPolicyDenialReason } | undefined {
+  return navigationDenials.get(port);
+}
+
+export function clearBrowserNetworkPolicyNavigationDenial(port: number): void {
+  navigationDenials.delete(port);
+}
 
 export function browserNavigationHostAllowed(
   hostname: string,
@@ -24,7 +44,10 @@ export function browserNavigationHostAllowed(
   if (allowedHosts.length === 0) return true;
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   return allowedHosts.some((entry) => {
-    const allowed = entry.toLowerCase().trim().replace(/^https?:\/\//, '');
+    const allowed = entry
+      .toLowerCase()
+      .trim()
+      .replace(/^https?:\/\//, '');
     if (!allowed) return false;
     if (allowed.startsWith('*.')) {
       const suffix = allowed.slice(1);
@@ -81,9 +104,14 @@ async function install(input: {
       input.allowPublicNavigationDiscovery === true,
   };
   policies.set(input.port, state);
-  browser.on('disconnected', () => policies.delete(input.port));
+  browser.on('disconnected', () => {
+    policies.delete(input.port);
+    navigationDenials.delete(input.port);
+  });
   for (const context of browser.contexts()) {
-    await context.route('**/*', async (route) => guardRoute(route, state));
+    await context.route('**/*', async (route) =>
+      guardRoute(route, state, input.port),
+    );
   }
 }
 
@@ -93,6 +121,7 @@ async function guardRoute(
     allowedHosts: readonly string[];
     allowPublicNavigationDiscovery: boolean;
   },
+  port: number,
 ) {
   if (state.allowedHosts.length === 0) {
     await route.continue();
@@ -103,6 +132,12 @@ async function guardRoute(
   try {
     url = new URL(request.url());
   } catch {
+    rememberNavigationDenial(
+      port,
+      request.isNavigationRequest(),
+      request.url(),
+      'invalid_url',
+    );
     await route.abort('blockedbyclient');
     return;
   }
@@ -111,6 +146,12 @@ async function guardRoute(
     return;
   }
   if (!['http:', 'https:'].includes(url.protocol)) {
+    rememberNavigationDenial(
+      port,
+      request.isNavigationRequest(),
+      url.href,
+      'unsupported_protocol',
+    );
     await route.abort('blockedbyclient');
     return;
   }
@@ -122,14 +163,35 @@ async function guardRoute(
       state.allowPublicNavigationDiscovery,
     )
   ) {
+    rememberNavigationDenial(
+      port,
+      true,
+      url.href,
+      'navigation_host_not_allowed',
+    );
     await route.abort('blockedbyclient');
     return;
   }
   if (!(await isPublicHost(url.hostname))) {
+    rememberNavigationDenial(
+      port,
+      request.isNavigationRequest(),
+      url.href,
+      'non_public_address',
+    );
     await route.abort('blockedbyclient');
     return;
   }
   await route.continue();
+}
+
+function rememberNavigationDenial(
+  port: number,
+  navigationRequest: boolean,
+  url: string,
+  reason: BrowserNetworkPolicyDenialReason,
+): void {
+  if (navigationRequest) navigationDenials.set(port, { url, reason });
 }
 
 async function isPublicHost(hostname: string) {

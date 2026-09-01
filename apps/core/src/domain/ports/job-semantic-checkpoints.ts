@@ -1,18 +1,4 @@
-export const JOB_SEMANTIC_CHECKPOINT_MILESTONES = [
-  'inventory_completed',
-  'candidate_created',
-  'candidate_repaired',
-  'test_plan_created',
-  'evaluation_submitted',
-  'evaluation_analyzed',
-  'human_wait',
-  'human_interaction_resolved',
-  'runtime_boundary',
-  'needs_review',
-] as const;
-
-export type JobSemanticCheckpointMilestone =
-  (typeof JOB_SEMANTIC_CHECKPOINT_MILESTONES)[number];
+export type JobSemanticCheckpointMilestone = string;
 
 export interface JobCheckpointArtifactReference {
   artifactId: string;

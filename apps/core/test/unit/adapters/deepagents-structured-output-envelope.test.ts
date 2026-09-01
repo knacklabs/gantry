@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   appendStructuredOutputContract,
   DeepAgentStructuredOutputError,
+  preserveOriginalTaskPrompt,
   serializeValidatedStructuredOutput,
   structuredOutputContinuationPrompt,
   STRUCTURED_OUTPUT_ENVELOPE_SCHEMA,
@@ -55,5 +56,17 @@ describe('DeepAgents structured-output envelope', () => {
         'Continue from the checkpoint.',
       ),
     ).toContain('Continue the workflow');
+  });
+
+  it('retains immutable task context when a fresh DeepAgents turn continues', () => {
+    const prompt = preserveOriginalTaskPrompt(
+      'INPUT_JSON {"requestId":"request-1","attemptId":"attempt-1"}',
+      'The completion owner requested more work.',
+    );
+
+    expect(prompt).toContain('"requestId":"request-1"');
+    expect(prompt).toContain('"attemptId":"attempt-1"');
+    expect(prompt).toContain('RUNTIME_CONTINUATION');
+    expect(prompt).toContain('requested more work');
   });
 });

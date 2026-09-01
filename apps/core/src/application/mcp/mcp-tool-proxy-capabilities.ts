@@ -9,6 +9,7 @@ import type { HostnameLookup } from '../../domain/network/public-address-policy.
 import { reviewedExternalMcpToolPatternsFromRuntimeAccess } from '../../shared/capability-runtime-access.js';
 import { intersectMcpToolRulesWithSourceScopes } from '../../shared/mcp-tool-scope.js';
 import { resolveAgentToolRuntimePolicy } from '../agents/agent-tool-runtime-rules.js';
+import { parseExactSemanticCapabilityMcpTool } from '../../shared/semantic-capabilities.js';
 import { authorizedMcpServerIdsForAgent } from './mcp-authorized-servers.js';
 import type { RemoteMcpDnsValidationCache } from './mcp-server-policy.js';
 import { McpServerService } from './mcp-server-service.js';
@@ -114,6 +115,19 @@ async function materializeReviewedMcpCapabilitiesLocked(
         },
       ],
     );
+    const reviewedCapabilityIds = [
+      ...new Set(
+        policy.runtimeAccess.flatMap((access) =>
+          access.sourceType === 'mcp_server' &&
+          (access.reviewedServerId === capability.name ||
+            access.allowedTools.some((tool) =>
+              tool.trim().startsWith(serverPrefix),
+            ))
+            ? [access.selectedCapabilityId]
+            : [],
+        ),
+      ),
+    ];
     return {
       ...capability,
       reviewedToolNames: sourceScopedRules.filter(
@@ -122,19 +136,27 @@ async function materializeReviewedMcpCapabilitiesLocked(
       reviewedToolPatterns: sourceScopedRules.filter((rule) =>
         rule.startsWith(serverPrefix),
       ),
-      reviewedCapabilityIds: [
-        ...new Set(
-          policy.runtimeAccess.flatMap((access) =>
-            access.sourceType === 'mcp_server' &&
-            (access.reviewedServerId === capability.name ||
-              access.allowedTools.some((tool) =>
-                tool.trim().startsWith(serverPrefix),
-              ))
-              ? [access.selectedCapabilityId]
-              : [],
-          ),
-        ),
-      ],
+      reviewedCapabilityIds,
+      reviewedOperationContracts: policy.semanticCapabilities.flatMap(
+        (definition) =>
+          reviewedCapabilityIds.includes(definition.capabilityId)
+            ? (definition.operations ?? []).flatMap((operation) => {
+                const parsed = parseExactSemanticCapabilityMcpTool(
+                  operation.mcpTool,
+                );
+                return parsed?.serverName === capability.name
+                  ? [
+                      {
+                        capabilityRef: definition.version
+                          ? `${definition.capabilityId}@${definition.version}`
+                          : definition.capabilityId,
+                        ...operation,
+                      },
+                    ]
+                  : [];
+              })
+            : [],
+      ),
     };
   });
 }

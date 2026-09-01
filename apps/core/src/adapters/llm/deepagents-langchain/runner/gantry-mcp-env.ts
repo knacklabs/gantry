@@ -13,7 +13,7 @@ import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-c
 const BROWSER_GATEWAY_TOOL_NAME_SET = new Set<string>(
   GATED_GANTRY_MCP_TOOL_NAMES,
 );
-const RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES = [
+const DURABLE_EXTERNAL_CAPABILITY_TOOL_NAMES = [
   'file',
   'job_checkpoint_status',
   'job_checkpoint_save',
@@ -96,16 +96,16 @@ export function buildGantryMcpProjection(
   const semanticCapabilities =
     input.semanticCapabilities ??
     parseSemanticCapabilities(env.GANTRY_SEMANTIC_CAPABILITIES_JSON);
-  const recipeAuthoringToolNames = hasRecipeAuthoringCapability(
+  const durableCapabilityToolNames = hasDurableExternalCapability(
     semanticCapabilities,
   )
-    ? RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES
+    ? DURABLE_EXTERNAL_CAPABILITY_TOOL_NAMES
     : [];
   const selectedToolNames = browserIpcEnabled
     ? [
         ...new Set([
           ...selectedToolNamesBase,
-          ...recipeAuthoringToolNames,
+          ...durableCapabilityToolNames,
           ...callableAgentToolNames,
           ...callerToolNames,
         ]),
@@ -115,7 +115,7 @@ export function buildGantryMcpProjection(
           ...selectedToolNamesBase.filter(
             (toolName) => !BROWSER_GATEWAY_TOOL_NAME_SET.has(toolName),
           ),
-          ...recipeAuthoringToolNames,
+          ...durableCapabilityToolNames,
           ...callableAgentToolNames,
           ...callerToolNames,
         ]),
@@ -230,13 +230,13 @@ function parseSemanticCapabilities(
   }
 }
 
-function hasRecipeAuthoringCapability(
+function hasDurableExternalCapability(
   capabilities: readonly SemanticCapabilityDefinition[],
 ): boolean {
-  return capabilities.some(
-    (capability) =>
-      capability.capabilityId === 'manipal.website-recipe-evaluator' &&
-      capability.version === '1',
+  return capabilities.some((capability) =>
+    capability.operations?.some(
+      (operation) => operation.executionMode === 'durable_async',
+    ),
   );
 }
 

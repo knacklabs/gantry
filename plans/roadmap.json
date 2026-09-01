@@ -973,6 +973,24 @@
       "completed_at": "2026-08-12T08:24:48+00:00",
       "history": ".factory/history/GANTRY-WEBSITE-RECIPE-V2/",
       "outcome": "Caller-bounded Gantry jobs can now opt in to the single reviewed remote MCP call proxy alongside their exact caller-resolved tools, while inventory, authority, browser, shell, and unrelated tools remain excluded. MCP progress events expose only bounded operation discriminators and opaque evidence references, so Agent.Tender can drive Website Recipe V2 through Manipal private capabilities without exposing arguments or broadening Gantry authority."
+    },
+    {
+      "key": "GANTRY-EXTERNAL-CAPABILITY-PREFLIGHT",
+      "title": "Generic external capability structural preflight",
+      "story": "As an application invoking a reviewed external capability, I need inline and artifact-backed arguments validated equivalently before any durable side effect so malformed payloads remain local and repairable.",
+      "acceptance_criteria": [
+        "Both inline and artifact-backed arguments are validated against the pinned reviewed operation schema.",
+        "Exact capability version, server, and tool binding plus live schema drift are enforced fail closed.",
+        "Invalid input returns bounded redacted diagnostics and creates no external task or durable transition.",
+        "Valid input reaches the existing capability unchanged and Gantry owns no application semantics."
+      ],
+      "order": 55,
+      "status": "pending",
+      "epic": "manipal-integration",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/caller-bounded-selected-remote-mcp.md"
     }
   ],
   "epics": [
@@ -1069,5 +1087,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-12T08:24:48+00:00"
+  "updated_at": "2026-08-28T08:15:37+00:00"
 }

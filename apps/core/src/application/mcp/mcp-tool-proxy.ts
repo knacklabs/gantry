@@ -1,6 +1,7 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
+import { z } from 'zod';
 import type {
   McpServerRepository,
   SkillCatalogRepository,
@@ -8,6 +9,7 @@ import type {
 } from '../../domain/ports/repositories.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { ApplicationError } from '../common/application-error.js';
+import { stableSha256Json } from '../../shared/stable-hash.js';
 import { RemoteMcpDnsValidationCache } from './mcp-server-policy.js';
 import {
   isReviewedMcpToolAllowed,
@@ -80,6 +82,40 @@ interface McpToolCallInput {
   timeoutMs?: number;
   signal?: AbortSignal;
 }
+
+export type ExternalCapabilityPreflightResult =
+  | {
+      ok: true;
+      operation: {
+        executionMode: 'sync' | 'durable_async';
+        requiresActiveJob: boolean;
+        deadlineMs?: number;
+        resultEnvelopeSchema?: Record<string, unknown>;
+        suspensionCheckpoint?: {
+          milestone: string;
+          payloadPatch: Record<string, unknown>;
+          invocationRefPath: string[];
+        };
+      };
+    }
+  | {
+      ok: false;
+      status: 'rejected';
+      code:
+        | 'CAPABILITY_INPUT_SCHEMA_INVALID'
+        | 'CAPABILITY_REFERENCE_MISMATCH'
+        | 'CAPABILITY_SCHEMA_DRIFT'
+        | 'CAPABILITY_INPUT_SCHEMA_UNAVAILABLE';
+      message: string;
+      repairable: boolean;
+      retryable: false;
+      retrySamePayload: false;
+      diagnostics: Array<{
+        instancePath: string;
+        keyword: string;
+        message: string;
+      }>;
+    };
 
 export type McpToolSearchMatch = ListedMcpTool & {
   coveredByReviewedCapability: boolean;
@@ -547,6 +583,99 @@ export class McpToolProxy {
     );
   }
 
+  async preflightExternalCapabilityCall(
+    input: McpToolCallInput & { capabilityId: string },
+  ): Promise<ExternalCapabilityPreflightResult> {
+    const reviewed = await this.resolveReviewedTool(
+      input,
+      async () => undefined,
+    );
+    const fullToolName = `mcp__${reviewed.capability.name}__${input.toolName}`;
+    const operationContracts =
+      reviewed.capability.reviewedOperationContracts?.filter(
+        (candidate) => candidate.mcpTool === fullToolName,
+      ) ?? [];
+    const contract = operationContracts.find(
+      (candidate) => candidate.capabilityRef === input.capabilityId,
+    );
+    if (!contract) {
+      if (operationContracts.length > 0) {
+        const reviewedRefs = operationContracts
+          .map((candidate) => candidate.capabilityRef)
+          .sort()
+          .join(', ');
+        return externalCapabilityPreflightFailure(
+          'CAPABILITY_REFERENCE_MISMATCH',
+          `Requested capability reference does not match the reviewed operation contract. Use one of: ${reviewedRefs}.`,
+          true,
+        );
+      }
+      return externalCapabilityPreflightFailure(
+        'CAPABILITY_INPUT_SCHEMA_UNAVAILABLE',
+        'No reviewed input schema is available for this exact capability operation.',
+        false,
+      );
+    }
+    const client = await connectMcpToolProxyClient(
+      reviewed.capability,
+      this.options,
+      MCP_TOOL_PROXY_CLIENT_ADAPTERS,
+    );
+    try {
+      const live = await fetchAndCacheMcpToolDetail({
+        request: input,
+        capability: reviewed.capability,
+        client,
+        timeoutMs: MCP_PROXY_TIMEOUT_MS,
+        signal: input.signal,
+      });
+      const liveSchema = live.tool.inputSchema;
+      const liveDigest =
+        liveSchema &&
+        typeof liveSchema === 'object' &&
+        !Array.isArray(liveSchema)
+          ? `sha256:${stableSha256Json(liveSchema)}`
+          : null;
+      if (liveDigest !== contract.inputSchemaDigest) {
+        return externalCapabilityPreflightFailure(
+          'CAPABILITY_SCHEMA_DRIFT',
+          'The live MCP input schema differs from the reviewed operation contract.',
+          false,
+        );
+      }
+      const schema = z.fromJSONSchema(contract.inputSchema);
+      const validation = schema.safeParse(input.arguments ?? {});
+      if (validation.success) {
+        return {
+          ok: true,
+          operation: {
+            executionMode: contract.executionMode ?? 'sync',
+            requiresActiveJob: contract.requiresActiveJob ?? false,
+            ...(contract.deadlineMs !== undefined
+              ? { deadlineMs: contract.deadlineMs }
+              : {}),
+            ...(contract.resultEnvelopeSchema
+              ? { resultEnvelopeSchema: contract.resultEnvelopeSchema }
+              : {}),
+            ...(contract.suspensionCheckpoint
+              ? { suspensionCheckpoint: contract.suspensionCheckpoint }
+              : {}),
+          },
+        };
+      }
+      return {
+        ...externalCapabilityPreflightFailure(
+          'CAPABILITY_INPUT_SCHEMA_INVALID',
+          'External capability arguments do not match the reviewed input schema.',
+          true,
+        ),
+        diagnostics: externalCapabilityDiagnostics(validation.error.issues),
+      };
+    } finally {
+      scheduleMcpClientIdleClose(reviewed.capability);
+    }
+  }
+
   private async fetchAndCacheInventory(
     input: {
       appId: AppId;
@@ -684,4 +813,67 @@ export class McpToolProxy {
       finalizeDenied,
     });
   }
+}
+
+function externalCapabilityPreflightFailure(
+  code: Exclude<ExternalCapabilityPreflightResult, { ok: true }>['code'],
+  message: string,
+  repairable: boolean,
+): Exclude<ExternalCapabilityPreflightResult, { ok: true }> {
+  return {
+    ok: false,
+    status: 'rejected',
+    code,
+    message,
+    repairable,
+    retryable: false,
+    retrySamePayload: false,
+    diagnostics: [],
+  };
+}
+
+function externalCapabilityDiagnostics(
+  issues: readonly z.core.$ZodIssue[],
+): Exclude<ExternalCapabilityPreflightResult, { ok: true }>['diagnostics'] {
+  const diagnostics: Exclude<
+    ExternalCapabilityPreflightResult,
+    { ok: true }
+  >['diagnostics'] = [];
+  for (const issue of issues) {
+    const keys =
+      issue.code === 'unrecognized_keys' && Array.isArray(issue.keys)
+        ? issue.keys
+        : [null];
+    for (const key of keys) {
+      diagnostics.push({
+        instancePath: jsonPointer(
+          key === null ? issue.path : [...issue.path, String(key)],
+        ),
+        keyword:
+          issue.code === 'unrecognized_keys'
+            ? 'additionalProperties'
+            : issue.code,
+        message: safeSchemaIssueMessage(issue.code),
+      });
+      if (diagnostics.length === 20) return diagnostics;
+    }
+  }
+  return diagnostics;
+}
+
+function jsonPointer(path: PropertyKey[]): string {
+  if (path.length === 0) return '';
+  return `/${path
+    .map((part) => String(part).replaceAll('~', '~0').replaceAll('/', '~1'))
+    .join('/')}`;
+}
+
+function safeSchemaIssueMessage(code: string): string {
+  if (code === 'invalid_type') return 'Value has the wrong type.';
+  if (code === 'invalid_value') return 'Value is not allowed.';
+  if (code === 'unrecognized_keys') return 'Property is not allowed.';
+  if (code === 'too_small') return 'Value is below the reviewed minimum.';
+  if (code === 'too_big') return 'Value exceeds the reviewed maximum.';
+  if (code === 'invalid_format') return 'Value has an invalid format.';
+  return 'Value does not satisfy the reviewed schema.';
 }

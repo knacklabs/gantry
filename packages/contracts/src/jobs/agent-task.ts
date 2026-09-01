@@ -46,6 +46,10 @@ export const JobAgentTaskSchema = z
                 name: z.string().min(1).max(80),
                 description: z.string().min(1).max(1_000),
                 inputSchema: JsonObjectSchema,
+                sensitiveResultFields: z
+                  .array(z.string().min(1).max(100))
+                  .max(32)
+                  .optional(),
               })
               .strict(),
           )
@@ -57,6 +61,7 @@ export const JobAgentTaskSchema = z
           .positive()
           .max(30 * 60_000),
         allowSelectedMcpToolCalls: z.boolean().optional(),
+        includeDurableExecutionTools: z.boolean().optional(),
       })
       .strict()
       .optional(),
@@ -76,6 +81,20 @@ export const JobAgentTaskSchema = z
           .max(24 * 60 * 60_000),
       })
       .strict(),
+    runtimeProfile: z
+      .object({
+        id: z.string().min(1).max(100),
+        version: z.string().min(1).max(40),
+      })
+      .strict()
+      .optional(),
+    checkpointContract: z
+      .object({
+        schema: JsonObjectSchema,
+        schemaDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+      })
+      .strict()
+      .optional(),
     browserAllowedNetworkHosts: z
       .array(NetworkHostSchema)
       .min(1)

@@ -275,6 +275,10 @@ describe('runner browser MCP gateway tools', () => {
     });
     await server.tools.get('browser_inspect')?.({ mode: 'tabs' });
     await server.tools.get('browser_inspect')?.({
+      mode: 'elements',
+      target: 'input[type="hidden"]',
+    });
+    await server.tools.get('browser_inspect')?.({
       mode: 'screenshot',
       filename: 'shot.png',
       timeout_ms: 500,
@@ -294,6 +298,15 @@ describe('runner browser MCP gateway tools', () => {
     );
     expect(requestBrowserAction).toHaveBeenNthCalledWith(
       3,
+      'evaluate',
+      {
+        inspect_mode: 'elements',
+        selector: 'input[type="hidden"]',
+      },
+      { timeoutMs: 120_000, publicToolName: 'browser_inspect' },
+    );
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      4,
       'screenshot',
       { filename: 'shot.png' },
       { timeoutMs: 1_000, publicToolName: 'browser_inspect' },
@@ -1690,7 +1703,7 @@ describe('runner browser MCP gateway tools', () => {
     );
     expect(discoveryFunction).toContain('element === preferredInput ? 50 : 0');
     expect(discoveryFunction).toContain(
-      'if (/search|tender|published|date/.test(text)) value -= 500',
+      'if (/search|query|published|date/.test(text)) value -= 500',
     );
     expect(discoveryFunction).toContain(
       'inputCandidates.sort((left, right) => inputScore(right) - inputScore(left))',
@@ -1946,6 +1959,12 @@ describe('runner browser MCP gateway tools', () => {
     expect(openSchema.safeParse({ url: 'https://example.com' }).success).toBe(
       true,
     );
+    expect(
+      inspectSchema.safeParse({
+        mode: 'elements',
+        target: 'input[type="hidden"]',
+      }).success,
+    ).toBe(true);
     expect(
       inspectSchema.safeParse({
         mode: 'screenshot',

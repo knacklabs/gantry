@@ -2,7 +2,10 @@ import fs from 'fs';
 // prettier-ignore
 import { ASSISTANT_NAME, getEffectiveModelConfig, getRuntimeSettingsForConfig, getSelectedAgentHarness } from '../config/index.js';
 import type { ConversationRoute, Job } from '../domain/types.js';
-import type { AgentFailureMetadata } from '../domain/ports/async-tasks.js';
+import {
+  toPublicAsyncTaskDto,
+  type AgentFailureMetadata,
+} from '../domain/ports/async-tasks.js';
 import { logger, updateLogContext } from '../infrastructure/logging/logger.js';
 // prettier-ignore
 import { getRuntimeControlRepository, getRuntimeEventExchange, getConfiguredModelProvidersForApp, getWorkerCoordinationRepository } from '../adapters/storage/postgres/runtime-store.js';
@@ -93,7 +96,6 @@ import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
-import { bindWebsiteRecipeTerminalIdentity } from './website-recipe-identity-binding.js';
 import { appendSemanticCheckpointContext } from './execution-semantic-checkpoint-context.js';
 
 export async function runJob(
@@ -413,11 +415,7 @@ async function runActiveJob(
           });
           const semanticCapabilities =
             resolveTurnSemanticCapabilitiesFromSnapshot(accessSnapshot);
-          const semanticCheckpoint = semanticCapabilities.some(
-            (capability) =>
-              capability.capabilityId === 'manipal.website-recipe-evaluator' &&
-              capability.version === '1',
-          )
+          const semanticCheckpoint = currentJob.agent_task?.checkpointContract
             ? ((await deps
                 .getJobSemanticCheckpointRepository?.()
                 ?.getLatestCheckpoint({
@@ -426,9 +424,29 @@ async function runActiveJob(
                   jobId: currentJob.id,
                 })) ?? null)
             : null;
-          toolPolicy = jobToolPolicy.addSemanticJobToolRules(
+          const completedExternalTasks = deps.getAsyncTaskRepository
+            ? ((
+                await deps.getAsyncTaskRepository()?.listTasks({
+                  appId: executionAppId,
+                  agentId: executionAgentId,
+                  parentJobId: currentJob.id,
+                  kind: 'external_capability',
+                  statuses: ['completed', 'failed', 'cancelled', 'timed_out'],
+                  limit: 20,
+                  order: 'oldest_first',
+                })
+              )
+                ?.filter(
+                  (task) =>
+                    !semanticCheckpoint ||
+                    Date.parse(task.terminalAt ?? task.updatedAt) >
+                      Date.parse(semanticCheckpoint.createdAt),
+                )
+                .map(toPublicAsyncTaskDto) ?? [])
+            : [];
+          toolPolicy = jobToolPolicy.addRuntimeProfileToolRules(
             toolPolicy,
-            semanticCapabilities,
+            currentJob.agent_task?.runtimeProfile,
           );
           const attachedMcpSourceIds =
             resolveTurnSelectedMcpServerIdsFromSnapshot(accessSnapshot, {
@@ -547,8 +565,8 @@ async function runActiveJob(
                 prompt: appendRuntimeBudgetContext(
                   appendSemanticCheckpointContext({
                     prompt: currentJob.prompt,
-                    semanticCapabilities,
                     checkpoint: semanticCheckpoint,
+                    completedExternalTasks,
                   }),
                   runtimeBudget,
                 ),
@@ -577,6 +595,15 @@ async function runActiveJob(
                 selectedSkillDisplays: selectedSkills.displays,
                 attachedMcpSourceIds,
                 semanticCapabilities,
+                ...(currentJob.agent_task?.runtimeProfile
+                  ? { runtimeProfile: currentJob.agent_task.runtimeProfile }
+                  : {}),
+                ...(currentJob.agent_task?.checkpointContract
+                  ? {
+                      checkpointContract:
+                        currentJob.agent_task.checkpointContract,
+                    }
+                  : {}),
                 ...(currentJob.agent_task?.responseSchema
                   ? { responseSchema: currentJob.agent_task.responseSchema }
                   : {}),
@@ -662,19 +689,14 @@ async function runActiveJob(
                   context: { jobId: currentJob.id, runId },
                 });
                 if (streamedOutput.result) {
-                  const trustedStreamedResult =
-                    bindWebsiteRecipeTerminalIdentity(
-                      streamedOutput.result,
-                      currentJob.prompt,
-                    );
                   hasStreamedResult = true;
                   if (structured) {
                     if (streamedOutput.structuredResultValidated === true) {
-                      structuredResult = trustedStreamedResult;
-                      appendResultSummary(trustedStreamedResult);
+                      structuredResult = streamedOutput.result;
+                      appendResultSummary(streamedOutput.result);
                     }
                   } else {
-                    appendResultSummary(trustedStreamedResult);
+                    appendResultSummary(streamedOutput.result);
                   }
                   const chunkChars = streamedOutput.result.length;
                   diagnostics.latestStreamedOutputChars = chunkChars;
@@ -707,18 +729,14 @@ async function runActiveJob(
                 failure ??= output.failure;
                 await failRun();
               } else if (output.result) {
-                const trustedOutputResult = bindWebsiteRecipeTerminalIdentity(
-                  output.result,
-                  currentJob.prompt,
-                );
                 if (structured && output.structuredResultValidated === true) {
-                  if (structuredResult !== trustedOutputResult) {
-                    appendResultSummary(trustedOutputResult);
+                  if (structuredResult !== output.result) {
+                    appendResultSummary(output.result);
                   }
-                  structuredResult = trustedOutputResult;
+                  structuredResult = output.result;
                   structuredResultValidated = true;
                 } else if (!structured && !hasStreamedResult) {
-                  appendResultSummary(trustedOutputResult);
+                  appendResultSummary(output.result);
                 }
               }
               if (output.completionGateAccepted === true) {

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { z } from 'zod';
 
 import {
   hasBashShellControlSyntax,
@@ -50,6 +51,23 @@ export interface SemanticCapabilityImplementationBinding {
   deniedEnvPatterns?: string[];
 }
 
+export interface SemanticCapabilityOperationContract {
+  mcpTool: string;
+  schemaDialect: 'json-schema-draft-07';
+  inputSchema: Record<string, unknown>;
+  inputSchemaDigest: string;
+  resultEnvelopeSchema?: Record<string, unknown>;
+  resultEnvelopeSchemaDigest?: string;
+  executionMode?: 'sync' | 'durable_async';
+  requiresActiveJob?: boolean;
+  deadlineMs?: number;
+  suspensionCheckpoint?: {
+    milestone: string;
+    payloadPatch: Record<string, unknown>;
+    invocationRefPath: string[];
+  };
+}
+
 export interface SemanticCapabilityDefinition {
   capabilityId: string;
   version?: string;
@@ -61,6 +79,7 @@ export interface SemanticCapabilityDefinition {
   cannot: string;
   credentialSource: SemanticCapabilityCredentialSource;
   implementationBindings: SemanticCapabilityImplementationBinding[];
+  operations?: SemanticCapabilityOperationContract[];
   preflight?: {
     kind: 'none' | 'command' | 'broker';
     command?: string;
@@ -303,6 +322,8 @@ export function validateSemanticCapabilityDefinition(
     const validation = validateSemanticCapabilityBinding(binding);
     if (!validation.ok) return validation;
   }
+  const operationValidation = validateSemanticCapabilityOperations(capability);
+  if (!operationValidation.ok) return operationValidation;
   for (const protectedPath of capability.protectedPaths ?? []) {
     const trimmedPath = protectedPath.trim();
     if (!trimmedPath) {
@@ -416,6 +437,170 @@ export function skillActionCapabilityDisplayName(
 
 const MCP_PATTERN_SERVER_NAME_RE = /^[a-z][a-z0-9_-]{0,62}$/;
 const MCP_PATTERN_TOOL_PATTERN_RE = /^[A-Za-z0-9_.-]+\*?$/;
+const EXACT_MCP_TOOL_RE = /^mcp__([a-z][a-z0-9_-]{0,62})__([^*?\s]+)$/;
+const MAX_OPERATION_SCHEMA_BYTES = 256 * 1024;
+const MAX_OPERATION_SCHEMA_NODES = 10_000;
+const MAX_OPERATION_SCHEMA_DEPTH = 64;
+
+export function parseExactSemanticCapabilityMcpTool(
+  value: string,
+): { serverName: string; toolName: string } | null {
+  const match = EXACT_MCP_TOOL_RE.exec(value.trim());
+  return match ? { serverName: match[1], toolName: match[2] } : null;
+}
+
+function validateSemanticCapabilityOperations(
+  capability: SemanticCapabilityDefinition,
+): { ok: true } | { ok: false; reason: string } {
+  const seen = new Set<string>();
+  for (const operation of capability.operations ?? []) {
+    const parsed = parseExactSemanticCapabilityMcpTool(operation.mcpTool);
+    if (!parsed) {
+      return {
+        ok: false,
+        reason: `Capability operation must name one exact MCP tool: ${operation.mcpTool}`,
+      };
+    }
+    if (seen.has(operation.mcpTool)) {
+      return {
+        ok: false,
+        reason: `Capability operation is duplicated: ${operation.mcpTool}`,
+      };
+    }
+    seen.add(operation.mcpTool);
+    if (operation.schemaDialect !== 'json-schema-draft-07') {
+      return {
+        ok: false,
+        reason: 'Unsupported capability operation schema dialect.',
+      };
+    }
+    if (
+      operation.inputSchemaDigest !==
+      `sha256:${stableSha256Json(operation.inputSchema)}`
+    ) {
+      return {
+        ok: false,
+        reason: `Capability operation schema digest does not match: ${operation.mcpTool}`,
+      };
+    }
+    const bounds = boundedOperationSchema(operation.inputSchema);
+    if (!bounds.ok) return bounds;
+    try {
+      if (!(z.fromJSONSchema(operation.inputSchema) instanceof z.ZodObject)) {
+        return {
+          ok: false,
+          reason: `Capability operation inputSchema must describe an object: ${operation.mcpTool}`,
+        };
+      }
+    } catch {
+      return {
+        ok: false,
+        reason: `Capability operation inputSchema is not compilable: ${operation.mcpTool}`,
+      };
+    }
+    const covered = capability.implementationBindings.some(
+      (binding) =>
+        binding.kind === 'mcp_pattern' &&
+        binding.mcpServer === parsed.serverName &&
+        binding.mcpToolPatterns?.includes(parsed.toolName),
+    );
+    if (!covered) {
+      return {
+        ok: false,
+        reason: `Capability operation is not covered by an exact implementation binding: ${operation.mcpTool}`,
+      };
+    }
+    if (operation.resultEnvelopeSchema) {
+      if (
+        operation.resultEnvelopeSchemaDigest !==
+        `sha256:${stableSha256Json(operation.resultEnvelopeSchema)}`
+      ) {
+        return {
+          ok: false,
+          reason: `Capability operation result schema digest does not match: ${operation.mcpTool}`,
+        };
+      }
+      const resultBounds = boundedOperationSchema(
+        operation.resultEnvelopeSchema,
+      );
+      if (!resultBounds.ok) return resultBounds;
+      try {
+        z.fromJSONSchema(operation.resultEnvelopeSchema);
+      } catch {
+        return {
+          ok: false,
+          reason: `Capability operation resultEnvelopeSchema is not compilable: ${operation.mcpTool}`,
+        };
+      }
+    }
+    if (
+      operation.deadlineMs !== undefined &&
+      (!Number.isInteger(operation.deadlineMs) ||
+        operation.deadlineMs < 1_000 ||
+        operation.deadlineMs > 24 * 60 * 60_000)
+    ) {
+      return {
+        ok: false,
+        reason: `Capability operation deadlineMs is invalid: ${operation.mcpTool}`,
+      };
+    }
+    if (
+      operation.suspensionCheckpoint &&
+      operation.executionMode !== 'durable_async'
+    ) {
+      return {
+        ok: false,
+        reason: `Capability operation suspensionCheckpoint requires durable_async execution: ${operation.mcpTool}`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+function boundedOperationSchema(
+  schema: Record<string, unknown>,
+): { ok: true } | { ok: false; reason: string } {
+  if (
+    Buffer.byteLength(JSON.stringify(schema), 'utf8') >
+    MAX_OPERATION_SCHEMA_BYTES
+  ) {
+    return {
+      ok: false,
+      reason: 'Capability operation inputSchema is too large.',
+    };
+  }
+  let nodes = 0;
+  const visit = (value: unknown, depth: number): string | null => {
+    if (++nodes > MAX_OPERATION_SCHEMA_NODES)
+      return 'Capability operation inputSchema has too many nodes.';
+    if (depth > MAX_OPERATION_SCHEMA_DEPTH)
+      return 'Capability operation inputSchema is too deeply nested.';
+    if (!value || typeof value !== 'object') return null;
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        const error = visit(child, depth + 1);
+        if (error) return error;
+      }
+      return null;
+    }
+    for (const [key, child] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      if (
+        key === '$ref' &&
+        typeof child === 'string' &&
+        !child.startsWith('#')
+      ) {
+        return 'Capability operation inputSchema cannot use remote references.';
+      }
+      const error = visit(child, depth + 1);
+      if (error) return error;
+    }
+    return null;
+  };
+  const error = visit(schema, 0);
+  return error ? { ok: false, reason: error } : { ok: true };
+}
 
 export function mcpPatternBindingRuntimeRules(
   binding: SemanticCapabilityImplementationBinding,

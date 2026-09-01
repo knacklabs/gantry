@@ -7,7 +7,7 @@ import {
   providerRoute,
 } from '@core/shared/model-catalog.js';
 
-const alias = 'manipal.website_recipe.captcha.solve';
+const alias = 'gantry.browser.captcha.solve';
 
 function configureSolver(
   provider: 'gemini' | 'openai' | 'anthropic',

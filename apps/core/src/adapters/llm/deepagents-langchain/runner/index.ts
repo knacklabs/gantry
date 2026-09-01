@@ -38,6 +38,7 @@ import { RunScopedToolSuccessLedger } from '../../../../runner/tool-gate-core.js
 import { CompletionGate } from '../../../../runner/completion-gate.js';
 import {
   DeepAgentStructuredOutputError,
+  preserveOriginalTaskPrompt,
   structuredOutputContinuationPrompt,
 } from './structured-output-envelope.js';
 
@@ -145,7 +146,7 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
         ) {
           throw error;
         }
-        const decision = await completionGate.check();
+        const decision = await completionGate.check(null);
         if (decision.decision !== 'continue') throw error;
         emit({
           status: 'success',
@@ -155,11 +156,14 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
         });
         turnInput = {
           ...agentInput,
-          prompt: structuredOutputContinuationPrompt(error, decision.message),
+          prompt: preserveOriginalTaskPrompt(
+            agentInput.prompt,
+            structuredOutputContinuationPrompt(error, decision.message),
+          ),
         };
         continue;
       }
-      const decision = await completionGate?.check();
+      const decision = await completionGate?.check(turn.terminalResult);
       const continued = decision?.decision === 'continue';
       emit({
         status: 'success',
@@ -181,11 +185,14 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
       if (!continued) break;
       turnInput = {
         ...agentInput,
-        prompt: [
-          decision.message,
-          'Previous completion attempt:',
-          turn.terminalResult ?? '(no prior result)',
-        ].join('\n\n'),
+        prompt: preserveOriginalTaskPrompt(
+          agentInput.prompt,
+          [
+            decision.message,
+            'Previous completion attempt:',
+            turn.terminalResult ?? '(no prior result)',
+          ].join('\n\n'),
+        ),
       };
     }
     heartbeat.stop();

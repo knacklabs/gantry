@@ -41,6 +41,7 @@ const BROWSER_INSPECT_BACKEND_ACTIONS = new Set<BrowserBackendAction>([
   'snapshot',
   'tabs',
   'screenshot',
+  'evaluate',
   'console_messages',
   'network_requests',
 ]);

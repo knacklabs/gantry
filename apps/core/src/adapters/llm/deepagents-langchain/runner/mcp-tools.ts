@@ -57,7 +57,6 @@ import {
 // cannot connect rather than silently dropping authority.
 
 const GANTRY_SERVER_NAME = 'gantry';
-const HUMAN_INTERACTION_TOOL_NAME = 'website_recipe_request_human';
 const HUMAN_WAIT_CHECKPOINT_TOOL_NAME = 'job_checkpoint_save';
 const LONG_BROWSER_TOOL_NAMES = new Set(['browser_open', 'browser_act']);
 const CAPTCHA_CHALLENGE_TOOL_NAME = 'browser_captcha_challenge';
@@ -157,13 +156,17 @@ export async function connectGantryAndThirdPartyMcpTools(
   }
 
   const selectedGantrySet = new Set(projection.selectedToolNames);
+  const atomicCallerResolvedTools = new Set(
+    callerResolvedToolNames(process.env.GANTRY_CALLER_RESOLVED_TOOLS_JSON),
+  );
   const callableAgentToolNames = new Set(
     (input.callableAgentManifest ?? []).map(callableAgentToolName),
   );
-  const gantryTools = dropAtomicHumanInteractionTool(
+  const gantryTools = dropAtomicCallerResolvedTools(
     (serverTools[GANTRY_SERVER_NAME] ?? []).filter((tool) =>
       selectedGantrySet.has(tool.name),
     ),
+    atomicCallerResolvedTools,
   ).map((tool) => {
     if (callableAgentToolNames.has(tool.name))
       return withCallableAgentTimeout(tool);
@@ -193,11 +196,10 @@ export async function connectGantryAndThirdPartyMcpTools(
     lockedAccessPreset: input.gate.lockedAccessPreset,
     asyncTaskToolsEnabled: projection.asyncTaskToolsEnabled,
     delegateTaskTool,
-    // Website-recipe jobs persist evidence through typed FileArtifacts. Raw
-    // workspace file tools add a second, permission-gated state path that is
-    // neither checkpointed nor usable by the evaluator.
+    // Durable external-capability jobs persist state through typed artifacts.
+    // Raw workspace tools would create a second, non-checkpointed state path.
     filesystemToolsEnabled:
-      !hasWebsiteRecipeEvaluator(input.semanticCapabilities) &&
+      !hasDurableExternalCapability(input.semanticCapabilities) &&
       shouldProjectGantryFilesystemTools({
         filesystemEnabledEnv: process.env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED,
       }),
@@ -213,12 +215,9 @@ export async function connectGantryAndThirdPartyMcpTools(
   for (const [name, tools] of Object.entries(serverTools)) {
     if (name === GANTRY_SERVER_NAME) continue;
     const gated = wrapThirdPartyMcpToolsWithGate(
-      dropAtomicHumanInteractionTool(
+      dropAtomicCallerResolvedTools(
         dropCollidingThirdPartyTools(name, tools, reservedToolNames),
-      ).map((tool) =>
-        tool.name === HUMAN_INTERACTION_TOOL_NAME
-          ? withToolTimeout(tool, HUMAN_INTERACTION_TOOL_TIMEOUT_MS)
-          : tool,
+        atomicCallerResolvedTools,
       ),
       name,
       {
@@ -275,14 +274,14 @@ function withCallableAgentTimeout(
   return withToolTimeout(underlying, CALLABLE_AGENT_MCP_TOOL_TIMEOUT_MS);
 }
 
-function hasWebsiteRecipeEvaluator(
+function hasDurableExternalCapability(
   capabilities: ConnectGantryMcpInput['semanticCapabilities'],
 ): boolean {
   return Boolean(
-    capabilities?.some(
-      (capability) =>
-        capability.capabilityId === 'manipal.website-recipe-evaluator' &&
-        capability.version === '1',
+    capabilities?.some((capability) =>
+      capability.operations?.some(
+        (operation) => operation.executionMode === 'durable_async',
+      ),
     ),
   );
 }
@@ -368,12 +367,25 @@ function toolResultIsError(result: unknown): boolean {
   );
 }
 
-// Human recipe interactions are owned atomically by job_checkpoint_save. The
-// external transport tool must never be callable as a second model escape hatch.
-export function dropAtomicHumanInteractionTool(
+// Caller-resolved interactions are owned atomically by job_checkpoint_save.
+// Their transport tools must not remain callable as a second model path.
+export function dropAtomicCallerResolvedTools(
   tools: readonly StructuredToolInterface[],
+  callerResolvedToolNames: ReadonlySet<string>,
 ): StructuredToolInterface[] {
-  return tools.filter((tool) => tool.name !== HUMAN_INTERACTION_TOOL_NAME);
+  return tools.filter((tool) => !callerResolvedToolNames.has(tool.name));
+}
+
+function callerResolvedToolNames(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw) as { tools?: Array<{ name?: unknown }> };
+    return (parsed.tools ?? [])
+      .map((tool) => (typeof tool.name === 'string' ? tool.name.trim() : ''))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 // A third-party server must not be able to shadow a Gantry authority tool

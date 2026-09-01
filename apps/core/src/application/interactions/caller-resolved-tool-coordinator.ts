@@ -14,6 +14,7 @@ interface PendingCallerTool {
   readonly sourceAgentFolder: string;
   readonly interactionId: string;
   readonly toolName: string;
+  readonly sensitiveResultFields: readonly string[];
   readonly resolve: (resolution: Resolution) => void;
   readonly timer: NodeJS.Timeout;
 }
@@ -34,6 +35,7 @@ export async function requestCallerResolvedTool(input: {
   interactionId: string;
   toolName: string;
   toolInput: unknown;
+  sensitiveResultFields?: readonly string[];
   timeoutMs: number;
   signal: AbortSignal;
   emitRequired: () => Promise<void>;
@@ -54,6 +56,7 @@ export async function requestCallerResolvedTool(input: {
       sourceAgentFolder: input.sourceAgentFolder,
       interactionId: input.interactionId,
       toolName: input.toolName,
+      sensitiveResultFields: input.sensitiveResultFields ?? [],
       resolve,
       timer,
     });
@@ -120,7 +123,10 @@ export async function settleCallerResolvedTool(input: {
     appId: active.appId,
     runId: active.runId,
     status: input.resolution.status === 'resolved' ? 'resolved' : 'cancelled',
-    resolution: durableCallerToolResolution(active.toolName, input.resolution),
+    resolution: durableCallerToolResolution(
+      active.sensitiveResultFields,
+      input.resolution,
+    ),
     approverRef: input.approverRef,
   });
   if (!persisted) return 'conflict';
@@ -134,19 +140,19 @@ export async function settleCallerResolvedTool(input: {
 }
 
 export function durableCallerToolResolution(
-  toolName: string,
+  sensitiveResultFields: readonly string[],
   resolution: Resolution,
 ): Resolution {
-  if (
-    toolName !== 'website_recipe_request_human' ||
-    resolution.status !== 'resolved' ||
-    !record(resolution.result).humanAnswer
-  ) {
+  if (resolution.status !== 'resolved' || sensitiveResultFields.length === 0) {
     return resolution;
+  }
+  const result = { ...record(resolution.result) };
+  for (const field of sensitiveResultFields) {
+    if (Object.hasOwn(result, field)) result[field] = '[REDACTED]';
   }
   return {
     status: 'resolved',
-    result: { humanAnswerProvided: true },
+    result,
   };
 }
 

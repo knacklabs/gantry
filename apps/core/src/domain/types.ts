@@ -149,6 +149,7 @@ export interface CallerResolvedToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  sensitiveResultFields?: string[];
 }
 
 export interface CallerResolvedToolsConfig {
@@ -157,6 +158,7 @@ export interface CallerResolvedToolsConfig {
   maxInteractions: number;
   interactionTimeoutMs: number;
   allowSelectedMcpToolCalls?: boolean;
+  includeDurableExecutionTools?: boolean;
 }
 
 export interface NewMessageAttachment {

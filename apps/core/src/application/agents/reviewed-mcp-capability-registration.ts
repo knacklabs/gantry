@@ -119,6 +119,23 @@ export async function registerReviewedMcpCapability(
         },
       });
     }
+    if (
+      canonicalCurrent &&
+      isForwardCapabilityVersion(
+        canonicalCurrent.version,
+        capability.version,
+      )
+    ) {
+      return ensureAgentToolCatalogItem({
+        repository: input.repositories.tools,
+        appId: input.appId,
+        reference: semanticCapabilityRule(capability.capabilityId),
+        now: input.now,
+        semanticCapabilityDefinitions: {
+          [capability.capabilityId]: capability,
+        },
+      });
+    }
     throw new ApplicationError(
       'CONFLICT',
       `Capability ${capability.capabilityId} is already registered with a different immutable manifest.`,
@@ -155,6 +172,27 @@ export async function registerReviewedMcpCapability(
     ),
   );
   return tool;
+}
+
+function isForwardCapabilityVersion(
+  current: string | undefined,
+  next: string | undefined,
+): boolean {
+  if (!current || !next) return false;
+  const left = current.split('.').map(Number);
+  const right = next.split('.').map(Number);
+  if (
+    left.some((part) => !Number.isSafeInteger(part) || part < 0) ||
+    right.some((part) => !Number.isSafeInteger(part) || part < 0)
+  ) {
+    return false;
+  }
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (right[index] ?? 0) - (left[index] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return false;
 }
 
 function tryCanonicalStoredReviewedCapability(

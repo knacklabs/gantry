@@ -882,7 +882,21 @@ export async function runQuery(
             ? new CompletionContinuationError(resultFailure)
             : new Error(resultFailure);
         }
-        const completionDecision = await completionGate?.check();
+        let completionCandidate: string | null = null;
+        try {
+          completionCandidate = sdkResultText(
+            message,
+            agentInput.responseSchema,
+            validateResponse,
+          );
+        } catch {
+          // The completion owner receives null for malformed output and can
+          // request continuation; normal structured-output repair still runs
+          // below when the gate accepts.
+        }
+        const completionDecision = await completionGate?.check(
+          completionCandidate,
+        );
         const continuedByCompletionGate =
           completionDecision?.decision === 'continue';
         completionGateAccepted = !completionGate || !continuedByCompletionGate;

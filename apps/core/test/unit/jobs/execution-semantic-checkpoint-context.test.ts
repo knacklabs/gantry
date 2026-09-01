@@ -1,20 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { JobSemanticCheckpoint } from '../../../src/domain/ports/job-semantic-checkpoints.js';
-import { appendSemanticCheckpointContext } from '../../../src/jobs/execution-semantic-checkpoint-context.js';
-import type { SemanticCapabilityDefinition } from '../../../src/shared/semantic-capabilities.js';
-
-const evaluatorCapability: SemanticCapabilityDefinition = {
-  capabilityId: 'manipal.website-recipe-evaluator',
-  version: '1',
-  displayName: 'Website recipe evaluator',
-  category: 'evaluation',
-  risk: 'write',
-  can: 'Evaluate a recipe.',
-  cannot: 'Access unrelated interfaces.',
-  credentialSource: 'none',
-  implementationBindings: [],
-};
+import type { JobSemanticCheckpoint } from '@core/domain/ports/job-semantic-checkpoints.js';
+import { appendSemanticCheckpointContext } from '@core/jobs/execution-semantic-checkpoint-context.js';
 
 const checkpoint: JobSemanticCheckpoint = {
   id: 'checkpoint-1',
@@ -32,10 +19,10 @@ const checkpoint: JobSemanticCheckpoint = {
       {
         artifactId: 'file-artifact:candidate',
         contentHash: 'sha256:candidate',
-        kind: 'recipe_candidate',
+        kind: 'candidate',
       },
     ],
-    nextAction: 'Compile the candidate.',
+    nextAction: 'Validate the candidate.',
     cumulativeRuntimeMs: 10,
   },
   payloadHash: 'sha256:checkpoint',
@@ -43,26 +30,55 @@ const checkpoint: JobSemanticCheckpoint = {
 };
 
 describe('appendSemanticCheckpointContext', () => {
-  it('forces recipe jobs to resume from the latest durable checkpoint', () => {
+  it('resumes any checkpointed job from opaque durable state', () => {
     const prompt = appendSemanticCheckpointContext({
-      prompt: 'Create a recipe.',
-      semanticCapabilities: [evaluatorCapability],
+      prompt: 'Complete the task.',
       checkpoint,
     });
 
-    expect(prompt).toContain('DURABLE_RECIPE_RESUME_CONTEXT_V1');
-    expect(prompt).toContain('Compile the candidate.');
+    expect(prompt).toContain('DURABLE_JOB_RESUME_CONTEXT_V1');
+    expect(prompt).toContain('Validate the candidate.');
     expect(prompt).toContain('file-artifact:candidate');
-    expect(prompt).toContain('do not repeat completed browsing');
+    expect(prompt).toContain('do not repeat completed work');
   });
 
-  it('does not alter unrelated jobs', () => {
+  it('does not alter a job without a checkpoint', () => {
     expect(
       appendSemanticCheckpointContext({
-        prompt: 'Analyze tenders.',
-        semanticCapabilities: [],
-        checkpoint,
+        prompt: 'Complete the task.',
+        checkpoint: null,
       }),
-    ).toBe('Analyze tenders.');
+    ).toBe('Complete the task.');
+  });
+
+  it('puts completed external results ahead of the checkpoint next action', () => {
+    const prompt = appendSemanticCheckpointContext({
+      prompt: 'Complete the task.',
+      checkpoint,
+      completedExternalTasks: [
+        {
+          id: 'task-1',
+          kind: 'external_capability',
+          status: 'completed',
+          summary: 'Evaluate candidate.',
+          outputSummary: 'Evaluation found a repairable failure.',
+          resultRef: 'result-1',
+          result: {
+            status: 'failed',
+            explanations: ['Selector main was not found.'],
+          },
+          receiptLines: ['Evaluation completed.'],
+          allowedActions: ['get', 'list'],
+          createdAt: '2026-08-24T00:00:01.000Z',
+          updatedAt: '2026-08-24T00:00:02.000Z',
+          terminalAt: '2026-08-24T00:00:02.000Z',
+        },
+      ],
+    });
+
+    expect(prompt).toContain('task-1');
+    expect(prompt).toContain('Selector main was not found.');
+    expect(prompt).toContain('Inspect every completed external task result');
+    expect(prompt).toContain('do not resubmit an unchanged invocation');
   });
 });

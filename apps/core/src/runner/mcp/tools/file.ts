@@ -14,7 +14,9 @@ const fileToolSchema = {
   artifactId: z
     .string()
     .optional()
-    .describe('Opaque artifact id returned by list or write.'),
+    .describe(
+      'Opaque immutable artifact id returned by list, write, or a checkpoint. For reads by id, pass action and artifactId only; path and version are ignored.',
+    ),
   scope: z
     .string()
     .optional()

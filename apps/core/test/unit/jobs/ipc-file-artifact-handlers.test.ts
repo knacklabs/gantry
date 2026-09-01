@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FileArtifact } from '@core/domain/file-artifacts/file-artifact.js';
+import { jobArtifactScope } from '@core/domain/ports/job-semantic-checkpoints.js';
 import { appendLiveToolRules } from '@core/shared/live-tool-rules.js';
 
 const runtimeHomes: string[] = [];
@@ -149,6 +150,93 @@ describe('file artifact IPC handlers', () => {
         virtualScope: expect.stringMatching(/^job-/u),
         virtualPath: 'inventory.json',
       }),
+    );
+  });
+
+  it('reads a retained artifact from a later run of the same durable job', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-file-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { fileArtifactTaskHandlers, taskData } =
+      await loadFileArtifactHandlers(runtimeHome);
+    const scope = jobArtifactScope('job-123');
+    const artifact = makeArtifact({
+      virtualScope: scope,
+      virtualPath: 'candidate.json',
+      content: '{"candidate":true}',
+    });
+    const readFileArtifact = vi.fn(async () => ({
+      artifact,
+      content: '{"candidate":true}',
+    }));
+
+    await fileArtifactTaskHandlers.file_artifact(
+      contextFor({
+        data: taskData('scheduled-resume-read', {
+          appId: 'manipal-tender-copilot',
+          chatJid: 'app:manipal-tender-copilot:conversation-1',
+          jid: 'app:manipal-tender-copilot:conversation-1',
+          sourceRunKind: 'scheduled',
+          sourceJobId: 'job-123',
+          sourceRunId: 'later-run',
+          payload: {
+            action: 'read',
+            artifactId: artifact.id,
+            // Redundant stale selectors must not shadow the immutable id.
+            path: 'old-name.json',
+            version: 99,
+          },
+        }),
+        readFileArtifact,
+        writeFileArtifact: vi.fn(),
+      }),
+    );
+
+    expect(readFileArtifact).toHaveBeenCalledWith({
+      appId: 'manipal-tender-copilot',
+      agentId: 'agent:main_agent',
+      id: artifact.id,
+    });
+    expect(readResponse(runtimeHome, 'scheduled-resume-read')).toMatchObject({
+      ok: true,
+      data: {
+        content: { encoding: 'utf8', text: '{"candidate":true}' },
+      },
+    });
+  });
+
+  it('denies an artifact id retained by a different durable job', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-file-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { fileArtifactTaskHandlers, taskData } =
+      await loadFileArtifactHandlers(runtimeHome);
+    const artifact = makeArtifact({
+      virtualScope: jobArtifactScope('other-job'),
+      virtualPath: 'candidate.json',
+      content: '{}',
+    });
+
+    await fileArtifactTaskHandlers.file_artifact(
+      contextFor({
+        data: taskData('scheduled-cross-job-read', {
+          appId: 'manipal-tender-copilot',
+          chatJid: 'app:manipal-tender-copilot:conversation-1',
+          jid: 'app:manipal-tender-copilot:conversation-1',
+          sourceRunKind: 'scheduled',
+          sourceJobId: 'job-123',
+          sourceRunId: 'later-run',
+          payload: { action: 'read', artifactId: artifact.id },
+        }),
+        readFileArtifact: vi.fn(async () => ({ artifact, content: '{}' })),
+        writeFileArtifact: vi.fn(),
+      }),
+    );
+
+    expect(readResponse(runtimeHome, 'scheduled-cross-job-read')).toMatchObject(
+      { ok: false, code: 'forbidden' },
     );
   });
 

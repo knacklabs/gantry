@@ -1,4 +1,4 @@
-import { createMiddleware } from 'langchain';
+import { createMiddleware, ToolMessage } from 'langchain';
 import type { AgentMiddleware } from 'langchain';
 
 // DeepAgents 1.10.2 always bakes the `write_todos` (todo list) middleware, the
@@ -89,6 +89,24 @@ export function createBuiltinToolExclusionMiddleware(input?: {
           (tool) => typeof tool?.name !== 'string' || !excluded.has(tool.name),
         ),
       });
+    },
+    wrapToolCall: async (request, handler) => {
+      if (!SKILL_READ_TOOL_SET.has(request.toolCall.name)) {
+        return handler(request);
+      }
+      try {
+        return await handler(request);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes('permission denied for read on')) throw error;
+        return new ToolMessage({
+          content:
+            'Read denied. Selected skill files are available only under the virtual /skills directory. Retry with an absolute /skills/... path.',
+          tool_call_id: request.toolCall.id ?? '',
+          name: request.toolCall.name,
+          status: 'error',
+        });
+      }
     },
   }) as AgentMiddleware;
 }

@@ -111,9 +111,9 @@ const fileArtifactHandler: TaskHandler = async (context) => {
     if (action === 'list') {
       const artifacts = await store.listFileArtifacts({
         ...owner,
-        ...(payload.scope
-          ? { virtualScope: normalizeFileArtifactScope(String(payload.scope)) }
-          : {}),
+        virtualScope: normalizeFileArtifactScope(
+          String(payload.scope || defaultFileArtifactScope(context)),
+        ),
         ...(payload.path
           ? { virtualPath: normalizeFileArtifactPath(String(payload.path)) }
           : {}),
@@ -125,9 +125,9 @@ const fileArtifactHandler: TaskHandler = async (context) => {
 
     if (action === 'read') {
       const artifactId = toTrimmedString(payload.artifactId, { maxLen: 160 });
-      const virtualScope = payload.scope
-        ? normalizeFileArtifactScope(String(payload.scope))
-        : undefined;
+      const virtualScope = normalizeFileArtifactScope(
+        String(payload.scope || defaultFileArtifactScope(context)),
+      );
       const virtualPath = payload.path
         ? normalizeFileArtifactPath(String(payload.path))
         : undefined;
@@ -138,15 +138,30 @@ const fileArtifactHandler: TaskHandler = async (context) => {
         );
         return;
       }
-      const result = await store.readFileArtifact({
-        ...owner,
-        ...(artifactId ? { id: artifactId as FileArtifactId } : {}),
-        ...(virtualScope ? { virtualScope } : {}),
-        ...(virtualPath ? { virtualPath } : {}),
-        ...(typeof payload.version === 'number'
-          ? { version: Math.floor(payload.version) }
-          : {}),
-      });
+      // An opaque artifact id already identifies one immutable version. Do not
+      // let stale redundant path/version fields turn a valid retained artifact
+      // into a false not-found; enforce the requested/default scope after the
+      // owner-scoped id lookup instead.
+      const result = artifactId
+        ? await store.readFileArtifact({
+            ...owner,
+            id: artifactId as FileArtifactId,
+          })
+        : await store.readFileArtifact({
+            ...owner,
+            virtualScope,
+            ...(virtualPath ? { virtualPath } : {}),
+            ...(typeof payload.version === 'number'
+              ? { version: Math.floor(payload.version) }
+              : {}),
+          });
+      if (result.artifact.virtualScope !== virtualScope) {
+        reject(
+          'FileArtifact is not available in the requested artifact scope.',
+          'forbidden',
+        );
+        return;
+      }
       acceptData('FileArtifact read.', {
         ok: true,
         artifact: describeFileArtifact(result.artifact),

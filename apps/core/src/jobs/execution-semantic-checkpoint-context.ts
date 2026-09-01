@@ -1,40 +1,48 @@
 import type { JobSemanticCheckpoint } from '../domain/ports/job-semantic-checkpoints.js';
-import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
-
-const WEBSITE_RECIPE_EVALUATOR = 'manipal.website-recipe-evaluator';
+import type { PublicAsyncTaskDto } from '../domain/ports/async-tasks.js';
 
 export function appendSemanticCheckpointContext(input: {
   prompt: string;
-  semanticCapabilities: readonly SemanticCapabilityDefinition[];
   checkpoint: JobSemanticCheckpoint | null;
+  completedExternalTasks?: PublicAsyncTaskDto[];
 }): string {
-  if (
-    !input.checkpoint ||
-    !input.semanticCapabilities.some(
-      (capability) =>
-        capability.capabilityId === WEBSITE_RECIPE_EVALUATOR &&
-        capability.version === '1',
-    )
-  ) {
+  if (!input.checkpoint && !input.completedExternalTasks?.length) {
     return input.prompt;
   }
 
-  const checkpoint = input.checkpoint;
-  const artifactRefs = checkpoint.payload.artifactRefs.map((artifact) => ({
-    artifactId: artifact.artifactId,
-    contentHash: artifact.contentHash,
-    kind: artifact.kind,
-  }));
+  const checkpoint = input.checkpoint
+    ? {
+        sequence: input.checkpoint.sequence,
+        milestone: input.checkpoint.milestone,
+        safePhase: input.checkpoint.payload.safePhase,
+        nextAction: input.checkpoint.payload.nextAction,
+        artifactRefs: input.checkpoint.payload.artifactRefs.map((artifact) => ({
+          artifactId: artifact.artifactId,
+          contentHash: artifact.contentHash,
+          kind: artifact.kind,
+        })),
+        evaluatorInvocationRef:
+          input.checkpoint.payload.evaluatorInvocationRef ?? null,
+        pendingInteractionRef:
+          input.checkpoint.payload.pendingInteractionRef ?? null,
+      }
+    : null;
+  const completedExternalTasks = (input.completedExternalTasks ?? []).map(
+    (task) => ({
+      id: task.id,
+      status: task.status,
+      summary: task.summary ?? null,
+      outputSummary: task.outputSummary ?? null,
+      errorSummary: task.errorSummary ?? null,
+      resultRef: task.resultRef ?? null,
+      result: task.result ?? null,
+      receiptLines: task.receiptLines,
+      terminalAt: task.terminalAt ?? null,
+    }),
+  );
 
-  return `${input.prompt}\n\nDURABLE_RECIPE_RESUME_CONTEXT_V1\nThis runtime-generated block is authoritative. Resume from it; do not repeat completed browsing, CAPTCHA, inventory, candidate, compile, or test-plan work.\n${JSON.stringify(
-    {
-      sequence: checkpoint.sequence,
-      milestone: checkpoint.milestone,
-      safePhase: checkpoint.payload.safePhase,
-      nextAction: checkpoint.payload.nextAction,
-      artifactRefs,
-      evaluatorInvocationRef: checkpoint.payload.evaluatorInvocationRef ?? null,
-      pendingInteractionRef: checkpoint.payload.pendingInteractionRef ?? null,
-    },
-  )}\nPerform nextAction now. Save the next semantic checkpoint immediately after producing its required artifacts and before any other tool call.`;
+  return `${input.prompt}\n\nDURABLE_JOB_RESUME_CONTEXT_V1
+This runtime-generated block is authoritative. Resume from it and do not repeat completed work represented by immutable artifact references or completed external tasks.
+${JSON.stringify({ checkpoint, completedExternalTasks })}
+Inspect every completed external task result before performing checkpoint.nextAction. A failed result requires changed inputs, a supported terminal conclusion, or other concrete progress; do not resubmit an unchanged invocation. Save the next semantic checkpoint at the next durable semantic boundary.`;
 }

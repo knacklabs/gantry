@@ -2,7 +2,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
-import { JOB_SEMANTIC_CHECKPOINT_MILESTONES } from '../../../domain/ports/job-semantic-checkpoints.js';
 import { nowIso } from '../../../shared/time/datetime.js';
 import {
   chatJid,
@@ -20,59 +19,36 @@ import {
   captchaEvidenceForChallenge,
   settleCaptchaChallenge,
 } from './browser.js';
-import { handleFileToolAction } from './file.js';
 
 const CHECKPOINT_WAIT_MS = 30_000;
 const HUMAN_INTERACTION_WAIT_MS = 30 * 60_000 + 20_000;
 const CAPTCHA_SETTLE_WAIT_MS = 30_000;
 
-const humanInteractionBase = {
-  version: z.literal(2).default(2),
-  requestId: z.string().min(1).max(200),
-  attemptId: z.string().min(1).max(200),
-  reason: z.string().min(1).max(2_000),
-  checkpointRef: z.string().max(2_048).nullable().default(null),
-  evidenceRefs: z.array(z.string().min(1).max(2_048)).max(100).default([]),
-};
-
-// Keep the provider-facing schema as one ordinary object. Nested unions are
-// transported as JSON envelopes by strict OpenAI tool schemas, which makes the
-// mounted MCP validator receive a string instead of the interaction object.
 const humanInteractionSchema = z.object({
-  ...humanInteractionBase,
-  type: z.enum(['captcha', 'origin']),
-  captchaChallengeId: z.string().min(1).max(512).optional(),
-  challengeFingerprint: z
-    .string()
-    .regex(/^sha256:[a-f0-9]{64}$/u)
+  toolName: z.string().regex(/^[A-Za-z0-9_.-]{1,80}$/u),
+  toolInput: z.record(z.string(), z.unknown()),
+  browserChallenge: z
+    .object({
+      challengeId: z.string().min(1).max(512),
+      answerResultField: z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/u),
+    })
     .optional(),
-  automaticAttemptEvidenceRef: z
-    .string()
-    .min(1)
-    .max(2_048)
-    .nullable()
-    .optional()
-    .default(null),
-  permissionScope: z.object({
-    origin: z.string().url().max(2_048).nullable(),
-    methods: z.array(z.enum(['GET', 'HEAD'])).max(2),
-  }),
 });
 
 export function registerJobCheckpointTools(server: McpServer): void {
   server.tool(
     'job_checkpoint_status',
-    'Read the latest durable semantic checkpoint for this scheduled job and the immutable artifact scope to use for recipe-authoring artifacts.',
+    'Read the latest durable semantic checkpoint and immutable artifact scope for this scheduled job.',
     {},
     async () => requestCheckpoint('job_checkpoint_status', {}),
   );
   server.tool(
     'job_checkpoint_save',
-    'Save one durable semantic milestone for this scheduled job. Save only completed inventory, candidate, test-plan, evaluation, human-wait, runtime-boundary, or review milestones; never save individual browser actions.',
+    'Save one durable semantic milestone for this scheduled job. Save semantic boundaries, not individual tool actions.',
     {
       idempotencyKey: z.string().min(1).max(512),
       expectedPreviousSequence: z.number().int().nonnegative(),
-      milestone: z.enum(JOB_SEMANTIC_CHECKPOINT_MILESTONES),
+      milestone: z.string().regex(/^[a-z][a-z0-9_.-]{0,119}$/u),
       safePhase: z.string().min(1).max(120),
       artifactRefs: z
         .array(
@@ -86,73 +62,43 @@ export function registerJobCheckpointTools(server: McpServer): void {
           }),
         )
         .max(64),
-      evaluatorInvocationRef: z.string().min(1).max(512).optional(),
-      pendingInteractionRef: z.string().min(1).max(512).optional(),
+      evaluatorInvocationRef: z.string().min(1).max(512).nullable().optional(),
+      pendingInteractionRef: z.string().min(1).max(512).nullable().optional(),
       humanInteraction: humanInteractionSchema.optional(),
       nextAction: z.string().min(1).max(2_000),
       cumulativeRuntimeMs: z.number().int().nonnegative(),
     },
     async (args) => {
-      const unresolvedCaptcha = await unresolvedCaptchaCheckpointError(args);
-      if (unresolvedCaptcha) return repairableErrorResult(unresolvedCaptcha);
-      if (args.humanInteraction?.type === 'captcha') {
+      if (args.humanInteraction?.browserChallenge) {
         const evidence = captchaEvidenceForChallenge(
-          args.humanInteraction.captchaChallengeId ?? '',
+          args.humanInteraction.browserChallenge.challengeId,
         );
-        if (evidence) {
-          args.humanInteraction.captchaChallengeId = evidence.challengeId;
-          args.humanInteraction.challengeFingerprint =
-            evidence.challengeFingerprint;
-          args.humanInteraction.automaticAttemptEvidenceRef =
-            evidence.automaticAttemptEvidenceRef;
-          args.humanInteraction.evidenceRefs = [
+        if (!evidence) {
+          return repairableErrorResult(
+            'Correct and retry this tool call: browserChallenge must reference an active challenge created by browser_captcha_challenge.',
+          );
+        }
+        args.humanInteraction.browserChallenge.challengeId =
+          evidence.challengeId;
+        args.humanInteraction.toolInput = {
+          ...args.humanInteraction.toolInput,
+          challengeFingerprint: evidence.challengeFingerprint,
+          automaticAttemptEvidenceRef: evidence.automaticAttemptEvidenceRef,
+          evidenceRefs: [
             ...new Set([
-              ...args.humanInteraction.evidenceRefs,
+              ...stringArray(args.humanInteraction.toolInput.evidenceRefs),
               evidence.screenshotEvidenceRef,
               evidence.automaticAttemptEvidenceRef,
             ]),
-          ];
-        }
-      }
-      if (args.milestone === 'human_wait' && !args.humanInteraction) {
-        return repairableErrorResult(
-          'human_wait requires humanInteraction so the checkpoint, typed administrator request, and same-session continuation remain atomic.',
-        );
-      }
-      if (args.milestone !== 'human_wait' && args.humanInteraction) {
-        return repairableErrorResult(
-          'humanInteraction is valid only for a human_wait checkpoint.',
-        );
-      }
-      if (
-        args.humanInteraction?.type === 'captcha' &&
-        (!args.humanInteraction.captchaChallengeId ||
-          !args.humanInteraction.challengeFingerprint ||
-          !args.humanInteraction.automaticAttemptEvidenceRef ||
-          args.humanInteraction.permissionScope.origin !== null ||
-          args.humanInteraction.permissionScope.methods.length !== 0)
-      ) {
-        return repairableErrorResult(
-          'Correct and retry this tool call: CAPTCHA humanInteraction requires captchaChallengeId, challengeFingerprint, automaticAttemptEvidenceRef, permissionScope.origin=null, and permissionScope.methods=[].',
-        );
-      }
-      if (
-        args.humanInteraction?.type === 'origin' &&
-        (!args.humanInteraction.permissionScope.origin ||
-          args.humanInteraction.permissionScope.methods.length === 0 ||
-          args.humanInteraction.automaticAttemptEvidenceRef !== null)
-      ) {
-        return repairableErrorResult(
-          'Correct and retry this tool call: origin humanInteraction requires permissionScope.origin, one or both GET/HEAD methods, and automaticAttemptEvidenceRef=null.',
-        );
+          ],
+        };
       }
       const pendingInteractionRef = args.humanInteraction
         ? `interaction_${randomUUID()}`
         : undefined;
-      const idempotencyKey =
-        args.humanInteraction?.type === 'captcha'
-          ? `captcha:${createHash('sha256').update(args.humanInteraction.captchaChallengeId!).digest('hex')}`
-          : args.idempotencyKey;
+      const idempotencyKey = args.humanInteraction?.browserChallenge
+        ? `browser-challenge:${createHash('sha256').update(args.humanInteraction.browserChallenge.challengeId).digest('hex')}`
+        : args.idempotencyKey;
       const checkpoint = await requestCheckpoint('job_checkpoint_save', {
         ...args,
         idempotencyKey,
@@ -174,90 +120,6 @@ export function registerJobCheckpointTools(server: McpServer): void {
   );
 }
 
-const CAPTCHA_GATED_MILESTONES = new Set([
-  'candidate_created',
-  'candidate_repaired',
-  'test_plan_created',
-  'evaluation_submitted',
-  'evaluation_analyzed',
-  'needs_review',
-]);
-
-async function unresolvedCaptchaCheckpointError(args: {
-  milestone: string;
-  artifactRefs: Array<{ artifactId: string; kind: string }>;
-}): Promise<string | null> {
-  if (!CAPTCHA_GATED_MILESTONES.has(args.milestone)) return null;
-  const inventories = args.artifactRefs.filter(
-    (artifact) => artifact.kind === 'observation_inventory',
-  );
-  if (inventories.length === 0) return null;
-  let captchaBlocked = false;
-  let captchaUnproven = false;
-  let captchaObserved = false;
-  for (const inventory of inventories) {
-    try {
-      const parsed = JSON.parse(
-        await handleFileToolAction({
-          action: 'read',
-          artifactId: inventory.artifactId,
-        }),
-      ) as { claims?: Array<{ capability?: unknown; status?: unknown }> };
-      captchaBlocked ||= (parsed.claims ?? []).some(
-        (claim) => claim.capability === 'captcha' && claim.status === 'blocked',
-      );
-      captchaUnproven ||= (parsed.claims ?? []).some(
-        (claim) =>
-          claim.capability === 'captcha' && claim.status === 'unproven',
-      );
-      captchaObserved ||= (parsed.claims ?? []).some(
-        (claim) =>
-          claim.capability === 'captcha' && claim.status === 'observed',
-      );
-    } catch {
-      // The host still performs the authoritative artifact validation. Do not
-      // turn a transient read failure into a false CAPTCHA claim.
-    }
-  }
-  const attemptArtifacts = args.artifactRefs.filter(
-    (artifact) =>
-      artifact.kind === 'captcha_attempt' ||
-      artifact.kind === 'captcha_automatic_attempt' ||
-      artifact.kind === 'captcha_attempt_evidence' ||
-      artifact.kind === 'captcha_success' ||
-      artifact.kind === 'solved_automatic' ||
-      artifact.kind === 'solved_human',
-  );
-  let solvedCaptcha = false;
-  let completedAutomaticAttempts = false;
-  for (const attempt of attemptArtifacts) {
-    try {
-      const parsed = JSON.parse(
-        await handleFileToolAction({
-          action: 'read',
-          artifactId: attempt.artifactId,
-        }),
-      ) as { attemptNumber?: unknown; outcome?: unknown };
-      solvedCaptcha ||=
-        parsed.outcome === 'solved_automatic' ||
-        parsed.outcome === 'solved_human';
-      completedAutomaticAttempts ||= Number(parsed.attemptNumber) >= 4;
-    } catch {
-      // Invalid attempt evidence cannot satisfy either CAPTCHA gate.
-    }
-  }
-  if (captchaObserved && !solvedCaptcha) {
-    return 'The retained inventory marks CAPTCHA as observed, but this self-contained checkpoint does not include a typed solved_automatic or solved_human artifact proving that the protected surface opened. First call job_checkpoint_status and carry forward any valid captcha_success artifact retained by the latest durable checkpoint. Re-run browser_captcha_challenge with stable post-gate success_text or success_target evidence only when no valid solved artifact exists or fresh same-session browser state is required.';
-  }
-  if (!captchaBlocked && !captchaUnproven) return null;
-  if (args.milestone === 'needs_review' && captchaUnproven && !captchaBlocked) {
-    return null;
-  }
-  if (args.milestone === 'needs_review' && completedAutomaticAttempts)
-    return null;
-  return 'The retained observation inventory marks CAPTCHA as blocked or unproven. Do not author, compile, evaluate, or finalize a candidate yet. Reopen the protected surface in the current browser, call browser_captcha_challenge so Gantry performs the typed automatic solve attempts, and either replace the inventory with observed CAPTCHA-continuation evidence or create the atomic human_wait after attempt four.';
-}
-
 async function resolveHumanInteraction(
   checkpoint: Awaited<ReturnType<typeof requestCheckpoint>>,
   interaction: z.infer<typeof humanInteractionSchema>,
@@ -272,20 +134,14 @@ async function resolveHumanInteraction(
     cumulativeRuntimeMs: number;
   },
 ) {
-  const toolInput =
-    interaction.type === 'captcha'
-      ? (({ captchaChallengeId: _captchaChallengeId, ...input }) => input)(
-          interaction,
-        )
-      : interaction;
   const response = await submitTaskLifecycleDataRequest({
     type: 'caller_resolved_tool',
     payload: {
-      toolName: 'website_recipe_request_human',
-      toolInput,
+      toolName: interaction.toolName,
+      toolInput: interaction.toolInput,
       interactionId,
-      ...(interaction.type === 'captcha' && interaction.captchaChallengeId
-        ? { captchaChallengeId: interaction.captchaChallengeId }
+      ...(interaction.browserChallenge
+        ? { captchaChallengeId: interaction.browserChallenge.challengeId }
         : {}),
     },
     responseTimeoutMs: HUMAN_INTERACTION_WAIT_MS,
@@ -295,11 +151,11 @@ async function resolveHumanInteraction(
       response?.error ?? response?.message ?? 'Human interaction failed.',
     );
   }
-  if (interaction.type === 'origin') {
+  if (!interaction.browserChallenge) {
     const resolvedCheckpoint = await saveResolvedHumanInteractionCheckpoint(
       checkpoint,
       checkpointInput,
-      'Authorized origin interaction resolved; continue the agent workflow.',
+      'Caller-resolved interaction completed; continue the agent workflow.',
     );
     return {
       content: [
@@ -307,7 +163,7 @@ async function resolveHumanInteraction(
         ...resolvedCheckpoint.content,
         {
           type: 'text' as const,
-          text: 'Authorized origin interaction resolved.',
+          text: 'Caller-resolved interaction completed.',
         },
       ],
     };
@@ -338,19 +194,22 @@ async function resolveHumanInteraction(
       ],
     };
   }
-  const answer =
-    typeof resolution.humanAnswer === 'string'
-      ? resolution.humanAnswer.trim()
-      : '';
+  const answerValue =
+    resolution[interaction.browserChallenge.answerResultField];
+  const answer = typeof answerValue === 'string' ? answerValue.trim() : '';
   if (!answer) {
-    return errorResult('Authorized CAPTCHA interaction returned no answer.');
+    return errorResult(
+      `Caller-resolved browser challenge returned no ${interaction.browserChallenge.answerResultField}.`,
+    );
   }
   const settled = await settleCaptchaChallenge(
-    interaction.captchaChallengeId!,
+    interaction.browserChallenge.challengeId,
     answer,
     CAPTCHA_SETTLE_WAIT_MS,
     'human',
-    interaction.automaticAttemptEvidenceRef,
+    typeof interaction.toolInput.automaticAttemptEvidenceRef === 'string'
+      ? interaction.toolInput.automaticAttemptEvidenceRef
+      : undefined,
   );
   if (settled.isError) {
     const reason =
@@ -385,7 +244,7 @@ async function resolveHumanInteraction(
   const resolvedCheckpoint = await saveResolvedHumanInteractionCheckpoint(
     checkpoint,
     checkpointInput,
-    'Authorized CAPTCHA answer was submitted; inspect the bound browser and continue.',
+    'Caller-resolved browser challenge answer was submitted; inspect the bound browser and continue.',
   );
   return {
     ...settled,
@@ -394,7 +253,7 @@ async function resolveHumanInteraction(
       ...resolvedCheckpoint.content,
       {
         type: 'text' as const,
-        text: 'Authorized CAPTCHA answer submitted in the bound browser session.',
+        text: 'Caller-resolved browser challenge answer submitted in the bound browser session.',
       },
       ...settled.content,
     ],
@@ -447,7 +306,7 @@ async function compensateUnopenedHumanWait(
   return requestCheckpoint('job_checkpoint_save', {
     idempotencyKey: `${input.idempotencyKey}:interaction-not-opened`,
     expectedPreviousSequence: sequence,
-    milestone: 'needs_review',
+    milestone: 'interaction_resolution_failed',
     safePhase: 'human_interaction_retry_required',
     artifactRefs: input.artifactRefs,
     nextAction: reason,
@@ -529,6 +388,12 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }
 
 function checkpointPendingInteractionRef(

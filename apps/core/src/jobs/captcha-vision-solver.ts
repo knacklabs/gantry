@@ -13,7 +13,7 @@ import {
   type ModelProviderDefinition,
 } from '../shared/model-provider-registry.js';
 
-const CAPTCHA_MODEL_ALIAS = 'manipal.website_recipe.captcha.solve';
+const CAPTCHA_MODEL_ALIAS = 'gantry.browser.captcha.solve';
 
 type GatewayLease = Awaited<ReturnType<typeof resolveGatewayMemoryInjection>>;
 type CaptchaImage = { imageBase64: string; mimeType: string };

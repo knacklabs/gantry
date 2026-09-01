@@ -252,6 +252,35 @@ describe('DeepAgents raw authority denial', () => {
     ]);
   });
 
+  it('returns skill read denials to the model as repairable tool errors', async () => {
+    const middleware = createBuiltinToolExclusionMiddleware({
+      exposeSkillReadTools: true,
+    }) as unknown as {
+      wrapToolCall: (
+        request: {
+          toolCall: { id: string; name: string };
+          tool: { name: string };
+        },
+        handler: () => Promise<never>,
+      ) => Promise<{ content: unknown; status?: string }>;
+    };
+
+    const result = await middleware.wrapToolCall(
+      {
+        toolCall: { id: 'tool-call-1', name: 'ls' },
+        tool: { name: 'ls' },
+      },
+      async () => {
+        throw new Error(
+          'Error: permission denied for read on /var/lib/gantry/agents/example',
+        );
+      },
+    );
+
+    expect(result.status).toBe('error');
+    expect(String(result.content)).toContain('virtual /skills directory');
+  });
+
   // R7: assert against the ACTUAL model-visible tool list of a real
   // createDeepAgent invocation — not an isolated middleware. The fake model's
   // bindTools is the real seam where the post-middleware tool list reaches the

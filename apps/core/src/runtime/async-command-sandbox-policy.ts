@@ -1,9 +1,7 @@
 import type { RunnerSandboxResourceLimits } from '../shared/runner-sandbox-provider.js';
 import type { CallerResolvedToolsConfig } from '../domain/types.js';
-import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
-
-const WEBSITE_RECIPE_EVALUATOR_CAPABILITY_ID =
-  'manipal.website-recipe-evaluator';
+import type { RuntimeProfileRef } from '../shared/registered-runtime-profiles.js';
+import { registeredRuntimeProfile } from '../shared/registered-runtime-profiles.js';
 
 export interface AsyncCommandSandboxPolicy {
   appId: string;
@@ -17,23 +15,17 @@ export interface AsyncCommandSandboxPolicy {
   protectedReadPaths: readonly string[];
   protectedWritePaths: readonly string[];
   allowedNetworkHosts: readonly string[];
-  browserPolicy?: 'recipe_authoring';
+  browserPolicy?: 'public_readonly_research';
   resourceLimits: RunnerSandboxResourceLimits;
   callerResolvedTools?: CallerResolvedToolsConfig;
 }
 
 const policies = new Map<string, AsyncCommandSandboxPolicy>();
 
-export function browserPolicyFromSemanticCapabilities(
-  semanticCapabilities: readonly SemanticCapabilityDefinition[] | undefined,
-): 'recipe_authoring' | undefined {
-  return semanticCapabilities?.some(
-    (capability) =>
-      capability.capabilityId === WEBSITE_RECIPE_EVALUATOR_CAPABILITY_ID &&
-      capability.version === '1',
-  )
-    ? 'recipe_authoring'
-    : undefined;
+export function browserPolicyFromRuntimeProfile(
+  runtimeProfile: RuntimeProfileRef | undefined,
+): 'public_readonly_research' | undefined {
+  return registeredRuntimeProfile(runtimeProfile)?.browserPolicy;
 }
 
 export function registerAsyncCommandSandboxPolicy(input: {
@@ -66,7 +58,7 @@ export function grantAsyncCommandBrowserHost(input: {
   const policy = policies.get(key);
   if (
     !policy ||
-    policy.browserPolicy !== 'recipe_authoring' ||
+    policy.browserPolicy !== 'public_readonly_research' ||
     policy.jobId !== input.jobId ||
     policy.runId !== input.runId
   ) {
@@ -95,7 +87,7 @@ export function registerSpawnAsyncCommandSandboxPolicy(input: {
   protectedReadPaths: readonly string[];
   protectedWritePaths: readonly string[];
   allowedNetworkHosts: readonly string[];
-  browserPolicy?: 'recipe_authoring';
+  browserPolicy?: 'public_readonly_research';
   resourceLimits: RunnerSandboxResourceLimits;
   callerResolvedTools?: CallerResolvedToolsConfig;
 }): void {
@@ -137,7 +129,7 @@ export function configureSpawnAsyncCommandSandboxPolicy(input: {
   protectedWritePaths: readonly string[];
   gatewayAllowedNetworkHosts?: readonly string[];
   fallbackAllowedNetworkHosts: readonly string[];
-  browserPolicy?: 'recipe_authoring';
+  browserPolicy?: 'public_readonly_research';
   resourceLimits: RunnerSandboxResourceLimits;
   callerResolvedTools?: CallerResolvedToolsConfig;
 }): readonly string[] {

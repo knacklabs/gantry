@@ -4,6 +4,24 @@ import {
   mcpToolPatternCovers,
 } from '../../shared/mcp-tool-scope.js';
 
+export interface ReviewedMcpOperationContract {
+  capabilityRef: string;
+  mcpTool: string;
+  schemaDialect: 'json-schema-draft-07';
+  inputSchema: Record<string, unknown>;
+  inputSchemaDigest: string;
+  resultEnvelopeSchema?: Record<string, unknown>;
+  resultEnvelopeSchemaDigest?: string;
+  executionMode?: 'sync' | 'durable_async';
+  requiresActiveJob?: boolean;
+  deadlineMs?: number;
+  suspensionCheckpoint?: {
+    milestone: string;
+    payloadPatch: Record<string, unknown>;
+    invocationRefPath: string[];
+  };
+}
+
 export type ReviewedMaterializedMcpCapability = MaterializedMcpCapability & {
   reviewedToolNames: string[];
   // Reviewed full-name patterns (mcp__server__prefix*) from selected
@@ -13,6 +31,7 @@ export type ReviewedMaterializedMcpCapability = MaterializedMcpCapability & {
   // Selected capability ids that reviewed action on this server; used to name
   // the nearest reviewed capability in denials.
   reviewedCapabilityIds?: string[];
+  reviewedOperationContracts?: ReviewedMcpOperationContract[];
 };
 
 export function isReviewedMcpToolAllowed(

@@ -12,6 +12,7 @@ from architecture_rules import (
     check_forbidden_ipc_contract_surface,
     check_forbidden_ipc_orchestrator_monolith,
     check_forbidden_runtime_runner_materialization,
+    check_forbidden_product_runtime_terms,
     check_doc_references,
     check_direct_risky_execution,
     check_empty_folders,
@@ -77,6 +78,7 @@ def print_grouped_failures(issues: dict[str, list[str]]) -> None:
         ("forbidden_ipc_orchestrator_monolith", "IPC Orchestrator"),
         ("forbidden_direct_provider_sends", "Direct Provider Sends"),
         ("forbidden_runtime_runner_materialization", "Runtime Runner Materialization"),
+        ("forbidden_product_runtime_terms", "Product-Specific Runtime Terms"),
         ("doc_references", "Active Doc References"),
     )
     for key, label in groups:
@@ -188,6 +190,9 @@ def main() -> int:
             production_files, root
         ),
         "forbidden_runtime_runner_materialization": check_forbidden_runtime_runner_materialization(
+            production_files, root
+        ),
+        "forbidden_product_runtime_terms": check_forbidden_product_runtime_terms(
             production_files, root
         ),
         "doc_references": check_doc_references(root),

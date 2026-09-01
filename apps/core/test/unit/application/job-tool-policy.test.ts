@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  addSemanticJobToolRules,
+  addRuntimeProfileToolRules,
   resolveJobToolPolicy,
 } from '@core/application/jobs/job-tool-policy.js';
 import type { Job } from '@core/domain/types.js';
@@ -76,28 +76,34 @@ function toolRepositoryFor(names: string[]) {
 }
 
 describe('job tool policy', () => {
-  it('adds milestone tools only for the reviewed recipe evaluator capability', () => {
+  it('adds durable execution tools only for the registered runtime profile', () => {
     const policy = {
       inheritedTools: ['Browser'],
       effectiveAllowedTools: ['Browser'],
       runtimeAccess: [],
     };
-    const capability = {
-      ...reviewedAcmeAppendCapability,
-      capabilityId: 'manipal.website-recipe-evaluator',
-      version: '1',
-    };
 
-    expect(addSemanticJobToolRules(policy, [capability])).toMatchObject({
+    expect(
+      addRuntimeProfileToolRules(policy, {
+        id: 'public_readonly_research',
+        version: '1',
+      }),
+    ).toMatchObject({
       effectiveAllowedTools: [
         'Browser',
         'mcp__gantry__file',
         'mcp__gantry__job_checkpoint_status',
         'mcp__gantry__job_checkpoint_save',
+        'mcp__gantry__external_capability_call',
       ],
     });
-    expect(addSemanticJobToolRules(policy, [reviewedAcmeAppendCapability]))
-      .toBe(policy);
+    expect(addRuntimeProfileToolRules(policy, undefined)).toBe(policy);
+    expect(() =>
+      addRuntimeProfileToolRules(policy, {
+        id: 'unknown_profile',
+        version: '1',
+      }),
+    ).toThrowError(/Runtime profile is not registered/);
   });
 
   it('resolves scheduled job tools from the target agent only', async () => {

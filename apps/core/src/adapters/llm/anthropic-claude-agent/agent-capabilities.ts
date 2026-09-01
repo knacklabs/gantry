@@ -130,7 +130,7 @@ const RUNNER_SUPPRESSED_GANTRY_MCP_TOOL_NAME_SET = new Set<string>([
   'memory_dream',
   'memory_consolidate',
 ]);
-const RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES = [
+const DURABLE_EXECUTION_GANTRY_MCP_TOOL_NAMES = [
   'file',
   'job_checkpoint_status',
   'job_checkpoint_save',
@@ -147,7 +147,7 @@ function gantryMcpAllowedTools(input: {
   includeBaselineTools?: boolean;
   chatJid: string;
   isScheduledJob?: boolean;
-  recipeAuthoring?: boolean;
+  includeDurableExecutionTools?: boolean;
 }): string[] {
   const selectedNames = new Set(
     selectedGantryMcpToolNames(input.configuredTools ?? [], {
@@ -181,8 +181,8 @@ function gantryMcpAllowedTools(input: {
     ...(input.allowSelectedMcpToolCalls === true
       ? [gantryMcpFullToolName('mcp_call_tool')]
       : []),
-    ...(input.recipeAuthoring === true
-      ? RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName)
+    ...(input.includeDurableExecutionTools === true
+      ? DURABLE_EXECUTION_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName)
       : []),
     ...(input.callableAgentManifest ?? []).map((entry) =>
       gantryMcpFullToolName(callableAgentToolName(entry)),
@@ -201,7 +201,7 @@ function defaultAllowedTools(input: {
   includeBaselineTools?: boolean;
   chatJid: string;
   isScheduledJob?: boolean;
-  recipeAuthoring?: boolean;
+  includeDurableExecutionTools?: boolean;
 }): string[] {
   return [...SAFE_NATIVE_SDK_TOOLS, ...gantryMcpAllowedTools(input)];
 }
@@ -273,7 +273,8 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                 includeBaselineTools: ctx.callerResolvedTools == null,
                 chatJid: ctx.chatJid,
                 isScheduledJob: ctx.isScheduledJob,
-                recipeAuthoring: isRecipeAuthoringContext(ctx),
+                includeDurableExecutionTools:
+                  callerUsesDurableExecutionTools(ctx),
               }),
             ]
           : defaultAllowedTools({
@@ -292,7 +293,8 @@ const sdkToolsProvider: AgentCapabilityProvider = {
               includeBaselineTools: ctx.callerResolvedTools == null,
               chatJid: ctx.chatJid,
               isScheduledJob: ctx.isScheduledJob,
-              recipeAuthoring: isRecipeAuthoringContext(ctx),
+              includeDurableExecutionTools:
+                callerUsesDurableExecutionTools(ctx),
             }),
       availableTools: baseAvailableTools,
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
@@ -332,10 +334,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
           ...(ctx.callerResolvedTools.allowSelectedMcpToolCalls
             ? [gantryMcpFullToolName('mcp_call_tool')]
             : []),
-          ...(isRecipeAuthoringContext(ctx)
-            ? RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES.map(
-                gantryMcpFullToolName,
-              )
+          ...(callerUsesDurableExecutionTools(ctx)
+            ? DURABLE_EXECUTION_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName)
             : []),
           ...callableAgentManifest.map((entry) =>
             gantryMcpFullToolName(callableAgentToolName(entry)),
@@ -405,8 +405,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
         ...(ctx.callerResolvedTools?.allowSelectedMcpToolCalls
           ? ['mcp_call_tool']
           : []),
-        ...(isRecipeAuthoringContext(ctx)
-          ? RECIPE_AUTHORING_GANTRY_MCP_TOOL_NAMES
+        ...(callerUsesDurableExecutionTools(ctx)
+          ? DURABLE_EXECUTION_GANTRY_MCP_TOOL_NAMES
           : []),
         ...callableAgentManifest.map(callableAgentToolName),
         ...(ctx.callerResolvedTools?.tools ?? []).map((tool) => tool.name),
@@ -604,20 +604,17 @@ function projectedConfiguredTools(
   if (!ctx.callerResolvedTools) return ctx.configuredAllowedTools ?? [];
   return (ctx.configuredAllowedTools ?? []).filter(
     (tool) =>
-      (ctx.callerResolvedDelegationEnabled === true && tool === 'AgentDelegation') ||
-      (isRecipeAuthoringContext(ctx) &&
-        (isCanonicalBrowserCapabilityRule(tool) ||
-          tool === 'mcp__gantry__job_checkpoint_status' ||
-          tool === 'mcp__gantry__job_checkpoint_save')),
+      (ctx.callerResolvedDelegationEnabled === true &&
+        tool === 'AgentDelegation') ||
+      (ctx.browserProfileName === 'public_readonly_research' &&
+        isCanonicalBrowserCapabilityRule(tool)),
   );
 }
 
-function isRecipeAuthoringContext(ctx: AgentCapabilityContext): boolean {
-  return (ctx.semanticCapabilities ?? []).some(
-    (capability) =>
-      capability.capabilityId === 'manipal.website-recipe-evaluator' &&
-      capability.version === '1',
-  );
+function callerUsesDurableExecutionTools(
+  ctx: AgentCapabilityContext,
+): boolean {
+  return ctx.callerResolvedTools?.includeDurableExecutionTools === true;
 }
 
 export const BUILTIN_AGENT_CAPABILITY_PROVIDERS: readonly AgentCapabilityProvider[] =

@@ -27,6 +27,17 @@ export function structuredOutputContinuationPrompt(
   ].join('\n\n');
 }
 
+export function preserveOriginalTaskPrompt(
+  originalPrompt: string,
+  continuationPrompt: string,
+): string {
+  return [
+    originalPrompt,
+    'RUNTIME_CONTINUATION',
+    continuationPrompt,
+  ].join('\n\n');
+}
+
 export const STRUCTURED_OUTPUT_ENVELOPE_SCHEMA = {
   type: 'object',
   properties: {

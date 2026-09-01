@@ -33,6 +33,7 @@ type BrowserInspectMode =
   | 'snapshot'
   | 'tabs'
   | 'screenshot'
+  | 'elements'
   | 'console_messages'
   | 'network_requests';
 type BrowserActAction =
@@ -66,7 +67,7 @@ const CAPTCHA_IMAGE_FALLBACK_SELECTOR =
   'img[src*="captcha" i],img[src^="data:image" i],img[id*="captcha" i],img[class*="captcha" i],img[alt*="captcha" i],img[title*="captcha" i],canvas[id*="captcha" i],canvas[class*="captcha" i],svg[id*="captcha" i],svg[class*="captcha" i],input[type="image"][src*="captcha" i],[style*="background-image" i][id*="captcha" i],[style*="background-image" i][class*="captcha" i]';
 const MAX_AUTOMATIC_CAPTCHA_ATTEMPTS = 4;
 const CAPTCHA_BROWSER_ACTION_TIMEOUT_MS = 30_000;
-const CAPTCHA_SUCCESS_PROOF_TIMEOUT_MS = 45_000;
+const CAPTCHA_SUCCESS_PROOF_TIMEOUT_MS = 15_000;
 const CAPTCHA_SUCCESS_PROOF_POLL_MS = 1_500;
 const CAPTCHA_REFRESH_CAPTURE_TIMEOUT_MS = CAPTCHA_BROWSER_ACTION_TIMEOUT_MS;
 const DURABLE_CAPTCHA_TARGET_EVALUATOR = [
@@ -137,7 +138,7 @@ function captchaControlDiscoveryEvaluator(
     'const preferredInput = safeQuery(preferredInputSelector);',
     "let inputCandidates = Array.from(scope.querySelectorAll('input,textarea')).filter(editable);",
     "if (inputCandidates.length === 0 && scope !== doc) inputCandidates = Array.from(doc.querySelectorAll('input,textarea')).filter(editable);",
-    'const inputScore = (element) => { const text = descriptor(element); let value = element === preferredInput ? 50 : 0; if (/captcha/.test(text)) value += 1000; if (/verification|verify|security/.test(text)) value += 500; if (/code|answer/.test(text)) value += 250; if (/search|tender|published|date/.test(text)) value -= 500; value -= Math.min(distance(element), 1000) / 10; return value; };',
+    'const inputScore = (element) => { const text = descriptor(element); let value = element === preferredInput ? 50 : 0; if (/captcha/.test(text)) value += 1000; if (/verification|verify|security/.test(text)) value += 500; if (/code|answer/.test(text)) value += 250; if (/search|query|published|date/.test(text)) value -= 500; value -= Math.min(distance(element), 1000) / 10; return value; };',
     'inputCandidates.sort((left, right) => inputScore(right) - inputScore(left)); const input = inputCandidates[0] ?? null;',
     "if (!editable(input)) return { error: 'no visible editable CAPTCHA input could be found near the challenge image' };",
     'const preferredSubmit = safeQuery(preferredSubmitSelector);',
@@ -354,24 +355,25 @@ const payload = z
   .record(z.string(), z.unknown())
   .optional()
   .describe('Action-specific payload for the selected compact browser action.');
-const recipeIntent = z
+const researchIntent = z
   .enum([
-    'listing',
-    'pagination',
-    'filter',
-    'detail',
-    'document',
-    'modal_close',
+    'browse',
+    'paginate',
+    'search',
+    'inspect',
+    'download',
+    'close_overlay',
     'captcha',
   ])
   .optional()
   .describe(
-    'Required for state-changing controls in recipe-authoring jobs; describes the bounded tender-navigation purpose.',
+    'Required for state-changing controls under a public-read-only research runtime profile.',
   );
 const inspectMode = z.enum([
   'snapshot',
   'tabs',
   'screenshot',
+  'elements',
   'console_messages',
   'network_requests',
 ]);
@@ -466,6 +468,12 @@ export function registerBrowserTools(server: McpServer): void {
         });
         if (failure) return failure;
       }
+      if (mode === 'elements' && !(args.target as string | undefined)?.trim()) {
+        return formatBrowserFailure(
+          'browser_inspect',
+          'mode="elements" requires a CSS selector in target',
+        );
+      }
       return callBrowserBackend(
         'browser_inspect',
         inspectBackendAction(mode),
@@ -483,7 +491,7 @@ export function registerBrowserTools(server: McpServer): void {
       action: actAction,
       profile,
       payload,
-      recipe_intent: recipeIntent,
+      research_intent: researchIntent,
       reason,
     },
     async (args) => {
@@ -500,8 +508,8 @@ export function registerBrowserTools(server: McpServer): void {
         args.payload && typeof args.payload === 'object'
           ? (args.payload as Record<string, unknown>)
           : {};
-      if (typeof args.recipe_intent === 'string') {
-        actionPayload.recipe_intent = args.recipe_intent;
+      if (typeof args.research_intent === 'string') {
+        actionPayload.research_intent = args.research_intent;
       }
       return callBrowserBackend(
         'browser_act',
@@ -1087,6 +1095,7 @@ export async function settleCaptchaChallenge(
   let matchedSuccessText: string | undefined;
   let successTargetPresent = false;
   let protectedResultRowsPresent = false;
+  let captchaGateDisappeared = false;
   let latestSuccessSnapshot: BrowserMcpToolResult | null = null;
   do {
     const successTexts =
@@ -1130,10 +1139,35 @@ export async function settleCaptchaChallenge(
     protectedResultRowsPresent =
       resultRowCount !== null &&
       resultRowCount > challenge.resultRowCountBefore!;
+    captchaGateDisappeared =
+      !matchedSuccessText &&
+      !successTargetPresent &&
+      latestSuccessSnapshot !== null &&
+      browserResultOrigin(latestSuccessSnapshot) === challenge.origin &&
+      browserSnapshotHasSubstantiveContent(latestSuccessSnapshot) &&
+      !browserTextIndicatesCaptchaFailure(
+        browserResultText(latestSuccessSnapshot),
+      ) &&
+      !(await browserTargetPresent(
+        'browser_captcha_settle',
+        challenge.imageTarget,
+        actionTimeoutMs,
+      )) &&
+      !(await browserTargetPresent(
+        'browser_captcha_settle',
+        challenge.inputTarget,
+        actionTimeoutMs,
+      )) &&
+      !(await browserTargetPresent(
+        'browser_captcha_settle',
+        CAPTCHA_IMAGE_FALLBACK_SELECTOR,
+        actionTimeoutMs,
+      ));
     if (
       matchedSuccessText ||
       successTargetPresent ||
       protectedResultRowsPresent ||
+      captchaGateDisappeared ||
       nowMs() >= successDeadline
     )
       break;
@@ -1141,30 +1175,6 @@ export async function settleCaptchaChallenge(
       setTimeout(resolve, CAPTCHA_SUCCESS_PROOF_POLL_MS),
     );
   } while (true);
-  const captchaGateDisappeared =
-    !matchedSuccessText &&
-    !successTargetPresent &&
-    latestSuccessSnapshot !== null &&
-    browserResultOrigin(latestSuccessSnapshot) === challenge.origin &&
-    browserSnapshotHasSubstantiveContent(latestSuccessSnapshot) &&
-    !browserTextIndicatesCaptchaFailure(
-      browserResultText(latestSuccessSnapshot),
-    ) &&
-    !(await browserTargetPresent(
-      'browser_captcha_settle',
-      challenge.imageTarget,
-      actionTimeoutMs,
-    )) &&
-    !(await browserTargetPresent(
-      'browser_captcha_settle',
-      challenge.inputTarget,
-      actionTimeoutMs,
-    )) &&
-    !(await browserTargetPresent(
-      'browser_captcha_settle',
-      CAPTCHA_IMAGE_FALLBACK_SELECTOR,
-      actionTimeoutMs,
-    ));
   if (
     matchedSuccessText ||
     successTargetPresent ||
@@ -1855,6 +1865,8 @@ function inspectBackendAction(mode: BrowserInspectMode): BrowserBackendAction {
       return 'tabs';
     case 'screenshot':
       return 'screenshot';
+    case 'elements':
+      return 'evaluate';
     case 'console_messages':
       return 'console_messages';
     case 'network_requests':
@@ -1867,6 +1879,12 @@ function inspectBackendPayload(
   args: Record<string, unknown>,
 ): Record<string, unknown> {
   if (mode === 'tabs') return { action: 'list' };
+  if (mode === 'elements') {
+    return {
+      inspect_mode: 'elements',
+      selector: String(args.target),
+    };
+  }
   const payload: Record<string, unknown> = {};
   if (typeof args.target === 'string') payload.target = args.target;
   if (typeof args.filename === 'string') payload.filename = args.filename;

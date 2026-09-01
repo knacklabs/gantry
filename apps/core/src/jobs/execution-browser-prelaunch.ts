@@ -14,6 +14,48 @@ import {
 import type { SchedulerDependencies } from './types.js';
 import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 
+const BROWSER_PRELAUNCH_ATTEMPTS = 3;
+
+function isTransientBrowserStartupError(error: string): boolean {
+  return (
+    (/CDP HTTP .* timed out/i.test(error) ||
+      /timed out waiting for Chrome DevTools/i.test(error)) &&
+    !/profile lease lost/i.test(error)
+  );
+}
+
+async function openBrowserForPrelaunch(input: {
+  profileName: string;
+  openBrowserSession: NonNullable<SchedulerDependencies['openBrowserSession']>;
+  logger: { warn: (context: Record<string, unknown>, message: string) => void };
+  jobId: string;
+}) {
+  for (let attempt = 1; attempt <= BROWSER_PRELAUNCH_ATTEMPTS; attempt += 1) {
+    try {
+      return await input.openBrowserSession(input.profileName);
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      if (
+        attempt === BROWSER_PRELAUNCH_ATTEMPTS ||
+        !isTransientBrowserStartupError(error)
+      ) {
+        throw err;
+      }
+      input.logger.warn(
+        {
+          err,
+          jobId: input.jobId,
+          profileName: input.profileName,
+          attempt,
+          nextAttempt: attempt + 1,
+        },
+        'Transient browser prelaunch failure; retrying with a fresh process',
+      );
+    }
+  }
+  throw new Error('Browser prelaunch attempts exhausted');
+}
+
 export async function prelaunchBrowserForJobRun(input: {
   currentJob: Job;
   executionGroupFolder?: string;
@@ -55,7 +97,12 @@ export async function prelaunchBrowserForJobRun(input: {
   const startedAt = nowMs();
 
   try {
-    const status = await input.deps.openBrowserSession(profileName);
+    const status = await openBrowserForPrelaunch({
+      profileName,
+      openBrowserSession: input.deps.openBrowserSession,
+      logger: input.logger,
+      jobId: input.currentJob.id,
+    });
     const payload = {
       phase: 'browser_prelaunch',
       tool: 'Browser',

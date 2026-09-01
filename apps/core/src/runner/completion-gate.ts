@@ -17,13 +17,16 @@ export class CompletionGate {
 
   constructor(private readonly config: CompletionGateConfig) {}
 
-  async check(): Promise<Decision> {
+  async check(proposedResult: string | null): Promise<Decision> {
     this.completionAttempt += 1;
     const response = await submitTaskLifecycleDataRequest({
       type: 'caller_resolved_tool',
       payload: {
         toolName: this.config.toolName,
-        toolInput: { completionAttempt: this.completionAttempt },
+        toolInput: {
+          completionAttempt: this.completionAttempt,
+          proposedResult: parseProposedResult(proposedResult),
+        },
       },
       responseTimeoutMs: this.config.interactionTimeoutMs + 5_000,
     });
@@ -46,6 +49,15 @@ export class CompletionGate {
       );
     }
     return decision;
+  }
+}
+
+function parseProposedResult(value: string | null): unknown {
+  if (!value?.trim()) return null;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
   }
 }
 

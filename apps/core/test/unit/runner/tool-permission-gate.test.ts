@@ -779,22 +779,25 @@ describe('createCanUseToolCallback', () => {
     'mcp__gantry__job_checkpoint_status',
     'mcp__gantry__job_checkpoint_save',
   ])(
-    'allows recipe milestone tool %s only with the reviewed evaluator capability',
+    'allows durable execution tool %s only when selected by the caller contract',
     async (toolName) => {
       const decision = await makeCallback({
         agentInput: {
           runMode: 'normal',
           isScheduledJob: true,
-          appId: 'manipal-tender-copilot',
+          appId: 'example-app',
           agentId: 'agent:test',
           runId: 'run-1',
           jobId: 'job-1',
-          chatJid: 'app:manipal-tender-copilot:website-recipe',
+          chatJid: 'app:example:durable-evaluation',
           allowedTools: [toolName],
-          semanticCapabilities: [{
-            capabilityId: 'manipal.website-recipe-evaluator',
-            version: '1',
-          }],
+          callerResolvedTools: {
+            sessionId: 'session-1',
+            tools: [],
+            maxInteractions: 4,
+            interactionTimeoutMs: 30_000,
+            includeDurableExecutionTools: true,
+          },
           yoloMode: { enabled: false, denylist: [], denylistPaths: [] },
         } as never,
       })(

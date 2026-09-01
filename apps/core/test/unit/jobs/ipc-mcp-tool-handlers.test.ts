@@ -27,14 +27,10 @@ import type { FileArtifactStore } from '@core/domain/ports/file-artifact-store.j
 import { AsyncCommandTaskService } from '@core/jobs/async-command-task-service.js';
 import { createAsyncMcpTask } from '@core/jobs/async-mcp-tool-task.js';
 import { readEncryptedAsyncTaskPayload } from '@core/jobs/async-task-execution-payload.js';
-import {
-  createMcpToolHandlers,
-  isEvaluationSubmissionReady,
-  isUnchangedSameRunEvaluationSubmission,
-  websiteRecipeCompilationFromMcpResult,
-} from '@core/jobs/ipc-mcp-tool-handlers.js';
+import { createMcpToolHandlers } from '@core/jobs/ipc-mcp-tool-handlers.js';
 import { registerExternalCapabilitySuspension } from '@core/jobs/external-capability-suspension.js';
 import { registerAsyncCommandSandboxPolicy } from '@core/runtime/async-command-sandbox-policy.js';
+import { stableSha256Json } from '@core/shared/stable-hash.js';
 
 const runtimeHomes: string[] = [];
 const evaluationArguments = {
@@ -44,145 +40,52 @@ const evaluationArguments = {
   },
 };
 
-describe('same-run recipe evaluation repair gate', () => {
-  const checkpoint = (
-    milestone: JobSemanticCheckpoint['milestone'],
-    runId: string,
-    contentHash: string,
-  ) =>
-    ({
-      runId,
-      milestone,
-      payload: {
-        artifactRefs: [
-          {
-            artifactId: 'file-artifact:00000000-0000-4000-8000-000000000001',
-            contentHash,
-            kind: 'evaluation_submit_args',
-          },
-        ],
-      },
-    }) as JobSemanticCheckpoint;
+const syncOperation = {
+  executionMode: 'sync' as const,
+  requiresActiveJob: true,
+  resultEnvelopeSchema: { type: 'object' },
+  resultEnvelopeSchemaDigest: 'sha256:test-result-schema',
+};
 
-  it('rejects a new checkpoint that repeats analyzed content in the same run', () => {
-    expect(
-      isUnchangedSameRunEvaluationSubmission(
-        checkpoint('test_plan_created', 'run-1', 'sha256:same'),
-        checkpoint('evaluation_analyzed', 'run-1', 'sha256:same'),
-      ),
-    ).toBe(true);
-  });
+const durableOperation = {
+  executionMode: 'durable_async' as const,
+  requiresActiveJob: true,
+  resultEnvelopeSchema: { type: 'object' },
+  resultEnvelopeSchemaDigest: 'sha256:test-result-schema',
+};
 
-  it('allows a material change or an administrator-authorized later run', () => {
-    expect(
-      isUnchangedSameRunEvaluationSubmission(
-        checkpoint('test_plan_created', 'run-1', 'sha256:changed'),
-        checkpoint('evaluation_analyzed', 'run-1', 'sha256:old'),
-      ),
-    ).toBe(false);
-    expect(
-      isUnchangedSameRunEvaluationSubmission(
-        checkpoint('test_plan_created', 'run-2', 'sha256:same'),
-        checkpoint('evaluation_analyzed', 'run-1', 'sha256:same'),
-      ),
-    ).toBe(false);
-  });
-});
+const checkpointPayloadSchema = {
+  type: 'object',
+  properties: {
+    safePhase: { type: 'string' },
+    artifactRefs: { type: 'array' },
+    evaluatorInvocationRef: { type: ['string', 'null'] },
+    pendingInteractionRef: { type: ['string', 'null'] },
+    nextAction: { type: 'string' },
+    cumulativeRuntimeMs: { type: 'integer', minimum: 0 },
+  },
+  required: [
+    'safePhase',
+    'artifactRefs',
+    'evaluatorInvocationRef',
+    'pendingInteractionRef',
+    'nextAction',
+    'cumulativeRuntimeMs',
+  ],
+  additionalProperties: false,
+} as const;
 
-it('recovers evaluator submission only from a complete pre-execution failure', () => {
-  const checkpoint = new MemoryJobCheckpointRepository().latest!;
-  const analyzed = {
-    ...checkpoint,
-    milestone: 'evaluation_analyzed' as const,
-    payload: {
-      ...checkpoint.payload,
-      artifactRefs: [
-        ...checkpoint.payload.artifactRefs,
-        {
-          artifactId: 'artifact-evaluation-submit-args',
-          contentHash: 'sha256:evaluation-submit-args',
-          kind: 'evaluation_submit_args',
-        },
-      ],
+const durableCheckpointOperation = {
+  ...durableOperation,
+  suspensionCheckpoint: {
+    milestone: 'external_task_submitted',
+    payloadPatch: {
+      safePhase: 'waiting_external',
+      nextAction: 'Await the external result.',
     },
-  };
-
-  expect(isEvaluationSubmissionReady(analyzed, 'invocation:retry')).toBe(true);
-  expect(
-    isEvaluationSubmissionReady(
-      {
-        ...analyzed,
-        payload: {
-          ...analyzed.payload,
-          evaluatorInvocationRef: 'invocation:already-ran',
-        },
-      },
-      'invocation:retry',
-    ),
-  ).toBe(false);
-  expect(
-    isEvaluationSubmissionReady(
-      {
-        ...analyzed,
-        payload: {
-          ...analyzed.payload,
-          artifactRefs: analyzed.payload.artifactRefs.filter(
-            (reference) => reference.kind !== 'evaluation_submit_args',
-          ),
-        },
-      },
-      'invocation:retry',
-    ),
-  ).toBe(false);
-});
-
-it('accepts an evaluation-ready checkpoint that retains every compiled artifact', () => {
-  const checkpoint = new MemoryJobCheckpointRepository().latest!;
-  const evaluationReady: JobSemanticCheckpoint = {
-    ...checkpoint,
-    milestone: 'candidate_created',
-    payload: {
-      ...checkpoint.payload,
-      safePhase: 'evaluation_ready',
-      evaluatorInvocationRef: null,
-      artifactRefs: [
-        ...checkpoint.payload.artifactRefs,
-        {
-          artifactId: 'artifact-evaluation-submit-args',
-          contentHash: 'sha256:evaluation-submit-args',
-          kind: 'evaluation_submit_args',
-        },
-      ],
-    },
-  };
-
-  expect(
-    isEvaluationSubmissionReady(evaluationReady, 'invocation:prepared'),
-  ).toBe(true);
-  expect(
-    isEvaluationSubmissionReady(
-      {
-        ...evaluationReady,
-        milestone: 'evaluation_submitted',
-      },
-      'invocation:legacy-prepared',
-    ),
-  ).toBe(true);
-  expect(
-    isEvaluationSubmissionReady(
-      {
-        ...evaluationReady,
-        payload: {
-          ...evaluationReady.payload,
-          artifactRefs: evaluationReady.payload.artifactRefs.filter(
-            (reference) => reference.kind !== 'test_plan',
-          ),
-        },
-      },
-      'invocation:prepared',
-    ),
-  ).toBe(false);
-});
+    invocationRefPath: ['evaluatorInvocationRef'],
+  },
+};
 
 afterEach(() => {
   configurePendingInteractionDurability(null);
@@ -204,51 +107,22 @@ function asyncRuntimeDeps(
   return {
     getAsyncTaskRepository: () => repository,
     getJobSemanticCheckpointRepository: () => checkpoints,
+    opsRepository: {
+      getJobById: vi.fn(async () => ({
+        agent_task: {
+          checkpointContract: {
+            schema: checkpointPayloadSchema,
+            schemaDigest: `sha256:${stableSha256Json(checkpointPayloadSchema)}`,
+          },
+        },
+      })),
+    },
     ...(fileArtifacts ? { getFileArtifactStore: () => fileArtifacts } : {}),
     runnerSandboxProvider: { enforcing: true },
   } as never;
 }
 
 describe('external capability MCP task', () => {
-  it('unwraps and validates canonical recipe compiler structured content', () => {
-    const compilation = {
-      status: 'compiled',
-      binding: { bindingSha256: 'sha256:binding' },
-      recipeSha256: 'sha256:recipe',
-      observationInventorySha256: 'sha256:inventory',
-      coverageManifestSha256: 'sha256:coverage',
-      coverageManifest: { requirements: [] },
-    };
-
-    expect(
-      websiteRecipeCompilationFromMcpResult({
-        content: [{ type: 'text', text: JSON.stringify(compilation) }],
-        structuredContent: compilation,
-        isError: false,
-      }),
-    ).toEqual(compilation);
-    expect(() =>
-      websiteRecipeCompilationFromMcpResult({
-        content: [{ type: 'text', text: 'compiler unavailable' }],
-        isError: true,
-      }),
-    ).toThrow('compiler unavailable');
-    expect(() =>
-      websiteRecipeCompilationFromMcpResult({ content: [] }),
-    ).toThrow('no canonical compiled payload');
-    expect(() =>
-      websiteRecipeCompilationFromMcpResult({
-        structuredContent: {
-          status: 'rejected',
-          code: 'RECIPE_SCHEMA_INVALID',
-          message: 'Unsupported field(s) at site: siteId',
-        },
-      }),
-    ).toThrow(
-      'RECIPE_SCHEMA_INVALID: Unsupported field(s) at site: siteId',
-    );
-  });
-
   it('executes recipe compilation synchronously without scheduling an external task', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const compileArguments = {
@@ -288,10 +162,13 @@ describe('external capability MCP task', () => {
       },
       isError: false,
     }));
-    const assertToolAllowed = vi.fn(async () => undefined);
+    const preflightExternalCapabilityCall = vi.fn(async () => ({
+      ok: true as const,
+      operation: syncOperation,
+    }));
     const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
       vi.fn(async () => ({
-        assertToolAllowed,
+        preflightExternalCapabilityCall,
         callTool,
         describeTool: vi.fn(),
         listTools: vi.fn(),
@@ -338,7 +215,12 @@ describe('external capability MCP task', () => {
       sourceAgentFolderJids: ['sl:C123'],
     });
 
-    expect(assertToolAllowed).toHaveBeenCalledOnce();
+    expect(preflightExternalCapabilityCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capabilityId: 'manipal.website-recipe-evaluator@1',
+        arguments: compileArguments,
+      }),
+    );
     expect(callTool).toHaveBeenCalledWith(
       expect.objectContaining({
         serverName: 'manipal-website-recipe-evaluator',
@@ -355,12 +237,202 @@ describe('external capability MCP task', () => {
     expect(repository.tasks.size).toBe(0);
   });
 
+  it('expands generic job-scoped JSON artifact includes before capability validation', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const argumentsArtifactId =
+      'file-artifact:11111111-1111-4111-8111-111111111111';
+    const firstUnitArtifactId =
+      'file-artifact:22222222-2222-4222-8222-222222222222';
+    const secondUnitArtifactId =
+      'file-artifact:33333333-3333-4333-8333-333333333333';
+    const firstUnit = { id: 'first', value: { complete: true } };
+    const secondUnit = { id: 'second', value: { complete: true } };
+    const argumentsTemplate = {
+      requestId: 'request-1',
+      units: [
+        { $gantryArtifactJson: firstUnitArtifactId },
+        { $gantryArtifactJson: secondUnitArtifactId },
+      ],
+    };
+    const records = new Map([
+      [argumentsArtifactId, JSON.stringify(argumentsTemplate)],
+      [firstUnitArtifactId, JSON.stringify(firstUnit)],
+      [secondUnitArtifactId, JSON.stringify(secondUnit)],
+    ]);
+    const fileArtifacts = {
+      readFileArtifact: vi.fn(async ({ id }: { id: string }) => {
+        const content = records.get(id);
+        if (!content) throw new Error('missing test artifact');
+        return {
+          artifact: {
+            id,
+            appId: 'app:test',
+            agentId: 'agent:signed',
+            virtualScope: jobArtifactScope('job-1'),
+            virtualPath: `arguments/${id}.json`,
+            version: 1,
+            storageType: 'local-filesystem',
+            storageRef: 'test',
+            contentHash: `sha256:${id}`,
+            sizeBytes: content.length,
+            contentType: 'application/json',
+            metadata: {},
+            createdAt: '2026-08-30T00:00:00.000Z',
+          },
+          content,
+        };
+      }),
+    } as unknown as FileArtifactStore;
+    const expectedArguments = {
+      requestId: 'request-1',
+      units: [firstUnit, secondUnit],
+    };
+    const preflightExternalCapabilityCall = vi.fn(async () => ({
+      ok: true as const,
+      operation: syncOperation,
+    }));
+    const callTool = vi.fn(async () => ({ structuredContent: { ok: true } }));
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        preflightExternalCapabilityCall,
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'generic-capability',
+          toolName: 'evaluate',
+          capabilityId: 'generic.capability@1',
+          idempotencyKey: 'expanded-artifact-includes',
+          argumentsArtifactId,
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(
+        repository,
+        new MemoryJobCheckpointRepository(),
+        fileArtifacts,
+      ),
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(preflightExternalCapabilityCall).toHaveBeenCalledWith(
+      expect.objectContaining({ arguments: expectedArguments }),
+    );
+    expect(callTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        arguments: expectedArguments,
+        authorizationArguments: expectedArguments,
+      }),
+    );
+  });
+
+  it('rejects invalid expanded arguments before invoking or admitting work', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const checkpoints = new MemoryJobCheckpointRepository();
+    const callTool = vi.fn();
+    const preflightExternalCapabilityCall = vi.fn(async () => ({
+      ok: false as const,
+      status: 'rejected' as const,
+      code: 'CAPABILITY_INPUT_SCHEMA_INVALID' as const,
+      message:
+        'External capability arguments do not match the reviewed input schema.',
+      repairable: true,
+      retryable: false,
+      retrySamePayload: false,
+      diagnostics: [
+        {
+          instancePath: '/recipe/site',
+          keyword: 'invalid_type',
+          message: 'Value has the wrong type.',
+        },
+      ],
+    }));
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        preflightExternalCapabilityCall,
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'manipal-website-recipe-evaluator',
+          toolName: 'recipe_compile',
+          capabilityId: 'manipal.website-recipe-evaluator@1',
+          idempotencyKey: 'invalid-compile',
+          arguments: { recipe: { site: 42 } },
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(repository, checkpoints),
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(preflightExternalCapabilityCall).toHaveBeenCalledOnce();
+    expect(callTool).not.toHaveBeenCalled();
+    expect(repository.tasks.size).toBe(0);
+    expect(checkpoints.latest?.sequence).toBe(1);
+  });
+
   it('accepts the signed app conversation for a scheduled job without a chat route', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
     const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
       vi.fn(async () => ({
-        assertToolAllowed: vi.fn(async () => undefined),
+        preflightExternalCapabilityCall: vi.fn(async () => ({
+          ok: true as const,
+          operation: durableOperation,
+        })),
         callTool,
         describeTool: vi.fn(),
         listTools: vi.fn(),
@@ -413,7 +485,7 @@ describe('external capability MCP task', () => {
     expect(callTool).toHaveBeenCalledOnce();
   });
 
-  it('injects a host completion envelope and suspends the authenticated job run', async () => {
+  it('persists the declarative suspension checkpoint before suspending the authenticated job run', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const checkpoints = new MemoryJobCheckpointRepository();
     const abort = vi.fn();
@@ -422,11 +494,14 @@ describe('external capability MCP task', () => {
       runId: 'run-1',
       abort,
     });
-    const assertToolAllowed = vi.fn(async () => undefined);
+    const preflightExternalCapabilityCall = vi.fn(async () => ({
+      ok: true as const,
+      operation: durableCheckpointOperation,
+    }));
     const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
     const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
       vi.fn(async () => ({
-        assertToolAllowed,
+        preflightExternalCapabilityCall,
         callTool,
         describeTool: vi.fn(),
         listTools: vi.fn(),
@@ -478,7 +553,7 @@ describe('external capability MCP task', () => {
       parentRunId: 'run-1',
       idempotencyKey: 'evaluation-submit-1',
     });
-    expect(assertToolAllowed).toHaveBeenCalledWith(
+    expect(preflightExternalCapabilityCall).toHaveBeenCalledWith(
       expect.objectContaining({
         arguments: evaluationArguments,
       }),
@@ -500,12 +575,79 @@ describe('external capability MCP task', () => {
     );
     expect(checkpoints.latest).toMatchObject({
       sequence: 2,
-      milestone: 'evaluation_submitted',
+      milestone: 'external_task_submitted',
       payload: {
+        safePhase: 'waiting_external',
         evaluatorInvocationRef: 'invocation:evaluation-submit-1',
+        nextAction: 'Await the external result.',
       },
     });
     unregister();
+  });
+
+  it('returns a durable capability submission rejection to the agent instead of failing the run', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const checkpoints = new MemoryJobCheckpointRepository();
+    const callTool = vi.fn(async () => {
+      throw new Error('Test plan must contain between 1 and 100 cases.');
+    });
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        preflightExternalCapabilityCall: vi.fn(async () => ({
+          ok: true as const,
+          operation: durableOperation,
+        })),
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await expect(
+      externalCapabilityCallToolHandler({
+        data: {
+          type: 'external_capability_call',
+          appId: 'app:test',
+          agentId: 'agent:signed',
+          chatJid: 'sl:C123',
+          targetJid: 'sl:C123',
+          jobId: 'job-1',
+          runId: 'run-1',
+          sourceJobId: 'job-1',
+          sourceRunId: 'run-1',
+          runLeaseToken: 'lease-1',
+          runLeaseFencingVersion: 1,
+          payload: {
+            serverName: 'example-capability',
+            toolName: 'submit',
+            capabilityId: 'example.capability@1',
+            idempotencyKey: 'rejected-submission',
+            arguments: evaluationArguments,
+          },
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: asyncRuntimeDeps(repository, checkpoints),
+        conversationBindings: {},
+        sourceAgentFolderJids: ['sl:C123'],
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(callTool).toHaveBeenCalledOnce();
+    expect([...repository.tasks.values()]).toContainEqual(
+      expect.objectContaining({
+        kind: 'external_capability',
+        status: 'cancelled',
+      }),
+    );
   });
 
   it('loads large external capability arguments from an owned job artifact', async () => {
@@ -535,7 +677,10 @@ describe('external capability MCP task', () => {
     } as unknown as FileArtifactStore;
     const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
       vi.fn(async () => ({
-        assertToolAllowed: vi.fn(async () => undefined),
+        preflightExternalCapabilityCall: vi.fn(async () => ({
+          ok: true as const,
+          operation: durableOperation,
+        })),
         callTool,
         describeTool: vi.fn(),
         listTools: vi.fn(),
@@ -589,132 +734,7 @@ describe('external capability MCP task', () => {
         arguments: expect.objectContaining(evaluationArguments),
       }),
     );
-    expect(
-      checkpoints.latest?.payload.artifactRefs.filter(
-        (reference) => reference.kind === 'evaluation_submit_args',
-      ),
-    ).toEqual([
-      {
-        artifactId,
-        contentHash: 'sha256:test',
-        kind: 'evaluation_submit_args',
-      },
-    ]);
-  });
-
-  it('rejects recipe evaluation before the compiler-backed test plan checkpoint', async () => {
-    const repository = new MemoryAsyncTaskRepository();
-    const checkpoints = new MemoryJobCheckpointRepository(null);
-    const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
-    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
-      vi.fn(async () => ({
-        assertToolAllowed: vi.fn(async () => undefined),
-        callTool,
-        describeTool: vi.fn(),
-        listTools: vi.fn(),
-      })) as never,
-    );
-    configurePendingInteractionDurability({
-      repository: {
-        getActiveRunLease: vi.fn(async () => ({
-          runId: 'run-1',
-          leaseToken: 'lease-1',
-          fencingVersion: 1,
-        })),
-      } as never,
-    });
-
-    await externalCapabilityCallToolHandler({
-      data: {
-        type: 'external_capability_call',
-        appId: 'app:test',
-        agentId: 'agent:signed',
-        chatJid: 'sl:C123',
-        targetJid: 'sl:C123',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          serverName: 'manipal-evaluator',
-          toolName: 'evaluation_submit',
-          capabilityId: 'manipal.website-recipe-evaluator@1',
-          idempotencyKey: 'evaluation-without-test-plan',
-          arguments: evaluationArguments,
-        },
-      },
-      sourceAgentFolder: 'main_agent',
-      deps: asyncRuntimeDeps(repository, checkpoints),
-      conversationBindings: {},
-      sourceAgentFolderJids: ['sl:C123'],
-    });
-
-    expect(callTool).not.toHaveBeenCalled();
-    expect(repository.tasks.size).toBe(0);
-  });
-
-  it('rejects recipe evaluation when the observation inventory artifact is absent from the checkpoint', async () => {
-    const repository = new MemoryAsyncTaskRepository();
-    const checkpoints = new MemoryJobCheckpointRepository({
-      ...new MemoryJobCheckpointRepository().latest!,
-      payload: {
-        ...new MemoryJobCheckpointRepository().latest!.payload,
-        artifactRefs:
-          new MemoryJobCheckpointRepository().latest!.payload.artifactRefs.filter(
-            (reference) => reference.kind !== 'observation_inventory',
-          ),
-      },
-    });
-    const callTool = vi.fn(async () => ({ evaluationId: 'evaluation-1' }));
-    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
-      vi.fn(async () => ({
-        assertToolAllowed: vi.fn(async () => undefined),
-        callTool,
-        describeTool: vi.fn(),
-        listTools: vi.fn(),
-      })) as never,
-    );
-    configurePendingInteractionDurability({
-      repository: {
-        getActiveRunLease: vi.fn(async () => ({
-          runId: 'run-1',
-          leaseToken: 'lease-1',
-          fencingVersion: 1,
-        })),
-      } as never,
-    });
-
-    await externalCapabilityCallToolHandler({
-      data: {
-        type: 'external_capability_call',
-        appId: 'app:test',
-        agentId: 'agent:signed',
-        chatJid: 'sl:C123',
-        targetJid: 'sl:C123',
-        jobId: 'job-1',
-        runId: 'run-1',
-        sourceJobId: 'job-1',
-        sourceRunId: 'run-1',
-        runLeaseToken: 'lease-1',
-        runLeaseFencingVersion: 1,
-        payload: {
-          serverName: 'manipal-evaluator',
-          toolName: 'evaluation_submit',
-          capabilityId: 'manipal.website-recipe-evaluator@1',
-          idempotencyKey: 'evaluation-with-unretained-evidence',
-          arguments: evaluationArguments,
-        },
-      },
-      sourceAgentFolder: 'main_agent',
-      deps: asyncRuntimeDeps(repository, checkpoints),
-      conversationBindings: {},
-      sourceAgentFolderJids: ['sl:C123'],
-    });
-
-    expect(callTool).not.toHaveBeenCalled();
-    expect(repository.tasks.size).toBe(0);
+    expect(checkpoints.latest?.sequence).toBe(1);
   });
 });
 
@@ -1010,6 +1030,187 @@ function registerAsyncTaskPolicy(input: {
 }
 
 describe('MCP IPC tool handlers', () => {
+  it('returns malformed artifact-backed capability arguments as a repairable result', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-capability-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    vi.resetModules();
+    vi.stubEnv('GANTRY_HOME', runtimeHome);
+    const ipcAuth = await import('@core/runtime/ipc-auth.js');
+    const { createMcpToolHandlers: createHandlers } =
+      await import('@core/jobs/ipc-mcp-tool-handlers.js');
+    const artifactId = 'file-artifact:33333333-3333-4333-8333-333333333333';
+    const fileArtifacts = {
+      readFileArtifact: vi.fn(async () => ({
+        artifact: {
+          id: artifactId,
+          appId: 'app:test',
+          agentId: 'agent:signed',
+          virtualScope: jobArtifactScope('job-1'),
+          virtualPath: 'compile-input.json',
+          version: 1,
+          storageType: 'local-filesystem',
+          storageRef: 'test',
+          contentHash: 'sha256:malformed',
+          sizeBytes: 10,
+          contentType: 'application/json',
+          metadata: {},
+          createdAt: '2026-08-29T00:00:00.000Z',
+        },
+        content: '{"recipe":{}}}',
+      })),
+    } as unknown as FileArtifactStore;
+    const createProxy = vi.fn();
+    const { externalCapabilityCallToolHandler } = createHandlers(
+      createProxy as never,
+    );
+    const responseKeyId =
+      ipcAuth.createIpcAuthEnvelope('main_agent').responseKeyId;
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        taskId: 'malformed-capability-artifact',
+        responseKeyId,
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        payload: {
+          serverName: 'example-capability',
+          toolName: 'compile',
+          capabilityId: 'example.capability@1',
+          idempotencyKey: 'malformed-artifact',
+          argumentsArtifactId: artifactId,
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(
+        new MemoryAsyncTaskRepository(),
+        new MemoryJobCheckpointRepository(),
+        fileArtifacts,
+      ),
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    const response = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          runtimeHome,
+          'data',
+          'ipc',
+          'main_agent',
+          'task-responses',
+          'task-malformed-capability-artifact.json',
+        ),
+        'utf8',
+      ),
+    );
+    expect(response).toMatchObject({
+      ok: true,
+      data: {
+        status: 'rejected',
+        code: 'CAPABILITY_ARGUMENTS_PARSE_INVALID',
+        repairable: true,
+        retrySamePayload: false,
+      },
+    });
+    expect(createProxy).not.toHaveBeenCalled();
+  });
+
+  it('returns temporary capability preflight outages as retryable tool results', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-capability-preflight-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    vi.resetModules();
+    vi.stubEnv('GANTRY_HOME', runtimeHome);
+    const ipcAuth = await import('@core/runtime/ipc-auth.js');
+    const pendingInteractionDurability = await import(
+      '@core/application/interactions/pending-interaction-durability.js'
+    );
+    const { createMcpToolHandlers: createHandlers } =
+      await import('@core/jobs/ipc-mcp-tool-handlers.js');
+    const createProxy = vi.fn(async () => {
+      throw new Error('Streamable HTTP error: Error POSTing to endpoint');
+    });
+    const { externalCapabilityCallToolHandler } = createHandlers(
+      createProxy as never,
+    );
+    pendingInteractionDurability.configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+    const responseKeyId =
+      ipcAuth.createIpcAuthEnvelope('main_agent').responseKeyId;
+
+    await expect(
+      externalCapabilityCallToolHandler({
+        data: {
+          type: 'external_capability_call',
+          taskId: 'capability-preflight-unavailable',
+          responseKeyId,
+          appId: 'app:test',
+          agentId: 'agent:signed',
+          chatJid: 'sl:C123',
+          targetJid: 'sl:C123',
+          jobId: 'job-1',
+          runId: 'run-1',
+          sourceJobId: 'job-1',
+          sourceRunId: 'run-1',
+          runLeaseToken: 'lease-1',
+          runLeaseFencingVersion: 1,
+          payload: {
+            serverName: 'example-capability',
+            toolName: 'submit',
+            capabilityId: 'example.capability@1',
+            idempotencyKey: 'preflight-unavailable',
+            arguments: evaluationArguments,
+          },
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: asyncRuntimeDeps(new MemoryAsyncTaskRepository()),
+        conversationBindings: {},
+        sourceAgentFolderJids: ['sl:C123'],
+      }),
+    ).resolves.toBeUndefined();
+
+    const response = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          runtimeHome,
+          'data',
+          'ipc',
+          'main_agent',
+          'task-responses',
+          'task-capability-preflight-unavailable.json',
+        ),
+        'utf8',
+      ),
+    );
+    expect(response).toMatchObject({
+      ok: true,
+      data: {
+        status: 'rejected',
+        code: 'CAPABILITY_PREFLIGHT_UNAVAILABLE',
+        repairable: true,
+        retryable: true,
+        retrySamePayload: true,
+      },
+    });
+  });
+
   it('preserves structured remote MCP failures in the IPC response', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-mcp-ipc-'),

@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import {
   connectGantryAndThirdPartyMcpTools,
-  dropAtomicHumanInteractionTool,
+  dropAtomicCallerResolvedTools,
   dropCollidingThirdPartyTools,
   rejectExternalThirdPartyMcpServer,
 } from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
@@ -113,11 +113,11 @@ describe('dropCollidingThirdPartyTools', () => {
   });
 
   it('hides the direct human interaction tool owned by atomic checkpoints', () => {
-    const kept = dropAtomicHumanInteractionTool([
-      fakeTool('website_recipe_request_human'),
-      fakeTool('evaluation_submit'),
-    ]);
-    expect(kept.map((tool) => tool.name)).toEqual(['evaluation_submit']);
+    const kept = dropAtomicCallerResolvedTools(
+      [fakeTool('ask_caller'), fakeTool('perform_work')],
+      new Set(['ask_caller']),
+    );
+    expect(kept.map((tool) => tool.name)).toEqual(['perform_work']);
   });
 });
 
@@ -154,6 +154,10 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
 
   it('extends the atomic human-wait checkpoint beyond the MCP default timeout', async () => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    vi.stubEnv(
+      'GANTRY_CALLER_RESOLVED_TOOLS_JSON',
+      JSON.stringify(['request_human_input']),
+    );
     const invoke = vi.fn(
       async (_input, config?: { timeout?: number }) => config,
     );
@@ -163,7 +167,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
       invoke as never,
     );
     const directHuman = structuredTool(
-      'website_recipe_request_human',
+      'request_human_input',
       'Request human input directly.',
       vi.fn(async () => ({})),
     );
@@ -173,8 +177,9 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
       configuredAllowedTools: [],
       semanticCapabilities: [
         {
-          capabilityId: 'manipal.website-recipe-evaluator',
+          capabilityId: 'example.evaluator',
           version: '1',
+          operations: [{ executionMode: 'durable_async' }],
         },
       ] as never,
       hideAuthorityTools: false,
@@ -195,12 +200,12 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
       expect.objectContaining({ timeout: 30 * 60_000 + 20_000 }),
     );
     expect(connected.tools.map(({ name }) => name)).not.toContain(
-      'website_recipe_request_human',
+      'request_human_input',
     );
     await connected.close();
   });
 
-  it('does not expose workspace file mutation tools to recipe jobs', async () => {
+  it('does not expose workspace file mutation tools to durable external-capability jobs', async () => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
     vi.stubEnv('GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED', '1');
     mcpState.serverTools = { gantry: [] };
@@ -209,8 +214,9 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
       configuredAllowedTools: [],
       semanticCapabilities: [
         {
-          capabilityId: 'manipal.website-recipe-evaluator',
+          capabilityId: 'example.evaluator',
           version: '1',
+          operations: [{ executionMode: 'durable_async' }],
         },
       ] as never,
       hideAuthorityTools: false,
@@ -508,77 +514,85 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     await connected.close();
   });
 
-  it('counts only a successful RunCommand with tool-call config toward require_prior', async () => {
-    requestPermissionApprovalViaIpc.mockResolvedValue({ approved: true });
-    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
-    vi.stubEnv('GANTRY_DEEPAGENTS_SHELL_ENABLED', '1');
-    const memorySearch = vi.fn(async () => ({
-      content: [{ type: 'text', text: 'results' }],
-    }));
-    mcpState.serverTools = {
-      gantry: [structuredTool('memory_search', 'Search memory.', memorySearch)],
-    };
-    const connected = await connectGantryAndThirdPartyMcpTools({
-      configuredAllowedTools: ['RunCommand(false)', 'RunCommand(echo allowed)'],
-      toolRules: [
-        {
-          tool: 'memory_search',
-          action: 'require_prior',
-          prior: 'Bash',
-          reason: 'run the approved command first',
-        },
-      ],
-      toolSuccessLedger: new RunScopedToolSuccessLedger(),
-      hideAuthorityTools: false,
-      gate: {
-        workspaceFolder: 'group',
-        memoryBlock: '',
-        gateContext: { conversationId: 'tg:group' },
-        permissionEnv: {},
-        lockedAccessPreset: true,
-      } as never,
-    });
-    const shell = connected.tools.find(({ name }) => name === 'RunCommand');
-    const guarded = connected.tools.find(
-      ({ name }) => name === 'memory_search',
-    );
+  it.skipIf(process.platform === 'win32')(
+    'counts only a successful RunCommand with tool-call config toward require_prior',
+    async () => {
+      requestPermissionApprovalViaIpc.mockResolvedValue({ approved: true });
+      vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+      vi.stubEnv('GANTRY_DEEPAGENTS_SHELL_ENABLED', '1');
+      const memorySearch = vi.fn(async () => ({
+        content: [{ type: 'text', text: 'results' }],
+      }));
+      mcpState.serverTools = {
+        gantry: [
+          structuredTool('memory_search', 'Search memory.', memorySearch),
+        ],
+      };
+      const connected = await connectGantryAndThirdPartyMcpTools({
+        configuredAllowedTools: [
+          'RunCommand(false)',
+          'RunCommand(echo allowed)',
+        ],
+        toolRules: [
+          {
+            tool: 'memory_search',
+            action: 'require_prior',
+            prior: 'Bash',
+            reason: 'run the approved command first',
+          },
+        ],
+        toolSuccessLedger: new RunScopedToolSuccessLedger(),
+        hideAuthorityTools: false,
+        gate: {
+          workspaceFolder: 'group',
+          memoryBlock: '',
+          gateContext: { conversationId: 'tg:group' },
+          permissionEnv: {},
+          lockedAccessPreset: true,
+        } as never,
+      });
+      const shell = connected.tools.find(({ name }) => name === 'RunCommand');
+      const guarded = connected.tools.find(
+        ({ name }) => name === 'memory_search',
+      );
 
-    await expect(
-      shell?.invoke({ command: 'false' } as never, {
-        toolCall: {
-          id: 'failed-run',
-          name: 'RunCommand',
-          args: { command: 'false' },
-          type: 'tool_call',
+      await expect(
+        shell?.invoke({ command: 'false' } as never, {
+          toolCall: {
+            id: 'failed-run',
+            name: 'RunCommand',
+            args: { command: 'false' },
+            type: 'tool_call',
+          },
+        }),
+      ).resolves.toMatchObject({
+        content: expect.stringContaining('"isError":true'),
+      });
+      await expect(guarded?.invoke({} as never)).resolves.toMatchObject({
+        isError: true,
+        error: {
+          message: expect.stringContaining('run the approved command first'),
         },
-      }),
-    ).resolves.toMatchObject({
-      content: expect.stringContaining('"isError":true'),
-    });
-    await expect(guarded?.invoke({} as never)).resolves.toMatchObject({
-      isError: true,
-      error: {
-        message: expect.stringContaining('run the approved command first'),
-      },
-    });
-    expect(memorySearch).not.toHaveBeenCalled();
+      });
+      expect(memorySearch).not.toHaveBeenCalled();
 
-    await expect(
-      shell?.invoke({ command: 'echo allowed' } as never, {
-        toolCall: {
-          id: 'successful-run',
-          name: 'RunCommand',
-          args: { command: 'echo allowed' },
-          type: 'tool_call',
-        },
-      }),
-    ).resolves.toMatchObject({ content: expect.stringContaining('allowed') });
-    await expect(guarded?.invoke({} as never)).resolves.toMatchObject({
-      content: [{ type: 'text', text: 'results' }],
-    });
-    expect(memorySearch).toHaveBeenCalledOnce();
-    await connected.close();
-  });
+      await expect(
+        shell?.invoke({ command: 'echo allowed' } as never, {
+          toolCall: {
+            id: 'successful-run',
+            name: 'RunCommand',
+            args: { command: 'echo allowed' },
+            type: 'tool_call',
+          },
+        }),
+      ).resolves.toMatchObject({ content: expect.stringContaining('allowed') });
+      await expect(guarded?.invoke({} as never)).resolves.toMatchObject({
+        content: [{ type: 'text', text: 'results' }],
+      });
+      expect(memorySearch).toHaveBeenCalledOnce();
+      await connected.close();
+    },
+  );
 
   it('keeps other Gantry server tools under their bare canonical names', async () => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
