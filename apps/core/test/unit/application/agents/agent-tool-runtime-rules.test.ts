@@ -38,7 +38,7 @@ describe('resolveAgentToolRuntimePolicy', () => {
     expect(getTool).not.toHaveBeenCalledWith('tool:bob');
   });
 
-  it('drops a stale RunCommand grant a stricter validator rejects without losing the agent\'s other grants', async () => {
+  it("drops a stale RunCommand grant a stricter validator rejects without losing the agent's other grants", async () => {
     // Regression: a stored `RunCommand(npx remotion *)` grant (valid when
     // minted, rejected after the npx family hardening) must not throw and take
     // down every other durable grant for the agent.

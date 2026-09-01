@@ -185,7 +185,10 @@ function projectAgentToolRuntimePolicy(input: {
   // semantic rejections below still throw.
   const projectedRules = rules.filter(
     (rule) =>
-      !(rule.startsWith('RunCommand(') && !validateReadableAgentToolRule(rule).ok),
+      !(
+        rule.startsWith('RunCommand(') &&
+        !validateReadableAgentToolRule(rule).ok
+      ),
   );
   validateAgentToolRuntimeRules({
     rules: projectedRules,
