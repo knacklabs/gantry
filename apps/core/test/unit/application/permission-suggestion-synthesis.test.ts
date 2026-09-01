@@ -26,7 +26,9 @@ describe('host permission suggestion synthesis', () => {
     // Single-rule keys keep their existing shape.
     expect(key('npm test')).toBe('main_agent|RunCommand(npm *)');
     // Compounds sharing a first rule must NOT collide.
-    expect(key('npm test && git push')).not.toBe(key('npm test && curl -s https://x.test'));
+    expect(key('npm test && git push')).not.toBe(
+      key('npm test && curl -s https://x.test'),
+    );
     // Leaf order does not split history.
     expect(key('npm test && git push')).toBe(key('git push && npm test'));
   });
