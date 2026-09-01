@@ -118,6 +118,101 @@ describe('family rule synthesis', () => {
     ).toBeUndefined();
   });
 
+  it('runner shims never mint families and stored families never cover shim invocations', async () => {
+    // Mint side: shim argv0 and package-manager exec/dlx forms fail closed.
+    for (const command of [
+      'npx cowsay hello',
+      'uvx ruff check .',
+      'pnpx tsc --version',
+      '/opt/homebrew/bin/npx cowsay',
+      'npm exec cowsay',
+      'npm x cowsay',
+      'pnpm dlx cowsay',
+      'pnpm exec cowsay',
+      'yarn dlx cowsay',
+      'bun x cowsay',
+    ]) {
+      expect(synthesizeFamilyRunCommandRuleContents(command), command).toEqual(
+        [],
+      );
+    }
+    // Plain package-manager subcommands still family.
+    expect(synthesizeFamilyRunCommandRuleContents('npm run build')).toEqual([
+      'npm *',
+    ]);
+
+    // Match side: a legitimate `npm *` family is NOT honored for `npm exec` —
+    // the coordinator asks with allow-once only, like a rail hit.
+    const shimRequest: PermissionApprovalRequest = {
+      requestId: 'family-shim-bypass',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      toolInput: { command: 'npm exec cowsay' },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'RunCommand', ruleContent: 'npm *' }],
+        },
+      ],
+    };
+    const tailDecision = {
+      approved: true,
+      mode: 'allow_once' as const,
+      decidedBy: 'human',
+    };
+    const tail = vi.fn(async () => {
+      expect(shimRequest.suggestions).toEqual([]);
+      expect(shimRequest.decisionOptions).toEqual(['allow_once', 'cancel']);
+      return tailDecision;
+    });
+    const policyDecision = new ToolExecutionPolicyService().evaluate({
+      request: new ToolExecutionClassifier().classify({
+        origin: 'host',
+        toolName: 'RunCommand',
+        toolInput: { command: 'npm exec cowsay' },
+      }),
+      allowedToolRules: ['RunCommand(npm *)'],
+    });
+    expect(policyDecision).toMatchObject({
+      status: 'allow',
+      isFamilyRule: true,
+    });
+    await expect(
+      coordinatePermissionDecision({
+        request: shimRequest,
+        reviewedRuleDecision: policyDecision,
+        deterministicRails: () => undefined,
+        tail,
+      }),
+    ).resolves.toEqual(tailDecision);
+    expect(tail).toHaveBeenCalledOnce();
+
+    // A non-shim command under the same family still allows silently.
+    const plainTail = vi.fn();
+    await expect(
+      coordinatePermissionDecision({
+        request: {
+          requestId: 'family-shim-plain',
+          sourceAgentFolder: 'main_agent',
+          toolName: 'RunCommand',
+          toolInput: { command: 'npm run build' },
+        } satisfies PermissionApprovalRequest,
+        reviewedRuleDecision: new ToolExecutionPolicyService().evaluate({
+          request: new ToolExecutionClassifier().classify({
+            origin: 'host',
+            toolName: 'RunCommand',
+            toolInput: { command: 'npm run build' },
+          }),
+          allowedToolRules: ['RunCommand(npm *)'],
+        }),
+        deterministicRails: () => undefined,
+        tail: plainTail,
+      }),
+    ).resolves.toMatchObject({ approved: true, decidedBy: 'reviewed_rule' });
+    expect(plainTail).not.toHaveBeenCalled();
+  });
+
   it('never mints or classifies a family for script-leaf argv0 forms', () => {
     // A host-owned script argv0 must not become an executable-wide family:
     // later arguments were never reviewed (autoreview P1, window Q-0134).

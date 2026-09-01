@@ -21,11 +21,21 @@ import {
   RAIL_CATALOG_VERSION,
 } from '../domain/permission-effect-key.js';
 import { canonicalizeTrustedRoot } from '../shared/permission-trusted-paths.js';
+import { runnerShimFamilyBypassReason } from '../shared/family-rule-synthesis.js';
 import type { PermissionClassifierRiskLevel } from './permission-classifier-prompt.js';
 
 export type DeterministicPermissionRails = (
   input: PermissionDeterministicRailsInput,
 ) => PermissionDeterministicRailDecision | undefined;
+
+function familyRunnerShimReason(
+  request: PermissionApprovalRequest,
+): string | undefined {
+  const command = (request.toolInput as { command?: unknown } | undefined)
+    ?.command;
+  if (typeof command !== 'string') return undefined;
+  return runnerShimFamilyBypassReason(command);
+}
 
 export const FAMILY_RULE_RAIL_HIT_REASON =
   'A command-family grant matched, but deterministic safety rails require approval for this exact command.';
@@ -115,7 +125,8 @@ export async function coordinatePermissionDecision(
   };
   const railDecision = railFn(railsInput);
   if (reviewedRuleDecision?.status === 'allow') {
-    if (!railDecision) {
+    const shimReason = familyRunnerShimReason(input.request);
+    if (!railDecision && !shimReason) {
       input.request.decisionReason = reviewedRuleDecision.reason;
       return {
         ...decisionForMode(
@@ -127,13 +138,13 @@ export async function coordinatePermissionDecision(
         reason: reviewedRuleDecision.reason,
       };
     }
-    if (railDecision.railOutcome === 'ask') {
-      input.request.suggestions = [];
-      input.request.decisionOptions = ['allow_once', 'cancel'];
-      input.request.decisionReason = `${FAMILY_RULE_RAIL_HIT_REASON} ${railDecision.reason}`;
-      return input.tail();
+    if (railDecision && railDecision.railOutcome !== 'ask') {
+      return railDecision;
     }
-    return railDecision;
+    input.request.suggestions = [];
+    input.request.decisionOptions = ['allow_once', 'cancel'];
+    input.request.decisionReason = `${FAMILY_RULE_RAIL_HIT_REASON} ${railDecision?.reason ?? shimReason}`;
+    return input.tail();
   }
   // Rails re-run on EVERY call, BEFORE any cache read (re-run-every-hit): a
   // deny/allow floor wins unchanged, and an ask-floor overrides even a cached
