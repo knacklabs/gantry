@@ -137,7 +137,12 @@ export async function validateSettingsForImport(
       'settings import tolerated stored capability rules the current validator rejects; they stay subject to decision-time policy',
     );
   }
-  return { ok: hardErrors.length === 0, settings, errors: hardErrors, warnings };
+  return {
+    ok: hardErrors.length === 0,
+    settings,
+    errors: hardErrors,
+    warnings,
+  };
 }
 
 // Stored RunCommand grants are machine-minted (Allow for future), so a later,
