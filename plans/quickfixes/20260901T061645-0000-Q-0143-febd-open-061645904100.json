@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0143-febd",
+  "profile": "quickfix",
+  "reason": "Pass-B2 asymmetry: ask card shows exact command but silently persists family scope; add one shared 'Allow for future covers' line",
+  "started_at": "2026-09-01T06:16:45+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
