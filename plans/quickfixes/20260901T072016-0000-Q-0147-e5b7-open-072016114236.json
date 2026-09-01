@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0147-e5b7",
+  "profile": "quickfix",
+  "reason": "desired-state capability reference validation: RunCommand entries demote to warnings like the other two load paths",
+  "started_at": "2026-09-01T07:20:16+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
