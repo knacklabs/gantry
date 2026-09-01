@@ -41,6 +41,7 @@ export function validateLoadedRuntimeSettings(
   settings: RuntimeSettings,
 ): RuntimeSettingsValidationResult {
   const details: string[] = [];
+  const warnings: string[] = [];
 
   const env = readEnvFile(envFilePath(runtimeHome));
   const envPolicy = validateRuntimeEnvPolicy(env);
@@ -301,7 +302,11 @@ export function validateLoadedRuntimeSettings(
         allowUnknownSemanticCapability: true,
       });
       if (!validation.ok) {
-        details.push(
+        // Stored RunCommand grants are machine-minted (Allow for future); a
+        // later, stricter validator must never make settings unloadable —
+        // that crash-loops startup. They stay subject to decision-time rails
+        // and guards. Hand-authored capability ids keep strict rejection.
+        (capability.id.startsWith('RunCommand(') ? warnings : details).push(
           `agents.${agentId}.capabilities contains invalid capability "${capability.id}": ${validation.reason}`,
         );
       }
@@ -336,10 +341,11 @@ export function validateLoadedRuntimeSettings(
         summary: 'settings file is invalid for the current runtime',
         details,
       },
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 
-  return { ok: true, settings };
+  return { ok: true, settings, ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 function validateCredentialEncryptionSecret(env: {

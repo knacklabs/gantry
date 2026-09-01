@@ -447,4 +447,6 @@ export interface RuntimeSettingsValidationResult {
   ok: boolean;
   settings?: RuntimeSettings;
   failure?: RuntimeSettingsValidationFailure;
+  /** Tolerated findings (stored rule grants a tightened validator rejects). */
+  warnings?: string[];
 }
