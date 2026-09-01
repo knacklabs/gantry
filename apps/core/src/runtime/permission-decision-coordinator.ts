@@ -21,11 +21,24 @@ import {
   RAIL_CATALOG_VERSION,
 } from '../domain/permission-effect-key.js';
 import { canonicalizeTrustedRoot } from '../shared/permission-trusted-paths.js';
+import { runnerShimFamilyBypassReason } from '../shared/family-rule-synthesis.js';
 import type { PermissionClassifierRiskLevel } from './permission-classifier-prompt.js';
 
 export type DeterministicPermissionRails = (
   input: PermissionDeterministicRailsInput,
 ) => PermissionDeterministicRailDecision | undefined;
+
+function familyRunnerShimReason(
+  request: PermissionApprovalRequest,
+): string | undefined {
+  const command = (request.toolInput as { command?: unknown } | undefined)
+    ?.command;
+  if (typeof command !== 'string') return undefined;
+  return runnerShimFamilyBypassReason(command);
+}
+
+export const FAMILY_RULE_RAIL_HIT_REASON =
+  'A command-family grant matched, but deterministic safety rails require approval for this exact command.';
 
 export interface CoordinatePermissionDecisionInput {
   request: PermissionApprovalRequest;
@@ -85,7 +98,10 @@ export async function coordinatePermissionDecision(
     typeof input.reviewedRuleDecision === 'function'
       ? await input.reviewedRuleDecision()
       : input.reviewedRuleDecision;
-  if (reviewedRuleDecision?.status === 'allow') {
+  if (
+    reviewedRuleDecision?.status === 'allow' &&
+    reviewedRuleDecision.isFamilyRule !== true
+  ) {
     input.request.decisionReason = reviewedRuleDecision.reason;
     return {
       ...decisionForMode(
@@ -97,7 +113,7 @@ export async function coordinatePermissionDecision(
       reason: reviewedRuleDecision.reason,
     };
   }
-  if (reviewedRuleDecision) {
+  if (reviewedRuleDecision && reviewedRuleDecision.status !== 'allow') {
     input.request.decisionReason = reviewedRuleDecision.reason;
     input.request.closestRule = reviewedRuleDecision.closestRule;
   }
@@ -108,6 +124,28 @@ export async function coordinatePermissionDecision(
     ...input.deterministicRailsInput,
   };
   const railDecision = railFn(railsInput);
+  if (reviewedRuleDecision?.status === 'allow') {
+    const shimReason = familyRunnerShimReason(input.request);
+    if (!railDecision && !shimReason) {
+      input.request.decisionReason = reviewedRuleDecision.reason;
+      return {
+        ...decisionForMode(
+          input.request,
+          'allow_once',
+          'reviewed_rule',
+          'machine',
+        ),
+        reason: reviewedRuleDecision.reason,
+      };
+    }
+    if (railDecision && railDecision.railOutcome !== 'ask') {
+      return railDecision;
+    }
+    input.request.suggestions = [];
+    input.request.decisionOptions = ['allow_once', 'cancel'];
+    input.request.decisionReason = `${FAMILY_RULE_RAIL_HIT_REASON} ${railDecision?.reason ?? shimReason}`;
+    return input.tail();
+  }
   // Rails re-run on EVERY call, BEFORE any cache read (re-run-every-hit): a
   // deny/allow floor wins unchanged, and an ask-floor overrides even a cached
   // allow — so the cache is consulted ONLY when rails fall through entirely.

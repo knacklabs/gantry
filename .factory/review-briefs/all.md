@@ -2,28 +2,20 @@
 
 For each contract, emit a verdict — implemented | partial | missing — with file:line evidence, recorded as contract_verdicts in the quality artifact. Then review the diff normally; the contract check does not replace the quality/performance/security lenses.
 
-## Task CARDFIX-1-T1
+## Task CARDSIMPLE-1-T1
 
 ### Plan contracts
 
-- **CARDFIX-1-AC1**
-  - Source: plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria
-  - Statement: every formatSchedulerSetupStory delivery reaches the channel with at least one working action affordance, on all four providers, via the neutral affordance path; no pause/setup message is ever sent action-less.
-- **CARDFIX-1-AC2**
-  - Source: plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria
-  - Statement: the compound-command denial card offers exactly Allow-once-for-this-run (retry-and-ask) and Pause job, and never a durable-grant button (0134 holds); the retry runs the job once in ask mode and is idempotent per pause story.
-- **CARDFIX-1-AC3**
-  - Source: plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria
-  - Statement: tapping each offered action performs its effect through the neutral router — retry-and-ask starts one fresh run, Pause job pauses the job (same-channel approver authorized) — unit-tested per action; provider render covered by the existing per-provider affordance tests.
-- **CARDFIX-1-AC4**
-  - Source: plans/active/CARDFIX-1-every-pause-card-carries-a-real-action.md#acceptance-criteria
-  - Statement: existing unit and Postgres integration suites pass; tsc and check:architecture green.
+- **CARDSIMPLE-1-AC2**
+  - Source: plans/active/CARDSIMPLE-1-one-permission-surface-family-wide-grants.md#acceptance-criteria
+  - Statement: Allow on a simple command records the canonical family rule via the ONE shared synthesizer so a later run with different args proceeds without asking; a rail hit inside an allowed family asks and permits Allow-once only; pipes present no Allow; safe non-piped compounds resolve per-leaf; pinned local_cli matching unchanged.
+- **CARDSIMPLE-1-AC4**
+  - Source: plans/active/CARDSIMPLE-1-one-permission-surface-family-wide-grants.md#acceptance-criteria
+  - Statement: existing unit and Postgres integration suites pass; tsc and check:architecture green; the AC1/AC2 preservation clauses hold.
 
 ### Reviewer focus
 
-- Neutral only: affordances built where the story is built; providers ONLY consume the neutral callback (owner directive — no provider-specific handlers).
-- 0134 holds: never a durable-grant button for a compound; retry-and-ask persists nothing and the per-run ask override applies to exactly one run (0115 fresh retry; 0121 untouched).
-- Double delivery: the approver-route exclusion (execution-readiness.ts:216) must keep the durable setup card and the notification route from showing buttons twice.
-- Idempotency: one-shot key per pause story (setup fingerprint hash pattern, setup-pause-permission-wiring.ts:230); a tapped retry must not stack runs.
-- Slack buttons: unique index-suffixed action_ids (fix #458) — keep using slackMessageActionBlocks, never hand-built blocks.
-- If the per-run ask override seems to need a durable contract, raise a signal — do not invent a decision.
+- Family-only: rails run solely when isFamilyRule; exact reviewed rules and capability grants byte-for-byte unchanged (the early return is preserved for them).
+- The rail-hit allow_once|cancel is computed ONCE at the coordinator — no adapter-level duplication, no prompt framework.
+- The shared helper is the sole synthesis source in all three lanes; the SDK lane must now reject pipes.
+- One narrow decision amending 0040 only; 0121/0144/JOBPERM-2 linked as compatible-unchanged; 0134 accepted and untouched; autonomous stays classifier-free; pinned local_cli readiness matching unchanged.

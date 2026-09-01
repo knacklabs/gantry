@@ -689,6 +689,37 @@ describe('job readiness service', () => {
     expect(result.setupState.blockers).toEqual([]);
   });
 
+  it('a command-family grant satisfies a pinned local CLI requirement', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        access_requirements: [
+          {
+            target: {
+              kind: 'capability',
+              capabilityId: 'acme.records.append',
+              implementation: {
+                kind: 'local_cli',
+                name: 'acme',
+                executablePath: '/usr/local/bin/acme',
+                executableVersion: 'v0.9.0',
+                executableHash: 'sha256:abc123',
+                commandTemplate:
+                  '/usr/local/bin/acme records append <sheet_id> ...',
+              },
+            },
+            reason: 'Write lead rows after each run',
+          },
+        ],
+      }),
+      appId: 'default',
+      toolRepository: toolRepository(['RunCommand(/usr/local/bin/acme *)']),
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.setupState.blockers).toEqual([]);
+  });
+
   it('requires pinned local CLI executable identity before proposing job access', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({

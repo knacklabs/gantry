@@ -7,6 +7,7 @@ import { decisionForMode } from '@core/domain/permission-decision.js';
 import {
   coordinatePermissionClassifierRisk,
   coordinatePermissionDecision,
+  FAMILY_RULE_RAIL_HIT_REASON,
   permissionRunRestriction,
   unregisterPermissionRunRestriction,
 } from '@core/runtime/permission-decision-coordinator.js';
@@ -294,6 +295,47 @@ describe('coordinatePermissionDecision', () => {
     ).resolves.toEqual(tailDecision);
     expect(tail).toHaveBeenCalledOnce();
     expect(railRequest.decisionReason).toContain('Destructive');
+  });
+
+  it('a rail hit inside an allowed family asks and permits allow-once only', async () => {
+    const familyRequest: PermissionApprovalRequest = {
+      ...request,
+      toolName: 'RunCommand',
+      toolInput: { command: 'rm -rf ./build' },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'RunCommand', ruleContent: 'rm *' }],
+        },
+      ],
+    };
+    const tailDecision = {
+      approved: true,
+      mode: 'allow_once' as const,
+      decidedBy: 'human',
+    };
+    const tail = vi.fn(async () => {
+      expect(familyRequest.suggestions).toEqual([]);
+      expect(familyRequest.decisionOptions).toEqual(['allow_once', 'cancel']);
+      expect(familyRequest.decisionReason).toBe(
+        `${FAMILY_RULE_RAIL_HIT_REASON} Destructive command requires approval.`,
+      );
+      return tailDecision;
+    });
+
+    await expect(
+      coordinatePermissionDecision({
+        request: familyRequest,
+        reviewedRuleDecision: {
+          ...reviewedAllow,
+          matchedRule: 'RunCommand(rm *)',
+          isFamilyRule: true,
+        },
+        tail,
+      }),
+    ).resolves.toEqual(tailDecision);
+    expect(tail).toHaveBeenCalledOnce();
   });
 
   it.each([

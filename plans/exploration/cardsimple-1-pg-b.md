@@ -1,0 +1,9 @@
+# CARDSIMPLE-1 plan grill — pass B of 3: T2 blast radius (read-only, no edits, keep reading TIGHT)
+
+You did not author this plan. Read `plans/exploration/cardsimple-1-plan-draft.md` (T2 section) cold as an adversary, against `docs/specs/cardsimple-1-one-permission-surface.md`. Scope ONLY T2; answer fast.
+
+T2 removes the setup-pause prose send and folds `application/jobs/setup-pause-permission-prompt.ts` into the job permission card, with: fingerprint-backed lease-free card creation (today needs live runId/lease — `app/bootstrap/job-permission-durability-wiring.ts:215`), row/action mapping over action shapes approve_grant|fix_proposal|instruction × blocker types tool/credential/browser/MCP/local-CLI (compound = RunCommand content case), `notified_fingerprint` ownership moved to card delivery (`jobs/execution-readiness.ts:245`), sole-card terminal-send suppression (`jobs/execution-notifications.ts:396`), `formatSchedulerSetupStory` retained as row/body projection, CARDFIX-1 prose-card affordances + Pause button deleted, retry-and-ask kept as the compound-row action, approver-route-only, 0144 Reconsider exempt from collapse, 0124 bounded delivery + operator-initiated same-identity recovery.
+
+Hunt for: consumers of the prose send or of `setup-pause-permission-prompt.ts` the plan misses; whether fingerprint-backed lease-free creation is reachable from EVERY pause site the plan lists (creation-time, preflight, final-setup, denial/timeout, partial recovery); any card-lifecycle machinery (revisions, settlement, retire, Telegram card lane) that assumes a live-run origin; and whether deleting the Pause affordance/codecs breaks any non-pause consumer.
+
+Output: numbered findings — claim, file:line, severity (blocker | design-gap | nit), smallest plan amendment. Say "CLEAN" if nothing. No edits.

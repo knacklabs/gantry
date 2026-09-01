@@ -5,11 +5,7 @@ import {
   publicGantryToolNameForSdkTool,
   RUN_COMMAND_TOOL_NAME,
 } from '../../../../shared/agent-tool-references.js';
-import {
-  normalizeBashLeafRuleContent,
-  nonDurableBashLeafReason,
-  parseBashCommand,
-} from '../../../../shared/bash-command-parser.js';
+import { synthesizeFamilyRunCommandRuleContents } from '../../../../shared/family-rule-synthesis.js';
 import { permissionUpdateAllowedToolRules } from '../../../../shared/permission-tool-rules.js';
 import {
   type DurableAccessReformulationResult,
@@ -141,6 +137,15 @@ export function scheduledPermissionSuggestionPlan(
       options.toolInput,
     );
     if (reformulation) return { reformulation };
+    // RunCommand suggestions come ONLY from canonical synthesis of the exact
+    // tool input. SDK-supplied suggestions are never returned raw, and never
+    // converted to families either (autoreview rounds 2-5): a persistent
+    // family may only be offered for a command whose exact input the
+    // deterministic rails can inspect, and an SDK-only suggestion carries no
+    // inspectable command (`cat /protected/secret` must not become `cat *`).
+    // Without an offerable durable rule the request still asks and
+    // Allow-once remains available.
+    return synthesizePermissionSuggestionPlan(publicToolName, options);
   }
   const normalizedSdkSuggestions =
     normalizePermissionSuggestions(sdkSuggestions);
@@ -266,24 +271,7 @@ function inferBashRuleContents(toolInput: unknown): string[] {
   if (typeof command !== 'string') return [];
   const rawCommand = command.trim();
   if (containsGeneratedRuntimeSkillPath(rawCommand)) return [];
-  const trimmed = normalizeRuntimeOwnedBashCommandForMatching(rawCommand);
-  if (!trimmed || trimmed.length > 2048) return [];
-  const parsed = parseBashCommand(trimmed);
-  if (!parsed.ok) return [];
-  if (
-    parsed.leaves.some((leaf) =>
-      leaf.redirects.some((redirect) => redirect.destructive),
-    )
-  ) {
-    return [];
-  }
-  if (parsed.leaves.some((leaf) => nonDurableBashLeafReason(leaf))) {
-    return [];
-  }
-  const rules = parsed.leaves
-    .map(normalizeBashLeafRuleContent)
-    .filter((rule): rule is string => Boolean(rule));
-  return [...new Set(rules)];
+  return synthesizeFamilyRunCommandRuleContents(rawCommand);
 }
 
 function toolInputRemoteContentReformulation(

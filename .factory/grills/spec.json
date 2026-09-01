@@ -2,7 +2,7 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "questions_asked": 5,
+  "questions_asked": 6,
   "gaps": [
     "Family-breadth boundary for destructive binaries (R1a).",
     "Whether one-card covers non-tool blockers (R1b).",
@@ -16,49 +16,25 @@
     "R2a: Pause job button dropped \u2014 a blocked job is already paused; the neutral kind, callback variants and provider codecs are deleted with the prose card.",
     "R2b: approver route alone owns the card; other notification routes see nothing until the terminal outcome.",
     "R2c: both corrections ratified \u2014 pipes never get Allow (retry-and-ask stays the compound-row action for paused jobs); rails-before-family-match ordering change gets its own decision record.",
-    "All four validation passes folded into the spec: one shared family-rule synthesizer across the three grant lanes; canonical family shape is the existing trailing-star argv grammar plus a durable-validator amendment; Allow creates zero rerun barriers/triggers (kills the per-dead-priorRunId fanout); tap-time lease check returns live|late; notified_fingerprint ownership moves to card delivery; 0144 Reconsider rows exempt from collapse; family grants live in agent authority only (0106); the #462 interactive host lane is retained for Run now."
+    "All four validation passes folded into the spec: one shared family-rule synthesizer across the three grant lanes; canonical family shape is the existing trailing-star argv grammar plus a durable-validator amendment; Allow creates zero rerun barriers/triggers (kills the per-dead-priorRunId fanout); tap-time lease check returns live|late; notified_fingerprint ownership moves to card delivery; 0144 Reconsider rows exempt from collapse; family grants live in agent authority only (0106); the #462 interactive host lane is retained for Run now.",
+    "Re-grilled 2026-09-01 after the requirements cold-read: AC1 matrix vocabulary fixed to the real unions, rails scope narrowed to family matches only (explicit 0121/0144 amendment), late Deny split from late Allow (Reconsider preserved), 0124 bounded delivery preserved with operator-initiated same-identity recovery."
   ],
   "rounds": [
     {
-      "question": "Spec grill R1a \u2014 family-breadth boundary: 'Allow curl \u21d2 curl with anything' is clear for network/read tools. Should the SAME family breadth apply to destructive binaries (rm, dd, git push --force, sudo\u2026), or do those stay exact-argv/per-ask?",
+      "question": "Requirements grill (cold-read finding 3) \u2014 the rails-before-rules ordering change: apply it ONLY to the new family rules, or to every reviewed rule? Either way the new decision record explicitly amends 0121/0144's approval-permanence wording for the rail-hit case.",
       "options": [
-        "Family for all, risk-gated (Recommended)",
-        "Family breadth for every binary",
-        "Family only for a safe list"
+        "Family matches only (Recommended)",
+        "All reviewed rules"
       ],
-      "chosen": "Family for all, risk-gated (Recommended)"
+      "chosen": "Family matches only (Recommended)"
     },
     {
-      "question": "Spec grill R1b \u2014 does killing the 'Setup needed' message also apply to NON-tool blockers (missing credential, capability install, channel setup) that today carry grantable setup actions on that card?",
+      "question": "Spec re-confirm round: the CARDSIMPLE-1 spec was amended per the requirements cold-read \u2014 real action-shape\u00d7blocker-type matrix in AC1, rails scoped to family matches only (explicitly amending 0121/0144 for the rail-hit case), late Deny = denial receipt + Reconsider kept (no Run now), 0124 bounded delivery preserved with operator-initiated same-identity recovery, non-job cards excluded from scope. Confirm the amended spec so planning proceeds?",
       "options": [
-        "Yes \u2014 one card for all needs (Recommended)",
-        "No \u2014 tools only for now"
+        "Confirmed \u2014 go (Recommended)",
+        "I have a note"
       ],
-      "chosen": "Yes \u2014 one card for all needs (Recommended)"
-    },
-    {
-      "question": "Grill R2a \u2014 the Pause job button (shipped in CARDFIX-1 on the prose card): keep it as an action on the canonical permission card, or drop it entirely (a job blocked on a need is already paused; Deny just leaves it paused)?",
-      "options": [
-        "Drop it (Recommended)",
-        "Keep Pause job on the card"
-      ],
-      "chosen": "Drop it (Recommended)"
-    },
-    {
-      "question": "Grill R2b \u2014 who gets the card? Today prose notifications go to ALL configured notification routes, while permission prompts go only to the approver route. Under one-card, who sees it?",
-      "options": [
-        "Approver route only (Recommended)",
-        "Project to every route"
-      ],
-      "chosen": "Approver route only (Recommended)"
-    },
-    {
-      "question": "Grill R2c \u2014 ratify two corrections Codex proved against the code: (1) PIPED commands never get an Allow button at all (reformulation-only \u2014 0134/0144 already mandate this; my draft wrongly offered Allow-once); retry-and-ask remains the compound-row action for paused jobs. (2) 'Risk-gated family' needs a real mechanism: rails evaluate the exact command BEFORE a family match is honored; a rail hit asks, and that Allow is once-only.",
-      "options": [
-        "Ratify both (Recommended)",
-        "Discuss further"
-      ],
-      "chosen": "Ratify both (Recommended)",
+      "chosen": "Confirmed \u2014 go (Recommended)",
       "frontier_empty": true
     }
   ],
@@ -84,7 +60,7 @@
       "source": "apps/core/src/runtime/permission-decision-coordinator.ts:84; docs/decisions/0121-autodet-no-classifier-autonomous.md:24"
     }
   ],
-  "input_sha256": "c4c507e626ac08e9ab3d50c8015c3cda55f646d66a7518f79803b18299b7cf0e",
-  "recorded_at": "2026-08-31T18:31:44+00:00",
-  "commit": "3588dc5f37b94d049f15aabb3aa8db48a0ea8d2f"
+  "input_sha256": "7b66e9373556201fbfc0bf2fb16209ea3eb94c0a40685ecaf82129f9c2cc5b0d",
+  "recorded_at": "2026-09-01T02:15:25+00:00",
+  "commit": "da7acd33dfa5531f81f374969eb899728305f34d"
 }

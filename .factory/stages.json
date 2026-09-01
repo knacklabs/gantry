@@ -1,34 +1,37 @@
 {
-  "issue": "CARDFIX-1",
+  "issue": "CARDSIMPLE-1",
   "stages": [
     {
-      "id": "CARDFIX-1-T1",
-      "title": "Pause stories carry real actions: retry-and-ask + real Pause job, neutral layer",
+      "id": "CARDSIMPLE-1-T1",
+      "title": "Family-wide grants \u2014 minimum version",
       "status": "done",
-      "started_at": "2026-08-31T11:05:10+00:00",
-      "base_sha": "886784c02f1b9884e1e042b37679a0f7ba89592f",
+      "started_at": "2026-09-01T03:55:02+00:00",
+      "base_sha": "5ae8ad5f584469dc6621ed0e9b1d0b61e773d58f",
       "dirty_at_start": {
-        "plans/review-briefs/cardfix-1-pause-card-actions.md": {
-          "digest": "133103b1557d36506221a7b69e2e4947c3b9144444ef0f5543aaac9664afdf81",
-          "git": "? plans/review-briefs/cardfix-1-pause-card-actions.md\u0000\u0000\u0000"
+        ".factory/stories/CARDSIMPLE-1/grill-rounds/c3f2616b-feb5-40dc-98c2-1f6635d53421.json": {
+          "digest": "d2698ce26fbf41eb2a5d666ac54479833e40579c198d111175b7f04534511008",
+          "git": "1 A. N... 000000 100644 100644 0000000000000000000000000000000000000000 13ab2223f90a23bc8c001a3da54c7b1c5d88f854 .factory/stories/CARDSIMPLE-1/grill-rounds/c3f2616b-feb5-40dc-98c2-1f6635d53421.json\u0000\u0000100644 13ab2223f90a23bc8c001a3da54c7b1c5d88f854 0\t.factory/stories/CARDSIMPLE-1/grill-rounds/c3f2616b-feb5-40dc-98c2-1f6635d53421.json\u0000\u0000H .factory/stories/CARDSIMPLE-1/grill-rounds/c3f2616b-feb5-40dc-98c2-1f6635d53421.json\u0000"
+        },
+        ".factory/stories/CARDSIMPLE-1/grills/tasks/CARDSIMPLE-1-T1.json": {
+          "digest": "f28fa1609c796bcd570727f4932dd5a50eb2244db38e1515026e085d9a5099a9",
+          "git": "? .factory/stories/CARDSIMPLE-1/grills/tasks/CARDSIMPLE-1-T1.json\u0000\u0000\u0000"
+        },
+        "plans/review-briefs/cardsimple-1-t1-family-grants.md": {
+          "digest": "488adc83208691bf7fcd20dcf9cd5d0544b2fa8951ec1ecbc3f9e4c35030ca35",
+          "git": "1 A. N... 000000 100644 100644 0000000000000000000000000000000000000000 7bc24bda6553c13c421cf1389b33ae3d57299c2e plans/review-briefs/cardsimple-1-t1-family-grants.md\u0000\u0000100644 7bc24bda6553c13c421cf1389b33ae3d57299c2e 0\tplans/review-briefs/cardsimple-1-t1-family-grants.md\u0000\u0000H plans/review-briefs/cardsimple-1-t1-family-grants.md\u0000"
         }
       },
-      "task_sha256": "229b29fa8f76c88d04dbc45f8fbb1fdb9edfa53730e8d7e50093bbea59d8bc70",
+      "task_sha256": "4dc787745daf5da560cde4c10ba6087c33c811a50db61af7aec697bb5290bba1",
       "local_review_stamp": {
-        "stage_id": "CARDFIX-1-T1",
-        "task_sha256": "229b29fa8f76c88d04dbc45f8fbb1fdb9edfa53730e8d7e50093bbea59d8bc70",
-        "brief_sha256": "96ebf8f047c538045855820617bf031db88c6a9e971b37fe304d68b7960b23ff",
-        "base_sha": "886784c02f1b9884e1e042b37679a0f7ba89592f",
-        "product_tree_digest": "e5f064548d9588787dd90969441d6ea8d2d315d3a1139f96883fd3c8187f21b9",
-        "recorded_at": "2026-08-31T16:37:18+00:00",
+        "stage_id": "CARDSIMPLE-1-T1",
+        "task_sha256": "4dc787745daf5da560cde4c10ba6087c33c811a50db61af7aec697bb5290bba1",
+        "brief_sha256": "2fdfe109eaf4fd4fa32265b5a92c2271cd77aa06508d1449f7272031ccdd6b69",
+        "base_sha": "5ae8ad5f584469dc6621ed0e9b1d0b61e773d58f",
+        "product_tree_digest": "9b529702cd2551630a0bd1ecf1e04222c07083924041a005b1ecf5cc32c321f9",
+        "recorded_at": "2026-09-01T05:26:06+00:00",
         "generated_by": "autoreview"
       },
-      "completed_at": "2026-08-31T16:38:02+00:00",
-      "contract_changed": {
-        "at": "2026-08-31T16:38:02+00:00",
-        "from": "40d8bd0d5b9a484bb789ebdc035adcbb816444d15a92bef957917ec8b87408ef",
-        "to": "229b29fa8f76c88d04dbc45f8fbb1fdb9edfa53730e8d7e50093bbea59d8bc70"
-      }
+      "completed_at": "2026-09-01T05:26:46+00:00"
     }
   ]
 }

@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0140-b7e5",
+  "profile": "quickfix",
+  "reason": "Pass-A blocker: runner shims (npx/uvx, npm exec, pnpm dlx) must never mint or be covered by family rules \u2014 fail closed at synthesis + family-match seam",
+  "started_at": "2026-09-01T05:55:39+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

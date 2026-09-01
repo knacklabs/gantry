@@ -1,0 +1,68 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "issue": "CARDSIMPLE-1",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "gaps": [
+    "Round 1 (three terra@xhigh cold-read passes, plans/exploration/cardsimple-1-pg-a/b/c.md): 14 findings \u2014 typed family-match classification needed end-to-end with rails forcing allow-once in every prompt constructor; lease-free card creation had no ingress; exhausted delivery defaulted to handoff_pending; prompt-fold missed recovery/wiring consumers; Pause deletion over-broad; late-card state matrix and deterministic receipt/Run-now identity undefined; the new decision had to amend 0040 and JOBPERM-2 as well; T3 also depends on T1; per-task verify contracts and write-scope files missing; 0134 was still proposed.",
+    "Round 2 (plans/exploration/cardsimple-1-pg-r2.md): three fold contradictions \u2014 rails wording read as all-rules; once-cases sentence excluded the rail-hit case; 0134 recorded incorrectly and missing from decisions_reviewed."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "All 14 round-1 findings folded into the plan: typed family_rule|exact|capability classification, fingerprint-keyed attachSetupNeed with durable snapshot, setup-origin delivery state with operator same-identity recovery, prompt-fold as migration of bootstrap/recovery/wiring consumers, Pause deletion scoped to the affordance/codec layer, live|late|stale matrix per needId+askingEpoch with mixed-batch rejection, typed durable receipt outcome + idempotent marker + deterministic Run-now trigger identity, decision amends 0040/0121/0144/JOBPERM-2, T3 depends on T1 AND T2, per-task verify contracts and write scopes added.",
+    "RULED (round): decision 0134 accepted (recorded, confirmed_by Ravi Kiran Vemula) and added to decisions_reviewed.",
+    "Round 2 contradictions fixed: explicit family-only rails algorithm; the two once cases; 0134 recorded accepted.",
+    "Round 3 terra@xhigh cold-read (plans/exploration/cardsimple-1-pg-r3.md): CLEAN \u2014 no build-changing findings.",
+    "RULED (round): plan approved at convergence; single approval after clean round per the #148 grill contract.",
+    "Simplicity loop 2026-09-01 (owner-ordered): four sol@xhigh rounds cut 14 mechanisms and deferred 5 (isFamilyRule boolean, coordinator-only seam, one narrow 0040 amendment, 0124 machinery as delivery authority via the existing raise seam, one opId idempotency via the CARDFIX-1 pattern); final verdict SIMPLE ENOUGH; owner approved the slim plan (ledgered convergence round)."
+  ],
+  "rounds": [
+    {
+      "question": "Plan grill round 1 \u2014 all three cold-read passes folded (14 findings: typed family-match classification with rails forcing Allow-once; fingerprint-keyed lease-free card ingress + setup-origin delivery states; prompt-fold as migration; Pause deletion scoped to the affordance layer; live|late|stale matrix per needId+askingEpoch; deterministic receipt/Run-now identity; T3 now depends on T1 AND T2; the new decision amends 0040 + JOBPERM-2 too). One formal gate surfaced: decision 0134 (piped commands never durably granted for autonomous runs) is still marked PROPOSED though we've been treating it as binding. Accept 0134 now?",
+      "options": [
+        "Accept 0134 \u2014 and go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "Accept 0134 \u2014 and go (Recommended)"
+    },
+    {
+      "question": "Plan grill convergence \u2014 round 2's three contradictions are fixed (family-only rails algorithm explicit, the two `once` cases, 0134 recorded accepted) and the round-3 terra cold-read returned CLEAN. Approve the CARDSIMPLE-1 plan (T1 family grants \u2225 T2 canonical card \u2192 T3 late tap) so I record the grill, save the plan, and cut the decomposition?",
+      "options": [
+        "Approve \u2014 go (Recommended)",
+        "I have a note"
+      ],
+      "chosen": "Approve \u2014 go (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "typed match classification seam",
+      "source": "apps/core/src/shared/tool-execution-policy-service.ts:90; apps/core/src/runtime/permission-decision-coordinator.ts:84"
+    },
+    {
+      "finding": "rail veto does not force allow-once today",
+      "source": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:307; adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts:520"
+    },
+    {
+      "finding": "lease-free creation has no ingress",
+      "source": "apps/core/src/app/bootstrap/job-permission-durability-wiring.ts:215; apps/core/src/application/interactions/job-permission-durability.ts:226"
+    },
+    {
+      "finding": "exhaustion becomes handoff_pending today",
+      "source": "apps/core/src/application/interactions/job-permission-reconciler.ts:125"
+    },
+    {
+      "finding": "run-now mints a fresh trigger per callback",
+      "source": "apps/core/src/application/jobs/job-management-run-now.ts:268"
+    },
+    {
+      "finding": "0040 orders reviewed-rule before rails",
+      "source": "docs/decisions/0040-permission-execution-two-axis-model.md:24"
+    }
+  ],
+  "input_sha256": "791eec3531ea58960bac404cbd751f92205a540309fb7048f7540177e7f355ae",
+  "recorded_at": "2026-09-01T03:25:12+00:00",
+  "commit": "8fe8438dd2cf76206fbf2c73bb40378358a912b9"
+}

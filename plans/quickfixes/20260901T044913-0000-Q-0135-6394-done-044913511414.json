@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0135-6394",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "CARDSIMPLE-1-T1 autoreview round-2 fix: the SDK-suggestion fallback must engage only when toolInput carries NO command at all \u2014 a present command rejected by canonical synthesis (pipe, destructive redirect, exclusion) must yield no suggestions even when a paired safe SDK suggestion exists.",
+  "started_at": "2026-09-01T04:48:25+00:00",
+  "completed_at": "2026-09-01T04:49:13+00:00",
+  "files": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-suggestions.ts",
+    "apps/core/test/unit/runner/permission-suggestions.test.ts"
+  ]
+}

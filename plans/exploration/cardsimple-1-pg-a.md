@@ -1,0 +1,9 @@
+# CARDSIMPLE-1 plan grill — pass A of 3: contract completeness + T1 (read-only, no edits, keep reading TIGHT)
+
+You did not author this plan. Read `plans/exploration/cardsimple-1-plan-draft.md` cold as an adversary, against `docs/specs/cardsimple-1-one-permission-surface.md` and `constitution/`. Scope ONLY these two questions; answer fast.
+
+1. **Contract completeness.** Do the four ACs cover every Behaviour bullet of the spec? Does the three-task split (T1 family grants / T2 canonical card / T3 late tap, T3 depends on T2) leave any spec obligation unowned, or double-own anything so two tasks would collide in write scope? NOTE the spec was amended after the draft: AC1 is the action-shape×blocker-type matrix; rails scoped to family matches only (explicit 0121/0144 amendment); late Deny = denial receipt + Reconsider, no Run now; 0124 bounded delivery with operator-initiated same-identity recovery; non-job cards out of scope. Flag any plan passage still contradicting the amended spec.
+
+2. **T1 correctness.** Verify against code: the family shape `RunCommand(<argv0> *)` in `shared/tool-rule-matcher.ts` (trailing-star argv matching), the validator rejection in `shared/durable-access-policy.ts:219`, the three synthesis lanes (`application/permissions/permission-suggestion-synthesis.ts:62`, `adapters/llm/anthropic-claude-agent/runner/permission-suggestions.ts:262`, `shared/autonomous-bash-recovery-rule.ts:14`), and the rails-before-family ordering point in `runtime/permission-decision-coordinator.ts:84`. Is "family match → run rails on exact command → honor on silence; rail hit ⇒ ask, Allow once-only" implementable at that seam for FAMILY matches only, without changing exact-rule behavior? Does anything else depend on the return-early path?
+
+Output: numbered findings — claim, file:line, severity (blocker | design-gap | nit), smallest plan amendment. Say "CLEAN" if nothing. No edits.

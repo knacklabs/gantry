@@ -1,0 +1,92 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "story": "CARDSIMPLE-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/CARDSIMPLE-1-one-permission-surface-family-wide-grants.md",
+  "plan_contracts": [
+    {
+      "id": "CARDSIMPLE-1-AC2",
+      "statement": "Allow on a simple command records the canonical family rule via the ONE shared synthesizer so a later run with different args proceeds without asking; a rail hit inside an allowed family asks and permits Allow-once only; pipes present no Allow; safe non-piped compounds resolve per-leaf; pinned local_cli matching unchanged.",
+      "source": "plans/active/CARDSIMPLE-1-one-permission-surface-family-wide-grants.md#acceptance-criteria"
+    },
+    {
+      "id": "CARDSIMPLE-1-AC4",
+      "statement": "existing unit and Postgres integration suites pass; tsc and check:architecture green; the AC1/AC2 preservation clauses hold.",
+      "source": "plans/active/CARDSIMPLE-1-one-permission-surface-family-wide-grants.md#acceptance-criteria"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "CARDSIMPLE-1-T1",
+      "title": "Family-wide grants \u2014 minimum version",
+      "objective": "Plan T1's six moves: one shared family-rule synthesizer helper called from the three rule-minting lanes (pipes and durable exclusions yield no suggestion); admit RunCommand(<literal argv0> *) in the durable validator; an isFamilyRule boolean threads policy evaluation to the coordinator, which runs existing rails on the exact command before honoring FAMILY matches only (rail hit: no durable suggestion, allow_once|cancel, once at the coordinator); one narrow decision amending 0040.",
+      "acceptance_criteria": [
+        "Allow on a simple command records the canonical family rule via the ONE shared synthesizer so a later run with different args proceeds without asking; a rail hit inside an allowed family asks and permits Allow-once only; pipes present no Allow; safe non-piped compounds resolve per-leaf; pinned local_cli matching unchanged.",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green; the AC1/AC2 preservation clauses hold."
+      ],
+      "plan_contracts": [
+        {
+          "id": "CARDSIMPLE-1-AC2",
+          "statement": "Allow on a simple command records the canonical family rule via the ONE shared synthesizer so a later run with different args proceeds without asking; a rail hit inside an allowed family asks and permits Allow-once only; pipes present no Allow; safe non-piped compounds resolve per-leaf; pinned local_cli matching unchanged.",
+          "source": "plans/active/CARDSIMPLE-1-one-permission-surface-family-wide-grants.md#acceptance-criteria"
+        },
+        {
+          "id": "CARDSIMPLE-1-AC4",
+          "statement": "existing unit and Postgres integration suites pass; tsc and check:architecture green; the AC1/AC2 preservation clauses hold.",
+          "source": "plans/active/CARDSIMPLE-1-one-permission-surface-family-wide-grants.md#acceptance-criteria"
+        }
+      ],
+      "depends_on": [],
+      "user_facing": true,
+      "write_scope": [
+        "apps/core/src/application/permissions/permission-suggestion-synthesis.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-suggestions.ts",
+        "apps/core/src/shared/autonomous-bash-recovery-rule.ts",
+        "apps/core/src/shared/durable-access-policy.ts",
+        "apps/core/src/shared/tool-execution-policy-service.ts",
+        "apps/core/src/shared/bash-command-parser.ts",
+        "apps/core/src/runtime/permission-decision-coordinator.ts",
+        "docs/decisions/",
+        "apps/core/test/",
+        "apps/core/src/shared/family-rule-synthesis.ts",
+        "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts"
+      ],
+      "review_budget": {
+        "max_changed_files": 24,
+        "max_changed_lines": 800,
+        "reason": "S-0063 ripple plus the six-round autoreview loop: script-family, SDK-suppression and expansion-literal fixes each added regression tests (family-rule-synthesis, coordinator, durable-access, runner suites) \u2014 measured 22 files / 762 lines at commit 15b87e9ff, all inside the approved contract."
+      },
+      "reviewer_focus": [
+        "Family-only: rails run solely when isFamilyRule; exact reviewed rules and capability grants byte-for-byte unchanged (the early return is preserved for them).",
+        "The rail-hit allow_once|cancel is computed ONCE at the coordinator \u2014 no adapter-level duplication, no prompt framework.",
+        "The shared helper is the sole synthesis source in all three lanes; the SDK lane must now reject pipes.",
+        "One narrow decision amending 0040 only; 0121/0144/JOBPERM-2 linked as compatible-unchanged; 0134 accepted and untouched; autonomous stays classifier-free; pinned local_cli readiness matching unchanged."
+      ],
+      "required_tests": [
+        {
+          "id": "family rule allows the same command with different args without asking",
+          "path": "apps/core/test/unit/shared/family-rule-synthesis.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "a rail hit inside an allowed family asks and permits allow-once only",
+          "path": "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "pipes and durable exclusions synthesize no family rule in any lane",
+          "path": "apps/core/test/unit/shared/family-rule-synthesis.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ]
+    }
+  ],
+  "project": "",
+  "plan_sha256": "e48db0771d7d8552362261d46f34a0b1144e31fd5f53d0d3a55233430127e33f",
+  "commit": "15b87e9fff7ea92d93f8cb0c547a7fc28586629a"
+}

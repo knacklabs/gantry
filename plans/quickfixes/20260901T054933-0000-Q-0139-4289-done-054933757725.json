@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0139-4289",
+  "profile": "quickfix",
+  "reason": "CI red on PR 465: session-interaction-response allow_future test still asserts exact-argv rule; family rule is the intended behavior \u2014 flip expectation",
+  "started_at": "2026-09-01T05:47:58+00:00",
+  "completed_at": "2026-09-01T05:49:33+00:00",
+  "files": []
+}

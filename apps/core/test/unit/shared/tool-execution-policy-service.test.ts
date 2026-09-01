@@ -141,8 +141,8 @@ describe('ToolExecutionPolicyService', () => {
     // Actionable: a concrete durable request_access per grantable part.
     expect(result.recoveryAction).toContain('"kind": "run_command"');
     expect(result.recoveryAction).toContain('"temporaryOnly": false');
-    expect(result.recoveryAction).toContain('"argvPattern": "which gog"');
-    expect(result.recoveryAction).toContain('"argvPattern": "echo not found"');
+    expect(result.recoveryAction).toContain('"argvPattern": "which *"');
+    expect(result.recoveryAction).toContain('"argvPattern": "echo *"');
     // Correct semantics: grant each part's access, then re-run the ORIGINAL
     // command (do NOT split — pipes/&&/|| semantics must be preserved).
     expect(result.recoveryAction).toContain('re-run the ORIGINAL command');
@@ -219,10 +219,7 @@ describe('ToolExecutionPolicyService', () => {
     }
   });
 
-  it('keeps a control-flow-only compound grantable (no pipe, no data flow)', () => {
-    // `node app.js - && echo done` has no pipe: the leaves are independent
-    // commands, so the recovery still offers per-part grants (parity with the
-    // single-command policy) instead of dead-ending.
+  it('blocks an interpreter leaf inside a control-flow-only compound', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'Bash',
@@ -233,8 +230,8 @@ describe('ToolExecutionPolicyService', () => {
     const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
     expect(result.status).toBe('deny');
     expect(result.recoveryAction).toContain('compound command');
-    expect(result.recoveryAction).toContain('"argvPattern": "node app.js -"');
-    expect(result.recoveryAction).toContain('re-run the ORIGINAL command');
+    expect(result.recoveryAction).toContain('part 1');
+    expect(result.recoveryAction).not.toContain('"kind": "run_command"');
     expect(result.recoveryAction).not.toContain('pipes data');
   });
 
@@ -565,7 +562,7 @@ describe('ToolExecutionPolicyService', () => {
           'Tool not on autonomous run allowlist: RunCommand.',
         ),
         recoveryAction:
-          'request_access { "target": { "kind": "run_command", "argvPattern": "npm test" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }',
+          'request_access { "target": { "kind": "run_command", "argvPattern": "npm *" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }',
       }),
     );
     expect(result.recoveryAction).not.toContain('scheduler_grant_tool');
@@ -866,6 +863,54 @@ describe('ToolExecutionPolicyService', () => {
     });
   });
 
+  it('marks any-family compounds provisional without changing exact or capability matches', () => {
+    const mixedRequest = classifier.classify({
+      origin: 'host',
+      toolName: 'RunCommand',
+      toolInput: { command: 'date now && npm test' },
+    });
+    expect(
+      policy.evaluate({
+        request: mixedRequest,
+        allowedToolRules: ['RunCommand(date *)', 'RunCommand(npm test)'],
+      }),
+    ).toMatchObject({ status: 'allow', isFamilyRule: true });
+
+    const exact = policy.evaluate({
+      request: classifier.classify({
+        origin: 'host',
+        toolName: 'RunCommand',
+        toolInput: { command: 'npm test' },
+      }),
+      allowedToolRules: ['RunCommand(npm test)'],
+    });
+    expect(exact).toMatchObject({
+      status: 'allow',
+      matchedRule: 'RunCommand(npm test)',
+    });
+    expect(exact).not.toHaveProperty('isFamilyRule');
+
+    const ghCapability = capability({
+      capabilityId: 'cli.gh',
+      credentialSource: 'configured_access',
+      implementationBindings: [{ kind: 'tool_rule', rule: 'RunCommand(gh *)' }],
+    });
+    const capabilityMatch = policy.evaluate({
+      request: classifier.classify({
+        origin: 'host',
+        toolName: 'RunCommand',
+        toolInput: { command: 'gh pr list' },
+      }),
+      allowedToolRules: ['capability:cli.gh'],
+      semanticCapabilityDefinitions: definitionsById(ghCapability),
+    });
+    expect(capabilityMatch).toMatchObject({
+      status: 'allow',
+      reason: 'Allowed by selected capability cli.gh.',
+    });
+    expect(capabilityMatch).not.toHaveProperty('isFamilyRule');
+  });
+
   it('recovers autonomous runtime-owned env aliases as plain scoped commands', () => {
     const request = classifier.classify({
       origin: 'sdk',
@@ -883,7 +928,7 @@ describe('ToolExecutionPolicyService', () => {
     ).toMatchObject({
       status: 'deny',
       recoveryAction:
-        'request_access { "target": { "kind": "run_command", "argvPattern": "/opt/homebrew/bin/acme records get leads --json" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }',
+        'request_access { "target": { "kind": "run_command", "argvPattern": "/opt/homebrew/bin/acme *" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }',
     });
   });
 
@@ -937,8 +982,8 @@ describe('autonomousGrantRecovery', () => {
       type: 'addRules',
       behavior: 'allow',
       rules: [
-        { toolName: 'RunCommand', ruleContent: 'date first' },
-        { toolName: 'RunCommand', ruleContent: 'uptime' },
+        { toolName: 'RunCommand', ruleContent: 'date *' },
+        { toolName: 'RunCommand', ruleContent: 'uptime *' },
       ],
     });
     expect(

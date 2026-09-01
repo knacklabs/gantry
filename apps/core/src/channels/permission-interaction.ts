@@ -40,6 +40,7 @@ import {
   permissionPromptTitle,
 } from './permission-agent-display.js';
 import {
+  familyScopeCoverageLines,
   formatPermissionToolInputLines,
   permissionRiskLines,
   runtimeDisplayCommand,
@@ -356,8 +357,9 @@ function formatPermissionContextLines(
   const lines = [
     `Agent: ${formatPermissionAgentDisplayName(request.sourceAgentFolder)}`,
     `Context: ${context}`,
+    ...familyScopeCoverageLines(request),
   ];
-  if (requestHasThreadRoute(request)) {
+  if (typeof request.threadId === 'string' && request.threadId.trim() !== '') {
     lines.push('Approval applies to the parent conversation.');
   }
   if (request.closestRule) {
@@ -491,14 +493,6 @@ function semanticCapabilityNetworkLine(
   ];
   if (hosts.length === 0) return undefined;
   return `Network: ${sanitizePermissionText(hosts.join(', '), 200, 100)}`;
-}
-
-function requestHasThreadRoute(
-  request: PermissionApprovalRequest | undefined,
-): boolean {
-  return (
-    typeof request?.threadId === 'string' && request.threadId.trim() !== ''
-  );
 }
 
 function permissionAccessLabel(

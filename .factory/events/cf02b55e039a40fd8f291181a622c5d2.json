@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-01T05:25:56+00:00", "story": "CARDSIMPLE-1", "detail": "S-0065-642d: Informational (same class as S-0001/S-0043/S-0060): VITEST_JUNIT wrappers are policy-refused in the managed sandbox and the test DB env is host-only. The orchestrator ran the literal proof host-side o"}

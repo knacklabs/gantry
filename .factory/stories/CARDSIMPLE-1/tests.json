@@ -1,0 +1,65 @@
+{
+  "commit": "15b87e9fff7ea92d93f8cb0c547a7fc28586629a",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "summary": "tsc clean; check:architecture passes; FULL unit sweep 687 files / 9123 tests green incl. the required leaves: 'family rule allows the same command with different args without asking' + 'pipes and durable exclusions synthesize no family rule in any lane' (family-rule-synthesis.test.ts, driving all three lanes), 'a rail hit inside an allowed family asks and permits allow-once only' (permission-decision-coordinator.test.ts), plus the six-round autoreview loop's added regressions (script-leaf/expansion rejections, SDK-only suppression, all-or-nothing, mixed-compound, flipped broad-prefix validator expectations). Postgres decision suites 16/16 host-side incl. permission-durable-authority's flipped family-contract proof (different-args auto-allow, different-executable and second-agent still denied). verify.py passed at closeout. Design-skill lens applied: this story ships no UI surface change \u2014 the user-visible delta is FEWER asks; ask-card copy unchanged.",
+    "blocking_findings": [],
+    "non_blocking_findings": [],
+    "commands_run": [
+      "npx tsc --noEmit",
+      "npm run check:architecture",
+      "npx vitest run -c vitest.unit.config.ts",
+      "GANTRY_TEST_DATABASE_URL=... npx vitest run -c vitest.integration.postgres.config.ts <3 permission decision suites>",
+      "python3 factory/scripts/verify.py"
+    ],
+    "remaining_gaps": [],
+    "residual_risks": [
+      "Live family-grant check scheduled with the owner post-deploy: Allow curl once, rerun with a different URL proceeds without asking."
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/shared/family-rule-synthesis.test.ts: 5 leaves incl. lane smokes, script-leaf and expansion rejections",
+      "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts: family rail-hit allow-once leaf",
+      "apps/core/test/unit/shared/durable-access-policy.test.ts: broad-prefix expectations deliberately flipped + script-shape regressions",
+      "apps/core/test/unit/shared/tool-execution-policy-service.test.ts: isFamilyRule marking + mixed-compound",
+      "apps/core/test/unit/runner/permission-suggestions.test.ts: SDK-only suppression + no-resurrect + all-or-nothing",
+      "apps/core/test/integration/permission-durable-authority.postgres.integration.test.ts: family-contract flip"
+    ],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-09-01T05:30:28+00:00",
+    "commit": "15b87e9fff7ea92d93f8cb0c547a7fc28586629a"
+  },
+  "updated_at": "2026-09-01T05:30:28+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "passed",
+    "score": 8,
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "summary": "Behaviour proven in the unit/Postgres harness end-to-end: one Allow on `gh issue view 42` records RunCommand(gh *); a later `gh pr list --state open` evaluates allowed with no prompt (coordinator early-return, rails silent); a rail-relevant command inside an allowed family still asks with allow_once|cancel and no durable suggestion; pipes never present Allow in any lane; SDK-only suggestions offer no persistent grant; exact reviewed rules, capability grants, autonomous classifier-free behavior and pinned local_cli matching are regression-proven unchanged. The durable-authority Postgres chain drives the real settings mirror + restart reconciliation with the family rule. Live owner check (Allow curl once \u21d2 different URL runs without asking) is scheduled after the story merges and deploys \u2014 same protocol as CARDFIX-1's closeout. No UI copy changed; the user-visible delta is fewer asks.",
+    "blocking_findings": [],
+    "non_blocking_findings": [],
+    "commands_run": [
+      "npx vitest run -c vitest.unit.config.ts",
+      "GANTRY_TEST_DATABASE_URL=... postgres decision suites"
+    ],
+    "remaining_gaps": [
+      "Live curl family check pending post-deploy (owner-in-the-loop)."
+    ],
+    "residual_risks": [],
+    "tests_added_or_updated": [],
+    "manual_validation_steps": [
+      "Post-deploy: in chat (auto mode), run a command needing RunCommand approval, Allow for future; rerun the same binary with different args \u2014 no ask. Pipe a command \u2014 no Allow offered, reformulation row only."
+    ],
+    "reviewed_scope": [],
+    "recorded_at": "2026-09-01T05:30:28+00:00",
+    "commit": "15b87e9fff7ea92d93f8cb0c547a7fc28586629a"
+  }
+}

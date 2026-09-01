@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-01T05:24:45+00:00", "story": "CARDSIMPLE-1", "detail": "CARDSIMPLE-1-T1 exact VITEST_JUNIT selectors are policy-refused before Vitest starts and GANTRY_TEST_DATABASE_URL is unset; direct selectors pass 3/3, the scoped unit sweep passes 3216/3216, and the o"}

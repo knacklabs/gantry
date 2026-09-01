@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0134-4de9",
+  "profile": "degraded",
+  "reason": "CARDSIMPLE-1-T1 autoreview round-1 fixes (compact-404 fallback continues): family predicate must reject ALL canonical script-leaf argv0 forms, and the SDK lane must canonicalize supplied suggestions through the shared synthesizer when toolInput is absent.",
+  "started_at": "2026-09-01T04:39:53+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

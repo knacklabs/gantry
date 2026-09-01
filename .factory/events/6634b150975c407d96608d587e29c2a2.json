@@ -1,0 +1,1 @@
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-09-01T05:30:29+00:00", "story": "CARDSIMPLE-1", "detail": "Allowing a command once now settles its whole family: approve curl for one URL and future runs of curl with any arguments proceed without asking, on every lane that mints permission rules. Piped comma"}

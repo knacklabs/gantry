@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-01T05:17:55+00:00", "story": "CARDSIMPLE-1", "detail": "S-0064-65d1: Budget explicitly raised to 24 files / 800 lines on the recorded T1 contract: the six-round autoreview loop's accepted fixes each added regression coverage (22 files / 762 lines at 15b87e9ff is requir"}

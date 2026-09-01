@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-01T04:10:39+00:00", "story": "CARDSIMPLE-1", "detail": "CARDSIMPLE-1-T1 needs a minimum 17-file review scope: the planned implementation/tests/decision use 15 files after removing the optional parser export, and existing agent-capability-administration plu"}

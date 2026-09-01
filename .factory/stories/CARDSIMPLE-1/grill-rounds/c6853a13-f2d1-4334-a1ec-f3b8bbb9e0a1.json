@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Spec re-confirm round: the CARDSIMPLE-1 spec was amended per the requirements cold-read \u2014 real action-shape\u00d7blocker-type matrix in AC1, rails scoped to family matches only (explicitly amending 0121/0144 for the rail-hit case), late Deny = denial receipt + Reconsider kept (no Run now), 0124 bounded delivery preserved with operator-initiated same-identity recovery, non-job cards excluded from scope. Confirm the amended spec so planning proceeds?",
+      "options": [
+        "Confirmed \u2014 go (Recommended)",
+        "I have a note"
+      ],
+      "chosen": "Confirmed \u2014 go (Recommended)"
+    }
+  ],
+  "at": "2026-09-01T02:14:39.661596+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

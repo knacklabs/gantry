@@ -2,20 +2,22 @@ import type { BashCommandLeaf } from './bash-command-parser.js';
 import {
   bashExecutableName,
   nonDurableBashLeafReason,
-  normalizeBashLeafRuleContent,
   parseBashCommand,
 } from './bash-command-parser.js';
+import {
+  synthesizeFamilyRunCommandRuleContentForLeaf,
+  synthesizeFamilyRunCommandRuleContents,
+} from './family-rule-synthesis.js';
 import { containsGeneratedRuntimePath } from './generated-runtime-paths.js';
 import { normalizeRuntimeOwnedBashCommandForMatching } from './tool-rule-matcher.js';
 
-// A single reviewed-command leaf can back a durable autonomous RunCommand rule
+// A single command leaf can back a durable autonomous RunCommand family rule
 // only when it is not a stateful shell builtin, not an inline interpreter
 // (`node -e`, `python -c`, ...), and carries no destructive redirect.
 export function persistentAutonomousBashRecoveryRuleForLeaf(
   leaf: BashCommandLeaf,
 ): string | undefined {
-  if (nondurableLeafReason(leaf)) return undefined;
-  return normalizeBashLeafRuleContent(leaf);
+  return synthesizeFamilyRunCommandRuleContentForLeaf(leaf);
 }
 
 export function persistentAutonomousBashRecoveryRule(
@@ -25,12 +27,11 @@ export function persistentAutonomousBashRecoveryRule(
   if (containsGeneratedRuntimePath(normalized)) return undefined;
   const parsed = parseBashCommand(normalized);
   if (!parsed.ok || parsed.leaves.length !== 1) return undefined;
-  const [leaf] = parsed.leaves;
-  return leaf ? persistentAutonomousBashRecoveryRuleForLeaf(leaf) : undefined;
+  return synthesizeFamilyRunCommandRuleContents(normalized)[0];
 }
 
 export type AutonomousCompoundBashRecovery =
-  // Every part can be granted individually: the per-leaf reviewed-command rule
+  // Every part can be granted individually: the per-leaf family rule
   // contents (raw; the caller JSON-encodes them into request_access actions the
   // same way the single-command recovery does).
   | { kind: 'grantable'; rules: string[] }
@@ -69,7 +70,7 @@ export function autonomousCompoundBashRecovery(
   for (let index = 0; index < parsed.leaves.length; index += 1) {
     const leaf = parsed.leaves[index]!;
     const reason = nondurableLeafReason(leaf);
-    const content = normalizeBashLeafRuleContent(leaf);
+    const content = synthesizeFamilyRunCommandRuleContentForLeaf(leaf);
     if (reason || !content) {
       return {
         kind: 'blocked',
@@ -77,9 +78,9 @@ export function autonomousCompoundBashRecovery(
         reason: reason ?? 'a part cannot be expressed as a scoped rule.',
       };
     }
-    // Push the EXACT reviewed-command rule (no mutation): it is serialized with
-    // proper JSON escaping by the caller, so it authorizes the same leaf when
-    // the agent re-runs the original compound command.
+    // Push the canonical family rule: it is serialized with proper JSON
+    // escaping by the caller, so the original leaf and later argument variants
+    // share the same durable authority boundary.
     rules.push(content);
   }
   return { kind: 'grantable', rules: [...new Set(rules)] };

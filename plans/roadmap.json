@@ -2497,14 +2497,77 @@
         "suites, tsc and architecture green"
       ],
       "order": 115,
+      "status": "done",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/cardsimple-1-one-permission-surface.md",
+      "completed_at": "2026-09-01T05:30:29+00:00",
+      "history": ".factory/stories/CARDSIMPLE-1/",
+      "outcome": "Allowing a command once now settles its whole family: approve curl for one URL and future runs of curl with any arguments proceed without asking, on every lane that mints permission rules. Piped commands still never get an Allow button, dangerous variants inside an allowed family still ask (and only for that one run), and scripts or environment-dependent paths can never become broad grants. Exact rules and capability grants behave exactly as before \u2014 the only visible change is fewer permission prompts."
+    },
+    {
+      "key": "ASKFLOOR-1",
+      "title": "The judge actually judges: context-aware first-asks in auto mode",
+      "story": "ASKFLOOR-1",
+      "acceptance_criteria": [
+        "wait_for and screenshot browser actions auto-allow in auto mode; every other verb and malformed shapes still ask; exhaustive per-verb test",
+        "enumerated fail-closed file read bindings auto-allow only under their named capability and path predicates",
+        "explicit invariance tests: ask mode, auto_strict, autonomous, YOLO, inline-scheduled, unmapped/scheduler/admin/destructive unchanged, family rail-hit still asks",
+        "suites, tsc and architecture green"
+      ],
+      "order": 116,
+      "status": "pending",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "CARDSIMPLE-1"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "spec drafted and twice sol@xhigh-validated (docs/specs/askfloor-1-judge-actually-judges.md); confirm ceremony runs when the story is queued after CARDSIMPLE-1"
+    },
+    {
+      "key": "CARDSIMPLE-2",
+      "title": "One canonical card: fold the setup-pause prompt into the job permission card",
+      "story": "CARDSIMPLE-2",
+      "acceptance_criteria": [
+        "one canonical permission card is the only surface for every reachable blocked-need combination on all four providers; no Setup-needed prose; approver-route-only",
+        "0124's machinery stays the delivery authority; no reconciler loop; no second terminal surface",
+        "prose send and pause-affordance layer deleted; 0144 Reconsider and 0134 row semantics preserved",
+        "suites, tsc and architecture green"
+      ],
+      "order": 117,
       "status": "pending",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
       "depends_on": [],
       "spec": "docs/specs/cardsimple-1-one-permission-surface.md"
+    },
+    {
+      "key": "CARDSIMPLE-3",
+      "title": "Late tap: zero-fanout, one opId receipt and Run now",
+      "story": "CARDSIMPLE-3",
+      "acceptance_criteria": [
+        "late Allow records the decision with one idempotent receipt plus Run now; zero barriers and zero automatic triggers",
+        "Run now creates at most one deterministic settled-on-failure trigger; late Deny keeps Reconsider with no Run now",
+        "stale states mutate nothing; nothing auto-runs",
+        "suites, tsc and architecture green"
+      ],
+      "order": 118,
+      "status": "pending",
+      "epic": "permission-engine",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "CARDSIMPLE-1",
+        "CARDSIMPLE-2"
+      ],
+      "spec": "docs/specs/cardsimple-1-one-permission-surface.md"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-08-31T18:35:43+00:00"
+  "updated_at": "2026-09-01T05:30:29+00:00"
 }

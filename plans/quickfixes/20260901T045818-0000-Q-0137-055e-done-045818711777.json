@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0137-055e",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "CARDSIMPLE-1-T1 autoreview round-4 P1: absolute family executables must be POSITIVELY literal \u2014 argv0 tokens containing shell expansions/substitutions (/$TOOL, braces, backticks) are rejected before minting or admitting a family, since they resolve per-environment to different binaries and blind the rails.",
+  "started_at": "2026-09-01T04:57:37+00:00",
+  "completed_at": "2026-09-01T04:58:18+00:00",
+  "files": [
+    "apps/core/src/shared/family-rule-synthesis.ts",
+    "apps/core/test/unit/shared/family-rule-synthesis.test.ts"
+  ]
+}

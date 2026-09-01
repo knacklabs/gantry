@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0133-171d",
+  "profile": "degraded",
+  "reason": "Plan-authorized degraded fallback (two compact-404 deaths on CARDSIMPLE-1-T1): flip the exact-argv policy pin in permission-durable-authority.postgres.integration.test.ts to the family-rule contract and finish the otherwise-green 17-file Codex implementation.",
+  "started_at": "2026-09-01T04:34:18+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

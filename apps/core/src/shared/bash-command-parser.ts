@@ -61,13 +61,16 @@ const WILDCARD_SENSITIVE_COMMANDS = new Set([
   'deno',
   'lua',
   'node',
+  'npx',
   'perl',
   'php',
+  'pnpx',
   'python',
   'python3',
   'ruby',
   'ts-node',
   'tsx',
+  'uvx',
 ]);
 const SAFE_SCRIPT_INTERPRETERS = new Set(['python', 'python3']);
 
@@ -636,7 +639,7 @@ function normalizeScriptLeafRuleContent(
   return `${normalizeBashArg(scriptArg)} *`;
 }
 
-function isPythonScriptPath(value: string): boolean {
+export function isPythonScriptPath(value: string): boolean {
   return value.endsWith('.py');
 }
 

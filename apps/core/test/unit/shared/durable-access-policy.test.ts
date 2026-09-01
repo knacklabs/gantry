@@ -21,6 +21,7 @@ import {
   GRANTABLE_EXACT_GANTRY_MCP_TOOL_NAMES,
 } from '@core/shared/admin-mcp-tools.js';
 import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
+import { isFamilyRunCommandRule } from '@core/shared/family-rule-synthesis.js';
 
 const skillActionDefinition: SemanticCapabilityDefinition = {
   capabilityId: 'skill.linkedin-posting.publish',
@@ -403,20 +404,27 @@ describe('durable access policy', () => {
     });
   });
 
-  it('rejects broad durable RunCommand wildcard prefixes', () => {
+  it('allows literal-argv0 family RunCommand wildcard prefixes', () => {
     for (const rule of [
       'RunCommand(gh *)',
       'RunCommand(aws *)',
       'RunCommand(/usr/local/bin/acme *)',
-      'RunCommand(gh)',
     ]) {
-      expect(validateDurableAccessRule(rule)).toMatchObject({
-        ok: false,
-        reason: expect.stringContaining(
-          'require a concrete command prefix before wildcard fallback',
-        ),
-      });
+      expect(validateDurableAccessRule(rule)).toEqual({ ok: true });
+      expect(isFamilyRunCommandRule(rule)).toBe(true);
     }
+  });
+
+  it('still rejects argument-less and script-shaped rules as families', () => {
+    expect(validateDurableAccessRule('RunCommand(gh)')).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining(
+        'require a concrete command prefix before wildcard fallback',
+      ),
+    });
+    expect(
+      isFamilyRunCommandRule('RunCommand(skills/linkedin-posting/post.py *)'),
+    ).toBe(false);
   });
 
   it('allows concrete durable RunCommand prefixes before wildcard fallback', () => {

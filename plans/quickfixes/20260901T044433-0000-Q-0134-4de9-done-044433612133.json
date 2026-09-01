@@ -1,0 +1,16 @@
+{
+  "event": "done",
+  "id": "Q-0134-4de9",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "CARDSIMPLE-1-T1 autoreview round-1 fixes (compact-404 fallback continues): family predicate must reject ALL canonical script-leaf argv0 forms, and the SDK lane must canonicalize supplied suggestions through the shared synthesizer when toolInput is absent.",
+  "started_at": "2026-09-01T04:39:53+00:00",
+  "completed_at": "2026-09-01T04:44:33+00:00",
+  "files": [
+    "apps/core/src/shared/bash-command-parser.ts",
+    "apps/core/src/shared/family-rule-synthesis.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-suggestions.ts",
+    "apps/core/test/unit/shared/family-rule-synthesis.test.ts",
+    "apps/core/test/unit/runner/permission-suggestions.test.ts"
+  ]
+}

@@ -320,7 +320,7 @@ describe('permission classifier verdict client', () => {
     });
 
     expect(query.mock.calls[0]?.[0].prompt).toContain(
-      'the operator recently denied this exact tool shape',
+      'the operator recently denied requests in this permission scope',
     );
   });
 
@@ -331,7 +331,7 @@ describe('permission classifier verdict client', () => {
     });
 
     expect(query.mock.calls[0]?.[0].prompt).toContain(
-      'the operator recently approved this exact tool shape repeatedly',
+      'the operator recently approved requests in this permission scope repeatedly',
     );
   });
 
@@ -1610,7 +1610,7 @@ describe('permission classifier decision events', () => {
     const incrementAndGet = vi.fn(async () => ({
       appId: 'app:test',
       agentFolder: 'researcher',
-      suggestionKey: 'researcher|RunCommand(cat README.md)',
+      suggestionKey: 'researcher|RunCommand(cat *)',
       allowCount: 3,
       deniedAt: null,
       createdAt: '2026-07-12T00:00:00.000Z',
@@ -1654,14 +1654,14 @@ describe('permission classifier decision events', () => {
       }),
     ).resolves.toMatchObject({
       decision: 'allow',
-      suggestionKey: 'researcher|RunCommand(cat README.md)',
+      suggestionKey: 'researcher|RunCommand(cat *)',
     });
 
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({
           model: 'resolved-model',
-          suggestionKey: 'researcher|RunCommand(cat README.md)',
+          suggestionKey: 'researcher|RunCommand(cat *)',
         }),
       }),
     );

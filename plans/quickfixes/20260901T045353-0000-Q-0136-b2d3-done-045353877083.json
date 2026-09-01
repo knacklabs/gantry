@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0136-b2d3",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "CARDSIMPLE-1-T1 autoreview round-3 P1: the SDK-supplied fallback must be all-or-nothing \u2014 one rule array describes one request, so any supplied content the shared synthesizer rejects (pipe/exclusion) suppresses Allow for the WHOLE set instead of leaf-filtering.",
+  "started_at": "2026-09-01T04:53:02+00:00",
+  "completed_at": "2026-09-01T04:53:53+00:00",
+  "files": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-suggestions.ts",
+    "apps/core/test/unit/runner/permission-suggestions.test.ts",
+    "apps/core/src/shared/family-rule-synthesis.ts"
+  ]
+}

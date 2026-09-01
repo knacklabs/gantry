@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0141-e193",
+  "profile": "quickfix",
+  "reason": "Pass-B1 asymmetry: pinned local_cli readiness uses exact rule membership so a family grant re-asks; switch to toolRuleCoversRule coverage",
+  "started_at": "2026-09-01T06:05:37+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

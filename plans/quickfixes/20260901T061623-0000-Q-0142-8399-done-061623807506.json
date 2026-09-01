@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0142-8399",
+  "profile": "quickfix",
+  "reason": "Pass-B2 gaps: promotion suggestion key must cover ALL synthesized family rules and classifier prompt must describe family-scope (not exact-shape) history",
+  "started_at": "2026-09-01T06:14:29+00:00",
+  "completed_at": "2026-09-01T06:16:23+00:00",
+  "files": []
+}

@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Single-session management of both worktrees is blocked by ONE hook: grill rounds/plan markers ledger only to this checkout (repo_root = session dir). How do we proceed?",
+      "options": [
+        "Fix the harness upstream (Recommended)",
+        "Second session for CS2 gates only",
+        "Sequential, no worktree"
+      ],
+      "chosen": "Fix the harness upstream (Recommended)"
+    }
+  ],
+  "at": "2026-09-01T04:00:16.015674+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

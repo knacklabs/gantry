@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0138-b22b",
+  "profile": "degraded",
+  "reason": "CARDSIMPLE-1-T1 autoreview round-5 disposition (scope-governor pause after four fix cycles): evaluate the SDK-only rails-bypass claim against code and either fix minimally or reject with evidence; document the quoted/Unicode absolute-path conservatism as intentional.",
+  "started_at": "2026-09-01T05:02:06+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

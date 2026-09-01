@@ -29,6 +29,44 @@ function requestWithSuggestions(
 }
 
 describe('permission receipts', () => {
+  it('says what Allow for future covers when the persisted rule is a family', () => {
+    const familySuggestions: PermissionApprovalRequest['suggestions'] = [
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'RunCommand', ruleContent: 'npm *' }],
+      },
+    ];
+    const prompt = formatPermissionPromptText(
+      {
+        ...requestWithSuggestions(familySuggestions),
+        toolInput: { command: 'npm test -- --runInBand' },
+      },
+      60_000,
+    );
+    expect(prompt).toContain('Allow for future covers: npm *');
+
+    // Exact reviewed-script rules stay silent - no family scope to disclose.
+    const exactPrompt = formatPermissionPromptText(
+      {
+        ...requestWithSuggestions([
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [
+              { toolName: 'RunCommand', ruleContent: 'skills/x/post.py *' },
+            ],
+          },
+        ]),
+        toolInput: { command: 'python3 skills/x/post.py send' },
+      },
+      60_000,
+    );
+    expect(exactPrompt).not.toContain('Allow for future covers:');
+  });
+
   it('says approved for this run only and that a scheduled job will ask again next run', () => {
     const request = {
       requestId: 'permission_123',

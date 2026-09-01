@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "First-ask floor: repeats are covered by CARDSIMPLE-1's family rules, but the auto-mode classifier will still ask on FIRST use of anything not provably read-only (send_message, sheets writes, new tools). Tune that now?",
+      "options": [
+        "Follow-up story after CARDSIMPLE-1 (Recommended)",
+        "Fold into CARDSIMPLE-1 T1",
+        "Leave as is"
+      ],
+      "chosen": "Follow-up story after CARDSIMPLE-1 (Recommended)"
+    }
+  ],
+  "at": "2026-09-01T02:50:59.739725+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
