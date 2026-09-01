@@ -1,4 +1,4 @@
-import { partitionStoredRuleCapabilityErrors } from '../../config/settings/settings-fleet-import.js';
+import { partitionStoredRuleCapabilityErrors } from '../../shared/stored-rule-capability-errors.js';
 import fs from 'node:fs';
 import path from 'node:path';
 

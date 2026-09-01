@@ -1,4 +1,4 @@
-import { partitionStoredRuleCapabilityErrors } from './settings-fleet-import.js';
+import { partitionStoredRuleCapabilityErrors } from '../../shared/stored-rule-capability-errors.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { AgentId } from '../../domain/agent/agent.js';
 import {
