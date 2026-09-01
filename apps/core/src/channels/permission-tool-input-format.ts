@@ -5,11 +5,15 @@ import {
   summarizeBashCommandPrograms,
 } from '../shared/bash-command-parser.js';
 import { generatedRuntimeSkillPathDisplay } from '../shared/generated-runtime-paths.js';
+import { isFamilyRunCommandRule } from '../shared/family-rule-synthesis.js';
+import { parseReadableScopedToolRule } from '../shared/agent-tool-references.js';
+import { firstPersistentRule } from '../domain/permission-decision.js';
 import {
   stripHostInjectedEnvPrefix,
   stripRuntimeEnvPrefix,
 } from '../shared/runtime-env-command.js';
 import { escapeMarkdownFenceDelimiters } from './permission-fenced-content.js';
+import { sanitizePermissionText } from './permission-text-sanitizer.js';
 
 const PERMISSION_JSON_MAX_KEYS = 12;
 const PERMISSION_JSON_MAX_ARRAY_ITEMS = 8;
@@ -44,6 +48,24 @@ type PermissionTextSanitizer = (
   head: number,
   tail: number,
 ) => string;
+
+// The immediate action shows the exact command, but "Allow for future"
+// persists the broader command-family rule - say so on the card instead of
+// widening authority silently. Null for non-family rules, so non-command and
+// semantic prompts are untouched.
+export function familyScopeCoverageLines(
+  request: PermissionApprovalRequest,
+): string[] {
+  const command = request.toolInput?.command ?? request.toolInput?.cmd;
+  if (typeof command !== 'string' || !command.trim()) return [];
+  const rule = firstPersistentRule(request);
+  if (!rule || !isFamilyRunCommandRule(rule)) return [];
+  const scoped = parseReadableScopedToolRule(rule);
+  if (!scoped) return [];
+  return [
+    `Allow for future covers: ${sanitizePermissionText(scoped.scope, 120, 40)}`,
+  ];
+}
 
 export function permissionRiskLines(
   request: PermissionApprovalRequest,
