@@ -2526,7 +2526,7 @@
         "CARDSIMPLE-1"
       ],
       "origin": "adhoc",
-      "spec_debt_reason": "spec drafted and twice sol@xhigh-validated (docs/specs/askfloor-1-judge-actually-judges.md); confirm ceremony runs when the story is queued after CARDSIMPLE-1"
+      "spec": "docs/specs/askfloor-1-judge-actually-judges.md"
     },
     {
       "key": "CARDSIMPLE-2",
@@ -2569,5 +2569,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-09-02T08:41:44+00:00"
+  "updated_at": "2026-09-02T10:29:30+00:00"
 }

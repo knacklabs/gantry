@@ -1,7 +1,7 @@
 ---
 slug: askfloor-1-judge-actually-judges
 title: ASKFLOOR-1 — The judge actually judges: context-aware asks in auto mode
-status: draft
+status: confirmed
 saved: 2026-09-02T10:28:22+00:00
 ---
 

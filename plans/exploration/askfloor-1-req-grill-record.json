@@ -3,7 +3,7 @@
   "gate": "requirements",
   "issue": "ASKFLOOR-1",
   "verdict": "pass",
-  "questions_asked": 8,
+  "questions_asked": 4,
   "gaps": [
     "B1 (blocker, contract-gap): the routing seam was not pinned \u2014 permission-classifier.ts only exposes eligibility and the named runtime directory is absent, so the refusal\u2192ask branch was unspecified.",
     "B2 (blocker, decision-conflict): AC3 made Allow-once reusable and promised scheduled-job benefit, conflicting with permission-decision-expiry.ts (immediate expiry), decisions 0040/0043 (once is never reusable) and 0121 (jobId-bearing decisions are pure functions of declared grants).",
@@ -46,42 +46,6 @@
   ],
   "rounds": [
     {
-      "question": "Attachments you send in the chat: today reading one costs up to 3 taps, and the spec as written keeps 'attachment reads' in its fail-closed list. Should a file the requester sent in this conversation be readable with zero taps (birthright), while attachments from anyone else stay judged?",
-      "options": [
-        "Requester-sent = zero taps (Recommended)",
-        "Keep judging all attachments"
-      ],
-      "chosen": "Let it read all attachments, it's already there in chat why need a permission again",
-      "frontier_empty": false
-    },
-    {
-      "question": "Scheduled jobs: the spec promises 'a scheduled job stops re-asking every run' (AC3) but decision 0121 says the autonomous lane never consults the learned-decision memory. Which way?",
-      "options": [
-        "Drop the job promise from AC3 (Recommended)",
-        "Jobs consult learned decisions as grants"
-      ],
-      "chosen": "Jobs consult learned decisions as grants",
-      "frontier_empty": false
-    },
-    {
-      "question": "What does a tap mean? The spec currently learns BOTH 'Allow once' and 'Allow for future'. Fable's UX read: once must never be remembered; the remembered choice should be the default button.",
-      "options": [
-        "Allow (remembered) default; Just once; No (Recommended)",
-        "Keep once-only as the default"
-      ],
-      "chosen": "Allow (remembered) default; Just once; No (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "Folder scope: your 10-taps-in-3-minutes run was all reads under ~/Workdir. Should an Allow offer 'this folder from now on', learned as a trusted root, so later reads there are deterministic yes (no judge, no tap) \u2014 also removing the read storm if the judge is ever down?",
-      "options": [
-        "Yes, offer a folder scope (Recommended)",
-        "No, rely on the judge"
-      ],
-      "chosen": "Be generic not just a folder. Ask again for more",
-      "frontier_empty": false
-    },
-    {
       "question": "Generic scope: when you tap Allow, what should it be possible to remember? Pick every dimension the tap may offer (the card shows only the ones that apply to that ask).",
       "options": [
         "This exact action",
@@ -122,5 +86,5 @@
       "frontier_empty": true
     }
   ],
-  "summary": "PASS \u2014 requirements grill of the amended ASKFLOOR-1 spec: Codex sol@xhigh cold-read (3 blockers, 2 gaps) + Fable 5.1 UX lane (9 polish items, 3 contradictions) + terra@high seam map; all resolved by six ledgered owner rulings and the seam map, folded into the spec source (\u00a71-\u00a73, AC3/AC4/AC5, new AC8) and decision 0153 (amends 0121)."
+  "summary": "REQUIREMENTS GATE \u2014 the confirmed spec re-grilled against current repo reality (seam map file:lines; scope/default/writes/outage rulings). PASS \u2014 requirements grill of the amended ASKFLOOR-1 spec: Codex sol@xhigh cold-read (3 blockers, 2 gaps) + Fable 5.1 UX lane (9 polish items, 3 contradictions) + terra@high seam map; all resolved by six ledgered owner rulings and the seam map, folded into the spec source (\u00a71-\u00a73, AC3/AC4/AC5, new AC8) and decision 0153 (amends 0121)."
 }
