@@ -982,7 +982,7 @@ describe('agent capability composition', () => {
     ]);
   });
 
-  it('does not expose remote MCP servers directly to the SDK', () => {
+  it('exposes reviewed remote MCP servers directly to the SDK', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
@@ -997,11 +997,14 @@ describe('agent capability composition', () => {
       externalMcpAlwaysAllowedTools: ['mcp__github__search_repositories'],
     });
 
-    expect(profile.mcpServers.github).toBeUndefined();
-    expect(profile.allowedTools).not.toContain(
+    expect(profile.mcpServers.github).toEqual({
+      type: 'http',
+      url: 'https://mcp.example.test/github',
+    });
+    expect(profile.allowedTools).toContain('mcp__github__search_repositories');
+    expect(profile.alwaysAllowedTools).toEqual([
       'mcp__github__search_repositories',
-    );
-    expect(profile.alwaysAllowedTools).toEqual([]);
+    ]);
   });
 
   it('hides authority-changing request/admin tools but keeps safe baseline', () => {

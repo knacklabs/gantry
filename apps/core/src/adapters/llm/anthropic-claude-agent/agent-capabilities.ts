@@ -409,12 +409,8 @@ function selectedAdminMcpToolNames(
   return [...names].sort();
 }
 
-function isPublicExternalMcpServerConfig(
-  name: string,
-  config: McpServerConfig,
-): boolean {
-  if (!isPublicExternalMcpServerName(name)) return false;
-  return config.type !== 'http' && config.type !== 'sse';
+function isPublicExternalMcpServerConfig(name: string): boolean {
+  return isPublicExternalMcpServerName(name);
 }
 
 const PUBLIC_EXTERNAL_MCP_TOOL_RULE_RE =

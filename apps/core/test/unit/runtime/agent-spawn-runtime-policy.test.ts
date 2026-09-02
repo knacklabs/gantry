@@ -219,15 +219,18 @@ describe('agent spawn runtime policy', () => {
     });
   });
 
-  it('does not directly project remote MCP sources to runner config', () => {
+  it('projects reviewed remote MCP sources to runner config', () => {
     const projection = resolveRunnerMcpProjection(DEFAULT_AGENT_ENGINE, {
       runtimeAccess: reviewedGithubRuntimeAccess(),
       mcpSourceRecords: [githubMcpRecord('http')],
     });
 
     expect(projection).toEqual({
-      reviewedMcpToolNames: [],
-      projectedMcpSourceIds: [],
+      reviewedMcpToolNames: [
+        'mcp__github__issues.create',
+        'mcp__github__search_repositories',
+      ],
+      projectedMcpSourceIds: ['mcp:github'],
     });
   });
 });
