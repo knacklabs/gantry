@@ -1,10 +1,3 @@
----
-slug: askfloor-1-judge-actually-judges
-title: ASKFLOOR-1 — The judge actually judges: context-aware asks in auto mode
-status: draft
-saved: 2026-09-02T05:24:05+00:00
----
-
 # ASKFLOOR-1 — The judge actually judges: context-aware asks in auto mode
 
 Story: ASKFLOOR-1
