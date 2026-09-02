@@ -1,0 +1,39 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Attachments you send in the chat: today reading one costs up to 3 taps, and the spec as written keeps 'attachment reads' in its fail-closed list. Should a file the requester sent in this conversation be readable with zero taps (birthright), while attachments from anyone else stay judged?",
+      "options": [
+        "Requester-sent = zero taps (Recommended)",
+        "Keep judging all attachments"
+      ],
+      "chosen": null
+    },
+    {
+      "question": "Scheduled jobs: the spec promises 'a scheduled job stops re-asking every run' (AC3) but decision 0121 says the autonomous lane never consults the learned-decision memory. Which way?",
+      "options": [
+        "Drop the job promise from AC3 (Recommended)",
+        "Jobs consult learned decisions as grants"
+      ],
+      "chosen": "Jobs consult learned decisions as grants"
+    },
+    {
+      "question": "What does a tap mean? The spec currently learns BOTH 'Allow once' and 'Allow for future'. Fable's UX read: once must never be remembered; the remembered choice should be the default button.",
+      "options": [
+        "Allow (remembered) default; Just once; No (Recommended)",
+        "Keep once-only as the default"
+      ],
+      "chosen": "Allow (remembered) default; Just once; No (Recommended)"
+    },
+    {
+      "question": "Folder scope: your 10-taps-in-3-minutes run was all reads under ~/Workdir. Should an Allow offer 'this folder from now on', learned as a trusted root, so later reads there are deterministic yes (no judge, no tap) \u2014 also removing the read storm if the judge is ever down?",
+      "options": [
+        "Yes, offer a folder scope (Recommended)",
+        "No, rely on the judge"
+      ],
+      "chosen": null
+    }
+  ],
+  "at": "2026-09-02T08:44:56.540546+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
