@@ -409,7 +409,10 @@ function selectedAdminMcpToolNames(
   return [...names].sort();
 }
 
-function isPublicExternalMcpServerConfig(name: string): boolean {
+function isPublicExternalMcpServerConfig(
+  name: string,
+  _config: McpServerConfig,
+): boolean {
   return isPublicExternalMcpServerName(name);
 }
 
