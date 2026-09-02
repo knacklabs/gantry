@@ -85,17 +85,25 @@ def merge_task_detail(
 
 
 def _plan_evidence(
-    base: Path, plan: dict | None, derived_rows: list[dict] | None = None,
+    base: Path, story_key: str, plan: dict | None,
+    derived_rows: list[dict] | None = None,
 ) -> tuple[dict | None, dict, list]:
     """Stage progress, gate evidence, and the story's real task list.
 
-    Tasks exist only once a story's plan is approved and decomposed, so an
-    unplanned story returns none rather than inventing children.
+    Tasks exist once a story is decomposed. A live story reads them via its plan
+    record; a SHIPPED story's plan has moved out of plans/active|completed (to
+    completed/, debt/, or elsewhere), so fall back to the story key and read the
+    archived decomposition directly — otherwise a shipped story's task graph
+    silently disappears from the board. An unplanned story (no plan AND no
+    recorded decomposition) returns none rather than inventing children.
     """
     empty_reviews = {aspect: False for aspect in ("quality", "performance", "security")}
-    if not plan:
+    story = str((plan or {}).get("story") or (plan or {}).get("issue")
+                or story_key or "")
+    decomposition = (load_json(evidence_path(base, story, "decomposition.json"),
+                               default={}) if story else {})
+    if not plan and not decomposition.get("tasks"):
         return None, {"verify": False, "tests": False, "reviews": empty_reviews}, []
-    story = str(plan.get("story") or plan.get("issue") or "")
     stages_data = load_json(evidence_path(base, story, "stages.json"), default={})
     stages = stages_data.get("stages", [])
     progress = None
@@ -104,10 +112,7 @@ def _plan_evidence(
             "done": sum(1 for stage in stages if stage.get("status") == "done"),
             "total": len(stages),
         }
-    tasks = merge_task_detail(
-        load_json(evidence_path(base, story, "decomposition.json"), default={}),
-        stages, derived_rows,
-    )
+    tasks = merge_task_detail(decomposition, stages, derived_rows)
     # The same predicates pr_ready gates on: a tick here must mean the gate
     # would open, not merely that a file is on disk.
     recorded = load_json(evidence_path(base, story, "tests.json"), default={})
@@ -291,7 +296,8 @@ def aggregate_state(base: Path) -> dict:
         story = dict(item)
         plan = plan_by_story.get(item.get("key"))
         progress, evidence, tasks = _plan_evidence(
-            base, plan, live_task_rows if item.get("key") == active else None,
+            base, item.get("key"), plan,
+            live_task_rows if item.get("key") == active else None,
         )
         story["ready_to_plan"] = item.get("key") in frontier
         story["plan"] = plan
@@ -304,7 +310,7 @@ def aggregate_state(base: Path) -> dict:
         story["lifecycle"] = {
             "spec": spec_status.get(item.get("spec"), "missing"),
             "roadmap": True,
-            "planned": plan is not None,
+            "planned": plan is not None or bool(tasks),
             "stages": progress,
             "verify": evidence["verify"],
             "tests": evidence["tests"],

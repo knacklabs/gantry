@@ -678,11 +678,40 @@ for candidate in write_targets:
 # for the plan UI, never for product or canon writes.
 guard_product_writes(write_targets, root,
                      command=command if tool_name == "Bash" else "")
-literal_command = command.replace("''", "").replace('""', "")
+# A heredoc whose ONLY consumer is a data sink (cat/tee/printf/echo writing
+# to a file) is data, never argv: its body is dropped before the companion
+# classification so a note that mentions the companion, or holds a quote or
+# backtick that breaks shlex, is not mistaken for a launch. Every other shape
+# keeps its body and is classified as before — a body fed to sh/node/xargs,
+# through a pipe, or followed by more text CAN carry a launch (`sh <<EOF`,
+# `cat <<EOF | sh`), so nothing outside this exact shape is stripped.
+HEREDOC_SINK_ARGV0 = {"cat", "tee", "printf", "echo"}
+HEREDOC_NOTE = re.compile(
+    r"\A(?P<head>[^\n]*?)<<-?[ \t]*(?P<q>['\"]?)(?P<word>\w+)(?P=q)"
+    r"(?P<tail>[^\n]*)\n(?P<body>.*?)\n(?P=word)[ \t]*\n?\Z", re.DOTALL)
+
+
+def _strip_note_heredoc(text: str) -> str:
+    match = HEREDOC_NOTE.match(text)
+    if match is None:
+        return text
+    head, tail = match.group("head"), match.group("tail")
+    argv0 = re.match(r"[ \t]*(?:\w+=\S*[ \t]+)*([^\s<>|;&]+)", head)
+    if (
+        argv0 is None
+        or Path(argv0.group(1)).name not in HEREDOC_SINK_ARGV0
+        or re.search(r"[|;&`]|\$\(", head + tail)
+    ):
+        return text
+    return text[:match.start("body")] + text[match.end("body"):]
+
+
+classify_command = _strip_note_heredoc(command)
+literal_command = classify_command.replace("''", "").replace('""', "")
 shell_shape = re.sub(
     r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*", "", literal_command)
 try:
-    shell_tokens = shlex.split(command)
+    shell_tokens = shlex.split(classify_command)
 except ValueError:
     if (
         tool_name == "Bash"
@@ -700,7 +729,7 @@ compact_command = re.sub(r"[^a-z0-9]", "", shell_shape.lower())
 has_companion = (
     re.search(r"\bcodex-companion(?:\.mjs)?\b", shell_shape) is not None
     or re.search(r"\$(?:\{)?(?=[A-Za-z_])[A-Za-z0-9_]*companion[A-Za-z0-9_]*",
-                 command, re.IGNORECASE) is not None
+                 classify_command, re.IGNORECASE) is not None
     or any(re.fullmatch(r"codex-companion(?:\.mjs)?", Path(token).name)
            for token in shell_tokens)
     or "codexcompanion" in compact_command
@@ -712,8 +741,12 @@ has_companion = (
 # the companion is either a safe display command (rg/cat/...) or an
 # unverifiable launch, which is denied: shell text cannot bound a child
 # interpreter's computed argv, so we never try.
-READONLY_COMPANION_VERBS = {"status", "task", "task-resume-candidate"}
-READONLY_COMPANION_FLAGS = {"--model", "--effort", "--json"}
+# `result <job-id>` only prints a stored job's output — the fetch path for a
+# backgrounded read-only /codex:rescue run; `--background` merely detaches a
+# read-only `task`. Neither can write (writes need --write, never allowlisted).
+# `cancel`, `setup` and `task-worker` mutate state and stay denied.
+READONLY_COMPANION_VERBS = {"status", "task", "task-resume-candidate", "result"}
+READONLY_COMPANION_FLAGS = {"--model", "--effort", "--json", "--background"}
 COMPANION_NAME = re.compile(r"codex-companion(?:\.mjs)?")
 # No shell-capable pagers (less/more run "+!cmd" startup commands).
 DISPLAY_SAFE_ARGV0 = {
@@ -722,10 +755,24 @@ DISPLAY_SAFE_ARGV0 = {
 }
 
 
+# Exec-capable or non-terminating options among DISPLAY_SAFE_ARGV0 tools,
+# per tool: rg --pre / --pre-glob run a preprocessor command; tail -f / -F /
+# --follow / --pid follow forever. Every other flag (grep -n, rg -i, tail -n,
+# ls -la, head -c ...) only reads or formats, so a display command that
+# merely MENTIONS the companion may carry them. Pager-style `+` tokens stay
+# denied. Per tool, because `-f` is a harmless read flag for grep/stat.
+DISPLAY_EXEC_OPTIONS = {
+    "rg": ("--pre",),
+    "tail": ("-f", "-F", "--follow", "--pid"),
+}
+
+
 def _display_safe(tokens):
-    """Display command with NO option tokens: some display tools grow
-    exec options (rg --pre, tail --pid); bare invocations have none."""
-    return not any(t.startswith(("-", "+")) for t in tokens[1:])
+    """Display command whose options cannot execute or hang."""
+    denied = DISPLAY_EXEC_OPTIONS.get(Path(tokens[0]).name, ())
+    return not any(
+        t.startswith("+") or t.startswith(denied) for t in tokens[1:]
+    )
 
 
 def _has_active_shell_syntax(value: str) -> bool:
