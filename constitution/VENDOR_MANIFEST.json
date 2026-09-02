@@ -1,5 +1,5 @@
 {
-  "harness_commit": "6e4d95e4b91014590f8efa161c80cd3eadc39eff",
+  "harness_commit": "16041dcb620a88a52ee3e50ddb706a9eb4cf1c84",
   "files": {
     "factory/scripts/check_agents_hygiene.py": "63b5db9b788ebc55d3542af506566ab8d45ba7c7f588a6f93e78d3811d0003c4",
     "factory/scripts/check_board_complete.py": "75022051af7cc2928039641ba2ef1a5f31e45e6b5c1651e15c2213cca6c6a7a0",
@@ -16,7 +16,7 @@
     "factory/scripts/forge_cli/adopt.py": "b6d34e97ba5967447d5aa8dfa2c7ae5dfffcf0aea2d34f16c7d11839bf11a63c",
     "factory/scripts/forge_cli/assumptions.py": "474ce594e8d1348487d12545310894eebd60b382ef969ce9cdce049c56e7b8a6",
     "factory/scripts/forge_cli/audit.py": "125d9b853b5a45a1a5783b6f9d7ac4b3be86eef367ec34edfc5144da1c21c12c",
-    "factory/scripts/forge_cli/board.py": "403e8fc66c7ecbe43fccefb4a06c1b823aab4ab00a618712502f0d502574638e",
+    "factory/scripts/forge_cli/board.py": "0c593fca9be02ab0ceb5cdc18547b1f08ab52bd910f061ff7de11f3583356dfb",
     "factory/scripts/forge_cli/ceremony.py": "f31653141a89562c84e04ecdc5cd438d68353230f364149301c367e2e91aa7fd",
     "factory/scripts/forge_cli/codex_status.py": "9bb92d099f86e3943236a4b583edaf8d94a72fdda78f8983392b867a282b03ba",
     "factory/scripts/forge_cli/common.py": "a5db9b7c577f869a0c856b3d9c9a20b34ea764b1e4439b5ad40f583119414e17",
@@ -55,7 +55,7 @@
     "factory/scripts/post_tool_use.py": "b56fcb933df3b1c43f6ad13fd4ae320c147e8cce5cfd948d34fb096be7684e20",
     "factory/scripts/pr_ready.py": "0a51cabc77693c3bb8522b08027b7b81b3bbdd6e900bdb0f53cb5c94f094adfd",
     "factory/scripts/pre_compact.py": "ad65f7caae8510711e334d0254a42fbb0df1a314fb1ea635b088f000862a8486",
-    "factory/scripts/pre_tool_use.py": "79f1051ffcad0ee5eb5b1cc1abacf2bbbd077577e37ecb675342947541363b18",
+    "factory/scripts/pre_tool_use.py": "c35c0f819ce0bf60fc6b5cd5bd890b3a5b2cc69e34121cb4b55b6c6ab727797c",
     "factory/scripts/record_decomposition_from_json.py": "bb0b6a961927bcaf88cae1c62d6de2cb26fa460cfc3beddd0cf6155f0d3e0838",
     "factory/scripts/record_grill_from_json.py": "376a96f4eb29a1a6dfb218727ba26ad662bca807422b3c699207e11054e26e2c",
     "factory/scripts/record_review_from_json.py": "4827b6fbbdf0168720fcaba9818584bade5dd2743ad9f16b6bac2b7a852384dc",
