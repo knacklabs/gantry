@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Task order for implementation: the plan runs T1 (routing fix: judge's verdict stands for rail-refused reads) first, then T2a/T2b (the default-allow table). The default-allow table alone removes most browser/file/scheduler-read taps; the routing fix removes the shell-read taps. Which first?",
+      "options": [
+        "T1 routing first (Recommended)",
+        "Default-allow table first"
+      ],
+      "chosen": "T1 routing first (Recommended)"
+    },
+    {
+      "question": "The amended story plan (default-allow posture, decision 0155 accepted, rounds 20\u201325 folded, spec re-confirmed) is ready to save for your re-approval. Re-approve it now?",
+      "options": [
+        "Re-approve (Recommended)",
+        "Not yet"
+      ],
+      "chosen": "Re-approve (Recommended)"
+    }
+  ],
+  "at": "2026-09-03T19:20:35.188909+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

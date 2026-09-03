@@ -3,7 +3,7 @@
   "gate": "plan",
   "issue": "ASKFLOOR-1",
   "verdict": "pass",
-  "questions_asked": 12,
+  "questions_asked": 2,
   "gaps": [
     "T1 widened auto_strict (r1)",
     "find relaxation was a shared-parser change feeding family synthesis + durable rules (r1)",
@@ -18,7 +18,9 @@
     "0118 acting-person scope (r2, r3, r10, r11)",
     "outage status from failureCode alone (r2, r3, r5)",
     "attachment_open birthright contradiction (r6)",
-    "remembering not write-gated (r13, r14, r15, r16, r17)"
+    "remembering not write-gated (r13, r14, r15, r16, r17)",
+    "T1 task-grill r6: story plan \u00a71 decision order, analysis shape and coordinator ownership diverged from the JIT-refined T1 contract",
+    "Owner ruling 2026-09-03 (default-allow posture) and rounds 21-25: send_message row unreachable; registry mutation sets; /permissions not an auto-allow ledger; browser file_attach/file_upload raw-path matrix; file discriminated predicate; stale matrix clauses"
   ],
   "contradictions": [
     "exact-write key excluded content vs effect hash includes it",
@@ -50,7 +52,9 @@
     "Owner (2026-09-02): attachment_open = rails birthright in every mode",
     "Owner (2026-09-03): /permissions = buttons on 10 newest + /permissions all + forget <id>",
     "Owner (2026-09-03): groups = no remembering at all",
-    "Convention (not owner-level): active current-rails records only in /permissions all; 6-char uuid prefixes, ambiguity never mutates; approver label snapshotted at decision time; excluded lanes keep durable-rule controls"
+    "Convention (not owner-level): active current-rails records only in /permissions all; 6-char uuid prefixes, ambiguity never mutates; approver label snapshotted at decision time; excluded lanes keep durable-rule controls",
+    "GAP story plan \u00a71 vs T1 contract: story plan amended (authoritative order incl. conditional trusted-root handling and classifier-cache read; AutoLaneAnalysis {lane, readOnlyMetaExecutor}; domain-owned lane types; A-0069 shared coordinator seam; canonical railProvenance over signed IPC), re-grilled at r20 (plan text + plans/assumptions.md)",
+    "GAP default-allow rounds 21-25: plan AC1/AC2/AC4, Scope, \u00a72, T2b, Decisions, Risks, Surface Impact rewritten to ONE typed risk table (default LOW; closed rows = destructive/protected writes incl. raw-path browser file actions, registry scheduler + admin exports incl. DELEGATION_DISPATCHERS; ambiguous \u2192 classifier; send_message principle only); decision 0155 accepted by Ravi 2026-09-04; spec re-grilled r5-r7 and re-confirmed. Residual r25 wording folded without a further round (owner asked to stop looping; the two items were stale clauses, no safety content)."
   ],
   "citations": [
     "apps/core/src/runtime/ipc-permission-classifier-decision.ts:67-74,95-119,173-452",
@@ -65,117 +69,26 @@
   ],
   "rounds": [
     {
-      "question": "'Exact action' for file writes: the effect hash today includes the full tool input (the content). Remembering a write by PATH only means a future write of ANY content to that path is pre-approved; by full content it never matches again (you'd be asked every edit). Which?",
+      "question": "Task order for implementation: the plan runs T1 (routing fix: judge's verdict stands for rail-refused reads) first, then T2a/T2b (the default-allow table). The default-allow table alone removes most browser/file/scheduler-read taps; the routing fix removes the shell-read taps. Which first?",
       "options": [
-        "Path only (Recommended)",
-        "Full content"
+        "T1 routing first (Recommended)",
+        "Default-allow table first"
       ],
-      "chosen": "Path only (Recommended)",
+      "chosen": "T1 routing first (Recommended)",
       "frontier_empty": false
     },
     {
-      "question": "/permissions already exists as a central chat command that shows and sets the permission MODE. How should learned decisions appear?",
+      "question": "The amended story plan (default-allow posture, decision 0155 accepted, rounds 20\u201325 folded, spec re-confirmed) is ready to save for your re-approval. Re-approve it now?",
       "options": [
-        "One command: mode + remembered list (Recommended)",
-        "Subcommand /permissions remembered"
+        "Re-approve (Recommended)",
+        "Not yet"
       ],
-      "chosen": "One command: mode + remembered list (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "How should learned decisions reach a scheduled job? Evaluated live on every job permission request (revocable instantly via Forget) or materialized into the job's own grants when the job is created/updated (stable, but Forget doesn't reach already-materialized jobs)?",
-      "options": [
-        "Live, revocable per request (Recommended)",
-        "Materialize into job grants"
-      ],
-      "chosen": "Live, revocable per request (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "The judge-offline notice: 'once per conversation per outage episode' \u2014 is process-local best effort enough (today's runtime is a single launchd process), or must it be cluster-durable across runtimes?",
-      "options": [
-        "Process-local best effort (Recommended)",
-        "Cluster-durable"
-      ],
-      "chosen": "Process-local best effort (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "In /permissions, a remembered decision can say which scheduled jobs it covers. Show only jobs that have ACTUALLY used it (from the job's permission audit trail) or every job that MIGHT match it in future?",
-      "options": [
-        "Actually used (Recommended)",
-        "Might match"
-      ],
-      "chosen": "Actually used (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "A card that already has a CARDSIMPLE-1 family rule ('Allow for future: all npx vitest commands') would now show two remembering buttons: the new [Allow] plus the family one. How should that card look?",
-      "options": [
-        "One remembering button (Recommended)",
-        "Keep both"
-      ],
-      "chosen": "One remembering button (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "The `file` tool has no capability id: it is on the default tool surface and its list/read address the agent's OWN artifact store, not the filesystem. Does enabling the baseline tool itself satisfy AF-AC2's 'approved capability' clause for silent list/read, or must silent reads wait for a new literal capability id?",
-      "options": [
-        "Baseline tool suffices (Recommended)",
-        "Require a capability id"
-      ],
-      "chosen": "Baseline tool suffices (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "In a group chat, when a member taps Allow/No and the host cannot resolve WHO tapped (no acting person id), what should happen?",
-      "options": [
-        "Don't remember; treat as once (Recommended)",
-        "Shared group memory"
-      ],
-      "chosen": "Don't remember; treat as once (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "Batch cards (several permission asks coalesced into one card with Allow all / Review each / Deny all) have no single scope to remember. Should batch cards stay once-only, with remembering available only when you tap 'Review each' and decide the members one by one?",
-      "options": [
-        "Batches stay once-only (Recommended)",
-        "Remember per member"
-      ],
-      "chosen": "Batches stay once-only (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "Reading an attachment already in the chat (`attachment_open`): should it skip the card ONLY in auto mode (as a low-risk action the judge path allows), or in every mode including ask and auto_strict (a true birthright in the deterministic rails)?",
-      "options": [
-        "Auto mode only (Recommended)",
-        "Every mode (rails birthright)"
-      ],
-      "chosen": "Every mode (rails birthright)",
-      "frontier_empty": false
-    },
-    {
-      "question": "/permissions shows the 10 newest remembered decisions with Forget buttons. AF-AC8 says you can forget EVERY learned decision. How should older records be reached?",
-      "options": [
-        "Text list + forget by id (Recommended)",
-        "Rolling 10 only",
-        "Paged buttons"
-      ],
-      "chosen": "Text list + forget by id (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "In a group chat the agent's request has no 'memory person' (decision 0118), so even after someone taps Allow, the next identical request has no person's memory to consult and would ask again. What should groups do?",
-      "options": [
-        "Groups: no remembering, act once (Recommended)",
-        "Consult the group's approvers"
-      ],
-      "chosen": "Groups: no remembering, act once (Recommended)",
+      "chosen": "Re-approve (Recommended)",
       "frontier_empty": true
     }
   ],
-  "summary": "PLAN GATE - 19 Codex gpt-5.6-sol@xhigh read-only cold-read rounds (briefs plans/exploration/askfloor-1-plan-grill-r1..r19.md; verdicts 10,7,8,6,5,4,5,5,4,2,2,1,1,1,1,2,2 blockers then PLAN SOUND at r18 and stability-confirmed at r19) + 9 Fable 5.1 UX lanes (plans/exploration/askfloor-1-fable-ux-validation-r2..r9) + terra@high seam exploration #3, all folded into the plan; 7 ledgered owner rounds (11 rulings). Decisions 0153 (rewritten around 0121's real invariant) and 0154 (generic scope; amends 0052/0118/0121) ready for acceptance at approval.",
-  "input_sha256": "0705a6165604b812f78bcb215926ba72fb0af1b400c402e90f62590294b3e72f",
-  "recorded_at": "2026-09-03T03:49:51+00:00",
-  "commit": "015816ec4aa5f800cb758a25bdcbe075ff209418"
+  "summary": "PLAN GATE - 19 Codex gpt-5.6-sol@xhigh read-only cold-read rounds (briefs plans/exploration/askfloor-1-plan-grill-r1..r19.md; verdicts 10,7,8,6,5,4,5,5,4,2,2,1,1,1,1,2,2 blockers then PLAN SOUND at r18 and stability-confirmed at r19; AMENDED 2026-09-03 after the T1 task grill: \u00a71 decision order/analysis shape/shared-file ownership (assumption A-0069) re-grilled at r20) + 9 Fable 5.1 UX lanes (plans/exploration/askfloor-1-fable-ux-validation-r2..r9) + terra@high seam exploration #3, all folded into the plan; 7 ledgered owner rounds (11 rulings). Decisions 0153 (rewritten around 0121's real invariant) and 0154 (generic scope; amends 0052/0118/0121) ready for acceptance at approval. Then OWNER RULING 2026-09-03 (default-allow gantry tools, browser included; simplify): spec + plan amended, decision 0155 accepted; plan rounds 21-25 (3,2,1,2,2 findings, all wording/consistency) folded; grilling stopped by owner request after r25 with the last two stale clauses folded.",
+  "input_sha256": "f290d7df8b19757c5167437693a69675038daea8378e6b6c17125351ace559f1",
+  "recorded_at": "2026-09-03T19:23:38+00:00",
+  "commit": "a6bbd02c4d274ab89e39307beb3266667223c47e"
 }
