@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { KeyRound } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { providerAssetById } from '../../../assets/providers';
 import {
   browserCsrfHeader,
@@ -17,6 +17,8 @@ import {
   DialogTitle,
 } from '../../../ui/primitives/dialog';
 import { Input } from '../../../ui/primitives/input';
+import { Textarea } from '../../../ui/primitives/textarea';
+import { SelectField } from '../../../ui/compositions/select-field';
 import {
   Tooltip,
   TooltipContent,
@@ -37,7 +39,7 @@ function providerStatus(provider: ModelProvider): ProviderStatus {
       label: 'Configured',
       variant: 'success',
       description:
-        'An active credential is stored. Verify it to check upstream access.',
+        'An active credential is stored. Check its Gantry configuration before use.',
     };
   }
   if (provider.health === 'disabled') {
@@ -144,34 +146,54 @@ export function ProviderDialog({
   const [notice, setNotice] = useState<string | null>(null);
   const [removalConfirmation, setRemovalConfirmation] = useState('');
   const [removalOpen, setRemovalOpen] = useState(false);
-  const mode =
-    provider?.credentialModes.find((item) => item.id === provider.authMode) ??
-    provider?.credentialModes[0];
+  const [selectedModeId, setSelectedModeId] = useState('');
+  useEffect(() => {
+    if (!provider) {
+      setSelectedModeId('');
+      setError(null);
+      setNotice(null);
+      return;
+    }
+    setSelectedModeId(
+      provider.authMode ??
+        (provider.credentialModes.length === 1
+          ? (provider.credentialModes[0]?.id ?? '')
+          : ''),
+    );
+  }, [provider?.providerId, provider?.authMode]);
+  const mode = provider?.credentialModes.find(
+    (item) => item.id === selectedModeId,
+  );
   const isDisabled = provider?.health === 'disabled';
+  const isSameMode = Boolean(provider && mode && provider.authMode === mode.id);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!provider || !mode) return;
-    setSaving(true);
     setError(null);
     const form = new FormData(event.currentTarget);
     const payload = Object.fromEntries(
-      mode.fields.map((field) => [
-        field.name,
-        String(form.get(field.name) ?? ''),
-      ]),
+      mode.fields.flatMap((field) => {
+        const value = String(form.get(field.name) ?? '').trim();
+        return value ? [[field.name, value]] : [];
+      }),
     );
+    if (isSameMode && !isDisabled && Object.keys(payload).length === 0) {
+      setError('Enter a value to update this credential.');
+      return;
+    }
+    setSaving(true);
     const response = await browserFetch(
       `/ui/api/model-providers/${encodeURIComponent(provider.providerId)}`,
       {
-        method: provider.configured ? 'PATCH' : 'PUT',
+        method: isSameMode ? 'PATCH' : 'PUT',
         credentials: 'same-origin',
         headers: {
           'content-type': 'application/json',
           ...browserCsrfHeader(),
         },
         body: JSON.stringify({
-          ...(provider.configured ? {} : { authMode: mode.id }),
+          ...(isSameMode ? {} : { authMode: mode.id }),
           payload,
         }),
       },
@@ -208,10 +230,10 @@ export function ProviderDialog({
     } | null;
     setSaving(false);
     if (!response.ok) {
-      setError('Credential verification could not be completed.');
+      setError('Configuration check could not be completed.');
       return;
     }
-    setNotice(body?.message ?? 'Credential verification finished.');
+    setNotice(body?.message ?? 'Configuration check finished.');
   }
 
   async function disable() {
@@ -288,30 +310,83 @@ export function ProviderDialog({
             </DialogTitle>
             <DialogDescription>
               {isDisabled
-                ? 'Saving a new credential re-enables this provider.'
+                ? 'Save changes to re-enable this provider.'
                 : 'Credential values are write-only and are never shown again.'}
             </DialogDescription>
           </DialogHeader>
-          {provider && mode ? (
-            <form className="grid gap-4" onSubmit={submit}>
+          {provider ? (
+            <form
+              className="grid gap-4"
+              key={`${provider.providerId}:${selectedModeId}`}
+              onSubmit={submit}
+            >
               {provider.requiredBy.length > 0 ? (
                 <p className="m-0 text-sm text-text-muted">
                   Required for {provider.requiredBy.join(', ')}.
                 </p>
               ) : null}
-              {mode.fields.map((field) => (
-                <label
-                  className="grid gap-1.5 text-sm font-medium"
-                  key={field.name}
-                >
-                  {field.label}
-                  <Input
-                    name={field.name}
-                    required={field.required}
-                    type={field.secret ? 'password' : 'text'}
-                  />
-                </label>
-              ))}
+              {provider.credentialModes.length > 1 ? (
+                <SelectField
+                  label="Authentication method"
+                  onValueChange={(next) => {
+                    setSelectedModeId(next);
+                    setError(null);
+                    setNotice(null);
+                  }}
+                  options={provider.credentialModes.map((item) => ({
+                    label: item.label,
+                    value: item.id,
+                  }))}
+                  placeholder="Choose a method"
+                  value={selectedModeId}
+                />
+              ) : null}
+              {mode ? (
+                <>
+                  <p className="m-0 text-sm text-text-secondary">
+                    {mode.helpText}
+                  </p>
+                  {isSameMode ? (
+                    <p className="m-0 text-sm text-text-muted">
+                      Leave a field blank to keep its stored value.
+                    </p>
+                  ) : provider.authMode ? (
+                    <p className="m-0 text-sm text-text-muted">
+                      Changing methods replaces the stored credential. Enter
+                      every required field for the new method.
+                    </p>
+                  ) : null}
+                  {mode.fields.map((field) => (
+                    <label
+                      className="grid gap-1.5 text-sm font-medium"
+                      key={field.name}
+                    >
+                      <span>
+                        {field.label}
+                        {provider.configuredFields.includes(field.name)
+                          ? ' (stored)'
+                          : ''}
+                      </span>
+                      {field.multiline ? (
+                        <Textarea
+                          name={field.name}
+                          required={!isSameMode && field.required}
+                        />
+                      ) : (
+                        <Input
+                          name={field.name}
+                          required={!isSameMode && field.required}
+                          type={field.secret ? 'password' : 'text'}
+                        />
+                      )}
+                    </label>
+                  ))}
+                </>
+              ) : (
+                <p className="m-0 text-sm text-text-muted">
+                  Choose an authentication method to continue.
+                </p>
+              )}
               {provider.health === 'ready' ? (
                 <div className="grid gap-2 rounded-md border border-danger/40 bg-danger/5 p-3">
                   <div>
@@ -356,7 +431,7 @@ export function ProviderDialog({
                     type="button"
                     variant="secondary"
                   >
-                    Verify credential
+                    Check configuration
                   </Button>
                 ) : null}
                 {provider.health === 'ready' ? (
@@ -369,13 +444,15 @@ export function ProviderDialog({
                     Disable provider
                   </Button>
                 ) : null}
-                <Button disabled={saving} type="submit">
+                <Button disabled={saving || !mode} type="submit">
                   <KeyRound aria-hidden="true" size={16} />
                   {saving
                     ? 'Saving…'
                     : provider.health === 'ready'
                       ? 'Update credential'
-                      : 'Save credential'}
+                      : isDisabled
+                        ? 'Re-enable provider'
+                        : 'Save credential'}
                 </Button>
               </DialogFooter>
             </form>
