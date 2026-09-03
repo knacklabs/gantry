@@ -175,7 +175,7 @@ The browser-only opt-in on the existing rotation service is preferred over chang
 | Gantry MCP/admin skill | Unchanged by design | No MCP credential-management surface participates in this browser flow. |
 | Channel/provider adapters | Read-only | Executable provider registry metadata is consumed; provider execution and SDK adapters do not change. |
 | UI | Changed | Shared dialog gains explicit method selection, help text, stored indicators, multiline input, sparse updates, and accurate copy. |
-| Docs/prompts | Changed | Credential architecture and confirmed capability spec document the browser-only reactivation contract. |
+| Docs/prompts | Unchanged by design | The required spec and credential-architecture resolutions are already committed; T1 and T2 add no further documentation. |
 | Audit/events | Unchanged by design | Existing credential-updated audit event is emitted only after successful upsert. |
 | Tests/verification | Changed | Focused service, registry, web request/state, and synthetic browser proof are required. |
 | Data/schema | Unchanged by design | No migration, table, column, or stored payload shape changes. |
@@ -186,7 +186,7 @@ The browser-only opt-in on the existing rotation service is preferred over chang
 
 `user_facing: false`
 
-Own the registry field hint, sanitized service metadata, browser-only rotation option, same-origin route opt-in, safe preflight response copy, and focused core tests.
+Own the registry field hint, sanitized service metadata, browser-only rotation option, same-origin route opt-in, safe preflight response copy, and focused core tests. The registry test iterates every executable provider and mode, asserting sanitized metadata retains allowed presentation hints and contains no credential values.
 
 Acceptance served: sparse PATCH atomicity; registry metadata and secret containment; honest configuration semantics; provider-mode coverage.
 
@@ -220,5 +220,4 @@ Expected shape: reuse existing `SelectField`, `Input`, `Textarea`, dialog, and i
 - `python3 scripts/check_architecture.py`
 - `python3 factory/scripts/verify.py`
 - One autoreview pass with quality, performance, and security lenses.
-- Functional browser check for Bedrock, Anthropic, Vertex, and one single-key provider using synthetic same-origin responses and no real credentials.
-
+- Registry-driven core coverage for every executable provider/mode plus synthetic browser checks for Bedrock, Anthropic, Vertex, and one single-key provider; these cover multi-select, sparse re-enable, replacement, multiline, and compact single-mode shapes without real credentials.
