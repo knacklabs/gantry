@@ -1,0 +1,39 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "'Exact action' for file writes: the effect hash today includes the full tool input (the content). Remembering a write by PATH only means a future write of ANY content to that path is pre-approved; by full content it never matches again (you'd be asked every edit). Which?",
+      "options": [
+        "Path only (Recommended)",
+        "Full content"
+      ],
+      "chosen": "Path only (Recommended)"
+    },
+    {
+      "question": "/permissions already exists as a central chat command that shows and sets the permission MODE. How should learned decisions appear?",
+      "options": [
+        "One command: mode + remembered list (Recommended)",
+        "Subcommand /permissions remembered"
+      ],
+      "chosen": "One command: mode + remembered list (Recommended)"
+    },
+    {
+      "question": "How should learned decisions reach a scheduled job? Evaluated live on every job permission request (revocable instantly via Forget) or materialized into the job's own grants when the job is created/updated (stable, but Forget doesn't reach already-materialized jobs)?",
+      "options": [
+        "Live, revocable per request (Recommended)",
+        "Materialize into job grants"
+      ],
+      "chosen": "Live, revocable per request (Recommended)"
+    },
+    {
+      "question": "The judge-offline notice: 'once per conversation per outage episode' \u2014 is process-local best effort enough (today's runtime is a single launchd process), or must it be cluster-durable across runtimes?",
+      "options": [
+        "Process-local best effort (Recommended)",
+        "Cluster-durable"
+      ],
+      "chosen": "Process-local best effort (Recommended)"
+    }
+  ],
+  "at": "2026-09-02T11:04:16.349121+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

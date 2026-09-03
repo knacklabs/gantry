@@ -1,0 +1,181 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "issue": "ASKFLOOR-1",
+  "verdict": "pass",
+  "questions_asked": 12,
+  "gaps": [
+    "T1 widened auto_strict (r1)",
+    "find relaxation was a shared-parser change feeding family synthesis + durable rules (r1)",
+    "coordinator lacked lane/job identity (r1)",
+    "human-decision semantics incomplete (r1-r4)",
+    "FileWrite seam wrong (r1, r5)",
+    "0153 amended a non-existent 0121 clause (r1, r7, r9)",
+    "/permissions already existed (r1, r7, r8)",
+    "tasks unbounded (r1, r2, r4, r10)",
+    "AF-AC8 S5 missing / ownership drift (r1, r7, r9, r16)",
+    "file capability contract (r2, r3)",
+    "0118 acting-person scope (r2, r3, r10, r11)",
+    "outage status from failureCode alone (r2, r3, r5)",
+    "attachment_open birthright contradiction (r6)",
+    "remembering not write-gated (r13, r14, r15, r16, r17)"
+  ],
+  "contradictions": [
+    "exact-write key excluded content vs effect hash includes it",
+    "0154 permitted remembered destructive Allow vs T5 forbade it",
+    "AF-AC3 'every interactive-auto tap learned' vs group/ask/strict/job once-only"
+  ],
+  "resolutions": [
+    "GAP T1 widened auto_strict (r1): lane guard permissionMode==='auto' && !hostJobId (plan text)",
+    "GAP find relaxation was a shared-parser change feeding family sy: auto-only typed AutoLaneAnalysis, parser fail-closed, nine write-capable find actions refused (plan text)",
+    "GAP coordinator lacked lane/job identity (r1): host-derived lane + rail decision computed once; ONE decision order: deny-first -> hard restrictions -> rails -> remembered allows -> tail (plan text)",
+    "GAP human-decision semantics incomplete (r1-r4): Allow AND No learned, typed remember DTO with closed codec set incl. recovery orchestrator, human_decision provenance codec, revokeById person-scoped (plan text)",
+    "GAP FileWrite seam wrong (r1, r5): classifier-caller helper with prospective-write containment; eligibility gate widened for Write/Edit only (plan text)",
+    "GAP 0153 amended a non-existent 0121 clause (r1, r7, r9): rewritten around 'pure function of declared grants', allow-only projection, superseded clauses enumerated, person-scoped fail-closed (plan text)",
+    "GAP /permissions already existed (r1, r7, r8): extended: mode + 10 newest with Forget, /permissions all + forget <id>; groups non-mutating (plan text)",
+    "GAP tasks unbounded (r1, r2, r4, r10): 10 tasks with named write scopes; three shared files pre-split into named helpers (plan text)",
+    "GAP AF-AC8 S5 missing / ownership drift (r1, r7, r9, r16): S1 T2a, S2 T3c, S3 T1, S4 T5a, S5 T5b, S6 T6, listing T5b; harness scaffolded by T1 (plan text)",
+    "GAP file capability contract (r2, r3): owner ruling: baseline file tool suffices; host-side list/read protection with scope-aware virtual predicate (plan text)",
+    "GAP 0118 acting-person scope (r2, r3, r10, r11): person-scoped rows with CHECK + two partial unique indexes; groups: no remembering (plan text)",
+    "GAP outage status from failureCode alone (r2, r3, r5): typed answered|unavailable|skipped stamped per branch, wiring_missing on both IPC and inline paths (plan text)",
+    "GAP attachment_open birthright contradiction (r6): owner ruling: rails birthright in every mode; 0154 amends 0052 + 0121 (plan text)",
+    "GAP remembering not write-gated (r13, r14, r15, r16, r17): host-stamped rememberEligible; ineligible lanes byte-for-byte today's cards (plan text)",
+    "CONTRADICTION exact-write key excluded content vs effect hash includes it: owner ruling path-only for Allow; No keeps full hash (r1, r9) (plan + decision 0154)",
+    "CONTRADICTION 0154 permitted remembered destructive Allow vs T5 forbade it: destructive remembers only No (r3) (plan + decision 0154)",
+    "CONTRADICTION AF-AC3 'every interactive-auto tap learned' vs group/ask/str: qualified by rememberEligible (r15, r16) (plan + decision 0154)",
+    "Owner (2026-09-02): path-only write exactness; one /permissions command; live revocable job projection; process-local outage latch",
+    "Owner (2026-09-02): covered-job = actual consumption only; one remembering button per card (family rule takes the alternative slot)",
+    "Owner (2026-09-02): baseline file tool satisfies AC2; no shared group memory (unresolved person -> once)",
+    "Owner (2026-09-02): batch cards stay once-only",
+    "Owner (2026-09-02): attachment_open = rails birthright in every mode",
+    "Owner (2026-09-03): /permissions = buttons on 10 newest + /permissions all + forget <id>",
+    "Owner (2026-09-03): groups = no remembering at all",
+    "Convention (not owner-level): active current-rails records only in /permissions all; 6-char uuid prefixes, ambiguity never mutates; approver label snapshotted at decision time; excluded lanes keep durable-rule controls"
+  ],
+  "citations": [
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts:67-74,95-119,173-452",
+    "apps/core/src/runtime/permission-decision-coordinator.ts:120-200,219-294",
+    "apps/core/src/shared/auto-permission-read-only-gate.ts:248-308",
+    "apps/core/src/domain/types.ts:249-280",
+    "apps/core/src/domain/permission-deterministic-rails.ts:53-103",
+    "apps/core/src/jobs/ipc-file-artifact-handlers.ts:109-147,168-175",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:375-445,503-540",
+    "docs/decisions/0118-identity-scoped-approval-and-grants.md:40-47",
+    "docs/decisions/0121-autodet-no-classifier-autonomous.md:24-45"
+  ],
+  "rounds": [
+    {
+      "question": "'Exact action' for file writes: the effect hash today includes the full tool input (the content). Remembering a write by PATH only means a future write of ANY content to that path is pre-approved; by full content it never matches again (you'd be asked every edit). Which?",
+      "options": [
+        "Path only (Recommended)",
+        "Full content"
+      ],
+      "chosen": "Path only (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "/permissions already exists as a central chat command that shows and sets the permission MODE. How should learned decisions appear?",
+      "options": [
+        "One command: mode + remembered list (Recommended)",
+        "Subcommand /permissions remembered"
+      ],
+      "chosen": "One command: mode + remembered list (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "How should learned decisions reach a scheduled job? Evaluated live on every job permission request (revocable instantly via Forget) or materialized into the job's own grants when the job is created/updated (stable, but Forget doesn't reach already-materialized jobs)?",
+      "options": [
+        "Live, revocable per request (Recommended)",
+        "Materialize into job grants"
+      ],
+      "chosen": "Live, revocable per request (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "The judge-offline notice: 'once per conversation per outage episode' \u2014 is process-local best effort enough (today's runtime is a single launchd process), or must it be cluster-durable across runtimes?",
+      "options": [
+        "Process-local best effort (Recommended)",
+        "Cluster-durable"
+      ],
+      "chosen": "Process-local best effort (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "In /permissions, a remembered decision can say which scheduled jobs it covers. Show only jobs that have ACTUALLY used it (from the job's permission audit trail) or every job that MIGHT match it in future?",
+      "options": [
+        "Actually used (Recommended)",
+        "Might match"
+      ],
+      "chosen": "Actually used (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "A card that already has a CARDSIMPLE-1 family rule ('Allow for future: all npx vitest commands') would now show two remembering buttons: the new [Allow] plus the family one. How should that card look?",
+      "options": [
+        "One remembering button (Recommended)",
+        "Keep both"
+      ],
+      "chosen": "One remembering button (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "The `file` tool has no capability id: it is on the default tool surface and its list/read address the agent's OWN artifact store, not the filesystem. Does enabling the baseline tool itself satisfy AF-AC2's 'approved capability' clause for silent list/read, or must silent reads wait for a new literal capability id?",
+      "options": [
+        "Baseline tool suffices (Recommended)",
+        "Require a capability id"
+      ],
+      "chosen": "Baseline tool suffices (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "In a group chat, when a member taps Allow/No and the host cannot resolve WHO tapped (no acting person id), what should happen?",
+      "options": [
+        "Don't remember; treat as once (Recommended)",
+        "Shared group memory"
+      ],
+      "chosen": "Don't remember; treat as once (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "Batch cards (several permission asks coalesced into one card with Allow all / Review each / Deny all) have no single scope to remember. Should batch cards stay once-only, with remembering available only when you tap 'Review each' and decide the members one by one?",
+      "options": [
+        "Batches stay once-only (Recommended)",
+        "Remember per member"
+      ],
+      "chosen": "Batches stay once-only (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "Reading an attachment already in the chat (`attachment_open`): should it skip the card ONLY in auto mode (as a low-risk action the judge path allows), or in every mode including ask and auto_strict (a true birthright in the deterministic rails)?",
+      "options": [
+        "Auto mode only (Recommended)",
+        "Every mode (rails birthright)"
+      ],
+      "chosen": "Every mode (rails birthright)",
+      "frontier_empty": false
+    },
+    {
+      "question": "/permissions shows the 10 newest remembered decisions with Forget buttons. AF-AC8 says you can forget EVERY learned decision. How should older records be reached?",
+      "options": [
+        "Text list + forget by id (Recommended)",
+        "Rolling 10 only",
+        "Paged buttons"
+      ],
+      "chosen": "Text list + forget by id (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "In a group chat the agent's request has no 'memory person' (decision 0118), so even after someone taps Allow, the next identical request has no person's memory to consult and would ask again. What should groups do?",
+      "options": [
+        "Groups: no remembering, act once (Recommended)",
+        "Consult the group's approvers"
+      ],
+      "chosen": "Groups: no remembering, act once (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "summary": "PLAN GATE - 19 Codex gpt-5.6-sol@xhigh read-only cold-read rounds (briefs plans/exploration/askfloor-1-plan-grill-r1..r19.md; verdicts 10,7,8,6,5,4,5,5,4,2,2,1,1,1,1,2,2 blockers then PLAN SOUND at r18 and stability-confirmed at r19) + 9 Fable 5.1 UX lanes (plans/exploration/askfloor-1-fable-ux-validation-r2..r9) + terra@high seam exploration #3, all folded into the plan; 7 ledgered owner rounds (11 rulings). Decisions 0153 (rewritten around 0121's real invariant) and 0154 (generic scope; amends 0052/0118/0121) ready for acceptance at approval.",
+  "input_sha256": "0705a6165604b812f78bcb215926ba72fb0af1b400c402e90f62590294b3e72f",
+  "recorded_at": "2026-09-03T03:49:51+00:00",
+  "commit": "015816ec4aa5f800cb758a25bdcbe075ff209418"
+}

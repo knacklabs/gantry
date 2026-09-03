@@ -1,6 +1,6 @@
 ---
-status: proposed
-confirmed_by: ""
+status: accepted
+confirmed_by: "Ravi"
 date: 2026-09-02
 stories: [ASKFLOOR-1]
 ---

@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "In a group chat the agent's request has no 'memory person' (decision 0118), so even after someone taps Allow, the next identical request has no person's memory to consult and would ask again. What should groups do?",
+      "options": [
+        "Groups: no remembering, act once (Recommended)",
+        "Consult the group's approvers"
+      ],
+      "chosen": "Groups: no remembering, act once (Recommended)"
+    }
+  ],
+  "at": "2026-09-03T02:36:13.288176+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

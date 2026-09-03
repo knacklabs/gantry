@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The `file` tool has no capability id: it is on the default tool surface and its list/read address the agent's OWN artifact store, not the filesystem. Does enabling the baseline tool itself satisfy AF-AC2's 'approved capability' clause for silent list/read, or must silent reads wait for a new literal capability id?",
+      "options": [
+        "Baseline tool suffices (Recommended)",
+        "Require a capability id"
+      ],
+      "chosen": "Baseline tool suffices (Recommended)"
+    },
+    {
+      "question": "In a group chat, when a member taps Allow/No and the host cannot resolve WHO tapped (no acting person id), what should happen?",
+      "options": [
+        "Don't remember; treat as once (Recommended)",
+        "Shared group memory"
+      ],
+      "chosen": "Don't remember; treat as once (Recommended)"
+    }
+  ],
+  "at": "2026-09-02T13:50:02.157774+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
