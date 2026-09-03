@@ -77,8 +77,7 @@
         "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
         "apps/core/test/unit/application/auto-lane-analysis.test.ts",
         "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
-        "apps/core/test/unit/shared/bash-command-parser.test.ts",
-        "apps/core/test/unit/shared/auto-permission-read-only-gate.test.ts"
+        "apps/core/test/unit/shared/bash-command-parser.test.ts"
       ],
       "verify_commands": [
         "python3 factory/scripts/verify.py",
@@ -123,7 +122,7 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "keeps the veto in interactive auto for find with a sensitive shape in the first operand, a later operand or a predicate value, for .., hidden and secret names, for -H -L or -follow, any redirect, a compound or a pipeline, and allows find . and find ./src -name *.ts",
+          "id": "keeps the veto in interactive auto for find with a sensitive shape in the first operand, a later operand or a predicate value, for .., hidden and secret names, for -H -L or -follow, for -files0-from or any indirect root option, any redirect, a compound or a pipeline, and allows find . and find ./src -name *.ts",
           "path": "apps/core/test/unit/application/auto-lane-analysis.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
@@ -143,6 +142,11 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
+          "id": "derives the analysis exactly once before coordination and passes it unchanged into tail(context)",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
           "id": "runs the complete decision order as named stages with the T3b no-op slots in place",
           "path": "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
@@ -155,7 +159,7 @@
       ],
       "reviewer_focus": [
         "Constitution (load-bearing): constitution/README.md -> pnp-coding-standards-modular-monolith.md (types/enums/errors/data-access/thin coordinator in separate files; typed enums over string literals) and 03-modular-monolith-structure.md (application vs runtime vs shared placement). Conformance, not a new layout.",
-        "PermissionLane, RailSignal and RailProvenance are DOMAIN-owned closed types (domain/permission-lane.ts) because domain/types.ts consumes them and domain never imports application (architecture-map.json:79-92); AutoLaneAnalysis is a typed value object whose input/output shapes live in application/permissions/auto-lane-analysis-types.ts; the analyzer is a GENUINELY PURE function (no filesystem, no I/O) whose readOnlyMetaExecutor is the HARD-BOUNDARY predicate: single simple find, no compound/pipeline/redirect/subshell, none of the nine write-capable actions, none of -H/-L/-follow, and NO operand \u2014 every positional path and every predicate value (-name, -iname, -path, -regex, -newer, -samefile, ...) \u2014 matching the conservative pure string predicate isSensitivePathShape (protected capability-path patterns; any segment starting with '.' except the bare '.' so `find .` passes and `..`/`.env` fail; well-known secret file names \u2014 a superset of the filesystem-backed checks; TODO(T2a) unify).",
+        "PermissionLane, RailSignal and RailProvenance are DOMAIN-owned closed types (domain/permission-lane.ts) because domain/types.ts consumes them and domain never imports application (architecture-map.json:79-92); AutoLaneAnalysis is a typed value object whose input/output shapes live in application/permissions/auto-lane-analysis-types.ts; the analyzer is a GENUINELY PURE function (no filesystem, no I/O) whose readOnlyMetaExecutor is the HARD-BOUNDARY predicate: single simple find, no compound/pipeline/redirect/subshell, none of the nine write-capable actions, none of -H/-L/-follow, no indirect or unknown root-source option (-files0-from and the like fail closed), and NO operand \u2014 every positional path and every predicate value (-name, -iname, -path, -regex, -newer, -samefile, ...) \u2014 matching the conservative pure string predicate isSensitivePathShape (protected capability-path patterns; any segment starting with '.' except the bare '.' so `find .` passes and `..`/`.env` fail; well-known secret file names \u2014 a superset of the filesystem-backed checks; TODO(T2a) unify).",
         "T1 is IPC-ONLY (assumption A-0069: the coordinator is a declared T1/T3b shared file, T1 limited to the optional analysis/context seam): the IPC helper computes the pre-analysis once in a NEW pre-coordination step before calling the coordinator (:95-170), distinct from the tail's route guard (:184-218) which only consumes the completed context (it alone knows permissionMode, hostJobId and the resolved route mode) and passes it to the coordinator as an OPTIONAL typed input analysis?: AutoLaneAnalysis; the coordinator derives no lane facts, and with an analysis runs ONE base rail evaluation and calls tail(context) with the immutable typed context { analysis, railDecision } replacing today's zero-argument tail; without one (inline-agent-loop-tools.ts:389-395, core-tool-permission-coordinator.ts:61) behaviour is byte-for-byte today's; trusted-root hypothetical rechecks (permission-decision-coordinator.ts:232-268) stay unchanged and are not the base evaluation.",
         "railProvenance is CANONICAL provenance: an optional typed field on PermissionApprovalDecision (domain/types.ts:298-311 \u2014 T1's only addition to that file; T3a's later additions are sequential), included in the signed IPC decision payload (shared/ipc-signing.ts:10-22) and decoded by ALL runner decoders \u2014 the generic IPC client (runner/permission-ipc-client.ts:59-75,371-390) and the Anthropic runner decoder (adapters/llm/anthropic-claude-agent/runner/permission-callback.ts:301-387, result type runner/types.ts:119-144); never a host-local side channel.",
         "The coordinator's authoritative decision order is enumerated as named stages \u2014 pre-coordination route analysis, [T3b] exact remembered deny, hard restrictions, reviewed rules, deterministic rails (the single base evaluation), conditional trusted-root handling (only on the rails' out_of_trusted_root ASK; hypothetical rechecks unchanged), [T3b] remembered allows, classifier-cache read, tail \u2014 and pinned by a stage-order test; one analysis per IPC permission request, other callers pass none; the harness return type uses PermissionApprovalDecision['decidedBy'], PermissionDecisionSource (domain/types.ts:255) and RailProvenance.",
@@ -184,13 +188,13 @@
     },
     {
       "id": "ASKFLOOR-1-T2b",
-      "title": "Native tool risk by arguments",
-      "objective": "file list/read become low risk with host-side protection (scope-aware virtual predicate: list hides protected entries with a count line, read refuses with the fixed error text); write/promote_scratch judged by destination; native Write/Edit judged by prospective-write containment at the classifier caller; browser closed matrix (wait_for, screenshot low; all else ask); unmapped gantry tools go to the classifier instead of HIGH.",
+      "title": "Default-allow risk table for gantry-native tools",
+      "objective": "gantry-tool-risk.ts becomes ONE small typed table: every gantry-native tool is LOW by default in interactive auto (all browser actions, file list/read with host-side entry protection, scheduler/admin reads, attachment tools); only the closed high-risk rows are HIGH (destructive or protected writes incl. raw-path browser file actions, the registry scheduler-mutation and admin-mutation exports); unmapped or malformed shapes are ambiguous and go to the classifier.",
       "acceptance_criteria": [
-        "browser_act wait_for and screenshot proceed in auto mode; every other verb and any unknown shape asks; exhaustive per-verb test",
-        "file list/read never ask; protected entries are hidden/refused host-side with the plan's exact copy; malformed arguments ask",
-        "Write/Edit inside the agent workspace and unprotected allow; outside or protected ask; symlinks rejected; the eligibility gate widens only for those two facade tools",
-        "unmapped gantry tools and grantable-exact invocations are no longer forced HIGH by identity",
+        "every browser_* action, file list/read, scheduler/admin reads and attachment tools auto-allow in interactive auto with typed provenance; exhaustive valid-and-malformed table test per row",
+        "destructive or protected writes (native Write/Edit outside the workspace or protected/secret; file writes to protected virtual paths; browser file_attach with a raw path outside the workspace, protected or secret \u2014 file_upload stays LOW), the registry's scheduler-mutation set and admin-mutation exports incl. DELEGATION_DISPATCHERS still ask; unmapped tools and shapes failing the tool schema reach the classifier as ambiguous and are never forced HIGH; send_message stays today's 0052 birthright",
+        "file is judged by the discriminated per-action predicate over its complete contract (list: scope+optional path/limit; read: artifactId+version or scope+path, +offset/readLimit; write: scope+path+content+optional encoding/contentType/protected, LOW to unprotected virtual paths; promote_scratch: source path+targetScope+targetPath; else ambiguous); list hides protected entries with the count line and read refuses them with the fixed error text, host-side; Write/Edit inside the workspace allow, outside or protected ask, symlinks rejected; the eligibility gate widens only for those two facade tools",
+        "ask mode, auto_strict and job lanes are unchanged by the table (explicit tests)",
         "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
       ],
       "depends_on": [
@@ -310,6 +314,6 @@
     }
   ],
   "project": "",
-  "plan_sha256": "46a5a7409c4ed23c944394300ce89e088246d9efa0ae7cd181ca98e8a12230f7",
-  "commit": "7f04f77c988f19785c555814bf5495118b10cd51"
+  "plan_sha256": "2a22926070a5983dc897e43a30658dec5d86f47b71d7e9fd66af0b1e8628fc3f",
+  "commit": "a770a41221064a21a109b8500ee1ec7f628a5bd2"
 }
