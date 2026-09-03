@@ -62,6 +62,11 @@
         "apps/core/src/application/permissions/auto-lane-analysis-types.ts",
         "apps/core/src/shared/permission-trusted-paths.ts",
         "apps/core/src/runtime/permission-decision-coordinator.ts",
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/shared/ipc-signing.ts",
+        "apps/core/src/runner/permission-ipc-client.ts",
+        "apps/core/test/unit/runner/permission-ipc-client.test.ts",
+        "apps/core/test/unit/shared/ipc-signing.test.ts",
         "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
         "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
         "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
@@ -114,8 +119,18 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "keeps the veto in interactive auto for find touching protected or secret paths, with any redirect, or inside a compound or pipeline",
+          "id": "keeps the veto in interactive auto for find touching sensitive-shape paths, with -H -L or -follow, with any redirect, or inside a compound or pipeline",
           "path": "apps/core/test/unit/application/auto-lane-analysis.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "leaves ask, auto_strict and job-lane outcomes unchanged for 2>/dev/null except where the non-path stopped being a path",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "carries railProvenance through the signed IPC decision payload and both runner decoders",
+          "path": "apps/core/test/unit/runner/permission-ipc-client.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
@@ -126,8 +141,9 @@
       ],
       "reviewer_focus": [
         "Constitution (load-bearing): constitution/README.md -> pnp-coding-standards-modular-monolith.md (types/enums/errors/data-access/thin coordinator in separate files; typed enums over string literals) and 03-modular-monolith-structure.md (application vs runtime vs shared placement). Conformance, not a new layout.",
-        "AutoLaneAnalysis is a typed value object: lane and railSignal are closed enums in a sibling types file; the analyzer is a pure function with no I/O whose readOnlyMetaExecutor is the HARD-BOUNDARY predicate (single simple find, no compound/pipeline/redirect/subshell, none of the nine write-capable actions, no protected or secret path argument via shared/tool-execution-protected-paths.ts + the read gate's hidden/secret checks).",
-        "Coordinator contract: the coordinator computes the pre-analysis ITSELF at entry (so the IPC helper and the inline runtime inline-agent-loop-tools.ts:389-395 need no caller change), resolves the route-effective mode there, runs ONE base rail evaluation, and calls tail(context) with an immutable typed context { analysis, railDecision, routeMode } replacing today's zero-argument tail; trusted-root hypothetical rechecks (permission-decision-coordinator.ts:232-268) stay unchanged and are not the base evaluation.",
+        "AutoLaneAnalysis is a typed value object: lane and railSignal are closed enums in a sibling types file; the analyzer is a GENUINELY PURE function (no filesystem, no I/O) whose readOnlyMetaExecutor is the HARD-BOUNDARY predicate: single simple find, no compound/pipeline/redirect/subshell, none of the nine write-capable actions, none of -H/-L/-follow, and no path argument matching the conservative pure string predicate isSensitivePathShape (protected capability-path patterns, hidden/dot segments, well-known secret file names \u2014 a superset of the filesystem-backed checks; TODO(T2a) unify).",
+        "T1 is IPC-ONLY: the IPC helper computes the pre-analysis once at its route guard (it alone knows permissionMode, hostJobId and the resolved route mode) and passes it to the coordinator as an OPTIONAL typed input analysis?: AutoLaneAnalysis; the coordinator derives no lane facts, and with an analysis runs ONE base rail evaluation and calls tail(context) with the immutable typed context { analysis, railDecision } replacing today's zero-argument tail; without one (inline-agent-loop-tools.ts:389-395, core-tool-permission-coordinator.ts:61) behaviour is byte-for-byte today's; trusted-root hypothetical rechecks (permission-decision-coordinator.ts:232-268) stay unchanged and are not the base evaluation.",
+        "railProvenance is CANONICAL provenance: an optional typed field on PermissionApprovalDecision (domain/types.ts:298-311 \u2014 T1's only addition to that file; T3a's later additions are sequential), included in the signed IPC decision payload (shared/ipc-signing.ts:10-22) and decoded by both runner decoders (runner/permission-ipc-client.ts:59-75,371-390); never a host-local side channel.",
         "The IPC tail becomes a thin sequence of five named helpers (route guard, classifier consult, rail-veto/risk merge, cache writeback, prompt/terminal) with explicit typed inputs/outputs; the relaxation lives ONLY in the merge helper, guarded by lane === interactive_auto (never auto_strict, never a hostJobId); a relaxed allow keeps the canonical machine values decidedBy: auto_classifier and source: auto_classifier (domain/permission-decision.ts:69-115) and carries railProvenance: { signal: RailSignal; reason: string } as a separate typed field.",
         "Shared parser untouched (fail-closed; nine write-capable find actions pinned in the parser's own test file); pathCandidates ignores stderr-to-/dev/null with a per-lane pin; rails/sandbox policy still runs before any grant (0001).",
         "No domain error type introduced (no named failure contract in T1). DEFERRED with markers: TODO(T2a) typed classifier status; TODO(T3b) memory stages in the coordinator's decision order (documented no-op slots, not speculative abstractions).",
@@ -280,5 +296,5 @@
   ],
   "project": "",
   "plan_sha256": "46a5a7409c4ed23c944394300ce89e088246d9efa0ae7cd181ca98e8a12230f7",
-  "commit": "49218be427f16b3db1bed1ae62f11367bb440227"
+  "commit": "5433d04c8b90e098b225c7b7a6ee4d340f133f19"
 }
