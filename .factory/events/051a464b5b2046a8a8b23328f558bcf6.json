@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-03T12:07:43+00:00", "story": "WEB-PROVIDERS-2", "detail": "T1 already changes 9 non-factory/non-plan files against the brief's hard 8-file review budget; split or explicitly revise the budget before further implementation or verification."}

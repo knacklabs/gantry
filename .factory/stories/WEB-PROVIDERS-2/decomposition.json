@@ -118,7 +118,12 @@
         "git diff --check",
         "python3 factory/scripts/verify.py"
       ],
-      "reviewer_focus": "Conform to constitution/README.md and its modular-monolith, API, provider-boundary, and exception standards. Keep the narrow reactivation opt-in in the existing service and browser facade only; preserve the default Bearer/CLI rejection and never return secret values in metadata."
+      "reviewer_focus": "Conform to constitution/README.md and its modular-monolith, API, provider-boundary, and exception standards. Keep the narrow reactivation opt-in in the existing service and browser facade only; preserve the default Bearer/CLI rejection and never return secret values in metadata.",
+      "review_budget": {
+        "max_changed_files": 10,
+        "max_changed_lines": 700,
+        "reason": "The shared registry, service, browser facade, OpenAPI schema, and their focused existing tests are all required to keep the one sanitized credential contract consistent; no provider-specific components, endpoints, migration, SDK, or probe are added."
+      }
     },
     {
       "id": "T2",
@@ -146,5 +151,5 @@
     "T2"
   ],
   "plan_sha256": "a1d3fd55294462aad68964f09210502cf15e6f22bfd17df4b95c7785182202f2",
-  "commit": "c2325579c81284bf1d839f85c52c3060bcded7d4"
+  "commit": "702592d6f99c9981c4efe9f16953e8c94cd3178b"
 }

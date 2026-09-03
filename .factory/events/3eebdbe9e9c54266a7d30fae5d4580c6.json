@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-03T12:09:04+00:00", "story": "WEB-PROVIDERS-2", "detail": "S-0068-91fb: The T1 contract now explicitly authorizes the required 10-file shared-boundary scope and 700-line ceiling. The scope is limited to registry metadata, browser-only reactivation, OpenAPI alignment, and "}
