@@ -1,0 +1,5 @@
+# ASKFLOOR-1 PLAN grill — round 24, AMENDMENT (read-only, adversarial, emit under ~200 words; factory/prompts/griller.md --gate plan)
+
+You did NOT author this plan. Round 23 returned 1 blocker; `plans/exploration/askfloor-1-plan-source.md` (skip the frontmatter decision list) was aligned with spec round 6: the browser row is `file_attach` with a raw filesystem path (in-workspace LOW; outside-workspace, protected or secret HIGH; malformed ambiguous; `file_upload` LOW) with the five explicit cases in §2 and T2b; AF-AC2 carries the complete per-action `file` contract with unprotected virtual-store writes LOW and virtual-path protection distinct from filesystem containment; admin rows include `DELEGATION_DISPATCHERS` (`admin-mcp-tools.ts:172-177`). Decision 0155 is accepted.
+
+Verify closure and consistency across AF-AC1/AC2/AC4, §2, T2b, Decisions; hunt anything NEW. OUTPUT: numbered findings — claim, file:line, class, severity (blocker|gap|nit), smallest fix. OWNER-LEVEL questions verbatim (none if none). End with "PLAN SOUND" or the blocker count. No edits.
