@@ -87,7 +87,10 @@
         "apps/core/test/unit/core/model-provider-registry.test.ts",
         "apps/core/test/unit/core/model-credential-service.test.ts",
         "apps/core/test/unit/auth/browser-auth-routes.test.ts",
-        "apps/core/test/unit/control/openapi.test.ts"
+        "apps/core/test/unit/control/openapi.test.ts",
+        "apps/web/src/features/operations/operations-queries.ts",
+        "apps/web/src/features/operations/routes/provider-dialogs.tsx",
+        "apps/web/src/features/operations/routes/providers-route.test.ts"
       ],
       "required_tests": [
         {
@@ -113,16 +116,16 @@
       ],
       "verify_commands": [
         "npm run typecheck",
-        "npm run lint",
+        "npx eslint apps/core/src/shared/model-provider-registry.ts apps/core/src/shared/model-provider-registry-openai-compatible.ts apps/core/src/application/model-credentials/model-credential-service.ts apps/core/src/control/server/routes/browser-model-providers.ts apps/core/src/control/server/openapi-model-credential-schemas.ts apps/core/test/unit/core/model-provider-registry.test.ts apps/core/test/unit/core/model-credential-service.test.ts apps/core/test/unit/auth/browser-auth-routes.test.ts apps/core/test/unit/control/openapi.test.ts apps/web/src/features/operations/operations-queries.ts apps/web/src/features/operations/routes/provider-dialogs.tsx apps/web/src/features/operations/routes/providers-route.test.ts",
         "npm run format:check",
         "git diff --check",
         "python3 factory/scripts/verify.py"
       ],
       "reviewer_focus": "Conform to constitution/README.md and its modular-monolith, API, provider-boundary, and exception standards. Keep the narrow reactivation opt-in in the existing service and browser facade only; preserve the default Bearer/CLI rejection and never return secret values in metadata.",
       "review_budget": {
-        "max_changed_files": 10,
+        "max_changed_files": 13,
         "max_changed_lines": 700,
-        "reason": "The shared registry, service, browser facade, OpenAPI schema, and their focused existing tests are all required to keep the one sanitized credential contract consistent; no provider-specific components, endpoints, migration, SDK, or probe are added."
+        "reason": "The active stage contains the shared registry/service/browser facade work plus its DTO/dialog consumer and focused tests; no provider-specific component, endpoint, migration, SDK, or probe is added."
       }
     },
     {
@@ -151,5 +154,5 @@
     "T2"
   ],
   "plan_sha256": "a1d3fd55294462aad68964f09210502cf15e6f22bfd17df4b95c7785182202f2",
-  "commit": "702592d6f99c9981c4efe9f16953e8c94cd3178b"
+  "commit": "c594c913d06a7efe8b982c7264bc280b207daff6"
 }

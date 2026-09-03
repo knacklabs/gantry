@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-03T13:25:35+00:00", "story": "WEB-PROVIDERS-2", "detail": "All four required T1 Vitest commands are blocked before discovery because Vite writes to the read-only symlinked node_modules/.vite-temp; a writable temporary config mirror passed all four selectors a"}

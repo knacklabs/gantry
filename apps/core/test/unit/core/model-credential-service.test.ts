@@ -488,5 +488,20 @@ describe('ModelCredentialService', () => {
     expect(
       await repository.getModelCredential({ appId, providerId: 'bedrock' }),
     ).toEqual(disabled);
+
+    await expect(
+      service.rotate({
+        appId,
+        providerId: 'bedrock',
+        payload: {},
+        reactivateDisabled: true,
+      }),
+    ).resolves.toMatchObject({ status: 'active' });
+    expect(
+      await repository.getModelCredential({ appId, providerId: 'bedrock' }),
+    ).toMatchObject({
+      status: 'active',
+      payload: { region: 'us-east-1', apiKey: 'bedrock-new' },
+    });
   });
 });

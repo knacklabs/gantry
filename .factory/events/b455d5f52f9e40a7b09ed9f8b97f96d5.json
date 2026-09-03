@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-03T14:00:17+00:00", "story": "WEB-PROVIDERS-2", "detail": "S-0070-ef57: The worktree's shared Vite cache is read-only; the implementer ran the same four selectors through a writable temporary config mirror and the combined focused suite passed 46 tests. This is an environ"}

@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-03T12:18:22+00:00", "story": "WEB-PROVIDERS-2", "detail": "WEB-PROVIDERS-2 T1 was delegated as active, but .factory/run.json says shipped and .factory/decomposition.json is missing; restore the active approved stage artifacts before implementation."}
