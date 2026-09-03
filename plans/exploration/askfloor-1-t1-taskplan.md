@@ -1,0 +1,38 @@
+# ASKFLOOR-1-T1 — Routing: the judge's verdict stands in interactive auto
+
+## Problem
+In `permission_mode: auto` the classifier IS consulted for rail-refused reads, but a deterministic rail ASK signal (`out_of_trusted_root`, "meta-executor find", a `2>/dev/null` misread as a path) vetoes the classifier's allow at `runtime/ipc-permission-classifier-decision.ts:307-330` and the request goes straight to a human. On 2026-09-02 ten pure reads cost ten taps in three minutes. The rail signal is produced during coordination (`:95-119`) and re-derived nowhere; the tail (`:173-452`) is one long function.
+
+## Scope / Non-goals
+In: one typed `AutoLaneAnalysis` per request (lane, rail signal, read-only-meta-executor) computed once and threaded through coordinator and tail; the interactive-auto relaxation (only `permissionMode === 'auto'` with no `hostJobId`) of the classifier-allow veto for `out_of_trusted_root` and `read_only_meta_executor`; the `pathCandidates` fix so a stderr redirect to `/dev/null` is never a path candidate; the IPC tail pre-split into five named helpers; the AF-AC8 replay harness scaffold with S3. Out: the shared parser (`shared/bash-command-parser.ts` stays fail-closed, pins only), the deterministic rails, native risk (T2a/T2b), any memory stage (T3b — the coordinator's decision order gets documented no-op slots only), classifier status (T2a).
+
+## Acceptance Criteria
+- T1-AC1: a classifier low/medium allow is honoured with the rail reason as typed provenance only when `permissionMode` is `auto` and `hostJobId` is absent; `auto_strict`, ask and job lanes keep the veto (explicit tests).
+- T1-AC2: `find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; a read-only `find` yields the auto-only `read_only_meta_executor` signal; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path).
+- T1-AC3: the ONE decision order (pre-analysis → exact remembered deny [T3b slot] → hard restrictions → rails → remembered allows [T3b slot] → tail) is the coordinator/tail contract, with the rail decision computed once and returned as part of the coordinator result.
+- T1-AC4: the AF-AC8 replay harness exists as a reusable fixture module; S3 (`2>/dev/null` + read-only `find`) replays at 0 taps in interactive auto; later tasks add fixtures without editing T1's tests.
+- T1-AC5: existing unit and Postgres integration suites pass; tsc and check:architecture green.
+
+## Technical Approach
+1. **Pre-analysis.** New pure module `application/permissions/auto-lane-analysis.ts` (+ `auto-lane-analysis-types.ts` with closed enums `PermissionLane = interactive_auto | auto_strict | ask | autonomous` and `RailSignal`): `deriveAutoLaneAnalysis({ permissionMode, hostJobId, command })` returns `{ lane, readOnlyMetaExecutor }`; `readOnlyMetaExecutor` is true only for a bare `find` whose argv contains none of the nine write-capable actions and whose hard-boundary analysis is read-only (stdout-only `-print/-print0/-printf/-ls` are fine; redirects are already destructive per `bash-command-parser.ts:581-587`). No I/O.
+2. **Coordinator.** `runtime/permission-decision-coordinator.ts` accepts the analysis as an input and returns the rail decision it computed (today produced at `ipc-permission-classifier-decision.ts:95-119` through the callback) as a typed field of its result, so nothing downstream re-derives it. The decision order is written as a named sequence with two documented no-op slots marked `TODO(T3b)` (exact remembered deny before hard restrictions; remembered allows after the rails). No memory code.
+3. **Tail pre-split.** `runtime/ipc-permission-classifier-decision.ts:173-452` becomes a thin sequence of five named helpers with explicit typed inputs/outputs: route guard (`:184-218`, consumes the analysis), classifier consult (`:220-305`), rail-veto/risk merge (`:307-330`), cache writeback (`:333-367`), prompt/terminal (`:369-452`). Behaviour byte-for-byte today except step 4.
+4. **Relaxation.** In the merge helper only: when `analysis.lane === interactive_auto` and the rail decision's signal is `out_of_trusted_root` or `readOnlyMetaExecutor` is true, a classifier low/medium verdict allows with `decidedBy: classifier` and the rail reason attached as typed provenance (0054/0107). Every other lane keeps today's veto.
+5. **Path candidates.** `shared/permission-trusted-paths.ts` `pathCandidates` (~:60-70) skips a stderr redirect target of `/dev/null`; per-lane tests in `permission-deterministic-rails.test.ts` pin that ask/auto_strict/autonomous outcomes change only where the non-path stops being a path.
+6. **Harness.** New `test/unit/runtime/askfloor-tap-budget.test.ts` built on a small fixture module (request shape from the 2026-09-02 log, a tap/provenance counter that drives the coordinator + tail with a stubbed classifier); S3 asserts 0 taps and classifier provenance.
+Rejected simpler shape: relaxing `unsafeMetaExecutorReason` in the shared parser — it feeds family synthesis and durable-rule validation (leaks to every lane).
+
+## Decisions
+Load-bearing, unchanged: 0043 (deterministic facts in rails, risk in classification), 0054/0107 (typed provenance), 0121 (no classifier on autonomous — the job guard stays), 0134/0144. Story decisions 0153/0154 are consumed by later tasks, not touched here. No new decision.
+
+## Surface Impact
+Runtime behaviour in interactive auto only: rail-refused reads outside trusted roots and read-only `find` now follow the classifier's verdict. No UI, schema or API change.
+
+## Task Decomposition
+Single task; no dependencies. Write scope, verify commands, required tests and reviewer focus are recorded in `.factory/stories/ASKFLOOR-1/decomposition.json` (T1).
+
+## Risks
+Leak to other lanes — the guard is the closed `PermissionLane` enum, never a string; explicit tests per lane. Silent re-derivation of the rail decision — the coordinator returns it once and the tail types it as an input. Tail refactor drift — helpers are extracted with behaviour pinned by the existing test file before the relaxation lands.
+
+## Verify Plan
+`python3 factory/scripts/verify.py` (authoritative); focused: the five required tests via `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts <path> -t <id> --outputFile=<report>`; `npx tsc --noEmit`; `npm run check:architecture`; `bash-command-parser.test.ts` and `permission-deterministic-rails.test.ts:312-332` unchanged expectations.
