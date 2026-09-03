@@ -1,7 +1,7 @@
 ---
 slug: web-providers-2-credential-setup
 title: Correct registry-driven credential setup
-status: draft
+status: confirmed
 saved: 2026-09-03T10:52:01+00:00
 ---
 
