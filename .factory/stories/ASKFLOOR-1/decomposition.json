@@ -21,38 +21,38 @@
       "title": "Routing: the judge's verdict stands in interactive auto",
       "objective": "In interactive auto (permissionMode auto, no hostJobId) a rail ASK for out_of_trusted_root or a read-only find no longer vetoes a classifier allow; one typed AutoLaneAnalysis per request; the shared parser stays fail-closed (nine write-capable find actions refused); 2>/dev/null is never a path candidate; the IPC tail is pre-split into five named helpers; the AF-AC8 replay harness is scaffolded with S3.",
       "acceptance_criteria": [
-        "a classifier low/medium allow is honoured with the rail reason as typed provenance only when permissionMode is auto and hostJobId is absent; auto_strict, ask and job lanes keep the veto (explicit tests)",
-        "find with any of -delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf stays refused by the shared parser; read-only find yields the auto-only signal; pathCandidates ignores stderr redirects to /dev/null with per-lane tests",
-        "the ONE decision order (pre-analysis, exact remembered deny, hard restrictions, rails, remembered allows, tail) is the coordinator/tail contract with the rail decision computed once",
-        "AF-AC8 S3 replay fixture = 0 taps; harness accepts later scenario fixtures",
-        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+        "a classifier low/medium allow is honoured with the rail reason as typed provenance only when `permissionMode` is `auto` and `hostJobId` is absent; `auto_strict`, ask and job lanes keep the veto (explicit tests).",
+        "`find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; a read-only `find` yields the auto-only `read_only_meta_executor` signal; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path).",
+        "the ONE decision order (pre-analysis \u2192 exact remembered deny [T3b slot] \u2192 hard restrictions \u2192 rails \u2192 remembered allows [T3b slot] \u2192 tail) is the coordinator/tail contract, with the rail decision computed once and returned as part of the coordinator result.",
+        "the AF-AC8 replay harness exists as a reusable fixture module; S3 (`2>/dev/null` + read-only `find`) replays at 0 taps in interactive auto; later tasks add fixtures without editing T1's tests.",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green."
       ],
       "depends_on": [],
       "user_facing": false,
       "plan_contracts": [
         {
           "id": "ASKFLOOR-1-T1-AC1",
-          "statement": "a classifier low/medium allow is honoured with the rail reason as typed provenance only when permissionMode is auto and hostJobId is absent; auto_strict, ask and job lanes keep the veto (explicit tests)",
+          "statement": "a classifier low/medium allow is honoured with the rail reason as typed provenance only when `permissionMode` is `auto` and `hostJobId` is absent; `auto_strict`, ask and job lanes keep the veto (explicit tests).",
           "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
         },
         {
           "id": "ASKFLOOR-1-T1-AC2",
-          "statement": "find with any of -delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf stays refused by the shared parser; read-only find yields the auto-only signal; pathCandidates ignores stderr redirects to /dev/null with per-lane tests",
+          "statement": "`find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; a read-only `find` yields the auto-only `read_only_meta_executor` signal; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path).",
           "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
         },
         {
           "id": "ASKFLOOR-1-T1-AC3",
-          "statement": "the ONE decision order (pre-analysis, exact remembered deny, hard restrictions, rails, remembered allows, tail) is the coordinator/tail contract with the rail decision computed once",
+          "statement": "the ONE decision order (pre-analysis \u2192 exact remembered deny [T3b slot] \u2192 hard restrictions \u2192 rails \u2192 remembered allows [T3b slot] \u2192 tail) is the coordinator/tail contract, with the rail decision computed once and returned as part of the coordinator result.",
           "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
         },
         {
           "id": "ASKFLOOR-1-T1-AC4",
-          "statement": "AF-AC8 S3 replay fixture = 0 taps; harness accepts later scenario fixtures",
+          "statement": "the AF-AC8 replay harness exists as a reusable fixture module; S3 (`2>/dev/null` + read-only `find`) replays at 0 taps in interactive auto; later tasks add fixtures without editing T1's tests.",
           "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
         },
         {
           "id": "ASKFLOOR-1-T1-AC5",
-          "statement": "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7).",
+          "statement": "existing unit and Postgres integration suites pass; tsc and check:architecture green.",
           "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
         }
       ],
@@ -114,6 +114,11 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
+          "id": "keeps the veto in interactive auto for find touching protected or secret paths, with any redirect, or inside a compound or pipeline",
+          "path": "apps/core/test/unit/application/auto-lane-analysis.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
           "id": "S3: 2>/dev/null and read-only find cost 0 taps in interactive auto",
           "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
@@ -121,11 +126,12 @@
       ],
       "reviewer_focus": [
         "Constitution (load-bearing): constitution/README.md -> pnp-coding-standards-modular-monolith.md (types/enums/errors/data-access/thin coordinator in separate files; typed enums over string literals) and 03-modular-monolith-structure.md (application vs runtime vs shared placement). Conformance, not a new layout.",
-        "AutoLaneAnalysis is a typed value object: lane and railSignal are closed enums in a sibling types file; the analyzer is a pure function with no I/O; computed exactly once per request and threaded (never re-derived) through coordinator and tail.",
-        "The IPC tail becomes a thin sequence of five named helpers (route guard, classifier consult, rail-veto/risk merge, cache writeback, prompt/terminal) with explicit typed inputs/outputs; the relaxation lives ONLY in the merge helper, guarded by lane === interactive_auto (never auto_strict, never a hostJobId).",
+        "AutoLaneAnalysis is a typed value object: lane and railSignal are closed enums in a sibling types file; the analyzer is a pure function with no I/O whose readOnlyMetaExecutor is the HARD-BOUNDARY predicate (single simple find, no compound/pipeline/redirect/subshell, none of the nine write-capable actions, no protected or secret path argument via shared/tool-execution-protected-paths.ts + the read gate's hidden/secret checks).",
+        "Coordinator contract: the coordinator computes the pre-analysis ITSELF at entry (so the IPC helper and the inline runtime inline-agent-loop-tools.ts:389-395 need no caller change), resolves the route-effective mode there, runs ONE base rail evaluation, and calls tail(context) with an immutable typed context { analysis, railDecision, routeMode } replacing today's zero-argument tail; trusted-root hypothetical rechecks (permission-decision-coordinator.ts:232-268) stay unchanged and are not the base evaluation.",
+        "The IPC tail becomes a thin sequence of five named helpers (route guard, classifier consult, rail-veto/risk merge, cache writeback, prompt/terminal) with explicit typed inputs/outputs; the relaxation lives ONLY in the merge helper, guarded by lane === interactive_auto (never auto_strict, never a hostJobId); a relaxed allow keeps the canonical machine values decidedBy: auto_classifier and source: auto_classifier (domain/permission-decision.ts:69-115) and carries railProvenance: { signal: RailSignal; reason: string } as a separate typed field.",
         "Shared parser untouched (fail-closed; nine write-capable find actions pinned in the parser's own test file); pathCandidates ignores stderr-to-/dev/null with a per-lane pin; rails/sandbox policy still runs before any grant (0001).",
         "No domain error type introduced (no named failure contract in T1). DEFERRED with markers: TODO(T2a) typed classifier status; TODO(T3b) memory stages in the coordinator's decision order (documented no-op slots, not speculative abstractions).",
-        "Concerns that must not share a file: the analyzer (application) and the IPC tail (runtime); the AF-AC8 harness is the reusable module apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts exporting `replayPermissionRequest(fixture: TapBudgetFixture): Promise<{ taps: number; decidedBy: string; provenance: unknown }>` and the `TapBudgetFixture` type (lane, command/tool input, trusted roots, stubbed classifier verdict) so later tasks add fixtures without editing T1's tests; no stringified JSONB equality; runner-spawn sandbox copy sets stay derivable.",
+        "Concerns that must not share a file: the analyzer (application) and the IPC tail (runtime); the AF-AC8 harness is the reusable module apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts exporting `replayPermissionRequest(fixture: TapBudgetFixture): Promise<{ taps: number; decidedBy: DecidedBy; source: DecisionSource; railProvenance: { signal: RailSignal; reason: string } | null }>` (concrete types, never unknown) and the `TapBudgetFixture` type (lane inputs, command/tool input, trusted roots, stubbed classifier verdict) so later tasks add fixtures without editing T1's tests; no stringified JSONB equality; runner-spawn sandbox copy sets stay derivable.",
         "Verification: python3 factory/scripts/verify.py is authoritative; the Postgres gate (npm run test:integration:postgres, GANTRY_TEST_DATABASE_URL exported) must stay green even though T1 touches no storage code."
       ]
     },
@@ -274,5 +280,5 @@
   ],
   "project": "",
   "plan_sha256": "46a5a7409c4ed23c944394300ce89e088246d9efa0ae7cd181ca98e8a12230f7",
-  "commit": "1025bfb3898b8982843feb6c59e5d28b040faf37"
+  "commit": "49218be427f16b3db1bed1ae62f11367bb440227"
 }
