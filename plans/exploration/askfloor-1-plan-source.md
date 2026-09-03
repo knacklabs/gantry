@@ -126,6 +126,9 @@ decisions_reviewed:
   - 0137-connector-accounts-mirror-provider-accounts
   - 0144-autonomous-ask-and-wait-chat-parity
   - 0151-browser-navigation-summary
+  - 0153-learned-decisions-project-into-job-grants
+  - 0154-human-decision-memory-generic-scope
+  - 0155-default-allow-gantry-tools-interactive-auto
 ---
 
 # ASKFLOOR-1 — The judge actually judges: context-aware first-asks in auto mode
