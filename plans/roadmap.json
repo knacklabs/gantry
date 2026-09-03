@@ -2566,8 +2566,26 @@
         "CARDSIMPLE-2"
       ],
       "spec": "docs/specs/cardsimple-1-one-permission-surface.md"
+    },
+    {
+      "key": "WEB-PROVIDERS-2",
+      "title": "Correct registry-driven credential setup",
+      "story": "As a Gantry administrator, I can choose and safely update every supported model-provider authentication method so that provider credentials are configured without hidden defaults or secret exposure.",
+      "acceptance_criteria": [
+        "Multi-method providers require explicit authentication selection before fields or save are available, while single-method providers remain compact.",
+        "Same-method edits and disabled reactivation use sparse PATCH with atomic merged validation; method replacement uses complete PUT.",
+        "Registry help text, required fields, configured field names, and multiline presentation reach the shared browser form without secret values.",
+        "Configuration checks describe Gantry-side credential availability and never claim upstream connectivity.",
+        "Focused automated and synthetic browser checks cover every provider mode without real credentials or upstream calls."
+      ],
+      "order": 119,
+      "status": "active",
+      "epic": "web-authentication",
+      "skill": "fullstack",
+      "depends_on": [],
+      "spec": "docs/specs/web-providers-2-credential-setup.md"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-09-01T05:30:29+00:00"
+  "updated_at": "2026-09-03T11:16:39+00:00"
 }
