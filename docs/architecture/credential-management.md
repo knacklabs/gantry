@@ -406,6 +406,12 @@ Control API semantics:
 - `DELETE /v1/credentials/models/:providerId` disables active use without
   deleting the encrypted payload or metadata.
 
+The same-origin browser credential facade may explicitly opt a rotation into
+disabled-credential reactivation. That path merges the stored and supplied
+fields, validates the complete payload, and reactivates only after the atomic
+upsert succeeds. The Bearer Control API and CLI retain their existing rejection
+of disabled rotation.
+
 Gateway auth strategies are fail-closed. Current `header`, `bearer`,
 `claude_code_oauth`, `aws_bedrock_api_key`, `aws_bedrock_api_key_ref`,
 `aws_sdk_default_chain`, `aws_sigv4`, `google_adc`,

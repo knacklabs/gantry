@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Should re-enabling a disabled provider preserve omitted stored fields through the existing sparse PATCH flow?",
+      "options": [
+        "Preserve via PATCH (Recommended)",
+        "Require complete PUT"
+      ],
+      "chosen": "Preserve via PATCH (Recommended)"
+    },
+    {
+      "question": "Should first setup prevent saving or constructing a request until a multi-method provider\u2019s authentication method is explicitly selected?",
+      "options": [
+        "Require selection (Recommended)",
+        "Default first method"
+      ],
+      "chosen": "Require selection (Recommended)"
+    }
+  ],
+  "at": "2026-09-03T11:15:53.350680+00:00",
+  "session_id": "codex-web-providers-2"
+}

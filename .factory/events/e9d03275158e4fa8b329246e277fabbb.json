@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-03T12:00:31+00:00", "story": "WEB-PROVIDERS-2", "detail": "WEB-PROVIDERS-2 T1 verification contract targets nonexistent npm workspace @gantry/core, while each canonical Vitest command also fails before discovery because this worktree's node_modules symlink po"}

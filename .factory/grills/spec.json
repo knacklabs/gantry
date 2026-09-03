@@ -2,65 +2,64 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "questions_asked": 6,
-  "gaps": [
-    "Family-breadth boundary for destructive binaries (R1a).",
-    "Whether one-card covers non-tool blockers (R1b).",
-    "Pause-job button fate and card route ownership after the prose-card removal (R2a/R2b).",
-    "Two draft errors proved by the four Codex sol@xhigh validation passes: compound Allow-once wording violated 0134/0144 (pipes are reformulation-only), and the risk-gated-family claim had no enforcement point (0121: autonomous runs are classifier-free; reviewed-rule matches return before rails)."
-  ],
+  "gaps": [],
   "contradictions": [],
   "resolutions": [
-    "R1a: family breadth for all simple external commands, risk-gated \u2014 deterministic rails evaluate the exact command before a family match is honored; a rail hit asks and permits Allow-once only (ratified R2c).",
-    "R1b: one canonical card for ALL need classes; every JobSetupActionShape gets a row/action mapping; the setup-pause prompt implementation folds into the job permission card.",
-    "R2a: Pause job button dropped \u2014 a blocked job is already paused; the neutral kind, callback variants and provider codecs are deleted with the prose card.",
-    "R2b: approver route alone owns the card; other notification routes see nothing until the terminal outcome.",
-    "R2c: both corrections ratified \u2014 pipes never get Allow (retry-and-ask stays the compound-row action for paused jobs); rails-before-family-match ordering change gets its own decision record.",
-    "All four validation passes folded into the spec: one shared family-rule synthesizer across the three grant lanes; canonical family shape is the existing trailing-star argv grammar plus a durable-validator amendment; Allow creates zero rerun barriers/triggers (kills the per-dead-priorRunId fanout); tap-time lease check returns live|late; notified_fingerprint ownership moves to card delivery; 0144 Reconsider rows exempt from collapse; family grants live in agent authority only (0106); the #462 interactive host lane is retained for Run now.",
-    "Re-grilled 2026-09-01 after the requirements cold-read: AC1 matrix vocabulary fixed to the real unions, rails scope narrowed to family matches only (explicit 0121/0144 amendment), late Deny split from late Allow (Reconsider preserved), 0124 bounded delivery preserved with operator-initiated same-identity recovery."
+    "The existing rotation service owns sparse disabled-credential reactivation and validates the merged payload before activating it.",
+    "A first-time multi-method form cannot render fields, enable Save, or construct a request before explicit selection.",
+    "The registry exposes only a generic sanitized multiline hint for the Vertex service-account JSON field."
+  ],
+  "inspected_refs": [
+    "docs/specs/web-providers-2-credential-setup.md",
+    "apps/core/src/application/model-credentials/model-credential-service.ts:ModelCredentialService.rotate",
+    "apps/core/src/shared/model-provider-registry.ts:ModelCredentialFieldDefinition",
+    "apps/web/src/features/operations/routes/provider-dialogs.tsx:ProviderDialog",
+    "docs/decisions/0135-browser-model-provider-credential-facade.md"
+  ],
+  "current_flow": "The dialog defaults to the first registry mode, submits blank fields, uses PATCH only for active credentials, and labels local credential projection as upstream verification.",
+  "criteria_map": {
+    "Explicit multi-method selection": "No fields, enabled Save, authMode, or request exists before selection.",
+    "Sparse same-mode update and re-enable": "PATCH contains non-empty fields only; the service merges, validates, and activates atomically.",
+    "Method replacement": "A complete PUT carries the explicitly selected authMode after required-field validation.",
+    "Secret containment": "Only configured field names and sanitized registry metadata reach the browser.",
+    "Vertex textarea": "Only serviceAccountJson carries multiline true through the generic DTO and form.",
+    "Honest configuration check": "UI and safe response copy describe local Gantry availability without upstream claims."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "None; add one optional field on the existing registry definition."
   ],
   "rounds": [
     {
-      "question": "Requirements grill (cold-read finding 3) \u2014 the rails-before-rules ordering change: apply it ONLY to the new family rules, or to every reviewed rule? Either way the new decision record explicitly amends 0121/0144's approval-permanence wording for the rail-hit case.",
+      "question": "Should re-enabling a disabled provider preserve omitted stored fields through the existing sparse PATCH flow?",
       "options": [
-        "Family matches only (Recommended)",
-        "All reviewed rules"
+        "Preserve via PATCH (Recommended)",
+        "Require complete PUT"
       ],
-      "chosen": "Family matches only (Recommended)"
+      "chosen": "Preserve via PATCH (Recommended)"
     },
     {
-      "question": "Spec re-confirm round: the CARDSIMPLE-1 spec was amended per the requirements cold-read \u2014 real action-shape\u00d7blocker-type matrix in AC1, rails scoped to family matches only (explicitly amending 0121/0144 for the rail-hit case), late Deny = denial receipt + Reconsider kept (no Run now), 0124 bounded delivery preserved with operator-initiated same-identity recovery, non-job cards excluded from scope. Confirm the amended spec so planning proceeds?",
+      "question": "Should first setup prevent saving or constructing a request until a multi-method provider\u2019s authentication method is explicitly selected?",
       "options": [
-        "Confirmed \u2014 go (Recommended)",
-        "I have a note"
+        "Require selection (Recommended)",
+        "Default first method"
       ],
-      "chosen": "Confirmed \u2014 go (Recommended)",
+      "chosen": "Require selection (Recommended)",
       "frontier_empty": true
     }
   ],
   "citations": [
     {
-      "finding": "handoff fanout: one Allow creates one trigger per dead prior run; triggers undispatchable",
-      "source": "apps/core/src/application/interactions/job-permission-provider-actions.ts:166; apps/core/src/application/interactions/job-permission-reconciler.ts:498; apps/core/src/jobs/execution-finalization.ts:192"
+      "finding": "Disabled rotation is the bounded application behavior to change.",
+      "source": "apps/core/src/application/model-credentials/model-credential-service.ts:ModelCredentialService.rotate"
     },
     {
-      "finding": "CARDFIX-1 actions ride only the prose delivery; living card needs a live lease to attach",
-      "source": "apps/core/src/application/jobs/scheduler-setup-story.ts:55; apps/core/src/app/bootstrap/job-permission-durability-wiring.ts:215"
-    },
-    {
-      "finding": "notified_fingerprint and terminal-send suppression hang off the prose send",
-      "source": "apps/core/src/jobs/execution-readiness.ts:232; apps/core/src/jobs/execution-notifications.ts:396"
-    },
-    {
-      "finding": "family shape exists in matcher grammar; durable validator rejects it; three synthesis lanes",
-      "source": "apps/core/src/shared/tool-rule-matcher.ts:550; apps/core/src/shared/durable-access-policy.ts:219; apps/core/src/application/permissions/permission-suggestion-synthesis.ts:62"
-    },
-    {
-      "finding": "reviewed-rule matches return before rails; autonomous runs classifier-free",
-      "source": "apps/core/src/runtime/permission-decision-coordinator.ts:84; docs/decisions/0121-autodet-no-classifier-autonomous.md:24"
+      "finding": "The browser facade must remain registry-derived and secret-redacted.",
+      "source": "docs/decisions/0135-browser-model-provider-credential-facade.md"
     }
   ],
-  "input_sha256": "7b66e9373556201fbfc0bf2fb16209ea3eb94c0a40685ecaf82129f9c2cc5b0d",
-  "recorded_at": "2026-09-01T02:15:25+00:00",
-  "commit": "da7acd33dfa5531f81f374969eb899728305f34d"
+  "open_items": [],
+  "input_sha256": "cd70a8e4dd7729612014f296b8ed8cb65872f18c0d6f5357d2cba855ab4f823e",
+  "recorded_at": "2026-09-03T11:16:12+00:00",
+  "commit": "351ae157e411d831d7c9f8c839dedf224c525a94"
 }

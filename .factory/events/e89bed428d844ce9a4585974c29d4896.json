@@ -1,0 +1,1 @@
+{"event": "signal-host-exception", "generated_by": "implementer", "at": "2026-09-03T14:08:56+00:00", "story": "WEB-PROVIDERS-2", "detail": "T1 delegation companion 39503 remained live over four minutes with no Codex child and no plugin job registry entry; terminated as an orphan. Relaunching the same approved contract once."}

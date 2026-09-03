@@ -1,0 +1,11 @@
+{
+  "topic": "readonly-vite-config-cache",
+  "lesson": "In worktrees whose node_modules symlink targets a read-only sibling checkout, Vitest's default bundled config loader fails with EPERM in node_modules/.vite-temp before discovery; use --configLoader runner for scoped local evidence and report the canonical wrapper as environment-blocked.",
+  "source": "WEB-PROVIDERS-2 T1 focused verification",
+  "applies_to": [
+    "vitest*.config.ts"
+  ],
+  "severity": "low",
+  "generated_by": "implementer",
+  "added_at": "2026-09-03T11:56:41+00:00"
+}

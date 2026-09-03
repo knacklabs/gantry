@@ -1,0 +1,34 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Does this dialog behavior match the fix you want?",
+      "options": [
+        "Approve (Recommended)",
+        "Revise method flow",
+        "Revise field behavior"
+      ],
+      "chosen": "Approve (Recommended)"
+    },
+    {
+      "question": "Should we lock this request behavior and honest configuration-check wording?",
+      "options": [
+        "Approve (Recommended)",
+        "Revise save rules",
+        "Keep verify wording"
+      ],
+      "chosen": "Approve (Recommended)"
+    },
+    {
+      "question": "Does this closeout, story boundary, and verification plan look right?",
+      "options": [
+        "Approve (Recommended)",
+        "Revise closeout",
+        "Revise proof"
+      ],
+      "chosen": "Approve (Recommended)"
+    }
+  ],
+  "at": "2026-09-03T11:19:50.470628+00:00",
+  "session_id": "codex-web-providers-2-design"
+}

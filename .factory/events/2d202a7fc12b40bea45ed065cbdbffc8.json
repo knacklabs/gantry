@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-03T14:09:48+00:00", "story": "WEB-PROVIDERS-2", "detail": "S-0071-e0c9: Confirmed orphan: companion had no Codex child and no registry entry. It was terminated; a single fresh handoff is now live against the unchanged approved contract."}
