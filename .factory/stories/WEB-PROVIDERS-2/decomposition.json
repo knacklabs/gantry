@@ -83,9 +83,11 @@
         "apps/core/src/shared/model-provider-registry-openai-compatible.ts",
         "apps/core/src/application/model-credentials/model-credential-service.ts",
         "apps/core/src/control/server/routes/browser-model-providers.ts",
+        "apps/core/src/control/server/openapi-model-credential-schemas.ts",
         "apps/core/test/unit/core/model-provider-registry.test.ts",
         "apps/core/test/unit/core/model-credential-service.test.ts",
-        "apps/core/test/unit/auth/browser-auth-routes.test.ts"
+        "apps/core/test/unit/auth/browser-auth-routes.test.ts",
+        "apps/core/test/unit/control/openapi.test.ts"
       ],
       "required_tests": [
         {
@@ -101,6 +103,11 @@
         {
           "id": "keeps browser model provider configuration checks local",
           "path": "apps/core/test/unit/auth/browser-auth-routes.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "documents the control API with security scopes and stable operation ids",
+          "path": "apps/core/test/unit/control/openapi.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         }
       ],
@@ -140,5 +147,5 @@
     "T2"
   ],
   "plan_sha256": "a1d3fd55294462aad68964f09210502cf15e6f22bfd17df4b95c7785182202f2",
-  "commit": "8101d0a6d348fe9d25a57749b26b49aae920ca55"
+  "commit": "6c9a4da35534191afb355f8cefd180372291a038"
 }

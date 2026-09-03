@@ -163,6 +163,16 @@ describe('ModelCredentialService', () => {
         fingerprint: null,
       },
     );
+    expect(
+      listed.find((row) => row.providerId === 'anthropic')?.configuredFields,
+    ).toEqual(['apiKey']);
+    expect(
+      listed
+        .find((row) => row.providerId === 'vertex')
+        ?.credentialModes.find((mode) => mode.id === 'service_account')
+        ?.fields.find((field) => field.name === 'serviceAccountJson'),
+    ).toMatchObject({ multiline: true });
+    expect(JSON.stringify(listed)).not.toContain('sk-ant-test');
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         appId,
