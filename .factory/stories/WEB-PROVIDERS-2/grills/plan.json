@@ -1,0 +1,72 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "issue": "WEB-PROVIDERS-2",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Docs/prompts are unchanged by design because the confirmed spec and credential architecture resolutions are already committed.",
+    "T1 owns dynamic registry coverage for every executable provider and authentication mode, while T2 owns synthetic browser coverage for each interaction shape.",
+    "The shared dialog and the browser-only reactivation option are the smallest shapes that preserve existing Bearer API and CLI behavior."
+  ],
+  "inspected_refs": [
+    "plans/web-providers-2-plan-draft.md",
+    "plans/roadmap.json:WEB-PROVIDERS-2",
+    "docs/architecture/credential-management.md",
+    "docs/decisions/0001-single-capability-projection.md",
+    "docs/decisions/0006-external-integrations-ports-and-adapters.md",
+    "docs/decisions/0135-browser-facade-delivery-and-ui-runtime-baseline.md"
+  ],
+  "current_flow": "The shared dialog selects the first credential mode implicitly, posts blank values, routes disabled credentials through complete replacement, and describes Gantry-local preflight as upstream verification.",
+  "criteria_map": {
+    "Explicit authentication choice for Anthropic, Bedrock, and Vertex first setup": "T2 blocks field rendering and request construction until the registry mode is explicitly selected.",
+    "Single-key providers retain compact setup and Vertex JSON is multiline": "T1 carries multiline metadata through the sanitized DTO; T2 uses the existing native textarea and keeps the one-mode form direct.",
+    "Configured field labels, sparse updates, safe replacement, and disabled reactivation": "T1 adds the opt-in browser-facade rotation path and dynamic registry tests; T2 builds PATCH or PUT from the selected/current mode and labels configured field names only.",
+    "Configuration check makes only Gantry-local claims": "T1 changes safe facade copy and T2 presents Check configuration wording without an upstream-connectivity claim.",
+    "No provider-specific form, endpoint, secret-reading route, migration, SDK, or upstream probe": "The plan confines changes to existing registry, credential service, browser facade, and shared dialog seams."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "None"
+  ],
+  "rounds": [
+    {
+      "question": "Does this dialog behavior match the fix you want?",
+      "options": [
+        "Approve (Recommended)",
+        "Revise method flow",
+        "Revise field behavior"
+      ],
+      "chosen": "Approve (Recommended)"
+    },
+    {
+      "question": "Does this closeout, story boundary, and verification plan look right?",
+      "options": [
+        "Approve (Recommended)",
+        "Revise closeout",
+        "Revise proof"
+      ],
+      "chosen": "Approve (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The plan marks Docs/prompts unchanged by design and assigns every changed implementation surface to T1 or T2.",
+      "source": "plans/web-providers-2-plan-draft.md:Surface Impact and Task Decomposition"
+    },
+    {
+      "finding": "T1 requires dynamic registry coverage for every executable provider and mode.",
+      "source": "plans/web-providers-2-plan-draft.md:T1"
+    },
+    {
+      "finding": "Existing decisions retain browser facade and provider integration boundaries.",
+      "source": "docs/decisions/0135-browser-facade-delivery-and-ui-runtime-baseline.md"
+    }
+  ],
+  "open_items": [],
+  "input_sha256": "cdb714a9a3acd642837d314dacf7d1773acb9986f6f0fe018ab0351066e78c9b",
+  "recorded_at": "2026-09-03T11:31:24+00:00",
+  "commit": "8101d0a6d348fe9d25a57749b26b49aae920ca55"
+}

@@ -335,6 +335,7 @@ const VERTEX_CREDENTIAL_MODES = [
         label: 'Service account JSON',
         secret: true,
         required: true,
+        multiline: true,
       },
     ],
     gatewayAuth: {

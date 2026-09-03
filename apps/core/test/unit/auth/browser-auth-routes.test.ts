@@ -95,6 +95,11 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   expect(modelProviders).toContain('isRecentlyReauthenticated(');
   expect(modelProviders).toContain('configuredProviderIds: new Set(');
   expect(modelProviders).not.toContain('message: result.message');
+  expect(modelProviders).toContain('reactivateDisabled: true');
+  expect(modelProviders).toContain('Credential is available to Gantry.');
+  expect(modelProviders).toContain(
+    'Gantry could not resolve this credential configuration.',
+  );
   expect(source).toContain(
     'This authorization link can only be used on this Gantry host.',
   );

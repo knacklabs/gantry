@@ -180,8 +180,8 @@ export async function handleBrowserModelProviderRoutes(
         status: result.status,
         message:
           result.status === 'pass'
-            ? 'Credential verified.'
-            : 'Credential could not be verified. Check its configuration and retry.',
+            ? 'Credential is available to Gantry.'
+            : 'Gantry could not resolve this credential configuration. Check it and retry.',
       });
       return true;
     }
@@ -214,6 +214,7 @@ export async function handleBrowserModelProviderRoutes(
           providerId,
           payload: body.payload,
           actor,
+          reactivateDisabled: true,
         });
       }
     }

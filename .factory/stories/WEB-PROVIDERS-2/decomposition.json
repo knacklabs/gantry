@@ -1,0 +1,144 @@
+{
+  "generated_by": "planner-high",
+  "user_facing": true,
+  "project": "",
+  "story": "WEB-PROVIDERS-2",
+  "epic": "web-authentication",
+  "plan_file": "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md",
+  "doc_roots": [
+    "docs/product/BRIEF.md",
+    "docs/architecture/",
+    "docs/decisions/",
+    "docs/specs/web-providers-2-credential-setup.md",
+    "docs/architecture/credential-management.md",
+    "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md"
+  ],
+  "epics": [
+    {
+      "id": "web-authentication",
+      "title": "Web Authentication",
+      "objective": "Make browser-managed provider credential setup accurately reflect registry authentication contracts while preserving write-only secret handling and existing authorization boundaries.",
+      "source_refs": [
+        "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md",
+        "docs/specs/web-providers-2-credential-setup.md",
+        "docs/architecture/credential-management.md"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "epic_id": "web-authentication",
+      "title": "Registry metadata and browser reactivation contract",
+      "objective": "Expose safe credential metadata from the provider registry and make browser-only same-method reactivation validate merged stored values before atomic persistence. Keep Bearer API and CLI disabled-rotation behavior unchanged.",
+      "user_facing": false,
+      "acceptance_criteria": [
+        "Registry-derived credential metadata includes labels, help text, required flags, multiline hints, and configured field names without exposing secret values.",
+        "Vertex service-account JSON is the only registry field marked multiline.",
+        "Same-method browser PATCH can reactivate disabled credentials after merged validation and atomic persistence.",
+        "Failed merged validation leaves disabled credential state and stored values unchanged.",
+        "Bearer Control API and CLI disabled-rotation rejection behavior remains unchanged.",
+        "Configuration-check responses describe only Gantry-side credential resolution and projection, not upstream connectivity.",
+        "Automated coverage iterates every executable provider and authentication mode without real credentials or upstream calls."
+      ],
+      "plan_contracts": [
+        {
+          "id": "T1-C1",
+          "statement": "Registry-derived credential metadata includes labels, help text, required flags, multiline hints, and configured field names without exposing secret values.",
+          "source": "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition"
+        },
+        {
+          "id": "T1-C2",
+          "statement": "Vertex service-account JSON is the only registry field marked multiline.",
+          "source": "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition"
+        },
+        {
+          "id": "T1-C3",
+          "statement": "Same-method browser PATCH can reactivate disabled credentials after merged validation and atomic persistence.",
+          "source": "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition"
+        },
+        {
+          "id": "T1-C4",
+          "statement": "Failed merged validation leaves disabled credential state and stored values unchanged.",
+          "source": "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition"
+        },
+        {
+          "id": "T1-C5",
+          "statement": "Bearer Control API and CLI disabled-rotation rejection behavior remains unchanged.",
+          "source": "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition"
+        },
+        {
+          "id": "T1-C6",
+          "statement": "Configuration-check responses describe only Gantry-side credential resolution and projection, not upstream connectivity.",
+          "source": "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition"
+        },
+        {
+          "id": "T1-C7",
+          "statement": "Automated coverage iterates every executable provider and authentication mode without real credentials or upstream calls.",
+          "source": "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/shared/model-provider-registry.ts",
+        "apps/core/src/shared/model-provider-registry-openai-compatible.ts",
+        "apps/core/src/application/model-credentials/model-credential-service.ts",
+        "apps/core/src/control/server/routes/browser-model-providers.ts",
+        "apps/core/test/unit/core/model-provider-registry.test.ts",
+        "apps/core/test/unit/core/model-credential-service.test.ts",
+        "apps/core/test/unit/auth/browser-auth-routes.test.ts"
+      ],
+      "required_tests": [
+        {
+          "id": "exposes safe metadata for every executable provider credential mode",
+          "path": "apps/core/test/unit/core/model-provider-registry.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "reactivates disabled credentials only through the explicit browser option",
+          "path": "apps/core/test/unit/core/model-credential-service.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps browser model provider configuration checks local",
+          "path": "apps/core/test/unit/auth/browser-auth-routes.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run test --workspace @gantry/core",
+        "npm run typecheck --workspace @gantry/core",
+        "npm run lint --workspace @gantry/core",
+        "npm run format:check --workspace @gantry/core",
+        "git diff --check",
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Conform to constitution/README.md and its modular-monolith, API, provider-boundary, and exception standards. Keep the narrow reactivation opt-in in the existing service and browser facade only; preserve the default Bearer/CLI rejection and never return secret values in metadata."
+    },
+    {
+      "id": "T2",
+      "epic_id": "web-authentication",
+      "title": "Shared credential dialog behavior",
+      "objective": "Update the shared web provider dialog to use controlled registry-driven authentication selection, sparse same-method PATCH requests, complete setup/replacement PUT requests, multiline input rendering, draft clearing, and honest configuration-check copy.",
+      "acceptance_criteria": [
+        "Anthropic, Bedrock, and Vertex first setup require explicit authentication-method selection before fields, Save enablement, or request construction.",
+        "Single-method providers keep the compact registry-driven form without a selector.",
+        "Same-method edits and disabled reactivation submit sparse PATCH bodies containing only non-empty fields.",
+        "First setup and authentication-method replacement submit complete PUT bodies with authMode and required new fields.",
+        "Switching authentication methods or closing the dialog clears unsaved values.",
+        "Configured stored fields are labeled in the UI without displaying secret values.",
+        "Vertex service-account JSON renders in a visible native textarea.",
+        "Verify credential is renamed to Check configuration with copy limited to Gantry-side credential availability.",
+        "Focused web and synthetic browser checks cover Bedrock, Anthropic, Vertex, and one single-key provider without real credentials or upstream calls."
+      ],
+      "dependencies": [
+        "T1"
+      ]
+    }
+  ],
+  "linear_plan": [
+    "T1",
+    "T2"
+  ],
+  "plan_sha256": "a1d3fd55294462aad68964f09210502cf15e6f22bfd17df4b95c7785182202f2",
+  "commit": "8101d0a6d348fe9d25a57749b26b49aae920ca55"
+}

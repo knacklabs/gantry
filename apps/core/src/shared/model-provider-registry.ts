@@ -17,6 +17,7 @@ export interface ModelCredentialFieldDefinition {
   label: string;
   secret: boolean;
   required: boolean;
+  multiline?: boolean;
 }
 
 export type ModelGatewayAuthStrategy =

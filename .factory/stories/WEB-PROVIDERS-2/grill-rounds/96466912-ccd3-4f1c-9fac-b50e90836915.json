@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Does the bounded backend contract preserve the API and CLI boundary while enabling the approved browser reactivation?",
+      "options": [
+        "Approve (Recommended)",
+        "Revise browser scope"
+      ],
+      "chosen": "Approve (Recommended)"
+    }
+  ],
+  "at": "2026-09-03T11:37:36.540265+00:00",
+  "session_id": "codex-web-providers-2-t1"
+}

@@ -425,4 +425,41 @@ describe('ModelCredentialService', () => {
       }),
     ).rejects.toThrow('Cannot rotate disabled anthropic model credential.');
   });
+
+  it('reactivates disabled credentials only through the explicit browser option', async () => {
+    const service = new ModelCredentialService(
+      new InMemoryModelCredentialRepository(),
+    );
+    await service.set({
+      appId,
+      providerId: 'anthropic',
+      authMode: 'api_key',
+      payload: { apiKey: 'sk-ant-old' },
+    });
+    await service.disable({ appId, providerId: 'anthropic' });
+
+    await expect(
+      service.rotate({
+        appId,
+        providerId: 'anthropic',
+        payload: {},
+        reactivateDisabled: true,
+      }),
+    ).resolves.toMatchObject({ status: 'active' });
+
+    await service.disable({ appId, providerId: 'anthropic' });
+    await expect(
+      service.rotate({
+        appId,
+        providerId: 'anthropic',
+        payload: { apiKey: ' ' },
+        reactivateDisabled: true,
+      }),
+    ).rejects.toThrow('Credential field apiKey must be a non-empty string.');
+    expect(
+      (await service.list({ appId })).find(
+        (item) => item.providerId === 'anthropic',
+      )?.health,
+    ).toBe('disabled');
+  });
 });

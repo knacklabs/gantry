@@ -1,37 +1,72 @@
 {
-  "issue": "CARDSIMPLE-1",
+  "issue": "WEB-PROVIDERS-2",
   "stages": [
     {
-      "id": "CARDSIMPLE-1-T1",
-      "title": "Family-wide grants \u2014 minimum version",
-      "status": "done",
-      "started_at": "2026-09-01T03:55:02+00:00",
-      "base_sha": "5ae8ad5f584469dc6621ed0e9b1d0b61e773d58f",
+      "id": "T1",
+      "title": "Registry metadata and browser reactivation contract",
+      "status": "active",
+      "started_at": "2026-09-03T11:38:15+00:00",
+      "base_sha": "8101d0a6d348fe9d25a57749b26b49aae920ca55",
       "dirty_at_start": {
-        ".factory/stories/CARDSIMPLE-1/grill-rounds/c3f2616b-feb5-40dc-98c2-1f6635d53421.json": {
-          "digest": "d2698ce26fbf41eb2a5d666ac54479833e40579c198d111175b7f04534511008",
-          "git": "1 A. N... 000000 100644 100644 0000000000000000000000000000000000000000 13ab2223f90a23bc8c001a3da54c7b1c5d88f854 .factory/stories/CARDSIMPLE-1/grill-rounds/c3f2616b-feb5-40dc-98c2-1f6635d53421.json\u0000\u0000100644 13ab2223f90a23bc8c001a3da54c7b1c5d88f854 0\t.factory/stories/CARDSIMPLE-1/grill-rounds/c3f2616b-feb5-40dc-98c2-1f6635d53421.json\u0000\u0000H .factory/stories/CARDSIMPLE-1/grill-rounds/c3f2616b-feb5-40dc-98c2-1f6635d53421.json\u0000"
+        ".factory/events/06c2082d5aae4209b265d291747cfc98.json": {
+          "digest": "733770449c4ede05720ac35e838b1826df00b82957da8a732e2dd73d9a9387ab",
+          "git": "? .factory/events/06c2082d5aae4209b265d291747cfc98.json\u0000\u0000\u0000"
         },
-        ".factory/stories/CARDSIMPLE-1/grills/tasks/CARDSIMPLE-1-T1.json": {
-          "digest": "f28fa1609c796bcd570727f4932dd5a50eb2244db38e1515026e085d9a5099a9",
-          "git": "? .factory/stories/CARDSIMPLE-1/grills/tasks/CARDSIMPLE-1-T1.json\u0000\u0000\u0000"
+        ".factory/events/3d01bc06e01a43fcabbc90bf4185d1e6.json": {
+          "digest": "c0f7936261feba42246fa086cdaa12188c285879202dea57987287c89533ea93",
+          "git": "? .factory/events/3d01bc06e01a43fcabbc90bf4185d1e6.json\u0000\u0000\u0000"
         },
-        "plans/review-briefs/cardsimple-1-t1-family-grants.md": {
-          "digest": "488adc83208691bf7fcd20dcf9cd5d0544b2fa8951ec1ecbc3f9e4c35030ca35",
-          "git": "1 A. N... 000000 100644 100644 0000000000000000000000000000000000000000 7bc24bda6553c13c421cf1389b33ae3d57299c2e plans/review-briefs/cardsimple-1-t1-family-grants.md\u0000\u0000100644 7bc24bda6553c13c421cf1389b33ae3d57299c2e 0\tplans/review-briefs/cardsimple-1-t1-family-grants.md\u0000\u0000H plans/review-briefs/cardsimple-1-t1-family-grants.md\u0000"
+        ".factory/events/5e3d0d79f72b4546bb1141eca07529d0.json": {
+          "digest": "c744ef8d8a89e4485e215cfc8cca85fe97741e60f6e2b8a433d45f4565fed207",
+          "git": "? .factory/events/5e3d0d79f72b4546bb1141eca07529d0.json\u0000\u0000\u0000"
+        },
+        ".factory/events/70103f74fb8645e0a5da24f1060bcbc9.json": {
+          "digest": "5ef4302300fd85243f7c373dfa1e3657484bc964547d19cf0ffbea6a06933eb3",
+          "git": "? .factory/events/70103f74fb8645e0a5da24f1060bcbc9.json\u0000\u0000\u0000"
+        },
+        ".factory/events/da93a7ebd54a4115a15ccd27eba3623a.json": {
+          "digest": "de691f0ee47b7bdc9a4047db4eb412f49a8d5c9245cebaf56221f1b63df1e247",
+          "git": "? .factory/events/da93a7ebd54a4115a15ccd27eba3623a.json\u0000\u0000\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "fd01b8b300f5872db66f33ae8214ad85a295783d87d84f0356c0b3ead62f88a2",
+          "git": "1 .M N... 100644 100644 100644 f0329a2f1d31d79a6660c0ce202a12924105c85f f0329a2f1d31d79a6660c0ce202a12924105c85f .factory/stages.json\u0000\u0000100644 f0329a2f1d31d79a6660c0ce202a12924105c85f 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        },
+        ".factory/stories/WEB-PROVIDERS-2/decomposition.json": {
+          "digest": "533144b19dd5c7788daf06945bd74f159e0e86930a977901c077883605ff61b6",
+          "git": "? .factory/stories/WEB-PROVIDERS-2/decomposition.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/WEB-PROVIDERS-2/grill-rounds/96466912-ccd3-4f1c-9fac-b50e90836915.json": {
+          "digest": "bf3c2ff06f85366771ab8043dc77be3a953176654a4b4d1497dbe62634fb3ac8",
+          "git": "? .factory/stories/WEB-PROVIDERS-2/grill-rounds/96466912-ccd3-4f1c-9fac-b50e90836915.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/WEB-PROVIDERS-2/grills/plan.json": {
+          "digest": "c2c89238eb4af1629ea744f202a464632af372ef8fd55feb2c89b5a02b4904bb",
+          "git": "? .factory/stories/WEB-PROVIDERS-2/grills/plan.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/WEB-PROVIDERS-2/grills/tasks/T1.json": {
+          "digest": "98b3a61c18c0d3f845b68e5c85064a10783949bbfbdcf3f2ab2dbf784d0a8e5e",
+          "git": "? .factory/stories/WEB-PROVIDERS-2/grills/tasks/T1.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/WEB-PROVIDERS-2/plan-mode/554877f4-a877-498a-91f4-9c5e65b66b4c.json": {
+          "digest": "87d4ced1b91acaa73636e4a2fc1ba315a7dce1cfb6fccc48b6b63d2ddd4e7053",
+          "git": "? .factory/stories/WEB-PROVIDERS-2/plan-mode/554877f4-a877-498a-91f4-9c5e65b66b4c.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/WEB-PROVIDERS-2/plan-mode/fb071e5d-86b4-4138-a846-b57259bde8e2.json": {
+          "digest": "e11cd834c00a8fa010e0bfb3c39408d7d50f9d271aa06d2458a1f392272903e2",
+          "git": "? .factory/stories/WEB-PROVIDERS-2/plan-mode/fb071e5d-86b4-4138-a846-b57259bde8e2.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/WEB-PROVIDERS-2/task-plans/T1.md": {
+          "digest": "431aa1491a2b11ff91cc691b6663b90a357aa3b272c14f9b4386b3cf813818f0",
+          "git": "? .factory/stories/WEB-PROVIDERS-2/task-plans/T1.md\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "4dc787745daf5da560cde4c10ba6087c33c811a50db61af7aec697bb5290bba1",
-      "local_review_stamp": {
-        "stage_id": "CARDSIMPLE-1-T1",
-        "task_sha256": "4dc787745daf5da560cde4c10ba6087c33c811a50db61af7aec697bb5290bba1",
-        "brief_sha256": "2fdfe109eaf4fd4fa32265b5a92c2271cd77aa06508d1449f7272031ccdd6b69",
-        "base_sha": "5ae8ad5f584469dc6621ed0e9b1d0b61e773d58f",
-        "product_tree_digest": "9b529702cd2551630a0bd1ecf1e04222c07083924041a005b1ecf5cc32c321f9",
-        "recorded_at": "2026-09-01T05:26:06+00:00",
-        "generated_by": "autoreview"
-      },
-      "completed_at": "2026-09-01T05:26:46+00:00"
+      "task_sha256": "4317f26e0d0e5d087b99bdf3d88a1c11df688bd102aa610846fa0490152eb353"
+    },
+    {
+      "id": "T2",
+      "title": "Shared credential dialog behavior",
+      "status": "pending"
     }
   ]
 }

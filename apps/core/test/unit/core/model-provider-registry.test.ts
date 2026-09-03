@@ -12,6 +12,25 @@ import {
 import { listModelCatalogEntries } from '@core/shared/model-catalog.js';
 
 describe('model provider registry', () => {
+  it('exposes safe metadata for every executable provider credential mode', () => {
+    for (const provider of listExecutableModelProviders()) {
+      for (const mode of provider.credentialModes) {
+        for (const field of mode.fields) {
+          expect(
+            field.label,
+            `${provider.id}:${mode.id}:${field.name}`,
+          ).toBeTruthy();
+          expect(
+            field.multiline === true,
+            `${provider.id}:${mode.id}:${field.name}`,
+          ).toBe(
+            provider.id === 'vertex' && field.name === 'serviceAccountJson',
+          );
+        }
+      }
+    }
+  });
+
   it('indexes provider definitions for route lookup', () => {
     const routeProviders = listModelRouteProviders();
 
