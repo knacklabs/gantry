@@ -61,7 +61,16 @@
           "git": "? .factory/stories/WEB-PROVIDERS-2/task-plans/T1.md\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "4317f26e0d0e5d087b99bdf3d88a1c11df688bd102aa610846fa0490152eb353"
+      "task_sha256": "4317f26e0d0e5d087b99bdf3d88a1c11df688bd102aa610846fa0490152eb353",
+      "local_review_stamp": {
+        "stage_id": "T1",
+        "task_sha256": "4317f26e0d0e5d087b99bdf3d88a1c11df688bd102aa610846fa0490152eb353",
+        "brief_sha256": "",
+        "base_sha": "8101d0a6d348fe9d25a57749b26b49aae920ca55",
+        "product_tree_digest": "2825f0124121b2809238b18baf78ea61d6b93f41b37b3b3057e0d8f791ac0fb6",
+        "recorded_at": "2026-09-03T11:43:15+00:00",
+        "generated_by": "autoreview"
+      }
     },
     {
       "id": "T2",
