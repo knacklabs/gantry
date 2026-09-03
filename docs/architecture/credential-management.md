@@ -401,13 +401,16 @@ Control API semantics:
 - `PUT /v1/credentials/models/:providerId` fully replaces one provider
   credential and may set or change `authMode`.
 - `PATCH /v1/credentials/models/:providerId` rotates fields inside the
-  existing `authMode`; omitted fields are preserved. For an active credential,
-  at least one field must be supplied. For a disabled credential, an empty or
-  sparse update reactivates it only after the merged stored-and-supplied payload
-  validates and the atomic upsert succeeds. Null, unknown, missing, or
-  auth-mode-changing updates are rejected.
+  existing active `authMode`; omitted fields are preserved, while empty, null,
+  unknown, missing, disabled, or auth-mode-changing updates are rejected.
 - `DELETE /v1/credentials/models/:providerId` disables active use without
   deleting the encrypted payload or metadata.
+
+The same-origin browser credential facade may explicitly opt a rotation into
+disabled-credential reactivation. That path merges the stored and supplied
+fields, validates the complete payload, and reactivates only after the atomic
+upsert succeeds. The Bearer Control API and CLI retain their existing rejection
+of disabled rotation.
 
 Gateway auth strategies are fail-closed. Current `header`, `bearer`,
 `claude_code_oauth`, `aws_bedrock_api_key`, `aws_bedrock_api_key_ref`,
