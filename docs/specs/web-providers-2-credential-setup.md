@@ -23,12 +23,19 @@ credential projection check as upstream verification.
   multiline presentation come from the executable provider registry.
 - Editing the current method sends only non-empty fields so omitted stored
   values remain unchanged. Re-enabling a disabled provider follows the same
-  partial-update rule.
+  partial-update rule: the existing credential rotation service validates the
+  merged payload and reactivates the credential only after a successful
+  upsert. Omitted secret values never leave server-side storage.
 - Changing authentication method warns that the stored credential will be
   replaced, requires a complete new payload, and atomically replaces it through
   the existing set operation.
 - Stored field names may be shown, but stored secret values remain write-only
   and never return to the browser.
+- A multi-method provider has no selected mode during first setup. Until the
+  administrator chooses one, no credential fields render, Save is disabled,
+  and the client cannot construct a credential request.
+- Credential field metadata may declare `multiline: true`; the sanitized
+  browser DTO forwards that generic presentation hint to the shared form.
 - The existing provider preflight action is presented as a Gantry configuration
   check. It does not claim to contact or authenticate against the upstream
   provider.
@@ -53,7 +60,8 @@ credential projection check as upstream verification.
 ## Acceptance criteria
 
 - First setup for every multi-method provider shows no credential fields until
-  the administrator explicitly selects a method; all registry-declared methods,
+  the administrator explicitly selects a method; Save remains unavailable and
+  no request is constructed before selection. All registry-declared methods,
   help text, fields, and required state render correctly.
 - Same-method edits and re-enables use sparse `PATCH` payloads, while method
   changes require all new fields and use complete `PUT` payloads with the new
