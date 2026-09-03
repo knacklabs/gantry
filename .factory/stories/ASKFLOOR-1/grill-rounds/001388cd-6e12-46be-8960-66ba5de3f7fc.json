@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Decision 0155 records your default-allow ruling (gantry tools auto-allow in interactive auto, browser included; only destructive/protected writes, scheduler mutations and admin mutations ask; ambiguous shapes go to the classifier; browser network side-effects auto-allow by your choice; secret-file attach via browser counts as a protected write). The spec re-confirmation needs it accepted first. Accept 0155 now?",
+      "options": [
+        "Accept 0155 (Recommended)",
+        "Not yet"
+      ],
+      "chosen": "Accept 0155 (Recommended)"
+    }
+  ],
+  "at": "2026-09-03T19:09:03.745695+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

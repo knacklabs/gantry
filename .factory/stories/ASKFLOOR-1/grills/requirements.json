@@ -86,8 +86,8 @@
       "frontier_empty": true
     }
   ],
-  "summary": "REQUIREMENTS GATE \u2014 the confirmed spec re-grilled against current repo reality (seam map file:lines; scope/default/writes/outage rulings). PASS \u2014 requirements grill of the amended ASKFLOOR-1 spec: Codex sol@xhigh cold-read (3 blockers, 2 gaps) + Fable 5.1 UX lane (9 polish items, 3 contradictions) + terra@high seam map; all resolved by six ledgered owner rulings and the seam map, folded into the spec source (\u00a71-\u00a73, AC3/AC4/AC5, new AC8) and decision 0153 (amends 0121). RE-RECORDED 2026-09-03 after the plan gate amended decision 0153 (rewritten around 0121 pure-function invariant) and added 0154; the confirmed spec is unchanged.",
-  "commit": "015816ec4aa5f800cb758a25bdcbe075ff209418",
-  "input_sha256": "8769b7a1ea72fc9f0a0e7eccbb0a1bb63486c0926a96ade1fb250b635efdbee1",
-  "recorded_at": "2026-09-03T03:49:39+00:00"
+  "summary": "REQUIREMENTS GATE \u2014 the confirmed spec re-grilled against current repo reality (seam map file:lines; scope/default/writes/outage rulings). PASS \u2014 requirements grill of the amended ASKFLOOR-1 spec: Codex sol@xhigh cold-read (3 blockers, 2 gaps) + Fable 5.1 UX lane (9 polish items, 3 contradictions) + terra@high seam map; all resolved by six ledgered owner rulings and the seam map, folded into the spec source (\u00a71-\u00a73, AC3/AC4/AC5, new AC8) and decision 0153 (amends 0121). RE-RECORDED 2026-09-03 after the plan gate amended decision 0153 (rewritten around 0121 pure-function invariant) and added 0154; the confirmed spec is unchanged. RE-RECORDED 2026-09-04 after the owner default-allow ruling amended the spec (AC1/AC2/AC4, decision 0155 accepted).",
+  "commit": "48e06e0b61d93c87a02b8cf7de2c239518e827db",
+  "input_sha256": "2952a8aaf9297277bdd8a9680ac0515fccc7662c630a3c4888c1ea22ec94e430",
+  "recorded_at": "2026-09-03T19:17:56+00:00"
 }
