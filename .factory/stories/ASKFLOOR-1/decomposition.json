@@ -1,0 +1,179 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "story": "ASKFLOOR-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/ASKFLOOR-1-the-judge-actually-judges-context-aware-first-asks-in-auto-mode.md",
+  "epics": [
+    {
+      "id": "permission-engine",
+      "title": "Permission engine",
+      "objective": "Auto mode behaves like Claude Code auto mode: reads never tap, the judge decides unknowns, only genuine risk asks, every human decision is learned.",
+      "source_refs": [
+        "docs/specs/askfloor-1-judge-actually-judges.md",
+        "plans/active/ASKFLOOR-1-the-judge-actually-judges-context-aware-first-asks-in-auto-mode.md"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "ASKFLOOR-1-T1",
+      "title": "Routing: the judge's verdict stands in interactive auto",
+      "objective": "In interactive auto (permissionMode auto, no hostJobId) a rail ASK for out_of_trusted_root or a read-only find no longer vetoes a classifier allow; one typed AutoLaneAnalysis per request; the shared parser stays fail-closed (nine write-capable find actions refused); 2>/dev/null is never a path candidate; the IPC tail is pre-split into five named helpers; the AF-AC8 replay harness is scaffolded with S3.",
+      "acceptance_criteria": [
+        "a classifier low/medium allow is honoured with the rail reason as typed provenance only when permissionMode is auto and hostJobId is absent; auto_strict, ask and job lanes keep the veto (explicit tests)",
+        "find with any of -delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf stays refused by the shared parser; read-only find yields the auto-only signal; pathCandidates ignores stderr redirects to /dev/null with per-lane tests",
+        "the ONE decision order (pre-analysis, exact remembered deny, hard restrictions, rails, remembered allows, tail) is the coordinator/tail contract with the rail decision computed once",
+        "AF-AC8 S3 replay fixture = 0 taps; harness accepts later scenario fixtures",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T2a",
+      "title": "Shape classifier extraction, attachment birthright, judge status",
+      "objective": "Extract one typed effect-shape classifier and the containment helpers from the read gate into shared modules; add the attachment_open input-gated birthright to the deterministic rails for every mode (the story's only rails edit); stamp a typed classifier status answered|unavailable|skipped at every branch of the classifier runtime, with the native-risk branch isolated into a named helper.",
+      "acceptance_criteria": [
+        "attachment_open of an attachment already in the conversation never asks in ask, auto, auto_strict or autonomous mode; a malformed id asks; a failed host origin validation yields the not-found line, never a card (per-mode rails tests)",
+        "the effect-shape classifier reports read-only shape without containment; the read gate and rails use it and behave exactly as today",
+        "every classifier branch carries a typed status; only a successful LLM verdict is answered; the six unusable-result codes are unavailable; aborted/input_truncated and non-LLM branches are skipped",
+        "AF-AC8 S1 attachment read = 0 taps",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T1"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T2b",
+      "title": "Native tool risk by arguments",
+      "objective": "file list/read become low risk with host-side protection (scope-aware virtual predicate: list hides protected entries with a count line, read refuses with the fixed error text); write/promote_scratch judged by destination; native Write/Edit judged by prospective-write containment at the classifier caller; browser closed matrix (wait_for, screenshot low; all else ask); unmapped gantry tools go to the classifier instead of HIGH.",
+      "acceptance_criteria": [
+        "browser_act wait_for and screenshot proceed in auto mode; every other verb and any unknown shape asks; exhaustive per-verb test",
+        "file list/read never ask; protected entries are hidden/refused host-side with the plan's exact copy; malformed arguments ask",
+        "Write/Edit inside the agent workspace and unprotected allow; outside or protected ask; symlinks rejected; the eligibility gate widens only for those two facade tools",
+        "unmapped gantry tools and grantable-exact invocations are no longer forced HIGH by identity",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T2a"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T3a",
+      "title": "Human-decision memory persistence",
+      "objective": "permission_decision_memory gains the human_decision kind with outcome, scope, scope_key, acting person id + label snapshot, uuid ids, a human-row CHECK and two partial unique indexes replacing the unconditional key; scope keys derived in one module (outcome-aware: path-only Allow for single-destination file writes, full hash for No); a host-owned service remember|list|revoke with person-scoped revokeById; typed remember DTO and human_decision provenance codec in domain types.",
+      "acceptance_criteria": [
+        "repository round-trips human rows per person and rejects rows missing outcome/scope/scope_key/person; non-human rows keep today's key (Postgres tests)",
+        "revokeById returns applied|already_revoked|not_found and never crosses persons; short-id derivation tested",
+        "scope keys: exact Allow on Write/Edit/file write/promote_scratch keys on tool + canonical destination; No keys on the full effect hash; shell writes never path-only; protected destinations never key an Allow",
+        "architecture note for the record kind; migration follows the table's existing naming convention",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T2b"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T3b",
+      "title": "Memory consult in the coordinator and the inline runtime",
+      "objective": "The coordinator consults human_decision records for interactive_auto only: exact remembered No first (before hard restrictions), remembered Allows after the non-overridable rails in place of the out-of-root tail exit (exact, then kind, then place via the trusted-root stage); the inline live runtime gets the decision-memory port and the same consult; ask, auto_strict and job lanes never consult.",
+      "acceptance_criteria": [
+        "seeded records resolve with decidedBy human_decision (allow) or deny without classifier consultation; kind matches read-only shapes anywhere; place matches under the root",
+        "a rails-version bump or revoked record does not match and the re-ask carries the plan's reason line",
+        "ask, auto_strict and job lanes never consult the memory (explicit tests); inline live runtime consults identically to IPC",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T3a"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T3c",
+      "title": "Remember settlement and learning writes",
+      "objective": "The structured remember resolution flows through the closed codec set (normalization, settlement, prompt binding, callback reconstruction, recovery orchestrator, Postgres claim mapping, provider scalar encodings); both human-resolution chokepoints write the record only when the host-stamped rememberEligible lane re-derives true; forged/replayed/ineligible callbacks settle once-only; the end-to-end S2 fixture proves tap, persist, reuse.",
+      "acceptance_criteria": [
+        "a remembered Allow/No on an eligible DM card persists once with the default or chosen scope and applies the current request; Just-this-once never persists",
+        "remember callbacks for ask, auto_strict, group or job prompts never persist (tests per lane); recovery/replay after restart preserves the structured intent",
+        "unresolved person: nothing persisted, once semantics, the plan's post-tap line",
+        "AF-AC8 S2 = 0 taps after at most one remembered Allow",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T3b"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T4",
+      "title": "Live job projection of learned decisions (0153)",
+      "objective": "Scheduled and inline job permission requests consult the owner's active allow-outcome human_decision records as one deterministic declared-grant input, live and revocable, person-scoped via execution_context.personId in both job paths (unresolved identity projects nothing); the matched record id is stamped into the permission audit context in both lanes; classifier still never runs for jobs; inline-scheduled tests rewritten to the projection.",
+      "acceptance_criteria": [
+        "exact/kind/place match allows a job request with human_decision provenance; near-miss, rails-bump, revoked, deny-outcome or other-person records still card (projection matrix)",
+        "both job lanes record the matched record id beside jobId; jobs never write the memory",
+        "inline-scheduled expectations assert the projection, not classifier consultation",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T3c"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T5a",
+      "title": "Card UX and provider surfaces",
+      "objective": "Eligible DM cards render Allow (remembered, default) / one alternative remembering button / Just this once / No with the plan's pre- and post-tap lines; destructive and protected cards offer no remembering Allow; batch cards carry the once-only line in both renderers; ineligible-lane cards are byte-for-byte today's; every provider file for the remember resolution and the memory_forget affordance, incl. the message-actions union entry and Teams per-row ActionSets.",
+      "acceptance_criteria": [
+        "labels, order and copy match the plan on all four providers for eligible, destructive, protected, batch and ineligible-lane cards (snapshot/parity tests)",
+        "memory_forget renders and settles on all four providers; Teams renders ten Forget buttons via per-row ActionSets",
+        "AF-AC8 S4: rm -rf still asks with no remembering Allow button and No remembers the exact command",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T3c"
+      ],
+      "user_facing": true
+    },
+    {
+      "id": "ASKFLOOR-1-T5b",
+      "title": "/permissions: remembered list, all, forget",
+      "objective": "The existing /permissions command keeps its mode display and appends the ten newest remembered decisions with Forget buttons, used-by-job suffixes from actual audit consumption, /permissions all as a plain-text full list with short ids, and /permissions forget <id> with person-scoped prefix resolution; the caller binds app, agent and resolved person; every group variant is non-mutating DM guidance; one guidance line in the prompt profile.",
+      "acceptance_criteria": [
+        "bare /permissions, all and forget <id> behave per the plan with the exact replies for applied, already forgotten, not found and ambiguous; ambiguity never mutates",
+        "rows show outcome, scope, date and the snapshotted approver label; used-by-job comes only from records a job actually consumed",
+        "group variants never mutate and reply with the DM-feature line; the plain-chat pointer line exists in the prompt profile",
+        "AF-AC8 S5 (remembered shape runs in a job with 0 cards, near-miss cards, after Forget it cards again) and the listing fixture",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T5a",
+        "ASKFLOOR-1-T4"
+      ],
+      "user_facing": true
+    },
+    {
+      "id": "ASKFLOOR-1-T6",
+      "title": "Judge outage, invariance suite, tap budget",
+      "objective": "A process-local outage latch keyed by app, provider account and conversation sends one notice per episode before the first offline card on both the IPC and inline consult paths (driven by the typed status incl. wiring_missing), the card reason line, and Allow still remembering offline; the AF-AC6 invariance suite across every lane; the S6 fixture and the AF-AC8 aggregation run.",
+      "acceptance_criteria": [
+        "judge unavailable: exactly one notice per (app, provider account, conversation) per episode on both paths; deterministic reads and learned scopes unaffected; an uncovered read asks at most once; latch resets on the next answered verdict",
+        "AF-AC6: ask, auto_strict, autonomous incl. the 0153 matrix, YOLO backstop, unmapped-forced-ask, scheduler/admin/destructive asks, the CARDSIMPLE-1 family rail-hit and the inline-scheduled path behave as today except where AC2/AC3/AC4 deliberately change them",
+        "AF-AC8 S6 fixture and the aggregation over S1-S6 pass",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T4",
+        "ASKFLOOR-1-T5b"
+      ],
+      "user_facing": true
+    }
+  ],
+  "project": "",
+  "plan_sha256": "46a5a7409c4ed23c944394300ce89e088246d9efa0ae7cd181ca98e8a12230f7",
+  "commit": "34fdffdbd598c1372bb6edf12e4da5255b6813ae"
+}
