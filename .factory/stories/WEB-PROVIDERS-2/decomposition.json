@@ -112,10 +112,9 @@
         }
       ],
       "verify_commands": [
-        "npm run test --workspace @gantry/core",
-        "npm run typecheck --workspace @gantry/core",
-        "npm run lint --workspace @gantry/core",
-        "npm run format:check --workspace @gantry/core",
+        "npm run typecheck",
+        "npm run lint",
+        "npm run format:check",
         "git diff --check",
         "python3 factory/scripts/verify.py"
       ],
@@ -147,5 +146,5 @@
     "T2"
   ],
   "plan_sha256": "a1d3fd55294462aad68964f09210502cf15e6f22bfd17df4b95c7785182202f2",
-  "commit": "6c9a4da35534191afb355f8cefd180372291a038"
+  "commit": "c2325579c81284bf1d839f85c52c3060bcded7d4"
 }

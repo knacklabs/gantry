@@ -25,13 +25,6 @@ it('browser authentication routes > keeps browser protocol routes separate and r
     path.join(repoRoot, 'apps/core/src/control/server/index.ts'),
     'utf8',
   );
-  const modelProviders = fs.readFileSync(
-    path.join(
-      repoRoot,
-      'apps/core/src/control/server/routes/browser-model-providers.ts',
-    ),
-    'utf8',
-  );
   const mcpServers = fs.readFileSync(
     path.join(
       repoRoot,
@@ -89,17 +82,6 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   expect(mcpServers).toContain("'mcp:admin'");
   expect(mcpServers).toContain('requireBrowserMutationSession({');
   expect(mcpServers).toContain('isRecentlyReauthenticated(');
-  expect(modelProviders).toContain("'credentials:read'");
-  expect(modelProviders).toContain("'credentials:admin'");
-  expect(modelProviders).toContain('requireBrowserMutationSession({');
-  expect(modelProviders).toContain('isRecentlyReauthenticated(');
-  expect(modelProviders).toContain('configuredProviderIds: new Set(');
-  expect(modelProviders).not.toContain('message: result.message');
-  expect(modelProviders).toContain('reactivateDisabled: true');
-  expect(modelProviders).toContain('Credential is available to Gantry.');
-  expect(modelProviders).toContain(
-    'Gantry could not resolve this credential configuration.',
-  );
   expect(source).toContain(
     'This authorization link can only be used on this Gantry host.',
   );
@@ -187,4 +169,27 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   expect(
     oidcStateMatches(localStateCookie, 'http://127.0.0.1:3939', 'local-state'),
   ).toBe(true);
+});
+
+it('keeps browser model provider configuration checks local', () => {
+  const source = fs.readFileSync(
+    path.join(
+      repoRoot,
+      'apps/core/src/control/server/routes/browser-model-providers.ts',
+    ),
+    'utf8',
+  );
+
+  expect(source).toContain("'credentials:read'");
+  expect(source).toContain("'credentials:admin'");
+  expect(source).toContain('requireBrowserMutationSession({');
+  expect(source).toContain('isRecentlyReauthenticated(');
+  expect(source).toContain('configuredProviderIds: new Set(');
+  expect(source).toContain('reactivateDisabled: true');
+  expect(source).not.toContain('message: result.message');
+  expect(source).not.toContain('verifyModelProviderCredentialLive');
+  expect(source).toContain('Credential is available to Gantry.');
+  expect(source).toContain(
+    'Gantry could not resolve this credential configuration.',
+  );
 });
