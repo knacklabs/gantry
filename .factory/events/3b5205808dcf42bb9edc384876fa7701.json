@@ -1,0 +1,1 @@
+{"event": "shipped", "generated_by": "orchestrator", "at": "2026-09-03T16:05:20+00:00", "story": "WEB-PROVIDERS-2", "detail": "WEB-PROVIDERS-2 is ready for review: registry-driven credential setup now handles explicit multi-method selection, safe sparse reactivation, multiline Vertex JSON, and honest local configuration check"}

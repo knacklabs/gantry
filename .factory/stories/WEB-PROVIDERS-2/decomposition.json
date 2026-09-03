@@ -127,32 +127,11 @@
         "max_changed_lines": 700,
         "reason": "The active stage contains the shared registry/service/browser facade work plus its DTO/dialog consumer and focused tests; no provider-specific component, endpoint, migration, SDK, or probe is added."
       }
-    },
-    {
-      "id": "T2",
-      "epic_id": "web-authentication",
-      "title": "Shared credential dialog behavior",
-      "objective": "Update the shared web provider dialog to use controlled registry-driven authentication selection, sparse same-method PATCH requests, complete setup/replacement PUT requests, multiline input rendering, draft clearing, and honest configuration-check copy.",
-      "acceptance_criteria": [
-        "Anthropic, Bedrock, and Vertex first setup require explicit authentication-method selection before fields, Save enablement, or request construction.",
-        "Single-method providers keep the compact registry-driven form without a selector.",
-        "Same-method edits and disabled reactivation submit sparse PATCH bodies containing only non-empty fields.",
-        "First setup and authentication-method replacement submit complete PUT bodies with authMode and required new fields.",
-        "Switching authentication methods or closing the dialog clears unsaved values.",
-        "Configured stored fields are labeled in the UI without displaying secret values.",
-        "Vertex service-account JSON renders in a visible native textarea.",
-        "Verify credential is renamed to Check configuration with copy limited to Gantry-side credential availability.",
-        "Focused web and synthetic browser checks cover Bedrock, Anthropic, Vertex, and one single-key provider without real credentials or upstream calls."
-      ],
-      "dependencies": [
-        "T1"
-      ]
     }
   ],
   "linear_plan": [
-    "T1",
-    "T2"
+    "T1"
   ],
   "plan_sha256": "a1d3fd55294462aad68964f09210502cf15e6f22bfd17df4b95c7785182202f2",
-  "commit": "c594c913d06a7efe8b982c7264bc280b207daff6"
+  "commit": "e0a4b2d9d58f0c6aa24c3010a8db127f7a09a192"
 }

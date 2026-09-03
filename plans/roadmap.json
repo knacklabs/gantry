@@ -2579,13 +2579,16 @@
         "Focused automated and synthetic browser checks cover every provider mode without real credentials or upstream calls."
       ],
       "order": 119,
-      "status": "active",
+      "status": "done",
       "epic": "web-authentication",
       "skill": "fullstack",
       "depends_on": [],
-      "spec": "docs/specs/web-providers-2-credential-setup.md"
+      "spec": "docs/specs/web-providers-2-credential-setup.md",
+      "completed_at": "2026-09-03T16:05:20+00:00",
+      "history": ".factory/stories/WEB-PROVIDERS-2/",
+      "outcome": "WEB-PROVIDERS-2 is ready for review: registry-driven credential setup now handles explicit multi-method selection, safe sparse reactivation, multiline Vertex JSON, and honest local configuration checks."
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-09-03T11:16:39+00:00"
+  "updated_at": "2026-09-03T16:05:20+00:00"
 }
