@@ -29,7 +29,8 @@ credential projection check as upstream verification.
 - Changing authentication method warns that the stored credential will be
   replaced, requires a complete new payload, and atomically replaces it through
   the existing set operation.
-- Stored field names may be shown, but stored secret values remain write-only
+- The shared form identifies fields that already have a stored value using
+  redacted configured-field names, but stored secret values remain write-only
   and never return to the browser.
 - A multi-method provider has no selected mode during first setup. Until the
   administrator chooses one, no credential fields render, Save is disabled,

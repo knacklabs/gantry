@@ -401,8 +401,11 @@ Control API semantics:
 - `PUT /v1/credentials/models/:providerId` fully replaces one provider
   credential and may set or change `authMode`.
 - `PATCH /v1/credentials/models/:providerId` rotates fields inside the
-  existing active `authMode`; omitted fields are preserved, while empty, null,
-  unknown, missing, disabled, or auth-mode-changing updates are rejected.
+  existing `authMode`; omitted fields are preserved. For an active credential,
+  at least one field must be supplied. For a disabled credential, an empty or
+  sparse update reactivates it only after the merged stored-and-supplied payload
+  validates and the atomic upsert succeeds. Null, unknown, missing, or
+  auth-mode-changing updates are rejected.
 - `DELETE /v1/credentials/models/:providerId` disables active use without
   deleting the encrypted payload or metadata.
 
