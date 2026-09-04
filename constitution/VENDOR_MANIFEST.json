@@ -1,5 +1,5 @@
 {
-  "harness_commit": "36f41cdde01f1776ae191682a28c86615f2ddd8c",
+  "harness_commit": "fc09793e39fb7c0b60599d8cda4598a34846a2e7",
   "files": {
     "factory/scripts/check_agents_hygiene.py": "63b5db9b788ebc55d3542af506566ab8d45ba7c7f588a6f93e78d3811d0003c4",
     "factory/scripts/check_board_complete.py": "75022051af7cc2928039641ba2ef1a5f31e45e6b5c1651e15c2213cca6c6a7a0",
@@ -17,7 +17,7 @@
     "factory/scripts/forge_cli/adopt.py": "b6d34e97ba5967447d5aa8dfa2c7ae5dfffcf0aea2d34f16c7d11839bf11a63c",
     "factory/scripts/forge_cli/assumptions.py": "474ce594e8d1348487d12545310894eebd60b382ef969ce9cdce049c56e7b8a6",
     "factory/scripts/forge_cli/audit.py": "3ee18c67985328831d706fac9415fb488f5efffa84eb82c60925b9df6c7b0e4d",
-    "factory/scripts/forge_cli/board.py": "c00219d9c075f27ce1c6f75664c4a28814ed11086de86bf4222139af607d67df",
+    "factory/scripts/forge_cli/board.py": "c9fcb7dca33379c27e96e8efaea23ea7ba55c2215a18006edfa65e9b61312f93",
     "factory/scripts/forge_cli/ceremony.py": "f31653141a89562c84e04ecdc5cd438d68353230f364149301c367e2e91aa7fd",
     "factory/scripts/forge_cli/codex_status.py": "f62ea21fe6b73a590b8d3051a287041079b9c83cd3f99fff2bd1903d4367be79",
     "factory/scripts/forge_cli/common.py": "a5db9b7c577f869a0c856b3d9c9a20b34ea764b1e4439b5ad40f583119414e17",
@@ -41,7 +41,7 @@
     "factory/scripts/forge_cli/quickfix.py": "a58e468d9cc8a89d7ffb45094807a05f4f275a2dbf88add9b827d6b854c59fb4",
     "factory/scripts/forge_cli/readiness.py": "7b18cacce293cce2e760c1c5ebdb8331d4ff5ca354f58e9a01a435a71b94882d",
     "factory/scripts/forge_cli/repo_kind.py": "427043c49817f650c77eb20dbc368914822e31e028a9bd1c5042ff64cd475c97",
-    "factory/scripts/forge_cli/review.py": "b35b936a130d68e6dba0928936e9e11c0f7f3b240f8643a896775b1e306f06d6",
+    "factory/scripts/forge_cli/review.py": "87ca481c62d586ce5cf52c1172d584f8eee9eadca1ec45e798b7036ce2368cb5",
     "factory/scripts/forge_cli/review_brief.py": "c1efb8a4c8b9fce1c25f868626bb7731702953b2d41ef862e68c7ca576eef465",
     "factory/scripts/forge_cli/roadmap.py": "c33f5e9fde96f620962354114cf93a6ebb3bbc130ebb70719f09f6e286b91756",
     "factory/scripts/forge_cli/sanitise.py": "f8fe1115caf6ed19a63d400ca8e9688e5b267e6f284f280969edace274300d91",
