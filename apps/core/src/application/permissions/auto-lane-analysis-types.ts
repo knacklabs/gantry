@@ -46,9 +46,6 @@ export function isSensitivePathShape(value: string): boolean {
   const normalizedPath = normalizedSegments.join('/');
   // TODO(T2a): share these pure shapes with the canonical protected-path gate.
   return (
-    normalizedPath.includes('.codex/skills') ||
-    normalizedPath.includes('.agents/skills') ||
-    normalizedPath.includes('.claude/skills') ||
     normalizedPath.includes('artifacts/skills') ||
     /(?:^|\/)agents\/[^/]+\/skills(?:\/|$)/.test(normalizedPath)
   );

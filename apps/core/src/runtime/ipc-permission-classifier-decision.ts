@@ -381,7 +381,12 @@ function mergeIpcClassifierWithRail(
   const railDecision = input.context.railDecision;
   const railAsk =
     railDecision?.railOutcome === 'ask' ? railDecision : undefined;
-  const railRequiresApproval = railAsk?.hardFloor === true;
+  const railRequiresApproval = Boolean(
+    railAsk &&
+    (railAsk.hardFloor === true ||
+      railAsk.railSignal === RailSignal.OutOfTrustedRoot ||
+      railAsk.railSignal === RailSignal.UnsupportedMetaExecutor),
+  );
   const relaxesRailVeto = Boolean(
     classifierDecision?.decision === 'allow' &&
     railAsk &&
@@ -439,11 +444,9 @@ async function writeIpcClassifierCache(
   // those flow through requestPermissionApproval below and never reach this).
   // Skipped when effectHash is undefined (sanitized/truncated input).
   //
-  // A hard-floor rail ASK makes the effect UNCACHEABLE in either direction, not
-  // just when it vetoes an allow: the rail fires precisely when the effect could
-  // not be bounded (e.g. a concealed/risk-sanitized input-gated birthright tool),
-  // so a verdict derived from input the human never saw must never be persisted
-  // and reused by a later concealed request.
+  // A rail ASK marked as requiring approval makes the effect UNCACHEABLE in
+  // either direction, not just when it vetoes an allow: its classifier verdict
+  // must not be persisted and reused without the same rail context.
   // (subsumes the narrower railVetoedClassifierAllow case: that is an allow
   // under railRequiresApproval, so this guard already covers it.)
   if (

@@ -176,47 +176,46 @@ describe('IPC permission classifier decision', () => {
   it.each(['low', 'medium'] as const)(
     'honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: %s',
     async (riskLevel) => {
-      const result = await resolveWithClassifierRisk({
-        toolName: 'RunCommand',
-        toolInput: { command: 'git status' },
-        riskLevel,
-        riskCategory: 'filesystem',
-        trustedRoots: ['/definitely/elsewhere'],
-      });
-      expect(result.requestPermissionApproval).not.toHaveBeenCalled();
-      expect(result.decision).toMatchObject({
-        approved: true,
-        decidedBy: 'auto_classifier',
-        source: 'auto_classifier',
-        railProvenance: {
-          signal: 'out_of_trusted_root',
-          reason: expect.stringContaining('outside'),
-        },
-      });
+      for (const trustedRoots of [[], ['/definitely/elsewhere']]) {
+        const result = await resolveWithClassifierRisk({
+          toolName: 'RunCommand',
+          toolInput: { command: 'git status' },
+          riskLevel,
+          riskCategory: 'filesystem',
+          trustedRoots,
+        });
+        expect(result.requestPermissionApproval).not.toHaveBeenCalled();
+        expect(result.decision).toMatchObject({
+          approved: true,
+          decidedBy: 'auto_classifier',
+          source: 'auto_classifier',
+          railProvenance: {
+            signal: 'out_of_trusted_root',
+            reason: expect.stringContaining('outside'),
+          },
+        });
+      }
     },
   );
 
   it('keeps the rail veto for out_of_trusted_root in auto_strict, ask and job lanes', async () => {
     for (const lane of [
       { permissionMode: 'auto_strict' as const },
+      { permissionMode: 'auto_strict' as const, trustedRoots: [] },
       { permissionMode: 'ask' as const },
       { permissionMode: 'auto' as const, hostJobId: 'job-1' },
     ]) {
       const result = await resolveCommandInLane({
         ...lane,
         command: 'git status',
-        trustedRoots: ['/definitely/elsewhere'],
+        trustedRoots: lane.trustedRoots ?? ['/definitely/elsewhere'],
       });
       expect(result.decision, JSON.stringify(lane)).toMatchObject({
         approved: false,
         decidedBy: 'owner',
       });
       expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
-      if (lane.permissionMode === 'auto_strict') {
-        expect(result.classifierConsult).toHaveBeenCalledOnce();
-      } else {
-        expect(result.classifierConsult).not.toHaveBeenCalled();
-      }
+      expect(result.classifierConsult).not.toHaveBeenCalled();
     }
   });
 
@@ -272,9 +271,11 @@ describe('IPC permission classifier decision', () => {
       trustedRoots,
     });
     expect(strict.decision).toMatchObject({
-      approved: true,
-      decidedBy: 'auto_classifier',
+      approved: false,
+      decidedBy: 'owner',
     });
+    expect(strict.requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(strict.classifierConsult).not.toHaveBeenCalled();
 
     const job = await resolveCommandInLane({
       command: 'git status 2>/dev/null',
