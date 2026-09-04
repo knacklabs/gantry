@@ -121,9 +121,38 @@ def _static_locked(raw: str, root: Path) -> bool:
             .resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return False
-    return rel not in STATIC_WRITE_EXEMPT_FILES and not any(
-        rel == prefix.rstrip("/") or rel.startswith(prefix)
-        for prefix in STATIC_WRITE_EXEMPT_PREFIXES)
+    if rel in STATIC_WRITE_EXEMPT_FILES or any(
+            rel == prefix.rstrip("/") or rel.startswith(prefix)
+            for prefix in STATIC_WRITE_EXEMPT_PREFIXES):
+        return False
+    return not _ignored_and_untracked(rel, root)
+
+
+def _ignored_and_untracked(rel: str, root: Path) -> bool:
+    """A path git ignores AND does not track is not product or canon.
+
+    The exemption list named `.envrc` but not `.env`, so editing local service
+    config to run verify was refused as a product write. Enumerating filenames
+    always misses one; the question is what the file IS. Git already answers
+    it, and the answer costs nothing on the common path because this is only
+    consulted for a path that would otherwise be refused.
+
+    BOTH conditions matter. A tracked file stays guarded even if someone adds
+    it to .gitignore, so the lock cannot be lifted off product by editing an
+    ignore rule.
+    """
+    try:
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", "--", rel], cwd=root,
+            capture_output=True, timeout=5)
+        if ignored.returncode != 0:
+            return False
+        tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", rel], cwd=root,
+            capture_output=True, timeout=5)
+        return tracked.returncode != 0
+    except (OSError, subprocess.SubprocessError):
+        return False   # cannot tell: keep the lock on
 
 
 def _fallback_readonly(command: str) -> bool:

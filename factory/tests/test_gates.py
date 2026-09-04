@@ -12541,6 +12541,27 @@ def test_board_shows_proposed_decisions_and_the_signoff_gate(repo, tmp_path):
     assert "Client sign-off is not recorded" in page
 
 
+# Every gate, and what it requires. A gate may only require things PRODUCED
+# EARLIER in this order. The scope deadlock and the grill deadlock were both
+# the same shape: a gate demanding something its own refusal had just made
+# impossible, with no escape but a false record.
+GATE_ORDER = ["plan", "grill", "approve", "task_start", "stage_start",
+              "delegate", "verify", "review", "stage_done", "task_pr_ready",
+              "story_closeout"]
+GATE_REQUIRES = {
+    "grill": ["plan"],
+    "approve": ["plan", "grill"],
+    "task_start": ["approve"],
+    "stage_start": ["task_start"],
+    "delegate": ["stage_start"],
+    "verify": [],
+    "review": ["delegate"],
+    "stage_done": ["delegate"],
+    "task_pr_ready": ["stage_done", "verify", "review"],
+    "story_closeout": ["task_pr_ready"],
+}
+
+
 def test_state_audit_reports_a_stage_split_between_working_copies(repo, tmp_path):
     # The harness gates TRANSITIONS and never re-validates STATE, so a record
     # that stopped being true is invisible. This is the split that made a
@@ -19491,3 +19512,60 @@ def test_ceremony_target_redirects_rounds_and_markers(repo, tmp_path):
     bare.mkdir()
     code, out = run(repo, "forge.py", "ceremony", "target", "set", str(bare))
     assert code != 0 and "not an adopted factory repo" in out
+
+
+def test_write_lock_exempts_ignored_local_config_but_not_tracked_product(repo):
+    # The exemption list named .envrc but not .env, so editing local service
+    # config to run verify was refused as a product write. Enumerating
+    # filenames always misses one; git already knows what a file IS.
+    sys.path.insert(0, str(repo / "factory" / "scripts"))
+    from pre_tool_use import _static_locked  # noqa: E402
+
+    (repo / ".gitignore").write_text(".env\nsrc/generated.py\n", encoding="utf-8")
+    (repo / ".env").write_text("SMTP_HOST=127.0.0.1\n", encoding="utf-8")
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src" / "app.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "src" / "generated.py").write_text("y = 2\n", encoding="utf-8")
+    git(repo, "add", "-A")
+    # Tracked AND ignored: the loophole. Git tracks it regardless of the rule.
+    git(repo, "add", "-f", "src/generated.py")
+    git(repo, "commit", "-qm", "lock fixture")
+
+    assert _static_locked(".env", repo) is False
+    assert _static_locked("src/app.py", repo) is True
+    # A tracked file stays guarded even when someone adds it to .gitignore, so
+    # the lock cannot be lifted off product by editing an ignore rule.
+    assert _static_locked("src/generated.py", repo) is True
+
+
+def test_the_gate_graph_has_no_cycles(repo):
+    # A deadlock is not a bug in one gate; it is an edge pointing forward. Two
+    # shipped this month: `stage done` demanded a launch bound to a contract
+    # its own refusal told you to change, and a grill was staled by the fix it
+    # asked for. Both were only escapable by recording something false.
+    position = {gate: index for index, gate in enumerate(GATE_ORDER)}
+    for gate, requires in GATE_REQUIRES.items():
+        for needed in requires:
+            assert needed in position, f"{gate} requires unknown gate {needed}"
+            assert position[needed] < position[gate], (
+                f"{gate} requires {needed}, which comes AFTER it — that is a "
+                "cycle, and the only way through it is a false record")
+
+    # Reachability: no gate may require itself, directly or transitively.
+    def reaches(start, target, seen=None):
+        seen = seen or set()
+        for needed in GATE_REQUIRES.get(start, []):
+            if needed == target:
+                return True
+            if needed not in seen and reaches(needed, target, seen | {needed}):
+                return True
+        return False
+
+    for gate in GATE_REQUIRES:
+        assert not reaches(gate, gate), f"{gate} transitively requires itself"
+
+    # The graph must describe the gates that actually exist: a gate added to
+    # the harness and not to this map would be unchecked by this test.
+    lib = (HARNESS / "factory" / "scripts" / "factory_lib.py").read_text(
+        encoding="utf-8")
+    assert "def require_closeout_order" in lib
