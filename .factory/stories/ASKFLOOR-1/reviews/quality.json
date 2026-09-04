@@ -1,42 +1,16 @@
 {
   "generated_by": "autoreview",
-  "score": 9,
-  "summary": "quality lens over ASKFLOOR-1-T1 (24 product path(s), 2558f45..45bd0cc, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. Review passes returned. chunk 1/3: 1 finding(s), chunk 2/3: 0 finding(s), chunk 3/3: 3 finding(s). See preserved pass reports for provider conclusions.",
+  "score": 10,
+  "summary": "quality lens over ASKFLOOR-1-T1 (24 product path(s), 075f600..1ff68b5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT ASKFLOOR-1-T1-AC1: implemented \u2014 apps/core/src/runtime/ipc-permission-classifier-decision.ts:397 implements the lane- and signal-gated merge, with explicit coverage in apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts:97\nVERDICT ASKFLOOR-1-T1-AC2: implemented \u2014 apps/core/src/application/permissions/auto-lane-analysis.ts:112 implements fail-closed read-only find analysis, while apps/core/src/shared/permission-trusted-paths.ts:62 excludes stderr redirects to /dev/null\nVERDICT ASKFLOOR-1-T1-AC3: implemented \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:46 enumerates the authoritative stages and apps/core/src/runtime/permission-decision-coordinator.ts:154 constructs the immutable tail context from the single base rail evaluation\nVERDICT ASKFLOOR-1-T1-AC4: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts:33 exports the reusable replay fixture and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 pins S3 at zero taps\nVERDICT ASKFLOOR-1-T1-AC5: partial \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 shows added verification coverage, but the diff bundle contains no execution evidence for the full unit, Postgres, TypeScript, or architecture lanes\nNo actionable P0\u2013P2 defect is demonstrated by the supplied change bundle. The absence of full-suite execution evidence is treated as unverified context, not as evidence that the implementation is defective.",
   "blocking_findings": [
-    {
-      "category": "plan-contract-partial",
-      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T1-AC1: a classifier low/medium allow is honoured with the rail reason as typed provenance only when `permissionMode` is `auto` and `hostJobId` is absent; `auto_strict`, ask and job lanes keep the veto (explicit tests)."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T1-AC2: `find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; the rails' existing meta-executor refusal now carries the canonical typed signal `unsupported_meta_executor` (today it emits `privileged`, `domain/permission-deterministic-rails.ts:41-46,164-171`; verdict unchanged, A-0070) and a read-only `find` makes the analyzer's `readOnlyMetaExecutor` true; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path)."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T1-AC3: the ONE authoritative decision order \u2014 pre-coordination route analysis \u2192 exact remembered deny [T3b no-op slot] \u2192 hard restrictions \u2192 reviewed rules \u2192 deterministic rails (the single base evaluation) \u2192 conditional trusted-root handling (only on the rails' `out_of_trusted_root` ASK; its hypothetical rechecks unchanged) \u2192 remembered allows [T3b no-op slot] \u2192 classifier-cache read \u2192 tail \u2014 is the coordinator/tail contract (`permission-decision-coordinator.ts:97-200` enumerated as named stages, pinned by a stage-order test), with the base rail decision computed once and passed to the tail in an immutable typed context."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T1-AC4: the AF-AC8 replay harness exists as a reusable fixture module; S3 (`2>/dev/null` + read-only `find`) replays at 0 taps in interactive auto; later tasks add fixtures without editing T1's tests."
-    },
     {
       "category": "plan-contract-partial",
       "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
       "summary": "ASKFLOOR-1-T1-AC5: existing unit and Postgres integration suites pass; tsc and check:architecture green."
     }
   ],
-  "non_blocking_findings": [
-    {
-      "category": "bug",
-      "area": "apps/core/src/runtime",
-      "summary": "[P2] Cache relaxed classifier allows after successful rail override (apps/core/src/runtime/ipc-permission-classifier-decision.ts:492): When interactive auto accepts a classifier allow over `out_of_trusted_root` or a read-only `unsupported_meta_executor`, `railRequiresApproval` remains true."
-    }
-  ],
-  "recommendation": "approve-with-caveats",
+  "non_blocking_findings": [],
+  "recommendation": "approve",
   "reviewed_scope": [
     "AGENTS.md",
     "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
@@ -67,28 +41,28 @@
   "contract_verdicts": [
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
-      "verdict": "partial",
-      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:397 implements the lane- and signal-gated merge, with explicit coverage in apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts:97"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC2",
-      "verdict": "partial",
-      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/permissions/auto-lane-analysis.ts:112 implements fail-closed read-only find analysis, while apps/core/src/shared/permission-trusted-paths.ts:62 excludes stderr redirects to /dev/null"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC3",
-      "verdict": "partial",
-      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:46 enumerates the authoritative stages and apps/core/src/runtime/permission-decision-coordinator.ts:154 constructs the immutable tail context from the single base rail evaluation"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC4",
-      "verdict": "partial",
-      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts:33 exports the reusable replay fixture and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 pins S3 at zero taps"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC5",
       "verdict": "partial",
-      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 shows added verification coverage, but the diff bundle contains no execution evidence for the full unit, Postgres, TypeScript, or architecture lanes"
     }
   ],
   "aspect": "quality",
@@ -96,6 +70,6 @@
   "brief_sha256": "3665625c72a7d8cdfe89f3fab87c238a16e8e9b0848bad23cea45ec29e68a74d",
   "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
   "residual_risks": [],
-  "recorded_at": "2026-09-04T12:30:01+00:00",
-  "commit": "45bd0cc9cb117785cfeebc48ec036aa931c6e2e9"
+  "recorded_at": "2026-09-04T15:23:33+00:00",
+  "commit": "1ff68b563f21fd926ed361ebb7c81866ad271b3b"
 }

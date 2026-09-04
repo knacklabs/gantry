@@ -1,23 +1,13 @@
 {
   "generated_by": "autoreview",
-  "score": 8,
-  "summary": "performance lens over ASKFLOOR-1-T1 (24 product path(s), 2558f45..45bd0cc, Codex via the autoreview skill at --max-priority P2): 0 blocking, 3 non-blocking. Review passes returned. chunk 1/3: 1 finding(s), chunk 2/3: 2 finding(s), chunk 3/3: 1 finding(s). See preserved pass reports for provider conclusions.",
+  "score": 9,
+  "summary": "performance lens over ASKFLOOR-1-T1 (24 product path(s), 075f600..1ff68b5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The safety and lane-selection logic shown is largely consistent with the contract, but the cache-write guard makes the newly supported common read paths repeatedly pay for live classifier calls and regresses caching for soft out-of-root asks. That is a concrete production performance defect.",
   "blocking_findings": [],
   "non_blocking_findings": [
     {
-      "category": "bug",
+      "category": "regression",
       "area": "apps/core/src/runtime",
-      "summary": "[P2] Cache classifier verdicts after a relaxable rail allow (apps/core/src/runtime/ipc-permission-classifier-decision.ts:492): When interactive auto honors a classifier allow over an `out_of_trusted_root` or read-only `unsupported_meta_executor` rail ASK, `railRequiresApproval` remains true."
-    },
-    {
-      "category": "bug",
-      "area": "apps/core/src/runtime",
-      "summary": "[P2] Cache classifier allows for the newly relaxable rail cases (apps/core/src/runtime/ipc-permission-classifier-decision.ts:478): `merge.railRequiresApproval` remains true for both `out_of_trusted_root` and `unsupported_meta_executor`, even when `merge.railProvenance` shows that interactive-auto successfully relaxed the veto."
-    },
-    {
-      "category": "bug",
-      "area": "apps/core/src/runtime",
-      "summary": "[P2] Do not bypass the classifier cache for reviewed runner shims (apps/core/src/runtime/permission-decision-coordinator.ts:179): When a reviewed family rule is blocked only by `shimReason`, `railDecision` is undefined, so this condition invokes the tail immediately."
+      "summary": "[P2] Persist verdicts for successfully relaxed rail asks (apps/core/src/runtime/ipc-permission-classifier-decision.ts:462): Both relaxable signals set `railRequiresApproval` to true, so this guard prevents a freshly obtained classifier verdict from ever being cached even when `merge.railProvenance` shows that the interactive-auto allow safely overrode the rail."
     }
   ],
   "recommendation": "approve-with-caveats",
@@ -53,6 +43,6 @@
   "brief_sha256": "3665625c72a7d8cdfe89f3fab87c238a16e8e9b0848bad23cea45ec29e68a74d",
   "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
   "residual_risks": [],
-  "recorded_at": "2026-09-04T12:30:01+00:00",
-  "commit": "45bd0cc9cb117785cfeebc48ec036aa931c6e2e9"
+  "recorded_at": "2026-09-04T15:23:34+00:00",
+  "commit": "1ff68b563f21fd926ed361ebb7c81866ad271b3b"
 }

@@ -1,7 +1,7 @@
 {
   "generated_by": "autoreview",
   "score": 10,
-  "summary": "security lens over ASKFLOOR-1-T1 (24 product path(s), 2558f45..45bd0cc, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/3: 0 finding(s), chunk 2/3: 0 finding(s), chunk 3/3: 0 finding(s). See preserved pass reports for provider conclusions.",
+  "summary": "security lens over ASKFLOOR-1-T1 (24 product path(s), 075f600..1ff68b5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. The supplied diff preserves hard-floor vetoes for incomplete, protected, privileged, egress, and unsafe meta-executor inputs; limits rail relaxation to interactive auto; gates cached classifier allows by lane and relaxable rail signal; and carries signed, validated rail provenance through both runner decoders. No concrete P0\u2013P2 security defect is demonstrated by the available bundle.",
   "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
@@ -37,6 +37,6 @@
   "brief_sha256": "3665625c72a7d8cdfe89f3fab87c238a16e8e9b0848bad23cea45ec29e68a74d",
   "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
   "residual_risks": [],
-  "recorded_at": "2026-09-04T12:30:01+00:00",
-  "commit": "45bd0cc9cb117785cfeebc48ec036aa931c6e2e9"
+  "recorded_at": "2026-09-04T15:23:34+00:00",
+  "commit": "1ff68b563f21fd926ed361ebb7c81866ad271b3b"
 }
