@@ -1732,6 +1732,24 @@ function renderProgress(state) {
     (sum.waiting ? cell("waiting", "·", sum.waiting, "waiting") : "");
 }
 
+// Accepted decisions govern; PROPOSED ones are still questions, and the work
+// resting on them is resting on an unanswered one. Listing only the accepted
+// made the board quietest exactly where it should have been loudest.
+function decisionSection(decisions) {
+  const accepted = decisions.filter(d => d.status === "accepted");
+  const proposed = decisions.filter(d => d.status === "proposed");
+  const rows = (list) => `<div class="ledger">${list.map(d => `<div>
+      <span class="id">${esc(d.id)}</span><span>${esc(d.title)}</span>${openFile(d.path)}
+    </div>`).join("")}</div>`;
+  return `${proposed.length ? `<h3>Decisions awaiting you
+      <span class="meta">${proposed.length}</span></h3>
+      <p class="quiet">Proposed, not yet accepted — they govern nothing until
+        you confirm them in chat.</p>${rows(proposed)}` : ""}
+    <h3>Active decisions <span class="meta">${accepted.length}</span></h3>
+    ${accepted.length ? rows(accepted)
+      : `<p class="quiet">No accepted decisions yet. They are recorded when you confirm one in chat.</p>`}`;
+}
+
 function renderBanner(state) {
   const rows = [];
   for (const sig of state.signals || []) {
@@ -1746,6 +1764,20 @@ function renderBanner(state) {
       <b>Quickfix window open</b>
       <span>${esc(q.id)} — ${esc(q.reason || "")} (${(q.files || []).length}/${esc(q.max_files)} files)</span>
       <span class="do">Close it in your session once the fix lands.</span></div>`);
+  }
+  const so = state.signoff || {};
+  if (so.signed_off === false) {
+    rows.push(`<div class="flag urgent"><em>\u25c6</em>
+      <b>Client sign-off is not recorded</b>
+      <span>${esc(so.reason || "planning is refused until it is")}</span>
+      <span class="do">Confirm the sign-off decision in chat, then
+        <code>record_signoff.py</code>.</span></div>`);
+  }
+  const proposedDecisions = (state.decisions || []).filter(d => d.status === "proposed");
+  if (proposedDecisions.length) {
+    rows.push(`<div class="flag"><em>\u00b7</em><span>${
+      plural(proposedDecisions.length, "decision")} proposed and awaiting you —
+      ${proposedDecisions.map(d => esc(d.id)).join(", ")}</span></div>`);
   }
   const a = (state.summary || {}).attention || {};
   const quiet = [];
@@ -3823,12 +3855,7 @@ function libraryBody(state) {
     </div>`).join("");
   const active = planRows("active"), completed = planRows("completed");
   return `<h3>Specs <span class="meta">${specs.length}</span></h3>${specRows}
-    <h3>Active decisions <span class="meta">${decisions.length}</span></h3>
-    ${decisions.length
-      ? `<div class="ledger">${decisions.map(d => `<div>
-          <span class="id">${esc(d.id)}</span><span>${esc(d.title)}</span>${openFile(d.path)}
-        </div>`).join("")}</div>`
-      : `<p class="quiet">No accepted decisions yet. They are recorded when you confirm one in chat.</p>`}
+    ${decisionSection(decisions)}
     <h3>Plans ledger</h3>
     ${active ? `<p class="quiet">Active</p><div class="ledger">${active}</div>` : ""}
     ${completed ? `<p class="quiet">Completed</p><div class="ledger">${completed}</div>` : ""}

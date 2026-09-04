@@ -126,3 +126,28 @@ def test_review_brief_carries_the_lessons_in_force_for_the_task_paths(repo, tmp_
     assert "soft rail asks keep classifier eligibility" in brief
     assert "pinned by test" in brief
     assert "unrelated discord lesson" not in brief
+
+
+def test_review_tip_puts_harness_bookkeeping_back_at_the_task_base(repo, tmp_path):
+    from forge_cli.review import product_only_tip
+
+    base_sha = head(repo)
+    git(repo, "checkout", "-q", "-b", "feat/ENG-1-T1")
+    (repo / "plans" / "exploration").mkdir(parents=True, exist_ok=True)
+    (repo / "plans" / "exploration" / "grill-r1.md").write_text("x" * 5000)
+    (repo / ".factory" / "stories" / "ENG-1").mkdir(parents=True, exist_ok=True)
+    (repo / ".factory" / "stories" / "ENG-1" / "verify.json").write_text("{}")
+    _commit(repo, "src/task.py", "task work\n")
+    git(repo, "add", "-A", "plans", ".factory")
+    git(repo, "commit", "-q", "-m", "planning artifacts")
+    tip = head(repo)
+
+    worktree = tmp_path / "review-wt"
+    git(repo, "worktree", "add", "--detach", str(worktree), tip)
+    review_tip = product_only_tip(worktree, base_sha)
+    assert review_tip != tip
+    delta = sorted(git(worktree, "diff", "--name-only", f"{base_sha}..{review_tip}").splitlines())
+    assert delta == ["src/task.py"]
+    # The task branch itself is untouched.
+    assert head(repo) == tip
+    git(repo, "worktree", "remove", "--force", str(worktree))
