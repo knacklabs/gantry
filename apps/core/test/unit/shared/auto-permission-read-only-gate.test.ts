@@ -203,11 +203,7 @@ describe('auto-permission deterministic read-only gate', () => {
       reason: 'Parser-proven safe compound read command.',
     });
     expect(
-      shell(
-        'grep settings.yaml README.md',
-        ['filesystem.read'],
-        workspaceRoot,
-      ),
+      shell('grep settings.yaml README.md', ['filesystem.read'], workspaceRoot),
     ).toEqual({
       allowed: false,
       reason: 'Protected paths require approval.',

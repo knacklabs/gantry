@@ -49,7 +49,9 @@ describe('permission read hard boundaries', () => {
       });
 
     expect(
-      evaluate(path.relative(workspaceRoot, path.join(outsideRoot, 'outside.txt'))),
+      evaluate(
+        path.relative(workspaceRoot, path.join(outsideRoot, 'outside.txt')),
+      ),
     ).toEqual({
       allowed: false,
       reason: 'The resolved file read target is not safe.',

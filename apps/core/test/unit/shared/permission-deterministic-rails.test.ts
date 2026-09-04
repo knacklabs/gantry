@@ -804,7 +804,7 @@ describe('permission deterministic rails', () => {
     });
   });
 
-  it('asks for attachment_open when the typed fact is absent or not well-formed, while another tool\'s redacted input still asks', () => {
+  it("asks for attachment_open when the typed fact is absent or not well-formed, while another tool's redacted input still asks", () => {
     for (const attachmentOpenIds of [
       undefined,
       { wellFormed: false, count: 1 },

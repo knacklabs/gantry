@@ -60,7 +60,9 @@ export function classifyPermissionEffectShape(
 ): PermissionEffectShapeResult {
   const executable = bashExecutableName(leaf.argv[0] ?? '');
   if (leaf.argv[0] !== executable) {
-    return notReadOnly('Executable path is not an exact reviewed read command.');
+    return notReadOnly(
+      'Executable path is not an exact reviewed read command.',
+    );
   }
   const args = leaf.argv.slice(1);
 
@@ -116,11 +118,7 @@ export function classifyPermissionEffectShape(
   }
   const fileArgs = simpleReadFileArgs(executable, args);
   if (fileArgs) {
-    return fileRead(
-      'read',
-      fileArgs,
-      executable !== 'du' && !context.stdinOk,
-    );
+    return fileRead('read', fileArgs, executable !== 'du' && !context.stdinOk);
   }
   return notReadOnly(
     `Executable ${executable || '(missing)'} is not a reviewed read command.`,
