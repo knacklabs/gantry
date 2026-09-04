@@ -36,7 +36,35 @@ def declared_contracts(decomposition: dict) -> list[dict]:
     return contracts
 
 
-def _task_section(task: dict) -> list[str]:
+def _lessons_section(base: Path, task: dict) -> list[str]:
+    """Lessons whose `applies_to` globs hit the task's write scope — the
+    reviewer must not re-raise a finding the ledger already settled (the
+    2026-09-04 case: a per-task review re-flagged as P1 the exact behaviour a
+    recorded lesson pins as deliberate, because the brief never carried it)."""
+    from .lessons import relevant_lessons
+    scope = [p for p in task.get("write_scope", []) if isinstance(p, str)]
+    if not scope:
+        return []
+    try:
+        hits = relevant_lessons(base, scope)
+    except SystemExit:
+        return []
+    if not hits:
+        return []
+    lines = ["### Lessons in force", "",
+             "Recorded lessons that apply to this task's paths. A finding that "
+             "contradicts one is not a defect unless it shows the lesson itself "
+             "is wrong; say so explicitly instead of re-raising it.", ""]
+    for lesson in hits:
+        topic = str(lesson.get("topic", "")).strip()
+        body = str(lesson.get("lesson", "")).strip()
+        severity = str(lesson.get("severity", "")).strip()
+        lines.append(f"- [{severity}] {topic}: {body}")
+    lines.append("")
+    return lines
+
+
+def _task_section(task: dict, base: Path | None = None) -> list[str]:
     task_id = task.get("id", "")
     lines = [f"## Task {task_id}", "", "### Plan contracts", ""]
     contracts = task.get("plan_contracts", [])
@@ -59,6 +87,8 @@ def _task_section(task: dict) -> list[str]:
         reviewer_focus,
         "",
     ])
+    if base is not None:
+        lines.extend(_lessons_section(base, task))
     return lines
 
 
@@ -86,7 +116,7 @@ def cmd_review_brief(args: argparse.Namespace) -> None:
 
     lines = [title, "", VERDICT_INSTRUCTION, ""]
     for task in selected:
-        lines.extend(_task_section(task))
+        lines.extend(_task_section(task, base))
     relative = f"review-briefs/{filename}"
     body = ("\n".join(lines).rstrip() + "\n").encode()
     if not safe_factory_write_bytes(base, relative, body):

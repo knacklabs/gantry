@@ -131,13 +131,48 @@ def _product_dirty(base: Path) -> list[str]:
     return dirty
 
 
-def _lens_prompt(task: dict, lens: str) -> bytes:
+def _lens_prompt(task: dict, lens: str, base: Path | None = None) -> bytes:
     lines = [f"# Review brief — {task.get('id', '')} — {lens} lens", "",
              COMMON_PREAMBLE, LENS_FOCUS[lens]]
     if lens == "quality":
         lines += [QUALITY_VERDICT_FORMAT, VERDICT_INSTRUCTION, ""]
-    lines += _task_section(task)
+    lines += _task_section(task, base)
     return ("\n".join(lines).rstrip() + "\n").encode()
+
+
+def resolve_review_base(base: Path, stage: dict, state: dict, tip_sha: str) -> str:
+    """The commit the task diff is measured from.
+
+    The stage records the trunk commit the task started on. When the trunk is
+    merged INTO the task branch later (a harness re-vendor, a sibling task
+    landing), everything the trunk gained since that recorded base is reachable
+    from HEAD but is not the task's work — reviewing `base...HEAD` then bundles
+    the whole trunk delta, chunks the pass, and returns findings on code the
+    task never touched (observed 2026-09-04: a per-task review scored 0 on five
+    vendored-harness findings and recorded every contract as partial because
+    the chunked reviewer never reached the verdict lines). The task's own delta
+    is `merge-base(origin/<trunk>, HEAD)...HEAD`; use that point whenever it
+    descends from the recorded base, and keep the recorded base otherwise (no
+    trunk merge happened, or the trunk moved without being merged — then the
+    diff still starts where the task did)."""
+    from factory_lib import default_trunk_branch
+    trunk = default_trunk_branch(base)
+    recorded = stage.get("base_sha") or state.get("base_main_sha")
+    base_sha = recorded if isinstance(recorded, str) and recorded else None
+    if base_sha is None:
+        base_sha = _require_git(base, "resolving the task base", "merge-base",
+                                f"origin/{trunk}", "HEAD")
+    if _git(base, "merge-base", "--is-ancestor", base_sha, tip_sha).returncode != 0:
+        fail(f"task base {base_sha[:12]} is not an ancestor of HEAD")
+    merged = _git(base, "merge-base", f"origin/{trunk}", tip_sha)
+    trunk_point = merged.stdout.strip() if merged.returncode == 0 else ""
+    if (trunk_point and trunk_point != base_sha
+            and _git(base, "merge-base", "--is-ancestor", base_sha, trunk_point).returncode == 0):
+        print(f"task base advanced {base_sha[:12]} -> {trunk_point[:12]}: the trunk was "
+              "merged into this branch after the stage began; only the task's own "
+              "delta is reviewed")
+        return trunk_point
+    return base_sha
 
 
 def _area(path: str) -> str:
@@ -305,14 +340,7 @@ def cmd_review(args: argparse.Namespace) -> None:
                  "`record_test_from_json.py --kind automated`")
 
     tip_sha = _require_git(base, "resolving HEAD", "rev-parse", "--verify", "HEAD^{commit}")
-    base_sha = stage.get("base_sha") or state.get("base_main_sha")
-    if not isinstance(base_sha, str) or not base_sha:
-        from factory_lib import default_trunk_branch
-        trunk = default_trunk_branch(base)
-        base_sha = _require_git(base, "resolving the task base", "merge-base",
-                                f"origin/{trunk}", "HEAD")
-    if _git(base, "merge-base", "--is-ancestor", base_sha, tip_sha).returncode != 0:
-        fail(f"task base {base_sha[:12]} is not an ancestor of HEAD")
+    base_sha = resolve_review_base(base, stage, state, tip_sha)
     scope = sorted(
         p for p in _require_git(base, "listing the task diff", "diff",
                                 "--name-only", f"{base_sha}...HEAD").splitlines()
@@ -337,7 +365,7 @@ def cmd_review(args: argparse.Namespace) -> None:
     prompts: dict[str, tuple[str, bytes]] = {}
     for lens in lenses:
         rel = f"review-briefs/{args.id}.{lens}.md"
-        body = _lens_prompt(task, lens)
+        body = _lens_prompt(task, lens, base)
         if not safe_factory_write_bytes(base, rel, body):
             fail(f"could not write .factory/{rel}")
         prompts[lens] = (f".factory/{rel}", body)
