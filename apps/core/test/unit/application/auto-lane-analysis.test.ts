@@ -26,7 +26,7 @@ describe('auto lane analysis', () => {
     expect(readOnlyMetaExecutor("find ./src -name '*.ts'")).toBe(true);
   });
 
-  it('keeps the veto in interactive auto for find with a sensitive shape in the first operand, a later operand or a predicate value, for .., hidden and secret names, for -H -L or -follow, for -files0-from or any indirect root option, any redirect, a compound or a pipeline, and allows find . and find ./src -name *.ts', () => {
+  it('keeps the veto in interactive auto for find with a sensitive shape in the first operand, a later operand or a predicate value, for .., hidden and secret names, for -H -L or -follow, for -files0-from or any indirect root option, any redirect, a compound or a pipeline, and allows a bare find dot and a find under src with a name glob', () => {
     for (const command of [
       'find /etc/shadow',
       'find ./src /etc/shadow',

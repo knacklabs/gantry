@@ -314,7 +314,7 @@ describe('IPC permission classifier decision', () => {
     }
   });
 
-  it('derives the analysis exactly once before coordination and passes it unchanged into tail(context)', async () => {
+  it('derives the analysis exactly once before coordination and passes it unchanged into the tail context', async () => {
     const derive = vi.spyOn(autoLaneAnalysis, 'deriveAutoLaneAnalysis');
     const coordinate = vi
       .spyOn(permissionCoordinator, 'coordinatePermissionDecision')
