@@ -1,0 +1,69 @@
+{
+  "issue": "ASKFLOOR-1",
+  "stages": [
+    {
+      "id": "ASKFLOOR-1-T1",
+      "title": "Routing: the judge's verdict stands in interactive auto",
+      "status": "done",
+      "started_at": "2026-09-04T02:41:19+00:00",
+      "base_sha": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
+      "dirty_at_start": {
+        ".factory/stories/ASKFLOOR-1/grill-rounds/cffe5698-0292-4dea-a0e6-8cad90cb68a3.json": {
+          "digest": "ca26abe22650f9064eccd416ff6dfbe5256445e9c492335448cbf98cb82b1d12",
+          "git": "? .factory/stories/ASKFLOOR-1/grill-rounds/cffe5698-0292-4dea-a0e6-8cad90cb68a3.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json": {
+          "digest": "58b9d33912df99949499ae7bc1900b00a02cb15b44a76b7a84460c3f71dce2ff",
+          "git": "? .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70",
+      "completed_at": "2026-09-04T06:44:50+00:00"
+    },
+    {
+      "id": "ASKFLOOR-1-T2a",
+      "title": "Shape classifier extraction, attachment birthright, judge status",
+      "status": "pending"
+    },
+    {
+      "id": "ASKFLOOR-1-T2b",
+      "title": "Default-allow risk table for gantry-native tools",
+      "status": "pending"
+    },
+    {
+      "id": "ASKFLOOR-1-T3a",
+      "title": "Human-decision memory persistence",
+      "status": "pending"
+    },
+    {
+      "id": "ASKFLOOR-1-T3b",
+      "title": "Memory consult in the coordinator and the inline runtime",
+      "status": "pending"
+    },
+    {
+      "id": "ASKFLOOR-1-T3c",
+      "title": "Remember settlement and learning writes",
+      "status": "pending"
+    },
+    {
+      "id": "ASKFLOOR-1-T4",
+      "title": "Live job projection of learned decisions (0153)",
+      "status": "pending"
+    },
+    {
+      "id": "ASKFLOOR-1-T5a",
+      "title": "Card UX and provider surfaces",
+      "status": "pending"
+    },
+    {
+      "id": "ASKFLOOR-1-T5b",
+      "title": "/permissions: remembered list, all, forget",
+      "status": "pending"
+    },
+    {
+      "id": "ASKFLOOR-1-T6",
+      "title": "Judge outage, invariance suite, tap budget",
+      "status": "pending"
+    }
+  ]
+}
