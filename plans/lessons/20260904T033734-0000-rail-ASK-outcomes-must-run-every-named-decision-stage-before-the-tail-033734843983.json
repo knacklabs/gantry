@@ -1,0 +1,12 @@
+{
+  "topic": "rail-ASK outcomes must run every named decision stage before the tail",
+  "lesson": "In the coordinator a base rail ASK (including the reviewed-rule-allows-but-rail-asks branch) must still flow through conditional trusted-root handling and the classifier-cache read before invoking tail(context); an early return there ignores learned trusted roots for reviewed-rule requests and skips cached verdicts for the newly relaxable out_of_trusted_root / read-only find cases (autoreview P2 at permission-decision-coordinator.ts:172). Cover the rail-ASK path in the stage-order test.",
+  "source": "autoreview ASKFLOOR-1-T1 stage-local round 1 (commit 6def202a4) P2 permission-decision-coordinator.ts:172",
+  "applies_to": [
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-04T03:37:34+00:00"
+}
