@@ -51,12 +51,14 @@
       "frontier_empty": true
     }
   ],
-  "summary": "T1 task grill re-recorded: two required-test ids bound to concrete it.each leaf names (': low', ': auto') so the JUnit exact-leaf gate can attribute them; contract otherwise unchanged; product tree unchanged since r6-clean 7d9b15e1b",
-  "input_sha256": "408ebdad85b3c9ee6e04e9416590eb39772d66a59bd16bc1312f5a21be12d63f",
+  "summary": "T1 task grill re-recorded before pr-ready: product tree advanced by two harness re-vendors merged from main (#473, #474) and the AGENTS.md per-task-PR line; contract and product code unchanged since the clean three-lens review",
+  "input_sha256": "20c963d2c90a52f8d9f7a959a8715a719d89089b05456dd91a23c7b262f37875",
+  "grounding_basis": "stage-baseline",
+  "grounding_treeish": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
   "task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
-  "recorded_at": "2026-09-04T06:32:27+00:00",
-  "commit": "5188df4731295e6f46755926cf9cfa297dee7ee2",
+  "recorded_at": "2026-09-04T12:31:32+00:00",
+  "commit": "f28ff7f4c576983c9f1f980b9c2cacc29b7c78a6",
   "approved_task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T06:32:34+00:00"
+  "approved_at": "2026-09-04T12:31:33+00:00"
 }
