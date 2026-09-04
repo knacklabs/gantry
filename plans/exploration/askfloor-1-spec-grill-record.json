@@ -1,0 +1,86 @@
+{
+  "generated_by": "griller",
+  "gate": "spec",
+  "issue": "ASKFLOOR-1",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "gaps": [
+    "B1 (blocker, contract-gap): the routing seam was not pinned \u2014 permission-classifier.ts only exposes eligibility and the named runtime directory is absent, so the refusal\u2192ask branch was unspecified.",
+    "B2 (blocker, decision-conflict): AC3 made Allow-once reusable and promised scheduled-job benefit, conflicting with permission-decision-expiry.ts (immediate expiry), decisions 0040/0043 (once is never reusable) and 0121 (jobId-bearing decisions are pure functions of declared grants).",
+    "B3 (blocker, contract-gap): the mcp__gantry__file binding was unimplementable \u2014 it promised a literal capability id but named none, said list|read while excluding broad lists, artifactId reads and attachments (the motivating case).",
+    "G4 (gap, correctness): /dev/null was still admitted as a trusted-path candidate despite the stderr-redirect exception, and find needed adversarial argument tests.",
+    "G5 (gap, contract-gap): AC5 fail-closed and AC6 invariance were not scoped to interactive auto; a scheduled lane has no human listener and must keep deterministic denial plus card recovery."
+  ],
+  "contradictions": [
+    "Fable UX lane: the spec kept 'attachment reads' fail-closed while the owner's complaint was specifically about reading an attachment they sent; and AC3 promised jobs stop re-asking while \u00a71/0121 forbade the autonomous lane from consulting memory (resolved by rulings 1 and 2)."
+  ],
+  "resolutions": [
+    "R1 (owner): ALL attachments already in the conversation are readable with zero taps; bound to mcp__gantry__attachment_open (opaque ids, origin validated server-side at jobs/ipc-attachment-open-handler.ts:42-84) as birthright in interactive auto; mcp__gantry__file (actions list|read|write|promote_scratch) becomes argument-aware at gantry-tool-risk.ts:46-49 \u2014 resolves B3 and the first Fable contradiction.",
+    "R2 (owner): scheduled jobs DO consult learned decisions, projected as DECLARED GRANTS (deterministic lookup, updatedPermissions \u2192 autonomousAllowedToolRules; never the classifier) \u2014 decision 0153 drafted, amending 0121's 'never consults human-decision memory' clause; resolves B2's job half and the second Fable contradiction; AC5/AC6 scoped to interactive auto && !hostVerifiedJobId (hostJobId = permissionRunRestriction(...).jobId, ipc-permission-classifier-decision.ts:67-74) \u2014 resolves G5.",
+    "R3 (owner): tap semantics \u2014 [Allow] remembered (default, bold), [Just this once] NOT learned (today's allow_once path, 0040/0043 preserved), [No]; the human-decision store is a NEW record kind consulted before the classifier (writer today rejects human allow_once, permission-decision-memory-repository.postgres.ts:17-34) \u2014 resolves B2's allow_once half.",
+    "R4 (owner, dimension design delegated): generic scope \u2014 this exact action / this kind of action / this place \u2014 with a broadest-safe default (reads \u2192 kind anywhere; writes/destructive \u2192 exact), one 'Remembered: \u2026' line and one narrower alternative; the scope store REUSES resolveTrustedRootStage (permission-decision-coordinator.ts:219-294), no second store; button labels change centrally (channels/permission-interaction.ts:74-88).",
+    "R5 (seam map, resolves B1): the classifier IS consulted; the force-ask is the classifier-allow VETO by a rail ASK signal (ipc-permission-classifier-decision.ts:307-308, 369-401). Change: carry railSignal from the rail callback (:111-119) and relax only that veto for interactive auto on out_of_trusted_root / read-only meta-executor signals; shared rails (domain/permission-deterministic-rails.ts:161-228) untouched.",
+    "R6 (owner + G4): workspace file writes judged by PATH; 2>/dev/null never a path candidate (permission-trusted-paths.ts pathCandidates ~:60); find read-only unless -delete/-exec/-execdir/-ok (bash-command-parser.ts:35,563,581) with adversarial tests; judge outage = one notice per conversation + deterministic reads still allow; /permissions view with Forget this; AC8 tap-budget fixtures replaying the 2026-09-02 log shapes."
+  ],
+  "citations": [
+    {
+      "finding": "B1 (blocker, contract-gap): the routing seam was not pinned \u2014 permission-classifier.ts only exposes eligibility and the named runtime directory is absent, so the refusal\u2192ask branch was unspecified.",
+      "source": "apps/core/src/application/permissions/permission-classifier.ts:11; apps/core/src/application/permissions/gantry-tool-risk.ts:98; plans/exploration/askfloor-1-runtime-evidence-2026-09-02.md:23"
+    },
+    {
+      "finding": "B2 (blocker, decision-conflict): AC3 made Allow-once reusable and promised scheduled-job benefit, conflicting with permission-decision-expiry.ts (immediate expiry), decisions 0040/0043 (once is never reusable) and 0121 (jobId-bearing decisions are pure functions of declared grants).",
+      "source": "docs/specs/askfloor-1-judge-actually-judges.md (AC3, \u00a71); apps/core/src/application/permissions/permission-decision-expiry.ts:3; docs/decisions/0040-permission-execution-two-axis-model.md:41; docs/decisions/0043-classifier-risk-only-engine-authz.md:28; docs/decisions/0121-autodet-no-classifier-autonomous.md:24"
+    },
+    {
+      "finding": "B3 (blocker, contract-gap): the mcp__gantry__file binding was unimplementable \u2014 it promised a literal capability id but named none, said list|read while excluding broad lists, artifactId reads and attachments (the motivating case).",
+      "source": "docs/specs/askfloor-1-judge-actually-judges.md (\u00a72 bindings); apps/core/src/runner/mcp/tools/file.ts:12-62; apps/core/src/runner/mcp/tools/attachment.ts:38-52"
+    },
+    {
+      "finding": "G4 (gap, correctness): /dev/null was still admitted as a trusted-path candidate despite the stderr-redirect exception, and find needed adversarial argument tests.",
+      "source": "apps/core/src/shared/permission-trusted-paths.ts:60; apps/core/src/shared/bash-command-parser.ts:35,563,581"
+    },
+    {
+      "finding": "G5 (gap, contract-gap): AC5 fail-closed and AC6 invariance were not scoped to interactive auto; a scheduled lane has no human listener and must keep deterministic denial plus card recovery.",
+      "source": "docs/decisions/0121-autodet-no-classifier-autonomous.md:24; docs/decisions/0124-bounded-durable-card-delivery.md:24; apps/core/src/app/ipc-permission-classifier-decision.ts:67-74,248-252"
+    }
+  ],
+  "rounds": [
+    {
+      "question": "Attachments you send in the chat: today reading one costs up to 3 taps, and the spec as written keeps 'attachment reads' in its fail-closed list. Should a file the requester sent in this conversation be readable with zero taps (birthright), while attachments from anyone else stay judged?",
+      "options": [
+        "Requester-sent = zero taps (Recommended)",
+        "Keep judging all attachments"
+      ],
+      "chosen": "Let it read all attachments, it's already there in chat why need a permission again",
+      "frontier_empty": false
+    },
+    {
+      "question": "Scheduled jobs: the spec promises 'a scheduled job stops re-asking every run' (AC3) but decision 0121 says the autonomous lane never consults the learned-decision memory. Which way?",
+      "options": [
+        "Drop the job promise from AC3 (Recommended)",
+        "Jobs consult learned decisions as grants"
+      ],
+      "chosen": "Jobs consult learned decisions as grants",
+      "frontier_empty": false
+    },
+    {
+      "question": "What does a tap mean? The spec currently learns BOTH 'Allow once' and 'Allow for future'. Fable's UX read: once must never be remembered; the remembered choice should be the default button.",
+      "options": [
+        "Allow (remembered) default; Just once; No (Recommended)",
+        "Keep once-only as the default"
+      ],
+      "chosen": "Allow (remembered) default; Just once; No (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "Folder scope: your 10-taps-in-3-minutes run was all reads under ~/Workdir. Should an Allow offer 'this folder from now on', learned as a trusted root, so later reads there are deterministic yes (no judge, no tap) \u2014 also removing the read storm if the judge is ever down?",
+      "options": [
+        "Yes, offer a folder scope (Recommended)",
+        "No, rely on the judge"
+      ],
+      "chosen": "Be generic not just a folder. Ask again for more",
+      "frontier_empty": true
+    }
+  ],
+  "summary": "SPEC GATE \u2014 the amended spec (attachments, jobs-as-grants, tap semantics, generic scope) interrogated against code and decisions. PASS \u2014 requirements grill of the amended ASKFLOOR-1 spec: Codex sol@xhigh cold-read (3 blockers, 2 gaps) + Fable 5.1 UX lane (9 polish items, 3 contradictions) + terra@high seam map; all resolved by six ledgered owner rulings and the seam map, folded into the spec source (\u00a71-\u00a73, AC3/AC4/AC5, new AC8) and decision 0153 (amends 0121)."
+}

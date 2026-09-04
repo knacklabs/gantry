@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-04T05:41:41+00:00", "story": "ASKFLOOR-1", "detail": "ASKFLOOR-1-T1 closeout verification is blocked: verify.py stayed silent until bounded termination, and GANTRY_TEST_DATABASE_URL is unset for the Postgres gate."}

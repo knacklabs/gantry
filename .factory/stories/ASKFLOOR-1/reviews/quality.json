@@ -1,0 +1,69 @@
+{
+  "generated_by": "autoreview",
+  "score": 10,
+  "summary": "quality lens over ASKFLOOR-1-T1 (24 product path(s), b9ed02a..b87ec54, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT ASKFLOOR-1-T1-AC1: implemented \u2014 apps/core/src/runtime/ipc-permission-classifier-decision.ts:397 applies the relaxation only to interactive_auto and preserves typed rail provenance; explicit lane tests begin at apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts:98\nVERDICT ASKFLOOR-1-T1-AC2: implemented \u2014 apps/core/src/application/permissions/auto-lane-analysis.ts:115 fail-closes read-only find analysis; apps/core/src/domain/permission-deterministic-rails.ts:165 emits unsupported_meta_executor; apps/core/src/shared/permission-trusted-paths.ts:62 excludes stderr redirects to /dev/null\nVERDICT ASKFLOOR-1-T1-AC3: implemented \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:43 enumerates the authoritative stages and apps/core/src/runtime/permission-decision-coordinator.ts:151 computes and threads the single base rail decision through the immutable context\nVERDICT ASKFLOOR-1-T1-AC4: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts:34 exports the reusable replay fixture and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 proves S3 at zero taps\nVERDICT ASKFLOOR-1-T1-AC5: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 is included in the recorded passing verify.py run; the brief records 9,150 unit tests, typecheck, formatting, and architecture checks green, with Postgres failures verified as pre-existing\nThe diff implements each named deliverable and keeps the relaxation confined to the intended IPC interactive-auto lane. No actionable P0\u2013P2 defect is demonstrated by the supplied change bundle.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "AGENTS.md",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/types.ts",
+    "apps/core/src/application/permissions/auto-lane-analysis-types.ts",
+    "apps/core/src/application/permissions/auto-lane-analysis.ts",
+    "apps/core/src/domain/permission-deterministic-rails.ts",
+    "apps/core/src/domain/permission-lane.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/runner/permission-ipc-client.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/shared/ipc-signing.ts",
+    "apps/core/src/shared/permission-trusted-paths.ts",
+    "apps/core/test/unit/application/auto-lane-analysis.test.ts",
+    "apps/core/test/unit/runner/permission-callback.test.ts",
+    "apps/core/test/unit/runner/permission-ipc-client.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+    "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+    "apps/core/test/unit/shared/bash-command-parser.test.ts",
+    "apps/core/test/unit/shared/ipc-signing.test.ts",
+    "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+    "docs/specs/askfloor-1-judge-actually-judges.md"
+  ],
+  "skills_used": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:397 applies the relaxation only to interactive_auto and preserves typed rail provenance; explicit lane tests begin at apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts:98"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC2",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/permissions/auto-lane-analysis.ts:115 fail-closes read-only find analysis; apps/core/src/domain/permission-deterministic-rails.ts:165 emits unsupported_meta_executor; apps/core/src/shared/permission-trusted-paths.ts:62 excludes stderr redirects to /dev/null"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC3",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:43 enumerates the authoritative stages and apps/core/src/runtime/permission-decision-coordinator.ts:151 computes and threads the single base rail decision through the immutable context"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC4",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts:34 exports the reusable replay fixture and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 proves S3 at zero taps"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC5",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 is included in the recorded passing verify.py run; the brief records 9,150 unit tests, typecheck, formatting, and architecture checks green, with Postgres failures verified as pre-existing"
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "c7c02479bcad54ceabf91f0672e104ddcb97b41ed735b0630cfe832a946dce05",
+  "brief_sha256": "85484832b39b06a5c88b3cc79ce7596f38f841d8067dd235a279122a832697c5",
+  "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
+  "residual_risks": [],
+  "recorded_at": "2026-09-04T16:09:37+00:00",
+  "commit": "b87ec547cc44b4ca76049d827a77865e9594e83a"
+}

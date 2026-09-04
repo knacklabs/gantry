@@ -19,6 +19,7 @@ import {
   type IpcRequestClaimProbe,
 } from '../../../../shared/ipc-interaction-lifetime.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
+import type { RailProvenance } from '../../../../domain/permission-lane.js';
 import {
   IPC_AUTH_TOKEN,
   AGENT_ID,
@@ -354,6 +355,9 @@ async function requestPermissionApprovalInner(options: {
                   ? (responsePayload.updatedPermissions as never)
                   : undefined,
               };
+              const railProvenance = decodeRailProvenance(
+                responsePayload.railProvenance,
+              );
               return {
                 approved: sanitizedDecision.approved,
                 decidedBy:
@@ -363,6 +367,7 @@ async function requestPermissionApprovalInner(options: {
                 source: isPermissionDecisionSource(responsePayload.source)
                   ? responsePayload.source
                   : undefined,
+                ...(railProvenance ? { railProvenance } : {}),
                 repeatableForFutureRuns:
                   typeof responsePayload.repeatableForFutureRuns === 'boolean'
                     ? responsePayload.repeatableForFutureRuns
@@ -450,6 +455,29 @@ async function requestPermissionApprovalInner(options: {
           : 'Permission request failed',
     };
   }
+}
+
+function decodeRailProvenance(value: unknown): RailProvenance | undefined {
+  if (
+    !isPlainObject(value) ||
+    !isRailSignal(value.signal) ||
+    typeof value.reason !== 'string' ||
+    !value.reason.trim()
+  ) {
+    return undefined;
+  }
+  return { signal: value.signal, reason: value.reason };
+}
+
+function isRailSignal(value: unknown): value is RailProvenance['signal'] {
+  return (
+    value === 'destructive' ||
+    value === 'egress' ||
+    value === 'privileged' ||
+    value === 'secret_path' ||
+    value === 'out_of_trusted_root' ||
+    value === 'unsupported_meta_executor'
+  );
 }
 
 function isPermissionDecisionSource(

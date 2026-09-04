@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "In /permissions, a remembered decision can say which scheduled jobs it covers. Show only jobs that have ACTUALLY used it (from the job's permission audit trail) or every job that MIGHT match it in future?",
+      "options": [
+        "Actually used (Recommended)",
+        "Might match"
+      ],
+      "chosen": "Actually used (Recommended)"
+    },
+    {
+      "question": "A card that already has a CARDSIMPLE-1 family rule ('Allow for future: all npx vitest commands') would now show two remembering buttons: the new [Allow] plus the family one. How should that card look?",
+      "options": [
+        "One remembering button (Recommended)",
+        "Keep both"
+      ],
+      "chosen": "One remembering button (Recommended)"
+    }
+  ],
+  "at": "2026-09-02T13:27:20.185642+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

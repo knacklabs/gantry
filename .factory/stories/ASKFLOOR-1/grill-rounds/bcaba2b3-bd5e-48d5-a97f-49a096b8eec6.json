@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The ASKFLOOR-1 plan converged: Codex sol@xhigh cold-read rounds 1\u201317 found 68 blockers/gaps (all folded), round 18 said PLAN SOUND, round 19 re-read the unchanged plan with no findings; 9 Fable UX lanes folded; your 11 rulings are marked in the text. It is saved to plans/active (awaiting-approval) with decisions 0153 and 0154 ready to accept. Approve the plan now?",
+      "options": [
+        "Approve (Recommended)",
+        "Not yet \u2014 I want to read it first"
+      ],
+      "chosen": "Approve (Recommended)"
+    }
+  ],
+  "at": "2026-09-03T03:52:12.912102+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

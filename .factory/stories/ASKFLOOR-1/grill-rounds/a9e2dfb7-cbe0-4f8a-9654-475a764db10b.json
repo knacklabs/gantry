@@ -1,0 +1,43 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Generic scope: when you tap Allow, what should it be possible to remember? Pick every dimension the tap may offer (the card shows only the ones that apply to that ask).",
+      "options": [
+        "This exact action",
+        "This kind of action",
+        "This tool / family",
+        "This place"
+      ],
+      "chosen": null
+    },
+    {
+      "question": "What should the default [Allow] remember when you don't pick a scope explicitly?",
+      "options": [
+        "Broadest safe scope (Recommended)",
+        "This exact action only",
+        "Always ask which scope"
+      ],
+      "chosen": "Broadest safe scope (Recommended)"
+    },
+    {
+      "question": "Writing files inside the workspace (FileWrite/Edit under the agent's own folders \u2014 the most common Claude-Code-auto action) is not mentioned by the spec today. Should it be judged by path (arg-aware: inside workspace = low, protected paths = ask) rather than by tool identity?",
+      "options": [
+        "Yes, judge by path (Recommended)",
+        "No, keep asking for writes"
+      ],
+      "chosen": "Yes, judge by path (Recommended)"
+    },
+    {
+      "question": "Two UX rules to confirm together: (a) a /permissions view that lists what was learned with 'Forget this'; (b) when the judge is down, one notice per conversation ('my safety judge is offline, I'll check with you more') and deterministic reads still allowed \u2014 not a tap storm.",
+      "options": [
+        "Both, as described (Recommended)",
+        "Only the /permissions view",
+        "Only the outage rule"
+      ],
+      "chosen": "Both, as described (Recommended)"
+    }
+  ],
+  "at": "2026-09-02T10:20:38.197287+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

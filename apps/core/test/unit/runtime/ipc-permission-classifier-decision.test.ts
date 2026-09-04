@@ -11,6 +11,9 @@ import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-permission-run-restriction.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import { unregisterPermissionRunRestriction } from '@core/runtime/permission-decision-coordinator.js';
+import type { PermissionMode } from '@core/shared/permission-mode.js';
+import * as autoLaneAnalysis from '@core/application/permissions/auto-lane-analysis.js';
+import * as permissionCoordinator from '@core/runtime/permission-decision-coordinator.js';
 
 async function resolveWithClassifierRisk(input: {
   toolName: string;
@@ -23,7 +26,9 @@ async function resolveWithClassifierRisk(input: {
   toolInputRedactedPaths?: string[];
   toolInputTruncatedPaths?: string[];
   decisionMemory?: PermissionDecisionMemoryRepository;
+  permissionMode?: PermissionMode;
   unattended?: boolean;
+  trustedRoots?: string[];
 }) {
   const requestPermissionApproval = vi.fn(async () =>
     permissionDecisionResult({
@@ -72,10 +77,14 @@ async function resolveWithClassifierRisk(input: {
           }
         : {}),
       getPermissionRuntimeSettings: () => ({
-        agents: { main_agent: { permissionMode: 'auto' as const } },
+        agents: {
+          main_agent: { permissionMode: input.permissionMode ?? 'auto' },
+        },
         permissions: {
           autoMode: {},
-          trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
+          trustedRoots: input.trustedRoots ?? [
+            resolveWorkspaceFolderPath('main_agent'),
+          ],
         },
         memory: { llm: { models: { extractor: 'sonnet' } } },
       }),
@@ -85,7 +94,258 @@ async function resolveWithClassifierRisk(input: {
   return { classifierConsult, decision, requestPermissionApproval };
 }
 
+async function resolveCommandInLane(input: {
+  command: string;
+  permissionMode: PermissionMode;
+  trustedRoots: string[];
+  hostJobId?: string;
+}) {
+  const responseKeyId = input.hostJobId
+    ? `askfloor-${input.hostJobId}`
+    : undefined;
+  const requestPermissionApproval = vi.fn(async () =>
+    permissionDecisionResult({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'owner',
+    }),
+  );
+  const classifierConsult = vi.fn(async () => ({
+    risk_level: 'low' as const,
+    risk_category: 'benign' as const,
+    reason: 'Classifier allows this read.',
+    latencyMs: 1,
+  }));
+  if (responseKeyId) {
+    registerWorkerPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: input.hostJobId,
+      runId: `run-${input.hostJobId}`,
+    });
+  }
+  try {
+    const decision = await resolvePermissionIpcDecision({
+      request: {
+        requestId: `askfloor-${input.permissionMode}-${input.hostJobId ?? 'interactive'}`,
+        ...(responseKeyId ? { responseKeyId, targetJid: 'tg:test' } : {}),
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        toolInput: { command: input.command },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        conversationRoutes: () =>
+          responseKeyId
+            ? ({
+                'tg:test': {
+                  name: 'test',
+                  folder: 'main_agent',
+                  trigger: '@gantry',
+                  added_at: '2026-09-04',
+                  agentConfig: { permissionMode: input.permissionMode },
+                },
+              } as never)
+            : {},
+        requestPermissionApproval,
+        classifierConsult,
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        getPermissionRuntimeSettings: () => ({
+          agents: {
+            main_agent: { permissionMode: input.permissionMode },
+          },
+          permissions: {
+            autoMode: {},
+            trustedRoots: input.trustedRoots,
+          },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+      } as never,
+    });
+    return { classifierConsult, decision, requestPermissionApproval };
+  } finally {
+    if (responseKeyId) {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId,
+      });
+    }
+  }
+}
+
 describe('IPC permission classifier decision', () => {
+  it.each(['low', 'medium'] as const)(
+    'honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: %s',
+    async (riskLevel) => {
+      for (const trustedRoots of [[], ['/definitely/elsewhere']]) {
+        const result = await resolveWithClassifierRisk({
+          toolName: 'RunCommand',
+          toolInput: { command: 'git status' },
+          riskLevel,
+          riskCategory: 'filesystem',
+          trustedRoots,
+        });
+        expect(result.requestPermissionApproval).not.toHaveBeenCalled();
+        expect(result.decision).toMatchObject({
+          approved: true,
+          decidedBy: 'auto_classifier',
+          source: 'auto_classifier',
+          railProvenance: {
+            signal: 'out_of_trusted_root',
+            reason: expect.stringContaining('outside'),
+          },
+        });
+      }
+    },
+  );
+
+  it('keeps the rail veto for out_of_trusted_root in auto_strict, ask and job lanes', async () => {
+    for (const lane of [
+      { permissionMode: 'auto_strict' as const },
+      { permissionMode: 'auto_strict' as const, trustedRoots: [] },
+      { permissionMode: 'ask' as const },
+      { permissionMode: 'auto' as const, hostJobId: 'job-1' },
+    ]) {
+      const result = await resolveCommandInLane({
+        ...lane,
+        command: 'git status',
+        trustedRoots: lane.trustedRoots ?? ['/definitely/elsewhere'],
+      });
+      expect(result.decision, JSON.stringify(lane)).toMatchObject({
+        approved: false,
+        decidedBy: 'owner',
+      });
+      expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(result.classifierConsult).not.toHaveBeenCalled();
+    }
+  });
+
+  it('honours a classifier allow for an unsupported_meta_executor refusal of a read-only find only in interactive auto and keeps the veto in auto_strict, ask and job lanes', async () => {
+    const trustedRoots = [resolveWorkspaceFolderPath('main_agent')];
+    const interactiveAuto = await resolveCommandInLane({
+      command: "find . -name '*.ts'",
+      permissionMode: 'auto',
+      trustedRoots,
+    });
+    expect(interactiveAuto.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(interactiveAuto.decision).toMatchObject({
+      approved: true,
+      decidedBy: 'auto_classifier',
+      source: 'auto_classifier',
+      railProvenance: {
+        signal: 'unsupported_meta_executor',
+        reason: expect.stringContaining('meta-executor find'),
+      },
+    });
+
+    for (const lane of [
+      { permissionMode: 'auto_strict' as const },
+      { permissionMode: 'ask' as const },
+      { permissionMode: 'auto' as const, hostJobId: 'job-find' },
+    ]) {
+      const result = await resolveCommandInLane({
+        ...lane,
+        command: "find . -name '*.ts'",
+        trustedRoots,
+      });
+      expect(result.decision, JSON.stringify(lane)).toMatchObject({
+        approved: false,
+        decidedBy: 'owner',
+      });
+      expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('leaves ask, auto_strict and job-lane outcomes unchanged for 2>/dev/null except where the non-path stopped being a path', async () => {
+    const trustedRoots = [resolveWorkspaceFolderPath('main_agent')];
+    const ask = await resolveCommandInLane({
+      command: 'git status 2>/dev/null',
+      permissionMode: 'ask',
+      trustedRoots,
+    });
+    expect(ask.decision).toMatchObject({ approved: false, decidedBy: 'owner' });
+    expect(ask.classifierConsult).not.toHaveBeenCalled();
+
+    const strict = await resolveCommandInLane({
+      command: 'git status 2>/dev/null',
+      permissionMode: 'auto_strict',
+      trustedRoots,
+    });
+    expect(strict.decision).toMatchObject({
+      approved: false,
+      decidedBy: 'owner',
+    });
+    expect(strict.requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(strict.classifierConsult).not.toHaveBeenCalled();
+
+    const job = await resolveCommandInLane({
+      command: 'git status 2>/dev/null',
+      permissionMode: 'auto',
+      trustedRoots,
+      hostJobId: 'job-stderr',
+    });
+    expect(job.decision).toMatchObject({ approved: false, decidedBy: 'owner' });
+    expect(job.classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it('keeps the veto for a safe-looking find when the base rail ASK is missing, redacted or truncated input', async () => {
+    for (const requestInput of [
+      { toolInput: undefined },
+      {
+        toolInput: { command: 'find .' },
+        toolInputSanitizedPaths: ['command'],
+      },
+      {
+        toolInput: { command: 'find .' },
+        classifierToolInput: { command: 'find .' },
+        toolInputTruncatedPaths: ['command'],
+      },
+    ]) {
+      const result = await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        ...requestInput,
+        riskLevel: 'low',
+        riskCategory: 'benign',
+      });
+      expect(result.decision, JSON.stringify(requestInput)).toMatchObject({
+        approved: false,
+        decidedBy: 'owner',
+      });
+      expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('derives the analysis exactly once before coordination and passes it unchanged into the tail context', async () => {
+    const derive = vi.spyOn(autoLaneAnalysis, 'deriveAutoLaneAnalysis');
+    const coordinate = vi
+      .spyOn(permissionCoordinator, 'coordinatePermissionDecision')
+      .mockImplementationOnce(async (input) => {
+        const context = Object.freeze({
+          analysis: input.analysis!,
+          railDecision: undefined,
+        });
+        expect(context.analysis).toBe(input.analysis);
+        return input.tail(context);
+      });
+    try {
+      await resolveCommandInLane({
+        command: 'git status',
+        permissionMode: 'auto',
+        trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
+      });
+      expect(derive).toHaveBeenCalledOnce();
+      expect(coordinate).toHaveBeenCalledOnce();
+      expect(coordinate.mock.calls[0]![0].analysis).toBe(
+        derive.mock.results[0]!.value,
+      );
+    } finally {
+      derive.mockRestore();
+      coordinate.mockRestore();
+    }
+  });
+
   it('keeps jobId requests off the classifier and denies terminally without a deliverable route', async () => {
     const responseKeyId = 'autodet-job-response-key';
     const classifierConsult = vi.fn(async () => ({
@@ -559,7 +819,7 @@ describe('IPC permission classifier decision', () => {
       risk_category: 'benign' as const,
     }));
 
-    const { decision, requestPermissionApproval } =
+    const { classifierConsult, decision, requestPermissionApproval } =
       await resolveWithClassifierRisk({
         toolName: 'RunCommand',
         toolInput: { command: 'rm -rf ./build' },
@@ -572,6 +832,63 @@ describe('IPC permission classifier decision', () => {
       });
 
     expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(classifierConsult).toHaveBeenCalledOnce();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
+  });
+
+  it('passes a cached classifier allow through the relaxable rail merge without consulting again', async () => {
+    const getClassifierVerdict = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'cached read allow',
+      risk_level: 'low' as const,
+      risk_category: 'filesystem' as const,
+    }));
+
+    const { classifierConsult, decision, requestPermissionApproval } =
+      await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        toolInput: { command: 'git status' },
+        riskLevel: 'high',
+        riskCategory: 'filesystem',
+        trustedRoots: [],
+        decisionMemory: { getClassifierVerdict } as never,
+      });
+
+    expect(getClassifierVerdict).toHaveBeenCalledOnce();
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(decision).toMatchObject({
+      approved: true,
+      decidedBy: 'auto_classifier',
+      source: 'auto_classifier',
+      railProvenance: {
+        signal: 'out_of_trusted_root',
+        reason: expect.stringContaining('outside'),
+      },
+    });
+  });
+
+  it('does not reuse a cached classifier allow after switching to ask mode', async () => {
+    const getClassifierVerdict = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'cached auto-mode allow',
+      risk_level: 'low' as const,
+      risk_category: 'benign' as const,
+    }));
+
+    const { classifierConsult, decision, requestPermissionApproval } =
+      await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        toolInput: { command: 'rm report.txt' },
+        riskLevel: 'low',
+        riskCategory: 'benign',
+        permissionMode: 'ask',
+        decisionMemory: { getClassifierVerdict } as never,
+      });
+
+    expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
   });

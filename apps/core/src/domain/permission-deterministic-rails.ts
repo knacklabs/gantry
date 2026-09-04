@@ -1,5 +1,9 @@
 import permissionCredentialPathPattern from './permission-credential-path-pattern.json' with { type: 'json' };
 import { decisionForMode } from './permission-decision.js';
+import {
+  RailSignal,
+  type RailSignal as RailSignalValue,
+} from './permission-lane.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -14,6 +18,7 @@ import {
   bashExecutableName,
   destructiveBashCommandHint,
   parseBashCommand,
+  parseBashCommandForHardBoundaryAnalysis,
   type BashCommandLeaf,
 } from '../shared/bash-command-parser.js';
 import { outOfTrustedRootReason } from '../shared/permission-trusted-paths.js';
@@ -31,19 +36,12 @@ export type PermissionDeterministicRailDecision =
   | {
       railOutcome: 'ask';
       reason: string;
-      railSignal: PermissionDeterministicRailSignal;
+      railSignal: RailSignalValue;
       hardFloor?: true;
     }
   | (PermissionApprovalDecision & {
       railOutcome: 'allow' | 'deny';
     });
-
-export type PermissionDeterministicRailSignal =
-  | 'destructive'
-  | 'egress'
-  | 'privileged'
-  | 'secret_path'
-  | 'out_of_trusted_root';
 
 export interface PermissionDeterministicRailRisk {
   level: PermissionRiskLevel;
@@ -127,7 +125,7 @@ export function evaluatePermissionDeterministicRails(
   if (inputIsIncomplete(request)) {
     return hardFloorAsk(
       'Exact tool input is missing, redacted, or truncated.',
-      'privileged',
+      RailSignal.Privileged,
     );
   }
   const isInputGatedBirthrightTool =
@@ -139,13 +137,14 @@ export function evaluatePermissionDeterministicRails(
   if (isInputGatedBirthrightTool) {
     return hardFloorAsk(
       'Displayed tool input is sanitized or redacted.',
-      'secret_path',
+      RailSignal.SecretPath,
     );
   }
   // Evaluate the 16K classifier view, not the 500-char display copy, so the
   // command we inspect matches the truncation signal inputIsIncomplete guards.
   const toolInput = request.classifierToolInput ?? request.toolInput;
-  if (!toolInput) return ask('Exact tool input is missing.', 'privileged');
+  if (!toolInput)
+    return ask('Exact tool input is missing.', RailSignal.Privileged);
 
   const readOnly = evaluateAutoPermissionReadOnlyGate({
     canonicalToolName: request.toolName,
@@ -160,15 +159,17 @@ export function evaluatePermissionDeterministicRails(
 
   const command = commandText(toolInput);
   if (!command)
-    return ask('Exact shell command input is missing.', 'privileged');
+    return ask('Exact shell command input is missing.', RailSignal.Privileged);
   const parsed = parseBashCommand(command);
   if (!parsed.ok) {
     // If the deterministic parser cannot model the command, no downstream
-    // layer can bound its effect. It must escalate to a human and can never be
-    // deterministically or classifier-auto-allowed.
+    // layer can grant it directly. Interactive auto may separately prove the
+    // one read-only find shape before honoring the classifier.
     return hardFloorAsk(
       `Shell input is unsupported: ${parsed.reason}`,
-      'privileged',
+      parseBashCommandForHardBoundaryAnalysis(command).ok
+        ? RailSignal.UnsupportedMetaExecutor
+        : RailSignal.Privileged,
     );
   }
   // GOVERNING PRINCIPLE: A rail ASK is a HARD FLOOR whenever the command's
@@ -177,7 +178,7 @@ export function evaluatePermissionDeterministicRails(
   if (parsed.leaves.some(isInterpreterString)) {
     return hardFloorAsk(
       'An interpreter string requires approval.',
-      'privileged',
+      RailSignal.Privileged,
     );
   }
   const protectedPath = containsProtectedPath(
@@ -194,23 +195,26 @@ export function evaluatePermissionDeterministicRails(
     return hardFloor
       ? hardFloorAsk(
           'Destructive command requires approval.',
-          protectedPath ? 'secret_path' : 'destructive',
+          protectedPath ? RailSignal.SecretPath : RailSignal.Destructive,
         )
-      : ask('Destructive command requires approval.', 'destructive');
+      : ask('Destructive command requires approval.', RailSignal.Destructive);
   }
   if (protectedPath) {
     return hardFloorAsk(
       'Command references a credential, secret, or protected path.',
-      'secret_path',
+      RailSignal.SecretPath,
     );
   }
   if (parsed.leaves.some(isPrivilegedLeaf)) {
-    return hardFloorAsk('Privileged command requires approval.', 'privileged');
+    return hardFloorAsk(
+      'Privileged command requires approval.',
+      RailSignal.Privileged,
+    );
   }
   if (uploadsLocalFile(command)) {
     return hardFloorAsk(
       'Network command uploads local file content.',
-      'egress',
+      RailSignal.Egress,
     );
   }
   if (!readOnly.allowed) {
@@ -221,8 +225,8 @@ export function evaluatePermissionDeterministicRails(
     );
     if (outside) {
       return (input.trustedRoots?.length ?? 0) > 0
-        ? hardFloorAsk(outside, 'out_of_trusted_root')
-        : ask(outside, 'out_of_trusted_root');
+        ? hardFloorAsk(outside, RailSignal.OutOfTrustedRoot)
+        : ask(outside, RailSignal.OutOfTrustedRoot);
     }
   }
   return readOnly.allowed ? allow(request, readOnly.reason) : undefined;
@@ -233,17 +237,18 @@ export function permissionRiskForDeterministicRailDecision(
 ): PermissionDeterministicRailRisk | undefined {
   if (decision?.railOutcome !== 'ask') return undefined;
   switch (decision.railSignal) {
-    case 'destructive':
+    case RailSignal.Destructive:
       return decision.hardFloor
         ? { level: 'high', category: 'destructive' }
         : { level: 'medium', category: 'destructive' };
-    case 'egress':
+    case RailSignal.Egress:
       return { level: 'medium', category: 'network' };
-    case 'privileged':
+    case RailSignal.Privileged:
+    case RailSignal.UnsupportedMetaExecutor:
       return { level: 'high', category: 'privileged' };
-    case 'secret_path':
+    case RailSignal.SecretPath:
       return { level: 'high', category: 'secret' };
-    case 'out_of_trusted_root':
+    case RailSignal.OutOfTrustedRoot:
       return { level: 'medium', category: 'filesystem' };
   }
 }
@@ -370,14 +375,14 @@ function stringValues(value: unknown): string[] {
 
 function ask(
   reason: string,
-  railSignal: PermissionDeterministicRailSignal,
+  railSignal: RailSignalValue,
 ): PermissionDeterministicRailDecision {
   return { railOutcome: 'ask', reason, railSignal };
 }
 
 function hardFloorAsk(
   reason: string,
-  railSignal: PermissionDeterministicRailSignal,
+  railSignal: RailSignalValue,
 ): PermissionDeterministicRailDecision {
   return { railOutcome: 'ask', reason, railSignal, hardFloor: true };
 }

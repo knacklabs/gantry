@@ -31,6 +31,10 @@ describe('permission IPC response signing', () => {
       mode: 'cancel',
       decidedBy: 'human',
       source: 'human_once',
+      railProvenance: {
+        signal: 'out_of_trusted_root',
+        reason: 'outside the trusted root',
+      },
       repeatableForFutureRuns: false,
       reason: 'denied',
       risk_level: 'critical',
@@ -46,6 +50,10 @@ describe('permission IPC response signing', () => {
       mode: 'cancel',
       decidedBy: 'human',
       source: 'human_once',
+      railProvenance: {
+        signal: 'out_of_trusted_root',
+        reason: 'outside the trusted root',
+      },
       repeatableForFutureRuns: false,
       reason: 'denied',
       risk_level: 'critical',
@@ -60,6 +68,7 @@ describe('permission IPC response signing', () => {
       'mode',
       'decidedBy',
       'source',
+      'railProvenance',
       'repeatableForFutureRuns',
       'reason',
       'risk_level',
@@ -113,6 +122,15 @@ describe('permission IPC response signing', () => {
       hasValidIpcResponseSignature(publicKeyPem, {
         ...signed,
         source: 'auto_classifier',
+      }),
+    ).toBe(false);
+    expect(
+      hasValidIpcResponseSignature(publicKeyPem, {
+        ...signed,
+        railProvenance: {
+          signal: 'out_of_trusted_root',
+          reason: 'tampered rail reason',
+        },
       }),
     ).toBe(false);
     expect(

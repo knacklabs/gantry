@@ -1,0 +1,5 @@
+# ASKFLOOR-1-T1 TASK grill — round 8 (read-only, adversarial, emit under ~200 words; factory/prompts/griller.md --gate task)
+
+You did NOT author this contract. Round 7 closed the four round-6 defects and returned 1 blocker + 1 gap + 1 nit. The task `ASKFLOOR-1-T1` in `.factory/stories/ASKFLOOR-1/decomposition.json` and the saved task plan `.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md` were revised: (1) the relaxation is keyed on the base rail decision's typed signal — `out_of_trusted_root`, or `unsupported_meta_executor` AND `readOnlyMetaExecutor` — never on the analysis alone; every other base ASK incl. the hard-floor asks for missing/redacted/truncated input (`permission-deterministic-rails.ts:127-171,259-276`) keeps the veto, with an IPC negative leaf; (2) the harness return type in reviewer_focus now matches the task plan exactly; (3) counts corrected (ten test files, fifteen leaves).
+
+Verify each is closed; hunt anything NEW. OUTPUT: numbered findings — claim, file:line, class, severity (blocker|gap|nit), smallest fix. OWNER-LEVEL questions verbatim (none if none). End with "CONTRACT SOUND" or the blocker count. No edits.

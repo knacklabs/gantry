@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "ASKFLOOR-1-T1 (routing: the judge's verdict stands for rail-refused reads in interactive auto) went through 9 Codex contract grills; every finding is folded and the story plan now matches the contract. Go: record the grill, approve the task plan, start the stage and delegate T1 to Codex sol@xhigh?",
+      "options": [
+        "Go (Recommended)",
+        "Hold"
+      ],
+      "chosen": "Go (Recommended)"
+    }
+  ],
+  "at": "2026-09-04T02:40:39.988132+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

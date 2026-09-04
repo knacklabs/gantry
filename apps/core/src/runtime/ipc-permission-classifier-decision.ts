@@ -5,14 +5,22 @@ import {
 import {
   evaluatePermissionDeterministicRails,
   permissionRiskForDeterministicRailDecision,
-  type PermissionDeterministicRailRisk,
 } from '../domain/permission-deterministic-rails.js';
+import {
+  PermissionLane,
+  RailSignal,
+  type RailProvenance,
+} from '../domain/permission-lane.js';
 import type {
+  ConversationRoute,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionRiskLevel,
 } from '../domain/types.js';
-import { resolveEffectivePermissionMode } from '../shared/permission-mode.js';
+import {
+  resolveEffectivePermissionMode,
+  type PermissionMode,
+} from '../shared/permission-mode.js';
 import {
   findConversationRouteForQueue,
   makeAgentThreadQueueKey,
@@ -23,6 +31,7 @@ import type { ParsedPermissionIpcRequest } from './ipc-parsing.js';
 import {
   consultPermissionClassifierBeforePrompt,
   permissionPromotionHint,
+  type PermissionClassifierPromptConsultResult,
 } from './permission-classifier.js';
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
@@ -46,7 +55,13 @@ import {
 import {
   coordinatePermissionDecision,
   permissionRunRestriction,
+  type PermissionDecisionTailContext,
 } from './permission-decision-coordinator.js';
+import { deriveAutoLaneAnalysis } from '../application/permissions/auto-lane-analysis.js';
+
+type PermissionRuntimeSettings = ReturnType<
+  NonNullable<IpcDeps['getPermissionRuntimeSettings']>
+>;
 
 export async function resolvePermissionIpcDecision(input: {
   request: ParsedPermissionIpcRequest;
@@ -72,6 +87,18 @@ export async function resolvePermissionIpcDecision(input: {
     : undefined;
   const hostJobId = runRestriction?.jobId;
   const fixedImageRestricted = runRestriction?.hideAuthorityTools ?? false;
+  const route = resolvePermissionRoute(input);
+  const permissionMode = resolveEffectivePermissionMode(
+    route?.folder === input.sourceAgentFolder
+      ? route.agentConfig?.permissionMode
+      : undefined,
+    settings?.agents[input.sourceAgentFolder]?.permissionMode,
+  );
+  const analysis = deriveAutoLaneAnalysis({
+    permissionMode,
+    hostJobId,
+    command: permissionCommand(input.request),
+  });
   const protectedCapability = evaluateProtectedCapabilityToolUse(
     input.request.toolName,
     input.request.toolInput,
@@ -89,9 +116,6 @@ export async function resolvePermissionIpcDecision(input: {
     workspaceRoot,
   });
   const decisionMemory = input.deps.getPermissionDecisionMemoryRepository?.();
-  let railRisk: PermissionDeterministicRailRisk | undefined;
-  let railRequiresApproval = false;
-  let railApprovalReason: string | undefined;
   return coordinatePermissionDecision({
     request: input.request,
     effectHash,
@@ -108,16 +132,7 @@ export async function resolvePermissionIpcDecision(input: {
       workspaceRoot,
       trustedRoots: settings?.permissions.trustedRoots ?? [],
     },
-    deterministicRails: (railsInput) => {
-      const decision = evaluatePermissionDeterministicRails(railsInput);
-      if (decision?.railOutcome === 'ask' && decision.hardFloor === true) {
-        railRequiresApproval = true;
-        railApprovalReason = decision.reason;
-      }
-      railRisk =
-        permissionRiskForDeterministicRailDecision(decision) ?? railRisk;
-      return decision;
-    },
+    deterministicRails: evaluatePermissionDeterministicRails,
     reviewedRuleDecision: async () => {
       const repository = input.deps.getToolRepository?.();
       if (!repository) return undefined;
@@ -157,31 +172,53 @@ export async function resolvePermissionIpcDecision(input: {
       });
     },
     skipClassifierVerdictCache: Boolean(hostJobId),
-    tail: () =>
+    analysis,
+    tail: (context) =>
       resolvePermissionIpcDecisionTail({
         ...input,
         effectHash,
         decisionMemory,
-        railRisk,
-        railRequiresApproval,
-        railApprovalReason,
         hostJobId,
+        route,
+        settings,
+        permissionMode,
+        context: context!,
       }),
   });
 }
 
-async function resolvePermissionIpcDecisionTail(input: {
+interface PermissionIpcDecisionTailInput {
   request: ParsedPermissionIpcRequest;
   sourceAgentFolder: string;
   deps: IpcDeps;
   effectHash?: string;
   decisionMemory?: PermissionDecisionMemoryRepository;
-  railRisk?: PermissionDeterministicRailRisk;
-  railRequiresApproval?: boolean;
-  railApprovalReason?: string;
   hostJobId?: string;
-}): Promise<PermissionApprovalDecision> {
-  const route = input.request.targetJid
+  route?: ConversationRoute;
+  settings?: PermissionRuntimeSettings;
+  permissionMode: PermissionMode;
+  context: PermissionDecisionTailContext;
+}
+
+interface IpcClassifierConsultResult {
+  decision?: PermissionClassifierPromptConsultResult;
+  promotion?: NonNullable<
+    Parameters<typeof permissionPromotionHint>[0]['promotion']
+  >;
+}
+
+interface IpcRailMergeResult {
+  railRequiresApproval: boolean;
+  railVetoedClassifierAllow: boolean;
+  railProvenance?: RailProvenance;
+}
+
+function resolvePermissionRoute(input: {
+  request: ParsedPermissionIpcRequest;
+  sourceAgentFolder: string;
+  deps: IpcDeps;
+}): ConversationRoute | undefined {
+  return input.request.targetJid
     ? findConversationRouteForQueue(
         input.deps.conversationRoutes?.() ?? {},
         makeAgentThreadQueueKey(
@@ -193,14 +230,44 @@ async function resolvePermissionIpcDecisionTail(input: {
         (candidate) => agentIdForFolder(candidate.folder),
       )
     : undefined;
+}
+
+function permissionCommand(
+  request: ParsedPermissionIpcRequest,
+): string | undefined {
+  if (request.toolName !== 'Bash' && request.toolName !== 'RunCommand') {
+    return undefined;
+  }
+  const toolInput = request.classifierToolInput ?? request.toolInput;
+  const value = toolInput?.command ?? toolInput?.cmd;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+async function resolvePermissionIpcDecisionTail(
+  input: PermissionIpcDecisionTailInput,
+): Promise<PermissionApprovalDecision> {
+  const routeDecision = applyIpcPermissionRouteGuard(input);
+  if (routeDecision) return routeDecision;
+  const classifier = await consultIpcPermissionClassifier(input);
+  const merge = mergeIpcClassifierWithRail(input, classifier.decision);
+  await writeIpcClassifierCache(input, classifier.decision, merge);
+  return resolveIpcPermissionPromptOrTerminal(input, classifier, merge);
+}
+
+function applyIpcPermissionRouteGuard(
+  input: PermissionIpcDecisionTailInput,
+): PermissionApprovalDecision | undefined {
   if (input.hostJobId) {
+    const railRisk = permissionRiskForDeterministicRailDecision(
+      input.context.railDecision,
+    );
     // Only trusted host-derived rail risk may ride an autonomous denial into
     // the decision/audit path; without one, strip the worker-supplied fields
     // rather than let an untrusted low/benign claim reach the grant card.
-    if (input.railRisk) {
-      input.request.risk_level = input.railRisk.level;
-      if (input.railRisk.category) {
-        input.request.risk_category = input.railRisk.category;
+    if (railRisk) {
+      input.request.risk_level = railRisk.level;
+      if (railRisk.category) {
+        input.request.risk_category = railRisk.category;
       } else {
         delete input.request.risk_category;
       }
@@ -208,7 +275,7 @@ async function resolvePermissionIpcDecisionTail(input: {
       delete input.request.risk_level;
       delete input.request.risk_category;
     }
-    if (!route) {
+    if (!input.route) {
       const reason = `Autonomous permission approval is unavailable: ${input.request.toolName} has no deliverable approver route.`;
       input.request.decisionReason = reason;
       return withRequestRisk(input.request, {
@@ -217,7 +284,21 @@ async function resolvePermissionIpcDecisionTail(input: {
       });
     }
   }
-  const settings = input.deps.getPermissionRuntimeSettings?.();
+  return undefined;
+}
+
+async function consultIpcPermissionClassifier(
+  input: PermissionIpcDecisionTailInput,
+): Promise<IpcClassifierConsultResult> {
+  if (input.context.cachedClassifierVerdict) {
+    return {
+      decision: {
+        ...input.context.cachedClassifierVerdict,
+        latencyMs: 0,
+      },
+    };
+  }
+  const settings = input.settings;
   const approvedCapabilityIds =
     (
       settings?.agents[input.sourceAgentFolder] as
@@ -235,21 +316,15 @@ async function resolvePermissionIpcDecisionTail(input: {
         memoryExtractorModel: settings.memory.llm.models.extractor,
       }
     : undefined;
-  const permissionMode = resolveEffectivePermissionMode(
-    route?.folder === input.sourceAgentFolder
-      ? route.agentConfig?.permissionMode
-      : undefined,
-    settings?.agents[input.sourceAgentFolder]?.permissionMode,
-  );
   const promotionRepository = input.deps.getPermissionPromotionRepository?.();
   const promotion = promotionRepository
     ? { repository: promotionRepository }
     : undefined;
   const shouldConsultClassifier =
-    !input.hostJobId &&
+    (input.context.analysis.lane === PermissionLane.InteractiveAuto ||
+      input.context.analysis.lane === PermissionLane.AutoStrict) &&
     input.deps.publishRuntimeEvent &&
-    classifierConfig &&
-    (permissionMode === 'auto' || permissionMode === 'auto_strict');
+    classifierConfig;
   const toolRepository = input.deps.getToolRepository?.();
   const reviewedMcpReadBindings =
     shouldConsultClassifier &&
@@ -269,7 +344,7 @@ async function resolvePermissionIpcDecisionTail(input: {
       : [];
   const classifierDecision = shouldConsultClassifier
     ? await consultPermissionClassifierBeforePrompt({
-        permissionMode,
+        permissionMode: input.permissionMode,
         requestFamily: input.request.requestFamily ?? 'tool',
         appId: input.request.appId,
         agentId: input.request.agentId,
@@ -304,10 +379,41 @@ async function resolvePermissionIpcDecisionTail(input: {
         classifierConsult: input.deps.classifierConsult,
       })
     : undefined;
-  const railVetoedClassifierAllow =
-    classifierDecision?.decision === 'allow' && input.railRequiresApproval;
+  return { decision: classifierDecision, ...(promotion ? { promotion } : {}) };
+}
+
+function mergeIpcClassifierWithRail(
+  input: PermissionIpcDecisionTailInput,
+  classifierDecision: PermissionClassifierPromptConsultResult | undefined,
+): IpcRailMergeResult {
+  const railDecision = input.context.railDecision;
+  const railAsk =
+    railDecision?.railOutcome === 'ask' ? railDecision : undefined;
+  const railRequiresApproval = Boolean(
+    railAsk &&
+    (railAsk.hardFloor === true ||
+      railAsk.railSignal === RailSignal.OutOfTrustedRoot ||
+      railAsk.railSignal === RailSignal.UnsupportedMetaExecutor),
+  );
+  const relaxesRailVeto = Boolean(
+    classifierDecision?.decision === 'allow' &&
+    railAsk &&
+    input.context.analysis.lane === PermissionLane.InteractiveAuto &&
+    (railAsk.railSignal === RailSignal.OutOfTrustedRoot ||
+      (railAsk.railSignal === RailSignal.UnsupportedMetaExecutor &&
+        input.context.analysis.readOnlyMetaExecutor)),
+  );
+  const railVetoedClassifierAllow = Boolean(
+    classifierDecision?.decision === 'allow' &&
+    railRequiresApproval &&
+    !relaxesRailVeto,
+  );
+  const railProvenance =
+    relaxesRailVeto && railAsk
+      ? { signal: railAsk.railSignal, reason: railAsk.reason }
+      : undefined;
   const primaryRisk = selectPrimaryPermissionRisk(
-    input.railRisk,
+    permissionRiskForDeterministicRailDecision(railDecision),
     classifierDecision
       ? {
           level: classifierDecision.risk_level,
@@ -325,26 +431,35 @@ async function resolvePermissionIpcDecisionTail(input: {
   }
   if (classifierDecision) {
     input.request.decisionReason = railVetoedClassifierAllow
-      ? (input.railApprovalReason ??
+      ? (railAsk?.reason ??
         'Deterministic permission rail requires human approval.')
       : classifierDecision.reason;
   }
+  return {
+    railRequiresApproval,
+    railVetoedClassifierAllow,
+    ...(railProvenance ? { railProvenance } : {}),
+  };
+}
 
+async function writeIpcClassifierCache(
+  input: PermissionIpcDecisionTailInput,
+  classifierDecision: PermissionClassifierPromptConsultResult | undefined,
+  merge: IpcRailMergeResult,
+): Promise<void> {
   // Cache-miss writeback: the tail is reached only on a miss, so a verdict the
   // classifier actually produced is cached here (never a human allow_once —
   // those flow through requestPermissionApproval below and never reach this).
   // Skipped when effectHash is undefined (sanitized/truncated input).
   //
-  // A hard-floor rail ASK makes the effect UNCACHEABLE in either direction, not
-  // just when it vetoes an allow: the rail fires precisely when the effect could
-  // not be bounded (e.g. a concealed/risk-sanitized input-gated birthright tool),
-  // so a verdict derived from input the human never saw must never be persisted
-  // and reused by a later concealed request.
+  // A rail ASK marked as requiring approval makes the effect UNCACHEABLE in
+  // either direction, not just when it vetoes an allow: its classifier verdict
+  // must not be persisted and reused without the same rail context.
   // (subsumes the narrower railVetoedClassifierAllow case: that is an allow
   // under railRequiresApproval, so this guard already covers it.)
   if (
     classifierDecision &&
-    !input.railRequiresApproval &&
+    !merge.railRequiresApproval &&
     input.effectHash &&
     input.decisionMemory
   ) {
@@ -365,35 +480,46 @@ async function resolvePermissionIpcDecisionTail(input: {
       // ponytail: a cache-write failure must never block the live decision.
       .catch(() => undefined);
   }
+}
 
+async function resolveIpcPermissionPromptOrTerminal(
+  input: PermissionIpcDecisionTailInput,
+  classifier: IpcClassifierConsultResult,
+  merge: IpcRailMergeResult,
+): Promise<PermissionApprovalDecision> {
+  const classifierDecision = classifier.decision;
   // Deterministic rails are authoritative: once they require approval, the
-  // fallible classifier cannot downgrade that ASK. Classifier auto-allow is
-  // available only when the rails abstain.
-  if (classifierDecision?.decision === 'allow' && !input.railRequiresApproval) {
-    return withRequestRisk(
-      input.request,
-      decisionForMode(
+  // fallible classifier can downgrade only the two typed interactive-auto
+  // read signals whose provenance is preserved on the decision.
+  if (
+    classifierDecision?.decision === 'allow' &&
+    (!merge.railRequiresApproval || merge.railProvenance)
+  ) {
+    return withRequestRisk(input.request, {
+      ...decisionForMode(
         input.request,
         'allow_once',
         'auto_classifier',
         'machine',
       ),
-    );
+      ...(merge.railProvenance ? { railProvenance: merge.railProvenance } : {}),
+    });
   }
   if (
     !input.hostJobId &&
-    (permissionMode === 'auto' || permissionMode === 'auto_strict') &&
+    (input.context.analysis.lane === PermissionLane.InteractiveAuto ||
+      input.context.analysis.lane === PermissionLane.AutoStrict) &&
     input.request.unattended
   ) {
     return withRequestRisk(input.request, {
       ...decisionForMode(
         input.request,
         'cancel',
-        railVetoedClassifierAllow ? 'deterministic_rails' : 'runtime',
+        merge.railVetoedClassifierAllow ? 'deterministic_rails' : 'runtime',
         'machine',
       ),
-      reason: railVetoedClassifierAllow
-        ? (input.railApprovalReason ??
+      reason: merge.railVetoedClassifierAllow
+        ? (input.context.railDecision?.reason ??
           'Deterministic permission rail requires human approval.')
         : classifierDecision
           ? `Classifier requested human approval: ${classifierDecision.reason}`
@@ -419,7 +545,7 @@ async function resolvePermissionIpcDecisionTail(input: {
         firstAskedAt: classifierDecision.firstAskedAt,
       }
     : await permissionPromotionHint({
-        promotion,
+        promotion: classifier.promotion,
         appId: input.request.appId,
         agentFolder: input.sourceAgentFolder,
         canonicalToolName: input.request.toolName,

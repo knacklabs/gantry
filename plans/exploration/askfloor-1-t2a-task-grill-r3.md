@@ -1,0 +1,9 @@
+# ASKFLOOR-1-T2a task-contract grill — round 3
+
+Read-only cold-read review, no file edits, no writes. Follow `factory/prompts/griller.md --gate task` for the `ASKFLOOR-1-T2a` entry in `.factory/stories/ASKFLOOR-1/decomposition.json` and its saved task plan `.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md`. Same inputs of record as round 1 (`plans/exploration/askfloor-1-t2a-task-grill.md`); round 2 brief `askfloor-1-t2a-task-grill-r2.md`.
+
+Round 2 found one blocker (raw arguments do not reach the rails). Fold: the attachment predicate is evaluated against `request.classifierToolInput` (`domain/types.ts:224`; parser-attached at `ipc-parsing.ts:443-450` with `PERMISSION_CLASSIFIER_MAX_STRING_LENGTH = 16_000` and a 20-entry array cap), and for this row only a predicate pass takes precedence over the display-sanitization veto at `permission-deterministic-rails.ts:125`; `classifierToolInput` absent ⇒ predicate false ⇒ ask; `runtime/ipc-parsing.ts` stays out of scope; rails-level boundary tests at 512/513 use a display copy with the `...[truncated]` suffix and an intact classifier copy.
+
+Verify: (a) the classifier copy really preserves a 512-character string and a 12-entry array unchanged (cite the sanitizer's string/array/redaction paths — could `redactSensitiveToolInputString` rewrite an opaque attachment id, and if so is that harmless for a shape-only predicate?); (b) `classifierToolInput` is present on the request in every lane the S1 fixture replays (IPC and the harness fixture shape); (c) letting a predicate pass override the sanitization veto for one row cannot leak to any other input-gated row; (d) the fold is consistent across task plan, `plan_contracts`, `acceptance_criteria`, `required_tests` (twelve plain `it` titles), `reviewer_focus` and `write_scope`. Then re-check items 5–9 of the round-1 brief briefly.
+
+Output: `CONTRACT SOUND` or a numbered list of blockers (what, where, why, minimal fix), then non-blocking notes.

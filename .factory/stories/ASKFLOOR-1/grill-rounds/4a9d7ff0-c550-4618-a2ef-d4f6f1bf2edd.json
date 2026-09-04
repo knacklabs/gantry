@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Destructive actions (delete, overwrite, force-push style shapes) currently never remember an Allow \u2014 you are asked every time; only a No is remembered. Change that?",
+      "options": [
+        "Remember exact Allow too (Recommended)",
+        "Keep asking every time"
+      ],
+      "chosen": "Remember exact Allow too (Recommended)"
+    }
+  ],
+  "at": "2026-09-04T02:26:29.611040+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

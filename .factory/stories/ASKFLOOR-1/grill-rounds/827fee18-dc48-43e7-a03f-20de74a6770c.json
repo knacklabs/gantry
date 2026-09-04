@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Batch cards (several permission asks coalesced into one card with Allow all / Review each / Deny all) have no single scope to remember. Should batch cards stay once-only, with remembering available only when you tap 'Review each' and decide the members one by one?",
+      "options": [
+        "Batches stay once-only (Recommended)",
+        "Remember per member"
+      ],
+      "chosen": "Batches stay once-only (Recommended)"
+    }
+  ],
+  "at": "2026-09-02T14:26:00.428870+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

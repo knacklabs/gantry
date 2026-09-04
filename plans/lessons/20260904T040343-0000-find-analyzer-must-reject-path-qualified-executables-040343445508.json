@@ -1,0 +1,12 @@
+{
+  "topic": "find analyzer must reject path-qualified executables",
+  "lesson": "readOnlyMetaExecutor may only be true for the bare command word find (no path component, no ./find, /tmp/find, or any basename match) \u2014 autoreview r2 P1: the analyzer accepted any executable whose basename is find, letting an untrusted path-qualified binary be relaxed. Reject path-qualified or otherwise qualified executables before any option parsing; add the case to the parameterized safety test.",
+  "source": "autoreview ASKFLOOR-1-T1 stage-local round 2 P1 auto-lane-analysis.ts",
+  "applies_to": [
+    "apps/core/src/application/permissions/auto-lane-analysis*.ts",
+    "apps/core/test/unit/application/auto-lane-analysis.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-04T04:03:43+00:00"
+}

@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
+import { PermissionLane, RailSignal } from '@core/domain/permission-lane.js';
 import type { ToolPolicyDecision } from '@core/shared/tool-execution-policy-service.js';
 import { decisionForMode } from '@core/domain/permission-decision.js';
 import {
   coordinatePermissionClassifierRisk,
   coordinatePermissionDecision,
   FAMILY_RULE_RAIL_HIT_REASON,
+  PERMISSION_DECISION_STAGES,
+  type PermissionDecisionTailContext,
   permissionRunRestriction,
   unregisterPermissionRunRestriction,
 } from '@core/runtime/permission-decision-coordinator.js';
@@ -236,7 +239,7 @@ describe('coordinatePermissionDecision', () => {
       },
     ]),
   )('$gate: $authority beats the otherwise-allowing tail', async (testCase) => {
-    const tail = vi.fn(async () => ({
+    const tail = vi.fn(async (_context?: PermissionDecisionTailContext) => ({
       approved: true,
       mode: 'allow_once' as const,
       decidedBy: 'tail',
@@ -273,6 +276,117 @@ describe('coordinatePermissionDecision', () => {
     expect(deterministicRails).toHaveBeenCalledOnce();
     expect(tail).toHaveBeenCalledOnce();
     expect(railRequest.decisionReason).toBe('rail asks');
+  });
+
+  it('evaluates the rails once and threads the completed AutoLaneAnalysis unchanged into the tail', async () => {
+    const analysis = Object.freeze({
+      lane: PermissionLane.InteractiveAuto,
+      readOnlyMetaExecutor: true,
+    });
+    const railDecision = {
+      railOutcome: 'ask' as const,
+      reason: 'outside the trusted root',
+      railSignal: 'out_of_trusted_root' as const,
+      hardFloor: true as const,
+    };
+    const deterministicRails = vi.fn(() => railDecision);
+    const tail = vi.fn(async () => ({
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'human',
+    }));
+
+    await coordinatePermissionDecision({
+      request: { ...request },
+      analysis,
+      deterministicRails,
+      tail,
+    });
+
+    expect(deterministicRails).toHaveBeenCalledOnce();
+    expect(tail).toHaveBeenCalledOnce();
+    const context = tail.mock.calls[0]![0]!;
+    expect(Object.isFrozen(context)).toBe(true);
+    expect(context.analysis).toBe(analysis);
+    expect(context.railDecision).toBe(railDecision);
+  });
+
+  it('runs the complete decision order as named stages with the T3b no-op slots in place', async () => {
+    expect(PERMISSION_DECISION_STAGES).toEqual([
+      'pre_coordination_route_analysis',
+      'exact_remembered_deny',
+      'hard_restrictions',
+      'reviewed_rules',
+      'deterministic_rails',
+      'conditional_trusted_root',
+      'remembered_allows',
+      'classifier_cache',
+      'tail',
+    ]);
+    for (const reviewedRuleDecision of [
+      undefined,
+      { ...reviewedAllow, isFamilyRule: true },
+    ]) {
+      const observed: string[] = [];
+      let railEvaluation = 0;
+      await coordinatePermissionDecision({
+        request: { ...request },
+        analysis: Object.freeze({
+          lane: PermissionLane.InteractiveAuto,
+          readOnlyMetaExecutor: false,
+        }),
+        reviewedRuleDecision: async () => {
+          observed.push('reviewed_rules');
+          return reviewedRuleDecision;
+        },
+        deterministicRails: () => {
+          railEvaluation += 1;
+          if (railEvaluation > 1) return undefined;
+          observed.push('deterministic_rails');
+          return {
+            railOutcome: 'ask',
+            reason: 'outside the trusted root',
+            railSignal: RailSignal.OutOfTrustedRoot,
+          };
+        },
+        deterministicRailsInput: { workspaceRoot: '/workspace' },
+        effectHash: 'stage-order',
+        decisionMemory: {
+          list: async () => {
+            observed.push('conditional_trusted_root');
+            return [];
+          },
+          getClassifierVerdict: async () => {
+            observed.push('classifier_cache');
+            return {
+              decision: 'allow',
+              reason: 'cached allow',
+              risk_level: 'low',
+            };
+          },
+        } as never,
+        tail: async (context) => {
+          expect(context?.cachedClassifierVerdict).toMatchObject({
+            decision: 'allow',
+            reason: 'cached allow',
+          });
+          observed.push('tail');
+          return {
+            approved: false,
+            mode: 'cancel',
+            decidedBy: 'human',
+          };
+        },
+      });
+      expect(observed).toEqual([
+        'reviewed_rules',
+        'deterministic_rails',
+        'conditional_trusted_root',
+        'classifier_cache',
+        'tail',
+      ]);
+      expect(railEvaluation).toBe(2);
+    }
   });
 
   it('routes a default ASK rail to the classifier/human tail', async () => {
@@ -586,11 +700,16 @@ describe('coordinatePermissionDecision', () => {
     await expect(
       coordinatePermissionDecision({
         request: railRequest,
+        analysis: Object.freeze({
+          lane: PermissionLane.InteractiveAuto,
+          readOnlyMetaExecutor: false,
+        }),
         effectHash: 'effect-hash-1',
         decisionMemory: { getClassifierVerdict } as never,
         deterministicRails: () => ({
           railOutcome: 'ask' as const,
           reason: 'rail now asks',
+          railSignal: RailSignal.Destructive,
         }),
         tail,
       }),
@@ -690,7 +809,7 @@ describe('coordinatePermissionDecision', () => {
     });
   });
 
-  it('auto-allows a benign op inside a granted trusted root WITHOUT prompting', async () => {
+  it('auto-allows a reviewed family op inside a granted trusted root WITHOUT prompting', async () => {
     const tail = vi.fn();
     const list = vi.fn(async () => [grantRow('/perm2test/project')]);
     const req = {
@@ -700,6 +819,11 @@ describe('coordinatePermissionDecision', () => {
     };
     const decision = await coordinatePermissionDecision({
       request: req,
+      analysis: Object.freeze({
+        lane: PermissionLane.InteractiveAuto,
+        readOnlyMetaExecutor: false,
+      }),
+      reviewedRuleDecision: { ...reviewedAllow, isFamilyRule: true },
       decisionMemory: { list, put: vi.fn() } as never,
       deterministicRailsInput: shellIn('/perm2test/project'),
       tail,

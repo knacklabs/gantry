@@ -1,0 +1,463 @@
+{
+  "generated_by": "docs-decomposer",
+  "user_facing": true,
+  "story": "ASKFLOOR-1",
+  "epic": "permission-engine",
+  "plan_file": "plans/active/ASKFLOOR-1-the-judge-actually-judges-context-aware-first-asks-in-auto-mode.md",
+  "epics": [
+    {
+      "id": "permission-engine",
+      "title": "Permission engine",
+      "objective": "Auto mode behaves like Claude Code auto mode: reads never tap, the judge decides unknowns, only genuine risk asks, every human decision is learned.",
+      "source_refs": [
+        "docs/specs/askfloor-1-judge-actually-judges.md",
+        "plans/active/ASKFLOOR-1-the-judge-actually-judges-context-aware-first-asks-in-auto-mode.md"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "ASKFLOOR-1-T1",
+      "title": "Routing: the judge's verdict stands in interactive auto",
+      "objective": "In interactive auto (permissionMode auto, no hostJobId) a rail ASK for out_of_trusted_root or a read-only find no longer vetoes a classifier allow; one typed AutoLaneAnalysis per request; the shared parser stays fail-closed (nine write-capable find actions refused); 2>/dev/null is never a path candidate; the IPC tail is pre-split into five named helpers; the AF-AC8 replay harness is scaffolded with S3.",
+      "acceptance_criteria": [
+        "a classifier low/medium allow is honoured with the rail reason as typed provenance only when `permissionMode` is `auto` and `hostJobId` is absent; `auto_strict`, ask and job lanes keep the veto (explicit tests).",
+        "`find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; the rails' existing meta-executor refusal now carries the canonical typed signal `unsupported_meta_executor` (today it emits `privileged`, `domain/permission-deterministic-rails.ts:41-46,164-171`; verdict unchanged, A-0070) and a read-only `find` makes the analyzer's `readOnlyMetaExecutor` true; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path).",
+        "the ONE authoritative decision order \u2014 pre-coordination route analysis \u2192 exact remembered deny [T3b no-op slot] \u2192 hard restrictions \u2192 reviewed rules \u2192 deterministic rails (the single base evaluation) \u2192 conditional trusted-root handling (only on the rails' `out_of_trusted_root` ASK; its hypothetical rechecks unchanged) \u2192 remembered allows [T3b no-op slot] \u2192 classifier-cache read \u2192 tail \u2014 is the coordinator/tail contract (`permission-decision-coordinator.ts:97-200` enumerated as named stages, pinned by a stage-order test), with the base rail decision computed once and passed to the tail in an immutable typed context.",
+        "the AF-AC8 replay harness exists as a reusable fixture module; S3 (`2>/dev/null` + read-only `find`) replays at 0 taps in interactive auto; later tasks add fixtures without editing T1's tests.",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green."
+      ],
+      "depends_on": [],
+      "user_facing": false,
+      "plan_contracts": [
+        {
+          "id": "ASKFLOOR-1-T1-AC1",
+          "statement": "a classifier low/medium allow is honoured with the rail reason as typed provenance only when `permissionMode` is `auto` and `hostJobId` is absent; `auto_strict`, ask and job lanes keep the veto (explicit tests).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T1-AC2",
+          "statement": "`find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; the rails' existing meta-executor refusal now carries the canonical typed signal `unsupported_meta_executor` (today it emits `privileged`, `domain/permission-deterministic-rails.ts:41-46,164-171`; verdict unchanged, A-0070) and a read-only `find` makes the analyzer's `readOnlyMetaExecutor` true; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T1-AC3",
+          "statement": "the ONE authoritative decision order \u2014 pre-coordination route analysis \u2192 exact remembered deny [T3b no-op slot] \u2192 hard restrictions \u2192 reviewed rules \u2192 deterministic rails (the single base evaluation) \u2192 conditional trusted-root handling (only on the rails' `out_of_trusted_root` ASK; its hypothetical rechecks unchanged) \u2192 remembered allows [T3b no-op slot] \u2192 classifier-cache read \u2192 tail \u2014 is the coordinator/tail contract (`permission-decision-coordinator.ts:97-200` enumerated as named stages, pinned by a stage-order test), with the base rail decision computed once and passed to the tail in an immutable typed context.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T1-AC4",
+          "statement": "the AF-AC8 replay harness exists as a reusable fixture module; S3 (`2>/dev/null` + read-only `find`) replays at 0 taps in interactive auto; later tasks add fixtures without editing T1's tests.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T1-AC5",
+          "statement": "existing unit and Postgres integration suites pass; tsc and check:architecture green.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+        "apps/core/src/application/permissions/auto-lane-analysis.ts",
+        "apps/core/src/application/permissions/auto-lane-analysis-types.ts",
+        "apps/core/src/shared/permission-trusted-paths.ts",
+        "apps/core/src/runtime/permission-decision-coordinator.ts",
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/domain/permission-lane.ts",
+        "apps/core/src/domain/permission-deterministic-rails.ts",
+        "apps/core/src/shared/ipc-signing.ts",
+        "apps/core/src/runner/permission-ipc-client.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/types.ts",
+        "apps/core/test/unit/runner/permission-ipc-client.test.ts",
+        "apps/core/test/unit/runner/permission-callback.test.ts",
+        "apps/core/test/unit/shared/ipc-signing.test.ts",
+        "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+        "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+        "apps/core/test/unit/application/auto-lane-analysis.test.ts",
+        "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+        "apps/core/test/unit/shared/bash-command-parser.test.ts"
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py",
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 26,
+        "max_changed_lines": 1800,
+        "reason": "S-0066: the grilled contract (9 rounds) spans 12 source files (IPC helper pre-split into five helpers, analyzer + types, domain lane enums, rails signal, coordinator seam, trusted-paths fix, railProvenance across domain types + IPC signing + two runner decoders) and 10 test files incl. the AF-AC8 harness module; 16 leaf tests are required proof, not creep. Raised from the 8-file default by the orchestrator per the owner's standing 'raise budget + re-grill' ruling."
+      },
+      "required_tests": [
+        {
+          "id": "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps the rail veto for out_of_trusted_root in auto_strict, ask and job lanes",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "honours a classifier allow for an unsupported_meta_executor refusal of a read-only find only in interactive auto and keeps the veto in auto_strict, ask and job lanes",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "emits the canonical unsupported_meta_executor rail signal for a meta-executor refusal with the ASK verdict unchanged",
+          "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "derives readOnlyMetaExecutor true for find without any of the nine write-capable actions only",
+          "path": "apps/core/test/unit/application/auto-lane-analysis.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "refuses every one of the nine write-capable find actions as a meta-executor",
+          "path": "apps/core/test/unit/shared/bash-command-parser.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "treats a stderr redirect to /dev/null as a non-path in every lane: auto",
+          "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "evaluates the rails once and threads the completed AutoLaneAnalysis unchanged into the tail",
+          "path": "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps the veto in interactive auto for find with a sensitive shape in the first operand, a later operand or a predicate value, for .., hidden and secret names, for -H -L or -follow, for -files0-from or any indirect root option, any redirect, a compound or a pipeline, and allows a bare find dot and a find under src with a name glob",
+          "path": "apps/core/test/unit/application/auto-lane-analysis.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "leaves ask, auto_strict and job-lane outcomes unchanged for 2>/dev/null except where the non-path stopped being a path",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "carries railProvenance through the signed IPC decision payload and the generic runner decoder",
+          "path": "apps/core/test/unit/runner/permission-ipc-client.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "carries railProvenance through the Anthropic runner permission decoder",
+          "path": "apps/core/test/unit/runner/permission-callback.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "derives the analysis exactly once before coordination and passes it unchanged into the tail context",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "runs the complete decision order as named stages with the T3b no-op slots in place",
+          "path": "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps the veto for a safe-looking find when the base rail ASK is missing, redacted or truncated input",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "S3: 2>/dev/null and read-only find cost 0 taps in interactive auto",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "reviewer_focus": [
+        "Constitution (load-bearing): constitution/README.md -> pnp-coding-standards-modular-monolith.md (types/enums/errors/data-access/thin coordinator in separate files; typed enums over string literals) and 03-modular-monolith-structure.md (application vs runtime vs shared placement). Conformance, not a new layout.",
+        "PermissionLane, RailSignal and RailProvenance are DOMAIN-owned closed types (domain/permission-lane.ts) because domain/types.ts consumes them and domain never imports application (architecture-map.json:79-92); AutoLaneAnalysis is a typed value object whose input/output shapes live in application/permissions/auto-lane-analysis-types.ts; the analyzer is a GENUINELY PURE function (no filesystem, no I/O) whose readOnlyMetaExecutor is the HARD-BOUNDARY predicate: single simple find, no compound/pipeline/redirect/subshell, none of the nine write-capable actions, none of -H/-L/-follow, no indirect or unknown root-source option (-files0-from and the like fail closed), and NO operand \u2014 every positional path and every predicate value (-name, -iname, -path, -regex, -newer, -samefile, ...) \u2014 matching the conservative pure string predicate isSensitivePathShape (protected capability-path patterns; any segment starting with '.' except the bare '.' so `find .` passes and `..`/`.env` fail; well-known secret file names \u2014 a superset of the filesystem-backed checks; TODO(T2a) unify).",
+        "Rails ownership (assumption A-0070): domain/permission-deterministic-rails.ts is a declared T1/T2a shared file; T1 owns ONLY the typed RailSignal value unsupported_meta_executor and its emission for the existing meta-executor refusal (today privileged, :41-46,164-171) with the ASK verdict unchanged \u2014 no widening; T2a owns the attachment_open birthright row.",
+        "T1 is IPC-ONLY (assumption A-0069: the coordinator is a declared T1/T3b shared file, T1 limited to the optional analysis/context seam): the IPC helper computes the pre-analysis once in a NEW pre-coordination step before calling the coordinator (:95-170), distinct from the tail's route guard (:184-218) which only consumes the completed context (it alone knows permissionMode, hostJobId and the resolved route mode) and passes it to the coordinator as an OPTIONAL typed input analysis?: AutoLaneAnalysis; the coordinator derives no lane facts, and with an analysis runs ONE base rail evaluation and calls tail(context) with the immutable typed context { analysis, railDecision } replacing today's zero-argument tail; without one (inline-agent-loop-tools.ts:389-395, core-tool-permission-coordinator.ts:61) behaviour is byte-for-byte today's; trusted-root hypothetical rechecks (permission-decision-coordinator.ts:232-268) stay unchanged and are not the base evaluation.",
+        "railProvenance is CANONICAL provenance: an optional typed field on PermissionApprovalDecision (domain/types.ts:298-311 \u2014 T1's only addition to that file; T3a's later additions are sequential), included in the signed IPC decision payload (shared/ipc-signing.ts:10-22) and decoded by ALL runner decoders \u2014 the generic IPC client (runner/permission-ipc-client.ts:59-75,371-390) and the Anthropic runner decoder (adapters/llm/anthropic-claude-agent/runner/permission-callback.ts:301-387, result type runner/types.ts:119-144); never a host-local side channel.",
+        "The coordinator's authoritative decision order is enumerated as named stages \u2014 pre-coordination route analysis, [T3b] exact remembered deny, hard restrictions, reviewed rules, deterministic rails (the single base evaluation), conditional trusted-root handling (only on the rails' out_of_trusted_root ASK; hypothetical rechecks unchanged), [T3b] remembered allows, classifier-cache read, tail \u2014 and pinned by a stage-order test; one analysis per IPC permission request, other callers pass none; the harness return type uses PermissionApprovalDecision['decidedBy'], PermissionDecisionSource (domain/types.ts:255) and RailProvenance.",
+        "The IPC tail becomes a thin sequence of five named helpers (route guard, classifier consult, rail-veto/risk merge, cache writeback, prompt/terminal) with explicit typed inputs/outputs; the relaxation lives ONLY in the merge helper, keyed on the base rail decision's typed signal \u2014 out_of_trusted_root, or unsupported_meta_executor AND analysis.readOnlyMetaExecutor \u2014 and guarded by lane === interactive_auto (never auto_strict, never a hostJobId); every other base ASK (incl. the hard-floor asks for missing/redacted/truncated input, permission-deterministic-rails.ts:127-171,259-276) keeps the veto; a relaxed allow keeps the canonical machine values decidedBy: auto_classifier and source: auto_classifier (domain/permission-decision.ts:69-115) and carries railProvenance: { signal: RailSignal; reason: string } as a separate typed field.",
+        "Shared parser untouched (fail-closed; nine write-capable find actions pinned in the parser's own test file); pathCandidates ignores stderr-to-/dev/null with a per-lane pin; rails/sandbox policy still runs before any grant (0001).",
+        "No domain error type introduced (no named failure contract in T1). DEFERRED with markers: TODO(T2a) typed classifier status; TODO(T3b) memory stages in the coordinator's decision order (documented no-op slots, not speculative abstractions).",
+        "Concerns that must not share a file: the analyzer (application) and the IPC tail (runtime); the AF-AC8 harness is the reusable module apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts exporting `replayPermissionRequest(fixture: TapBudgetFixture): Promise<{ taps: number; decidedBy: PermissionApprovalDecision['decidedBy']; source: PermissionDecisionSource; railProvenance: RailProvenance | null }>` (existing PermissionDecisionSource at domain/types.ts:255, the decided-by union from permission-decision.ts, RailProvenance from domain/permission-lane.ts \u2014 concrete types, never unknown) and the `TapBudgetFixture` type (lane inputs, command/tool input, trusted roots, stubbed classifier verdict) so later tasks add fixtures without editing T1's tests; no stringified JSONB equality; runner-spawn sandbox copy sets stay derivable.",
+        "Verification: python3 factory/scripts/verify.py is authoritative; the Postgres lane (npm run test:integration:postgres, GANTRY_TEST_DATABASE_URL exported) is run by the orchestrator as stage evidence, not as a gate command: T1 touches no storage code, and two pre-existing suites (live-waiting-admission, inline-agent-runtime child runs) are red on base 00a6c01f9 / origin/main independent of this story and are tracked as a main quickfix before T3a, whose contract restores the lane as a gate."
+      ]
+    },
+    {
+      "id": "ASKFLOOR-1-T2a",
+      "title": "Shape classifier extraction, attachment birthright, judge status",
+      "objective": "Extract one typed effect-shape classifier and the containment helpers from the read gate into shared modules; add the attachment_open input-gated birthright to the deterministic rails for every mode (the only rails ROW added by the story; T1 separately owns the typed unsupported_meta_executor signal per A-0070); stamp a typed classifier status answered|unavailable|skipped at every branch of the classifier runtime, with the native-risk branch isolated into a named helper.",
+      "acceptance_criteria": [
+        "`attachment_open` whose request input is COMPLETE, UNSANITIZED, UNREDACTED and well-SHAPED \u2014 `attachment_ids` an array of one to twelve strings, each non-blank after trim \u2014 is an input-gated birthright in the deterministic rails, so such a request never asks in ask, auto, auto_strict or autonomous mode (rails are mode-blind; the S1 fixture replays all four lanes at 0 taps). The rails judge SHAPE on the request's display copy `toolInput` (always present) AFTER today's completeness, sanitization (`permission-deterministic-rails.ts:125`) and redaction (`:264`) checks, which stay byte-for-byte for every input-gated row including this one; therefore an id the sanitizer shortened (over 500 characters, `runtime/ipc-tool-input-sanitization.ts:6,64`) or redacted (token-like, `:11,55`) ASKS \u2014 an accepted limit consistent with the spec's \"a malformed id asks\" (AF-AC2) and decision 0154: today's generated ids are short (`message-attachment:\u2026`, `canonical-message-attachments.postgres.ts:54-80`) and no bound is claimed for future formats; if a host-valid id ever trips sanitization, that is a separately scoped sanitization change, not a rails exemption. No veto exemption, no length rule, no change to `runtime/ipc-parsing.ts`, no dependence on `classifierToolInput`. Origin stays host-validated, unchanged: an id that fails conversation-origin validation (`ipc-attachment-open-handler.ts:43-84`, resolver `attachment-resolver.ts:167-186`) returns the existing not-found line \"I couldn't find that attachment in this conversation.\" \u2014 never a card; the handler and its tests are untouched. A missing, empty, more-than-twelve, blank, non-string, shortened or redacted list asks with the rails' existing input-gated ASK outcome.",
+        "a pure effect-shape classifier (`shared/permission-effect-shape.ts`) classifies ONE PARSED LEAF at a time with a pure context `classifyPermissionEffectShape(leaf, { stdinOk })` \u2014 `stdinOk` is the compound/pipeline fact the gate already derives per leaf (standalone leaves get `false`, compound leaves `true`, `auto-permission-read-only-gate.ts:131,137`) and is what `requiresTarget` depends on, since `BashCommandLeaf` carries no compound context (`bash-command-parser.ts:14`) \u2014 covering the verb/argument shape logic INCLUDING `grepFileArgs` (`:429-468`, which moves into the shape module) and the native file-read shape, returning a DISCRIMINATED result `{ kind: read_only_command, executable, targets } | { kind: file_read, action, targets, requiresTarget } | { kind: not_read_only, reason }`, computed without any filesystem, capability or workspace input; the gate RETAINS, verbatim: compound orchestration over the ordered leaves (`:120-140`), the whole-command raw guards at `:115-122` and `:149-150` (protected-path and secret MENTIONS scanned over the command text before any target is discarded, e.g. `grep settings.yaml README.md` is refused on the mention), and the MCP read-binding branch (dispatch `:100-105`, evaluator `:311-345`); a hard-boundaries evaluator (`shared/permission-hard-boundaries.ts`) owns the TARGET-level checks from the file-read path (`:261-308`: capability boundary, realpath containment, protected-path, hidden-segment and secret on each target; the file-read SHAPE part `:248-260` and its pure path predicate `isProvablyWorkspacePath` `:361-366` belong to the shape module, so ownership is disjoint); `evaluateAutoPermissionReadOnlyGate` composes leaf shape \u2192 target boundaries inside its unchanged orchestration with EXACT result-and-reason parity, pinned by the existing suite plus explicit parity leaves in the composition test for (i) a standalone `cat` versus the same leaf inside `cat | wc -l`, (ii) a compound command, and (iii) a non-target protected mention (`grep settings.yaml README.md`) \u2014 the existing `:342-346` case is the workspace-root one and is not the mention proof.",
+        "`PermissionClassifierResult` carries a REQUIRED closed `status` (`domain/permission-classifier-status.ts`: `answered | unavailable | skipped`): only a successful LLM verdict is `answered`; `llm_unconfigured timeout model_resolution_failure query_error parse_failure validation_failure` are `unavailable`; `aborted`, `input_truncated`, the native-risk, strict-deterministic and skipped-local branches are `skipped`; the native-risk branch lives in the named helper `runtime/permission-classifier-native-risk.ts` with an unchanged verdict; the cache-hit result constructed in `runtime/ipc-permission-classifier-decision.ts` (`:293`, the one constructor outside the classifier file) is stamped `skipped` (a replayed verdict is neither a fresh answer nor an outage).",
+        "AF-AC8 S1 \u2014 opening an attachment already in the conversation \u2014 replays at 0 taps in every lane through T1's harness (`TapBudgetFixture` already carries `toolName` + `toolInput`, `askfloor-tap-budget-harness.ts:11,55`; the harness is NOT edited and is not in scope), added as a fixture without editing T1's leaves.",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T1"
+      ],
+      "user_facing": false,
+      "plan_contracts": [
+        {
+          "id": "ASKFLOOR-1-T2a-AC1",
+          "statement": "`attachment_open` whose request input is COMPLETE, UNSANITIZED, UNREDACTED and well-SHAPED \u2014 `attachment_ids` an array of one to twelve strings, each non-blank after trim \u2014 is an input-gated birthright in the deterministic rails, so such a request never asks in ask, auto, auto_strict or autonomous mode (rails are mode-blind; the S1 fixture replays all four lanes at 0 taps). The rails judge SHAPE on the request's display copy `toolInput` (always present) AFTER today's completeness, sanitization (`permission-deterministic-rails.ts:125`) and redaction (`:264`) checks, which stay byte-for-byte for every input-gated row including this one; therefore an id the sanitizer shortened (over 500 characters, `runtime/ipc-tool-input-sanitization.ts:6,64`) or redacted (token-like, `:11,55`) ASKS \u2014 an accepted limit consistent with the spec's \"a malformed id asks\" (AF-AC2) and decision 0154: today's generated ids are short (`message-attachment:\u2026`, `canonical-message-attachments.postgres.ts:54-80`) and no bound is claimed for future formats; if a host-valid id ever trips sanitization, that is a separately scoped sanitization change, not a rails exemption. No veto exemption, no length rule, no change to `runtime/ipc-parsing.ts`, no dependence on `classifierToolInput`. Origin stays host-validated, unchanged: an id that fails conversation-origin validation (`ipc-attachment-open-handler.ts:43-84`, resolver `attachment-resolver.ts:167-186`) returns the existing not-found line \"I couldn't find that attachment in this conversation.\" \u2014 never a card; the handler and its tests are untouched. A missing, empty, more-than-twelve, blank, non-string, shortened or redacted list asks with the rails' existing input-gated ASK outcome.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2a-AC2",
+          "statement": "a pure effect-shape classifier (`shared/permission-effect-shape.ts`) classifies ONE PARSED LEAF at a time with a pure context `classifyPermissionEffectShape(leaf, { stdinOk })` \u2014 `stdinOk` is the compound/pipeline fact the gate already derives per leaf (standalone leaves get `false`, compound leaves `true`, `auto-permission-read-only-gate.ts:131,137`) and is what `requiresTarget` depends on, since `BashCommandLeaf` carries no compound context (`bash-command-parser.ts:14`) \u2014 covering the verb/argument shape logic INCLUDING `grepFileArgs` (`:429-468`, which moves into the shape module) and the native file-read shape, returning a DISCRIMINATED result `{ kind: read_only_command, executable, targets } | { kind: file_read, action, targets, requiresTarget } | { kind: not_read_only, reason }`, computed without any filesystem, capability or workspace input; the gate RETAINS, verbatim: compound orchestration over the ordered leaves (`:120-140`), the whole-command raw guards at `:115-122` and `:149-150` (protected-path and secret MENTIONS scanned over the command text before any target is discarded, e.g. `grep settings.yaml README.md` is refused on the mention), and the MCP read-binding branch (dispatch `:100-105`, evaluator `:311-345`); a hard-boundaries evaluator (`shared/permission-hard-boundaries.ts`) owns the TARGET-level checks from the file-read path (`:261-308`: capability boundary, realpath containment, protected-path, hidden-segment and secret on each target; the file-read SHAPE part `:248-260` and its pure path predicate `isProvablyWorkspacePath` `:361-366` belong to the shape module, so ownership is disjoint); `evaluateAutoPermissionReadOnlyGate` composes leaf shape \u2192 target boundaries inside its unchanged orchestration with EXACT result-and-reason parity, pinned by the existing suite plus explicit parity leaves in the composition test for (i) a standalone `cat` versus the same leaf inside `cat | wc -l`, (ii) a compound command, and (iii) a non-target protected mention (`grep settings.yaml README.md`) \u2014 the existing `:342-346` case is the workspace-root one and is not the mention proof.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2a-AC3",
+          "statement": "`PermissionClassifierResult` carries a REQUIRED closed `status` (`domain/permission-classifier-status.ts`: `answered | unavailable | skipped`): only a successful LLM verdict is `answered`; `llm_unconfigured timeout model_resolution_failure query_error parse_failure validation_failure` are `unavailable`; `aborted`, `input_truncated`, the native-risk, strict-deterministic and skipped-local branches are `skipped`; the native-risk branch lives in the named helper `runtime/permission-classifier-native-risk.ts` with an unchanged verdict; the cache-hit result constructed in `runtime/ipc-permission-classifier-decision.ts` (`:293`, the one constructor outside the classifier file) is stamped `skipped` (a replayed verdict is neither a fresh answer nor an outage).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2a-AC4",
+          "statement": "AF-AC8 S1 \u2014 opening an attachment already in the conversation \u2014 replays at 0 taps in every lane through T1's harness (`TapBudgetFixture` already carries `toolName` + `toolInput`, `askfloor-tap-budget-harness.ts:11,55`; the harness is NOT edited and is not in scope), added as a fixture without editing T1's leaves.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2a-AC5",
+          "statement": "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/shared/auto-permission-read-only-gate.ts",
+        "apps/core/src/shared/permission-effect-shape.ts",
+        "apps/core/src/shared/permission-hard-boundaries.ts",
+        "apps/core/src/domain/permission-deterministic-rails.ts",
+        "apps/core/src/domain/permission-classifier-status.ts",
+        "apps/core/src/runtime/permission-classifier.ts",
+        "apps/core/src/runtime/permission-classifier-native-risk.ts",
+        "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+        "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+        "apps/core/test/unit/shared/auto-permission-read-only-gate.test.ts",
+        "apps/core/test/unit/shared/permission-effect-shape.test.ts",
+        "apps/core/test/unit/shared/permission-hard-boundaries.test.ts",
+        "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+        "apps/core/test/unit/runtime/permission-classifier.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts"
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py",
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 16,
+        "max_changed_lines": 1400,
+        "reason": "The grilled contract spans 8 source files (read gate split into two NEW shared modules; rails birthright row + predicate map; NEW domain status enum; classifier status stamping with the native-risk branch moved to a NEW helper file; the IPC cache-hit constructor) and 7 test files (two NEW module suites, moved cases, S1 fixture, cache-hit leaf) = 15 files; one file of headroom for a barrel or map edit the implementer must raise as a signal. The split moves existing lines rather than adding logic."
+      },
+      "required_tests": [
+        {
+          "id": "allows attachment_open as an input-gated birthright when attachment_ids is a list of one to twelve non-blank strings",
+          "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "asks for attachment_open when attachment_ids is missing, empty, over twelve, blank, not a string, shortened by sanitization or redacted",
+          "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps every existing birthright row and read-only allow unchanged after the shape and boundary split",
+          "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "classifies read-only command and file-read shapes with action, targets and requiresTarget without touching the filesystem",
+          "path": "apps/core/test/unit/shared/permission-effect-shape.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "refuses out-of-workspace, protected, hidden-segment, secret and capability-boundary targets exactly as the read gate did",
+          "path": "apps/core/test/unit/shared/permission-hard-boundaries.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "reproduces every prior allow and refuse verdict by composing shape and hard boundaries, including standalone versus piped cat, a compound command and a non-target protected mention",
+          "path": "apps/core/test/unit/shared/auto-permission-read-only-gate.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stamps status answered only for a successful LLM verdict",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stamps status unavailable for the six unusable-result failure codes",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stamps status skipped for aborted, input_truncated and every non-LLM branch",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "routes the native-risk branch through the named helper with an unchanged verdict",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "S1: opening an attachment already in the conversation costs 0 taps in every lane",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stamps a cached classifier verdict with status skipped",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "reviewer_focus": [
+        "Constitution (load-bearing): constitution/03-modular-monolith-structure.md (modules with clear boundaries, strict separation of concerns, no circular dependencies, predictable ownership) and pnp-coding-standards-modular-monolith.md. DELIBERATE RECORDED DEVIATION: the new modules are named like their siblings in apps/core/src/shared (kebab-case.ts, no dotted role suffix, e.g. permission-trusted-paths.ts) instead of the constitution's suffix table (pnp-coding-standards-modular-monolith.md:22-54, which would want a lone .helper.ts) \u2014 the repo deviates from that table repo-wide and consistency with siblings wins; no other rule is claimed from those files.",
+        "SPLIT IS A MOVE, NOT A REWRITE: shared/permission-effect-shape.ts is ONE small module holding the closed enum PermissionEffectShape and the GENUINELY PURE per-LEAF classifyPermissionEffectShape(leaf, { stdinOk }) (no fs, no capability ids, no workspace root; stdinOk is the compound/pipeline fact the orchestration already derives per leaf \u2014 standalone false, compound true, auto-permission-read-only-gate.ts:131,137 \u2014 and requiresTarget is derived from it INSIDE the classifier because BashCommandLeaf carries no compound context, bash-command-parser.ts:14) returning a DISCRIMINATED result \u2014 { kind: read_only_command, executable, targets } | { kind: file_read, action, targets, requiresTarget } | { kind: not_read_only, reason }; it takes over the per-leaf shape logic (:152-246,248-260,348-359,361-366,368-469 \u2014 includes grepFileArgs :429-468 and the pure isProvablyWorkspacePath :361-366; NOT :79-105, which is capability normalization and top-level dispatch and stays in the gate). NOT MOVED, verbatim in the gate: compound orchestration over ordered leaves (:120-140), the whole-command raw guards at :115-122 and :149-150 (protected-path/secret MENTIONS over the command text; grep settings.yaml README.md is refused on the mention), and the MCP read-binding branch (dispatch :100-105, evaluator :311-345). shared/permission-hard-boundaries.ts owns the per-TARGET checks from the file-read path VERBATIM (:261-308 only \u2014 capability boundary, realpath containment, protected-path, hidden-segment, secret; disjoint from the shape module's :248-260,361-366). The gate keeps its exported signature and result; inside its unchanged orchestration each leaf becomes shape -> boundaries with EXACT result-and-reason parity; three explicit parity leaves in the composition test: standalone cat vs the same leaf in cat | wc -l; a compound command; a non-target protected mention (the existing :342-346 case is the workspace-root one, not the mention proof). Both callers (rails :149-158, classifier :305-314,341-356) untouched. Any verdict or reason change in an existing test is a defect, not a fixture to update.",
+        "Rails ownership (assumption A-0070): T2a owns ONLY the attachment_open input-gated birthright row and ONE typed predicate map INPUT_GATED_BIRTHRIGHT_ARGUMENT_PREDICATES consulted by the input-gated evaluation (:110-142) on the request display copy toolInput AFTER today's completeness, sanitization (:125) and redaction (:264) checks \u2014 those vetoes stay byte-for-byte for EVERY row including this one (grill r4: an exemption would turn a shortened 513-char id into a tool error and contradict AF-AC2 'a malformed id asks'). The single entry judges SHAPE: an array of 1..12 strings, each non-blank after trim; predicate false -> the EXISTING input-gated ASK outcome; a shortened (over-500-char, runtime/ipc-tool-input-sanitization.ts:6,64) or redacted (token-like, :11,55) id asks via the existing vetoes \u2014 real attachment ids are short host-generated strings, none is ever shortened or redacted. No length rule, no veto exemption, no change to runtime/ipc-parsing.ts, no dependence on classifierToolInput. Origin stays host-validated (jobs/ipc-attachment-open-handler.ts:43-84; handler and its tests untouched, not in scope). No other rails row, signal or verdict changes; the unsupported_meta_executor signal (T1) is untouched.",
+        "Rails are mode-blind (no permission-mode input), so 'every mode' holds by construction; the S1 fixture replays the four PermissionLane values through T1's replayPermissionRequest and asserts 0 taps with the birthright decidedBy. The host handler and resolver are NOT touched: origin validation (ipc-attachment-open-handler.ts:43-84; attachment-resolver.ts:167-186) and the not-found copy (attachment-failure.ts:4-5) are already pinned by their own suites.",
+        "Typed status: domain/permission-classifier-status.ts exports the closed enum PermissionClassifierStatus (answered | unavailable | skipped); PermissionClassifierResult.status is REQUIRED and stamped at EVERY branch: failedResult (:642-658) maps llm_unconfigured/timeout/model_resolution_failure/query_error/parse_failure/validation_failure -> unavailable and aborted/input_truncated -> skipped; strict-deterministic (:341-353), skipped-local (:339-340) and native-risk -> skipped; LLM success (:240-246) -> answered; the ONE structural constructor outside the classifier file \u2014 the cached-verdict result in runtime/ipc-permission-classifier-decision.ts:293 (T1 file, edited for that constructor only) \u2014 stamps skipped. No string literals for status. The status is INTERNAL in T2a: the runtime decision-event payload (:624) and its exact-payload test (permission-classifier.test.ts:1689) are unchanged; T6 publishes it. TODO(T6) marker: status is stamped, not yet consumed (latch + wiring-missing unavailable are T6).",
+        "Native-risk branch (:327-330,354-355) moves to runtime/permission-classifier-native-risk.ts as evaluateNativeRiskBranch(input) -> PermissionClassifierResult | undefined with an UNCHANGED verdict and the same gantryRisk inputs; T2b later passes tool arguments into that helper. The classifier file must not grow a second native-risk path.",
+        "Concerns that must not share a file: shape (pure, shared) vs boundaries (fs-backed, shared) vs the gate (composition); the status enum (domain) vs its stamping (runtime); the native-risk helper (runtime, T2b-owned next) vs the classifier orchestration.",
+        "No domain error type introduced (no named failure contract). Nothing DEFERRED beyond the TODO(T6) consumption marker; T2b owns gantry-tool-risk.ts and the native Write/Edit path judgment \u2014 not touched here.",
+        "Verification: python3 factory/scripts/verify.py is authoritative in the gate environment; the Postgres lane (npm run test:integration:postgres, GANTRY_TEST_DATABASE_URL exported) is orchestrator-run stage evidence as for T1 \u2014 T2a touches no storage code; two pre-existing suites are red on base/origin/main independent of this story (main quickfix before T3a)."
+      ]
+    },
+    {
+      "id": "ASKFLOOR-1-T2b",
+      "title": "Default-allow risk table for gantry-native tools",
+      "objective": "gantry-tool-risk.ts becomes ONE small typed table: every gantry-native tool is LOW by default in interactive auto (all browser actions, file list/read with host-side entry protection, scheduler/admin reads, attachment tools); only the closed high-risk rows are HIGH (destructive or protected writes incl. raw-path browser file actions, the registry scheduler-mutation and admin-mutation exports); unmapped or malformed shapes are ambiguous and go to the classifier.",
+      "acceptance_criteria": [
+        "every browser_* action, file list/read, scheduler/admin reads and attachment tools auto-allow in interactive auto with typed provenance; exhaustive valid-and-malformed table test per row",
+        "destructive or protected writes (native Write/Edit outside the workspace or protected/secret; file writes to protected virtual paths; browser file_attach with a raw path outside the workspace, protected or secret \u2014 file_upload stays LOW), the registry's scheduler-mutation set and admin-mutation exports incl. DELEGATION_DISPATCHERS still ask; unmapped tools and shapes failing the tool schema reach the classifier as ambiguous and are never forced HIGH; send_message stays today's 0052 birthright",
+        "file is judged by the discriminated per-action predicate over its complete contract (list: scope+optional path/limit; read: artifactId+version or scope+path, +offset/readLimit; write: scope+path+content+optional encoding/contentType/protected, LOW to unprotected virtual paths; promote_scratch: source path+targetScope+targetPath; else ambiguous); list hides protected entries with the count line and read refuses them with the fixed error text, host-side; Write/Edit inside the workspace allow, outside or protected ask, symlinks rejected; the eligibility gate widens only for those two facade tools",
+        "ask mode, auto_strict and job lanes are unchanged by the table (explicit tests)",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T2a"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T3a",
+      "title": "Human-decision memory persistence",
+      "objective": "permission_decision_memory gains the human_decision kind with outcome, scope, scope_key, acting person id + label snapshot, uuid ids, a human-row CHECK and two partial unique indexes replacing the unconditional key; scope keys derived in one module (outcome-aware: path-only Allow for single-destination file writes, full hash for No); a host-owned service remember|list|revoke with person-scoped revokeById; typed remember DTO and human_decision provenance codec in domain types.",
+      "acceptance_criteria": [
+        "repository round-trips human rows per person and rejects rows missing outcome/scope/scope_key/person; non-human rows keep today's key (Postgres tests)",
+        "revokeById returns applied|already_revoked|not_found and never crosses persons; short-id derivation tested; the service exposes a per-person count of remembered exact Allows by tool id (trust-growth input)",
+        "scope keys: exact Allow on Write/Edit/file write/promote_scratch keys on tool + canonical destination; No keys on the full effect hash; shell writes never path-only; protected destinations never key an Allow",
+        "architecture note for the record kind; migration follows the table's existing naming convention",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T2b"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T3b",
+      "title": "Memory consult in the coordinator and the inline runtime",
+      "objective": "The coordinator consults human_decision records for interactive_auto only: exact remembered No first (before hard restrictions), remembered Allows after the non-overridable rails in place of the out-of-root tail exit (exact, then kind, then place via the trusted-root stage); the inline live runtime gets the decision-memory port and the same consult; ask, auto_strict and job lanes never consult.",
+      "acceptance_criteria": [
+        "seeded records resolve with decidedBy human_decision (allow) or deny without classifier consultation; kind matches read-only shapes anywhere; place matches under the root",
+        "a rails-version bump or revoked record does not match and the re-ask carries the plan's reason line",
+        "ask, auto_strict and job lanes never consult the memory (explicit tests); inline live runtime consults identically to IPC",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T3a"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T3c",
+      "title": "Remember settlement and learning writes",
+      "objective": "The structured remember resolution flows through the closed codec set (normalization, settlement, prompt binding, callback reconstruction, recovery orchestrator, Postgres claim mapping, provider scalar encodings); both human-resolution chokepoints write the record only when the host-stamped rememberEligible lane re-derives true; forged/replayed/ineligible callbacks settle once-only; the end-to-end S2 fixture proves tap, persist, reuse.",
+      "acceptance_criteria": [
+        "a remembered Allow/No on an eligible DM card persists once with the default or chosen scope and applies the current request; Just-this-once never persists",
+        "remember callbacks for ask, auto_strict, group or job prompts never persist (tests per lane); recovery/replay after restart preserves the structured intent",
+        "unresolved person: nothing persisted, once semantics, the plan's post-tap line",
+        "AF-AC8 S2 = 0 taps after at most one remembered Allow",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T3b"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T4",
+      "title": "Live job projection of learned decisions (0153)",
+      "objective": "Scheduled and inline job permission requests consult the owner's active allow-outcome human_decision records as one deterministic declared-grant input, live and revocable, person-scoped via execution_context.personId in both job paths (unresolved identity projects nothing); the matched record id is stamped into the permission audit context in both lanes; classifier still never runs for jobs; inline-scheduled tests rewritten to the projection.",
+      "acceptance_criteria": [
+        "exact/kind/place match allows a job request with human_decision provenance; near-miss, rails-bump, revoked, deny-outcome or other-person records still card (projection matrix)",
+        "both job lanes record the matched record id beside jobId; jobs never write the memory",
+        "inline-scheduled expectations assert the projection, not classifier consultation",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T3c"
+      ],
+      "user_facing": false
+    },
+    {
+      "id": "ASKFLOOR-1-T5a",
+      "title": "Card UX and provider surfaces",
+      "objective": "Eligible DM cards render Allow (remembered, default) / one alternative remembering button / Just this once / No with the plan's pre- and post-tap lines; destructive and protected cards offer no remembering Allow; batch cards carry the once-only line in both renderers; ineligible-lane cards are byte-for-byte today's; every provider file for the remember resolution and the memory_forget affordance, incl. the message-actions union entry and Teams per-row ActionSets.",
+      "acceptance_criteria": [
+        "labels, order and copy match the plan on all four providers for eligible, destructive, protected, batch and ineligible-lane cards (snapshot/parity tests)",
+        "memory_forget renders and settles on all four providers; Teams renders ten Forget buttons via per-row ActionSets",
+        "AF-AC8 S4: rm -rf build asks once; Allow remembers that exact command and target; the identical command never asks again; rm -rf dist asks; No is remembered exactly too",
+        "trust growth: after three remembered exact Allows for the same high-risk gantry tool the card offers one broader option (kind scope keyed by tool id), never the default; destructive shapes never get it",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T3c"
+      ],
+      "user_facing": true
+    },
+    {
+      "id": "ASKFLOOR-1-T5b",
+      "title": "/permissions: remembered list, all, forget",
+      "objective": "The existing /permissions command keeps its mode display and appends the ten newest remembered decisions with Forget buttons, used-by-job suffixes from actual audit consumption, /permissions all as a plain-text full list with short ids, and /permissions forget <id> with person-scoped prefix resolution; the caller binds app, agent and resolved person; every group variant is non-mutating DM guidance; one guidance line in the prompt profile.",
+      "acceptance_criteria": [
+        "bare /permissions, all and forget <id> behave per the plan with the exact replies for applied, already forgotten, not found and ambiguous; ambiguity never mutates",
+        "rows show outcome, scope, date and the snapshotted approver label; used-by-job comes only from records a job actually consumed",
+        "group variants never mutate and reply with the DM-feature line; the plain-chat pointer line exists in the prompt profile",
+        "AF-AC8 S5 (remembered shape runs in a job with 0 cards, near-miss cards, after Forget it cards again) and the listing fixture",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T5a",
+        "ASKFLOOR-1-T4"
+      ],
+      "user_facing": true
+    },
+    {
+      "id": "ASKFLOOR-1-T6",
+      "title": "Judge outage, invariance suite, tap budget",
+      "objective": "A process-local outage latch keyed by app, provider account and conversation sends one notice per episode before the first offline card on both the IPC and inline consult paths (driven by the typed status incl. wiring_missing), the card reason line, and Allow still remembering offline; the AF-AC6 invariance suite across every lane; the S6 fixture and the AF-AC8 aggregation run.",
+      "acceptance_criteria": [
+        "judge unavailable: exactly one notice per (app, provider account, conversation) per episode on both paths; deterministic reads and learned scopes unaffected; an uncovered read asks at most once; latch resets on the next answered verdict",
+        "AF-AC6: ask, auto_strict, autonomous incl. the 0153 matrix, YOLO backstop, unmapped-forced-ask, scheduler/admin/destructive asks, the CARDSIMPLE-1 family rail-hit and the inline-scheduled path behave as today except where AC2/AC3/AC4 deliberately change them",
+        "AF-AC8 S6 fixture and the aggregation over S1-S6 pass",
+        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+      ],
+      "depends_on": [
+        "ASKFLOOR-1-T4",
+        "ASKFLOOR-1-T5b"
+      ],
+      "user_facing": true
+    }
+  ],
+  "project": "",
+  "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
+  "commit": "027791dc04db8183abcf770fd0553b2a42f15189"
+}

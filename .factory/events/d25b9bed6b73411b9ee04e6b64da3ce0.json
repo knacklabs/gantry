@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-04T02:44:10+00:00", "story": "ASKFLOOR-1", "detail": "ASKFLOOR-1-T1 requires tests in at least nine distinct test files plus source changes, but the brief caps the stage at 8 changed files; split or raise the review budget before implementation."}

@@ -182,4 +182,23 @@ describe('bash command parser', () => {
       ],
     });
   });
+
+  it('refuses every one of the nine write-capable find actions as a meta-executor', () => {
+    for (const command of [
+      'find . -delete',
+      "find . -exec echo '{}' +",
+      "find . -execdir echo '{}' +",
+      "find . -ok echo '{}' +",
+      "find . -okdir echo '{}' +",
+      'find . -fls results.txt',
+      'find . -fprint results.txt',
+      'find . -fprint0 results.txt',
+      'find . -fprintf results.txt %p',
+    ]) {
+      expect(parseBashCommand(command), command).toMatchObject({
+        ok: false,
+        reason: expect.stringContaining('find'),
+      });
+    }
+  });
 });

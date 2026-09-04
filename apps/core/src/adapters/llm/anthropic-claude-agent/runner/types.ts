@@ -11,6 +11,7 @@ import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-c
 import type { GantryAgentPromptMode } from '../../../../runner/gantry-agent-system-prompt.js';
 import type { DeclarativeToolRule } from '../../../../runner/tool-gate-core.js';
 import type { CallableAgentToolManifestEntry } from '../../../../application/core-tools/callable-agent-tools.js';
+import type { RailProvenance } from '../../../../domain/permission-lane.js';
 
 export interface AgentRunnerInput {
   prompt: string;
@@ -129,6 +130,7 @@ export interface PermissionDecision {
     | 'trusted_root'
     | 'human_once'
     | 'human_persistent';
+  railProvenance?: RailProvenance;
   repeatableForFutureRuns?: boolean;
   reason?: string;
   risk_level?: 'low' | 'medium' | 'high' | 'critical';

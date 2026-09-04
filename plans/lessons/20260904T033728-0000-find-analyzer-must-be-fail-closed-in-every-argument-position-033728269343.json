@@ -1,0 +1,12 @@
+{
+  "topic": "find analyzer must be fail-closed in every argument position",
+  "lesson": "readOnlyMetaExecutor may only be true when EVERY find argument is recognised: reject any unknown or indirect root option (e.g. -Z, -files0-from) regardless of position, not just the first argument \u2014 autoreview found 'find -P -Z roots.txt' slipping through and enabling an interactive-auto classifier allow over the hard rail. Parse the full option/operand grammar or reject unrecognised options anywhere; add the ordering case to the parameterized safety test.",
+  "source": "autoreview ASKFLOOR-1-T1 stage-local round 1 (commit 6def202a4) P2 auto-lane-analysis.ts:75",
+  "applies_to": [
+    "apps/core/src/application/permissions/auto-lane-analysis*.ts",
+    "apps/core/test/unit/application/auto-lane-analysis.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-04T03:37:28+00:00"
+}

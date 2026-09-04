@@ -1,0 +1,26 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Which gantry-native actions should STILL ask in auto mode (everything else auto-allows, with the classifier judging anything ambiguous)? Pick all that apply.",
+      "options": [
+        "Messages to non-own destinations",
+        "Destructive or protected writes",
+        "Scheduler and admin mutations",
+        "Browser payments and credential entry"
+      ],
+      "chosen": null
+    },
+    {
+      "question": "How far should the plan be simplified?",
+      "options": [
+        "Default-allow table + learning (Recommended)",
+        "Default-allow table only",
+        "Keep the current 10-task plan"
+      ],
+      "chosen": "Default-allow table + learning (Recommended)"
+    }
+  ],
+  "at": "2026-09-03T16:11:00.402030+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

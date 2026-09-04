@@ -1,0 +1,14 @@
+{
+  "topic": "cached classifier allows are consumed only in classifier-eligible lanes",
+  "lesson": "Gate cached-verdict consumption and any auto-allow from it on the lane: a classifier allow cached while in auto must never be reused after switching to permissionMode ask (ask mode has no classifier authority), and auto_strict keeps its veto behaviour \u2014 autoreview r3 P1: with every analyzed rail ASK now reaching the cache stage, an ordinary single-file delete cached in auto was executed as auto_classifier in ask mode without a prompt. Add an ask-lane cached-allow negative leaf.",
+  "source": "autoreview ASKFLOOR-1-T1 stage-local round 3 P1 (cache stage before lane eligibility)",
+  "applies_to": [
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+    "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-04T04:41:34+00:00"
+}

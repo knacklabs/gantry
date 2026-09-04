@@ -9,6 +9,7 @@ import type { MessageActionAffordance } from './message-actions.js';
 import type { ObserverDigestMessageView } from './observer-digest-view.js';
 import type { BrainReviewCardView } from './brain-review-card.js';
 import type { PermissionApprovalResult } from './permission-approval-result.js';
+import type { RailProvenance } from './permission-lane.js';
 export type { PermissionApprovalResult } from './permission-approval-result.js';
 export type {
   MessageActionAffordanceKind,
@@ -300,6 +301,7 @@ export interface PermissionApprovalDecision {
   mode?: PermissionApprovalDecisionMode;
   decidedBy?: string;
   source?: PermissionDecisionSource;
+  railProvenance?: RailProvenance;
   repeatableForFutureRuns?: boolean;
   reason?: string;
   risk_level?: PermissionRiskLevel;

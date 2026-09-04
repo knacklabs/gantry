@@ -1,0 +1,11 @@
+{
+  "topic": "read-only find must fail closed on unquoted pathname expansion",
+  "lesson": "readOnlyMetaExecutor may be true only when every find token is exactly what find will receive. The tokenizer drops quoting, so scan the RAW command text: any '*', '?' or '[' outside single/double quotes and not backslash-escaped is unquoted pathname expansion and fails closed (autoreview r5 P1: with a file named -delete in cwd, 'find . ?delete' expands to 'find . -delete' after the relaxation). Quoted globs stay read-only ('find . -name \"*.ts\"'); unquoted ones keep today's ask. With this the class of bash word rewriting is closed: parameter/command/arithmetic expansion, backticks and braces are rejected by the parser, tilde can only become a path, quote removal is handled by the tokenizer, word splitting only follows rejected expansions. Add parameterized cases: ?delete, *delete, [-]delete, \\*delete (escaped, allowed), quoted '*.ts' (allowed), unquoted -name *.ts (refused).",
+  "source": "autoreview r5 on 24fcfa872 (codex sol high)",
+  "applies_to": [
+    "apps/core/test/unit/application/auto-lane-analysis.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-04T05:29:59+00:00"
+}

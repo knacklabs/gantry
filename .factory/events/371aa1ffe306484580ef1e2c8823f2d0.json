@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-04T04:25:45+00:00", "story": "ASKFLOOR-1", "detail": "ASKFLOOR-1-T1 required-test selectors 9 and 13 contain unescaped Vitest regex metacharacters (*.ts and tail(context)); their exact -t commands select zero tests, so revise the recorded IDs/commands be"}

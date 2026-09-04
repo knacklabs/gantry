@@ -1,0 +1,5 @@
+# ASKFLOOR-1 PLAN grill — round 19, STABILITY CHECK (read-only, adversarial, emit under ~200 words; factory/prompts/griller.md --gate plan)
+
+You did NOT author this plan. Round 18 returned PLAN SOUND with no findings. NOTHING has changed since. This round is the stability confirmation: do a fresh cold read of `plans/exploration/askfloor-1-plan-source.md` (skip the frontmatter decision list), `docs/decisions/0153-learned-decisions-project-into-job-grants.md` and `docs/decisions/0154-human-decision-memory-generic-scope.md` against the confirmed spec `docs/specs/askfloor-1-judge-actually-judges.md` and hunt with fresh eyes: over-build, rails widening, invariance holes (ask, auto_strict, autonomous, YOLO, inline-scheduled, groups), AF-AC8 ownership, boundedness of the 10 tasks, decision hygiene vs 0052/0118/0121. Do not re-litigate settled owner rulings (they are marked in the text).
+
+OUTPUT: numbered findings — claim, file:line, class, severity (blocker|gap|nit), smallest fix — or "no findings". OWNER-LEVEL questions verbatim (none if none). End with "PLAN SOUND" or the blocker count. No edits.

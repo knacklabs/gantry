@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "/permissions shows the 10 newest remembered decisions with Forget buttons. AF-AC8 says you can forget EVERY learned decision. How should older records be reached?",
+      "options": [
+        "Text list + forget by id (Recommended)",
+        "Rolling 10 only",
+        "Paged buttons"
+      ],
+      "chosen": "Text list + forget by id (Recommended)"
+    }
+  ],
+  "at": "2026-09-03T02:01:42.268256+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

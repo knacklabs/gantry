@@ -59,7 +59,11 @@ function leafCwd(leaf: BashCommandLeaf, workspaceRoot: string): string {
 // `-m`) carry no path and are skipped; their values arrive as later tokens.
 function pathCandidates(leaf: BashCommandLeaf): string[] {
   return [
-    ...leaf.redirects.map(({ target }) => target),
+    ...leaf.redirects.flatMap(({ operator, target }) =>
+      target === '/dev/null' && (operator === '2>' || operator === '2>>')
+        ? []
+        : [target],
+    ),
     ...leaf.argv.slice(1).flatMap((arg) => {
       if (arg.startsWith('-')) {
         const eq = arg.indexOf('=');

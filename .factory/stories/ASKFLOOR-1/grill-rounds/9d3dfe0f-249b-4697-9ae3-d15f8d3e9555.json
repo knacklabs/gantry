@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Autoreview for ASKFLOOR-1 stages touches the permission engine. Use the default single Codex sol review per stage, or a two-reviewer panel (Codex sol + Claude Fable) on each stage's diff for this story?",
+      "options": [
+        "Panel: Codex + Fable (Recommended)",
+        "Single Codex review"
+      ],
+      "chosen": "Single Codex review"
+    }
+  ],
+  "at": "2026-09-04T03:11:42.140768+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
