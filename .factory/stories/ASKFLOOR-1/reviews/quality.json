@@ -1,0 +1,177 @@
+{
+  "generated_by": "autoreview",
+  "score": 0,
+  "summary": "quality lens over ASKFLOOR-1-T1 (70 product path(s), 00a6c01..6750c30, Codex via the autoreview skill at --max-priority P2): 5 blocking, 2 non-blocking. Review passes returned. chunk 1/3: 0 finding(s), chunk 2/3: 3 finding(s), chunk 3/3: 5 finding(s). See preserved pass reports for provider conclusions.",
+  "blocking_findings": [
+    {
+      "category": "bug",
+      "area": "factory/scripts",
+      "summary": "The proof gate passes task PRs that omit the marker (factory/scripts/check_task_proof.py:128): When `added_markers()` returns an empty list, the new CI check exits successfully without inspecting verify, test, or review evidence."
+    },
+    {
+      "category": "bug",
+      "area": "factory/scripts",
+      "summary": "A hand-authored `reconciled` flag bypasses every proof check (factory/scripts/check_task_proof.py:136): The exemption trusts the branch-controlled JSON boolean without verifying that `forge task reconcile` produced it or that the referenced task work was already present on the base trunk."
+    },
+    {
+      "category": "security",
+      "area": "factory/scripts/forge_cli",
+      "summary": "Reconcile can certify a task merely because an old scoped path exists (factory/scripts/forge_cli/tasks.py:519): The `on_trunk` check only verifies that at least one declared `write_scope` path exists at `origin/<branch>`."
+    },
+    {
+      "category": "security",
+      "area": "factory/scripts/forge_cli",
+      "summary": "Any later degraded window bypasses the bound-launch requirement (factory/scripts/forge_cli/stages.py:1091): When the required Codex launch is invalid, `_require_successful_launch` accepts any degraded-mode event whose start timestamp is after the stage start."
+    },
+    {
+      "category": "security",
+      "area": "factory/scripts/forge_cli",
+      "summary": "Scope amendments are keyed only by reusable task IDs (factory/scripts/forge_cli/stages.py:729): The protected amendment store looks up entries solely by `task_id` (for example `T1`) and carries no story, decomposition digest, or stage identity."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T1-AC1: a classifier low/medium allow is honoured with the rail reason as typed provenance only when `permissionMode` is `auto` and `hostJobId` is absent; `auto_strict`, ask and job lanes keep the veto (explicit tests)."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T1-AC2: `find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; the rails' existing meta-executor refusal now carries the canonical typed signal `unsupported_meta_executor` (today it emits `privileged`, `domain/permission-deterministic-rails.ts:41-46,164-171`; verdict unchanged, A-0070) and a read-only `find` makes the analyzer's `readOnlyMetaExecutor` true; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path)."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T1-AC3: the ONE authoritative decision order \u2014 pre-coordination route analysis \u2192 exact remembered deny [T3b no-op slot] \u2192 hard restrictions \u2192 reviewed rules \u2192 deterministic rails (the single base evaluation) \u2192 conditional trusted-root handling (only on the rails' `out_of_trusted_root` ASK; its hypothetical rechecks unchanged) \u2192 remembered allows [T3b no-op slot] \u2192 classifier-cache read \u2192 tail \u2014 is the coordinator/tail contract (`permission-decision-coordinator.ts:97-200` enumerated as named stages, pinned by a stage-order test), with the base rail decision computed once and passed to the tail in an immutable typed context."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T1-AC4: the AF-AC8 replay harness exists as a reusable fixture module; S3 (`2>/dev/null` + read-only `find`) replays at 0 taps in interactive auto; later tasks add fixtures without editing T1's tests."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T1-AC5: existing unit and Postgres integration suites pass; tsc and check:architecture green."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "factory/scripts/forge_cli",
+      "summary": "Prior-task proof can block an honest incomplete result (factory/scripts/forge_cli/stages.py:1457): This guard ignores `task_id` when evaluating proof and reads the story-wide `verify.json`, `tests.json`, and three review files."
+    },
+    {
+      "category": "bug",
+      "area": "factory/scripts/forge_cli",
+      "summary": "Required task-plan sections are accepted as arbitrary prose (factory/scripts/forge_cli/tasks.py:90): The validator searches the lowercased document for the words `workflow` and `manual verification` anywhere, despite claiming to validate Markdown headings."
+    }
+  ],
+  "recommendation": "request-changes",
+  "reviewed_scope": [
+    ".claude/CLAUDE.md",
+    ".github/workflows/roadmap-gate.yml",
+    "AGENTS.md",
+    "WORKFLOW.md",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/types.ts",
+    "apps/core/src/application/model-credentials/model-credential-service.ts",
+    "apps/core/src/application/permissions/auto-lane-analysis-types.ts",
+    "apps/core/src/application/permissions/auto-lane-analysis.ts",
+    "apps/core/src/control/server/openapi-model-credential-schemas.ts",
+    "apps/core/src/control/server/routes/browser-model-providers.ts",
+    "apps/core/src/domain/permission-deterministic-rails.ts",
+    "apps/core/src/domain/permission-lane.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/runner/permission-ipc-client.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/shared/ipc-signing.ts",
+    "apps/core/src/shared/model-provider-registry-openai-compatible.ts",
+    "apps/core/src/shared/model-provider-registry.ts",
+    "apps/core/src/shared/permission-trusted-paths.ts",
+    "apps/core/test/unit/application/auto-lane-analysis.test.ts",
+    "apps/core/test/unit/auth/browser-auth-routes.test.ts",
+    "apps/core/test/unit/control/openapi.test.ts",
+    "apps/core/test/unit/core/model-credential-service.test.ts",
+    "apps/core/test/unit/core/model-provider-registry.test.ts",
+    "apps/core/test/unit/runner/permission-callback.test.ts",
+    "apps/core/test/unit/runner/permission-ipc-client.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+    "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+    "apps/core/test/unit/shared/bash-command-parser.test.ts",
+    "apps/core/test/unit/shared/ipc-signing.test.ts",
+    "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+    "apps/web/src/features/operations/operations-queries.ts",
+    "apps/web/src/features/operations/routes/provider-dialogs.tsx",
+    "apps/web/src/features/operations/routes/providers-route.test.ts",
+    "constitution/VENDORED_FROM",
+    "constitution/VENDOR_MANIFEST.json",
+    "docs/QUALITY.md",
+    "docs/architecture/credential-management.md",
+    "docs/specs/web-providers-2-credential-setup.md",
+    "factory/board/index.html",
+    "factory/prompts/decomposer.md",
+    "factory/prompts/griller.md",
+    "factory/prompts/planner.md",
+    "factory/prompts/reviewer.md",
+    "factory/scripts/check_task_proof.py",
+    "factory/scripts/factory_lib.py",
+    "factory/scripts/forge.py",
+    "factory/scripts/forge_cli/audit.py",
+    "factory/scripts/forge_cli/board.py",
+    "factory/scripts/forge_cli/codex_status.py",
+    "factory/scripts/forge_cli/decisions.py",
+    "factory/scripts/forge_cli/events.py",
+    "factory/scripts/forge_cli/fscache.py",
+    "factory/scripts/forge_cli/phase.py",
+    "factory/scripts/forge_cli/plans.py",
+    "factory/scripts/forge_cli/review.py",
+    "factory/scripts/forge_cli/scaffold.py",
+    "factory/scripts/forge_cli/specs.py",
+    "factory/scripts/forge_cli/stages.py",
+    "factory/scripts/forge_cli/tasks.py",
+    "factory/scripts/intake.py",
+    "factory/scripts/record_grill_from_json.py",
+    "factory/scripts/record_review_from_json.py",
+    "factory/scripts/record_signoff.py",
+    "factory/scripts/verify.py",
+    "factory/tests/test_gates.py"
+  ],
+  "skills_used": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC1",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC2",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC3",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC4",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC5",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "c75490afa4ce6412a8c8f08a71a7a68e5d605412bec884e9e9fe9eb37977dc14",
+  "brief_sha256": "451824cf0e8a5836976ee47e4018daecd88bd24ae9626b01feb308d223144aff",
+  "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
+  "residual_risks": [],
+  "recorded_at": "2026-09-04T09:00:15+00:00",
+  "commit": "cfba5c1d7998a9dfe58690ca1f117aa10fa031f8"
+}
