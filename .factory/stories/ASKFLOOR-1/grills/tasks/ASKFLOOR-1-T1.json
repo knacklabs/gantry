@@ -51,12 +51,12 @@
       "frontier_empty": true
     }
   ],
-  "summary": "T1 task grill: 9 Codex gpt-5.6-sol@xhigh read-only rounds, all findings folded; budget raised to 26/1800 (S-0066, owner). RE-RECORDED after the WIP product commit 363c4d085 (Codex run 2 implementation, 22 files; tests could not run in-sandbox for lack of node_modules \u2014 npm ci + build:contracts done host-side, tsc green, 3 of 238 new tests failing and returned to Codex). Contract unchanged; owner ruled single Codex autoreview per stage.",
-  "input_sha256": "dab7fe83cfcbf9cb16600e75c6affb8e0ec1272da825b666ccac98db4aa70ba3",
+  "summary": "T1 task grill: 9 Codex sol@xhigh rounds folded; budget 26/1800 (owner). RE-RECORDED on the implemented tree (feat 6def202a4 + lessons c248de53d): run 3 ended done (16 selectors, 238 tests, tsc, check:architecture); stage-local autoreview r1 = 2 P2 (fail-closed find options in every position; rail-ASK through every stage) ledgered as path lessons 64/65 and returned to Codex; contract unchanged.",
+  "input_sha256": "3c4c32f853d4b610d65fc7a6e32a2a61804e30b568f9be2852434b41d0999fe8",
   "task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
-  "recorded_at": "2026-09-04T03:11:53+00:00",
-  "commit": "363c4d0858801d6bdb62bc625afb724dca598188",
+  "recorded_at": "2026-09-04T03:39:51+00:00",
+  "commit": "c248de53d6767344cea8a68a310277d1df033ea9",
   "approved_task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T03:11:54+00:00"
+  "approved_at": "2026-09-04T03:39:51+00:00"
 }
