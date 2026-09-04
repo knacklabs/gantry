@@ -1,35 +1,66 @@
 {
   "generated_by": "autoreview",
   "score": 0,
-  "summary": "security lens over ASKFLOOR-1-T1 (70 product path(s), 00a6c01..6750c30, Codex via the autoreview skill at --max-priority P2): 5 blocking, 0 non-blocking. Review passes returned. chunk 1/3: 0 finding(s), chunk 2/3: 2 finding(s), chunk 3/3: 3 finding(s). See preserved pass reports for provider conclusions.",
+  "summary": "security lens over ASKFLOOR-1-T1 (72 product path(s), 00a6c01..44b6dad, Codex via the autoreview skill at --max-priority P2): 8 blocking, 3 non-blocking. Review passes returned. chunk 1/3: 6 finding(s), chunk 2/3: 2 finding(s), chunk 3/3: 3 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [
     {
       "category": "security",
-      "area": "apps/core/src/runtime",
-      "summary": "[P1] Keep every non-relaxable deterministic rail ASK as a veto (apps/core/src/runtime/ipc-permission-classifier-decision.ts:394): `railRequiresApproval` is false for rail ASK decisions unless they are marked `hardFloor` or use one of the two relaxable signals."
+      "area": "factory/scripts",
+      "summary": "[P1] Require task markers before the proof gate can pass (factory/scripts/check_task_proof.py:128): The new proof check returns success when `added_markers()` is empty, so a task PR can omit its task marker entirely and avoid all verification, test, and review-evidence validation."
     },
     {
       "category": "security",
       "area": "factory/scripts",
-      "summary": "[P1] Do not exempt self-asserted reconcile markers from the proof gate (factory/scripts/check_task_proof.py:136): The CI gate skips all verification, test, and review checks whenever the newly added marker contains `reconciled: true`."
+      "summary": "[P1] Do not trust a branch-controlled reconciled flag as proof (factory/scripts/check_task_proof.py:136): The proof gate skips every verification, test, and review check solely because a newly added JSON marker contains `reconciled: true`."
     },
     {
       "category": "security",
       "area": "factory/scripts/forge_cli",
-      "summary": "[P1] Verify that the task changed the trunk before reconciling it (factory/scripts/forge_cli/tasks.py:516): The `on_trunk` check only proves that one declared scope path exists at the current trunk tip."
+      "summary": "[P1] Verify the task delta exists on trunk before reconciling (factory/scripts/forge_cli/tasks.py:516): The reconcile command considers a task present on trunk when any one declared `write_scope` path exists there."
     },
     {
       "category": "security",
       "area": "factory/scripts/forge_cli",
-      "summary": "[P1] Refuse unrelated staged changes before creating the reconcile commit (factory/scripts/forge_cli/tasks.py:585): The command stages its evidence files but never verifies that the index was clean first, and the subsequent plain `git commit` commits the entire index."
+      "summary": "[P1] Reject a dirty index before reconcile commits evidence (factory/scripts/forge_cli/tasks.py:585): The reconcile flow stages its evidence files and then invokes a plain `git commit` without first requiring a clean index."
     },
     {
       "category": "security",
       "area": "factory/scripts/forge_cli",
-      "summary": "[P1] Bind degraded windows to the changes they authorize (factory/scripts/forge_cli/stages.py:1030): A successful delegate launch is waived whenever any degraded window was opened after the stage began."
+      "summary": "[P1] Bind degraded-mode waivers to the failed stage launch (factory/scripts/forge_cli/stages.py:1030): A required successful delegate launch is waived whenever any degraded-mode window started after the stage began."
+    },
+    {
+      "category": "security",
+      "area": "factory/scripts/forge_cli",
+      "summary": "[P1] Scope review-budget amendments beyond reusable task IDs (factory/scripts/forge_cli/stages.py:729): Protected scope amendments are retrieved only by `task_id`, while IDs such as `T1` are reused across stories."
+    },
+    {
+      "category": "security",
+      "area": "factory/scripts/forge_cli",
+      "summary": "[P1] Reconcile verifies only path existence, not that the task shipped (factory/scripts/forge_cli/tasks.py:520): The out-of-band reconciliation gate treats the task as shipped when any declared `write_scope` path merely exists on `origin/<trunk>`."
+    },
+    {
+      "category": "security",
+      "area": "factory/scripts/forge_cli",
+      "summary": "[P1] Scope amendment retroactively authorizes every out-of-scope edit (factory/scripts/forge_cli/stages.py:1526): `cmd_amend_scope` adds every currently changed out-of-scope product path to the effective scope based only on a caller-supplied reason."
     }
   ],
-  "non_blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "security",
+      "area": "factory/scripts",
+      "summary": "[P2] Proof enforcement is optional via a PR-controlled marker (factory/scripts/check_task_proof.py:129): The gate succeeds whenever the PR omits a newly added `pr-ready.json`, even though direct/story-level PRs that omit this marker are the bypass the gate claims to close."
+    },
+    {
+      "category": "security",
+      "area": "factory/scripts",
+      "summary": "[P2] Bind recorded proof to the task and reviewed commit (factory/scripts/check_task_proof.py:86): `proof_problems` accepts story-scoped verify, test, and review artifacts based only on their success fields; it never checks their recorded commit, task identity, branch digest, or shared review-run identifier against the marker and current HEAD."
+    },
+    {
+      "category": "security",
+      "area": "factory/scripts/forge_cli",
+      "summary": "[P2] Unrelated degraded windows bypass required write-launch proof (factory/scripts/forge_cli/stages.py:1032): The launch exception accepts any active or completed degraded window whose timestamp is after the stage began."
+    }
+  ],
   "recommendation": "request-changes",
   "reviewed_scope": [
     ".claude/CLAUDE.md",
@@ -92,6 +123,7 @@
     "factory/scripts/forge_cli/phase.py",
     "factory/scripts/forge_cli/plans.py",
     "factory/scripts/forge_cli/review.py",
+    "factory/scripts/forge_cli/review_brief.py",
     "factory/scripts/forge_cli/scaffold.py",
     "factory/scripts/forge_cli/specs.py",
     "factory/scripts/forge_cli/stages.py",
@@ -101,14 +133,15 @@
     "factory/scripts/record_review_from_json.py",
     "factory/scripts/record_signoff.py",
     "factory/scripts/verify.py",
-    "factory/tests/test_gates.py"
+    "factory/tests/test_gates.py",
+    "factory/tests/test_review_task_delta.py"
   ],
   "skills_used": [],
   "aspect": "security",
-  "review_run_id": "c75490afa4ce6412a8c8f08a71a7a68e5d605412bec884e9e9fe9eb37977dc14",
-  "brief_sha256": "451824cf0e8a5836976ee47e4018daecd88bd24ae9626b01feb308d223144aff",
+  "review_run_id": "3fa11939107f79123e1518f7ca317a266ef257efe2f8b13ebc1dfda839f20b51",
+  "brief_sha256": "3665625c72a7d8cdfe89f3fab87c238a16e8e9b0848bad23cea45ec29e68a74d",
   "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
   "residual_risks": [],
-  "recorded_at": "2026-09-04T09:00:16+00:00",
-  "commit": "cfba5c1d7998a9dfe58690ca1f117aa10fa031f8"
+  "recorded_at": "2026-09-04T11:34:25+00:00",
+  "commit": "44b6dad471bc196cb0118f0eb4a21b7e2acb87ae"
 }

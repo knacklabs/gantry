@@ -1,32 +1,22 @@
 {
   "generated_by": "autoreview",
   "score": 0,
-  "summary": "quality lens over ASKFLOOR-1-T1 (70 product path(s), 00a6c01..6750c30, Codex via the autoreview skill at --max-priority P2): 5 blocking, 2 non-blocking. Review passes returned. chunk 1/3: 0 finding(s), chunk 2/3: 3 finding(s), chunk 3/3: 5 finding(s). See preserved pass reports for provider conclusions.",
+  "summary": "quality lens over ASKFLOOR-1-T1 (72 product path(s), 00a6c01..44b6dad, Codex via the autoreview skill at --max-priority P2): 3 blocking, 3 non-blocking. Review passes returned. chunk 1/3: 0 finding(s), chunk 2/3: 3 finding(s), chunk 3/3: 4 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [
     {
-      "category": "bug",
+      "category": "security",
       "area": "factory/scripts",
-      "summary": "The proof gate passes task PRs that omit the marker (factory/scripts/check_task_proof.py:128): When `added_markers()` returns an empty list, the new CI check exits successfully without inspecting verify, test, or review evidence."
+      "summary": "Proof gate passes direct task PRs that omit the marker (factory/scripts/check_task_proof.py:127): The new gate treats an empty `added_markers()` result as success."
+    },
+    {
+      "category": "security",
+      "area": "factory/scripts",
+      "summary": "Proof from another task or commit satisfies the task gate (factory/scripts/check_task_proof.py:60): `evidence()` accepts story-scoped evidence, or even the legacy global singleton, without binding it to the task marker, reviewed commit, review-run ID, or branch-diff digest."
     },
     {
       "category": "bug",
-      "area": "factory/scripts",
-      "summary": "A hand-authored `reconciled` flag bypasses every proof check (factory/scripts/check_task_proof.py:136): The exemption trusts the branch-controlled JSON boolean without verifying that `forge task reconcile` produced it or that the referenced task work was already present on the base trunk."
-    },
-    {
-      "category": "security",
       "area": "factory/scripts/forge_cli",
-      "summary": "Reconcile can certify a task merely because an old scoped path exists (factory/scripts/forge_cli/tasks.py:519): The `on_trunk` check only verifies that at least one declared `write_scope` path exists at `origin/<branch>`."
-    },
-    {
-      "category": "security",
-      "area": "factory/scripts/forge_cli",
-      "summary": "Any later degraded window bypasses the bound-launch requirement (factory/scripts/forge_cli/stages.py:1091): When the required Codex launch is invalid, `_require_successful_launch` accepts any degraded-mode event whose start timestamp is after the stage start."
-    },
-    {
-      "category": "security",
-      "area": "factory/scripts/forge_cli",
-      "summary": "Scope amendments are keyed only by reusable task IDs (factory/scripts/forge_cli/stages.py:729): The protected amendment store looks up entries solely by `task_id` (for example `T1`) and carries no story, decomposition digest, or stage identity."
+      "summary": "[P1] Reconcile must prove the task's changes, not merely that a scoped path exists (factory/scripts/forge_cli/tasks.py:522): The shipment check succeeds when any declared write-scope path exists on the trunk."
     },
     {
       "category": "plan-contract-partial",
@@ -58,12 +48,17 @@
     {
       "category": "bug",
       "area": "factory/scripts/forge_cli",
-      "summary": "Prior-task proof can block an honest incomplete result (factory/scripts/forge_cli/stages.py:1457): This guard ignores `task_id` when evaluating proof and reads the story-wide `verify.json`, `tests.json`, and three review files."
+      "summary": "[P2] Scope incomplete-proof checks to the current task and validate test success (factory/scripts/forge_cli/stages.py:1454): This condition treats any nonempty `tests.json` as successful proof and reads the story's current review files without binding them to `task_id`, the stage, or its tip."
     },
     {
       "category": "bug",
       "area": "factory/scripts/forge_cli",
-      "summary": "Required task-plan sections are accepted as arbitrary prose (factory/scripts/forge_cli/tasks.py:90): The validator searches the lowercased document for the words `workflow` and `manual verification` anywhere, despite claiming to validate Markdown headings."
+      "summary": "[P2] Include path identities in subtree cache stamps (factory/scripts/forge_cli/fscache.py:94): The subtree stamp contains only aggregate counts, total size, and the newest timestamp."
+    },
+    {
+      "category": "bug",
+      "area": "factory/scripts/forge_cli",
+      "summary": "[P2] Check task-plan section headings instead of arbitrary substrings (factory/scripts/forge_cli/tasks.py:84): The required-section test searches the entire lowercased document for the words `workflow` and `manual verification`; it does not establish that either is a Markdown heading."
     }
   ],
   "recommendation": "request-changes",
@@ -128,6 +123,7 @@
     "factory/scripts/forge_cli/phase.py",
     "factory/scripts/forge_cli/plans.py",
     "factory/scripts/forge_cli/review.py",
+    "factory/scripts/forge_cli/review_brief.py",
     "factory/scripts/forge_cli/scaffold.py",
     "factory/scripts/forge_cli/specs.py",
     "factory/scripts/forge_cli/stages.py",
@@ -137,7 +133,8 @@
     "factory/scripts/record_review_from_json.py",
     "factory/scripts/record_signoff.py",
     "factory/scripts/verify.py",
-    "factory/tests/test_gates.py"
+    "factory/tests/test_gates.py",
+    "factory/tests/test_review_task_delta.py"
   ],
   "skills_used": [],
   "contract_verdicts": [
@@ -168,10 +165,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "c75490afa4ce6412a8c8f08a71a7a68e5d605412bec884e9e9fe9eb37977dc14",
-  "brief_sha256": "451824cf0e8a5836976ee47e4018daecd88bd24ae9626b01feb308d223144aff",
+  "review_run_id": "3fa11939107f79123e1518f7ca317a266ef257efe2f8b13ebc1dfda839f20b51",
+  "brief_sha256": "3665625c72a7d8cdfe89f3fab87c238a16e8e9b0848bad23cea45ec29e68a74d",
   "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
   "residual_risks": [],
-  "recorded_at": "2026-09-04T09:00:15+00:00",
-  "commit": "cfba5c1d7998a9dfe58690ca1f117aa10fa031f8"
+  "recorded_at": "2026-09-04T11:34:25+00:00",
+  "commit": "44b6dad471bc196cb0118f0eb4a21b7e2acb87ae"
 }
