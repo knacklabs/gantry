@@ -67,6 +67,18 @@ Recorded lessons that apply to this task's paths. A finding that contradicts one
 - [high] coordinator cache stage under a rail ASK: Under a rail ASK the classifier-verdict cache may be read ONLY when the signal is one of the two overridable ones (out_of_trusted_root, unsupported_meta_executor) AND the lane is interactive auto, because only the tail merge can consume it there. Every other rail ASK (destructive, secret, escape, family-rule hit) must skip the cache read entirely, exactly as before this story: ipc-interaction-handler.test.ts pins that a destructive ASK never calls getClassifierVerdict while the intact command is still written back. Run the full unit suite (verify.py), not only the nine T1 suites, before ending a run.
 - [high] read-only find must fail closed on unquoted pathname expansion: readOnlyMetaExecutor may be true only when every find token is exactly what find will receive. The tokenizer drops quoting, so scan the RAW command text: any '*', '?' or '[' outside single/double quotes and not backslash-escaped is unquoted pathname expansion and fails closed (autoreview r5 P1: with a file named -delete in cwd, 'find . ?delete' expands to 'find . -delete' after the relaxation). Quoted globs stay read-only ('find . -name "*.ts"'); unquoted ones keep today's ask. With this the class of bash word rewriting is closed: parameter/command/arithmetic expansion, backticks and braces are rejected by the parser, tilde can only become a path, quote removal is handled by the tokenizer, word splitting only follows rejected expansions. Add parameterized cases: ?delete, *delete, [-]delete, \*delete (escaped, allowed), quoted '*.ts' (allowed), unquoted -name *.ts (refused).
 
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+
 ## Task ASKFLOOR-1-T2a
 
 ### Plan contracts
@@ -119,6 +131,18 @@ Recorded lessons that apply to this task's paths. A finding that contradicts one
 - [high] soft rail ASKs keep today's classifier eligibility; only hard-floor asks veto: CORRECTS lesson 66: T1 must not turn every non-relaxable rail ASK into a classifier veto. Today a non-hard-floor ASK (e.g. RailSignal.Destructive for an ordinary single-file delete) is classifier-eligible and cacheable — pinned by the existing rails test 'keeps an ordinary single-file delete eligible for classifier allow and caching' — and the T1 contract keeps that byte-for-byte. Veto = hard-floor asks (missing/redacted/truncated input, protected/secret paths, capability gates) exactly as before; relaxation = the two signals; everything else = today's behaviour, no new veto.
 - [high] cached classifier allows are consumed only in classifier-eligible lanes: Gate cached-verdict consumption and any auto-allow from it on the lane: a classifier allow cached while in auto must never be reused after switching to permissionMode ask (ask mode has no classifier authority), and auto_strict keeps its veto behaviour — autoreview r3 P1: with every analyzed rail ASK now reaching the cache stage, an ordinary single-file delete cached in auto was executed as auto_classifier in ask mode without a prompt. Add an ask-lane cached-allow negative leaf.
 
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+
 ## Task ASKFLOOR-1-T2b
 
 ### Plan contracts
@@ -128,6 +152,18 @@ Recorded lessons that apply to this task's paths. A finding that contradicts one
 ### Reviewer focus
 
 No task-specific reviewer focus declared.
+
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T3a
 
@@ -139,6 +175,18 @@ No task-specific reviewer focus declared.
 
 No task-specific reviewer focus declared.
 
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+
 ## Task ASKFLOOR-1-T3b
 
 ### Plan contracts
@@ -148,6 +196,18 @@ No task-specific reviewer focus declared.
 ### Reviewer focus
 
 No task-specific reviewer focus declared.
+
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T3c
 
@@ -159,6 +219,18 @@ No task-specific reviewer focus declared.
 
 No task-specific reviewer focus declared.
 
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+
 ## Task ASKFLOOR-1-T4
 
 ### Plan contracts
@@ -168,6 +240,18 @@ No task-specific reviewer focus declared.
 ### Reviewer focus
 
 No task-specific reviewer focus declared.
+
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T5a
 
@@ -179,6 +263,18 @@ No task-specific reviewer focus declared.
 
 No task-specific reviewer focus declared.
 
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+
 ## Task ASKFLOOR-1-T5b
 
 ### Plan contracts
@@ -189,6 +285,18 @@ No task-specific reviewer focus declared.
 
 No task-specific reviewer focus declared.
 
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+
 ## Task ASKFLOOR-1-T6
 
 ### Plan contracts
@@ -198,3 +306,15 @@ No task-specific reviewer focus declared.
 ### Reviewer focus
 
 No task-specific reviewer focus declared.
+
+### Recorded evidence
+
+Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
+
+- verify.py: ok at 114b47f171ba
+  - `npm run format:check && npm run check:architecture` -> exit 0
+  - `npm run typecheck` -> exit 0
+  - `npm test` -> exit 0
+- automated tests: passed
+  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
+  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`

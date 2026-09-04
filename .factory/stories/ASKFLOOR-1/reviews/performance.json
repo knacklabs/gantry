@@ -1,13 +1,13 @@
 {
   "generated_by": "autoreview",
   "score": 9,
-  "summary": "performance lens over ASKFLOOR-1-T1 (24 product path(s), 075f600..1ff68b5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The safety and lane-selection logic shown is largely consistent with the contract, but the cache-write guard makes the newly supported common read paths repeatedly pay for live classifier calls and regresses caching for soft out-of-root asks. That is a concrete production performance defect.",
+  "summary": "performance lens over ASKFLOOR-1-T1 (24 product path(s), b9ed02a..b87ec54, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The functional lane and rail behavior appears consistent with the supplied contracts, but the new relaxed paths bypass cache writeback and therefore amplify classifier I/O for every repeated request. This is an actionable production performance defect.",
   "blocking_findings": [],
   "non_blocking_findings": [
     {
-      "category": "regression",
+      "category": "bug",
       "area": "apps/core/src/runtime",
-      "summary": "[P2] Persist verdicts for successfully relaxed rail asks (apps/core/src/runtime/ipc-permission-classifier-decision.ts:462): Both relaxable signals set `railRequiresApproval` to true, so this guard prevents a freshly obtained classifier verdict from ever being cached even when `merge.railProvenance` shows that the interactive-auto allow safely overrode the rail."
+      "summary": "[P2] Cache classifier allows for relaxed rail outcomes (apps/core/src/runtime/ipc-permission-classifier-decision.ts:463): The two newly relaxable cases still set `railRequiresApproval`, so a live classifier allow for an out-of-trusted-root command or read-only `find` is never written to the verdict cache."
     }
   ],
   "recommendation": "approve-with-caveats",
@@ -39,10 +39,10 @@
   ],
   "skills_used": [],
   "aspect": "performance",
-  "review_run_id": "3fa11939107f79123e1518f7ca317a266ef257efe2f8b13ebc1dfda839f20b51",
-  "brief_sha256": "3665625c72a7d8cdfe89f3fab87c238a16e8e9b0848bad23cea45ec29e68a74d",
+  "review_run_id": "c7c02479bcad54ceabf91f0672e104ddcb97b41ed735b0630cfe832a946dce05",
+  "brief_sha256": "85484832b39b06a5c88b3cc79ce7596f38f841d8067dd235a279122a832697c5",
   "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
   "residual_risks": [],
-  "recorded_at": "2026-09-04T15:23:34+00:00",
-  "commit": "1ff68b563f21fd926ed361ebb7c81866ad271b3b"
+  "recorded_at": "2026-09-04T16:09:37+00:00",
+  "commit": "b87ec547cc44b4ca76049d827a77865e9594e83a"
 }

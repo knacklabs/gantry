@@ -1,14 +1,8 @@
 {
   "generated_by": "autoreview",
   "score": 10,
-  "summary": "quality lens over ASKFLOOR-1-T1 (24 product path(s), 075f600..1ff68b5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT ASKFLOOR-1-T1-AC1: implemented \u2014 apps/core/src/runtime/ipc-permission-classifier-decision.ts:397 implements the lane- and signal-gated merge, with explicit coverage in apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts:97\nVERDICT ASKFLOOR-1-T1-AC2: implemented \u2014 apps/core/src/application/permissions/auto-lane-analysis.ts:112 implements fail-closed read-only find analysis, while apps/core/src/shared/permission-trusted-paths.ts:62 excludes stderr redirects to /dev/null\nVERDICT ASKFLOOR-1-T1-AC3: implemented \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:46 enumerates the authoritative stages and apps/core/src/runtime/permission-decision-coordinator.ts:154 constructs the immutable tail context from the single base rail evaluation\nVERDICT ASKFLOOR-1-T1-AC4: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts:33 exports the reusable replay fixture and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 pins S3 at zero taps\nVERDICT ASKFLOOR-1-T1-AC5: partial \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 shows added verification coverage, but the diff bundle contains no execution evidence for the full unit, Postgres, TypeScript, or architecture lanes\nNo actionable P0\u2013P2 defect is demonstrated by the supplied change bundle. The absence of full-suite execution evidence is treated as unverified context, not as evidence that the implementation is defective.",
-  "blocking_findings": [
-    {
-      "category": "plan-contract-partial",
-      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T1-AC5: existing unit and Postgres integration suites pass; tsc and check:architecture green."
-    }
-  ],
+  "summary": "quality lens over ASKFLOOR-1-T1 (24 product path(s), b9ed02a..b87ec54, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT ASKFLOOR-1-T1-AC1: implemented \u2014 apps/core/src/runtime/ipc-permission-classifier-decision.ts:397 applies the relaxation only to interactive_auto and preserves typed rail provenance; explicit lane tests begin at apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts:98\nVERDICT ASKFLOOR-1-T1-AC2: implemented \u2014 apps/core/src/application/permissions/auto-lane-analysis.ts:115 fail-closes read-only find analysis; apps/core/src/domain/permission-deterministic-rails.ts:165 emits unsupported_meta_executor; apps/core/src/shared/permission-trusted-paths.ts:62 excludes stderr redirects to /dev/null\nVERDICT ASKFLOOR-1-T1-AC3: implemented \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:43 enumerates the authoritative stages and apps/core/src/runtime/permission-decision-coordinator.ts:151 computes and threads the single base rail decision through the immutable context\nVERDICT ASKFLOOR-1-T1-AC4: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts:34 exports the reusable replay fixture and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 proves S3 at zero taps\nVERDICT ASKFLOOR-1-T1-AC5: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 is included in the recorded passing verify.py run; the brief records 9,150 unit tests, typecheck, formatting, and architecture checks green, with Postgres failures verified as pre-existing\nThe diff implements each named deliverable and keeps the relaxation confined to the intended IPC interactive-auto lane. No actionable P0\u2013P2 defect is demonstrated by the supplied change bundle.",
+  "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
   "reviewed_scope": [
@@ -42,34 +36,34 @@
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:397 implements the lane- and signal-gated merge, with explicit coverage in apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts:97"
+      "evidence": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:397 applies the relaxation only to interactive_auto and preserves typed rail provenance; explicit lane tests begin at apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts:98"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/auto-lane-analysis.ts:112 implements fail-closed read-only find analysis, while apps/core/src/shared/permission-trusted-paths.ts:62 excludes stderr redirects to /dev/null"
+      "evidence": "apps/core/src/application/permissions/auto-lane-analysis.ts:115 fail-closes read-only find analysis; apps/core/src/domain/permission-deterministic-rails.ts:165 emits unsupported_meta_executor; apps/core/src/shared/permission-trusted-paths.ts:62 excludes stderr redirects to /dev/null"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:46 enumerates the authoritative stages and apps/core/src/runtime/permission-decision-coordinator.ts:154 constructs the immutable tail context from the single base rail evaluation"
+      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:43 enumerates the authoritative stages and apps/core/src/runtime/permission-decision-coordinator.ts:151 computes and threads the single base rail decision through the immutable context"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts:33 exports the reusable replay fixture and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 pins S3 at zero taps"
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts:34 exports the reusable replay fixture and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 proves S3 at zero taps"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC5",
-      "verdict": "partial",
-      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 shows added verification coverage, but the diff bundle contains no execution evidence for the full unit, Postgres, TypeScript, or architecture lanes"
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:8 is included in the recorded passing verify.py run; the brief records 9,150 unit tests, typecheck, formatting, and architecture checks green, with Postgres failures verified as pre-existing"
     }
   ],
   "aspect": "quality",
-  "review_run_id": "3fa11939107f79123e1518f7ca317a266ef257efe2f8b13ebc1dfda839f20b51",
-  "brief_sha256": "3665625c72a7d8cdfe89f3fab87c238a16e8e9b0848bad23cea45ec29e68a74d",
+  "review_run_id": "c7c02479bcad54ceabf91f0672e104ddcb97b41ed735b0630cfe832a946dce05",
+  "brief_sha256": "85484832b39b06a5c88b3cc79ce7596f38f841d8067dd235a279122a832697c5",
   "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
   "residual_risks": [],
-  "recorded_at": "2026-09-04T15:23:33+00:00",
-  "commit": "1ff68b563f21fd926ed361ebb7c81866ad271b3b"
+  "recorded_at": "2026-09-04T16:09:37+00:00",
+  "commit": "b87ec547cc44b4ca76049d827a77865e9594e83a"
 }

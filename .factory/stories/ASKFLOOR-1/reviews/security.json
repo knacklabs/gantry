@@ -1,7 +1,7 @@
 {
   "generated_by": "autoreview",
   "score": 10,
-  "summary": "security lens over ASKFLOOR-1-T1 (24 product path(s), 075f600..1ff68b5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. The supplied diff preserves hard-floor vetoes for incomplete, protected, privileged, egress, and unsafe meta-executor inputs; limits rail relaxation to interactive auto; gates cached classifier allows by lane and relaxable rail signal; and carries signed, validated rail provenance through both runner decoders. No concrete P0\u2013P2 security defect is demonstrated by the available bundle.",
+  "summary": "security lens over ASKFLOOR-1-T1 (24 product path(s), b9ed02a..b87ec54, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. No actionable P0\u2013P2 security defect is demonstrated by the supplied diff. The classifier relaxation remains limited to host-derived interactive auto lanes, deterministic rails still run before any grant, non-relaxable and incomplete-input rail outcomes retain their veto, the read-only find analyzer fails closed on unrecognized, write-capable, path-qualified, sensitive, redirected, compound, and shell-expanded forms, and the new provenance is included in signed IPC responses and validated by both runner decoders.",
   "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
@@ -33,10 +33,10 @@
   ],
   "skills_used": [],
   "aspect": "security",
-  "review_run_id": "3fa11939107f79123e1518f7ca317a266ef257efe2f8b13ebc1dfda839f20b51",
-  "brief_sha256": "3665625c72a7d8cdfe89f3fab87c238a16e8e9b0848bad23cea45ec29e68a74d",
+  "review_run_id": "c7c02479bcad54ceabf91f0672e104ddcb97b41ed735b0630cfe832a946dce05",
+  "brief_sha256": "85484832b39b06a5c88b3cc79ce7596f38f841d8067dd235a279122a832697c5",
   "branch_diff_digest": "005f1d9988982a387e9a4a3b61f88422199ab68919911a5ce4adcf981b61d049",
   "residual_risks": [],
-  "recorded_at": "2026-09-04T15:23:34+00:00",
-  "commit": "1ff68b563f21fd926ed361ebb7c81866ad271b3b"
+  "recorded_at": "2026-09-04T16:09:37+00:00",
+  "commit": "b87ec547cc44b4ca76049d827a77865e9594e83a"
 }
