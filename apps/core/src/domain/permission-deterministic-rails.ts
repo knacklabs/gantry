@@ -79,6 +79,7 @@ const GANTRY_INPUT_INDEPENDENT_BIRTHRIGHT_TOOLS = new Set([
   'agent_profile_read',
 ]);
 const GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS = new Set([
+  'attachment_open',
   'send_message',
   'todo_update',
   'memory_save',
@@ -98,6 +99,15 @@ const GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS = new Set([
   'request_skill_proposal',
   'request_skill_dependency_install',
   'request_mcp_server',
+]);
+const GANTRY_INPUT_GATED_BIRTHRIGHT_FACTS: ReadonlyMap<
+  string,
+  (request: PermissionApprovalRequest) => boolean
+> = new Map([
+  [
+    'attachment_open',
+    (request) => request.attachmentOpenIds?.wellFormed === true,
+  ],
 ]);
 const DESTRUCTIVE_EXECUTABLE =
   /^(?:dd|mkfs(?:\..+)?|rm|rmdir|shred|truncate|unlink)$/;
@@ -122,15 +132,26 @@ export function evaluatePermissionDeterministicRails(
   ) {
     return allow(request, 'Agent self-surface birthright.', 'birthright');
   }
+  const isInputGatedBirthrightTool =
+    gantryTool !== null &&
+    GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS.has(gantryTool[1]!);
+  const inputGatedFact = gantryTool
+    ? GANTRY_INPUT_GATED_BIRTHRIGHT_FACTS.get(gantryTool[1]!)
+    : undefined;
+  if (inputGatedFact) {
+    return inputGatedFact(request)
+      ? allow(request, 'Agent self-surface birthright.', 'birthright')
+      : hardFloorAsk(
+          'Displayed tool input is sanitized or redacted.',
+          RailSignal.SecretPath,
+        );
+  }
   if (inputIsIncomplete(request)) {
     return hardFloorAsk(
       'Exact tool input is missing, redacted, or truncated.',
       RailSignal.Privileged,
     );
   }
-  const isInputGatedBirthrightTool =
-    gantryTool !== null &&
-    GANTRY_INPUT_GATED_BIRTHRIGHT_TOOLS.has(gantryTool[1]!);
   if (isInputGatedBirthrightTool && !hasRiskRelevantSanitization(request)) {
     return allow(request, 'Agent self-surface birthright.', 'birthright');
   }

@@ -5,7 +5,7 @@ import {
   isPermissionClassifierEligible,
   type PermissionClassifierRequestFamily,
 } from '../application/permissions/permission-classifier.js';
-import { gantryToolDefaultRisk } from '../application/permissions/gantry-tool-risk.js';
+import { PermissionClassifierStatus } from '../domain/permission-classifier-status.js';
 import {
   PERMISSION_PROMOTION_ALLOW_THRESHOLD,
   type PermissionPromotionInput,
@@ -43,6 +43,7 @@ import {
   serializePermissionClassifierToolInput,
   type PermissionClassifierRiskLevel,
 } from './permission-classifier-prompt.js';
+import { evaluateNativeRiskBranch } from './permission-classifier-native-risk.js';
 import { coordinatePermissionClassifierRisk } from './permission-decision-coordinator.js';
 
 export {
@@ -90,6 +91,8 @@ export interface PermissionClassifierInput {
 }
 
 export interface PermissionClassifierResult {
+  /** TODO(T6): publish and consume classifier availability after T2a stamps it. */
+  status: PermissionClassifierStatus;
   risk_level: PermissionClassifierRiskLevel;
   risk_category?: PermissionRiskCategory;
   reason: string;
@@ -238,6 +241,7 @@ export async function consultPermissionClassifier(
   }
 
   return {
+    status: PermissionClassifierStatus.Answered,
     risk_level: verdict.risk_level,
     ...(verdict.risk_category ? { risk_category: verdict.risk_category } : {}),
     reason: verdict.reason,
@@ -324,12 +328,15 @@ export async function consultPermissionClassifierBeforePrompt(
   // Eligible already blocks non-'tool' families at the top of this function, so
   // this is defense-in-depth: the gantry map can never auto-allow a non-'tool'
   // request even if that eligibility gate is later broadened.
-  const gantryRisk =
-    inputTruncated || yoloDenylistMatch || input.requestFamily !== 'tool'
-      ? undefined
-      : gantryToolDefaultRisk(input.canonicalToolName);
+  const nativeRisk = evaluateNativeRiskBranch({
+    canonicalToolName: input.canonicalToolName,
+    inputTruncated,
+    yoloDenylistHit: Boolean(yoloDenylistMatch),
+    requestFamily: input.requestFamily,
+  });
   const classifierResult: PermissionClassifierResult = inputTruncated
     ? {
+        status: PermissionClassifierStatus.Skipped,
         risk_level: 'high',
         reason:
           'Classifier skipped because its tool input view was incomplete; ask the user.',
@@ -337,7 +344,7 @@ export async function consultPermissionClassifierBeforePrompt(
         failureCode: 'input_truncated',
       }
     : // prettier-ignore
-      yoloDenylistMatch ? { risk_level: 'high', reason: `YOLO-mode denylist backstop matched "${yoloDenylistMatch.pattern}"; ask the user for explicit approval.`, latencyMs: 0 }
+      yoloDenylistMatch ? { status: PermissionClassifierStatus.Skipped, risk_level: 'high', reason: `YOLO-mode denylist backstop matched "${yoloDenylistMatch.pattern}"; ask the user for explicit approval.`, latencyMs: 0 }
       : // The auto_strict deterministic-denial guard runs BEFORE the gantry
         // verdict: the gantry map may only REDUCE prompts in normal auto mode,
         // never turn a strict-mode denial into an allow. In auto_strict a gantry
@@ -345,14 +352,15 @@ export async function consultPermissionClassifierBeforePrompt(
         // (rails birthright-allow them first).
         !deterministicGate?.allowed && input.permissionMode === 'auto_strict'
           ? {
+              status: PermissionClassifierStatus.Skipped,
               risk_level: 'high',
               reason:
                 deterministicGate?.reason ??
                 'Deterministic read-only proof was unavailable; ask the user.',
               latencyMs: 0,
             }
-      : gantryRisk
-          ? { risk_level: gantryRisk.risk_level, reason: gantryRisk.reason, latencyMs: 0 }
+      : nativeRisk
+          ? nativeRisk
           : await (input.classifierConsult ?? consultPermissionClassifier)({
             appId: (input.appId ?? 'default') as AppId,
             agentIdentity: {
@@ -650,6 +658,10 @@ function failedResult(
     'Permission classifier consultation failed',
   );
   return {
+    status:
+      failureCode === 'aborted' || failureCode === 'input_truncated'
+        ? PermissionClassifierStatus.Skipped
+        : PermissionClassifierStatus.Unavailable,
     risk_level: 'high',
     reason: `Classifier unavailable (${failureCode}); ask the user.`,
     latencyMs: Date.now() - startedAt,

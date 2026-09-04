@@ -222,6 +222,7 @@ export interface PermissionApprovalRequest {
   /** 16K-limit input evaluated by decision rails/effect keys, not the 500-char
    * display `toolInput`; set alongside it in IPC parsing. */
   classifierToolInput?: Record<string, unknown>;
+  attachmentOpenIds?: { wellFormed: boolean; count: number };
   toolInputSanitized?: boolean;
   toolInputSanitizedPaths?: string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;

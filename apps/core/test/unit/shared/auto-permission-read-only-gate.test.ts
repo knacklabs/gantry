@@ -183,6 +183,33 @@ describe('auto-permission deterministic read-only gate', () => {
     });
   });
 
+  it('reproduces every prior allow and refuse verdict by composing shape and hard boundaries, including standalone versus piped cat, a compound command and a non-target protected mention', () => {
+    const workspaceRoot = makeTempRoot();
+    fs.writeFileSync(path.join(workspaceRoot, 'README.md'), 'Gantry');
+    fs.writeFileSync(path.join(workspaceRoot, 'a'), 'one\ntwo\n');
+
+    expect(shell('cat', ['filesystem.read'], workspaceRoot)).toEqual({
+      allowed: false,
+      reason: 'The file read command shape is not provably safe.',
+    });
+    expect(shell('cat | wc -l', ['filesystem.read'], workspaceRoot)).toEqual({
+      allowed: true,
+      reason: 'Parser-proven safe compound read command.',
+    });
+    expect(
+      shell('head -n 1 a; tail -n 1 a', ['filesystem.read'], workspaceRoot),
+    ).toEqual({
+      allowed: true,
+      reason: 'Parser-proven safe compound read command.',
+    });
+    expect(
+      shell('grep settings.yaml README.md', ['filesystem.read'], workspaceRoot),
+    ).toEqual({
+      allowed: false,
+      reason: 'Protected paths require approval.',
+    });
+  });
+
   it('strictly validates stdin/file transform options and output operands', () => {
     const workspaceRoot = makeTempRoot();
     for (const name of ['a', 'b']) {

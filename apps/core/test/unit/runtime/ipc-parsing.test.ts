@@ -65,6 +65,7 @@ import { startIpcWatcher, stopIpcWatcher } from '@core/runtime/ipc.js';
 function permissionEnvelope(
   permissionLane: unknown,
   expiresAt?: string,
+  overrides: { toolName?: string; toolInput?: unknown } = {},
 ): Record<string, unknown> {
   const auth = createIpcAuthEnvelope('team', undefined, {
     appId: 'default',
@@ -75,7 +76,10 @@ function permissionEnvelope(
     {
       requestId: `perm-lane-${randomUUID()}`,
       sourceAgentFolder: 'team',
-      toolName: 'Bash',
+      toolName: overrides.toolName ?? 'Bash',
+      ...(overrides.toolInput !== undefined
+        ? { toolInput: overrides.toolInput }
+        : {}),
       permissionLane,
       ...(expiresAt ? { expiresAt } : {}),
       context: {
@@ -170,6 +174,56 @@ describe('parsePermissionIpcRequest', () => {
     expect(() =>
       parsePermissionIpcRequest(permissionEnvelope('scheduled'), 'team'),
     ).toThrow('Invalid permission IPC permissionLane');
+  });
+
+  it('derives the attachment_open id fact from the raw input before sanitization: 512 after trim is well-formed, 513 is not, a token-like id is well-formed yet stays redacted in both sanitized copies, blank and thirteen entries are not, another tool has no fact', () => {
+    const parse = (toolName: string, attachmentIds: unknown) =>
+      parsePermissionIpcRequest(
+        permissionEnvelope('interactive', undefined, {
+          toolName,
+          toolInput: { attachment_ids: attachmentIds },
+        }),
+        'team',
+      );
+    const valid512 = parse('mcp__gantry__attachment_open', [
+      ` ${'a'.repeat(512)} `,
+    ]);
+    expect(valid512.attachmentOpenIds).toEqual({
+      wellFormed: true,
+      count: 1,
+    });
+
+    expect(
+      parse('mcp__gantry__attachment_open', ['a'.repeat(513)])
+        .attachmentOpenIds,
+    ).toEqual({ wellFormed: false, count: 1 });
+
+    const token = 'sk-abcdefghijklmnop';
+    const tokenResult = parse('mcp__gantry__attachment_open', [token]);
+    expect(tokenResult.attachmentOpenIds).toEqual({
+      wellFormed: true,
+      count: 1,
+    });
+    expect(tokenResult.toolInput).toEqual({ attachment_ids: ['[REDACTED]'] });
+    expect(tokenResult.classifierToolInput).toEqual({
+      attachment_ids: ['[REDACTED]'],
+    });
+
+    for (const attachmentIds of [
+      [],
+      ['   '],
+      [123],
+      Array.from({ length: 13 }, (_, index) => `attachment-${index}`),
+      undefined,
+    ]) {
+      expect(
+        parse('mcp__gantry__attachment_open', attachmentIds).attachmentOpenIds
+          ?.wellFormed,
+      ).toBe(false);
+    }
+    expect(
+      parse('mcp__gantry__send_message', ['attachment-1']),
+    ).not.toHaveProperty('attachmentOpenIds');
   });
 
   it('preserves the runner lifecycle deadline and omits it for an unbounded request', () => {
