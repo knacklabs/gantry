@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "T2a makes attachment_open a birthright judged on shape only. An attachment id the display sanitizer shortened (over 500 characters) or redacted (token-like) will still ask, because the rails keep today's sanitization veto. Today's generated ids are short (`message-attachment:\u2026`). Accept that limit for T2a, or widen T2a with a sanitization change so any host-valid id never asks?",
+      "options": [
+        "Accept the limit (Recommended)",
+        "Widen T2a"
+      ],
+      "chosen": "Widen T2a"
+    }
+  ],
+  "at": "2026-09-04T16:26:07.885227+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
