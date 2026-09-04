@@ -151,3 +151,29 @@ def test_review_tip_puts_harness_bookkeeping_back_at_the_task_base(repo, tmp_pat
     # The task branch itself is untouched.
     assert head(repo) == tip
     git(repo, "worktree", "remove", "--force", str(worktree))
+
+
+def test_review_brief_carries_the_recorded_verification_evidence(repo, tmp_path):
+    from test_gates import write_passing_artifacts
+
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    first = {**DECOMP["tasks"][0], "id": "T1", "reviewer_focus": "focus one",
+             "write_scope": ["src/gate.py"],
+             "plan_contracts": [{"id": "C1", "statement": "unit suites pass; tsc green",
+                                  "source": "plan.md#first"}]}
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
+        {**DECOMP, "tasks": [task_skeleton(first)]}))
+    assert code == 0, out
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
+        {**DECOMP, "tasks": [first]}))
+    assert code == 0, out
+    write_passing_artifacts(repo)
+
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code == 0, out
+    brief = (repo / out.strip()).read_text()
+    assert "### Recorded evidence" in brief
+    assert "verify.py: ok" in brief
+    assert "automated tests: passed" in brief
