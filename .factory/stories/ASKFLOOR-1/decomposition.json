@@ -185,7 +185,7 @@
     {
       "id": "ASKFLOOR-1-T2a",
       "title": "Shape classifier extraction, attachment birthright, judge status",
-      "objective": "Extract one typed effect-shape classifier and the containment helpers from the read gate into shared modules; add the attachment_open input-gated birthright to the deterministic rails for every mode (the story's only rails edit); stamp a typed classifier status answered|unavailable|skipped at every branch of the classifier runtime, with the native-risk branch isolated into a named helper.",
+      "objective": "Extract one typed effect-shape classifier and the containment helpers from the read gate into shared modules; add the attachment_open input-gated birthright to the deterministic rails for every mode (the only rails ROW added by the story; T1 separately owns the typed unsupported_meta_executor signal per A-0070); stamp a typed classifier status answered|unavailable|skipped at every branch of the classifier runtime, with the native-risk branch isolated into a named helper.",
       "acceptance_criteria": [
         "attachment_open of an attachment already in the conversation never asks in ask, auto, auto_strict or autonomous mode; a malformed id asks; a failed host origin validation yields the not-found line, never a card (per-mode rails tests)",
         "the effect-shape classifier reports read-only shape without containment; the read gate and rails use it and behave exactly as today",
@@ -220,7 +220,7 @@
       "objective": "permission_decision_memory gains the human_decision kind with outcome, scope, scope_key, acting person id + label snapshot, uuid ids, a human-row CHECK and two partial unique indexes replacing the unconditional key; scope keys derived in one module (outcome-aware: path-only Allow for single-destination file writes, full hash for No); a host-owned service remember|list|revoke with person-scoped revokeById; typed remember DTO and human_decision provenance codec in domain types.",
       "acceptance_criteria": [
         "repository round-trips human rows per person and rejects rows missing outcome/scope/scope_key/person; non-human rows keep today's key (Postgres tests)",
-        "revokeById returns applied|already_revoked|not_found and never crosses persons; short-id derivation tested",
+        "revokeById returns applied|already_revoked|not_found and never crosses persons; short-id derivation tested; the service exposes a per-person count of remembered exact Allows by tool id (trust-growth input)",
         "scope keys: exact Allow on Write/Edit/file write/promote_scratch keys on tool + canonical destination; No keys on the full effect hash; shell writes never path-only; protected destinations never key an Allow",
         "architecture note for the record kind; migration follows the table's existing naming convention",
         "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
@@ -283,7 +283,8 @@
       "acceptance_criteria": [
         "labels, order and copy match the plan on all four providers for eligible, destructive, protected, batch and ineligible-lane cards (snapshot/parity tests)",
         "memory_forget renders and settles on all four providers; Teams renders ten Forget buttons via per-row ActionSets",
-        "AF-AC8 S4: rm -rf still asks with no remembering Allow button and No remembers the exact command",
+        "AF-AC8 S4: rm -rf build asks once; Allow remembers that exact command and target; the identical command never asks again; rm -rf dist asks; No is remembered exactly too",
+        "trust growth: after three remembered exact Allows for the same high-risk gantry tool the card offers one broader option (kind scope keyed by tool id), never the default; destructive shapes never get it",
         "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
       ],
       "depends_on": [
@@ -326,6 +327,6 @@
     }
   ],
   "project": "",
-  "plan_sha256": "2a22926070a5983dc897e43a30658dec5d86f47b71d7e9fd66af0b1e8628fc3f",
-  "commit": "32bf82a6fc5caa7789480f31eaf56c0cae1690c4"
+  "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
+  "commit": "21925c45385ec86358f8ecb4e91ddff027eab5a7"
 }

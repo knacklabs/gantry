@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The story plan now carries all four of today's rulings (default-allow posture, destructive exact Allow, trust growth, the governing principle) plus the T1 rails-signal ownership (A-0070). Re-approve it so implementation can start?",
+      "options": [
+        "Re-approve (Recommended)",
+        "Not yet"
+      ],
+      "chosen": "Re-approve (Recommended)"
+    },
+    {
+      "question": "The plan schedules your live tap-test on Telegram right after T2b (attachment read + `cd ~/Workdir/<repo> && ls`). Do you want to do that live test yourself, or should I rely on the replay fixtures only and not interrupt you?",
+      "options": [
+        "I'll do the live test myself (Recommended)",
+        "Fixtures only"
+      ],
+      "chosen": "I'll do the live test myself (Recommended)"
+    }
+  ],
+  "at": "2026-09-04T02:39:49.652746+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

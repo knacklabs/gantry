@@ -20,7 +20,8 @@
     "attachment_open birthright contradiction (r6)",
     "remembering not write-gated (r13, r14, r15, r16, r17)",
     "T1 task-grill r6: story plan \u00a71 decision order, analysis shape and coordinator ownership diverged from the JIT-refined T1 contract",
-    "Owner ruling 2026-09-03 (default-allow posture) and rounds 21-25: send_message row unreachable; registry mutation sets; /permissions not an auto-allow ledger; browser file_attach/file_upload raw-path matrix; file discriminated predicate; stale matrix clauses"
+    "Owner ruling 2026-09-03 (default-allow posture) and rounds 21-25: send_message row unreachable; registry mutation sets; /permissions not an auto-allow ledger; browser file_attach/file_upload raw-path matrix; file discriminated predicate; stale matrix clauses",
+    "Owner rulings 2026-09-04: destructive exact Allow; trust growth after three exact Allows per high-risk tool; governing principle; T1 rails-signal ownership A-0070"
   ],
   "contradictions": [
     "exact-write key excluded content vs effect hash includes it",
@@ -54,7 +55,8 @@
     "Owner (2026-09-03): groups = no remembering at all",
     "Convention (not owner-level): active current-rails records only in /permissions all; 6-char uuid prefixes, ambiguity never mutates; approver label snapshotted at decision time; excluded lanes keep durable-rule controls",
     "GAP story plan \u00a71 vs T1 contract: story plan amended (authoritative order incl. conditional trusted-root handling and classifier-cache read; AutoLaneAnalysis {lane, readOnlyMetaExecutor}; domain-owned lane types; A-0069 shared coordinator seam; canonical railProvenance over signed IPC), re-grilled at r20 (plan text + plans/assumptions.md)",
-    "GAP default-allow rounds 21-25: plan AC1/AC2/AC4, Scope, \u00a72, T2b, Decisions, Risks, Surface Impact rewritten to ONE typed risk table (default LOW; closed rows = destructive/protected writes incl. raw-path browser file actions, registry scheduler + admin exports incl. DELEGATION_DISPATCHERS; ambiguous \u2192 classifier; send_message principle only); decision 0155 accepted by Ravi 2026-09-04; spec re-grilled r5-r7 and re-confirmed. Residual r25 wording folded without a further round (owner asked to stop looping; the two items were stale clauses, no safety content)."
+    "GAP default-allow rounds 21-25: plan AC1/AC2/AC4, Scope, \u00a72, T2b, Decisions, Risks, Surface Impact rewritten to ONE typed risk table (default LOW; closed rows = destructive/protected writes incl. raw-path browser file actions, registry scheduler + admin exports incl. DELEGATION_DISPATCHERS; ambiguous \u2192 classifier; send_message principle only); decision 0155 accepted by Ravi 2026-09-04; spec re-grilled r5-r7 and re-confirmed. Residual r25 wording folded without a further round (owner asked to stop looping; the two items were stale clauses, no safety content).",
+    "GAP rulings 2026-09-04: folded into AF-AC3/AC8-S4, \u00a73, \u00a75, T3a/T5a lines, \u00a71 signal naming and the shared-file list; spec + 0154 amended and re-confirmed; no further Codex plan round by owner request (additive learning rules; no rails/lane change beyond the typed signal already grilled in T1 rounds 8-9)"
   ],
   "citations": [
     "apps/core/src/runtime/ipc-permission-classifier-decision.ts:67-74,95-119,173-452",
@@ -69,26 +71,26 @@
   ],
   "rounds": [
     {
-      "question": "Task order for implementation: the plan runs T1 (routing fix: judge's verdict stands for rail-refused reads) first, then T2a/T2b (the default-allow table). The default-allow table alone removes most browser/file/scheduler-read taps; the routing fix removes the shell-read taps. Which first?",
-      "options": [
-        "T1 routing first (Recommended)",
-        "Default-allow table first"
-      ],
-      "chosen": "T1 routing first (Recommended)",
-      "frontier_empty": false
-    },
-    {
-      "question": "The amended story plan (default-allow posture, decision 0155 accepted, rounds 20\u201325 folded, spec re-confirmed) is ready to save for your re-approval. Re-approve it now?",
+      "question": "The story plan now carries all four of today's rulings (default-allow posture, destructive exact Allow, trust growth, the governing principle) plus the T1 rails-signal ownership (A-0070). Re-approve it so implementation can start?",
       "options": [
         "Re-approve (Recommended)",
         "Not yet"
       ],
       "chosen": "Re-approve (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "The plan schedules your live tap-test on Telegram right after T2b (attachment read + `cd ~/Workdir/<repo> && ls`). Do you want to do that live test yourself, or should I rely on the replay fixtures only and not interrupt you?",
+      "options": [
+        "I'll do the live test myself (Recommended)",
+        "Fixtures only"
+      ],
+      "chosen": "I'll do the live test myself (Recommended)",
       "frontier_empty": true
     }
   ],
   "summary": "PLAN GATE - 19 Codex gpt-5.6-sol@xhigh read-only cold-read rounds (briefs plans/exploration/askfloor-1-plan-grill-r1..r19.md; verdicts 10,7,8,6,5,4,5,5,4,2,2,1,1,1,1,2,2 blockers then PLAN SOUND at r18 and stability-confirmed at r19; AMENDED 2026-09-03 after the T1 task grill: \u00a71 decision order/analysis shape/shared-file ownership (assumption A-0069) re-grilled at r20) + 9 Fable 5.1 UX lanes (plans/exploration/askfloor-1-fable-ux-validation-r2..r9) + terra@high seam exploration #3, all folded into the plan; 7 ledgered owner rounds (11 rulings). Decisions 0153 (rewritten around 0121's real invariant) and 0154 (generic scope; amends 0052/0118/0121) ready for acceptance at approval. Then OWNER RULING 2026-09-03 (default-allow gantry tools, browser included; simplify): spec + plan amended, decision 0155 accepted; plan rounds 21-25 (3,2,1,2,2 findings, all wording/consistency) folded; grilling stopped by owner request after r25 with the last two stale clauses folded.",
-  "input_sha256": "f290d7df8b19757c5167437693a69675038daea8378e6b6c17125351ace559f1",
-  "recorded_at": "2026-09-03T19:23:38+00:00",
-  "commit": "a6bbd02c4d274ab89e39307beb3266667223c47e"
+  "input_sha256": "7b3bb211dd2c5eaf8fe9e87edae3dd671baa131e8f7cc6dd48e1666aeb12229f",
+  "recorded_at": "2026-09-04T02:40:07+00:00",
+  "commit": "21925c45385ec86358f8ecb4e91ddff027eab5a7"
 }

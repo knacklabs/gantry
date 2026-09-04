@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Trust over time: after you have allowed the same high-risk tool several times (say three exact Allows for `scheduler.create_job`), should the card start offering a broader remember option for that tool ('Allow all scheduler job creations'), or should high-risk actions always stay exact-only?",
+      "options": [
+        "Offer broader after 3 exact Allows (Recommended)",
+        "High-risk stays exact-only"
+      ],
+      "chosen": "Offer broader after 3 exact Allows (Recommended)"
+    },
+    {
+      "question": "Confirming the spec wording for the destructive ruling: `rm -rf build` asks once; Allow remembers that exact command and target; the identical command never asks again; `rm -rf dist` asks. Is that the behaviour you want?",
+      "options": [
+        "Yes, exactly that (Recommended)",
+        "No, adjust"
+      ],
+      "chosen": "Yes, exactly that (Recommended)"
+    }
+  ],
+  "at": "2026-09-04T02:37:03.882292+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

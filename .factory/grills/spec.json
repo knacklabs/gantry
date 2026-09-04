@@ -10,7 +10,7 @@
     "B3 (blocker, contract-gap): the mcp__gantry__file binding was unimplementable \u2014 it promised a literal capability id but named none, said list|read while excluding broad lists, artifactId reads and attachments (the motivating case).",
     "G4 (gap, correctness): /dev/null was still admitted as a trusted-path candidate despite the stderr-redirect exception, and find needed adversarial argument tests.",
     "G5 (gap, contract-gap): AC5 fail-closed and AC6 invariance were not scoped to interactive auto; a scheduled lane has no human listener and must keep deterministic denial plus card recovery.",
-    "Owner ruling 2026-09-03: gantry-native tools auto-allow by default in interactive auto (browser included); only the closed high-risk list asks"
+    "Owner rulings 2026-09-04: destructive actions remember an exact Allow too; trust growth offers a broader option after three exact Allows per high-risk tool"
   ],
   "contradictions": [
     "Fable UX lane: the spec kept 'attachment reads' fail-closed while the owner's complaint was specifically about reading an attachment they sent; and AC3 promised jobs stop re-asking while \u00a71/0121 forbade the autonomous lane from consulting memory (resolved by rulings 1 and 2)."
@@ -22,7 +22,7 @@
     "R4 (owner, dimension design delegated): generic scope \u2014 this exact action / this kind of action / this place \u2014 with a broadest-safe default (reads \u2192 kind anywhere; writes/destructive \u2192 exact), one 'Remembered: \u2026' line and one narrower alternative; the scope store REUSES resolveTrustedRootStage (permission-decision-coordinator.ts:219-294), no second store; button labels change centrally (channels/permission-interaction.ts:74-88).",
     "R5 (seam map, resolves B1): the classifier IS consulted; the force-ask is the classifier-allow VETO by a rail ASK signal (ipc-permission-classifier-decision.ts:307-308, 369-401). Change: carry railSignal from the rail callback (:111-119) and relax only that veto for interactive auto on out_of_trusted_root / read-only meta-executor signals; shared rails (domain/permission-deterministic-rails.ts:161-228) untouched.",
     "R6 (owner + G4): workspace file writes judged by PATH; 2>/dev/null never a path candidate (permission-trusted-paths.ts pathCandidates ~:60); find read-only unless -delete/-exec/-execdir/-ok (bash-command-parser.ts:35,563,581) with adversarial tests; judge outage = one notice per conversation + deterministic reads still allow; /permissions view with Forget this; AC8 tap-budget fixtures replaying the 2026-09-02 log shapes.",
-    "GAP default-allow posture: spec Behaviour bullets + AC1/AC2/AC4 + 'Unchanged on purpose' amended; decision 0155 created (proposed); story plan \u00a72/T2b amended; Codex sol@xhigh spec re-grill r5 (plans/exploration/askfloor-1-spec-grill-r5.md) rounds 5-7 (briefs r5/r6/r7): 5+5+2 findings all folded into the spec and 0155 \u2014 send_message principle not row; auto-only routing; browser side-effects auto-allow by owner choice with raw-path browser file actions on the protected-writes row; complete defaulted file contract with virtual-store writes LOW; registry exports incl. DELEGATION_DISPATCHERS; 0155 accepted by Ravi 2026-09-04"
+    "GAP default-allow posture: spec Behaviour bullets + AC1/AC2/AC4 + 'Unchanged on purpose' amended; decision 0155 created (proposed); story plan \u00a72/T2b amended; Codex sol@xhigh spec re-grill r5 (plans/exploration/askfloor-1-spec-grill-r5.md) \u2014 folded into spec AC3/AC8-S4, decision 0154 and the story plan without a further Codex round (owner asked to stop looping; both are additive learning rules inside the already-grilled memory design, no rails/lane change)"
   ],
   "citations": [
     {
@@ -47,43 +47,40 @@
     },
     {
       "file": "plans/exploration/askfloor-1-spec-grill-r5.md",
-      "finding": "Owner ruling 2026-09-03: gantry-native tools auto-allow by default in interactive auto (browser included); only the closed high-risk list asks"
+      "finding": "Owner rulings 2026-09-04: destructive actions remember an exact Allow too; trust growth offers a broader option after three exact Allows per high-risk tool"
     }
   ],
   "rounds": [
     {
-      "question": "Which gantry-native actions should STILL ask in auto mode (everything else auto-allows, with the classifier judging anything ambiguous)? Pick all that apply.",
+      "question": "Destructive actions (delete, overwrite, force-push style shapes) currently never remember an Allow \u2014 you are asked every time; only a No is remembered. Change that?",
       "options": [
-        "Messages to non-own destinations",
-        "Destructive or protected writes",
-        "Scheduler and admin mutations",
-        "Browser payments and credential entry"
+        "Remember exact Allow too (Recommended)",
+        "Keep asking every time"
       ],
-      "chosen": null,
+      "chosen": "Remember exact Allow too (Recommended)",
       "frontier_empty": false
     },
     {
-      "question": "How far should the plan be simplified?",
+      "question": "Trust over time: after you have allowed the same high-risk tool several times (say three exact Allows for `scheduler.create_job`), should the card start offering a broader remember option for that tool ('Allow all scheduler job creations'), or should high-risk actions always stay exact-only?",
       "options": [
-        "Default-allow table + learning (Recommended)",
-        "Default-allow table only",
-        "Keep the current 10-task plan"
+        "Offer broader after 3 exact Allows (Recommended)",
+        "High-risk stays exact-only"
       ],
-      "chosen": "Default-allow table + learning (Recommended)",
+      "chosen": "Offer broader after 3 exact Allows (Recommended)",
       "frontier_empty": false
     },
     {
-      "question": "Decision 0155 records your default-allow ruling (gantry tools auto-allow in interactive auto, browser included; only destructive/protected writes, scheduler mutations and admin mutations ask; ambiguous shapes go to the classifier; browser network side-effects auto-allow by your choice; secret-file attach via browser counts as a protected write). The spec re-confirmation needs it accepted first. Accept 0155 now?",
+      "question": "Confirming the spec wording for the destructive ruling: `rm -rf build` asks once; Allow remembers that exact command and target; the identical command never asks again; `rm -rf dist` asks. Is that the behaviour you want?",
       "options": [
-        "Accept 0155 (Recommended)",
-        "Not yet"
+        "Yes, exactly that (Recommended)",
+        "No, adjust"
       ],
-      "chosen": "Accept 0155 (Recommended)",
+      "chosen": "Yes, exactly that (Recommended)",
       "frontier_empty": true
     }
   ],
   "summary": "SPEC GATE \u2014 the amended spec (attachments, jobs-as-grants, tap semantics, generic scope) interrogated against code and decisions. PASS \u2014 requirements grill of the amended ASKFLOOR-1 spec: Codex sol@xhigh cold-read (3 blockers, 2 gaps) + Fable 5.1 UX lane (9 polish items, 3 contradictions) + terra@high seam map; all resolved by six ledgered owner rulings and the seam map, folded into the spec source (\u00a71-\u00a73, AC3/AC4/AC5, new AC8) and decision 0153 (amends 0121). RE-GRILLED 2026-09-03 (round 5) after the owner's default-allow ruling: AC1/AC2/AC4 now describe one small typed risk table (default LOW; closed high-risk rows: non-own-destination send_message, destructive/protected writes, scheduler + admin mutations; ambiguous -> classifier), decision 0155.",
-  "input_sha256": "a82eecc9f88cf28fdc1cb7327055ffa7b68579f9943332d3a09d671ea4d6f20e",
-  "recorded_at": "2026-09-03T19:17:44+00:00",
-  "commit": "48e06e0b61d93c87a02b8cf7de2c239518e827db"
+  "input_sha256": "05134e6dc9c5a60b84ac4fd641938dc79dc50db38251414197dc5fb23b62505b",
+  "recorded_at": "2026-09-04T02:39:27+00:00",
+  "commit": "21925c45385ec86358f8ecb4e91ddff027eab5a7"
 }
