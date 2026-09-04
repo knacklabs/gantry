@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-04T04:26:20+00:00", "story": "ASKFLOOR-1", "detail": "S-0067-6b6c: Accepted: required-test ids 9 and 13 are renamed in the recorded contract to plain words with no Vitest regex metacharacters ('\u2026 and allows a bare find dot and a find under src with a name glob'; '\u2026 p"}

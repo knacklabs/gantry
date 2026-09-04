@@ -133,7 +133,7 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "keeps the veto in interactive auto for find with a sensitive shape in the first operand, a later operand or a predicate value, for .., hidden and secret names, for -H -L or -follow, for -files0-from or any indirect root option, any redirect, a compound or a pipeline, and allows find . and find ./src -name *.ts",
+          "id": "keeps the veto in interactive auto for find with a sensitive shape in the first operand, a later operand or a predicate value, for .., hidden and secret names, for -H -L or -follow, for -files0-from or any indirect root option, any redirect, a compound or a pipeline, and allows a bare find dot and a find under src with a name glob",
           "path": "apps/core/test/unit/application/auto-lane-analysis.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
@@ -153,7 +153,7 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "derives the analysis exactly once before coordination and passes it unchanged into tail(context)",
+          "id": "derives the analysis exactly once before coordination and passes it unchanged into the tail context",
           "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
@@ -333,5 +333,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "a3e23f520d44b8a500234d4d0ee3cee16ed07b13"
+  "commit": "0db9efa9fef0758e0dc3cab204fd30b883a3fedc"
 }
