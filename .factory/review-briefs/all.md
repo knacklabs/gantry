@@ -71,13 +71,13 @@ Recorded lessons that apply to this task's paths. A finding that contradicts one
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T2a
 
@@ -85,7 +85,7 @@ Recorded by the harness for this story (not in the diff). Use it to verdict veri
 
 - **ASKFLOOR-1-T2a-AC1**
   - Source: .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria
-  - Statement: `attachment_open` whose request input is COMPLETE, UNSANITIZED, UNREDACTED and well-SHAPED — `attachment_ids` an array of one to twelve strings, each non-blank after trim — is an input-gated birthright in the deterministic rails, so such a request never asks in ask, auto, auto_strict or autonomous mode (rails are mode-blind; the S1 fixture replays all four lanes at 0 taps). The rails judge SHAPE on the request's display copy `toolInput` (always present) AFTER today's completeness, sanitization (`permission-deterministic-rails.ts:125`) and redaction (`:264`) checks, which stay byte-for-byte for every input-gated row including this one; therefore an id the sanitizer shortened (over 500 characters, `runtime/ipc-tool-input-sanitization.ts:6,64`) or redacted (token-like, `:11,55`) ASKS — an accepted limit consistent with the spec's "a malformed id asks" (AF-AC2) and decision 0154: today's generated ids are short (`message-attachment:…`, `canonical-message-attachments.postgres.ts:54-80`) and no bound is claimed for future formats; if a host-valid id ever trips sanitization, that is a separately scoped sanitization change, not a rails exemption. No veto exemption, no length rule, no change to `runtime/ipc-parsing.ts`, no dependence on `classifierToolInput`. Origin stays host-validated, unchanged: an id that fails conversation-origin validation (`ipc-attachment-open-handler.ts:43-84`, resolver `attachment-resolver.ts:167-186`) returns the existing not-found line "I couldn't find that attachment in this conversation." — never a card; the handler and its tests are untouched. A missing, empty, more-than-twelve, blank, non-string, shortened or redacted list asks with the rails' existing input-gated ASK outcome.
+  - Statement: ONE RULE (owner ruling 2026-09-04, widen — every HOST-VALID id is zero-tap): `attachment_open` is an input-gated birthright in the deterministic rails keyed on a TYPED PRE-SANITIZATION FACT, `PermissionApprovalRequest.attachmentOpenIds?: { wellFormed: boolean; count: number }`, computed ONCE in the IPC parser from the raw `decisionToolInput` BEFORE either sanitizer runs (`runtime/ipc-parsing.ts:433-450`): `wellFormed` is true iff `attachment_ids` is an array of one to twelve strings, each non-blank after trim and at most 512 characters after trim — exactly the host's validity shape (`ipc-attachment-open-handler.ts:54-59`, `shared/object.ts:7` trims the same way). The rails allow the row when the fact is present and `wellFormed`, regardless of what the display or classifier sanitizers later shortened or redacted (the id is opaque, never executed, and validated by the host by exact lookup, `attachment-resolver.ts:167`); when the fact is absent (a request that did not come through the IPC parser) or `wellFormed` is false, the row ASKS with the existing input-gated outcome. So: a valid id of any content — including a token-like or 512-character one — never asks in ask, auto, auto_strict or autonomous mode (rails are mode-blind; the S1 fixture replays all four lanes at 0 taps); a missing, empty, more-than-twelve, blank, non-string or over-512 list asks (the spec's "a malformed id asks", AF-AC2, decision 0154). The sanitizers are NOT changed: the display copy stays masked and shortened exactly as today, and every other input-gated row keeps today's completeness, sanitization (`permission-deterministic-rails.ts:125,288`) and redaction (`:264`) vetoes byte-for-byte — only the `attachment_open` row consults the fact instead of those three checks, and only when the fact is present. Origin stays host-validated, unchanged: an id that fails conversation-origin validation (`ipc-attachment-open-handler.ts:43-84`, resolver `attachment-resolver.ts:167-186`) returns the existing not-found line "I couldn't find that attachment in this conversation." — never a card; the handler and its tests are untouched.
 - **ASKFLOOR-1-T2a-AC2**
   - Source: .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria
   - Statement: a pure effect-shape classifier (`shared/permission-effect-shape.ts`) classifies ONE PARSED LEAF at a time with a pure context `classifyPermissionEffectShape(leaf, { stdinOk })` — `stdinOk` is the compound/pipeline fact the gate already derives per leaf (standalone leaves get `false`, compound leaves `true`, `auto-permission-read-only-gate.ts:131,137`) and is what `requiresTarget` depends on, since `BashCommandLeaf` carries no compound context (`bash-command-parser.ts:14`) — covering the verb/argument shape logic INCLUDING `grepFileArgs` (`:429-468`, which moves into the shape module) and the native file-read shape, returning a DISCRIMINATED result `{ kind: read_only_command, executable, targets } | { kind: file_read, action, targets, requiresTarget } | { kind: not_read_only, reason }`, computed without any filesystem, capability or workspace input; the gate RETAINS, verbatim: compound orchestration over the ordered leaves (`:120-140`), the whole-command raw guards at `:115-122` and `:149-150` (protected-path and secret MENTIONS scanned over the command text before any target is discarded, e.g. `grep settings.yaml README.md` is refused on the mention), and the MCP read-binding branch (dispatch `:100-105`, evaluator `:311-345`); a hard-boundaries evaluator (`shared/permission-hard-boundaries.ts`) owns the TARGET-level checks from the file-read path (`:261-308`: capability boundary, realpath containment, protected-path, hidden-segment and secret on each target; the file-read SHAPE part `:248-260` and its pure path predicate `isProvablyWorkspacePath` `:361-366` belong to the shape module, so ownership is disjoint); `evaluateAutoPermissionReadOnlyGate` composes leaf shape → target boundaries inside its unchanged orchestration with EXACT result-and-reason parity, pinned by the existing suite plus explicit parity leaves in the composition test for (i) a standalone `cat` versus the same leaf inside `cat | wc -l`, (ii) a compound command, and (iii) a non-target protected mention (`grep settings.yaml README.md`) — the existing `:342-346` case is the workspace-root one and is not the mention proof.
@@ -94,7 +94,7 @@ Recorded by the harness for this story (not in the diff). Use it to verdict veri
   - Statement: `PermissionClassifierResult` carries a REQUIRED closed `status` (`domain/permission-classifier-status.ts`: `answered | unavailable | skipped`): only a successful LLM verdict is `answered`; `llm_unconfigured timeout model_resolution_failure query_error parse_failure validation_failure` are `unavailable`; `aborted`, `input_truncated`, the native-risk, strict-deterministic and skipped-local branches are `skipped`; the native-risk branch lives in the named helper `runtime/permission-classifier-native-risk.ts` with an unchanged verdict; the cache-hit result constructed in `runtime/ipc-permission-classifier-decision.ts` (`:293`, the one constructor outside the classifier file) is stamped `skipped` (a replayed verdict is neither a fresh answer nor an outage).
 - **ASKFLOOR-1-T2a-AC4**
   - Source: .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria
-  - Statement: AF-AC8 S1 — opening an attachment already in the conversation — replays at 0 taps in every lane through T1's harness (`TapBudgetFixture` already carries `toolName` + `toolInput`, `askfloor-tap-budget-harness.ts:11,55`; the harness is NOT edited and is not in scope), added as a fixture without editing T1's leaves.
+  - Statement: AF-AC8 S1 — opening an attachment already in the conversation — replays at 0 taps in every lane through T1's harness: `replayPermissionRequest` bypasses the IPC parser (`askfloor-tap-budget-harness.ts:11-17,55-64`), so `TapBudgetFixture` gains one optional field `attachmentOpenIds?: { wellFormed: boolean; count: number }` that the harness forwards onto the request unchanged; the S1 fixture pins `mcp__gantry__attachment_open` with `{ wellFormed: true, count: 1 }`; T1's leaves are not edited.
 - **ASKFLOOR-1-T2a-AC5**
   - Source: .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria
   - Statement: existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7).
@@ -103,7 +103,7 @@ Recorded by the harness for this story (not in the diff). Use it to verdict veri
 
 - Constitution (load-bearing): constitution/03-modular-monolith-structure.md (modules with clear boundaries, strict separation of concerns, no circular dependencies, predictable ownership) and pnp-coding-standards-modular-monolith.md. DELIBERATE RECORDED DEVIATION: the new modules are named like their siblings in apps/core/src/shared (kebab-case.ts, no dotted role suffix, e.g. permission-trusted-paths.ts) instead of the constitution's suffix table (pnp-coding-standards-modular-monolith.md:22-54, which would want a lone .helper.ts) — the repo deviates from that table repo-wide and consistency with siblings wins; no other rule is claimed from those files.
 - SPLIT IS A MOVE, NOT A REWRITE: shared/permission-effect-shape.ts is ONE small module holding the closed enum PermissionEffectShape and the GENUINELY PURE per-LEAF classifyPermissionEffectShape(leaf, { stdinOk }) (no fs, no capability ids, no workspace root; stdinOk is the compound/pipeline fact the orchestration already derives per leaf — standalone false, compound true, auto-permission-read-only-gate.ts:131,137 — and requiresTarget is derived from it INSIDE the classifier because BashCommandLeaf carries no compound context, bash-command-parser.ts:14) returning a DISCRIMINATED result — { kind: read_only_command, executable, targets } | { kind: file_read, action, targets, requiresTarget } | { kind: not_read_only, reason }; it takes over the per-leaf shape logic (:152-246,248-260,348-359,361-366,368-469 — includes grepFileArgs :429-468 and the pure isProvablyWorkspacePath :361-366; NOT :79-105, which is capability normalization and top-level dispatch and stays in the gate). NOT MOVED, verbatim in the gate: compound orchestration over ordered leaves (:120-140), the whole-command raw guards at :115-122 and :149-150 (protected-path/secret MENTIONS over the command text; grep settings.yaml README.md is refused on the mention), and the MCP read-binding branch (dispatch :100-105, evaluator :311-345). shared/permission-hard-boundaries.ts owns the per-TARGET checks from the file-read path VERBATIM (:261-308 only — capability boundary, realpath containment, protected-path, hidden-segment, secret; disjoint from the shape module's :248-260,361-366). The gate keeps its exported signature and result; inside its unchanged orchestration each leaf becomes shape -> boundaries with EXACT result-and-reason parity; three explicit parity leaves in the composition test: standalone cat vs the same leaf in cat | wc -l; a compound command; a non-target protected mention (the existing :342-346 case is the workspace-root one, not the mention proof). Both callers (rails :149-158, classifier :305-314,341-356) untouched. Any verdict or reason change in an existing test is a defect, not a fixture to update.
-- Rails ownership (assumption A-0070): T2a owns ONLY the attachment_open input-gated birthright row and ONE typed predicate map INPUT_GATED_BIRTHRIGHT_ARGUMENT_PREDICATES consulted by the input-gated evaluation (:110-142) on the request display copy toolInput AFTER today's completeness, sanitization (:125) and redaction (:264) checks — those vetoes stay byte-for-byte for EVERY row including this one (grill r4: an exemption would turn a shortened 513-char id into a tool error and contradict AF-AC2 'a malformed id asks'). The single entry judges SHAPE: an array of 1..12 strings, each non-blank after trim; predicate false -> the EXISTING input-gated ASK outcome; a shortened (over-500-char, runtime/ipc-tool-input-sanitization.ts:6,64) or redacted (token-like, :11,55) id asks via the existing vetoes — real attachment ids are short host-generated strings, none is ever shortened or redacted. No length rule, no veto exemption, no change to runtime/ipc-parsing.ts, no dependence on classifierToolInput. Origin stays host-validated (jobs/ipc-attachment-open-handler.ts:43-84; handler and its tests untouched, not in scope). No other rails row, signal or verdict changes; the unsupported_meta_executor signal (T1) is untouched.
+- Rails ownership (assumption A-0070): T2a owns ONLY the attachment_open input-gated birthright row and ONE typed fact map (ReadonlyMap<string, (request) => boolean>, single entry) consulted by the input-gated evaluation (:110-142). ONE RULE (owner ruling 2026-09-04, widen — every HOST-VALID id is zero-tap): the fact is PermissionApprovalRequest.attachmentOpenIds?: { wellFormed: boolean; count: number } (domain/types.ts beside classifierToolInput :220-226), computed ONCE in the IPC parser from the RAW decisionToolInput before either sanitizer (runtime/ipc-parsing.ts:433-450, returned at :487-491) by a pure attachmentOpenIdsFact(input): undefined unless the tool is attachment_open; wellFormed iff attachment_ids is an array of 1..12 strings, each non-blank and <=512 after trim — the host's own validity shape (jobs/ipc-attachment-open-handler.ts:54-59, shared/object.ts:7). For the attachment_open row the fact REPLACES the completeness, sanitization (:125,288) and redaction (:264) checks; rows without an entry keep those checks byte-for-byte; fact absent or false -> the EXISTING input-gated ASK outcome. The sanitizers are NOT changed (display stays masked/shortened as today; classifier copy untouched). Origin stays host-validated (:43-84; handler and tests untouched). Rejected: sanitizer special-casing (display length after redaction is not the host's trimmed length; rails receive only the union of altered paths) and any veto exemption keyed on sanitized marks. No other rails row, signal or verdict changes; the unsupported_meta_executor signal (T1) is untouched.
 - Rails are mode-blind (no permission-mode input), so 'every mode' holds by construction; the S1 fixture replays the four PermissionLane values through T1's replayPermissionRequest and asserts 0 taps with the birthright decidedBy. The host handler and resolver are NOT touched: origin validation (ipc-attachment-open-handler.ts:43-84; attachment-resolver.ts:167-186) and the not-found copy (attachment-failure.ts:4-5) are already pinned by their own suites.
 - Typed status: domain/permission-classifier-status.ts exports the closed enum PermissionClassifierStatus (answered | unavailable | skipped); PermissionClassifierResult.status is REQUIRED and stamped at EVERY branch: failedResult (:642-658) maps llm_unconfigured/timeout/model_resolution_failure/query_error/parse_failure/validation_failure -> unavailable and aborted/input_truncated -> skipped; strict-deterministic (:341-353), skipped-local (:339-340) and native-risk -> skipped; LLM success (:240-246) -> answered; the ONE structural constructor outside the classifier file — the cached-verdict result in runtime/ipc-permission-classifier-decision.ts:293 (T1 file, edited for that constructor only) — stamps skipped. No string literals for status. The status is INTERNAL in T2a: the runtime decision-event payload (:624) and its exact-payload test (permission-classifier.test.ts:1689) are unchanged; T6 publishes it. TODO(T6) marker: status is stamped, not yet consumed (latch + wiring-missing unavailable are T6).
 - Native-risk branch (:327-330,354-355) moves to runtime/permission-classifier-native-risk.ts as evaluateNativeRiskBranch(input) -> PermissionClassifierResult | undefined with an UNCHANGED verdict and the same gantryRisk inputs; T2b later passes tool arguments into that helper. The classifier file must not grow a second native-risk path.
@@ -135,13 +135,13 @@ Recorded lessons that apply to this task's paths. A finding that contradicts one
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T2b
 
@@ -157,13 +157,13 @@ No task-specific reviewer focus declared.
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T3a
 
@@ -179,13 +179,13 @@ No task-specific reviewer focus declared.
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T3b
 
@@ -201,13 +201,13 @@ No task-specific reviewer focus declared.
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T3c
 
@@ -223,13 +223,13 @@ No task-specific reviewer focus declared.
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T4
 
@@ -245,13 +245,13 @@ No task-specific reviewer focus declared.
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T5a
 
@@ -267,13 +267,13 @@ No task-specific reviewer focus declared.
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T5b
 
@@ -289,13 +289,13 @@ No task-specific reviewer focus declared.
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`
 
 ## Task ASKFLOOR-1-T6
 
@@ -311,10 +311,10 @@ No task-specific reviewer focus declared.
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 114b47f171ba
+- verify.py: ok at 97824d74c443
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: passed
-  - ASKFLOOR-1-T1 automated proof: the sixteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the nine touched unit suites pass on the host (240 tests); the full unit suite passes under verify.py (690 files / 9150 tests); tsc and check:architecture green. Postgres integration lane run separately as evidence: seven suites green alone; live-waiting-admission (2) and inline-agent-runtime child runs (2) are pre-existing reds on base 00a6c01f9 and origin/main, not T1 regressions.
-  - 19 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low" --outputFile=<junit-report>`
+  - ASKFLOOR-1-T2a automated proof: the thirteen required leaf tests ran through the stage-done JUnit gate (exact-leaf attribution) and pass; the eight touched unit suites pass on the host (388 tests); the full unit suite passes under verify.py (692 files / 9166 tests); tsc and check:architecture green (ipc-parsing.ts at the 790-line budget). Postgres integration lane: T2a touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.
+  - 17 command(s) recorded, e.g. `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/shared/permission-deterministic-rails.test.ts -t "allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted" --outputFile=<junit-report>`

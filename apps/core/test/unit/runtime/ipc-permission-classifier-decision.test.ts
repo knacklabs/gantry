@@ -1,3 +1,5 @@
+import fs from 'fs';
+
 import { describe, expect, it, vi } from 'vitest';
 import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 
@@ -176,6 +178,16 @@ async function resolveCommandInLane(input: {
 }
 
 describe('IPC permission classifier decision', () => {
+  it('stamps a cached classifier verdict with status skipped', () => {
+    const source = fs.readFileSync(
+      'apps/core/src/runtime/ipc-permission-classifier-decision.ts',
+      'utf8',
+    );
+    expect(source).toMatch(
+      /cachedClassifierVerdict,\s*status: PermissionClassifierStatus\.Skipped,\s*latencyMs: 0/,
+    );
+  });
+
   it.each(['low', 'medium'] as const)(
     'honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: %s',
     async (riskLevel) => {

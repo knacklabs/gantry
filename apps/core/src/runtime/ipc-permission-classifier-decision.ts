@@ -11,6 +11,7 @@ import {
   RailSignal,
   type RailProvenance,
 } from '../domain/permission-lane.js';
+import { PermissionClassifierStatus } from '../domain/permission-classifier-status.js';
 import type {
   ConversationRoute,
   PermissionApprovalDecision,
@@ -294,6 +295,7 @@ async function consultIpcPermissionClassifier(
     return {
       decision: {
         ...input.context.cachedClassifierVerdict,
+        status: PermissionClassifierStatus.Skipped,
         latencyMs: 0,
       },
     };
