@@ -191,16 +191,137 @@
       "title": "Shape classifier extraction, attachment birthright, judge status",
       "objective": "Extract one typed effect-shape classifier and the containment helpers from the read gate into shared modules; add the attachment_open input-gated birthright to the deterministic rails for every mode (the only rails ROW added by the story; T1 separately owns the typed unsupported_meta_executor signal per A-0070); stamp a typed classifier status answered|unavailable|skipped at every branch of the classifier runtime, with the native-risk branch isolated into a named helper.",
       "acceptance_criteria": [
-        "attachment_open of an attachment already in the conversation never asks in ask, auto, auto_strict or autonomous mode; a malformed id asks; a failed host origin validation yields the not-found line, never a card (per-mode rails tests)",
-        "the effect-shape classifier reports read-only shape without containment; the read gate and rails use it and behave exactly as today",
-        "every classifier branch carries a typed status; only a successful LLM verdict is answered; the six unusable-result codes are unavailable; aborted/input_truncated and non-LLM branches are skipped",
-        "AF-AC8 S1 attachment read = 0 taps",
-        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+        "`attachment_open` with a well-formed `attachment_ids` list (one to twelve non-blank strings, each at most 512 characters after trimming \u2014 the runner schema `runner/mcp/tools/attachment.ts:38-68` and the host limit `ipc-attachment-open-handler.ts:54-59`) is an input-gated birthright in the deterministic rails, so it never asks in ask, auto, auto_strict or autonomous mode (rails are mode-blind; the S1 fixture replays all four lanes at 0 taps); a missing, empty, over-long, blank or non-string id list asks with the rails' existing incomplete-input outcome; a failed host origin validation keeps returning the not-found line (\"I couldn't find that attachment in this conversation.\") and never a card (host handler unchanged).",
+        "a pure effect-shape classifier (`shared/permission-effect-shape.ts`) reports the read-only shape and its target paths without any filesystem, capability or workspace input; a hard-boundaries evaluator (`shared/permission-hard-boundaries.ts`) owns the capability boundary, realpath containment, protected-path, hidden-segment and secret checks; `evaluateAutoPermissionReadOnlyGate` composes them and every existing gate, rails and classifier test passes unchanged.",
+        "`PermissionClassifierResult` carries a REQUIRED closed `status` (`domain/permission-classifier-status.ts`: `answered | unavailable | skipped`): only a successful LLM verdict is `answered`; `llm_unconfigured timeout model_resolution_failure query_error parse_failure validation_failure` are `unavailable`; `aborted`, `input_truncated`, the native-risk, strict-deterministic and skipped-local branches are `skipped`; the native-risk branch lives in the named helper `runtime/permission-classifier-native-risk.ts` with an unchanged verdict.",
+        "AF-AC8 S1 \u2014 opening an attachment already in the conversation \u2014 replays at 0 taps in every lane through T1's harness, added as a fixture without editing T1's leaves.",
+        "existing unit suites pass; tsc and check:architecture green."
       ],
       "depends_on": [
         "ASKFLOOR-1-T1"
       ],
-      "user_facing": false
+      "user_facing": false,
+      "plan_contracts": [
+        {
+          "id": "ASKFLOOR-1-T2a-AC1",
+          "statement": "`attachment_open` with a well-formed `attachment_ids` list (one to twelve non-blank strings, each at most 512 characters after trimming \u2014 the runner schema `runner/mcp/tools/attachment.ts:38-68` and the host limit `ipc-attachment-open-handler.ts:54-59`) is an input-gated birthright in the deterministic rails, so it never asks in ask, auto, auto_strict or autonomous mode (rails are mode-blind; the S1 fixture replays all four lanes at 0 taps); a missing, empty, over-long, blank or non-string id list asks with the rails' existing incomplete-input outcome; a failed host origin validation keeps returning the not-found line (\"I couldn't find that attachment in this conversation.\") and never a card (host handler unchanged).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2a-AC2",
+          "statement": "a pure effect-shape classifier (`shared/permission-effect-shape.ts`) reports the read-only shape and its target paths without any filesystem, capability or workspace input; a hard-boundaries evaluator (`shared/permission-hard-boundaries.ts`) owns the capability boundary, realpath containment, protected-path, hidden-segment and secret checks; `evaluateAutoPermissionReadOnlyGate` composes them and every existing gate, rails and classifier test passes unchanged.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2a-AC3",
+          "statement": "`PermissionClassifierResult` carries a REQUIRED closed `status` (`domain/permission-classifier-status.ts`: `answered | unavailable | skipped`): only a successful LLM verdict is `answered`; `llm_unconfigured timeout model_resolution_failure query_error parse_failure validation_failure` are `unavailable`; `aborted`, `input_truncated`, the native-risk, strict-deterministic and skipped-local branches are `skipped`; the native-risk branch lives in the named helper `runtime/permission-classifier-native-risk.ts` with an unchanged verdict.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2a-AC4",
+          "statement": "AF-AC8 S1 \u2014 opening an attachment already in the conversation \u2014 replays at 0 taps in every lane through T1's harness, added as a fixture without editing T1's leaves.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2a-AC5",
+          "statement": "existing unit suites pass; tsc and check:architecture green.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md#acceptance-criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/shared/auto-permission-read-only-gate.ts",
+        "apps/core/src/shared/permission-effect-shape.ts",
+        "apps/core/src/shared/permission-hard-boundaries.ts",
+        "apps/core/src/domain/permission-deterministic-rails.ts",
+        "apps/core/src/domain/permission-classifier-status.ts",
+        "apps/core/src/runtime/permission-classifier.ts",
+        "apps/core/src/runtime/permission-classifier-native-risk.ts",
+        "apps/core/test/unit/shared/auto-permission-read-only-gate.test.ts",
+        "apps/core/test/unit/shared/permission-effect-shape.test.ts",
+        "apps/core/test/unit/shared/permission-hard-boundaries.test.ts",
+        "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+        "apps/core/test/unit/runtime/permission-classifier.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts"
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py",
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 16,
+        "max_changed_lines": 1400,
+        "reason": "The grilled contract spans 7 source files (read gate split into two NEW shared modules; rails birthright row + predicate map; NEW domain status enum; classifier status stamping with the native-risk branch moved to a NEW helper file) and 7 test files (two NEW module suites, moved cases, S1 fixture); the split moves existing lines rather than adding logic."
+      },
+      "required_tests": [
+        {
+          "id": "allows attachment_open as an input-gated birthright when attachment_ids is a list of one to twelve well-formed ids",
+          "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "asks for attachment_open when attachment_ids is missing, empty, over twelve, blank, over-long or not a string",
+          "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps every existing birthright row and read-only allow unchanged after the shape and boundary split",
+          "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "classifies read-only command and file-read shapes without touching the filesystem",
+          "path": "apps/core/test/unit/shared/permission-effect-shape.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "refuses out-of-workspace, protected, hidden-segment, secret and capability-boundary targets exactly as the read gate did",
+          "path": "apps/core/test/unit/shared/permission-hard-boundaries.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "reproduces every prior allow and refuse verdict by composing shape and hard boundaries",
+          "path": "apps/core/test/unit/shared/auto-permission-read-only-gate.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stamps status answered only for a successful LLM verdict",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stamps status unavailable for the six unusable-result failure codes",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stamps status skipped for aborted, input_truncated and every non-LLM branch",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "routes the native-risk branch through the named helper with an unchanged verdict",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "S1: opening an attachment already in the conversation costs 0 taps in every lane",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "reviewer_focus": [
+        "Constitution (load-bearing): constitution/README.md -> pnp-coding-standards-modular-monolith.md (types/enums in their own files; typed enums over string literals; thin composition) and 03-modular-monolith-structure.md (shared vs domain vs runtime placement). Conformance, not a new layout.",
+        "SPLIT IS A MOVE, NOT A REWRITE: shared/permission-effect-shape.ts is a GENUINELY PURE function (no fs, no capability ids, no workspace root) returning the closed enum PermissionEffectShape (read_only_command | file_read | not_read_only) plus target paths; shared/permission-hard-boundaries.ts owns the capability boundary, realpath containment, allProtectedPathMentions, hidden-segment and secret checks VERBATIM from auto-permission-read-only-gate.ts:248-308; the gate keeps its exported signature and result shape and becomes shape -> boundaries. Reason strings identical (existing tests assert them). Both callers (rails :149-158, classifier :305-314,341-356) untouched. Any verdict change in an existing test is a defect, not a fixture to update.",
+        "Rails ownership (assumption A-0070): T2a owns ONLY the attachment_open input-gated birthright row and ONE typed predicate map INPUT_GATED_BIRTHRIGHT_ARGUMENT_PREDICATES consulted by the input-gated evaluation (:110-142) after today's completeness/sanitization check; the single entry validates attachment_ids as an array of 1..12 strings, non-blank after trim, each <= 512 chars (runner schema runner/mcp/tools/attachment.ts:38-68; host limit jobs/ipc-attachment-open-handler.ts:54-59). Predicate false -> the EXISTING input-gated ASK outcome (same typed signal/reason shape). No other rails row, signal or verdict changes; the unsupported_meta_executor signal (T1) is untouched.",
+        "Rails are mode-blind (no permission-mode input), so 'every mode' holds by construction; the S1 fixture replays the four PermissionLane values through T1's replayPermissionRequest and asserts 0 taps with the birthright decidedBy. The host handler and resolver are NOT touched: origin validation (ipc-attachment-open-handler.ts:43-84; attachment-resolver.ts:167-186) and the not-found copy (attachment-failure.ts:4-5) are already pinned by their own suites.",
+        "Typed status: domain/permission-classifier-status.ts exports the closed enum PermissionClassifierStatus (answered | unavailable | skipped); PermissionClassifierResult.status is REQUIRED and stamped at EVERY branch: failedResult (:642-658) maps llm_unconfigured/timeout/model_resolution_failure/query_error/parse_failure/validation_failure -> unavailable and aborted/input_truncated -> skipped; strict-deterministic (:341-353), skipped-local (:339-340) and native-risk -> skipped; LLM success (:240-246) -> answered. No string literals for status. TODO(T6) marker: status is stamped, not yet consumed (latch + wiring-missing unavailable are T6).",
+        "Native-risk branch (:327-330,354-355) moves to runtime/permission-classifier-native-risk.ts as evaluateNativeRiskBranch(input) -> PermissionClassifierResult | undefined with an UNCHANGED verdict and the same gantryRisk inputs; T2b later passes tool arguments into that helper. The classifier file must not grow a second native-risk path.",
+        "Concerns that must not share a file: shape (pure, shared) vs boundaries (fs-backed, shared) vs the gate (composition); the status enum (domain) vs its stamping (runtime); the native-risk helper (runtime, T2b-owned next) vs the classifier orchestration.",
+        "No domain error type introduced (no named failure contract). Nothing DEFERRED beyond the TODO(T6) consumption marker; T2b owns gantry-tool-risk.ts and the native Write/Edit path judgment \u2014 not touched here.",
+        "Verification: python3 factory/scripts/verify.py is authoritative in the gate environment; the Postgres lane is orchestrator-run evidence (T2a touches no storage code)."
+      ]
     },
     {
       "id": "ASKFLOOR-1-T2b",
@@ -332,5 +453,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "5188df4731295e6f46755926cf9cfa297dee7ee2"
+  "commit": "2fdbd8e00a528b9a010f7f35b5c0a6d84b7d8977"
 }
