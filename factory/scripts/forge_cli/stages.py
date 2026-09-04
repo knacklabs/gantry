@@ -918,8 +918,14 @@ def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
     reopen_base = stage.pop("reopen_base_sha", None)
     pinned = ""
     if isinstance(reopen_base, str) and reopen_base:
-        if _git(base, "merge-base", "--is-ancestor", reopen_base,
-                head_sha(base) or "HEAD").returncode == 0:
+        # stages' `_git` returns stdout (empty on failure); an ancestor check is
+        # a return code, so ask subprocess directly, as the done path does.
+        ancestor = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", reopen_base, "HEAD"],
+            cwd=base, capture_output=True, text=True, encoding="utf-8",
+            env=clean_git_env(),
+        ).returncode == 0
+        if ancestor:
             _git(base, "update-ref", stage_ref(args.id), reopen_base)
             pinned = reopen_base
             print(f"Stage baseline restored to {reopen_base[:12]} (reopened task): "
