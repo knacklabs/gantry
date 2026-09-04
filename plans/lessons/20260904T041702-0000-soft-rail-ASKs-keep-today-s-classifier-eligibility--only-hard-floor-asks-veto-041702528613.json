@@ -1,0 +1,13 @@
+{
+  "topic": "soft rail ASKs keep today's classifier eligibility; only hard-floor asks veto",
+  "lesson": "CORRECTS lesson 66: T1 must not turn every non-relaxable rail ASK into a classifier veto. Today a non-hard-floor ASK (e.g. RailSignal.Destructive for an ordinary single-file delete) is classifier-eligible and cacheable \u2014 pinned by the existing rails test 'keeps an ordinary single-file delete eligible for classifier allow and caching' \u2014 and the T1 contract keeps that byte-for-byte. Veto = hard-floor asks (missing/redacted/truncated input, protected/secret paths, capability gates) exactly as before; relaxation = the two signals; everything else = today's behaviour, no new veto.",
+  "source": "ASKFLOOR-1-T1 run 5 host verification: rails pin failed after the universal-veto change; autoreview r2 P1 over-corrected",
+  "applies_to": [
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+    "apps/core/test/unit/shared/permission-deterministic-rails.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-04T04:17:02+00:00"
+}
