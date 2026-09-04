@@ -151,10 +151,17 @@ def resolve_review_base(base: Path, stage: dict, state: dict, tip_sha: str) -> s
     task never touched (observed 2026-09-04: a per-task review scored 0 on five
     vendored-harness findings and recorded every contract as partial because
     the chunked reviewer never reached the verdict lines). The task's own delta
-    is `merge-base(origin/<trunk>, HEAD)...HEAD`; use that point whenever it
-    descends from the recorded base, and keep the recorded base otherwise (no
-    trunk merge happened, or the trunk moved without being merged — then the
-    diff still starts where the task did)."""
+    is `merge-base(origin/<trunk>, HEAD)...HEAD`. Use that point unless it is
+    an ancestor of the recorded base — i.e. no trunk landed in the branch since
+    the stage began (the trunk may have moved without being merged; then the
+    diff still starts where the task did). The recorded base may itself be a
+    branch commit (a story branch that carried planning commits before the
+    stage started, then merged the trunk): it is then neither ancestor nor
+    descendant of the trunk point, no single commit means "base plus trunk",
+    and the trunk point is still the right base — the branch's own commits
+    since divergence are the task under the per-task flow, and on a legacy
+    story branch they are the story's earlier planning artifacts, which the
+    harness-path filter drops."""
     from factory_lib import default_trunk_branch
     trunk = default_trunk_branch(base)
     recorded = stage.get("base_sha") or state.get("base_main_sha")
@@ -167,10 +174,10 @@ def resolve_review_base(base: Path, stage: dict, state: dict, tip_sha: str) -> s
     merged = _git(base, "merge-base", f"origin/{trunk}", tip_sha)
     trunk_point = merged.stdout.strip() if merged.returncode == 0 else ""
     if (trunk_point and trunk_point != base_sha
-            and _git(base, "merge-base", "--is-ancestor", base_sha, trunk_point).returncode == 0):
+            and _git(base, "merge-base", "--is-ancestor", trunk_point, base_sha).returncode != 0):
         print(f"task base advanced {base_sha[:12]} -> {trunk_point[:12]}: the trunk was "
-              "merged into this branch after the stage began; only the task's own "
-              "delta is reviewed")
+              "merged into this branch after the stage began; only the branch's own "
+              "delta since it diverged from the trunk is reviewed")
         return trunk_point
     return base_sha
 
