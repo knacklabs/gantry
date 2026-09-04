@@ -51,12 +51,12 @@
       "frontier_empty": true
     }
   ],
-  "summary": "T1 task grill: 9 Codex sol@xhigh rounds folded; budget 26/1800 (owner). RE-RECORDED after run 6 (autoreview r2 fixes; soft-ASK eligibility restored per lesson 70; host tsc + 9 suites / 239 tests green) and after S-0067: required-test ids 9 and 13 renamed to plain words (Vitest -t is a regex); contract otherwise unchanged.",
-  "input_sha256": "6dc7d1c312262b47c270d32c6606993524e0b5623c86d93d0e4f1b6cff4cdd50",
+  "summary": "T1 task grill: 9 Codex sol@xhigh rounds folded; budget 26/1800 (owner); ids 9/13 renamed (S-0067). RE-RECORDED after run 7 (done; renames) and autoreview r3 (2 P1: cached allow consumed in ask lane; bare dot segments evade protected-path patterns) ledgered as lessons 71/72 and returned to Codex; contract unchanged.",
+  "input_sha256": "79878921846f355581a5224057c1197ff22dafd6da1b14fc8d8b644190b47f3d",
   "task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
-  "recorded_at": "2026-09-04T04:27:23+00:00",
-  "commit": "0db9efa9fef0758e0dc3cab204fd30b883a3fedc",
+  "recorded_at": "2026-09-04T04:42:09+00:00",
+  "commit": "26277b61b2202091ad4b2bd25843bc07af9636b0",
   "approved_task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T04:27:23+00:00"
+  "approved_at": "2026-09-04T04:42:09+00:00"
 }
