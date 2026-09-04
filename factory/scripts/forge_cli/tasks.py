@@ -327,10 +327,28 @@ def cmd_task_reopen(args: argparse.Namespace) -> None:
     if idx is None:
         fail(f"task {args.id} is not in the current decomposition")
     target = stages[idx]
-    if target.get("status") != "done":
-        fail(f"task {args.id} is '{target.get('status')}', not done. Only a done "
-             "task is reopened: an active task's contract is amended in place, and "
-             "a pending task has not started.")
+    # A done task reopens. So does an ACTIVE task that closed `--incomplete`: the
+    # harness's own "partial work" marker leaves the stage active on purpose,
+    # and the only way forward from a stage that cannot close (an empty
+    # measured diff after a reopen) is to reopen it with the right base.
+    status = target.get("status")
+    if not (status == "done" or (status == "active" and target.get("incomplete"))):
+        fail(f"task {args.id} is '{status}', not done (or active-and-incomplete). "
+             "An active task's contract is amended in place, and a pending task "
+             "has not started.")
+    # The base the task's work started from survives the reopen: `stage start`
+    # pins the stage ref to it, so the reopened stage measures the task's real
+    # delta instead of an empty diff from today's HEAD (symphony-forge #171).
+    # `--base` names it explicitly when the record no longer carries it.
+    explicit = (getattr(args, "base", None) or "").strip()
+    if explicit:
+        resolved = _git(base, "rev-parse", "--verify", "--quiet", f"{explicit}^{{commit}}")
+        if resolved.returncode != 0:
+            fail(f"--base {explicit} is not a commit in this repository")
+        explicit = resolved.stdout.strip()
+        if _git(base, "merge-base", "--is-ancestor", explicit, "HEAD").returncode != 0:
+            fail(f"--base {explicit[:12]} is not an ancestor of HEAD")
+    reopen_base = explicit or target.get("reopen_base_sha") or target.get("base_sha") or ""
     # Shipped work is immutable. The task marker rides onto the integration branch
     # at merge; if it is there, the work is shipped — add a follow-up task instead.
     default_branch = _default_branch(base)
@@ -360,6 +378,8 @@ def cmd_task_reopen(args: argparse.Namespace) -> None:
             stage.pop(field, None)
         stage["status"] = "pending"
         reopened.append(stage.get("id"))
+    if reopen_base:
+        stages[idx]["reopen_base_sha"] = reopen_base
     write_stages(base, data)
     print(
         f"Reopened {', '.join(reopened)} -> pending; the frontier is back at "

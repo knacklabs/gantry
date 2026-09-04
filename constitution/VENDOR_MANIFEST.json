@@ -1,5 +1,5 @@
 {
-  "harness_commit": "9d9aefe8e9cfadd374de96ac8402b6112bd62d3b",
+  "harness_commit": "1872b476fada5dc17afdf8e01f9ddac438ef13c9",
   "files": {
     "factory/scripts/check_agents_hygiene.py": "63b5db9b788ebc55d3542af506566ab8d45ba7c7f588a6f93e78d3811d0003c4",
     "factory/scripts/check_board_complete.py": "75022051af7cc2928039641ba2ef1a5f31e45e6b5c1651e15c2213cca6c6a7a0",
@@ -12,7 +12,7 @@
     "factory/scripts/check_task_proof.py": "228f1e893db557a9f5b24543f839f8265844249af7b2d723af5b3ba4de5274bf",
     "factory/scripts/check_vendor_integrity.py": "f8a6d0f0ecf2440334944c7c3c9395024c15d9e76b44ac524cdf2592d513d931",
     "factory/scripts/factory_lib.py": "dff10ed80b11def6b53e6b7b1d5c2ec72620c881fae78f5b67833bede45542e9",
-    "factory/scripts/forge.py": "ce7f05e55a72fb239b2e56635aa5582f0db5bce86020d292595d59d75839462d",
+    "factory/scripts/forge.py": "ca691806c0cd83f357a67831d507b9e8ec4181af57f28bfb1827ed49a3b6dc24",
     "factory/scripts/forge_cli/__init__.py": "4ab03bbb8200c9ec1fcba0ec1b326bd8de4352d024f5cfdd6a1f46755e0dc0b4",
     "factory/scripts/forge_cli/adopt.py": "b6d34e97ba5967447d5aa8dfa2c7ae5dfffcf0aea2d34f16c7d11839bf11a63c",
     "factory/scripts/forge_cli/assumptions.py": "474ce594e8d1348487d12545310894eebd60b382ef969ce9cdce049c56e7b8a6",
@@ -49,9 +49,9 @@
     "factory/scripts/forge_cli/scratchpad.py": "6b5b57ba5c9a558d5fdfe8d48c835490eaaf48ef29097d05ce4c18da3a03f510",
     "factory/scripts/forge_cli/signal.py": "751fdc0e021f7a137a82ded23755db8b4540fa531df2c49186cc0b3bfbe7591b",
     "factory/scripts/forge_cli/specs.py": "bd66ffdca2ee89a14e17e86acb24f5a8ec2aa3a86cb3ce2b3b9d06e9821e34c0",
-    "factory/scripts/forge_cli/stages.py": "f369c1abd7c0f906f79a3789d1b7fdc8a54ec9c051e387d8685dc71289a55206",
+    "factory/scripts/forge_cli/stages.py": "e468a7523c07f048119194f396ecd625ee45a08f06220a26f487dda301f616f0",
     "factory/scripts/forge_cli/story.py": "dba9eaf5974a535b51c04944753cb37ebcaf6239a58d869c7be4099bb12cf7e8",
-    "factory/scripts/forge_cli/tasks.py": "3f96ce722c859048fc63a6a28f1d4881f55cb72877aaf27a93d02e1c95bfc7f9",
+    "factory/scripts/forge_cli/tasks.py": "90b835e89a0a22357e5b8fe086a2be293e8028178d5b0f8ccd419a5e5541b305",
     "factory/scripts/forge_cli/team.py": "499ca14519cb96529f2371e03ec213e1341c8e1bbe8d98555937c76a2131a471",
     "factory/scripts/forge_cli/upgrade.py": "45e05b1fbc3cfc15fa8f408b60717fe0039bf6e0dde4b21f5e6228caa45f417e",
     "factory/scripts/intake.py": "ccd4879f87d5d5037dc4e8c302fb172390deb31b37525ab574aab5affca8068f",
