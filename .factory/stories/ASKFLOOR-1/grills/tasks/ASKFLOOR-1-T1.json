@@ -51,12 +51,12 @@
       "frontier_empty": true
     }
   ],
-  "summary": "T1 task grill: 9 Codex sol@xhigh rounds folded; budget 26/1800 (owner). RE-RECORDED on the implemented tree (feat 6def202a4 + lessons c248de53d): run 3 ended done (16 selectors, 238 tests, tsc, check:architecture); stage-local autoreview r1 = 2 P2 (fail-closed find options in every position; rail-ASK through every stage) ledgered as path lessons 64/65 and returned to Codex; contract unchanged.",
-  "input_sha256": "3c4c32f853d4b610d65fc7a6e32a2a61804e30b568f9be2852434b41d0999fe8",
+  "summary": "T1 task grill: 9 Codex sol@xhigh rounds folded; budget 26/1800 (owner). RE-RECORDED on the fix-round tree (fix commit after 6def202a4; lessons 64-69): autoreview r1 2xP2 fixed by run 4 (compact-404 after writing; host tsc + 238 tests green); autoreview r2 2xP1 + 3xP2 (path-qualified find; non-relaxable rail ASK veto; cached allow through merge; trusted-root stage tail invocation; red verify record) ledgered as path lessons 66-69 and returned to Codex; contract unchanged.",
+  "input_sha256": "25b2d1aa987b5725b8ba3c17b9c37e7d468b4658a0b95cecb2f59d9ef92c56cc",
   "task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
-  "recorded_at": "2026-09-04T03:39:51+00:00",
-  "commit": "c248de53d6767344cea8a68a310277d1df033ea9",
+  "recorded_at": "2026-09-04T04:04:28+00:00",
+  "commit": "a86445580726b6e28c8156766268eb5d780a1554",
   "approved_task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T03:39:51+00:00"
+  "approved_at": "2026-09-04T04:04:28+00:00"
 }
