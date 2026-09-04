@@ -645,7 +645,7 @@ describe('requestPermissionApproval', () => {
     });
   });
 
-  it('waits for and honors a late host allow response for zero-timeout auto mode', async () => {
+  it('carries railProvenance through the Anthropic runner permission decoder', async () => {
     process.env.GANTRY_PERMISSION_LANE = 'autonomous';
     process.env.GANTRY_JOB_ID = 'job-auto';
     process.env.GANTRY_JOB_RUN_ID = 'run-auto';
@@ -696,6 +696,10 @@ describe('requestPermissionApproval', () => {
         approved: true,
         mode: 'allow_once',
         decidedBy: 'auto_classifier',
+        railProvenance: {
+          signal: 'unsupported_meta_executor',
+          reason: 'Bash meta-executor find requires classifier review.',
+        },
         reason: 'allowed once',
         decisionClassification: 'user_temporary',
         signature: 'test-signature',
@@ -706,6 +710,10 @@ describe('requestPermissionApproval', () => {
       approved: true,
       mode: 'allow_once',
       decidedBy: 'auto_classifier',
+      railProvenance: {
+        signal: 'unsupported_meta_executor',
+        reason: 'Bash meta-executor find requires classifier review.',
+      },
       decisionClassification: 'user_temporary',
     });
   });

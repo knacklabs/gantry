@@ -300,7 +300,7 @@ describe('requestPermissionApprovalViaIpc', () => {
     });
   });
 
-  it('waits for and honors a late host allow response for zero-timeout auto mode', async () => {
+  it('carries railProvenance through the signed IPC decision payload and the generic runner decoder', async () => {
     const keys = createIpcResponseSigningKeyPair();
     const decision = requestPermissionApprovalViaIpc(
       runtimeEnv({
@@ -343,6 +343,10 @@ describe('requestPermissionApprovalViaIpc', () => {
       mode: 'allow_once',
       decidedBy: 'auto_classifier',
       source: 'auto_classifier',
+      railProvenance: {
+        signal: 'out_of_trusted_root',
+        reason: 'Command is outside the owner-declared trusted roots.',
+      },
       repeatableForFutureRuns: true,
       reason: 'allowed once',
       risk_level: 'high',
@@ -369,6 +373,10 @@ describe('requestPermissionApprovalViaIpc', () => {
       mode: 'allow_once',
       decidedBy: 'auto_classifier',
       source: 'auto_classifier',
+      railProvenance: {
+        signal: 'out_of_trusted_root',
+        reason: 'Command is outside the owner-declared trusted roots.',
+      },
       repeatableForFutureRuns: true,
       risk_level: 'high',
       risk_category: 'network',

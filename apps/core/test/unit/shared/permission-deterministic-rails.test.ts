@@ -331,6 +331,33 @@ describe('permission deterministic rails', () => {
     });
   });
 
+  it('emits the canonical unsupported_meta_executor rail signal for a meta-executor refusal with the ASK verdict unchanged', () => {
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: request('find . -delete'),
+      }),
+    ).toMatchObject({
+      railOutcome: 'ask',
+      railSignal: 'unsupported_meta_executor',
+      reason: expect.stringContaining('meta-executor find'),
+      hardFloor: true,
+    });
+  });
+
+  it.each(['ask', 'auto', 'auto_strict', 'job'])(
+    'treats a stderr redirect to /dev/null as a non-path in every lane: %s',
+    () => {
+      const workspaceRoot = makeRoot();
+      expect(
+        evaluatePermissionDeterministicRails({
+          request: request('git status 2>/dev/null'),
+          workspaceRoot,
+          trustedRoots: [workspaceRoot],
+        }),
+      ).toBeUndefined();
+    },
+  );
+
   it.each([
     ['node interpreter string', 'node -e "process.exit()"'],
     ['python interpreter string', 'python -c "print(1)"'],

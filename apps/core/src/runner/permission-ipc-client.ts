@@ -15,6 +15,7 @@ import { NO_PERMISSION_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import { ipcInteractionAuthEnvelopeOptions } from '../shared/ipc-interaction-lifetime.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { JobPermissionOutcome } from '../shared/unprojected-access.js';
+import type { RailProvenance } from '../domain/permission-lane.js';
 import {
   DEFAULT_IPC_RESPONSE_POLL_MS,
   waitForIpcResponseFile,
@@ -69,6 +70,7 @@ export interface PermissionDecisionResult {
     | 'trusted_root'
     | 'human_once'
     | 'human_persistent';
+  railProvenance?: RailProvenance;
   repeatableForFutureRuns?: boolean;
   reason?: string;
   risk_level?: 'low' | 'medium' | 'high' | 'critical';
@@ -362,6 +364,7 @@ function readPermissionResponse(input: {
       typeof responsePayload.unprojectedAccessIdentity === 'string'
         ? responsePayload.unprojectedAccessIdentity.trim().slice(0, 300)
         : undefined;
+    const railProvenance = decodeRailProvenance(responsePayload.railProvenance);
     if (
       jobPermissionOutcome === 'approved_unprojected' &&
       !unprojectedAccessIdentity
@@ -377,6 +380,7 @@ function readPermissionResponse(input: {
       source: isPermissionDecisionSource(responsePayload.source)
         ? responsePayload.source
         : undefined,
+      ...(railProvenance ? { railProvenance } : {}),
       repeatableForFutureRuns:
         typeof responsePayload.repeatableForFutureRuns === 'boolean'
           ? responsePayload.repeatableForFutureRuns
@@ -408,6 +412,29 @@ function readPermissionResponse(input: {
           : 'Failed to read permission response',
     };
   }
+}
+
+function decodeRailProvenance(value: unknown): RailProvenance | undefined {
+  if (
+    !isPlainObject(value) ||
+    !isRailSignal(value.signal) ||
+    typeof value.reason !== 'string' ||
+    !value.reason.trim()
+  ) {
+    return undefined;
+  }
+  return { signal: value.signal, reason: value.reason };
+}
+
+function isRailSignal(value: unknown): value is RailProvenance['signal'] {
+  return (
+    value === 'destructive' ||
+    value === 'egress' ||
+    value === 'privileged' ||
+    value === 'secret_path' ||
+    value === 'out_of_trusted_root' ||
+    value === 'unsupported_meta_executor'
+  );
 }
 
 function permissionOutcome(value: unknown): JobPermissionOutcome | undefined {

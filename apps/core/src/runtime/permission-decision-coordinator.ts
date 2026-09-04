@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { decisionForMode } from '../domain/permission-decision.js';
+import { RailSignal } from '../domain/permission-lane.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
@@ -11,6 +12,7 @@ import {
   type PermissionDeterministicRailDecision,
   type PermissionDeterministicRailsInput,
 } from '../domain/permission-deterministic-rails.js';
+import type { AutoLaneAnalysis } from '../application/permissions/auto-lane-analysis-types.js';
 import type { ToolPolicyDecision } from '../shared/tool-execution-policy-service.js';
 import type {
   PermissionDecisionMemoryRepository,
@@ -40,6 +42,23 @@ function familyRunnerShimReason(
 export const FAMILY_RULE_RAIL_HIT_REASON =
   'A command-family grant matched, but deterministic safety rails require approval for this exact command.';
 
+export const PERMISSION_DECISION_STAGES = [
+  'pre_coordination_route_analysis',
+  'exact_remembered_deny',
+  'hard_restrictions',
+  'reviewed_rules',
+  'deterministic_rails',
+  'conditional_trusted_root',
+  'remembered_allows',
+  'classifier_cache',
+  'tail',
+] as const;
+
+export interface PermissionDecisionTailContext {
+  readonly analysis: AutoLaneAnalysis;
+  readonly railDecision: PermissionDeterministicRailDecision | undefined;
+}
+
 export interface CoordinatePermissionDecisionInput {
   request: PermissionApprovalRequest;
   hardDenyReason?: string;
@@ -56,7 +75,11 @@ export interface CoordinatePermissionDecisionInput {
   decisionMemory?: PermissionDecisionMemoryRepository;
   /** Host-verified autonomous runs never read classifier verdicts. */
   skipClassifierVerdictCache?: boolean;
-  tail: () => Promise<PermissionApprovalDecision>;
+  /** Completed by the IPC-only pre-coordination route-analysis stage. */
+  analysis?: AutoLaneAnalysis;
+  tail: (
+    context?: PermissionDecisionTailContext,
+  ) => Promise<PermissionApprovalDecision>;
 }
 
 /**
@@ -77,6 +100,8 @@ export async function coordinatePermissionClassifierRisk<T>(input: {
 export async function coordinatePermissionDecision(
   input: CoordinatePermissionDecisionInput,
 ): Promise<PermissionApprovalDecision> {
+  // pre_coordination_route_analysis is completed by the IPC caller.
+  // TODO(T3b): exact_remembered_deny is a named no-op slot until T3b.
   if (input.hardDenyReason) {
     return denied(input.request, input.hardDenyReason, 'hard_deny');
   }
@@ -124,6 +149,9 @@ export async function coordinatePermissionDecision(
     ...input.deterministicRailsInput,
   };
   const railDecision = railFn(railsInput);
+  const tailContext = input.analysis
+    ? Object.freeze({ analysis: input.analysis, railDecision })
+    : undefined;
   if (reviewedRuleDecision?.status === 'allow') {
     const shimReason = familyRunnerShimReason(input.request);
     if (!railDecision && !shimReason) {
@@ -144,7 +172,7 @@ export async function coordinatePermissionDecision(
     input.request.suggestions = [];
     input.request.decisionOptions = ['allow_once', 'cancel'];
     input.request.decisionReason = `${FAMILY_RULE_RAIL_HIT_REASON} ${railDecision?.reason ?? shimReason}`;
-    return input.tail();
+    return invokeTail(input, tailContext);
   }
   // Rails re-run on EVERY call, BEFORE any cache read (re-run-every-hit): a
   // deny/allow floor wins unchanged, and an ask-floor overrides even a cached
@@ -154,17 +182,22 @@ export async function coordinatePermissionDecision(
       // Trusted-root stage (Task G): an out-of-root ask can be covered by a
       // learned grant, or offered as an ask-once "remember this folder". Rails
       // still ran first, so a destructive/secret/escape ask is never learnable.
-      const trustedRoot = await resolveTrustedRootStage(
-        input,
-        railFn,
-        railsInput,
-      );
+      const trustedRoot =
+        railDecision.railSignal === RailSignal.OutOfTrustedRoot
+          ? await resolveTrustedRootStage(
+              input,
+              railFn,
+              railsInput,
+              tailContext,
+            )
+          : undefined;
       if (trustedRoot) return trustedRoot;
       input.request.decisionReason = railDecision.reason;
-      return input.tail();
+      return invokeTail(input, tailContext);
     }
     return railDecision;
   }
+  // TODO(T3b): remembered_allows is a named no-op slot until T3b.
   // CACHE STAGE (cache-hit-only shortcut). Reachable only past hard-deny/
   // locked/fixed-image (PERM-1 precedence, checked above) and past the rails.
   if (
@@ -197,7 +230,14 @@ export async function coordinatePermissionDecision(
       };
     }
   }
-  return input.tail();
+  return invokeTail(input, tailContext);
+}
+
+function invokeTail(
+  input: CoordinatePermissionDecisionInput,
+  context: PermissionDecisionTailContext | undefined,
+): Promise<PermissionApprovalDecision> {
+  return context ? input.tail(context) : input.tail();
 }
 
 const TRUSTED_ROOT_LEARN_OPTIONS: PermissionApprovalDecisionMode[] = [
@@ -220,6 +260,7 @@ async function resolveTrustedRootStage(
   input: CoordinatePermissionDecisionInput,
   railFn: DeterministicPermissionRails,
   railsInput: PermissionDeterministicRailsInput,
+  tailContext: PermissionDecisionTailContext | undefined,
 ): Promise<PermissionApprovalDecision | undefined> {
   const workspaceRoot = input.deterministicRailsInput?.workspaceRoot;
   const memory = input.decisionMemory;
@@ -270,7 +311,7 @@ async function resolveTrustedRootStage(
   input.request.decisionReason = `First command in a new folder: ${canonicalRoot}.`;
   input.request.decisionOptions = [...TRUSTED_ROOT_LEARN_OPTIONS];
   input.request.trustedRootLearn = true;
-  const decision = await input.tail();
+  const decision = await invokeTail(input, tailContext);
   if (decision.approved && decision.mode === 'allow_persistent_rule') {
     const principal = decision.decidedBy ?? 'owner';
     await memory

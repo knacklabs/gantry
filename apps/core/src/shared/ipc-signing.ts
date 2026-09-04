@@ -11,6 +11,7 @@ const PERMISSION_RESPONSE_FIELDS_AFTER_APPROVED = [
   'mode',
   'decidedBy',
   'source',
+  'railProvenance',
   'repeatableForFutureRuns',
   'reason',
   'risk_level',
