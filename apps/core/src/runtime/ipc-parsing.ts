@@ -507,10 +507,8 @@ export function parsePermissionIpcRequest(
 function attachmentOpenIdsFact(input: { toolName: string; toolInput: unknown }): PermissionApprovalRequest['attachmentOpenIds'] | undefined {
   if (input.toolName !== 'mcp__gantry__attachment_open') return undefined;
   const ids = isPlainObject(input.toolInput) ? input.toolInput.attachment_ids : undefined;
-  const count = Array.isArray(ids) ? ids.length : 0;
-  return { count, wellFormed: Array.isArray(ids) && count >= 1 && count <= 12 && ids.every((id) => toTrimmedString(id, { maxLen: 512 }) !== undefined) };
+  return { count: Array.isArray(ids) ? ids.length : 0, wellFormed: Array.isArray(ids) && ids.length >= 1 && ids.length <= 12 && ids.every((id) => toTrimmedString(id, { maxLen: 512 }) !== undefined) };
 }
-
 export function parseUserQuestionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,

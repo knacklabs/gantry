@@ -58,13 +58,13 @@
     }
   ],
   "summary": "T2a task grill: fourteen Codex gpt-5.6-sol@xhigh cold-read rounds (plans/exploration/askfloor-1-t2a-task-grill.md, -r2 \u2026 -r14): r1 4, r2 1, r3 2, r4 2, r5 3, r6 3, r7 2, r8 2, r9 1 blockers folded; r10 CONTRACT SOUND on the original scope; OWNER RULING 2026-09-04 (ledgered: widen so every host-valid attachment id is zero-tap) re-opened AC1; r11 2, r12 3, r13 1 blockers folded into the parser-computed typed fact attachmentOpenIds (raw input, host validity shape) that keys the attachment_open row, sanitizers untouched, harness carries the fact; r14 CONTRACT SOUND. Final: 19 files / 13 tests / 20-1600.",
-  "input_sha256": "3b1f13aac02248170f09808b0ccd56008e0075319930af1bcfe3f90aa7e55585",
+  "input_sha256": "86d5fb270465207ff0c08a2487585eb664fc6905412b64aa125b69229afbe54c",
   "grounding_basis": "working-tree",
   "grounding_treeish": "",
   "task_plan_sha256": "a2f23c1407144ea7ca0a52d8dd294bc9e993ec954eb638be5fa8052c6e8b0eb2",
-  "recorded_at": "2026-09-04T18:58:11+00:00",
-  "commit": "6d0e9daa2930aea30bed70dbe745ac5d759d61eb",
+  "recorded_at": "2026-09-04T21:09:03+00:00",
+  "commit": "047904540da83cab2e8050c19501b09d005c1385",
   "approved_task_plan_sha256": "a2f23c1407144ea7ca0a52d8dd294bc9e993ec954eb638be5fa8052c6e8b0eb2",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T18:58:11+00:00"
+  "approved_at": "2026-09-04T21:09:10+00:00"
 }
