@@ -4,7 +4,20 @@
     {
       "id": "ASKFLOOR-1-T1",
       "title": "Routing: the judge's verdict stands in interactive auto",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-09-04T02:41:19+00:00",
+      "base_sha": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
+      "dirty_at_start": {
+        ".factory/stories/ASKFLOOR-1/grill-rounds/cffe5698-0292-4dea-a0e6-8cad90cb68a3.json": {
+          "digest": "ca26abe22650f9064eccd416ff6dfbe5256445e9c492335448cbf98cb82b1d12",
+          "git": "? .factory/stories/ASKFLOOR-1/grill-rounds/cffe5698-0292-4dea-a0e6-8cad90cb68a3.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json": {
+          "digest": "58b9d33912df99949499ae7bc1900b00a02cb15b44a76b7a84460c3f71dce2ff",
+          "git": "? .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "0de13ecbf7604bea9754b1ec25799edc6589caa6142798c329c65ebf7fd3667c"
     },
     {
       "id": "ASKFLOOR-1-T2a",
