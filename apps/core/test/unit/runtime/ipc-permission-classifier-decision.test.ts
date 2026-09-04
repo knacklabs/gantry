@@ -816,7 +816,7 @@ describe('IPC permission classifier decision', () => {
       risk_category: 'benign' as const,
     }));
 
-    const { decision, requestPermissionApproval } =
+    const { classifierConsult, decision, requestPermissionApproval } =
       await resolveWithClassifierRisk({
         toolName: 'RunCommand',
         toolInput: { command: 'rm -rf ./build' },
@@ -829,8 +829,41 @@ describe('IPC permission classifier decision', () => {
       });
 
     expect(getClassifierVerdict).toHaveBeenCalledOnce();
+    expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
+  });
+
+  it('passes a cached classifier allow through the relaxable rail merge without consulting again', async () => {
+    const getClassifierVerdict = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'cached read allow',
+      risk_level: 'low' as const,
+      risk_category: 'filesystem' as const,
+    }));
+
+    const { classifierConsult, decision, requestPermissionApproval } =
+      await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        toolInput: { command: 'git status' },
+        riskLevel: 'high',
+        riskCategory: 'filesystem',
+        trustedRoots: [],
+        decisionMemory: { getClassifierVerdict } as never,
+      });
+
+    expect(getClassifierVerdict).toHaveBeenCalledOnce();
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(decision).toMatchObject({
+      approved: true,
+      decidedBy: 'auto_classifier',
+      source: 'auto_classifier',
+      railProvenance: {
+        signal: 'out_of_trusted_root',
+        reason: expect.stringContaining('outside'),
+      },
+    });
   });
 
   it('caches and reuses a classifier allow when deterministic rails abstain', async () => {

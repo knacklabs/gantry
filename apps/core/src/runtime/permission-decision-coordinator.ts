@@ -15,6 +15,7 @@ import {
 import type { AutoLaneAnalysis } from '../application/permissions/auto-lane-analysis-types.js';
 import type { ToolPolicyDecision } from '../shared/tool-execution-policy-service.js';
 import type {
+  ClassifierVerdict,
   PermissionDecisionMemoryRepository,
   PermissionDecisionMemoryRow,
 } from '../domain/ports/permission-decision-memory.js';
@@ -57,6 +58,7 @@ export const PERMISSION_DECISION_STAGES = [
 export interface PermissionDecisionTailContext {
   readonly analysis: AutoLaneAnalysis;
   readonly railDecision: PermissionDeterministicRailDecision | undefined;
+  readonly cachedClassifierVerdict?: Readonly<ClassifierVerdict>;
 }
 
 export interface CoordinatePermissionDecisionInput {
@@ -152,6 +154,7 @@ export async function coordinatePermissionDecision(
   const tailContext = input.analysis
     ? Object.freeze({ analysis: input.analysis, railDecision })
     : undefined;
+  let trustedRootLearning: TrustedRootLearning | undefined;
   let familyRuleRailHit = false;
   if (reviewedRuleDecision?.status === 'allow') {
     const shimReason = familyRunnerShimReason(input.request);
@@ -188,17 +191,21 @@ export async function coordinatePermissionDecision(
       // still ran first, so a destructive/secret/escape ask is never learnable.
       const trustedRoot =
         railDecision.railSignal === RailSignal.OutOfTrustedRoot
-          ? await resolveTrustedRootStage(
-              input,
-              railFn,
-              railsInput,
-              tailContext,
-            )
+          ? await resolveTrustedRootStage(input, railFn, railsInput)
           : undefined;
-      if (trustedRoot) return trustedRoot;
-      if (!familyRuleRailHit)
+      if (trustedRoot?.kind === 'decision') return trustedRoot.decision;
+      if (trustedRoot?.kind === 'learning') {
+        trustedRootLearning = trustedRoot;
+      }
+      if (!familyRuleRailHit && !trustedRootLearning)
         input.request.decisionReason = railDecision.reason;
-      if (!input.analysis) return invokeTail(input, tailContext);
+      if (!input.analysis) {
+        return completeTrustedRootLearning(
+          input,
+          trustedRootLearning,
+          await invokeTail(input, tailContext),
+        );
+      }
     } else {
       return railDecision;
     }
@@ -216,34 +223,59 @@ export async function coordinatePermissionDecision(
       agentFolder: input.request.sourceAgentFolder,
       effectHash: input.effectHash,
     });
-    if (cached?.decision === 'allow' && !railDecision) {
-      input.request.risk_level = cached.risk_level;
-      if (cached.risk_category) {
-        input.request.risk_category = cached.risk_category;
+    if (cached?.decision === 'allow') {
+      if (railDecision && tailContext) {
+        return completeTrustedRootLearning(
+          input,
+          trustedRootLearning,
+          await invokeTail(input, tailContext, cached),
+        );
       }
-      return {
-        ...decisionForMode(
-          input.request,
-          'allow_once',
-          'cached_classifier_verdict',
-          'machine',
-        ),
-        reason: cached.reason,
-        risk_level: cached.risk_level,
-        ...(cached.risk_category
-          ? { risk_category: cached.risk_category }
-          : {}),
-      };
+      if (!railDecision) {
+        input.request.risk_level = cached.risk_level;
+        if (cached.risk_category) {
+          input.request.risk_category = cached.risk_category;
+        }
+        return {
+          ...decisionForMode(
+            input.request,
+            'allow_once',
+            'cached_classifier_verdict',
+            'machine',
+          ),
+          reason: cached.reason,
+          risk_level: cached.risk_level,
+          ...(cached.risk_category
+            ? { risk_category: cached.risk_category }
+            : {}),
+        };
+      }
     }
   }
-  return invokeTail(input, tailContext);
+  return completeTrustedRootLearning(
+    input,
+    trustedRootLearning,
+    await invokeTail(input, tailContext),
+  );
 }
 
 function invokeTail(
   input: CoordinatePermissionDecisionInput,
   context: PermissionDecisionTailContext | undefined,
+  cachedClassifierVerdict?: ClassifierVerdict,
 ): Promise<PermissionApprovalDecision> {
-  return context ? input.tail(context) : input.tail();
+  return context
+    ? input.tail(
+        cachedClassifierVerdict
+          ? Object.freeze({
+              ...context,
+              cachedClassifierVerdict: Object.freeze({
+                ...cachedClassifierVerdict,
+              }),
+            })
+          : context,
+      )
+    : input.tail();
 }
 
 const TRUSTED_ROOT_LEARN_OPTIONS: PermissionApprovalDecisionMode[] = [
@@ -254,6 +286,19 @@ const TRUSTED_ROOT_LEARN_OPTIONS: PermissionApprovalDecisionMode[] = [
   'allow_once',
   'cancel',
 ];
+
+interface TrustedRootLearning {
+  readonly kind: 'learning';
+  readonly canonicalRoot: string;
+  readonly memory: PermissionDecisionMemoryRepository;
+}
+
+type TrustedRootStageResult =
+  | TrustedRootLearning
+  | {
+      readonly kind: 'decision';
+      readonly decision: PermissionApprovalDecision;
+    };
 
 /**
  * Learned trusted-root stage (Task G). Reached only when rails ASK, so a
@@ -266,8 +311,7 @@ async function resolveTrustedRootStage(
   input: CoordinatePermissionDecisionInput,
   railFn: DeterministicPermissionRails,
   railsInput: PermissionDeterministicRailsInput,
-  tailContext: PermissionDecisionTailContext | undefined,
-): Promise<PermissionApprovalDecision | undefined> {
+): Promise<TrustedRootStageResult | undefined> {
   const workspaceRoot = input.deterministicRailsInput?.workspaceRoot;
   const memory = input.decisionMemory;
   // No repository (or one without trusted-root support) ⇒ no grant to read and
@@ -304,7 +348,10 @@ async function resolveTrustedRootStage(
       isActiveGrant(grant, now) &&
       clears(grant.canonicalRoot)
     ) {
-      return grantAllow(input.request, grant.canonicalRoot);
+      return {
+        kind: 'decision',
+        decision: grantAllow(input.request, grant.canonicalRoot),
+      };
     }
   }
 
@@ -317,7 +364,16 @@ async function resolveTrustedRootStage(
   input.request.decisionReason = `First command in a new folder: ${canonicalRoot}.`;
   input.request.decisionOptions = [...TRUSTED_ROOT_LEARN_OPTIONS];
   input.request.trustedRootLearn = true;
-  const decision = await invokeTail(input, tailContext);
+  return { kind: 'learning', canonicalRoot, memory };
+}
+
+async function completeTrustedRootLearning(
+  input: CoordinatePermissionDecisionInput,
+  learning: TrustedRootLearning | undefined,
+  decision: PermissionApprovalDecision,
+): Promise<PermissionApprovalDecision> {
+  if (!learning) return decision;
+  const { canonicalRoot, memory } = learning;
   if (decision.approved && decision.mode === 'allow_persistent_rule') {
     const principal = decision.decidedBy ?? 'owner';
     await memory

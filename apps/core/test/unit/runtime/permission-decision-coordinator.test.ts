@@ -341,7 +341,8 @@ describe('coordinatePermissionDecision', () => {
         },
         deterministicRails: () => {
           railEvaluation += 1;
-          if (railEvaluation === 1) observed.push('deterministic_rails');
+          if (railEvaluation > 1) return undefined;
+          observed.push('deterministic_rails');
           return {
             railOutcome: 'ask',
             reason: 'outside the trusted root',
@@ -357,10 +358,18 @@ describe('coordinatePermissionDecision', () => {
           },
           getClassifierVerdict: async () => {
             observed.push('classifier_cache');
-            return null;
+            return {
+              decision: 'allow',
+              reason: 'cached allow',
+              risk_level: 'low',
+            };
           },
         } as never,
-        tail: async () => {
+        tail: async (context) => {
+          expect(context?.cachedClassifierVerdict).toMatchObject({
+            decision: 'allow',
+            reason: 'cached allow',
+          });
           observed.push('tail');
           return {
             approved: false,
@@ -376,6 +385,7 @@ describe('coordinatePermissionDecision', () => {
         'classifier_cache',
         'tail',
       ]);
+      expect(railEvaluation).toBe(2);
     }
   });
 

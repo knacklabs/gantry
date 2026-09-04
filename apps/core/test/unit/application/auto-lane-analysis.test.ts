@@ -45,6 +45,8 @@ describe('auto lane analysis', () => {
       'find -Z roots.txt',
       'find -P -Z roots.txt',
       'find . -name "*.ts" -Z roots.txt',
+      './find .',
+      '/tmp/find .',
       'find . > results.txt',
       'find . 2>/dev/null',
       'find . && echo done',

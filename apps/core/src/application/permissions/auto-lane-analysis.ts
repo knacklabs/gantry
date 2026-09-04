@@ -2,10 +2,7 @@ import {
   PermissionLane,
   type PermissionLane as PermissionLaneValue,
 } from '../../domain/permission-lane.js';
-import {
-  bashExecutableName,
-  parseBashCommandForHardBoundaryAnalysis,
-} from '../../shared/bash-command-parser.js';
+import { parseBashCommandForHardBoundaryAnalysis } from '../../shared/bash-command-parser.js';
 import {
   type AutoLaneAnalysis,
   type AutoLaneAnalysisInput,
@@ -128,7 +125,7 @@ function isReadOnlyFind(command: string | undefined): boolean {
     return false;
   }
   const argv = parsed.leaves[0]!.argv;
-  if (bashExecutableName(argv[0] ?? '') !== 'find') return false;
+  if (argv[0] !== 'find') return false;
   const args = argv.slice(1);
   if (
     args.some(

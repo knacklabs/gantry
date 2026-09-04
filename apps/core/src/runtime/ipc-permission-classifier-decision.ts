@@ -290,6 +290,14 @@ function applyIpcPermissionRouteGuard(
 async function consultIpcPermissionClassifier(
   input: PermissionIpcDecisionTailInput,
 ): Promise<IpcClassifierConsultResult> {
+  if (input.context.cachedClassifierVerdict) {
+    return {
+      decision: {
+        ...input.context.cachedClassifierVerdict,
+        latencyMs: 0,
+      },
+    };
+  }
   const settings = input.settings;
   const approvedCapabilityIds =
     (
