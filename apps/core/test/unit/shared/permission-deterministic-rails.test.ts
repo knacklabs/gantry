@@ -783,6 +783,123 @@ describe('permission deterministic rails', () => {
     },
   );
 
+  it('allows attachment_open as an input-gated birthright when the typed pre-sanitization fact says attachment_ids is well-formed, even when the display copy was shortened or redacted', () => {
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: request('unused', {
+          toolName: 'mcp__gantry__attachment_open',
+          toolInput: { attachment_ids: ['[REDACTED]'] },
+          classifierToolInput: { attachment_ids: ['[REDACTED]'] },
+          attachmentOpenIds: { wellFormed: true, count: 1 },
+          toolInputSanitized: true,
+          toolInputSanitizedPaths: ['attachment_ids.0'],
+          toolInputRedactedPaths: ['attachment_ids.0'],
+        } as Partial<PermissionApprovalRequest>),
+      }),
+    ).toMatchObject({
+      approved: true,
+      decidedBy: 'birthright',
+      railOutcome: 'allow',
+      reason: 'Agent self-surface birthright.',
+    });
+  });
+
+  it('asks for attachment_open when the typed fact is absent or not well-formed, while another tool\'s redacted input still asks', () => {
+    for (const attachmentOpenIds of [
+      undefined,
+      { wellFormed: false, count: 1 },
+    ]) {
+      expect(
+        evaluatePermissionDeterministicRails({
+          request: request('unused', {
+            toolName: 'mcp__gantry__attachment_open',
+            toolInput: { attachment_ids: ['visible'] },
+            classifierToolInput: { attachment_ids: ['visible'] },
+            ...(attachmentOpenIds ? { attachmentOpenIds } : {}),
+          }),
+        }),
+      ).toMatchObject({ railOutcome: 'ask', hardFloor: true });
+    }
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: request('unused', {
+          toolName: 'mcp__gantry__send_message',
+          toolInput: { message: '[REDACTED]' },
+          classifierToolInput: { message: '[REDACTED]' },
+          toolInputRedactedPaths: ['message'],
+        } as Partial<PermissionApprovalRequest>),
+      }),
+    ).toMatchObject({ railOutcome: 'ask', hardFloor: true });
+  });
+
+  it('keeps every existing birthright row and read-only allow unchanged after the shape and boundary split', () => {
+    const existingBirthrights = [
+      'ask_user_question',
+      'render_status',
+      'render_facts',
+      'render_list',
+      'render_table',
+      'render_form',
+      'render_media',
+      'render_progress',
+      'task_get',
+      'task_list',
+      'scheduler_list_jobs',
+      'scheduler_list_runs',
+      'scheduler_list_events',
+      'scheduler_list_models',
+      'scheduler_get_job',
+      'scheduler_get_dead_letter',
+      'scheduler_list_notification_targets',
+      'scheduler_wait_for_events',
+      'memory_search',
+      'memory_review_pending',
+      'brain_search',
+      'brain_query',
+      'continuity_summary',
+      'mcp_list_tools',
+      'mcp_search_tools',
+      'mcp_describe_tool',
+      'agent_profile_read',
+      'send_message',
+      'todo_update',
+      'memory_save',
+      'brain_write',
+      'procedure_save',
+      'task_cancel',
+      'task_message',
+      'request_access',
+      'request_skill_install',
+      'request_skill_proposal',
+      'request_skill_dependency_install',
+      'request_mcp_server',
+    ];
+    for (const tool of existingBirthrights) {
+      expect(
+        evaluatePermissionDeterministicRails({
+          request: request('unused', {
+            toolName: `mcp__gantry__${tool}`,
+            toolInput: { payload: 'visible' },
+          }),
+        }),
+      ).toMatchObject({ railOutcome: 'allow', decidedBy: 'birthright' });
+    }
+
+    const workspaceRoot = makeRoot();
+    fs.writeFileSync(path.join(workspaceRoot, 'README.md'), 'Gantry');
+    expect(
+      evaluatePermissionDeterministicRails({
+        request: request('cat README.md'),
+        approvedCapabilityIds: ['filesystem.read'],
+        workspaceRoot,
+      }),
+    ).toMatchObject({
+      approved: true,
+      decidedBy: 'deterministic_read_only',
+      railOutcome: 'allow',
+    });
+  });
+
   it.each([
     [
       'sanitized',

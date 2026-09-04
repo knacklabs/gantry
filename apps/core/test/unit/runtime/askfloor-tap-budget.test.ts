@@ -6,6 +6,34 @@ import {
 } from './askfloor-tap-budget-harness.js';
 
 describe('ASKFLOOR tap budget', () => {
+  it('S1: opening an attachment already in the conversation costs 0 taps in every lane with the typed fact carried by the fixture', async () => {
+    for (const lane of [
+      { permissionMode: 'ask' as const },
+      { permissionMode: 'auto' as const },
+      { permissionMode: 'auto_strict' as const },
+      { permissionMode: 'auto' as const, hostJobId: 'job-attachment-open' },
+    ]) {
+      await expect(
+        replayPermissionRequest({
+          ...lane,
+          toolName: 'mcp__gantry__attachment_open',
+          toolInput: { attachment_ids: ['attachment-1'] },
+          attachmentOpenIds: { wellFormed: true, count: 1 },
+          trustedRoots: [TAP_BUDGET_WORKSPACE_ROOT],
+          classifierVerdict: {
+            risk_level: 'high',
+            reason: 'The classifier must not run for a birthright.',
+          },
+        }),
+      ).resolves.toEqual({
+        taps: 0,
+        decidedBy: 'birthright',
+        source: 'birthright',
+        railProvenance: null,
+      });
+    }
+  });
+
   it('S3: 2>/dev/null and read-only find cost 0 taps in interactive auto', async () => {
     const classifierVerdict = {
       risk_level: 'low' as const,

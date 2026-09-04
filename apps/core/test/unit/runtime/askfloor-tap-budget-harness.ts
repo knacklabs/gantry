@@ -14,6 +14,7 @@ export interface TapBudgetFixture {
   command?: string;
   toolName?: string;
   toolInput?: Record<string, unknown>;
+  attachmentOpenIds?: { wellFormed: boolean; count: number };
   trustedRoots: string[];
   classifierVerdict: {
     risk_level: 'low' | 'medium' | 'high' | 'critical';
@@ -61,6 +62,9 @@ export async function replayPermissionRequest(
         sourceAgentFolder: 'main_agent',
         toolName: fixture.toolName ?? 'RunCommand',
         toolInput: fixture.toolInput ?? { command: fixture.command },
+        ...(fixture.attachmentOpenIds
+          ? { attachmentOpenIds: fixture.attachmentOpenIds }
+          : {}),
       },
       sourceAgentFolder: 'main_agent',
       deps: {

@@ -435,6 +435,10 @@ export function parsePermissionIpcRequest(
     raw.toolInput,
     hostInjectedCommandPrefix,
   );
+  const attachmentOpenIds = attachmentOpenIdsFact({
+    toolName,
+    toolInput: decisionToolInput,
+  });
   const {
     toolInput,
     altered: toolInputSanitized,
@@ -485,6 +489,7 @@ export function parsePermissionIpcRequest(
     ...(closestRule ? { closestRule } : {}),
     ...(blockedPath ? { blockedPath } : {}),
     ...(toolInput ? { toolInput } : {}),
+    ...(attachmentOpenIds ? { attachmentOpenIds } : {}),
     ...(hostInjectedCommandPrefix ? { hostInjectedCommandPrefix } : {}),
     ...(toolInputSanitized ? { toolInputSanitized: true } : {}),
     ...(toolInputSanitizedPaths.length > 0 ? { toolInputSanitizedPaths } : {}),
@@ -496,6 +501,14 @@ export function parsePermissionIpcRequest(
     ...(decisionOptions ? { decisionOptions } : {}),
     ...(interaction ? { interaction } : {}),
   };
+}
+
+// prettier-ignore
+function attachmentOpenIdsFact(input: { toolName: string; toolInput: unknown }): PermissionApprovalRequest['attachmentOpenIds'] | undefined {
+  if (input.toolName !== 'mcp__gantry__attachment_open') return undefined;
+  const ids = isPlainObject(input.toolInput) ? input.toolInput.attachment_ids : undefined;
+  const count = Array.isArray(ids) ? ids.length : 0;
+  return { count, wellFormed: Array.isArray(ids) && count >= 1 && count <= 12 && ids.every((id) => toTrimmedString(id, { maxLen: 512 }) !== undefined) };
 }
 
 export function parseUserQuestionIpcRequest(

@@ -5,6 +5,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { MemoryLlmClient } from '@core/domain/ports/memory-llm-client.js';
+import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
 
 const query = vi.hoisted(() => vi.fn());
 const isConfigured = vi.hoisted(() => vi.fn());
@@ -37,6 +38,7 @@ import {
   sanitizeIpcToolInput,
 } from '@core/runtime/ipc-tool-input-sanitization.js';
 import { parsePermissionClassifierResponse } from '@core/runtime/permission-classifier-prompt.js';
+import * as nativeRisk from '@core/runtime/permission-classifier-native-risk.js';
 
 const baseInput = {
   appId: 'default' as never,
@@ -49,6 +51,21 @@ const baseInput = {
   memoryModelConfig: {
     extractor: 'haiku',
   },
+};
+const basePromptInput = {
+  permissionMode: 'auto' as const,
+  requestFamily: 'tool' as const,
+  agentFolder: 'researcher',
+  correlationId: 'request:status',
+  actor: 'permission' as const,
+  intentSource: 'operator_message' as const,
+  turnIntentSummary: 'Inspect status.',
+  canonicalToolName: 'RunCommand',
+  toolInput: { command: 'git status > /tmp/status' },
+  policyDecisionReason: 'No durable rule matched.',
+  approvedCapabilityIds: [],
+  classifierConfig: { memoryExtractorModel: 'haiku' },
+  publishRuntimeEvent: vi.fn(async () => undefined),
 };
 
 describe('permission classifier value redaction', () => {
@@ -94,6 +111,115 @@ describe('permission classifier verdict client', () => {
       isConfigured,
       query,
     } satisfies MemoryLlmClient);
+  });
+
+  it('stamps status answered only for a successful LLM verdict', async () => {
+    const result = await consultPermissionClassifier(baseInput);
+    expect(result).toMatchObject({
+      status: PermissionClassifierStatus.Answered,
+      risk_level: 'low',
+    });
+    expect(result).not.toHaveProperty('failureCode');
+  });
+
+  it('stamps status unavailable for the six unusable-result failure codes', async () => {
+    const expectUnavailable = async (
+      failureCode: string,
+      prepare: () => void,
+      input = baseInput,
+    ) => {
+      isConfigured.mockReturnValue(true);
+      query.mockReset();
+      prepare();
+      await expect(consultPermissionClassifier(input)).resolves.toMatchObject({
+        status: PermissionClassifierStatus.Unavailable,
+        failureCode,
+      });
+    };
+
+    await expectUnavailable('llm_unconfigured', () =>
+      isConfigured.mockReturnValue(false),
+    );
+    await expectUnavailable('model_resolution_failure', () => undefined, {
+      ...baseInput,
+      autoModeModel: 'not-a-model-alias',
+    });
+    await expectUnavailable('timeout', () =>
+      query.mockRejectedValue(
+        Object.assign(new Error('timed out'), { name: 'TimeoutError' }),
+      ),
+    );
+    await expectUnavailable('query_error', () =>
+      query.mockRejectedValue(new Error('gateway unavailable')),
+    );
+    await expectUnavailable('parse_failure', () =>
+      query.mockResolvedValue('not json'),
+    );
+    await expectUnavailable('validation_failure', () =>
+      query.mockResolvedValue('{}'),
+    );
+  });
+
+  it('stamps status skipped for aborted, input_truncated and every non-LLM branch', async () => {
+    query.mockRejectedValue(
+      Object.assign(new Error('cancelled'), { name: 'AbortError' }),
+    );
+    await expect(consultPermissionClassifier(baseInput)).resolves.toMatchObject(
+      {
+        status: PermissionClassifierStatus.Skipped,
+        failureCode: 'aborted',
+      },
+    );
+
+    const classifierConsult = vi.fn();
+    for (const input of [
+      { toolInputTruncatedPaths: ['command'] },
+      {
+        yoloMode: {
+          enabled: true,
+          denylist: ['git status > /tmp/status'],
+          denylistPaths: [],
+        },
+      },
+      { permissionMode: 'auto_strict' as const },
+      {
+        canonicalToolName: 'mcp__gantry__memory_save',
+        toolInput: { content: 'Remember this.' },
+      },
+    ]) {
+      await expect(
+        consultPermissionClassifierBeforePrompt({
+          ...basePromptInput,
+          ...input,
+          classifierConsult,
+        }),
+      ).resolves.toMatchObject({ status: PermissionClassifierStatus.Skipped });
+    }
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
+  it('routes the native-risk branch through the named helper with an unchanged verdict', async () => {
+    const helperInput = {
+      canonicalToolName: 'mcp__gantry__memory_save',
+      inputTruncated: false,
+      yoloDenylistHit: false,
+      requestFamily: 'tool' as const,
+    };
+    const expected = nativeRisk.evaluateNativeRiskBranch(helperInput);
+    const evaluate = vi.spyOn(nativeRisk, 'evaluateNativeRiskBranch');
+    try {
+      await expect(
+        consultPermissionClassifierBeforePrompt({
+          ...basePromptInput,
+          canonicalToolName: helperInput.canonicalToolName,
+          toolInput: { content: 'Remember this.' },
+          classifierConsult: vi.fn(),
+        }),
+      ).resolves.toMatchObject({ ...expected, decision: 'allow' });
+      expect(evaluate).toHaveBeenCalledWith(helperInput);
+    } finally {
+      evaluate.mockRestore();
+    }
   });
 
   it('uses the intrinsic-risk rubric without exposing capability ids', async () => {
