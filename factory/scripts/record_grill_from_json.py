@@ -21,7 +21,7 @@ from factory_lib import (
     dump_json, evidence_path, git_control_dir, grounding_digest, head_sha,
     load_json, now_iso, protected_decomposition_state_path, read_stdin_utf8,
     repo_root, requirements_digest, run_state_path, sha256_of,
-    task_frontier_state, validate_payload,
+    task_frontier_state, task_stage_record, validate_payload,
 )
 from forge_cli.specs import resolve_spec_reference
 
@@ -382,18 +382,29 @@ if args.gate == "task":
     # the moving working tree would read perpetually stale and the re-grill of an
     # approved/completed task could never be seen fresh. A frontier/active task
     # still grounds on the working tree ("").
-    _stage = next(
-        (s for s in load_json(
-            git_control_dir(root) / "stages.json", default={}
-        ).get("stages", []) if s.get("id") == args.task),
-        {},
-    )
+    #
+    # The stage is resolved from the TASK'S OWN WORKTREE, not from whichever
+    # control directory this process happens to sit in. Both copies exist and
+    # drift: a task closed in its worktree still reads `active` in the main
+    # repo, so recording the grill from there ground it on the working tree
+    # while the seal -- run in the worktree -- checked the baseline. Same task,
+    # same code, two answers, and a passing grill that could never verify.
+    _stage = task_stage_record(root, args.task)
     if _stage.get("status") == "done":
         from forge_cli.stages import stage_baseline
-        _treeish = stage_baseline(root, _stage)
+        from factory_lib import task_state_root
+        # The baseline ref lives with the stage that recorded it.
+        _treeish = stage_baseline(task_state_root(root, args.task), _stage)
+        _basis = "stage-baseline"
     else:
         _treeish = ""
+        _basis = "working-tree"
     payload["input_sha256"] = grounding_digest(root, task, treeish=_treeish)
+    # Say what this attestation was grounded on. A digest alone can only ever
+    # report "stale"; naming the basis lets the seal say WHY it disagrees and
+    # which command fixes it.
+    payload["grounding_basis"] = _basis
+    payload["grounding_treeish"] = _treeish
     payload["task_plan_sha256"] = plan_digest_without_assumptions(task_plan)
 if args.gate == "plan":
     # Plan grills are per task: stamp the active issue so a stale grill from

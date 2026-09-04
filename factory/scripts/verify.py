@@ -33,17 +33,63 @@ REQUIRED_PHASES = (
 OPTIONAL_PHASES = (
     ("quality", "FACTORY_QUALITY_CMD"),
 )
+def envrc_commands(base) -> dict[str, str]:
+    """The FACTORY_*_CMD exports declared in `.envrc`, read directly.
+
+    `.envrc` is the declared home for these, but only direnv loads it — and
+    direnv is not present on every machine (notably Windows), so verify refused
+    on a repo that HAD declared its commands and the operator had to re-export
+    them by hand every run. Reading the file removes that stumble without
+    changing where the commands live. Only simple `export KEY="value"` lines are
+    honoured, and the harness-only block guarded by `constitution/VENDORED_FROM`
+    is skipped in a vendored client, mirroring the shell's own condition."""
+    path = base / ".envrc"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    vendored = (base / "constitution" / "VENDORED_FROM").is_file()
+    found: dict[str, str] = {}
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("if ") and "VENDORED_FROM" in stripped:
+            # `if [ ! -f constitution/VENDORED_FROM ]` — harness-only exports.
+            skipping = vendored
+            continue
+        if stripped in ("fi", "else"):
+            skipping = False
+            continue
+        if skipping or not stripped.startswith("export FACTORY_"):
+            continue
+        name, _, value = stripped[len("export "):].partition("=")
+        name = name.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        # A command that still needs shell expansion is not something we can
+        # honestly resolve here; leave it for a real shell to provide.
+        if name.endswith("_CMD") and "$" not in value:
+            found[name] = value
+    return found
+
+
+_declared = envrc_commands(root)
+for _, _variable in REQUIRED_PHASES + OPTIONAL_PHASES:
+    if not (os.environ.get(_variable) or "").strip() and _declared.get(_variable):
+        os.environ[_variable] = _declared[_variable]
+
 if unset := [variable for _, variable in REQUIRED_PHASES
              if not (os.environ.get(variable) or "").strip()]:
     raise SystemExit(
         "verification is not configured: " + ", ".join(unset) + "\n"
-        "Set each to the command this project actually runs, e.g.\n"
+        "Declare each in .envrc (verify reads it directly, so direnv is not "
+        "required), or export them for one run, e.g.\n"
         "  FACTORY_STRUCTURAL_CMD='python3 factory/scripts/check_dual_runtime.py' \\\n"
         "  FACTORY_TYPECHECK_CMD='python3 factory/scripts/check_factory_scaffold.py' \\\n"
         "  FACTORY_QUALITY_CMD='<your linter, optional>' \\\n"
         "  FACTORY_TEST_CMD='uv run --with pytest --with psutil python -m pytest factory/tests -q' \\\n"
-        "  python3 factory/scripts/verify.py\n"
-        "Put them in .envrc so every run and every worktree agrees."
+        "  python3 factory/scripts/verify.py"
     )
 # Ordered: structural -> typecheck -> quality (if declared) -> tests.
 _ordered = (REQUIRED_PHASES[0], REQUIRED_PHASES[1]) + OPTIONAL_PHASES + (REQUIRED_PHASES[2],)

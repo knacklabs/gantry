@@ -57,6 +57,19 @@ jobs:
             --base "$BASE_SHA" \
             --head-branch "$HEAD_BRANCH" \
             --pr-body "$PR_BODY"
+      - name: Require a shipped task to carry its recorded proof
+        if: steps.arm.outputs.armed == 'true'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # The proof gate otherwise lives only inside `stage done`/`pr-ready`, so
+        # a task merged through a direct or story-level PR skipped verify, tests
+        # and the three-lens review silently. Checking the PR itself is what
+        # makes the per-task flow un-bypassable (0049).
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          BASE_SHA="$(git merge-base FETCH_HEAD "$HEAD_SHA")"
+          python3 factory/scripts/check_task_proof.py --base "$BASE_SHA"
 
   coverage:
     if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch

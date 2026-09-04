@@ -625,7 +625,15 @@ def cmd_init(args: argparse.Namespace) -> None:
     brief_dst = target / "docs" / "product" / "BRIEF.md"
     assert_target_destination(target, brief_dst.parent).mkdir(parents=True, exist_ok=True)
     if brief_src.exists():
-        shutil.copy2(brief_src, assert_target_file_destination(target, brief_dst))
+        # Render the placeholder like DISCOVERY.md does. Copying it verbatim left
+        # a live `{{PROJECT_NAME}}` on line 1 of the only doc the read order
+        # points at for "what this product is" — the scaffold's own output
+        # looking half-finished.
+        assert_target_file_destination(target, brief_dst).write_text(
+            brief_src.read_text(encoding="utf-8").replace(
+                "{{PROJECT_NAME}}", args.name),
+            encoding="utf-8",
+        )
     assert_target_destination(target, target / "docs" / "product" / "DISCOVERY.md").write_text(
         DISCOVERY_TEMPLATE.format(name=args.name), encoding="utf-8"
     )
@@ -666,9 +674,19 @@ def cmd_init(args: argparse.Namespace) -> None:
     print("Next steps:")
     print("  0. cd in and run `direnv allow` (once per machine) — pins gstack "
          "output into the repo's .gstack/, not ~/.gstack")
-    print("  1. Fill docs/product/DISCOVERY.md (phase 0a) and BRIEF.md")
-    print("  2. Prototype; save and confirm specs, then derive the roadmap")
-    print("  3. Grill sign-off, accept `client-signoff --by <name>`, then: "
+    # The scaffold leaves a git repo with no commit and no remote, and much of
+    # the harness reads the trunk (task markers, grill staleness, commit stamps,
+    # default_trunk_branch, which falls back to `main` even when the repo is on
+    # `master`). Say so, or the first gate that needs a trunk fails obscurely.
+    print("  1. Bootstrap git — the harness needs a trunk: commit the scaffold, "
+          "add an `origin` remote, push, and set origin/HEAD "
+          "(`git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/<branch>`). "
+          "Check the branch name; `git init` may have used master.")
+    print("  2. Fill docs/product/DISCOVERY.md (phase 0a) and BRIEF.md")
+    print("  3. Prototype; save specs (`forge spec save`), grill and confirm each "
+          "one, then `forge roadmap derive` — sign-off needs a roadmap and the "
+          "roadmap needs confirmed specs")
+    print("  4. Grill sign-off, accept `client-signoff --by <name>`, then: "
           "python3 factory/scripts/record_signoff.py")
-    print(f"  4. Generate the {args.stack} workspace via harness/{args.stack}/SCAFFOLD_PROMPT.md")
+    print(f"  5. Generate the {args.stack} workspace via harness/{args.stack}/SCAFFOLD_PROMPT.md")
     remediate_windows_hook_entry(target)

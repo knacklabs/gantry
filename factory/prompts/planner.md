@@ -100,7 +100,11 @@ Rules:
   the lessons that apply; contradicting a recorded lesson is a decision, not
   an accident.
 - Produce a decision-complete plan before implementation starts.
-- Keep implementation tasks bounded so Codex workers can own disjoint write scopes.
+- Keep implementation tasks bounded so Codex workers can own disjoint write
+  scopes: one task = one bounded session (implement → verify → three-lens review
+  → fix), backend and frontend always separate, split a side that is still too
+  large along its own seam, and merge slivers too small to justify a plan, grill,
+  approval, review and PR of their own. Judgement, not a file or hour count.
 - **Code quality is authored into the contract, not left to review.** A task's
   `reviewer_focus` MUST state the expected code SHAPE, not only the behaviour —
   so the implementer builds it right the first time instead of the P2 review

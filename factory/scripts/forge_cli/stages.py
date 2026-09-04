@@ -30,7 +30,7 @@ from factory_lib import (
     product_tree_digest,
     protected_decomposition_state_path, repo_root, require_approved_plan_digest,
     require_ready_task, require_task_worktree, run_state_path,
-    safe_factory_write_json, sha256_of, task_digest,
+    safe_factory_write_json, sha256_of, story_dir, task_digest,
 )
 
 from .common import fail
@@ -43,7 +43,12 @@ from .events import append_event
 # all of `factory/` and `docs/`, which in the harness's own repo is the product
 # — exempting it here would make the scope check vacuous exactly where it is
 # being dogfooded.
-WORKFLOW_PATHS = (".factory/", "plans/")
+# `docs/context/ledger.json` is written by `forge context scan`, which the
+# harness runs itself during a stage — a coordinator never authors it as
+# product, but stage done refused on it as an out-of-scope path, which is one of
+# the refusals that made shipping around the flow look necessary. Named exactly,
+# so the rest of `docs/` stays product.
+WORKFLOW_PATHS = (".factory/", "plans/", "docs/context/ledger.json")
 # In a repo that VENDORED the harness, factory/ and the vendored adapters/canon
 # are infrastructure a `forge upgrade` may rewrite mid-task — not the task's
 # product; pr_ready.EVIDENCE_PATHS already treats them so. The SOURCE harness
@@ -139,9 +144,18 @@ def authoritative_stages_path(base: Path) -> Path:
 
 
 def write_stages(base: Path, data: dict) -> None:
-    """Publish protected authority first, then a best-effort workspace mirror."""
+    """Publish protected authority first, then a best-effort workspace mirror,
+    then a per-story snapshot so a story keeps its own stages after the run
+    pointer moves on. The single git-local stages.json only ever holds the
+    active story; the board reads the per-story snapshot for any other story,
+    so a shipped story no longer loses its task-completion on the board."""
     dump_json(authoritative_stages_path(base), data)
     safe_factory_write_json(base, stages_path(base).name, data)
+    # Only for a scoped-layout story (its dir already exists): creating the dir
+    # would flip a legacy story to scoped and break its history archival.
+    issue = data.get("issue")
+    if issue and story_dir(base, issue).is_dir():
+        dump_json(story_dir(base, issue) / "stages.json", data)
 
 
 def write_skeleton(base: Path, issue: str, tasks: list[dict]) -> None:
@@ -149,6 +163,15 @@ def write_skeleton(base: Path, issue: str, tasks: list[dict]) -> None:
     erase what is already built: surviving task ids keep their status and
     timestamps, new ids arrive pending, removed ids drop out."""
     existing = load_stages(base)
+    # A story decomposed before per-story snapshots existed would lose its stages
+    # when the singleton flips to this new story; preserve the outgoing one so a
+    # legacy shipped story keeps its task-completion on the board.
+    prior_issue = existing.get("issue")
+    if prior_issue and prior_issue != issue:
+        prior_dir = story_dir(base, prior_issue)
+        outgoing = prior_dir / "stages.json"
+        if prior_dir.is_dir() and not outgoing.is_file():
+            dump_json(outgoing, existing)
     previous = ({s.get("id"): s for s in existing.get("stages", [])}
                 if existing.get("issue") == issue else {})
     stages = []
@@ -685,6 +708,40 @@ def _covered(path: str, scope: list[str]) -> bool:
     return False
 
 
+def scope_amendments_path(base: Path):
+    """Protected, like the decomposition it annotates."""
+    from factory_lib import git_control_dir
+    return git_control_dir(base) / "scope_amendments.json"
+
+
+def amended_scope_paths(base: Path, task_id: str) -> list[str]:
+    """Measured paths this task touched that its declared scope did not name.
+
+    Recorded ALONGSIDE the contract rather than edited into it, and that is the
+    whole point. `stage done` measures the diff, finds an under-declared path,
+    and tells the operator to re-record the decomposition -- but re-recording
+    changes the contract digest, which invalidates the delegate launch bound to
+    it and stales the grill ground on it. `stage done` then demands a fresh
+    Codex run for a correction it demanded itself, and any further correction
+    restarts the loop. There is no flag out of that.
+
+    Leaving the contract untouched keeps both bindings valid and keeps the
+    record of what was actually grilled, delegated and approved. The amendment
+    records what the work really touched. Two honest records beat one rewritten
+    one -- editing the contract after the fact destroys the evidence of what
+    was approved.
+    """
+    from factory_lib import load_json
+    record = load_json(scope_amendments_path(base), default={})
+    entry = (record.get("tasks") or {}).get(task_id) or {}
+    paths = entry.get("added_paths") or []
+    return [p for p in paths if isinstance(p, str) and p]
+
+
+def effective_scope(base: Path, task_id: str, scope: list[str]) -> list[str]:
+    return list(scope) + amended_scope_paths(base, task_id)
+
+
 def out_of_scope(base: Path, paths: list[str], scope: list[str]) -> list[str]:
     """Product paths this sequential task touched but never declared."""
     return [p for p in paths
@@ -923,13 +980,21 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
         if not any(_covered(path, scope) for path in contributions):
             fail(f"{stage_id} closes without changing anything in its own "
                  "write_scope.")
-        strays = out_of_scope(base, product, scope)
+        # A recorded amendment is measured fact, not a widened permission: it
+        # only ever names paths a previous measurement already found changed.
+        strays = out_of_scope(base, product, effective_scope(base, stage_id, scope))
         if strays:
             fail(f"{stage_id} changed {len(strays)} path(s) outside its declared "
                  f"write_scope: {', '.join(strays[:10])}"
-                 f"{'…' if len(strays) > 10 else ''}. Either the work exceeded the "
-                 "task or the scope was wrong — re-record the decomposition with "
-                 "the real scope rather than closing over it.")
+                 f"{'…' if len(strays) > 10 else ''}. Either the work exceeded "
+                 "the task, or the scope was under-declared. If the scope was "
+                 f"wrong, record it: `forge stage amend-scope {stage_id} "
+                 "--reason \"<why these paths belong>\"` — it re-measures and "
+                 "adds EXACTLY the paths it finds, leaving the contract (and so "
+                 "the grill and the delegate launch bound to it) intact. Do NOT "
+                 "re-record the decomposition to fix this: that changes the "
+                 "contract digest, invalidates the launch this same command "
+                 "demands, and deadlocks the close.")
     try:
         max_files, max_lines, _reason = review_budget(task)
     except ValueError as exc:
@@ -948,6 +1013,32 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> None:
             f"stage incomplete with `forge stage done {stage_id} --incomplete "
             "\"<what remains>\"`."
         )
+
+
+def _host_window_covering(base: Path, stage: dict) -> dict | None:
+    """A ledgered degraded (host-fix) window opened during this stage.
+
+    Codex's sandbox cannot see every defect — a failure that only appears against
+    a real database, or a check that only runs on the host — so the coordinator
+    fixes those itself inside a bounded, ledgered window. That window IS a
+    sanctioned write path, but `stage done` used to demand a Codex launch that
+    could not exist for such a fix, leaving no way to close the stage and making
+    shipping around the flow look like the only option. Accepting the window
+    keeps the evidence (it is ledgered and bounded) without the dead end."""
+    from .quickfix import DEGRADED, load_active, load_events, profile_of
+
+    started = str(stage.get("started_at") or "")
+    active = load_active(base)
+    if (active and profile_of(active) == DEGRADED
+            and str(active.get("started_at") or "") >= started):
+        return active
+    for event in load_events(base):
+        if (event.get("event") == "done"
+                and (event.get("profile") == DEGRADED
+                     or event.get("kind") == DEGRADED)
+                and str(event.get("started_at") or "") >= started):
+            return event
+    return None
 
 
 def _require_successful_launch(base: Path, stage_id: str, stage: dict,
@@ -996,9 +1087,19 @@ def _require_successful_launch(base: Path, stage_id: str, stage: dict,
         and argv_valid
     )
     if not valid:
+        window = _host_window_covering(base, stage)
+        if window:
+            print(f"{stage_id}: no Codex write launch, but ledgered host-fix "
+                  f"window {window.get('id', '?')} covers this stage — accepted "
+                  "as the sanctioned write path.")
+            return
         fail(f"{stage_id} has no successful write launch bound to this stage, "
-             "task contract and brief. Run `forge delegate "
-             f"{stage_id}` successfully; `--print-only` is diagnostic only.")
+             "task contract and brief. Either run `forge delegate "
+             f"{stage_id}` successfully (`--print-only` is diagnostic only), or "
+             "— when the fix is one Codex's sandbox cannot make (a DB-surfaced "
+             "defect, a host-only check) — make it inside a ledgered window: "
+             "`forge mode degraded start --reason \"<why Codex cannot>\"`, fix, "
+             "`forge mode done`.")
 
 
 def _junit_case_matches_id(case, test_id: str) -> bool:
@@ -1321,6 +1422,122 @@ def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
         print(f"Stage {args.id} done — all {len(data['stages'])} stage(s) complete")
 
 
+def _refuse_incomplete_against_complete_proof(base: Path, task_id: str) -> None:
+    """`--incomplete` is the only escape from a refusing seal, and using it on
+    finished work writes a false record.
+
+    It exists so a worker that genuinely finished only part of the job can say
+    so. But it is also the sole way out when a gate refuses, so it becomes the
+    tempting move for work that IS complete -- and the frontier and the PR gate
+    then read a finished task as unfinished. The evidence already answers the
+    question: if verify passed, tests are recorded, and all three lenses are
+    clean, then "work remains" contradicts the proof on disk.
+
+    Judged on RECORDED PROOF, not on a guess about intent, and it refuses only
+    when every one of those is present -- a genuinely partial task has not got
+    them, so the honest use is untouched.
+    """
+    from factory_lib import evidence_path, load_json
+    from .readiness import review_passed, verify_passed
+
+    key = load_json(run_state_path(base), default={}).get("issue_key", "")
+    if not key:
+        return
+    verify_ok = verify_passed(load_json(
+        evidence_path(base, key, "verify.json"), default={}))
+    tests = load_json(evidence_path(base, key, "tests.json"), default={})
+    aspects = ("quality", "performance", "security")
+    lenses = {
+        aspect: review_passed(load_json(
+            evidence_path(base, key, f"reviews/{aspect}.json"), default={}))
+        for aspect in aspects
+    }
+    if not (verify_ok and tests and all(lenses.values())):
+        return
+    fail(
+        f"--incomplete records that WORK REMAINS on {task_id}, and the recorded "
+        "proof says the opposite: verify passed, tests are recorded, and all "
+        "three review lenses are clean. Writing it anyway makes the frontier "
+        "and the PR gate read a finished task as unfinished.\n"
+        "If a gate is refusing a task this complete, the gate has a cause worth "
+        "naming rather than stepping around: `forge audit --state` re-derives "
+        "every recorded claim and reports which one disagrees with the repo. "
+        "Use --incomplete only when work genuinely remains."
+    )
+
+
+def cmd_amend_scope(args) -> None:
+    """Record the paths this task really touched that its scope did not name.
+
+    Bounded by measurement, not by assertion: it re-runs the SAME diff `stage
+    done` runs and adds exactly the out-of-scope paths that measurement
+    reports. Nothing can be pre-authorised, because a path that was not changed
+    is never added.
+    """
+    from factory_lib import (protected_decomposition_state_path,
+                             require_task_worktree, repo_root)
+
+    base = Path(args.repo).resolve() if args.repo else repo_root()
+    require_task_worktree(base, allow_completed=True)
+    reason = (args.reason or "").strip()
+    if len(reason) < 12:
+        fail("--reason must say why these paths belong to this task (a dozen "
+             "characters at least); it is the only part of this record a "
+             "measurement cannot supply.")
+
+    stages = load_stages(base)
+    stage = next((item for item in stages.get("stages", [])
+                  if item.get("id") == args.id), None)
+    if stage is None:
+        fail(f"{args.id} is not a recorded stage")
+    tasks = load_json(protected_decomposition_state_path(base),
+                      default={}).get("tasks", [])
+    task = next((t for t in tasks if t.get("id") == args.id), None)
+    if task is None:
+        fail(f"{args.id} is not a task in the protected decomposition")
+    scope = task.get("write_scope") or []
+    if not scope:
+        fail(f"{args.id} declares no write_scope; there is nothing to amend — "
+             "record the contract first.")
+
+    base_sha = stage_baseline(base, stage)
+    if not base_sha:
+        fail(f"{args.id} has no stage baseline to measure from; start the stage "
+             "before amending its scope.")
+    # The SAME measurement `stage done` performs -- that is what bounds this.
+    product = [
+        path for path in changed_paths(base, base_sha,
+                                       stage.get("dirty_at_start", {}))
+        if not path.startswith(workflow_prefixes(base))
+    ]
+    strays = out_of_scope(base, product, effective_scope(base, args.id, scope))
+    if not strays:
+        fail(f"{args.id} has no measured path outside its scope — nothing to "
+             "amend. If `stage done` is refusing, it is refusing for another "
+             "reason; read the refusal.")
+
+    record = load_json(scope_amendments_path(base), default={})
+    if not isinstance(record, dict):
+        record = {}
+    by_task = record.setdefault("tasks", {})
+    entry = by_task.setdefault(args.id, {"added_paths": [], "amendments": []})
+    already = set(entry.get("added_paths") or [])
+    entry["added_paths"] = sorted(already | set(strays))
+    entry.setdefault("amendments", []).append({
+        "at": now_iso(),
+        "by": args.by or "",
+        "reason": reason,
+        "added_paths": sorted(strays),
+        "measured_from": base_sha,
+        "measured_head": head_sha(base),
+    })
+    dump_json(scope_amendments_path(base), record)
+    print(f"Amended {args.id} scope with {len(strays)} measured path(s): "
+          f"{', '.join(sorted(strays)[:6])}"
+          f"{'…' if len(strays) > 6 else ''} — contract, grill and delegate "
+          f"launch untouched; `forge stage done {args.id}` can proceed")
+
+
 def cmd_done(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
     data = load_stages(base)
@@ -1332,6 +1549,7 @@ def cmd_done(args: argparse.Namespace) -> None:
              "`forge stage start` it first; done attests a stage that actually ran.")
     incomplete = (getattr(args, "incomplete", None) or "").strip()
     if incomplete:
+        _refuse_incomplete_against_complete_proof(base, args.id)
         # A worker that genuinely finished part of the job had no vocabulary for
         # it: every signal kind presumes it wants to continue. This says so and
         # leaves the stage open, so nothing downstream reads it as delivered.

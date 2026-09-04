@@ -114,6 +114,19 @@ def main() -> int:
         print("SIGN-OFF REFUSED — missing workflow inputs:")
         for problem in problems:
             print(f"- {problem}")
+        # Naming the artifact without the command that produces it left the
+        # caller to work out the 0c order for themselves — and the roadmap step
+        # in particular is easy to miss, since sign-off is the first thing that
+        # demands it.
+        print(
+            "The 0c order that produces these: `forge spec save <slug> --from "
+            "<draft>` -> grill it (`record_grill_from_json.py --gate spec "
+            "--input-digest docs/specs/<slug>.md --input <grill.json>`, 2 logged "
+            "rounds) -> `forge spec confirm <slug>` -> `forge roadmap derive "
+            "--input <roadmap.json>` -> grill sign-off -> accept the "
+            "client-signoff decision -> re-run this script. `forge next` prints "
+            "the step you are actually on."
+        )
         return 1
 
     # The handover must be grilled for gaps/contradictions BEFORE it becomes

@@ -17,7 +17,17 @@ never mandatory.
 Rules:
 - decompose by capability and vertical slice
 - do not decompose by markdown file or arbitrary file count
-- each leaf task must fit one implementation session and one review package
+- SIZE each leaf task by judgement, not by a number. A task must fit ONE bounded
+  session end to end — implement, verify, three-lens review, fix the findings.
+  Ask: can one worker carry this from start to a clean review without the diff
+  outgrowing what a reviewer can hold at once? If not, split it; if the pieces
+  would each be trivial, merge them. Neither too big to review nor so small the
+  ceremony outweighs the work — a fragmented graph costs a full plan, grill,
+  approval, review and PR per sliver.
+- BACKEND and FRONTEND are separate tasks, always: they have disjoint write
+  scopes, different reviewer focus, and only the frontend one is `user_facing`.
+  When either side is still too large for one bounded session, split THAT side
+  again along its own seam (e.g. two backend tasks), never by mixing the two.
 - record the ordered task LIST first; do not invent execution-contract detail
   for later tasks before their dependencies have produced real repository state
 

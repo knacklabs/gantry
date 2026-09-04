@@ -132,7 +132,17 @@ def cmd_save(args: argparse.Namespace) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(header + body, encoding="utf-8")
     append_event(base, "spec-draft", actor="orchestrator", detail=f"{slug}: {title}")
-    print(f"Spec saved as draft: {destination.relative_to(base)}")
+    # Save deliberately still accepts an incomplete draft — a spec grows. But
+    # saying nothing meant the author only learned the required shape at
+    # `spec confirm`, a grill later, and had to come back and redo it. It rides
+    # the SAME line: success is one line (conduct §8), and a second line here
+    # breaks the output budget the harness tests for.
+    missing = missing_required_content(body)
+    still_missing = (
+        f" — still missing {', '.join(missing)}, which `spec confirm` requires"
+        if missing else ""
+    )
+    print(f"Spec saved as draft: {destination.relative_to(base)}{still_missing}")
 
 
 def cmd_confirm(args: argparse.Namespace) -> None:

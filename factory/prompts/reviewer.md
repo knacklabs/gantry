@@ -1,11 +1,14 @@
 # Review Prompt — one autoreview run, three lenses
 
 Review runs ONCE per task, after `verify.py` passes and the automated testing
-artifact is recorded. The orchestrator runs the autoreview skill **DIRECTLY**
-(its engine is Codex): invoke the skill's helper yourself from the coordinating
-session — NEVER hand the review to a Codex subagent (that re-triggers the same
+artifact is recorded, and before `task pr-ready`. The orchestrator releases it
+with **`./forge review <task-id>`** (decisions 0011, 0049): that command runs
+the autoreview skill with Codex as its engine — once per lens, in a clean
+worktree pinned at the task tip, over the whole task diff from its recorded
+base — watches it, and records the three artifacts as the task's proof. NEVER
+hand the review to a nested Codex companion job (that re-triggers the same
 skill one indirection deeper and the companion write-guard refuses it), and
-never hand-write findings inline. One autoreview run, three lenses.
+never hand-write findings inline.
 
 Loop discipline (carried over from the retired subagent panel): scope-freeze —
 review the diff that exists, do not expand scope; verify findings against the
@@ -20,16 +23,23 @@ reason) before the task ships, not silently dropped.
 
 Procedure:
 
-1. Run the autoreview skill over the diff. For a committed task diff use
-   `--mode commit --commit HEAD`; for an uncommitted local pass use
-   `--mode local` (branch mode `--base origin/<default>` pulls in unrelated
-   binary/vendor churn and refuses). When the current task declares
-   `plan_contracts`, first compose `.factory/review-briefs/<task-id>.md` with
-   `./forge review-brief <task-id>` and pass that repo-relative path as
-   `--prompt-file`. Example: `"$AUTOREVIEW" --mode commit --commit HEAD
-   --max-priority P2 --prompt-file .factory/review-briefs/<task-id>.md`. The
-   quality artifact must include `contract_verdicts` for every declared
-   contract.
+1. `./forge review <task-id>` does the run: it mints the branch review run
+   (`review-brief --all`, which every recorded artifact is bound to), composes
+   `.factory/review-briefs/<task-id>.<lens>.md` per lens from the task's plan
+   contracts, reviewer focus, and the lens definition below, and runs the skill
+   in **branch mode from the task's recorded base** — the whole task diff
+   (`--mode commit --commit HEAD` would review only the LAST commit of a
+   multi-commit task) — at `--max-priority P2`, with Codex as the engine. The
+   run is pinned in a clean detached worktree because the skill refuses to
+   finish if the reviewed tree changes mid-run and the main tree is where the
+   harness keeps writing. Findings on harness bookkeeping paths (`.factory/`,
+   `plans/`, `docs/decisions/`) are dropped. The quality artifact's
+   `contract_verdicts` are parsed from the reviewer's
+   `VERDICT <contract-id>: implemented|partial|missing — <evidence>` lines; a
+   contract the reviewer did not verdict is recorded as `partial` (fail-closed)
+   so it surfaces as a blocking finding rather than passing silently. Verdicts
+   are required for the reviewed task's contracts and those of tasks already
+   done; tasks that have not started are not verdicted (0049).
 2. Review through THREE lenses and emit one JSON per lens matching
    `factory/schemas/review.json`, each with `"generated_by": "autoreview"`:
    - **quality** — correctness, regressions, gaps in the implementer's tests,

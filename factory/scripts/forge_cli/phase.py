@@ -120,6 +120,20 @@ def cmd_next(args: argparse.Namespace) -> None:
             f"[dev] Hook launcher is broken ({hook_detail}) — run `./forge doctor --fix` first"
         )
 
+    # A crashed companion leaves launch_status "running" on disk forever, so a
+    # coordinator waiting on it waits for a process that no longer exists. Say
+    # so HERE too: `forge next` is what gets run when nothing seems to be
+    # happening, and nobody thinks to ask `codex status` about a job they
+    # believe is still working.
+    from .codex_status import dead_launches
+    for corpse in dead_launches(base):
+        steps.append(
+            f"[orchestrator] DEAD delegate for {corpse.get('task', '?')}: pid "
+            f"{corpse.get('pid')} is GONE but the ledger still says "
+            f"{str(corpse.get('launch_status'))!r}. It CRASHED — it is not slow, "
+            "and nothing is coming. Read its log, then re-run `./forge delegate "
+            f"{corpse.get('task', '<task-id>')}`"
+        )
     open_sigs = open_signals(base)
     if open_sigs:
         ids = ", ".join(s["id"] for s in open_sigs[:3])
@@ -152,9 +166,22 @@ def cmd_next(args: argparse.Namespace) -> None:
                      "run: python3 factory/scripts/intake.py --issue <KEY> --title \"<title>\"")
     elif not signed_off:
         phase("discovery/prototype/specs/roadmap (0a/0b/0c)")
-        steps.append("[PM] Capture discovery and the product brief — ask for them; "
-                     "prototype freely meanwhile (no ceremony)")
-        steps.append("[PM] Record each client decision as it is made — ask, then confirm it in chat")
+        # These two used to print unconditionally, so they still read as "to do"
+        # after the docs were written and decisions accepted — which makes the
+        # whole list look inert and teaches the reader to ignore it.
+        from record_signoff import REQUIRED_BRIEF_HEADINGS
+        from factory_lib import parse_sections
+
+        brief = base / "docs" / "product" / "BRIEF.md"
+        brief_sections = parse_sections(
+            brief.read_text(encoding="utf-8")) if brief.is_file() else {}
+        if [h for h in REQUIRED_BRIEF_HEADINGS if not brief_sections.get(h, "").strip()]:
+            steps.append("[PM] Capture discovery and the product brief — ask for them; "
+                         "prototype freely meanwhile (no ceremony)")
+        from .decisions import decision_records
+        if not [d for d in decision_records(base) if d.get("status") == "accepted"]:
+            steps.append("[PM] Record each client decision as it is made — ask, "
+                         "then confirm it in chat")
         from .specs import spec_records
         specs = spec_records(base)
         if not specs:
@@ -162,9 +189,18 @@ def cmd_next(args: argparse.Namespace) -> None:
                          "from its draft, then confirm it")
         drafts = [spec["slug"] for spec in specs if spec.get("status") != "confirmed"]
         if drafts:
-            steps.append("[PM] Grill and confirm every draft spec: "
-                         f"{', '.join(drafts)} (`record_grill_from_json.py --gate spec "
-                         "--input-digest docs/specs/<slug>.md`, then `forge spec confirm <slug>`)")
+            steps.append(
+                "[PM] Grill and confirm every draft spec: "
+                f"{', '.join(drafts)} — the spec gate is LEDGER-MATCHED, so its "
+                "rounds must come from AskUserQuestion in THIS top-level Claude "
+                "session (Codex and subagents cannot record it). Ask at least 2 "
+                "real rounds, mark the last `\"frontier_empty\": true`, then: "
+                "`python3 factory/scripts/record_grill_from_json.py --gate spec "
+                "--input-digest docs/specs/<slug>.md --input <grill.json>` and "
+                "`forge spec confirm <slug>`. That payload needs "
+                "generated_by/gate/verdict/gaps/contradictions/resolutions plus "
+                "rounds[] of {question, options, chosen} "
+                "(factory/schemas/grill.json)")
         if specs and not drafts and not load_items(base):
             steps.append("[PM/EM] Derive the spec-linked roadmap before sign-off: "
                          "./forge roadmap derive --input <json> "
@@ -174,9 +210,13 @@ def cmd_next(args: argparse.Namespace) -> None:
             steps.append("[PM] Before sign-off: grill the handover for gaps/contradictions "
                          "(factory/prompts/griller.md), resolve findings, record: "
                          "record_grill_from_json.py --gate signoff")
-        steps.append("[PM] When the client confirms: forge.py decision new client-signoff, "
-                     "then forge.py decision accept client-signoff --by <name> (human), "
-                     "then run record_signoff.py")
+        steps.append(
+            "[PM] When the client confirms: forge.py decision new client-signoff, "
+            "then forge.py decision accept client-signoff --by <name> (human), "
+            "then run record_signoff.py — which ALSO needs every spec confirmed "
+            "and a derived roadmap (`forge roadmap derive --input <json>`), so "
+            "do those first; "
+            "`roadmap add` cannot substitute, it is post-sign-off grooming")
     elif not state.get("issue_key"):
         phase("signed off — no active task")
         if state.get("phase") == "shipped" and any(
@@ -263,11 +303,13 @@ def cmd_next(args: argparse.Namespace) -> None:
                 "record_grill_from_json.py --gate requirements"
             )
         else:
-            steps.append("[dev] MANDATORY: enter plan mode (shift+tab) and plan per "
-                         "factory/prompts/planner.md, or deliberately open a bounded "
+            steps.append("[dev] MANDATORY: plan per factory/prompts/planner.md, or "
+                         "deliberately open a bounded "
                          "`./forge quickfix start \"<reason>\"` window. Product writes are "
                          "hook-blocked otherwise (Codex planning alternative: planner-high; "
-                         "exploration via /codex:rescue read-only).")
+                         "exploration via /codex:rescue read-only). Authoring is "
+                         "mode-agnostic (0050) — do not switch the session's mode "
+                         "to write a plan.")
             steps.append("[dev] Record new decisions as you go: forge.py decision new <slug>")
             plan_grill = load_json(
                 evidence_path(base, issue, "grills/plan.json"), default={},
@@ -312,8 +354,8 @@ def cmd_next(args: argparse.Namespace) -> None:
                 task_id = task["id"]
                 if frontier == "author-contract":
                     steps.append(
-                        f"[dev] Enter plan mode for {task_id} per "
-                        "factory/prompts/planner.md; author its JIT contract against "
+                        f"[dev] Author the contract for {task_id} per "
+                        "factory/prompts/planner.md against "
                         "completed work, then re-record with "
                         "record_decomposition_from_json.py (decisions 0029/0032)"
                     )
@@ -333,12 +375,16 @@ def cmd_next(args: argparse.Namespace) -> None:
                     )
                 elif frontier == "author-task-plan":
                     steps.append(
-                        f"[dev] Author {task_id} in plan mode — do NOT present the plan "
-                        "in chat. Save it silently: "
+                        f"[dev] Author the {task_id} plan — do NOT present it in "
+                        "chat, and do NOT change the session's mode to write it "
+                        "(authoring is mode-agnostic, 0050). It MUST carry "
+                        "`## Workflow` (the end-to-end flow this task builds — a "
+                        "```mermaid diagram renders on the board) and "
+                        "`## Manual Verification` (the steps a human runs to see it "
+                        "work). Save it silently: "
                         f"`./forge task plan save {task_id} --from <path>` (it stays "
-                        "hidden on the board until its grill is clean), then grill it "
-                        "WITHOUT leaving plan mode (the plan-mode marker comes from "
-                        "editing the plan in plan mode, not from an ExitPlanMode prompt)."
+                        "hidden on the board until its grill is clean), then grill it. "
+                        "The grill is the provenance, not the mode you wrote it in."
                     )
                 elif frontier == "await-approval":
                     steps.append(
@@ -351,13 +397,49 @@ def cmd_next(args: argparse.Namespace) -> None:
                         "re-stales the approval and forces another round."
                     )
                 elif frontier == "stage-start":
-                    steps.append(f"[dev] Start {task_id}: ./forge stage start {task_id}")
+                    # Naming only `stage start` sent the work to the trunk's own
+                    # tree: run.json kept base_main_sha/task_branch/worktree
+                    # null, which breaks the later seal and lets any commit on
+                    # the trunk stale the HEAD-bound grill. `task start` is the
+                    # step that creates the branch and worktree, so it comes
+                    # FIRST and is not optional.
+                    steps.append(
+                        f"[dev] Start {task_id} — TWO commands, in this order. "
+                        f"FIRST `./forge task start {task_id}`: it creates "
+                        f"feat/<story>-{task_id} plus a SIBLING WORKTREE from "
+                        "the trunk and mirrors the uncommitted .factory task "
+                        "state (decomposition, task-plan, task grill) into it. "
+                        f"THEN, from INSIDE that worktree, `./forge stage start "
+                        f"{task_id}`. Skipping `task start` leaves the work on "
+                        "the trunk's tree with base_main_sha/task_branch/"
+                        "worktree null and breaks the seal later."
+                    )
                 elif frontier == "delegate":
-                    steps.append(f"[dev] Delegate {task_id}: ./forge delegate {task_id}")
+                    steps.append(
+                        f"[dev] Delegate {task_id}: ./forge delegate {task_id} — "
+                        "run it FROM INSIDE the task worktree (every shell call "
+                        "resets the working directory, so cd in each time). "
+                        "Stage state and write access are PER WORKTREE: the "
+                        "worktree's stage is still `pending` even if you opened "
+                        "the stage in the main repo, and `delegate --print-only` "
+                        "reports `Write access: NO` until the stage is opened "
+                        "THERE. The worktree also gets its OWN codex job "
+                        "directory (hashed from its path), so watch THAT job, "
+                        "not the main repo's."
+                    )
                 elif frontier == "await-merge":
                     steps.append(
-                        f"[dev] Await {task_id} merge into main; its task marker is "
-                        "not on origin/main yet, then rerun ./forge next"
+                        f"[dev] Ship {task_id} as its own PR: ./forge task pr-ready "
+                        f"{task_id} (writes the task marker, pushes the branch, opens "
+                        "the PR to the trunk, then poll its CI to green and fix any "
+                        "failure). Its marker is not on the trunk yet; after it "
+                        "merges, rerun ./forge next. BUT if this task's work is "
+                        "ALREADY merged — it shipped through a story-level or direct "
+                        "PR that skipped pr-ready — do NOT open a second PR: record "
+                        f"what shipped with ./forge task reconcile {task_id}, land "
+                        "that marker on the trunk, and the frontier advances. "
+                        "'await-merge' means the MARKER is missing, which is not the "
+                        "same as the work being unshipped."
                     )
                 # Design-skill guidance is PER TASK, not per story. Before the
                 # contract is authored the task flag is not set, so prompt
