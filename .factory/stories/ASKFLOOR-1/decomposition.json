@@ -86,6 +86,11 @@
         "npm run check:architecture",
         "npm run test:integration:postgres"
       ],
+      "review_budget": {
+        "max_changed_files": 26,
+        "max_changed_lines": 1800,
+        "reason": "S-0066: the grilled contract (9 rounds) spans 12 source files (IPC helper pre-split into five helpers, analyzer + types, domain lane enums, rails signal, coordinator seam, trusted-paths fix, railProvenance across domain types + IPC signing + two runner decoders) and 10 test files incl. the AF-AC8 harness module; 16 leaf tests are required proof, not creep. Raised from the 8-file default by the orchestrator per the owner's standing 'raise budget + re-grill' ruling."
+      },
       "required_tests": [
         {
           "id": "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto",
@@ -328,5 +333,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "21925c45385ec86358f8ecb4e91ddff027eab5a7"
+  "commit": "a3e23f520d44b8a500234d4d0ee3cee16ed07b13"
 }

@@ -28,7 +28,7 @@
     "AutoLaneAnalysis typed value object (application/permissions/auto-lane-analysis.ts + types file) \u2014 the single per-request lane/rail/read-only-meta fact; five named tail helpers; the AF-AC8 replay fixture module."
   ],
   "gaps": [
-    "ASKFLOOR-1-T1 (routing: the judge's verdict stands for rail-refused reads in interactive auto) went through 9 Codex contract grills; every finding is folded and the story plan now matches the contract. Go: record the grill, approve the task plan, start the stage and delegate T1 to Codex sol@xhigh?"
+    "Codex paused before writing anything: T1's grilled contract spans 22 files (12 source + 10 test, 16 required leaf tests) but the stage's default review budget is 8 files. Same wall as CARDSIMPLE-2. Raise T1's budget to 26 files / 1800 lines and resume?"
   ],
   "contradictions": [],
   "resolutions": [
@@ -36,27 +36,27 @@
   ],
   "citations": [
     {
-      "finding": "ASKFLOOR-1-T1 (routing: the judge's verdict stands for rail-refused reads in interactive auto) went through 9 Codex contract grills; every finding is folded and the story plan now matches the contract. Go: record the grill, approve the task plan, start the stage and delegate T1 to Codex sol@xhigh?",
+      "finding": "Codex paused before writing anything: T1's grilled contract spans 22 files (12 source + 10 test, 16 required leaf tests) but the stage's default review budget is 8 files. Same wall as CARDSIMPLE-2. Raise T1's budget to 26 files / 1800 lines and resume?",
       "source": "plans/exploration/askfloor-1-t1-task-grill.md; plans/exploration/askfloor-1-t1-task-grill-r9.md"
     }
   ],
   "rounds": [
     {
-      "question": "ASKFLOOR-1-T1 (routing: the judge's verdict stands for rail-refused reads in interactive auto) went through 9 Codex contract grills; every finding is folded and the story plan now matches the contract. Go: record the grill, approve the task plan, start the stage and delegate T1 to Codex sol@xhigh?",
+      "question": "Codex paused before writing anything: T1's grilled contract spans 22 files (12 source + 10 test, 16 required leaf tests) but the stage's default review budget is 8 files. Same wall as CARDSIMPLE-2. Raise T1's budget to 26 files / 1800 lines and resume?",
       "options": [
-        "Go (Recommended)",
-        "Hold"
+        "Raise to 26 files / 1800 lines (Recommended)",
+        "Split T1 instead"
       ],
-      "chosen": "Go (Recommended)",
+      "chosen": "Raise to 26 files / 1800 lines (Recommended)",
       "frontier_empty": true
     }
   ],
-  "summary": "T1 task grill: 9 Codex gpt-5.6-sol@xhigh read-only rounds (briefs plans/exploration/askfloor-1-t1-task-grill.md, -r2..-r9): 5,4,3,5,2,2,1,1,1 findings, all folded \u2014 contracts = ACs verbatim; enumerated scope + harness module; symmetric lane proofs; coordinator once-only + stage-order tests; verify.py + postgres gate; tail(context) seam with one base rail decision (A-0069); canonical railProvenance over signed IPC incl. the Anthropic decoder; domain-owned lane types; genuinely pure hard-boundary predicate; authoritative stage order; signal-keyed relaxation with hard-floor negatives; canonical unsupported_meta_executor rail signal (A-0070). r9's last item (story-plan authority) closed by the 2026-09-04 plan amendment + re-approval. Owner go-round ledgered.",
-  "input_sha256": "7ac2ef53d3a0f6b8236584e8ea957646f752535f632c1d667110a1ec11ac2164",
+  "summary": "T1 task grill: 9 Codex gpt-5.6-sol@xhigh read-only rounds, all findings folded (see prior record); RE-RECORDED after S-0066: review budget raised to 26 files / 1800 lines on the recorded contract by owner ruling 2026-09-04 (the 22-file span is the grilled contract, not creep); contract otherwise unchanged.",
+  "input_sha256": "adbc927078d734d1d2c771f8f7980cfa52ce6345c644af7eff3d8f55a2f4db33",
   "task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
-  "recorded_at": "2026-09-04T02:41:18+00:00",
-  "commit": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
+  "recorded_at": "2026-09-04T02:46:19+00:00",
+  "commit": "a3e23f520d44b8a500234d4d0ee3cee16ed07b13",
   "approved_task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T02:41:19+00:00"
+  "approved_at": "2026-09-04T02:46:19+00:00"
 }

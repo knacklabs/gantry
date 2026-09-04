@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Codex paused before writing anything: T1's grilled contract spans 22 files (12 source + 10 test, 16 required leaf tests) but the stage's default review budget is 8 files. Same wall as CARDSIMPLE-2. Raise T1's budget to 26 files / 1800 lines and resume?",
+      "options": [
+        "Raise to 26 files / 1800 lines (Recommended)",
+        "Split T1 instead"
+      ],
+      "chosen": "Raise to 26 files / 1800 lines (Recommended)"
+    }
+  ],
+  "at": "2026-09-04T02:46:03.689646+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
