@@ -22,7 +22,7 @@
       "objective": "In interactive auto (permissionMode auto, no hostJobId) a rail ASK for out_of_trusted_root or a read-only find no longer vetoes a classifier allow; one typed AutoLaneAnalysis per request; the shared parser stays fail-closed (nine write-capable find actions refused); 2>/dev/null is never a path candidate; the IPC tail is pre-split into five named helpers; the AF-AC8 replay harness is scaffolded with S3.",
       "acceptance_criteria": [
         "a classifier low/medium allow is honoured with the rail reason as typed provenance only when `permissionMode` is `auto` and `hostJobId` is absent; `auto_strict`, ask and job lanes keep the veto (explicit tests).",
-        "`find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; a read-only `find` yields the auto-only `read_only_meta_executor` signal; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path).",
+        "`find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; the rails' existing meta-executor refusal now carries the canonical typed signal `unsupported_meta_executor` (today it emits `privileged`, `domain/permission-deterministic-rails.ts:41-46,164-171`; verdict unchanged, A-0070) and a read-only `find` makes the analyzer's `readOnlyMetaExecutor` true; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path).",
         "the ONE authoritative decision order \u2014 pre-coordination route analysis \u2192 exact remembered deny [T3b no-op slot] \u2192 hard restrictions \u2192 reviewed rules \u2192 deterministic rails (the single base evaluation) \u2192 conditional trusted-root handling (only on the rails' `out_of_trusted_root` ASK; its hypothetical rechecks unchanged) \u2192 remembered allows [T3b no-op slot] \u2192 classifier-cache read \u2192 tail \u2014 is the coordinator/tail contract (`permission-decision-coordinator.ts:97-200` enumerated as named stages, pinned by a stage-order test), with the base rail decision computed once and passed to the tail in an immutable typed context.",
         "the AF-AC8 replay harness exists as a reusable fixture module; S3 (`2>/dev/null` + read-only `find`) replays at 0 taps in interactive auto; later tasks add fixtures without editing T1's tests.",
         "existing unit and Postgres integration suites pass; tsc and check:architecture green."
@@ -37,7 +37,7 @@
         },
         {
           "id": "ASKFLOOR-1-T1-AC2",
-          "statement": "`find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; a read-only `find` yields the auto-only `read_only_meta_executor` signal; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path).",
+          "statement": "`find` with any of `-delete -exec -execdir -ok -okdir -fls -fprint -fprint0 -fprintf` stays refused by the shared parser; the rails' existing meta-executor refusal now carries the canonical typed signal `unsupported_meta_executor` (today it emits `privileged`, `domain/permission-deterministic-rails.ts:41-46,164-171`; verdict unchanged, A-0070) and a read-only `find` makes the analyzer's `readOnlyMetaExecutor` true; `pathCandidates` ignores stderr redirects to `/dev/null` with per-lane tests (assumption A-askfloor-1: an outcome may change only where a non-path stops being treated as a path).",
           "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T1.md#acceptance-criteria"
         },
         {
@@ -64,6 +64,7 @@
         "apps/core/src/runtime/permission-decision-coordinator.ts",
         "apps/core/src/domain/types.ts",
         "apps/core/src/domain/permission-lane.ts",
+        "apps/core/src/domain/permission-deterministic-rails.ts",
         "apps/core/src/shared/ipc-signing.ts",
         "apps/core/src/runner/permission-ipc-client.ts",
         "apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts",
@@ -97,12 +98,17 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "honours a classifier allow for a read-only find only in interactive auto and keeps the veto in auto_strict, ask and job lanes",
+          "id": "honours a classifier allow for an unsupported_meta_executor refusal of a read-only find only in interactive auto and keeps the veto in auto_strict, ask and job lanes",
           "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "derives read_only_meta_executor for find without any of the nine write-capable actions only",
+          "id": "emits the canonical unsupported_meta_executor rail signal for a meta-executor refusal with the ASK verdict unchanged",
+          "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "derives readOnlyMetaExecutor true for find without any of the nine write-capable actions only",
           "path": "apps/core/test/unit/application/auto-lane-analysis.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
@@ -165,6 +171,7 @@
       "reviewer_focus": [
         "Constitution (load-bearing): constitution/README.md -> pnp-coding-standards-modular-monolith.md (types/enums/errors/data-access/thin coordinator in separate files; typed enums over string literals) and 03-modular-monolith-structure.md (application vs runtime vs shared placement). Conformance, not a new layout.",
         "PermissionLane, RailSignal and RailProvenance are DOMAIN-owned closed types (domain/permission-lane.ts) because domain/types.ts consumes them and domain never imports application (architecture-map.json:79-92); AutoLaneAnalysis is a typed value object whose input/output shapes live in application/permissions/auto-lane-analysis-types.ts; the analyzer is a GENUINELY PURE function (no filesystem, no I/O) whose readOnlyMetaExecutor is the HARD-BOUNDARY predicate: single simple find, no compound/pipeline/redirect/subshell, none of the nine write-capable actions, none of -H/-L/-follow, no indirect or unknown root-source option (-files0-from and the like fail closed), and NO operand \u2014 every positional path and every predicate value (-name, -iname, -path, -regex, -newer, -samefile, ...) \u2014 matching the conservative pure string predicate isSensitivePathShape (protected capability-path patterns; any segment starting with '.' except the bare '.' so `find .` passes and `..`/`.env` fail; well-known secret file names \u2014 a superset of the filesystem-backed checks; TODO(T2a) unify).",
+        "Rails ownership (assumption A-0070): domain/permission-deterministic-rails.ts is a declared T1/T2a shared file; T1 owns ONLY the typed RailSignal value unsupported_meta_executor and its emission for the existing meta-executor refusal (today privileged, :41-46,164-171) with the ASK verdict unchanged \u2014 no widening; T2a owns the attachment_open birthright row.",
         "T1 is IPC-ONLY (assumption A-0069: the coordinator is a declared T1/T3b shared file, T1 limited to the optional analysis/context seam): the IPC helper computes the pre-analysis once in a NEW pre-coordination step before calling the coordinator (:95-170), distinct from the tail's route guard (:184-218) which only consumes the completed context (it alone knows permissionMode, hostJobId and the resolved route mode) and passes it to the coordinator as an OPTIONAL typed input analysis?: AutoLaneAnalysis; the coordinator derives no lane facts, and with an analysis runs ONE base rail evaluation and calls tail(context) with the immutable typed context { analysis, railDecision } replacing today's zero-argument tail; without one (inline-agent-loop-tools.ts:389-395, core-tool-permission-coordinator.ts:61) behaviour is byte-for-byte today's; trusted-root hypothetical rechecks (permission-decision-coordinator.ts:232-268) stay unchanged and are not the base evaluation.",
         "railProvenance is CANONICAL provenance: an optional typed field on PermissionApprovalDecision (domain/types.ts:298-311 \u2014 T1's only addition to that file; T3a's later additions are sequential), included in the signed IPC decision payload (shared/ipc-signing.ts:10-22) and decoded by ALL runner decoders \u2014 the generic IPC client (runner/permission-ipc-client.ts:59-75,371-390) and the Anthropic runner decoder (adapters/llm/anthropic-claude-agent/runner/permission-callback.ts:301-387, result type runner/types.ts:119-144); never a host-local side channel.",
         "The coordinator's authoritative decision order is enumerated as named stages \u2014 pre-coordination route analysis, [T3b] exact remembered deny, hard restrictions, reviewed rules, deterministic rails (the single base evaluation), conditional trusted-root handling (only on the rails' out_of_trusted_root ASK; hypothetical rechecks unchanged), [T3b] remembered allows, classifier-cache read, tail \u2014 and pinned by a stage-order test; one analysis per IPC permission request, other callers pass none; the harness return type uses PermissionApprovalDecision['decidedBy'], PermissionDecisionSource (domain/types.ts:255) and RailProvenance.",
@@ -320,5 +327,5 @@
   ],
   "project": "",
   "plan_sha256": "2a22926070a5983dc897e43a30658dec5d86f47b71d7e9fd66af0b1e8628fc3f",
-  "commit": "8ad2e9d4e2c1a28d5bb03abda85e66651ba37421"
+  "commit": "32bf82a6fc5caa7789480f31eaf56c0cae1690c4"
 }
