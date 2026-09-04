@@ -1,0 +1,11 @@
+{
+  "topic": "coordinator cache stage under a rail ASK",
+  "lesson": "Under a rail ASK the classifier-verdict cache may be read ONLY when the signal is one of the two overridable ones (out_of_trusted_root, unsupported_meta_executor) AND the lane is interactive auto, because only the tail merge can consume it there. Every other rail ASK (destructive, secret, escape, family-rule hit) must skip the cache read entirely, exactly as before this story: ipc-interaction-handler.test.ts pins that a destructive ASK never calls getClassifierVerdict while the intact command is still written back. Run the full unit suite (verify.py), not only the nine T1 suites, before ending a run.",
+  "source": "verify.py after autoreview r4: ipc-interaction-handler.test.ts 'writes the classifier verdict when display sanitization leaves the full command intact' regressed by 1e44a0b42",
+  "applies_to": [
+    "apps/core/src/runtime/permission-decision-coordinator.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-04T05:03:48+00:00"
+}
