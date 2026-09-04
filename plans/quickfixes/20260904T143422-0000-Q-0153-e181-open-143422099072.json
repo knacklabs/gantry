@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0153-e181",
+  "profile": "quickfix",
+  "reason": "fast-uri 3.1.5 carries HIGH CVE-2026-75899 (SSRF via repeated); Trivy fails the image job on every product PR; bump the override to ^3.1.6 (resolves 3.1.7), lockfile only",
+  "started_at": "2026-09-04T14:34:22+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
