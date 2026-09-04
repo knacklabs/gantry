@@ -12503,6 +12503,44 @@ def test_board_separates_never_grilled_from_grilled_then_edited(repo, tmp_path):
     assert task_plan_view(repo, key, task, passing)["plan_state"] == "stale"
 
 
+def test_board_shows_proposed_decisions_and_the_signoff_gate(repo, tmp_path):
+    # Two things the board could not show. A PROPOSED decision governs nothing
+    # until a human accepts it, so the work resting on it rests on an open
+    # question — yet only accepted records reached the board, which made it
+    # quietest exactly where it should have been loudest. And the sign-off
+    # grill is project-level (.factory/grills/signoff.json), while the board
+    # reads grills from the STORY directory, so the gate every other gate sits
+    # behind was invisible.
+    sys.path.insert(0, str(repo / "factory" / "scripts"))
+    from forge_cli.board import active_decisions, signoff_state  # noqa: E402
+
+    decisions = repo / "docs" / "decisions"
+    decisions.mkdir(parents=True, exist_ok=True)
+    (decisions / "0001-accepted-thing.md").write_text(
+        "---\nid: 0001-accepted-thing\ntitle: Accepted thing\n"
+        "status: accepted\n---\n\nBody.\n", encoding="utf-8")
+    (decisions / "0002-open-question.md").write_text(
+        "---\nid: 0002-open-question\ntitle: Open question\n"
+        "status: proposed\n---\n\nBody.\n", encoding="utf-8")
+
+    listed = {d["id"]: d["status"] for d in active_decisions(repo)}
+    assert listed.get("0002-open-question") == "proposed", (
+        "a decision awaiting a human must reach the board")
+    assert listed.get("0001-accepted-thing") == "accepted"
+
+    state = signoff_state(repo)
+    assert "signed_off" in state
+    # Unsigned must carry the REASON, not just a false: the board explains a
+    # gate rather than only reporting it.
+    if state["signed_off"] is False:
+        assert state["reason"]
+
+    page = (HARNESS / "factory" / "board" / "index.html").read_text(
+        encoding="utf-8")
+    assert "Decisions awaiting you" in page
+    assert "Client sign-off is not recorded" in page
+
+
 def test_state_audit_reports_a_stage_split_between_working_copies(repo, tmp_path):
     # The harness gates TRANSITIONS and never re-validates STATE, so a record
     # that stopped being true is invisible. This is the split that made a

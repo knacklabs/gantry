@@ -301,6 +301,48 @@ def _artifact(
     return artifact
 
 
+def product_only_tip(worktree: Path, base_sha: str) -> str:
+    """Commit a review tip in the detached worktree with every harness
+    bookkeeping path (`.factory/`, `plans/`, `docs/decisions/`, the context
+    ledger) put back to the task base, and return its sha.
+
+    The scope list already drops those paths, but the autoreview skill builds
+    its own bundle from `base..HEAD`, so a story branch carrying hundreds of
+    planning artifacts handed the reviewer a >1 MB bundle: chunked into several
+    passes, the reviewer never reached the contract VERDICT lines, every
+    contract was recorded `partial` (fail-closed -> blocking), and the task-proof
+    gate refused a task whose product review was clean (observed 2026-09-04,
+    issue #171). With the bookkeeping at the base, the bundle is the product
+    delta only. The base is untouched and stays an ancestor of the new tip."""
+    from .stages import WORKFLOW_PATHS
+    prefixes = tuple(sorted(set(HARNESS_PREFIXES) | set(WORKFLOW_PATHS)))
+    changed = [
+        p for p in _require_git(worktree, "listing the review diff", "diff",
+                                "--name-only", f"{base_sha}..HEAD").splitlines()
+        if p.strip() and p.startswith(prefixes)
+    ]
+    if not changed:
+        return _require_git(worktree, "resolving the review tip", "rev-parse", "HEAD")
+    for rel in changed:
+        at_base = _git(worktree, "cat-file", "-e", f"{base_sha}:{rel}").returncode == 0
+        if at_base:
+            _require_git(worktree, f"restoring {rel} to the task base",
+                         "checkout", base_sha, "--", rel)
+        else:
+            _require_git(worktree, f"dropping {rel} from the review tip",
+                         "rm", "-q", "--cached", "--", rel)
+            path = worktree / rel
+            if path.is_file():
+                path.unlink()
+    _require_git(worktree, "committing the review tip",
+                 "-c", "user.name=forge-review", "-c", "user.email=forge-review@local",
+                 "commit", "-q", "--no-verify", "-m",
+                 f"review tip: harness bookkeeping at task base {base_sha[:12]}")
+    print(f"review tip excludes {len(changed)} harness bookkeeping path(s); the "
+          "bundle is the product delta only")
+    return _require_git(worktree, "resolving the review tip", "rev-parse", "HEAD")
+
+
 def _run_skill(skill: Path, worktree: Path, base_sha: str, prompt_rel: str,
                json_out: Path, engine: str, max_priority: str) -> dict:
     argv = [
@@ -387,6 +429,7 @@ def cmd_review(args: argparse.Namespace) -> None:
         # scoped to the committed task diff.
         _require_git(base, "creating the review worktree", "worktree", "add",
                      "--detach", str(worktree), tip_sha)
+        review_tip = product_only_tip(worktree, base_sha)
         for lens in lenses:
             rel, body = prompts[lens]
             target = worktree / rel
@@ -394,8 +437,8 @@ def cmd_review(args: argparse.Namespace) -> None:
             target.write_bytes(body)
         for lens in lenses:
             print(f"== {lens} lens: releasing Codex over {len(scope)} path(s) "
-                  f"({base_sha[:7]}..{tip_sha[:7]}) — watch the heartbeat below ==",
-                  flush=True)
+                  f"({base_sha[:7]}..{review_tip[:7]}, task tip {tip_sha[:7]}) — "
+                  "watch the heartbeat below ==", flush=True)
             reports[lens] = _run_skill(
                 skill, worktree, base_sha, prompts[lens][0], tmp / f"{lens}.json",
                 args.engine, args.max_priority,

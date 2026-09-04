@@ -381,6 +381,7 @@ def aggregate_state(base: Path) -> dict:
         "quickfix_ledger": quickfix_ledger(base),
         "next": next_actions(base),
         "decisions": active_decisions(base),
+        "signoff": signoff_state(base),
     }
 
 
@@ -459,14 +460,45 @@ def next_actions(base: Path) -> dict:
 
 
 def active_decisions(base: Path) -> list[dict]:
+    """Accepted decisions AND the ones still waiting on a human.
+
+    Only accepted records used to reach the board, which hid the only decision
+    state a person can act on: a PROPOSED decision governs nothing until it is
+    accepted, and until then the work resting on it is resting on a question
+    nobody answered. Showing only the settled ones made the board quietest
+    exactly where it should have been loudest.
+    """
     records = decision_records(base)
     return [
         {"id": str(r.get("id") or r.get("slug") or ""),
          "title": str(r.get("title") or ""),
          "status": str(r.get("status") or ""),
          "path": Path(str(r["path"])).relative_to(base).as_posix() if r.get("path") else ""}
-        for r in records if r.get("status") == "accepted"
+        for r in records if r.get("status") in ("accepted", "proposed")
     ]
+
+
+def signoff_state(base: Path) -> dict:
+    """Whether the project is signed off, and what its handover grill said.
+
+    The sign-off grill is project-level (`.factory/grills/signoff.json`), not
+    story-scoped, so the board -- which reads grills from the STORY directory
+    -- never saw it. It is the gate every other gate sits behind: before it
+    passes, planning is refused outright.
+    """
+    from factory_lib import client_signoff
+
+    signed, reason = client_signoff(base)
+    grill = load_json(base / ".factory" / "grills" / "signoff.json", default={})
+    return {
+        "signed_off": bool(signed),
+        "reason": "" if signed else str(reason or ""),
+        "grill": {
+            "verdict": str(grill.get("verdict") or ""),
+            "at": str(grill.get("at") or grill.get("recorded_at") or ""),
+            "gaps": len(grill.get("gaps") or []),
+        } if grill else None,
+    }
 
 
 def approval_readiness(base: Path, detail: dict) -> list[dict]:
