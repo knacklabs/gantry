@@ -4,21 +4,22 @@
     {
       "id": "ASKFLOOR-1-T1",
       "title": "Routing: the judge's verdict stands in interactive auto",
-      "status": "active",
-      "started_at": "2026-09-04T12:33:48+00:00",
-      "base_sha": "2702d68769ab6b9d22958b5fec6553f3e310d02e",
+      "status": "done",
+      "updated_at": "2026-09-04T12:48:20+00:00",
+      "started_at": "2026-09-04T14:13:12+00:00",
+      "base_sha": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
       "dirty_at_start": {
         ".factory/stages.json": {
-          "digest": "1c65d0cb6daeabd7ec4cbda22ba7d255f7dff5b78e10be94948468ed623cb461",
-          "git": "1 .M N... 100644 100644 100644 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d .factory/stages.json\u0000\u0000100644 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+          "digest": "4e2239366cd2b61600b08f6b5313e16663dc7a1181552d8d86e2af9bfaf08965",
+          "git": "1 .M N... 100644 100644 100644 b03ff8eebac375b935e8b45fd3f2deeb249b0cf5 b03ff8eebac375b935e8b45fd3f2deeb249b0cf5 .factory/stages.json\u0000\u0000100644 b03ff8eebac375b935e8b45fd3f2deeb249b0cf5 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
         },
         ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json": {
-          "digest": "063c8c4cd1c7cfea5688589faf074eacbbabe36cfbdbdf0ef2cfa2fca6de808a",
-          "git": "1 .M N... 100644 100644 100644 df98498066ed669bc9bb53b0d914062044a6ae83 df98498066ed669bc9bb53b0d914062044a6ae83 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000100644 df98498066ed669bc9bb53b0d914062044a6ae83 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000"
+          "digest": "19841c3d60bbaf303af40c5fcb88bdbaa0312775ca6d55bf8eebbecd9c9c2de6",
+          "git": "1 .M N... 100644 100644 100644 b383ce027aab53a26c8f142298ab5619a8939b63 b383ce027aab53a26c8f142298ab5619a8939b63 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000100644 b383ce027aab53a26c8f142298ab5619a8939b63 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000"
         },
         ".factory/stories/ASKFLOOR-1/stages.json": {
-          "digest": "1c65d0cb6daeabd7ec4cbda22ba7d255f7dff5b78e10be94948468ed623cb461",
-          "git": "1 .M N... 100644 100644 100644 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d .factory/stories/ASKFLOOR-1/stages.json\u0000\u0000100644 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d 0\t.factory/stories/ASKFLOOR-1/stages.json\u0000\u0000H .factory/stories/ASKFLOOR-1/stages.json\u0000"
+          "digest": "4e2239366cd2b61600b08f6b5313e16663dc7a1181552d8d86e2af9bfaf08965",
+          "git": "1 .M N... 100644 100644 100644 b03ff8eebac375b935e8b45fd3f2deeb249b0cf5 b03ff8eebac375b935e8b45fd3f2deeb249b0cf5 .factory/stories/ASKFLOOR-1/stages.json\u0000\u0000100644 b03ff8eebac375b935e8b45fd3f2deeb249b0cf5 0\t.factory/stories/ASKFLOOR-1/stages.json\u0000\u0000H .factory/stories/ASKFLOOR-1/stages.json\u0000"
         }
       },
       "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70",
@@ -26,13 +27,12 @@
         "stage_id": "ASKFLOOR-1-T1",
         "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70",
         "brief_sha256": "fa1e8434ccc35fb3d3198d8211bbf203c641c3d06e3bc56622f47594e26e13e0",
-        "base_sha": "2702d68769ab6b9d22958b5fec6553f3e310d02e",
-        "product_tree_digest": "b77de745780574f241a7d5169da06f10d84bff2d706cc9ccca3a3446e3129c79",
-        "recorded_at": "2026-09-04T12:42:40+00:00",
+        "base_sha": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
+        "product_tree_digest": "ee86e1a0fe3133f725051c9b25438123d0e5607eab5ed446a8ea1fb9477d9d63",
+        "recorded_at": "2026-09-04T14:21:51+00:00",
         "generated_by": "autoreview"
       },
-      "incomplete": "reopened stage measures an empty diff: T1's product work shipped in the original stage (closed 2fdbd8e00, six clean autoreview rounds, three-lens forge review 9/8/10); the reopen exists only because record_decomposition dropped the stage-local stamp (symphony-forge #171) \u2014 nothing is missing from the task",
-      "updated_at": "2026-09-04T12:48:20+00:00"
+      "completed_at": "2026-09-04T14:26:59+00:00"
     },
     {
       "id": "ASKFLOOR-1-T2a",

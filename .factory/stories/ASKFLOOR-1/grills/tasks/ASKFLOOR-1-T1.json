@@ -51,14 +51,14 @@
       "frontier_empty": true
     }
   ],
-  "summary": "T1 task grill re-recorded after task reopen (stage-local stamp lost by decomposition re-record, symphony-forge issue #171); contract, plan and product code unchanged since the clean three-lens review",
-  "input_sha256": "504c82aed9ad400a4d3e2c8041f1cbff98baa70fd40e97ff2e4da1fd275a35ba",
-  "grounding_basis": "working-tree",
-  "grounding_treeish": "",
+  "summary": "T1 task grill re-recorded against the stage baseline before pr-ready (harness 36f41cd); contract, plan and product code unchanged since the clean three-lens review",
+  "input_sha256": "20c963d2c90a52f8d9f7a959a8715a719d89089b05456dd91a23c7b262f37875",
+  "grounding_basis": "stage-baseline",
+  "grounding_treeish": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
   "task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
-  "recorded_at": "2026-09-04T12:33:47+00:00",
-  "commit": "2702d68769ab6b9d22958b5fec6553f3e310d02e",
+  "recorded_at": "2026-09-04T14:27:18+00:00",
+  "commit": "114b47f171bae2df5891d88af0104c80af695f3b",
   "approved_task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T12:33:47+00:00"
+  "approved_at": "2026-09-04T14:27:26+00:00"
 }
