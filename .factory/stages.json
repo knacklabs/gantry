@@ -4,7 +4,7 @@
     {
       "id": "ASKFLOOR-1-T1",
       "title": "Routing: the judge's verdict stands in interactive auto",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-09-04T02:41:19+00:00",
       "base_sha": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
       "dirty_at_start": {
@@ -17,7 +17,22 @@
           "git": "? .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "0de13ecbf7604bea9754b1ec25799edc6589caa6142798c329c65ebf7fd3667c"
+      "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70",
+      "local_review_stamp": {
+        "stage_id": "ASKFLOOR-1-T1",
+        "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70",
+        "brief_sha256": "fa1e8434ccc35fb3d3198d8211bbf203c641c3d06e3bc56622f47594e26e13e0",
+        "base_sha": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
+        "product_tree_digest": "6f0494a0fd5659d30766ee8f07ecbca8ed3454664d6b3348367278dca39eadb6",
+        "recorded_at": "2026-09-04T06:40:08+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-09-04T06:44:50+00:00",
+      "contract_changed": {
+        "at": "2026-09-04T06:44:50+00:00",
+        "from": "0de13ecbf7604bea9754b1ec25799edc6589caa6142798c329c65ebf7fd3667c",
+        "to": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70"
+      }
     },
     {
       "id": "ASKFLOOR-1-T2a",

@@ -92,7 +92,7 @@
       },
       "required_tests": [
         {
-          "id": "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto",
+          "id": "honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: low",
           "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
@@ -122,7 +122,7 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "treats a stderr redirect to /dev/null as a non-path in every lane",
+          "id": "treats a stderr redirect to /dev/null as a non-path in every lane: auto",
           "path": "apps/core/test/unit/shared/permission-deterministic-rails.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
@@ -332,5 +332,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "7d9b15e1b6dbd0e9a1406ae913b54df033da9946"
+  "commit": "5188df4731295e6f46755926cf9cfa297dee7ee2"
 }

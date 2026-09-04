@@ -51,12 +51,12 @@
       "frontier_empty": true
     }
   ],
-  "summary": "T1 task grill re-recorded after run 10 + autoreview r6 (clean) + contract amendment: Postgres lane moved from gate command to orchestrator-run stage evidence (two pre-existing suites red on base/origin/main, tracked as a main quickfix before T3a)",
-  "input_sha256": "a3b476f3de64af1a452c5342a779cbdfc6fbdb8d4cf509f8f2a009107acd8026",
+  "summary": "T1 task grill re-recorded: two required-test ids bound to concrete it.each leaf names (': low', ': auto') so the JUnit exact-leaf gate can attribute them; contract otherwise unchanged; product tree unchanged since r6-clean 7d9b15e1b",
+  "input_sha256": "408ebdad85b3c9ee6e04e9416590eb39772d66a59bd16bc1312f5a21be12d63f",
   "task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
-  "recorded_at": "2026-09-04T06:16:07+00:00",
-  "commit": "7d9b15e1b6dbd0e9a1406ae913b54df033da9946",
+  "recorded_at": "2026-09-04T06:32:27+00:00",
+  "commit": "5188df4731295e6f46755926cf9cfa297dee7ee2",
   "approved_task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T06:16:14+00:00"
+  "approved_at": "2026-09-04T06:32:34+00:00"
 }
