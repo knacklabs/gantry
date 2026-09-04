@@ -1,0 +1,7 @@
+{
+  "task_id": "ASKFLOOR-1-T1",
+  "branch": "feat/ASKFLOOR-1-judge-actually-judges",
+  "base_main_sha": "d00be360983d7e54416403bf12746bc11f52760f",
+  "commit": "114b47f171bae2df5891d88af0104c80af695f3b",
+  "sealed_at": "2026-09-04T14:27:39+00:00"
+}
