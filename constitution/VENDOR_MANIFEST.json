@@ -1,5 +1,5 @@
 {
-  "harness_commit": "1872b476fada5dc17afdf8e01f9ddac438ef13c9",
+  "harness_commit": "36f41cdde01f1776ae191682a28c86615f2ddd8c",
   "files": {
     "factory/scripts/check_agents_hygiene.py": "63b5db9b788ebc55d3542af506566ab8d45ba7c7f588a6f93e78d3811d0003c4",
     "factory/scripts/check_board_complete.py": "75022051af7cc2928039641ba2ef1a5f31e45e6b5c1651e15c2213cca6c6a7a0",
@@ -49,7 +49,7 @@
     "factory/scripts/forge_cli/scratchpad.py": "6b5b57ba5c9a558d5fdfe8d48c835490eaaf48ef29097d05ce4c18da3a03f510",
     "factory/scripts/forge_cli/signal.py": "751fdc0e021f7a137a82ded23755db8b4540fa531df2c49186cc0b3bfbe7591b",
     "factory/scripts/forge_cli/specs.py": "bd66ffdca2ee89a14e17e86acb24f5a8ec2aa3a86cb3ce2b3b9d06e9821e34c0",
-    "factory/scripts/forge_cli/stages.py": "e468a7523c07f048119194f396ecd625ee45a08f06220a26f487dda301f616f0",
+    "factory/scripts/forge_cli/stages.py": "9bffff60fa27d7dff23748a6473ef77e8069f847a95cb6d62b7d8973ab45c9d0",
     "factory/scripts/forge_cli/story.py": "dba9eaf5974a535b51c04944753cb37ebcaf6239a58d869c7be4099bb12cf7e8",
     "factory/scripts/forge_cli/tasks.py": "90b835e89a0a22357e5b8fe086a2be293e8028178d5b0f8ccd419a5e5541b305",
     "factory/scripts/forge_cli/team.py": "499ca14519cb96529f2371e03ec213e1341c8e1bbe8d98555937c76a2131a471",
