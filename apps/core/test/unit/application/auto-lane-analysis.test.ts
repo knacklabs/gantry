@@ -43,6 +43,8 @@ describe('auto lane analysis', () => {
       'find --files0-from=roots.txt',
       'find -f roots.txt',
       'find -Z roots.txt',
+      'find -P -Z roots.txt',
+      'find . -name "*.ts" -Z roots.txt',
       'find . > results.txt',
       'find . 2>/dev/null',
       'find . && echo done',
@@ -53,5 +55,8 @@ describe('auto lane analysis', () => {
     }
     expect(readOnlyMetaExecutor('find .')).toBe(true);
     expect(readOnlyMetaExecutor("find ./src -name '*.ts'")).toBe(true);
+    expect(
+      readOnlyMetaExecutor("find -P ./src -type f -name '*.ts' -print"),
+    ).toBe(true);
   });
 });

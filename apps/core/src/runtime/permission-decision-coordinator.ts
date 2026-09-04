@@ -152,6 +152,7 @@ export async function coordinatePermissionDecision(
   const tailContext = input.analysis
     ? Object.freeze({ analysis: input.analysis, railDecision })
     : undefined;
+  let familyRuleRailHit = false;
   if (reviewedRuleDecision?.status === 'allow') {
     const shimReason = familyRunnerShimReason(input.request);
     if (!railDecision && !shimReason) {
@@ -172,11 +173,14 @@ export async function coordinatePermissionDecision(
     input.request.suggestions = [];
     input.request.decisionOptions = ['allow_once', 'cancel'];
     input.request.decisionReason = `${FAMILY_RULE_RAIL_HIT_REASON} ${railDecision?.reason ?? shimReason}`;
-    return invokeTail(input, tailContext);
+    if (!railDecision || !input.analysis) {
+      return invokeTail(input, tailContext);
+    }
+    familyRuleRailHit = true;
   }
   // Rails re-run on EVERY call, BEFORE any cache read (re-run-every-hit): a
-  // deny/allow floor wins unchanged, and an ask-floor overrides even a cached
-  // allow — so the cache is consulted ONLY when rails fall through entirely.
+  // deny/allow floor wins unchanged, and an analyzed ask-floor reaches the
+  // cache stage but cannot let a cached allow bypass the tail's rail merge.
   if (railDecision) {
     if (railDecision.railOutcome === 'ask') {
       // Trusted-root stage (Task G): an out-of-root ask can be covered by a
@@ -192,10 +196,12 @@ export async function coordinatePermissionDecision(
             )
           : undefined;
       if (trustedRoot) return trustedRoot;
-      input.request.decisionReason = railDecision.reason;
-      return invokeTail(input, tailContext);
+      if (!familyRuleRailHit)
+        input.request.decisionReason = railDecision.reason;
+      if (!input.analysis) return invokeTail(input, tailContext);
+    } else {
+      return railDecision;
     }
-    return railDecision;
   }
   // TODO(T3b): remembered_allows is a named no-op slot until T3b.
   // CACHE STAGE (cache-hit-only shortcut). Reachable only past hard-deny/
@@ -210,7 +216,7 @@ export async function coordinatePermissionDecision(
       agentFolder: input.request.sourceAgentFolder,
       effectHash: input.effectHash,
     });
-    if (cached?.decision === 'allow') {
+    if (cached?.decision === 'allow' && !railDecision) {
       input.request.risk_level = cached.risk_level;
       if (cached.risk_category) {
         input.request.risk_category = cached.risk_category;

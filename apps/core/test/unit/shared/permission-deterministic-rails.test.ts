@@ -369,7 +369,7 @@ describe('permission deterministic rails', () => {
 
       expect(result.classifierConsult).toHaveBeenCalledOnce();
       expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
-      expect(result.getClassifierVerdict).not.toHaveBeenCalled();
+      expect(result.getClassifierVerdict).toHaveBeenCalledOnce();
       expect(result.putClassifierVerdict).not.toHaveBeenCalled();
       expect(result.decision).toMatchObject({
         approved: false,
@@ -417,7 +417,7 @@ describe('permission deterministic rails', () => {
 
       expect(result.classifierConsult).toHaveBeenCalledOnce();
       expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
-      expect(result.getClassifierVerdict).not.toHaveBeenCalled();
+      expect(result.getClassifierVerdict).toHaveBeenCalledOnce();
       expect(result.putClassifierVerdict).not.toHaveBeenCalled();
       expect(result.requestPermissionApproval.mock.calls[0]![0]).toMatchObject({
         decisionReason: 'Destructive command requires approval.',
@@ -438,7 +438,7 @@ describe('permission deterministic rails', () => {
 
     expect(result.classifierConsult).toHaveBeenCalledOnce();
     expect(result.requestPermissionApproval).not.toHaveBeenCalled();
-    expect(result.getClassifierVerdict).not.toHaveBeenCalled();
+    expect(result.getClassifierVerdict).toHaveBeenCalledOnce();
     expect(result.putClassifierVerdict).toHaveBeenCalledOnce();
     expect(result.decision).toMatchObject({
       approved: true,
