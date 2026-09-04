@@ -28,7 +28,7 @@
     "AutoLaneAnalysis typed value object (application/permissions/auto-lane-analysis.ts + types file) \u2014 the single per-request lane/rail/read-only-meta fact; five named tail helpers; the AF-AC8 replay fixture module."
   ],
   "gaps": [
-    "Codex paused before writing anything: T1's grilled contract spans 22 files (12 source + 10 test, 16 required leaf tests) but the stage's default review budget is 8 files. Same wall as CARDSIMPLE-2. Raise T1's budget to 26 files / 1800 lines and resume?"
+    "Autoreview for ASKFLOOR-1 stages touches the permission engine. Use the default single Codex sol review per stage, or a two-reviewer panel (Codex sol + Claude Fable) on each stage's diff for this story?"
   ],
   "contradictions": [],
   "resolutions": [
@@ -36,27 +36,27 @@
   ],
   "citations": [
     {
-      "finding": "Codex paused before writing anything: T1's grilled contract spans 22 files (12 source + 10 test, 16 required leaf tests) but the stage's default review budget is 8 files. Same wall as CARDSIMPLE-2. Raise T1's budget to 26 files / 1800 lines and resume?",
+      "finding": "Autoreview for ASKFLOOR-1 stages touches the permission engine. Use the default single Codex sol review per stage, or a two-reviewer panel (Codex sol + Claude Fable) on each stage's diff for this story?",
       "source": "plans/exploration/askfloor-1-t1-task-grill.md; plans/exploration/askfloor-1-t1-task-grill-r9.md"
     }
   ],
   "rounds": [
     {
-      "question": "Codex paused before writing anything: T1's grilled contract spans 22 files (12 source + 10 test, 16 required leaf tests) but the stage's default review budget is 8 files. Same wall as CARDSIMPLE-2. Raise T1's budget to 26 files / 1800 lines and resume?",
+      "question": "Autoreview for ASKFLOOR-1 stages touches the permission engine. Use the default single Codex sol review per stage, or a two-reviewer panel (Codex sol + Claude Fable) on each stage's diff for this story?",
       "options": [
-        "Raise to 26 files / 1800 lines (Recommended)",
-        "Split T1 instead"
+        "Panel: Codex + Fable (Recommended)",
+        "Single Codex review"
       ],
-      "chosen": "Raise to 26 files / 1800 lines (Recommended)",
+      "chosen": "Single Codex review",
       "frontier_empty": true
     }
   ],
-  "summary": "T1 task grill: 9 Codex gpt-5.6-sol@xhigh read-only rounds, all findings folded (see prior record); RE-RECORDED after S-0066: review budget raised to 26 files / 1800 lines on the recorded contract by owner ruling 2026-09-04 (the 22-file span is the grilled contract, not creep); contract otherwise unchanged.",
-  "input_sha256": "adbc927078d734d1d2c771f8f7980cfa52ce6345c644af7eff3d8f55a2f4db33",
+  "summary": "T1 task grill: 9 Codex gpt-5.6-sol@xhigh read-only rounds, all findings folded; budget raised to 26/1800 (S-0066, owner). RE-RECORDED after the WIP product commit 363c4d085 (Codex run 2 implementation, 22 files; tests could not run in-sandbox for lack of node_modules \u2014 npm ci + build:contracts done host-side, tsc green, 3 of 238 new tests failing and returned to Codex). Contract unchanged; owner ruled single Codex autoreview per stage.",
+  "input_sha256": "dab7fe83cfcbf9cb16600e75c6affb8e0ec1272da825b666ccac98db4aa70ba3",
   "task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
-  "recorded_at": "2026-09-04T02:46:19+00:00",
-  "commit": "a3e23f520d44b8a500234d4d0ee3cee16ed07b13",
+  "recorded_at": "2026-09-04T03:11:53+00:00",
+  "commit": "363c4d0858801d6bdb62bc625afb724dca598188",
   "approved_task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T02:46:19+00:00"
+  "approved_at": "2026-09-04T03:11:54+00:00"
 }
