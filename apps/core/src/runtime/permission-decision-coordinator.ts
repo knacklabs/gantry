@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { decisionForMode } from '../domain/permission-decision.js';
-import { RailSignal } from '../domain/permission-lane.js';
+import { PermissionLane, RailSignal } from '../domain/permission-lane.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
@@ -214,6 +214,9 @@ export async function coordinatePermissionDecision(
   // CACHE STAGE (cache-hit-only shortcut). Reachable only past hard-deny/
   // locked/fixed-image (PERM-1 precedence, checked above) and past the rails.
   if (
+    (!input.analysis ||
+      input.analysis.lane === PermissionLane.InteractiveAuto ||
+      input.analysis.lane === PermissionLane.AutoStrict) &&
     !input.skipClassifierVerdictCache &&
     input.effectHash &&
     input.decisionMemory

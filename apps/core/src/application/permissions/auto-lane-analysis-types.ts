@@ -30,8 +30,8 @@ export function isSensitivePathShape(value: string): boolean {
     .trim()
     .replaceAll('\\', '/')
     .split('/')
-    .filter(Boolean);
-  if (segments.some((segment) => segment !== '.' && segment.startsWith('.'))) {
+    .filter((segment) => segment.length > 0 && segment !== '.');
+  if (segments.some((segment) => segment.startsWith('.'))) {
     return true;
   }
   const normalizedSegments = segments.map((segment) => segment.toLowerCase());

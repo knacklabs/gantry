@@ -26,6 +26,7 @@ async function resolveWithClassifierRisk(input: {
   toolInputRedactedPaths?: string[];
   toolInputTruncatedPaths?: string[];
   decisionMemory?: PermissionDecisionMemoryRepository;
+  permissionMode?: PermissionMode;
   unattended?: boolean;
   trustedRoots?: string[];
 }) {
@@ -76,7 +77,9 @@ async function resolveWithClassifierRisk(input: {
           }
         : {}),
       getPermissionRuntimeSettings: () => ({
-        agents: { main_agent: { permissionMode: 'auto' as const } },
+        agents: {
+          main_agent: { permissionMode: input.permissionMode ?? 'auto' },
+        },
         permissions: {
           autoMode: {},
           trustedRoots: input.trustedRoots ?? [
@@ -864,6 +867,30 @@ describe('IPC permission classifier decision', () => {
         reason: expect.stringContaining('outside'),
       },
     });
+  });
+
+  it('does not reuse a cached classifier allow after switching to ask mode', async () => {
+    const getClassifierVerdict = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'cached auto-mode allow',
+      risk_level: 'low' as const,
+      risk_category: 'benign' as const,
+    }));
+
+    const { classifierConsult, decision, requestPermissionApproval } =
+      await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        toolInput: { command: 'rm report.txt' },
+        riskLevel: 'low',
+        riskCategory: 'benign',
+        permissionMode: 'ask',
+        decisionMemory: { getClassifierVerdict } as never,
+      });
+
+    expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
   });
 
   it('caches and reuses a classifier allow when deterministic rails abstain', async () => {
