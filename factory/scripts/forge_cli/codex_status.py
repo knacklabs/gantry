@@ -142,16 +142,82 @@ def warnings_for(job: dict, *, stage_active: bool, stale_minutes: int,
     return notes
 
 
+def dead_launches(base: Path) -> list[dict]:
+    """Launches the ledger still calls running whose process is GONE.
+
+    The plugin's job registry carries no pid, so `status` was a flag on disk that
+    nothing checked against reality: when a companion crashed, the registry kept
+    saying "running" forever and a watcher polling that flag could never notice.
+    The only signal was the time-based STALLED? guess — which needs a threshold
+    to elapse and even then only says "maybe".
+
+    The forge-side ledger DOES record `pid` and `pid_started` (the process
+    create-time), so liveness is a fact we can check rather than a timeout we
+    guess at. `pid_started` matters: a recycled pid belonging to an unrelated
+    process would otherwise read as alive and keep the crash hidden.
+
+    Defensive throughout — this command is advisory and must never fail a gate.
+    """
+    try:
+        from .delegate import (
+            _pid_alive, _process_start_identity, load_delegations,
+        )
+        entries = load_delegations(base)
+    except (Exception, SystemExit):
+        # SystemExit is NOT an Exception: load_delegations calls fail() on a
+        # malformed ledger, and resolving the control directory exits outright
+        # outside a git repo. Either would hard-kill an advisory command.
+        return []
+
+    latest: dict[str, dict] = {}
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("launch_id"):
+            latest[str(entry["launch_id"])] = entry  # last row per launch wins
+    dead = []
+    for entry in latest.values():
+        if entry.get("launch_status") not in {"starting", "running"}:
+            continue
+        pid = entry.get("pid")
+        if not isinstance(pid, int):
+            continue
+        try:
+            if _pid_alive(pid):
+                recorded = entry.get("pid_started")
+                if not recorded:
+                    continue  # alive, and nothing to disambiguate against
+                identity = _process_start_identity(pid)
+                if identity is None or str(identity) == str(recorded):
+                    continue  # genuinely still our process
+        except (Exception, SystemExit):
+            continue  # psutil missing or refusing: report nothing, never crash
+        dead.append(entry)
+    return dead
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
     state_root = Path(args.state_root).expanduser() if args.state_root else STATE_ROOT
+    # Crashes are reported FIRST and independently of the plugin registry: a
+    # dead launch is the finding, and it is true whether or not the registry
+    # still carries a row for it (or exists at all).
+    corpses = dead_launches(base)
+    for entry in corpses:
+        print(f"[DEAD     ] {str(entry.get('task', '?')):<22} "
+              f"pid={entry.get('pid')} is GONE but the launch ledger still says "
+              f"{str(entry.get('launch_status'))!r}")
+        print("            The companion CRASHED — it is not slow, and nothing "
+              "is coming. Re-run `./forge delegate <task-id>`.")
+        if entry.get("log"):
+            print(f"            log: {entry['log']}")
     if not state_root.is_dir():
-        print(f"codex status: unknown — no plugin job registry at {state_root}. "
-              "Nothing to report (this is a diagnostic, not a gate).")
+        if not corpses:
+            print(f"codex status: unknown — no plugin job registry at {state_root}. "
+                  "Nothing to report (this is a diagnostic, not a gate).")
         return
     jobs = load_jobs(base, state_root)
     if not jobs:
-        print(f"codex status: no jobs recorded for {base}")
+        if not corpses:
+            print(f"codex status: no jobs recorded for {base}")
         return
     stage_active = any(s.get("status") == "active"
                        for s in load_stages(base).get("stages", []))

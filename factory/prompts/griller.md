@@ -27,12 +27,24 @@ Pocock's, installed into `~/.codex/skills/grill-me` by `./forge doctor --fix`)
 to structure its interrogation; this contract is the harness-side floor, the
 skill is the technique. In Claude, the `/grill-me` skill satisfies the same.
 
-For the two gates whose rounds are recorded from the AskUserQuestion ledger
-(`--gate plan` and `--gate task`, decision 0048), independence is a COLD READ,
+WHICH RUNTIME CAN RECORD WHICH GATE — get this wrong and you will chase a
+refusal you cannot satisfy. FOUR gates match the AskUserQuestion ledger and are
+therefore CLAUDE-ONLY: `--gate spec` (floor 2), `--gate requirements` (1),
+`--gate plan` (2) and `--gate task` (1) — every gate in
+`record_grill_from_json.GATE_ROUND_FLOORS`. TWO gates do not match the ledger and
+a read-only Codex grill records them directly: `--gate signoff` and
+`--gate epics`. The ledger files are written ONLY by `post_tool_use.py` on a
+Claude Code AskUserQuestion event; `.codex/hooks.json` registers no PostToolUse
+hook, so Codex cannot produce them and neither can a subagent. Delegating a
+ledger-matched grill to Codex returns a well-formed payload that the recorder
+then refuses, with nothing you can do to satisfy it — the payload was never the
+problem, the runtime was.
+
+For those four ledger-matched gates, independence is a COLD READ,
 not necessarily a separate process. The recorder accepts ONLY rounds that match a
 logged AskUserQuestion record (`record_grill_from_json.py`), and only the
-top-level Claude session in plan mode produces those log entries — a subagent or
-read-only Codex pass cannot. So for plan/task grills the top-level session drives
+top-level Claude session produces those log entries — a subagent or
+read-only Codex pass cannot. So for those grills the top-level session drives
 the rounds through AskUserQuestion itself — but because the coordinating session
 authored the plan, the independent cold-read pass is MANDATORY, not optional: on
 EVERY round release a fresh READ-ONLY Codex pass (`gpt-5.6-terra` @ xhigh, via
@@ -42,8 +54,28 @@ findings into your own AskUserQuestion rounds (the recorder rejects rounds not i
 the ledger, so the top-level session must still ask). Loop Codex grill → your
 AskUserQuestion rounds → answers → Codex grill again, until a round is clean AND
 the plan is stable; only then, approve exactly once. Read cold, as an adversary
-who did not write it. (The spec, signoff, and epics gates do not ledger-match, so
-a read-only Codex grill records directly there.)
+who did not write it. (Only the signoff and epics gates skip the ledger, so only
+those two can be recorded directly by a read-only Codex grill.)
+
+FRESH CONTEXT, NOT FRESH READING. Every round is a NEW read-only Codex session —
+that independence is the whole point, and it is why the reader has no memory of
+what it already blessed. It does NOT mean re-deriving the plan from scratch every
+round: after the FIRST round, hand the fresh reader the plan AND what changed
+since the last round (the resolutions you just folded in, and which sections they
+touched), and tell it to concentrate there while still refusing anything it can
+see is wrong elsewhere. Same cold judgement, a fraction of the tokens.
+
+END EVERY ROUND WITH AN EXPLICIT CONVERGENCE VERDICT, on its own line, so the
+coordinator never has to guess whether to grill again or approve:
+
+- `CONVERGED — no gaps, no contradictions, plan unchanged since the last round`
+- `NOT CONVERGED — <the specific reason: open gaps, a contradiction, or the plan
+  changed after the last clean round>`
+
+Converged means BOTH: this round is clean AND the plan did not change after the
+round that made it clean. A clean round on a plan you have just edited is not
+convergence — it is an unreviewed edit. Only `CONVERGED` authorises asking the
+human for approval, and approval happens exactly once.
 
 Five gates, five scopes:
 
@@ -159,7 +191,8 @@ Method:
    would only confirm what a document already states; stop the grill only when
    no gap or contradiction remains unasked. In Claude Code, deliver each
    round's frontier through the AskUserQuestion tool (recommended answer
-   first), not prose. For `--gate plan` and `--gate task` the recorder requires
+   first), not prose. For every ledger-matched gate (`spec`, `requirements`,
+   `plan`, `task`) the recorder requires
    the FINAL round in the payload to carry `"frontier_empty": true` — that flag
    is how it confirms you stopped because the frontier closed, not because you
    ran out of patience; it is set by hand on the last `rounds` entry, never by
@@ -201,10 +234,12 @@ Method:
    is `{finding, source}`. Every string in `gaps` must be covered by an equal
    `rounds[].question` or `citations[].finding`.
 
-   For `--gate plan` and `--gate task`, extra recorder rules bind (this is what
+   For every ledger-matched gate (`spec`, `requirements`, `plan`, `task`), extra
+   recorder rules bind (this is what
    makes an otherwise well-formed payload fail):
    - Rounds must match the AskUserQuestion ledger and meet the gate floor
-     (plan 2, task 1); the final round carries `"frontier_empty": true`. A
+     (spec 2, requirements 1, plan 2, task 1); the final round carries
+     `"frontier_empty": true`. A
      zero-gap grill still records its floor of real rounds — never zero.
    - `--gate task` only: `criteria_map` is a THREE-WAY equality — its KEYS must
      equal the frontier task's `acceptance_criteria` set AND the set of its

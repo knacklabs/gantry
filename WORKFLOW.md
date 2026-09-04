@@ -286,7 +286,14 @@ history, but are exempt from the newer outcome and link requirements.
   acceptance criteria, verify commands, required tests, and reviewer focus.
   Re-record the decomposition before grilling that contract. Do not guess
   later-task detail during the initial decomposition (decision 0032).
-- One task should fit one implementation session and one review package.
+- Task size is a JUDGEMENT, not a number. One task fits ONE bounded session end
+  to end — implement, verify, three-lens review, fix the findings — and its diff
+  stays small enough for a reviewer to hold at once. Backend and frontend are
+  always separate tasks (disjoint write scopes, different reviewer focus, only
+  the frontend is `user_facing`); when either side is still too large, split that
+  side again along its own seam. Do not fragment: each sliver costs a full plan,
+  grill, approval, review and PR, so a task too small to justify that ceremony
+  belongs merged with its neighbour.
 
 ## Project Roadmap
 
@@ -372,16 +379,35 @@ sequence a JIT contract loop for every pending task:
    through this fix/review loop and commit ONCE when it is clean — committing
    product code mid-loop stales the task grill (its grounding is contract + plan
    + product tree) and the write `forge delegate` refuses until you `git reset
-   --mixed HEAD~1`. When a review-driven fix genuinely cannot be verified inside
-   the companion sandbox (needs a database/network/Docker it lacks), the
-   orchestrator opens a bounded degraded window (`forge mode degraded start
-   --reason ...`, allowed mid-stage), makes the MINIMAL host fix, logs it with
-   `forge signal raise --kind host-exception`, verifies host-side, and resumes —
-   rather than re-delegating an unverifiable guess.
+   --mixed HEAD~1`. A review finding is ALWAYS fixed by re-delegating to Codex —
+   the orchestrator never stops to ask who fixes; this rule decides it. The ONE
+   exception: when a review-driven fix genuinely cannot be verified inside the
+   companion sandbox (needs a database/network/Docker it lacks), the orchestrator
+   opens a bounded degraded window (`forge mode degraded start --reason ...`,
+   allowed mid-stage), makes the MINIMAL host fix, logs it with `forge signal
+   raise --kind host-exception`, verifies host-side, and resumes — rather than
+   re-delegating an unverifiable guess.
 11. commit, then `forge stage done <id>`
 
 `forge next` derives this frontier from the same readiness gate and reports
-exactly one of author contract, task grill, stage start, or delegate.
+exactly one of author contract, task grill, stage start, delegate, or
+`await-merge`. **Per-task PRs are the standard:** after a task's local autoreview
+and `forge stage done`, ship it as its OWN PR — `forge task pr-ready <id>` (writes
+the marker, pushes, opens the PR, poll CI to green) — and let it merge to the
+trunk before the next task starts, never batching a whole story into one PR.
+`await-merge` surfaces this in BOTH run-pointer modes (task-level and a stage
+running in the story worktree), so the frontier never skips past a done-but-
+unshipped task.
+
+When a task was merged to the trunk OUTSIDE this flow — a whole-story PR, or a
+direct PR that skipped `pr-ready` — no marker is on the trunk and the frontier
+stays stuck at `await-merge` for a task that actually shipped. `forge task
+reconcile <id>` is the sanctioned repair: it confirms the task's work is on the
+trunk, writes the completion marker, flips the stage done, and records a
+`stage-reconciled` event — opening NO new PR (the work already merged). Commit
+its marker to the trunk (via the reconcile PR) and the frontier advances. This
+is a reconcile, not a shortcut: it refuses when the work is not genuinely on the
+trunk, so it can never fabricate a ship.
 
 Per-stage local reviews are pre-commit hygiene and record nothing; the ONE
 branch-wide autoreview at the review phase remains the only review gate and

@@ -48,6 +48,19 @@ def main(argv: list[str] | None = None) -> None:
     # depends_on is enforced at activation, not just displayed in the frontier.
     outcome, waiting = activation_state(root, issue_key)
     if outcome == "absent":
+        # Naming `roadmap add` unconditionally sent a pre-sign-off caller to a
+        # command that refuses as post-sign-off grooming — a refusal pointing at
+        # a blocked command. Name the gate actually in the way.
+        if not client_signoff(root)[0]:
+            raise SystemExit(
+                f"{issue_key} is not on plans/roadmap.json, and this project has "
+                "no client sign-off yet — so the roadmap is not groomable by hand "
+                "(`roadmap add` refuses as post-sign-off work). Do the 0c path "
+                "first: confirm the capability specs, derive the roadmap from "
+                "them (`forge roadmap derive --input <json>`), grill and accept "
+                "the sign-off decision, then `record_signoff.py`. `forge next` "
+                "prints the exact commands for where you are."
+            )
         raise SystemExit(
             f"{issue_key} is not on plans/roadmap.json. "
             "Add it first through the `roadmap add --no-spec` path."
