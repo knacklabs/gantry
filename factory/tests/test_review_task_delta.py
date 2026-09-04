@@ -67,6 +67,31 @@ def test_review_base_advances_past_a_trunk_merged_after_the_stage_began(repo):
         resolve_review_base(repo, {"base_sha": unmerged}, {}, tip)
 
 
+def test_review_base_advances_when_the_recorded_base_is_a_branch_commit(repo):
+    """A story branch carried planning commits BEFORE the stage started, so the
+    recorded base is a branch commit — neither ancestor nor descendant of the
+    trunk point once the trunk is merged in. The trunk point is still the base:
+    the branch's own delta since divergence is reviewed, never the trunk's."""
+    fork = head(repo)
+    git(repo, "checkout", "-q", "-b", "feat/ENG-1-story")
+    _commit(repo, "plans/story-plan.md", "planning\n")
+    recorded = head(repo)                       # stage started here, on the branch
+    _commit(repo, "src/task.py", "task work\n")
+
+    git(repo, "checkout", "-q", "-b", "trunk-work", fork)
+    trunk_commit = _commit(repo, "factory/vendored.py", "harness delta\n")
+    git(repo, "update-ref", "refs/remotes/origin/main", trunk_commit)
+    git(repo, "checkout", "-q", "feat/ENG-1-story")
+    git(repo, "merge", "-q", "--no-edit", "origin/main")
+    tip = head(repo)
+
+    advanced = resolve_review_base(repo, {"base_sha": recorded}, {}, tip)
+    assert advanced == trunk_commit
+    delta = sorted(git(repo, "diff", "--name-only", f"{advanced}...{tip}").splitlines())
+    assert delta == ["plans/story-plan.md", "src/task.py"]
+    assert "factory/vendored.py" not in delta
+
+
 def test_review_brief_carries_the_lessons_in_force_for_the_task_paths(repo, tmp_path):
     sign_off(repo)
     intake(repo)
