@@ -700,11 +700,16 @@ describe('coordinatePermissionDecision', () => {
     await expect(
       coordinatePermissionDecision({
         request: railRequest,
+        analysis: Object.freeze({
+          lane: PermissionLane.InteractiveAuto,
+          readOnlyMetaExecutor: false,
+        }),
         effectHash: 'effect-hash-1',
         decisionMemory: { getClassifierVerdict } as never,
         deterministicRails: () => ({
           railOutcome: 'ask' as const,
           reason: 'rail now asks',
+          railSignal: RailSignal.Destructive,
         }),
         tail,
       }),

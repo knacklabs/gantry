@@ -669,7 +669,7 @@ describe('IPC permission classifier decision', () => {
 
       expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
       expect(requestPermissionApproval).toHaveBeenCalledOnce();
-      expect(getClassifierVerdict).toHaveBeenCalledOnce();
+      expect(getClassifierVerdict).not.toHaveBeenCalled();
       expect(putClassifierVerdict).not.toHaveBeenCalled();
     },
   );
@@ -716,7 +716,7 @@ describe('IPC permission classifier decision', () => {
         risk_level: 'high',
         risk_category: 'secret',
       });
-      expect(getClassifierVerdict).toHaveBeenCalledOnce();
+      expect(getClassifierVerdict).not.toHaveBeenCalled();
       expect(putClassifierVerdict).not.toHaveBeenCalled();
     },
   );
@@ -831,8 +831,8 @@ describe('IPC permission classifier decision', () => {
         } as never,
       });
 
-    expect(getClassifierVerdict).toHaveBeenCalledOnce();
-    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(classifierConsult).toHaveBeenCalledOnce();
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
   });

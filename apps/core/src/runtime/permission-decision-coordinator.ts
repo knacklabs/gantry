@@ -213,7 +213,15 @@ export async function coordinatePermissionDecision(
   // TODO(T3b): remembered_allows is a named no-op slot until T3b.
   // CACHE STAGE (cache-hit-only shortcut). Reachable only past hard-deny/
   // locked/fixed-image (PERM-1 precedence, checked above) and past the rails.
+  const railAllowsCacheRead =
+    !railDecision ||
+    (input.analysis?.lane === PermissionLane.InteractiveAuto &&
+      railDecision.railOutcome === 'ask' &&
+      (railDecision.railSignal === RailSignal.OutOfTrustedRoot ||
+        (railDecision.railSignal === RailSignal.UnsupportedMetaExecutor &&
+          input.analysis.readOnlyMetaExecutor)));
   if (
+    railAllowsCacheRead &&
     (!input.analysis ||
       input.analysis.lane === PermissionLane.InteractiveAuto ||
       input.analysis.lane === PermissionLane.AutoStrict) &&
