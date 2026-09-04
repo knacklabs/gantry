@@ -163,6 +163,16 @@ describe('ModelCredentialService', () => {
         fingerprint: null,
       },
     );
+    expect(
+      listed.find((row) => row.providerId === 'anthropic')?.configuredFields,
+    ).toEqual(['apiKey']);
+    expect(
+      listed
+        .find((row) => row.providerId === 'vertex')
+        ?.credentialModes.find((mode) => mode.id === 'service_account')
+        ?.fields.find((field) => field.name === 'serviceAccountJson'),
+    ).toMatchObject({ multiline: true });
+    expect(JSON.stringify(listed)).not.toContain('sk-ant-test');
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         appId,
@@ -424,5 +434,74 @@ describe('ModelCredentialService', () => {
         payload: { apiKey: 'sk-ant-new' },
       }),
     ).rejects.toThrow('Cannot rotate disabled anthropic model credential.');
+  });
+
+  it('reactivates disabled credentials only through the explicit browser option', async () => {
+    const repository = new InMemoryModelCredentialRepository();
+    const service = new ModelCredentialService(repository);
+    await service.set({
+      appId,
+      providerId: 'bedrock',
+      authMode: 'bedrock_api_key',
+      payload: { region: 'us-east-1', apiKey: 'bedrock-old' },
+    });
+    await service.disable({ appId, providerId: 'bedrock' });
+
+    await expect(
+      service.rotate({
+        appId,
+        providerId: 'bedrock',
+        payload: { apiKey: 'bedrock-new' },
+      }),
+    ).rejects.toThrow('Cannot rotate disabled bedrock model credential.');
+
+    await expect(
+      service.rotate({
+        appId,
+        providerId: 'bedrock',
+        payload: { apiKey: 'bedrock-new' },
+        reactivateDisabled: true,
+      }),
+    ).resolves.toMatchObject({ status: 'active' });
+    expect(
+      await repository.getModelCredential({ appId, providerId: 'bedrock' }),
+    ).toMatchObject({
+      status: 'active',
+      payload: { region: 'us-east-1', apiKey: 'bedrock-new' },
+    });
+
+    await service.disable({ appId, providerId: 'bedrock' });
+    const disabled = await repository.getModelCredential({
+      appId,
+      providerId: 'bedrock',
+    });
+    await expect(
+      service.rotate({
+        appId,
+        providerId: 'bedrock',
+        payload: { region: 'not-a-region' },
+        reactivateDisabled: true,
+      }),
+    ).rejects.toThrow(
+      'Credential field region is invalid for bedrock bedrock_api_key.',
+    );
+    expect(
+      await repository.getModelCredential({ appId, providerId: 'bedrock' }),
+    ).toEqual(disabled);
+
+    await expect(
+      service.rotate({
+        appId,
+        providerId: 'bedrock',
+        payload: {},
+        reactivateDisabled: true,
+      }),
+    ).resolves.toMatchObject({ status: 'active' });
+    expect(
+      await repository.getModelCredential({ appId, providerId: 'bedrock' }),
+    ).toMatchObject({
+      status: 'active',
+      payload: { region: 'us-east-1', apiKey: 'bedrock-new' },
+    });
   });
 });

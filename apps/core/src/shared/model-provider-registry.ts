@@ -9,7 +9,6 @@ import {
   type AgentEngine,
 } from './agent-engine.js';
 import { OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS } from './model-provider-registry-openai-compatible.js';
-
 export type ModelCredentialPayload = Record<string, string>;
 
 export interface ModelCredentialFieldDefinition {
@@ -17,6 +16,7 @@ export interface ModelCredentialFieldDefinition {
   label: string;
   secret: boolean;
   required: boolean;
+  multiline?: boolean;
 }
 
 export type ModelGatewayAuthStrategy =

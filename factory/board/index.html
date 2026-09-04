@@ -890,6 +890,60 @@
   .task-ac ul { list-style: none; display: grid; gap: .15rem; }
   .task-ac li { padding-left: .9rem; position: relative; line-height: 1.45; }
   .task-ac li::before { content: "◦"; position: absolute; left: 0; color: var(--stone); }
+  .flow {
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    background: var(--surface); padding: .7rem .85rem; margin: .8rem 0;
+  }
+  .flow h5 {
+    font-size: .68rem; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--quiet); margin: 0 0 .5rem;
+  }
+  .flow h6 {
+    font-size: .74rem; margin: .7rem 0 .3rem; color: var(--ink);
+  }
+  .flow h6:first-of-type { margin-top: 0; }
+  /* Numbered on purpose: these are steps, and the order is the meaning. */
+  .flow ol { margin: 0; padding: 0 0 0 1.4rem; display: grid; gap: .22rem; }
+  .flow li {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem;
+    font-size: .76rem; line-height: 1.45;
+  }
+  .flow .arrow { color: var(--quiet); flex: none; }
+  .flow .from { color: var(--quiet); }
+  .flow .to { color: var(--ink); }
+  .flow li em {
+    font-style: normal; font-size: .68rem; color: var(--build);
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    padding: 0 .3rem;
+  }
+  .flow-note { font-size: .68rem; color: var(--quiet); margin-top: .5rem; }
+  .task-progress { margin: 0 0 .9rem; }
+  .tp-head {
+    display: flex; align-items: baseline; gap: .4rem;
+    font-size: .74rem; color: var(--quiet);
+  }
+  .tp-head b { font-size: .78rem; color: var(--ink); flex: none; }
+  .tp-head b.bad { color: var(--bad, #b4442e); }
+  .tp-head > span { flex: 1 1 auto; min-width: 0; }
+  .tp-pct { font-family: var(--mono); font-size: .7rem; margin-left: auto; flex: none; }
+  .tp-bar {
+    display: flex; gap: 2px; margin-top: .35rem;
+    height: .3rem; border-radius: 999px; overflow: hidden;
+  }
+  .tp-bar .seg { flex: 1; position: relative; background: var(--rule); }
+  .tp-bar .seg:first-child { border-radius: 999px 0 0 999px; }
+  .tp-bar .seg:last-child { border-radius: 0 999px 999px 0; }
+  .tp-bar .seg.done { background: var(--shipped); }
+  .tp-bar .seg.blocked { background: var(--bad, #b4442e); }
+  .tp-bar .seg.now { background: color-mix(in srgb, var(--build) 26%, transparent); }
+  .tp-bar .seg.now > i {
+    position: absolute; inset: 0 auto 0 0; display: block;
+    background: var(--build); border-radius: inherit;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .tp-bar .seg.now > i { animation: tp-pulse 1.8s ease-in-out infinite; }
+  }
+  @keyframes tp-pulse { 50% { opacity: .5; } }
   .task-plan { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: .5rem .7rem; }
   .task-plan p { font-family: var(--serif); line-height: 1.55; margin: .2rem 0; }
   .task-proof div { line-height: 1.6; }
@@ -1263,6 +1317,109 @@ function stripFrontmatter(src) {
   return String(src || "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "");
 }
 
+// A ```mermaid block is a workflow the plan author drew. Rendered as a code
+// block it is worse than useless -- it is the one part of the plan a reader
+// most needs and least can read. A real layout engine costs a megabyte of
+// vendored JavaScript carried into every client repo, for a picture; the
+// structure is what carries the meaning, and the structure can be read
+// straight out of the source.
+//
+// Deliberately partial: flowchart nodes, edges and subgraphs. Anything it does
+// not recognise falls through to the source line, so an unsupported diagram
+// degrades to what it renders today rather than vanishing.
+const MERMAID_NODE = /^([A-Za-z0-9_.-]+)\s*(?:\[(.*?)\]|\((.*?)\)|\{(.*?)\}|>(.*?)\])?$/;
+
+function mermaidLabel(raw) {
+  // Node text carries markup of its own: <br/> line breaks and quoted labels.
+  return String(raw || "")
+    .replace(/^["'`]|["'`]$/g, "")
+    .replace(/&lt;br\s*\/?&gt;|<br\s*\/?>/gi, " ")
+    .trim();
+}
+
+function mermaidNode(token) {
+  const match = MERMAID_NODE.exec(String(token || "").trim());
+  if (!match) return {id: String(token || "").trim(), text: ""};
+  const text = match[2] ?? match[3] ?? match[4] ?? match[5] ?? "";
+  return {id: match[1], text: mermaidLabel(text)};
+}
+
+// md() escapes the whole document before any block renderer sees it, so the
+// arrows arrive as `--&gt;` and split on nothing. Decode the entities this
+// grammar is built from; every value is re-escaped on the way out.
+function mermaidDecode(text) {
+  return String(text || "")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");   // last, or it would double-decode
+}
+
+function mermaidOutline(source) {
+  const lines = mermaidDecode(source).split(/\r?\n/);
+  const labels = new Map();          // id -> best known text
+  const groups = [];                 // {title, edges:[…]}
+  let current = {title: "", edges: []};
+  groups.push(current);
+  let unsupported = 0;
+
+  const remember = (node) => {
+    if (node.text) labels.set(node.id, node.text);
+    return node.id;
+  };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || /^(flowchart|graph|%%)/i.test(line)) continue;
+    if (/^subgraph\s+/i.test(line)) {
+      const rest = line.replace(/^subgraph\s+/i, "");
+      const node = mermaidNode(rest);
+      current = {title: node.text || node.id, edges: []};
+      groups.push(current);
+      continue;
+    }
+    if (/^end$/i.test(line)) {
+      current = {title: "", edges: []};
+      groups.push(current);
+      continue;
+    }
+    // A --> B, A -->|label| B, A --- B, chained across one line.
+    const parts = line.split(/\s*(--+>|--+|==+>|-\.->)\s*/);
+    if (parts.length >= 3) {
+      let previous = remember(mermaidNode(parts[0]));
+      for (let i = 1; i < parts.length - 1; i += 2) {
+        let target = parts[i + 1];
+        let label = "";
+        const labelled = /^\|(.*?)\|\s*(.*)$/.exec(target.trim());
+        if (labelled) { label = mermaidLabel(labelled[1]); target = labelled[2]; }
+        const node = mermaidNode(target);
+        remember(node);
+        current.edges.push({from: previous, to: node.id, label});
+        previous = node.id;
+      }
+      continue;
+    }
+    const solo = mermaidNode(line);
+    if (solo.text) { remember(solo); continue; }
+    unsupported += 1;
+  }
+
+  const shown = groups.filter(group => group.edges.length);
+  if (!shown.length) return "";
+  const name = (id) => esc(labels.get(id) || id);
+  const body = shown.map(group => `
+    ${group.title ? `<h6>${esc(group.title)}</h6>` : ""}
+    <ol>${group.edges.map(edge => `<li>
+        <span class="from">${name(edge.from)}</span>
+        <span class="arrow" aria-label="then">\u2192</span>
+        <span class="to">${name(edge.to)}</span>
+        ${edge.label ? `<em>${esc(edge.label)}</em>` : ""}
+      </li>`).join("")}</ol>`).join("");
+  return `<div class="flow"><h5>Workflow</h5>${body}${
+    unsupported ? `<p class="flow-note">${unsupported} line(s) of this diagram
+      are not rendered here \u2014 open the plan file for the full source.</p>` : ""
+  }</div>`;
+}
+
 function md(src) {
   // Comments are notes the author wrote to themselves — a template hint, a
   // "review before merge" reminder. Stripped BEFORE escaping, or they escape
@@ -1316,6 +1473,23 @@ function md(src) {
       flushPara();
       flushQuote();
       closeList();
+      // A mermaid fence is a diagram, not code: read to its close and render
+      // the structure. If nothing recognisable comes out, fall through to the
+      // code block so the source is never simply lost.
+      if (!fence && /^```\s*mermaid\b/i.test(line)) {
+        const body = [];
+        let cursor = index + 1;
+        while (cursor < lines.length && !/^```/.test(lines[cursor])) {
+          body.push(lines[cursor]);
+          cursor++;
+        }
+        const outline = mermaidOutline(body.join("\n"));
+        if (outline) {
+          out.push(outline);
+          index = cursor;
+          continue;
+        }
+      }
       out.push(fence ? "</code></pre>" : "<pre><code>");
       fence = !fence;
       continue;
@@ -3258,17 +3432,31 @@ function taskDossier(t) {
   // A grill-clean plan is read from the plan tab row above — no per-task button
   // here. A plan still being grilled is withheld entirely (never sent), so the
   // dossier just says so rather than offering nothing.
-  if (t.plan_state === "grilling") {
-    rows.push(`<p class="task-plan-pending">Plan saved — being grilled. It appears in the plan tabs once the grill is clean.</p>`);
+  // "not yet grilled" and "grilled, then edited" are different problems: the
+  // first has never been stress-tested, the second HAS and the text has moved
+  // since — so anyone who already reviewed it read something else.
+  if (t.plan_state === "ungrilled") {
+    rows.push(`<p class="task-plan-pending">Plan saved — not yet grilled. It appears in the plan tabs once a grill passes against this text.</p>`);
+  }
+  if (t.plan_state === "stale") {
+    rows.push(`<p class="task-plan-pending">Plan passed a grill, then changed — the recorded grill no longer describes this text. Re-grill and record it to bring the plan back onto the board.</p>`);
   }
   const proof = t.proof || {};
   const bits = [];
   if (proof.spec) bits.push(`<div><b>Spec</b> ${openFile(proof.spec)}</div>`);
   if ((proof.required_tests || []).length) {
-    const covered = new Set(proof.covered_tests || []);
-    bits.push(`<div><b>Tests</b> ${proof.required_tests.map(name =>
-      `<span class="${covered.has(name) ? "ran" : "unproven"}">${
-        covered.has(name) ? "✓" : "○"} ${esc(name)}</span>`).join(" ")}</div>`);
+    // Required tests are {id, path, command} objects. Rendering the object
+    // printed "[object Object]", and matching coverage by object identity was
+    // always false once the payload had been through JSON — so every required
+    // test read as unproven, contradicting the counts the backend computes.
+    const testId = e => (e && typeof e === "object" ? e.id : e);
+    const covered = new Set((proof.covered_tests || []).map(testId));
+    bits.push(`<div><b>Tests</b> ${proof.required_tests.map(entry => {
+      const id = testId(entry);
+      const ran = covered.has(id);
+      return `<span class="${ran ? "ran" : "unproven"}">${
+        ran ? "✓" : "○"} ${esc(String(id ?? ""))}</span>`;
+    }).join(" ")}</div>`);
   }
   if (proof.verify_ok) {
     bits.push(`<div><b>Verify</b> passed${proof.verify_at
@@ -3435,12 +3623,72 @@ function tabBar(detail) {
        <button type="button" class="raw" data-raw="1" aria-selected="${drawer.raw}">raw json</button>`;
 }
 
+// Where this ONE task actually is, above its plan. The plan says what was
+// meant to happen; without this the board could not say whether anything was
+// still happening -- a companion that died an hour ago read exactly like one
+// taking a while. Scoped to the selected task on purpose: a global banner
+// would report on tasks nobody is looking at.
+//
+// One line and one bar, deliberately. The step names live in the segment
+// tooltips: spelling all seven out under the bar turned a status line into a
+// second table, and the only step worth naming is the one in flight.
+function taskProgress(task) {
+  const p = task.progress;
+  if (!p || !(p.steps || []).length) return "";
+  const steps = p.steps;
+  const live = p.live || null;
+  const dead = live && live.status === "dead";
+
+  // Steps actually finished -- NOT how far along the pipeline the task got.
+  // A task can ship with a step skipped (that is exactly the review gap this
+  // release closes), and reading to the furthest done step would report that
+  // as 100%. The grey segment between green ones says which step was missed.
+  const pct = Math.round(
+    (steps.filter(s => s.state === "done").length / steps.length) * 100);
+  // The step in flight fills from work actually written, so a long
+  // implementation step is not one dead block.
+  const frac = live && live.files_limit
+    ? Math.min(1, (live.files || 0) / live.files_limit) : 0;
+  const segs = steps.map(s =>
+    `<span class="seg ${esc(s.state)}"
+       title="${esc(s.label)}${s.note ? ` \u2014 ${esc(s.note)}` : ""}"
+       >${s.state === "now" && frac
+          ? `<i style="width:${esc(String(Math.round(frac * 100)))}%"></i>` : ""}</span>`)
+    .join("");
+
+  let line;
+  if (dead) {
+    line = `<b class="bad">Codex crashed</b><span>pid ${esc(String(live.pid))} is gone,
+      nothing is coming \u2014 re-run <code>./forge delegate ${esc(task.id)}</code></span>`;
+  } else {
+    const bits = [];
+    if (live) {
+      const idle = live.idle_minutes;
+      bits.push(live.phase || live.summary || "Codex working");
+      if (typeof idle === "number") bits.push(idle < 1 ? "moving" : `quiet ${Math.round(idle)}m`);
+      if (live.files_limit) bits.push(`${live.files || 0}/${live.files_limit} files`);
+    } else if (p.headline) {
+      bits.push(p.headline);
+    }
+    line = `<b>${esc(p.current || "Nothing in flight")}</b>${
+      bits.length ? `<span>${esc(bits.join(" \u00b7 "))}</span>` : ""}`;
+  }
+
+  return `<div class="task-progress${p.stalled ? " stalled" : ""}">
+      <div class="tp-head">${line}<span class="tp-pct">${esc(String(pct))}%</span></div>
+      <div class="tp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+           aria-valuenow="${esc(String(pct))}"
+           aria-label="${esc(task.id || "task")} progress: ${esc(p.current || "")}">${segs}</div>
+    </div>`;
+}
+
 function taskPlanContent(detail) {
   const tasks = (detail.tasks || []).filter(t => t.plan_state === "clean");
   const active = tasks.find(t => t.id === drawer.taskPlan) || tasks[0];
   if (!active) return `<p class="quiet">No grill-clean task plan to show yet.</p>`;
   drawer.taskPlan = active.id;
-  return `${active.plan_path ? openFile(active.plan_path) : ""}${md(active.plan || "")}`;
+  return `${taskProgress(active)}${
+    active.plan_path ? openFile(active.plan_path) : ""}${md(active.plan || "")}`;
 }
 
 function liveStory(key) {
@@ -3487,6 +3735,41 @@ function refocus(selector) {
   if (el) el.focus();
 }
 
+// The drawer was fetched once on open and never again, so anything live in it
+// aged silently -- worst exactly while something is running. This re-reads it
+// on the same poll WITHOUT openDrawer's view reset (which tab, which task
+// plan, wide or narrow are the reader's choices, not the server's), and
+// repaints only on a real change so open rows and keyboard focus survive.
+let drawerSig = "";
+let drawerTicks = 0;
+// The story endpoint assembles every evidence artifact for the story (~280ms
+// here), so re-reading it on every 4s poll is real work to spend on a panel
+// that usually is not changing. Pay it at full rate only while something is
+// actually in flight -- a step mid-run, a stall, or a live companion -- and
+// idle back to every fifth poll otherwise.
+function drawerIsHot() {
+  return ((drawer.detail || {}).tasks || []).some(task => {
+    const p = task.progress || {};
+    return p.stalled || (p.launch || {}).status === "running"
+      || (p.steps || []).some(s => s.state === "now");
+  });
+}
+
+async function refreshDrawer(key) {
+  if (!drawerIsHot() && ++drawerTicks % 5) return;
+  drawerTicks = 0;
+  try {
+    const res = await fetch(`/api/story/${encodeURIComponent(key)}`, {cache: "no-store"});
+    const detail = await res.json();
+    if (detail.error || drawer.key !== key) return;
+    const sig = JSON.stringify(detail);
+    if (sig === drawerSig) return;
+    drawerSig = sig;
+    drawer.detail = detail;
+    paintDrawer();
+  } catch { /* the tick already shows staleness */ }
+}
+
 async function openDrawer(key, fromEl) {
   drawer.key = key;
   drawer.wide = false;
@@ -3506,6 +3789,7 @@ async function openDrawer(key, fromEl) {
     if (detail.error) throw new Error(detail.error);
     if (drawer.key !== key) return;
     drawer.detail = detail;
+    drawerSig = JSON.stringify(detail);
   } catch {
     if (drawer.key !== key) return;
     drawer.detail = {story: liveStory(key) || {key}, readiness: [], evidence: {}};
@@ -3600,6 +3884,10 @@ async function poll() {
     const state = await res.json();
     render(state);
     lastOk = Date.now();
+    // The drawer used to be fetched once on open and never again: a task's
+    // progress would freeze at whatever it was when the panel opened, which
+    // is worst exactly while something is running.
+    if (drawer.key) refreshDrawer(drawer.key);
     // Cache for a warm start on the next load.
     try { localStorage.setItem("forge-board:laststate", JSON.stringify(state)); } catch { /* private mode */ }
   } catch { /* staleness shows in the tick */ }
@@ -3608,8 +3896,12 @@ async function poll() {
 function tick() {
   const el = $("tick"), label = $("tick-label");
   if (!lastOk) { label.textContent = "connecting"; return; }
+  // Paused on purpose is not stale, and an idle cadence is not a dead board:
+  // accusing `forge board` of being down while we are deliberately not asking
+  // would send someone to restart a server that is working fine.
+  if (document.hidden) { el.classList.remove("stale"); label.textContent = "paused"; return; }
   const secs = Math.round((Date.now() - lastOk) / 1000);
-  const stale = secs > 15;
+  const stale = secs > (stateIsHot(lastState) ? 15 : 45);
   el.classList.toggle("stale", stale);
   label.textContent = stale ? `stale ${secs}s — is \`./forge board\` still running?` : "live";
 }
@@ -3653,7 +3945,46 @@ try {
 } catch { /* ignore a bad cache */ }
 
 poll().then(() => { if (deepLink()) followHash(); });
-setInterval(poll, 4000);
+// A fixed 4s poll asked a ~280ms question every four seconds forever, most
+// often to be told nothing had changed -- and kept asking a board left open in
+// a background tab that nobody was reading. Cadence follows what is actually
+// happening instead: full rate only while something is in flight, idle
+// otherwise, and nothing at all while the tab is hidden.
+const POLL_LIVE = 4000, POLL_IDLE = 20000;
+
+function stateIsHot(state) {
+  const s = state || {};
+  if ((s.summary || {}).stories && s.summary.stories.building) return true;
+  if ((s.signals || []).length) return true;   // a worker is paused on a question
+  if (s.quickfix) return true;                 // a quickfix window is open
+  // The state payload carries the stage list under `items` (story-detail is
+  // the payload that nests it under `stages`); accept either rather than
+  // depending on which endpoint this state came from.
+  const st = s.stages || {};
+  const stages = Array.isArray(st.items) ? st.items
+    : (Array.isArray(st.stages) ? st.stages : []);
+  return stages.some(x => x && x.status === "active");
+}
+
+let pollTimer = null;
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  // Hidden: stop entirely. visibilitychange resumes with an immediate poll, so
+  // coming back to the tab shows current state rather than the last frame
+  // before it was hidden.
+  if (document.hidden) return;
+  pollTimer = setTimeout(async () => {
+    await poll();
+    schedulePoll();
+  }, stateIsHot(lastState) ? POLL_LIVE : POLL_IDLE);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { clearTimeout(pollTimer); return; }
+  poll().then(schedulePoll);
+});
+
+schedulePoll();
 setInterval(tick, 1000);
 </script>
 </body>

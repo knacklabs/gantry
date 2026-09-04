@@ -28,6 +28,14 @@ it('keeps provider status and actions specific', () => {
   expect(dialogs).toContain('Type {provider?.label} to confirm');
   expect(dialogs).toContain('/credential');
   expect(dialogs).toContain('Gantry will not use it');
+  expect(dialogs).toContain('Authentication method');
+  expect(dialogs).toContain('Choose an authentication method to continue.');
+  expect(dialogs).toContain("method: isSameMode ? 'PATCH' : 'PUT'");
+  expect(dialogs).toContain('Changing methods replaces the stored credential.');
+  expect(dialogs).toContain('<Textarea');
+  expect(dialogs).toContain("' (stored)'");
+  expect(dialogs).toContain('Check configuration');
+  expect(dialogs).not.toContain('Verify credential');
   expect(dialogs).toContain('aria-live="polite"');
   expect(app).toContain('<TooltipProvider>');
 });

@@ -29,6 +29,7 @@ const modelCredentialModeSchema: JsonSchema = {
           label: { type: 'string' },
           secret: { type: 'boolean' },
           required: { type: 'boolean' },
+          multiline: { type: 'boolean' },
         },
       },
     },

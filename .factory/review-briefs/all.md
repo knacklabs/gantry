@@ -2,20 +2,32 @@
 
 For each contract, emit a verdict — implemented | partial | missing — with file:line evidence, recorded as contract_verdicts in the quality artifact. Then review the diff normally; the contract check does not replace the quality/performance/security lenses.
 
-## Task CARDSIMPLE-1-T1
+## Task T1
 
 ### Plan contracts
 
-- **CARDSIMPLE-1-AC2**
-  - Source: plans/active/CARDSIMPLE-1-one-permission-surface-family-wide-grants.md#acceptance-criteria
-  - Statement: Allow on a simple command records the canonical family rule via the ONE shared synthesizer so a later run with different args proceeds without asking; a rail hit inside an allowed family asks and permits Allow-once only; pipes present no Allow; safe non-piped compounds resolve per-leaf; pinned local_cli matching unchanged.
-- **CARDSIMPLE-1-AC4**
-  - Source: plans/active/CARDSIMPLE-1-one-permission-surface-family-wide-grants.md#acceptance-criteria
-  - Statement: existing unit and Postgres integration suites pass; tsc and check:architecture green; the AC1/AC2 preservation clauses hold.
+- **T1-C1**
+  - Source: plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition
+  - Statement: Registry-derived credential metadata includes labels, help text, required flags, multiline hints, and configured field names without exposing secret values.
+- **T1-C2**
+  - Source: plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition
+  - Statement: Vertex service-account JSON is the only registry field marked multiline.
+- **T1-C3**
+  - Source: plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition
+  - Statement: Same-method browser PATCH can reactivate disabled credentials after merged validation and atomic persistence.
+- **T1-C4**
+  - Source: plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition
+  - Statement: Failed merged validation leaves disabled credential state and stored values unchanged.
+- **T1-C5**
+  - Source: plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition
+  - Statement: Bearer Control API and CLI disabled-rotation rejection behavior remains unchanged.
+- **T1-C6**
+  - Source: plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition
+  - Statement: Configuration-check responses describe only Gantry-side credential resolution and projection, not upstream connectivity.
+- **T1-C7**
+  - Source: plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md#Task Decomposition
+  - Statement: Automated coverage iterates every executable provider and authentication mode without real credentials or upstream calls.
 
 ### Reviewer focus
 
-- Family-only: rails run solely when isFamilyRule; exact reviewed rules and capability grants byte-for-byte unchanged (the early return is preserved for them).
-- The rail-hit allow_once|cancel is computed ONCE at the coordinator — no adapter-level duplication, no prompt framework.
-- The shared helper is the sole synthesis source in all three lanes; the SDK lane must now reject pipes.
-- One narrow decision amending 0040 only; 0121/0144/JOBPERM-2 linked as compatible-unchanged; 0134 accepted and untouched; autonomous stays classifier-free; pinned local_cli readiness matching unchanged.
+Conform to constitution/README.md and its modular-monolith, API, provider-boundary, and exception standards. Keep the narrow reactivation opt-in in the existing service and browser facade only; preserve the default Bearer/CLI rejection and never return secret values in metadata.

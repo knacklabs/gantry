@@ -1,0 +1,61 @@
+{
+  "generated_by": "autoreview",
+  "score": 10,
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "No real provider credentials or upstream calls were used."
+  ],
+  "recommendation": "No changes required.",
+  "reviewed_scope": [
+    "WEB-PROVIDERS-2 registry metadata, credential reactivation, browser facade, and shared credential dialog"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "review_run_id": "ea7a8b57518ffd313eda2151547836aa70f45fb64dc35b4e030f2c3d64c788d1",
+  "brief_sha256": "14cce9bb193117f9f98adc977438efc7fb2f8b6563d1217a0840d79283bdb25b",
+  "branch_diff_digest": "03e83ca0e8c8a60a0b9f2ccbdf69bd96eb24876bad4ea3564dbee839b467c51e",
+  "minted_at": "2026-09-03T15:57:22+00:00",
+  "summary": "Clean final review: provider metadata remains sanitized, disabled reactivation stays browser-only, and the shared UI preserves the requested request semantics.",
+  "contract_verdicts": [
+    {
+      "contract_id": "T1-C1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/model-credentials/model-credential-service.ts:66 projects configured field names while apps/core/src/shared/model-provider-registry.ts:19 defines sanitized multiline metadata."
+    },
+    {
+      "contract_id": "T1-C2",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/shared/model-provider-registry-openai-compatible.ts:338 is the Vertex service-account JSON field marked multiline; registry tests assert it is the sole multiline field."
+    },
+    {
+      "contract_id": "T1-C3",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/model-credentials/model-credential-service.ts:143 gates reactivation on the browser opt-in; apps/core/src/control/server/routes/browser-model-providers.ts:217 supplies it only for browser PATCH."
+    },
+    {
+      "contract_id": "T1-C4",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/core/model-credential-service.test.ts:483 covers failed merged validation preserving disabled stored state."
+    },
+    {
+      "contract_id": "T1-C5",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/model-credentials/model-credential-service.ts:143 keeps default callers outside the explicit browser reactivation path; browser-auth route tests cover the opt-in boundary."
+    },
+    {
+      "contract_id": "T1-C6",
+      "verdict": "implemented",
+      "evidence": "apps/web/src/features/operations/routes/provider-dialogs.tsx:434 uses Check configuration wording and browser route tests assert Gantry-side projection language."
+    },
+    {
+      "contract_id": "T1-C7",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/core/model-provider-registry.test.ts:57 iterates executable providers and authentication modes without secret values or upstream calls."
+    }
+  ],
+  "aspect": "quality",
+  "recorded_at": "2026-09-03T16:04:33+00:00",
+  "commit": "e0a4b2d9d58f0c6aa24c3010a8db127f7a09a192"
+}

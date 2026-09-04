@@ -23,6 +23,7 @@ export type ModelProvider = {
   configured: boolean;
   health: 'ready' | 'missing' | 'disabled';
   authMode: string | null;
+  configuredFields: string[];
   required: boolean;
   requiredBy: string[];
   supportedWorkloads: string[];
@@ -36,6 +37,7 @@ export type ModelProvider = {
       label: string;
       secret: boolean;
       required: boolean;
+      multiline?: boolean;
     }>;
   }>;
 };

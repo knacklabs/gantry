@@ -2518,7 +2518,7 @@
         "suites, tsc and architecture green"
       ],
       "order": 116,
-      "status": "active",
+      "status": "pending",
       "epic": "permission-engine",
       "skill": "backend",
       "kind": "feature",
@@ -2526,7 +2526,7 @@
         "CARDSIMPLE-1"
       ],
       "origin": "adhoc",
-      "spec": "docs/specs/askfloor-1-judge-actually-judges.md"
+      "spec_debt_reason": "spec drafted and twice sol@xhigh-validated (docs/specs/askfloor-1-judge-actually-judges.md); confirm ceremony runs when the story is queued after CARDSIMPLE-1"
     },
     {
       "key": "CARDSIMPLE-2",
@@ -2566,8 +2566,29 @@
         "CARDSIMPLE-2"
       ],
       "spec": "docs/specs/cardsimple-1-one-permission-surface.md"
+    },
+    {
+      "key": "WEB-PROVIDERS-2",
+      "title": "Correct registry-driven credential setup",
+      "story": "As a Gantry administrator, I can choose and safely update every supported model-provider authentication method so that provider credentials are configured without hidden defaults or secret exposure.",
+      "acceptance_criteria": [
+        "Multi-method providers require explicit authentication selection before fields or save are available, while single-method providers remain compact.",
+        "Same-method edits and disabled reactivation use sparse PATCH with atomic merged validation; method replacement uses complete PUT.",
+        "Registry help text, required fields, configured field names, and multiline presentation reach the shared browser form without secret values.",
+        "Configuration checks describe Gantry-side credential availability and never claim upstream connectivity.",
+        "Focused automated and synthetic browser checks cover every provider mode without real credentials or upstream calls."
+      ],
+      "order": 119,
+      "status": "done",
+      "epic": "web-authentication",
+      "skill": "fullstack",
+      "depends_on": [],
+      "spec": "docs/specs/web-providers-2-credential-setup.md",
+      "completed_at": "2026-09-03T16:05:20+00:00",
+      "history": ".factory/stories/WEB-PROVIDERS-2/",
+      "outcome": "WEB-PROVIDERS-2 is ready for review: registry-driven credential setup now handles explicit multi-method selection, safe sparse reactivation, multiline Vertex JSON, and honest local configuration checks."
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-09-02T10:29:30+00:00"
+  "updated_at": "2026-09-03T16:05:20+00:00"
 }

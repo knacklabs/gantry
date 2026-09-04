@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
+import { ModelCredentialService } from '@core/application/model-credentials/model-credential-service.js';
+import type { AppId } from '@core/domain/app/app.js';
+import type {
+  ModelCredentialId,
+  ModelCredentialMetadata,
+  ModelCredentialProvider,
+} from '@core/domain/model-credentials/model-credentials.js';
+import type { ModelCredentialRepository } from '@core/domain/ports/repositories.js';
 import {
   getModelProviderByGatewayPath,
   getModelProviderDefinition,
@@ -12,6 +20,71 @@ import {
 import { listModelCatalogEntries } from '@core/shared/model-catalog.js';
 
 describe('model provider registry', () => {
+  it('exposes safe metadata for every executable provider credential mode', async () => {
+    const appId = 'default' as AppId;
+    const now =
+      '2026-09-03T00:00:00.000Z' as ModelCredentialMetadata['createdAt'];
+
+    for (const provider of listExecutableModelProviders()) {
+      for (const mode of provider.credentialModes) {
+        const providerId = provider.id as ModelCredentialProvider;
+        const metadata: ModelCredentialMetadata = {
+          id: `credential:${provider.id}` as ModelCredentialId,
+          appId,
+          providerId,
+          authMode: mode.id,
+          status: 'active',
+          schemaVersion: mode.version,
+          fingerprint: 'sha256:redacted',
+          fieldFingerprints: mode.fields.map((field) => ({
+            field: field.name,
+            fingerprint: 'sha256:redacted',
+          })),
+          createdAt: now,
+          updatedAt: now,
+        };
+        const repository = {
+          listModelCredentials: async () => [metadata],
+        } as ModelCredentialRepository;
+        const listed = await new ModelCredentialService(repository).list({
+          appId,
+        });
+        const sanitized = listed.find((item) => item.providerId === providerId);
+        const sanitizedMode = sanitized?.credentialModes.find(
+          (item) => item.id === mode.id,
+        );
+
+        expect(sanitized?.configuredFields).toEqual(
+          mode.fields.map((field) => field.name),
+        );
+        expect(sanitizedMode).toEqual({
+          id: mode.id,
+          label: mode.label,
+          helpText: mode.helpText,
+          schemaVersion: mode.version,
+          gatewayAuthStrategy: mode.gatewayAuth.strategy,
+          fields: mode.fields.map((field) => ({
+            name: field.name,
+            label: field.label,
+            secret: field.secret,
+            required: field.required,
+            ...(field.multiline ? { multiline: true } : {}),
+          })),
+        });
+        expect(sanitized).not.toHaveProperty('payload');
+        for (const field of sanitizedMode?.fields ?? []) {
+          expect(field).not.toHaveProperty('value');
+          expect(
+            field.multiline === true,
+            `${provider.id}:${mode.id}:${field.name}`,
+          ).toBe(
+            provider.id === 'vertex' && field.name === 'serviceAccountJson',
+          );
+        }
+      }
+    }
+  });
+
   it('indexes provider definitions for route lookup', () => {
     const routeProviders = listModelRouteProviders();
 

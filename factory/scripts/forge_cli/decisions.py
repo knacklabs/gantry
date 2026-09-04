@@ -8,6 +8,7 @@ from pathlib import Path
 
 from factory_lib import load_json, repo_root, run_state_path
 
+from . import fscache
 from .common import fail
 
 DECISION_TEMPLATE = """---
@@ -39,26 +40,37 @@ def parse_stories(raw: str) -> list[str]:
 
 
 def decision_records(base: Path) -> list[dict]:
-    records = []
-    for path in sorted((base / "docs" / "decisions").glob("[0-9][0-9][0-9][0-9]-*.md")):
-        text = path.read_text(encoding="utf-8")
-        match = FRONTMATTER.match(text)
-        fields: dict[str, str] = {}
-        if match:
-            for line in match.group(1).splitlines():
-                if ":" in line:
-                    key, _, value = line.partition(":")
-                    fields[key.strip()] = value.strip().strip("\"'")
-        title_match = re.search(r"^# (.+)$", text, re.MULTILINE)
-        records.append({"id": path.stem, "status": fields.get("status", "proposed"),
-                        "title": title_match.group(1) if title_match else path.stem,
-                        "stories": parse_stories(fields.get("stories", "")),
-                        "supersedes": fields.get("supersedes", ""),
-                        "superseded_by": fields.get("superseded_by", ""),
-                        "confirmed_by": fields.get("confirmed_by", ""),
-                        "date": fields.get("date", ""),
-                        "path": path})
-    return records
+    # Read and regex-parsed on every board request (and every poll) to answer
+    # "which decisions are active"; memoised against the directory's stamp so a
+    # new, edited or accepted decision still reads fresh.
+    directory = base / "docs" / "decisions"
+
+    def compute() -> list[dict]:
+        records = []
+        for path in sorted(directory.glob("[0-9][0-9][0-9][0-9]-*.md")):
+            text = path.read_text(encoding="utf-8")
+            match = FRONTMATTER.match(text)
+            fields: dict[str, str] = {}
+            if match:
+                for line in match.group(1).splitlines():
+                    if ":" in line:
+                        key, _, value = line.partition(":")
+                        fields[key.strip()] = value.strip().strip("\"'")
+            title_match = re.search(r"^# (.+)$", text, re.MULTILINE)
+            records.append({"id": path.stem, "status": fields.get("status", "proposed"),
+                            "title": title_match.group(1) if title_match else path.stem,
+                            "stories": parse_stories(fields.get("stories", "")),
+                            "supersedes": fields.get("supersedes", ""),
+                            "superseded_by": fields.get("superseded_by", ""),
+                            "confirmed_by": fields.get("confirmed_by", ""),
+                            "date": fields.get("date", ""),
+                            "path": path})
+        return records
+
+    records = fscache.cached(
+        f"decisions:{base}", fscache.dir_stamp(directory, ".md"), compute)
+    # Copies: `stories` is a list callers could mutate; Path is immutable.
+    return [{**record, "stories": list(record["stories"])} for record in records]
 
 
 def active_decision_ids(base: Path) -> list[str]:

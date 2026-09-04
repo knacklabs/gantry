@@ -1,0 +1,75 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "The existing registry, credential service, and browser facade are sufficient; no new endpoint, provider component, persistence shape, or upstream probe is required.",
+    "The reactivation option stays opt-in so Bearer Control API and CLI retain their existing disabled-rotation rejection.",
+    "Cold-read confirmed the amended T1 scope fully accounts for the already-landed dialog delta; T2 remains the focused behavior-proof stage."
+  ],
+  "inspected_refs": [
+    ".factory/stories/WEB-PROVIDERS-2/task-plans/T1.md",
+    ".factory/stories/WEB-PROVIDERS-2/decomposition.json:T1",
+    "plans/active/WEB-PROVIDERS-2-correct-registry-driven-credential-setup.md",
+    "apps/core/src/application/model-credentials/model-credential-service.ts",
+    "apps/core/src/control/server/routes/browser-model-providers.ts",
+    "apps/core/src/control/server/routes/credentials.ts",
+    "apps/core/src/cli/credentials.ts",
+    "apps/web/src/features/operations/routes/provider-dialogs.tsx",
+    "apps/web/src/features/operations/operations-queries.ts"
+  ],
+  "current_flow": "The active stage contains the bounded registry/service/browser facade changes and the shared dialog consumer that landed before T2 could start; the amended scope records that complete measured delta without adding a provider-specific endpoint, form, persistence shape, or upstream probe.",
+  "criteria_map": {
+    "Registry-derived credential metadata includes labels, help text, required flags, multiline hints, and configured field names without exposing secret values.": "Registry and credential-service unit coverage validates the sanitized DTO and confirms no credential value occurs in serialized metadata.",
+    "Vertex service-account JSON is the only registry field marked multiline.": "Registry unit coverage asserts the one Vertex field and rejects multiline metadata on all other fields.",
+    "Same-method browser PATCH can reactivate disabled credentials after merged validation and atomic persistence.": "Credential-service behavior test exercises opt-in disabled rotation and browser route source coverage asserts only that route opts in.",
+    "Failed merged validation leaves disabled credential state and stored values unchanged.": "Credential-service behavior test submits invalid sparse input and observes the disabled record remains unchanged.",
+    "Bearer Control API and CLI disabled-rotation rejection behavior remains unchanged.": "Existing callers retain the default service option; unit coverage keeps default disabled rejection explicit.",
+    "Configuration-check responses describe only Gantry-side credential resolution and projection, not upstream connectivity.": "Browser route invariant test asserts local-only configuration-check wording.",
+    "Automated coverage iterates every executable provider and authentication mode without real credentials or upstream calls.": "Registry unit test loops listExecutableModelProviders and their modes using synthetic payload shapes only."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "None"
+  ],
+  "rounds": [
+    {
+      "question": "Does the bounded backend contract preserve the API and CLI boundary while enabling the approved browser reactivation?",
+      "options": [
+        "Approve (Recommended)",
+        "Revise browser scope"
+      ],
+      "chosen": "Approve (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The current rotation service rejects disabled records before partial merge, so a narrow explicit option is required for browser-only reactivation.",
+      "source": "apps/core/src/application/model-credentials/model-credential-service.ts:rotate"
+    },
+    {
+      "finding": "Bearer and CLI callers use the same service without a browser-facade boundary.",
+      "source": "apps/core/src/control/server/routes/credentials.ts:PATCH; apps/core/src/cli/credentials.ts:rotate"
+    },
+    {
+      "finding": "The existing browser facade is the sole same-origin UI credential endpoint.",
+      "source": "apps/core/src/control/server/routes/browser-model-providers.ts:PATCH"
+    },
+    {
+      "finding": "The dialog uses registry-provided modes, sparse same-mode PATCH, complete replacement PUT, and never renders secret values.",
+      "source": "apps/web/src/features/operations/routes/provider-dialogs.tsx"
+    }
+  ],
+  "open_items": [],
+  "task_id": "T1",
+  "input_sha256": "76408eac5314495d680715e7736759f0de36809cca096162f0c6b2c2af297305",
+  "task_plan_sha256": "233d8093f72e5592b045b24258919ee97a907d666a929c7e64b4b7af7aa4823c",
+  "recorded_at": "2026-09-03T14:03:42+00:00",
+  "commit": "c594c913d06a7efe8b982c7264bc280b207daff6",
+  "approved_task_plan_sha256": "233d8093f72e5592b045b24258919ee97a907d666a929c7e64b4b7af7aa4823c",
+  "approved_by": "caw",
+  "approved_at": "2026-09-03T14:03:42+00:00"
+}

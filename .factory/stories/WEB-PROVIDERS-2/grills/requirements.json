@@ -1,0 +1,57 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "issue": "WEB-PROVIDERS-2",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Only the browser facade opts into disabled sparse PATCH; Bearer API and CLI behavior remain unchanged.",
+    "Configured field names are required redacted display metadata in the shared form."
+  ],
+  "inspected_refs": [
+    "docs/specs/web-providers-2-credential-setup.md",
+    "docs/architecture/credential-management.md",
+    "plans/roadmap.json:WEB-PROVIDERS-2",
+    "apps/core/src/application/model-credentials/model-credential-service.ts:ModelCredentialService.rotate",
+    "apps/web/src/features/operations/routes/provider-dialogs.tsx:ProviderDialog"
+  ],
+  "current_flow": "The shared dialog defaults to the first mode, sends blank fields, routes disabled credentials through PUT, and overstates local preflight as upstream verification.",
+  "criteria_map": {
+    "Explicit selection": "No mode, fields, Save, authMode, or request before a multi-method choice.",
+    "Sparse updates and reactivation": "PATCH merges stored and supplied values and activates only after validation and persistence.",
+    "Registry presentation": "Configured names and multiline metadata flow through the sanitized DTO into the shared form.",
+    "Configuration check": "Existing preflight receives accurate Gantry-local copy.",
+    "Provider coverage": "Registry-derived tests cover all executable modes without real secrets."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "None"
+  ],
+  "rounds": [
+    {
+      "question": "Should we lock this request behavior and honest configuration-check wording?",
+      "options": [
+        "Approve (Recommended)",
+        "Revise save rules",
+        "Keep verify wording"
+      ],
+      "chosen": "Approve (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The credential architecture now defines validated disabled reactivation.",
+      "source": "docs/architecture/credential-management.md:Control API semantics"
+    },
+    {
+      "finding": "The confirmed spec requires configured-field display metadata.",
+      "source": "docs/specs/web-providers-2-credential-setup.md:Behaviour"
+    }
+  ],
+  "open_items": [],
+  "input_sha256": "3510d2406e6712fdcf75f91fd56ba4122dd926481c8c6e34f82e27e8240f73b8",
+  "recorded_at": "2026-09-03T11:22:16+00:00",
+  "commit": "dd328d72b699d7710d018c9be78a25800308ab21"
+}

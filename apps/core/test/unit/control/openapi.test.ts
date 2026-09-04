@@ -1390,6 +1390,10 @@ describe('control OpenAPI documentation', () => {
       credentialModes: expect.objectContaining({ type: 'array' }),
     });
     expect(
+      spec.components.schemas.ModelCredentialStatus.properties.credentialModes
+        .items.properties.fields.items.properties.multiline,
+    ).toEqual({ type: 'boolean' });
+    expect(
       spec.components.schemas.ModelCredentialWriteRequest.properties,
     ).toHaveProperty('authMode');
     expect(

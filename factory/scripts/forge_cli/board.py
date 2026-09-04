@@ -10,12 +10,17 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from factory_lib import (
-    evidence_path, load_json, now_iso, parse_sections, plan_digest_without_assumptions,
-    repo_root, run_state_path, task_rows,
+    evidence_path, load_json, now_iso, parse_sections,
+    plan_digest_without_assumptions, repo_root, run_state_path, story_dir, task_rows,
 )
+
+# Shipped/archived plans move out of active|completed; scan debt too or a
+# shipped story reads as unplanned (no plan, stale approval blockers).
+PLAN_LOCATIONS = ("active", "completed", "debt")
 from record_signoff import REQUIRED_BRIEF_HEADINGS
 
 from . import events
+from . import fscache
 from .assumptions import open_count as open_assumptions
 from .decisions import decision_records
 from .plans import parse_frontmatter
@@ -23,24 +28,57 @@ from .quickfix import ledger_path, load_active
 from .readiness import review_passed, tests_passed, verify_passed
 from .roadmap import load_roadmap, ready_pending
 from .signal import open_signals
+from .codex_status import STALL_MINUTES
 from .specs import spec_records
 
 
 def _plan_records(base: Path, location: str) -> list[dict]:
-    records = []
-    for path in sorted((base / "plans" / location).glob("*.md")):
-        fields, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
-        records.append({
-            **fields,
-            "path": path.relative_to(base).as_posix(),
-            "location": location,
-        })
-    return records
+    # Every request scans all three plan locations to find one plan, and the
+    # board polls itself every few seconds. Memoised against the directory's
+    # stamp, so an added, edited, renamed or removed plan still reads fresh.
+    directory = base / "plans" / location
+
+    def compute() -> list[dict]:
+        records = []
+        for path in sorted(directory.glob("*.md")):
+            fields, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+            records.append({
+                **fields,
+                "path": path.relative_to(base).as_posix(),
+                "location": location,
+            })
+        return records
+
+    records = fscache.cached(
+        f"plan_records:{base}:{location}",
+        fscache.dir_stamp(directory, ".md"), compute,
+    )
+    # Hand out copies: a caller mutating a record must not corrupt the memo.
+    return [dict(record) for record in records]
+
+
+def _stages_for(base: Path, story: str) -> dict:
+    """Stage state for exactly this story.
+
+    Stage status lives in a single git-local ``stages.json`` keyed to the active
+    story, unlike every other evidence file (decomposition/verify/tests/reviews),
+    which is per-story. A per-story scoped snapshot wins when present; otherwise
+    the singleton is trusted only when its ``issue`` names THIS story — so a newly
+    active but undecomposed story no longer inherits the previous story's stages,
+    and a shipped story is not mislabelled from the next story's file.
+    """
+    if not story:  # no active story -> no active stages (story_dir rejects "")
+        return {}
+    scoped = story_dir(base, story) / "stages.json"
+    if scoped.is_file():
+        return load_json(scoped, default={})
+    data = load_json(base / ".factory" / "stages.json", default={})
+    return data if data.get("issue") == story else {}
 
 
 def _stage_summary(base: Path) -> dict:
     story = load_json(run_state_path(base), default={}).get("issue_key", "")
-    data = load_json(evidence_path(base, story, "stages.json"), default={})
+    data = _stages_for(base, story)
     items = data.get("stages", [])
     return {
         "issue": data.get("issue"),
@@ -104,7 +142,7 @@ def _plan_evidence(
                                default={}) if story else {})
     if not plan and not decomposition.get("tasks"):
         return None, {"verify": False, "tests": False, "reviews": empty_reviews}, []
-    stages_data = load_json(evidence_path(base, story, "stages.json"), default={})
+    stages_data = _stages_for(base, story)
     stages = stages_data.get("stages", [])
     progress = None
     if stages:
@@ -262,15 +300,13 @@ def aggregate_state(base: Path) -> dict:
     items = roadmap.get("items", [])
     ready, _ = ready_pending(items)
     frontier = [item["key"] for item in ready]
-    plans = {
-        "active": _plan_records(base, "active"),
-        "completed": _plan_records(base, "completed"),
-    }
+    plans = {loc: _plan_records(base, loc) for loc in PLAN_LOCATIONS}
     # `story` postdates the earliest plans; fall back to `issue`, or every
-    # story on a legacy project renders unplanned.
+    # story on a legacy project renders unplanned. Iterate so a live plan wins
+    # over an archived one for the same story (active is last, overwrites debt).
     plan_by_story = {
         plan.get("story") or plan.get("issue"): plan
-        for location in ("completed", "active")
+        for location in reversed(PLAN_LOCATIONS)
         for plan in plans[location]
         if plan.get("story") or plan.get("issue")
     }
@@ -338,12 +374,52 @@ def aggregate_state(base: Path) -> dict:
                         "plan_file", "story")
         },
         "stages": stages,
-        "signals": open_signals(base),
+        # Same read as `signals` above; calling open_signals twice re-parsed the
+        # signal log for one response.
+        "signals": signals,
         "quickfix": load_active(base) or None,
         "quickfix_ledger": quickfix_ledger(base),
         "next": next_actions(base),
         "decisions": active_decisions(base),
     }
+
+
+def _next_actions_stamp(base: Path) -> tuple:
+    """What `forge next` derives from, read cheaply. The git-control dir holds
+    the authoritative run/stage/decomposition state; `.factory` and `plans` hold
+    the workspace mirrors and the roadmap; HEAD and the index move on checkout,
+    commit and staging. This stands in for the ~750ms of git subprocesses
+    `cmd_next` costs.
+
+    `.factory` is stamped as a TREE, not one level. Almost every transition
+    writes nested -- a task grill lands in `stories/<key>/grills/tasks/`, a
+    review in `stories/<key>/reviews/` -- and touches neither `.factory` nor
+    `.factory/stories`, so a one-level stamp reported "unchanged" across most
+    of the changes this memo has to notice."""
+    from factory_lib import git_control_dir
+
+    try:
+        control = git_control_dir(base)
+        git_stamps: tuple = (
+            fscache.dir_stamp(control),
+            fscache.file_stamp(control.parent / "HEAD"),
+            fscache.file_stamp(control.parent / "index"),
+        )
+    except SystemExit:
+        # The bundled board example — and any directory the board is pointed at
+        # that is not a git repo root — has no control dir. `cmd_next` already
+        # tolerates that, so the stamp must too rather than turning a rendered
+        # board into a crash.
+        git_stamps = ("<no-git-control-dir>",)
+    return (
+        git_stamps,
+        fscache.tree_stamp(base / ".factory"),
+        fscache.dir_stamp(base / "plans" / "active", ".md"),
+        fscache.file_stamp(base / "plans" / "roadmap.json"),
+        # `forge next` branches on accepted decisions and confirmed specs too.
+        fscache.dir_stamp(base / "docs" / "decisions", ".md"),
+        fscache.dir_stamp(base / "docs" / "specs", ".md"),
+    )
 
 
 def next_actions(base: Path) -> dict:
@@ -352,26 +428,34 @@ def next_actions(base: Path) -> dict:
     # ponytail: captures cmd_next's own output rather than duplicating 100
     # lines of gate branching — one source of truth. If the shape ever needs
     # more than phase + steps, extract a builder from cmd_next instead.
+
+    `cmd_next` shells out to git repeatedly, which dominated every `/api/state`
+    poll; memoised against the state it reads.
     """
-    import argparse
-    import contextlib
-    import io
+    def compute() -> dict:
+        import argparse
+        import contextlib
+        import io
 
-    from .phase import cmd_next
+        from .phase import cmd_next
 
-    buffer = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(buffer):
-            cmd_next(argparse.Namespace(repo=str(base)))
-    except SystemExit:
-        pass
-    phase, steps = "", []
-    for line in buffer.getvalue().splitlines():
-        if line.startswith("PHASE:"):
-            phase = line[len("PHASE:"):].strip()
-        elif re.match(r"\s+\d+\.\s", line):
-            steps.append(line.strip().split(". ", 1)[-1])
-    return {"phase": phase, "steps": steps}
+        buffer = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buffer):
+                cmd_next(argparse.Namespace(repo=str(base)))
+        except SystemExit:
+            pass
+        phase, steps = "", []
+        for line in buffer.getvalue().splitlines():
+            if line.startswith("PHASE:"):
+                phase = line[len("PHASE:"):].strip()
+            elif re.match(r"\s+\d+\.\s", line):
+                steps.append(line.strip().split(". ", 1)[-1])
+        return {"phase": phase, "steps": steps}
+
+    actions = fscache.cached(
+        f"next_actions:{base}", _next_actions_stamp(base), compute)
+    return {"phase": actions["phase"], "steps": list(actions["steps"])}
 
 
 def active_decisions(base: Path) -> list[dict]:
@@ -437,7 +521,7 @@ def story_detail(base: Path, key: str) -> dict | None:
     if item is None:
         return None
     plan = next(
-        (record for location in ("active", "completed")
+        (record for location in PLAN_LOCATIONS
          for record in _plan_records(base, location)
          if record.get("story") == key or record.get("issue") == key),
         None,
@@ -448,8 +532,11 @@ def story_detail(base: Path, key: str) -> dict | None:
     active = load_json(run_state_path(base), default={}).get("issue_key")
     evidence = {
         name: load_json(evidence_path(base, key, f"{name}.json"), default=None)
-        for name in ("decomposition", "verify", "tests", "stages", "outcome")
+        for name in ("decomposition", "verify", "tests", "outcome")
     }
+    # Stages are the one evidence file that is not per-story on disk; read them
+    # issue-guarded so a shipped or non-active story shows its own task status.
+    evidence["stages"] = _stages_for(base, key) or None
     evidence["reviews"] = {
         aspect: load_json(
             evidence_path(base, key, f"reviews/{aspect}.json"), default=None)
@@ -524,23 +611,333 @@ def task_plan_view(base: Path, key: str, task: dict, grill: dict | None) -> dict
     text (fresh, not stale). A saved-but-not-yet-grill-clean plan is withheld
     entirely (never sent, so it cannot leak through the raw-json view either), so
     a human first sees a task plan on the board only after it survives grilling,
-    at which point it is theirs to approve. plan_state is one of 'none' (no plan
-    saved yet), 'grilling' (saved, not yet grill-clean), or 'clean'."""
+    at which point it is theirs to approve.
+
+    plan_state is 'none' (no plan saved), 'ungrilled' (saved, never survived a
+    grill), 'stale' (it DID pass, and the plan text changed afterwards), or
+    'clean'. The last two used to share one label, which hid the only
+    distinction a reader acts on: 'ungrilled' means the plan was never
+    stress-tested, 'stale' means it was and someone has edited it since -- so a
+    human who already reviewed it is now looking at different text."""
     plan_path = evidence_path(base, key, f"task-plans/{task['id']}.md")
     if not plan_path.is_file():
         return {"plan_state": "none"}
     if not grill or grill.get("verdict") != "pass":
-        return {"plan_state": "grilling"}
+        return {"plan_state": "ungrilled"}
     digest = plan_digest_without_assumptions(plan_path)
     fresh = digest in (
         grill.get("task_plan_sha256"), grill.get("approved_task_plan_sha256"),
     )
     if not fresh:
-        return {"plan_state": "grilling"}
+        return {"plan_state": "stale"}
     return {
         "plan_state": "clean",
         "plan": plan_path.read_text(encoding="utf-8"),
         "plan_path": plan_path.relative_to(base).as_posix(),
+    }
+
+
+def _worktree_roots(base: Path) -> list[Path]:
+    """This repo plus every linked worktree.
+
+    `forge task start` puts each task in its OWN sibling worktree, and a
+    worktree has its own git control directory -- so the delegation ledger a
+    running companion writes lives under the WORKTREE, not here. A board
+    reading only its own root is therefore blind to exactly the runs it most
+    needs to report on.
+
+    Read from git's own bookkeeping rather than `git worktree list`: the
+    control directory already holds one `worktrees/<name>/gitdir` file per
+    linked worktree, so this is a couple of small reads instead of a
+    subprocess on a polled path -- and it needs no lenient decode policy for
+    process output.
+    """
+    try:
+        from factory_lib import git_control_dir
+        from .fscache import cached, dir_stamp
+        # git_control_dir appends forge's own subdirectory, so the git dir
+        # itself is its parent. From inside a LINKED worktree that git dir is
+        # .git/worktrees/<name>, whose grandparent is the shared .git holding
+        # the registry every worktree is listed in.
+        git_dir = git_control_dir(base).parent
+        common = (git_dir.parent.parent
+                  if git_dir.parent.name == "worktrees" else git_dir)
+        registry = common / "worktrees"
+        # The set changes only when `task start` or `worktree prune` touches
+        # it, so stamp the registry rather than re-reading on every poll.
+        return cached("board.worktree_roots", (str(base), dir_stamp(registry)),
+                      lambda: _scan_worktrees(base, registry))
+    except (Exception, SystemExit):
+        return [base]
+
+
+def _scan_worktrees(base: Path, registry: Path) -> list[Path]:
+    roots = [base]
+    if not registry.is_dir():
+        return roots
+    for entry in sorted(registry.iterdir()):
+        pointer = entry / "gitdir"
+        try:
+            # Points at the worktree's own `.git` file; its parent is the tree.
+            recorded = pointer.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not recorded:
+            continue
+        root = Path(recorded).parent
+        try:
+            if root.is_dir() and root.resolve() != base.resolve():
+                roots.append(root)
+        except OSError:
+            continue
+    return roots
+
+
+def _codex_jobs_by_root(roots: list[Path]) -> dict[Path, dict]:
+    """Newest plugin job per workspace root, for the live phase/heartbeat.
+
+    The companion records its own phase and progress timestamps; nothing on the
+    board read them, so an implementation step was one opaque block that looked
+    identical at minute 1 and minute 90.
+    """
+    jobs: dict[Path, dict] = {}
+    try:
+        from .codex_status import STATE_ROOT, load_jobs
+    except Exception:
+        return jobs
+    for root in roots:
+        try:
+            found = load_jobs(root.resolve(), STATE_ROOT)
+        except (Exception, SystemExit):
+            continue
+        if found:
+            jobs[root.resolve()] = found[-1]  # sorted by createdAt
+    return jobs
+
+
+def task_launches(base: Path) -> dict[str, dict]:
+    """Latest delegation per task, with liveness resolved against the OS and
+    the companion's own live phase attached.
+
+    `launch_status` is a flag on disk, and a companion killed uncatchably (a
+    job-object teardown, TerminateProcess, SIGKILL) runs no handler -- so the
+    ledger keeps saying "running" forever. A watcher polling that flag then
+    waits on a process that no longer exists; that is how a crash five minutes
+    in reads as a job still working hours later. `pid` and `pid_started` are
+    already recorded, so liveness is a fact to check rather than a timeout to
+    guess at.
+
+    Deliberately NOT memoised: liveness and phase change with nothing touching
+    this repo's disk, so a file stamp would pin the answer to the moment of the
+    crash -- exactly the staleness this exists to break.
+    """
+    try:
+        from .codex_status import inactivity_minutes
+        from .delegate import (
+            _pid_alive, _process_start_identity, delegations_path,
+            load_delegations,
+        )
+    except (Exception, SystemExit):
+        return {}
+
+    roots = _worktree_roots(base)
+    jobs = _codex_jobs_by_root(roots)
+    latest: dict[str, tuple[Path, dict]] = {}
+    for root in roots:
+        try:
+            if not delegations_path(root).exists():
+                continue
+            entries = load_delegations(root)
+        except (Exception, SystemExit):
+            # SystemExit is not an Exception: a malformed ledger calls fail(),
+            # and resolving a control directory exits outright outside a git
+            # repo. Neither may take down a read-only view.
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict) or not entry.get("task"):
+                continue
+            task_id = str(entry["task"])
+            previous = latest.get(task_id)
+            # Rows are appended in order per ledger; across ledgers the newest
+            # timestamp wins so a re-run in a worktree beats a stale main-tree
+            # row for the same task.
+            if previous is None or str(entry.get("at") or "") >= str(
+                    previous[1].get("at") or ""):
+                latest[task_id] = (root, entry)
+
+    resolved = {}
+    for task_id, (root, entry) in latest.items():
+        status = str(entry.get("launch_status") or "")
+        pid = entry.get("pid")
+        if status in {"starting", "running"} and isinstance(pid, int):
+            alive = False
+            try:
+                if _pid_alive(pid):
+                    recorded = entry.get("pid_started")
+                    identity = _process_start_identity(pid) if recorded else None
+                    # A recycled pid on an unrelated process would otherwise
+                    # read as alive and keep the crash hidden.
+                    alive = (not recorded or identity is None
+                             or str(identity) == str(recorded))
+            except (Exception, SystemExit):
+                alive = True  # cannot tell: never invent a crash
+            status = "running" if alive else "dead"
+        job = jobs.get(root.resolve(), {})
+        idle = None
+        try:
+            idle = inactivity_minutes(job) if job else None
+        except (Exception, SystemExit):
+            idle = None
+        resolved[task_id] = {
+            "status": status,
+            "pid": pid,
+            "at": entry.get("at"),
+            "log": entry.get("log") or job.get("logFile"),
+            "mode": entry.get("mode"),
+            "write": entry.get("write"),
+            "worktree": str(root) if root.resolve() != base.resolve() else "",
+            # The companion's own account of what it is doing right now.
+            "phase": job.get("phase") or "",
+            "summary": (str(job.get("summary") or job.get("title") or "")
+                        .strip()[:160]),
+            "job_status": job.get("status") or "",
+            "idle_minutes": round(idle, 1) if isinstance(idle, (int, float)) else None,
+        }
+    return resolved
+
+
+def task_progress(task: dict, launch: dict | None, reviews: dict) -> dict:
+    """Where this task actually is, as an ordered pipeline.
+
+    The board could say a task was `active` but not whether anything was still
+    working on it, so "taking a while" and "died an hour ago" looked identical.
+    Each step is done / now / blocked / todo, so the first step that is not
+    done is the answer to "what is happening?".
+    """
+    proof = task.get("proof") or {}
+    state = task.get("state") or task.get("status") or "skeleton"
+    done = state == "done"
+    required = proof.get("required_tests") or []
+    covered = proof.get("covered_tests") or []
+    grill = proof.get("grill") or {}
+    lenses = {aspect: bool(review) for aspect, review in (reviews or {}).items()}
+    clean = [aspect for aspect, review in (reviews or {}).items()
+             if isinstance(review, dict)
+             and not (review.get("blocking_findings") or [])]
+
+    def step(key, label, state_, note=""):
+        return {"key": key, "label": label, "state": state_, "note": note}
+
+    plan_state = task.get("plan_state")
+    if plan_state == "clean":
+        plan_step = step("plan", "Task plan", "done", "grill-clean")
+    elif plan_state == "stale":
+        plan_step = step("plan", "Task plan", "now",
+                         "passed a grill, then edited - re-grill")
+    elif plan_state == "ungrilled":
+        plan_step = step("plan", "Task plan", "now", "saved - not yet grilled")
+    else:
+        plan_step = step("plan", "Task plan", "todo", "not authored")
+
+    if state in {"active", "done"}:
+        start_step = step("start", "Started", "done",
+                          str(task.get("started_at") or "")[:10])
+    elif state in {"ready", "grilled"}:
+        start_step = step("start", "Started", "now",
+                          "run `forge task start` then `stage start`")
+    else:
+        start_step = step("start", "Started", "todo")
+
+    # A finished task is finished: a stale launch row left behind by a crash
+    # that was later recovered (a re-run, or a ledgered degraded window) must
+    # not put a dead companion on a shipped task.
+    if done:
+        build = step("build", "Implementation", "done")
+    elif launch and launch.get("status") == "running":
+        # Say what it is DOING, not just that it exists: an implementation step
+        # with no live detail looks identical at minute 1 and minute 90.
+        idle = launch.get("idle_minutes")
+        beat = ("no progress for "
+                f"{int(idle)}m" if isinstance(idle, (int, float)) and idle >= 1
+                else "moving")
+        detail = launch.get("phase") or launch.get("summary") or "working"
+        build = step("build", "Implementation", "now",
+                     f"Codex {detail} - {beat} (pid {launch.get('pid')})")
+        # A companion that has gone quiet is not yet a crash, and must not be
+        # reported as one; it is still the thing worth looking at.
+        if isinstance(idle, (int, float)) and idle >= STALL_MINUTES:
+            build["state"] = "blocked"
+            build["note"] = (
+                f"Codex alive (pid {launch.get('pid')}) but SILENT for "
+                f"{int(idle)}m in phase {detail!r}. Check its log before "
+                "assuming it is still working.")
+    elif launch and launch.get("status") == "dead":
+        build = step("build", "Implementation", "blocked",
+                     f"Codex DEAD - pid {launch.get('pid')} is gone while the "
+                     "ledger still says running. It crashed; nothing is coming.")
+    elif launch and launch.get("status") == "failed":
+        build = step("build", "Implementation", "blocked", "last launch failed")
+    elif launch and launch.get("status") == "succeeded":
+        build = step("build", "Implementation", "done", "companion finished")
+    else:
+        build = step("build", "Implementation",
+                     "now" if state == "active" else "todo",
+                     "no delegation recorded yet" if state == "active" else "")
+
+    verify = step("verify", "Verify", "done" if proof.get("verify_ok") else
+                  ("now" if state == "active" else "todo"),
+                  str(proof.get("verify_at") or "")[:10])
+    tests = step("tests", "Tests",
+                 "done" if required and len(covered) == len(required) else
+                 ("now" if covered else "todo"),
+                 f"{len(covered)}/{len(required)} proven" if required
+                 else "none required")
+    review = step("review", "Review - 3 lenses",
+                  "done" if len(clean) == 3 else
+                  ("now" if lenses and any(lenses.values()) else "todo"),
+                  " / ".join(
+                      f"{aspect} "
+                      f"{'clean' if aspect in clean else 'open' if lenses.get(aspect) else '-'}"
+                      for aspect in ("quality", "performance", "security")))
+    ship = step("ship", "PR ready", "done" if done else "todo",
+                str(task.get("completed_at") or "")[:10])
+
+    steps = [plan_step, start_step, build, verify, tests, review, ship]
+    if grill.get("verdict") and grill.get("verdict") != "pass":
+        plan_step["state"] = "blocked"
+        plan_step["note"] = f"grill verdict {grill.get('verdict')}"
+    blocked = next((s for s in steps if s["state"] == "blocked"), None)
+    current = blocked or next((s for s in steps if s["state"] == "now"), None)
+    live = None
+    if launch and launch.get("status") in {"running", "dead"}:
+        budget = task.get("budget") or {}
+        used = budget.get("used") or {}
+        limit = budget.get("limit") or {}
+        live = {
+            "status": launch.get("status"),
+            "pid": launch.get("pid"),
+            "phase": launch.get("phase") or "",
+            "summary": launch.get("summary") or "",
+            "idle_minutes": launch.get("idle_minutes"),
+            "since": launch.get("at") or "",
+            "log": launch.get("log") or "",
+            "worktree": launch.get("worktree") or "",
+            "write": launch.get("write"),
+            # Files and lines already written are the one progress signal that
+            # comes from the work itself rather than from the companion's own
+            # self-report.
+            "files": used.get("files"), "files_limit": limit.get("files"),
+            "lines": used.get("lines"), "lines_limit": limit.get("lines"),
+        }
+    return {
+        "steps": steps,
+        "done": sum(1 for s in steps if s["state"] == "done"),
+        "total": len(steps),
+        "current": current["label"] if current else ("Shipped" if done else ""),
+        "headline": (current or {}).get("note", ""),
+        "stalled": bool(blocked),
+        "launch": launch or None,
+        "live": live,
     }
 
 
@@ -556,6 +953,7 @@ def task_dossiers(base: Path, key: str, detail: dict) -> list[dict]:
     reviews = evidence.get("reviews") or {}
     task_grills = evidence.get("task_grills") or {}
     spec_path = (detail.get("spec") or {}).get("path", "")
+    launches = task_launches(base)
 
     recorded_tests = []
     for entry in tests.values():
@@ -600,12 +998,21 @@ def task_dossiers(base: Path, key: str, detail: dict) -> list[dict]:
         objective = (task.get("objective") or "").strip()
         task["plan_excerpt"] = "" if excerpt.strip() == objective else excerpt
         task.update(task_plan_view(base, key, task, task_grills.get(task["id"])))
+        task["progress"] = task_progress(
+            task, launches.get(task["id"]), reviews)
         dossiers.append(task)
     return dossiers
 
 
 def make_server(base: Path, port: int) -> ThreadingHTTPServer:
     root = base.resolve()
+    # This process is the read-only board: it re-renders every few seconds, and
+    # a live `git fetch` per render is what made opening a story slow. Let the
+    # marker check reuse a recent fetch here — and ONLY here; every CLI process
+    # leaves the TTL at zero so the frontier and ship gates stay live.
+    import factory_lib
+
+    factory_lib.MARKER_FETCH_TTL = 15.0
 
     class BoardHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - stdlib handler API

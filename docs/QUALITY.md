@@ -40,6 +40,21 @@ with `generated_by: autoreview`:
 
 Never review inline in the coordinating session; never nest reviewers.
 
+## Review findings are not a menu
+
+A finding the review just raised is work, and work goes to Codex. Delegate the
+fix and re-review; loop until clean. Do not put it to the human as a choice
+between fixing now, shipping and deferring, or fixing it yourself — that asks
+them to arbitrate something already settled.
+
+- **Blocking findings** cannot be deferred or shipped past: readiness refuses
+  them, so two of those three options never existed.
+- **Non-blocking findings** default to the same fix loop. Defer one only when it
+  is genuinely outside the task's scope, with a reason and a revisit trigger.
+- **Host-side fixing** is the single exception, and only when the defect cannot
+  be reproduced or fixed inside the Codex sandbox. Open a ledgered degraded
+  window and state why.
+
 ## Testing
 
 ### automated (the implementer's job)

@@ -1,0 +1,64 @@
+{
+  "commit": "e0a4b2d9d58f0c6aa24c3010a8db127f7a09a192",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "Registry, credential reactivation, browser facade, and shared dialog behavior are covered without real credentials or upstream calls.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/core/model-credential-service.test.ts apps/core/test/unit/core/model-provider-registry.test.ts apps/core/test/unit/auth/browser-auth-routes.test.ts",
+      "npm run test --workspace @gantry/web",
+      "npm run typecheck",
+      "npm run build:runtime",
+      "python3 factory/scripts/verify.py with project .envrc commands"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/core/model-credential-service.test.ts",
+      "apps/core/test/unit/core/model-provider-registry.test.ts",
+      "apps/core/test/unit/auth/browser-auth-routes.test.ts",
+      "apps/web/src/features/operations/routes/providers-route.test.ts"
+    ],
+    "pass_fail_summary": "Focused core suite: 46 passed; web suite: 18 passed; deterministic verify passed.",
+    "remaining_gaps": [
+      "No real provider credentials or upstream calls were used."
+    ],
+    "reviewed_scope": [
+      "WEB-PROVIDERS-2 registry, browser facade, and shared credential dialog"
+    ],
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-09-03T15:54:40+00:00",
+    "commit": "e0a4b2d9d58f0c6aa24c3010a8db127f7a09a192"
+  },
+  "updated_at": "2026-09-03T16:05:10+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "passed",
+    "score": 9,
+    "summary": "Synthetic UI coverage passed for the shared provider dialog; the local providers route responded successfully without using real credentials.",
+    "blocking_findings": [],
+    "non_blocking_findings": [],
+    "manual_validation_steps": [
+      "Ran the web Vitest suite with synthetic provider requests: 6 files and 18 tests passed.",
+      "Confirmed the local providers UI route responds at http://127.0.0.1:3939/ui/providers using a credential-free request.",
+      "Covered explicit multi-method selection, method-change clearing, multiline Vertex JSON rendering, sparse PATCH, replacement PUT, and Check configuration copy in the shared dialog tests."
+    ],
+    "residual_risks": [
+      "No real provider credentials, live upstream checks, or authenticated interactive browser session were used."
+    ],
+    "recommendation": "Ready for human browser validation with a local authenticated session.",
+    "reviewed_scope": [
+      "Anthropic, Bedrock, Vertex, and single-key provider dialog behavior through synthetic requests"
+    ],
+    "remaining_gaps": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "recorded_at": "2026-09-03T16:05:10+00:00",
+    "commit": "e0a4b2d9d58f0c6aa24c3010a8db127f7a09a192"
+  }
+}

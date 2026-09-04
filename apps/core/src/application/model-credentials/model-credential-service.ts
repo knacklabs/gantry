@@ -129,6 +129,7 @@ export class ModelCredentialService {
     providerId: string;
     payload: unknown;
     actor?: string;
+    reactivateDisabled?: boolean;
   }) {
     const providerId = normalizeModelCredentialProvider(input.providerId);
     const existing = await this.credentials.getModelCredential({
@@ -138,14 +139,19 @@ export class ModelCredentialService {
     if (!existing) {
       throw new Error(`No ${providerId} model credential is configured.`);
     }
-    if (existing.status !== 'active') {
+    const reactivating =
+      existing.status === 'disabled' && input.reactivateDisabled === true;
+    if (existing.status !== 'active' && !reactivating) {
       throw new Error(`Cannot rotate disabled ${providerId} model credential.`);
     }
-    const partial = normalizePartialModelCredentialPayload({
-      providerId,
-      authMode: existing.authMode,
-      payload: input.payload,
-    });
+    const partial =
+      reactivating && isEmptyCredentialPayload(input.payload)
+        ? {}
+        : normalizePartialModelCredentialPayload({
+            providerId,
+            authMode: existing.authMode,
+            payload: input.payload,
+          });
     const payload = normalizeModelCredentialPayload({
       providerId,
       authMode: existing.authMode,
@@ -309,6 +315,18 @@ function credentialModeMetadata(provider: ModelProviderDefinition | undefined) {
       label: field.label,
       secret: field.secret,
       required: field.required,
+      ...(field.multiline ? { multiline: true } : {}),
     })),
   }));
+}
+
+function isEmptyCredentialPayload(
+  payload: unknown,
+): payload is Record<string, never> {
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    Object.keys(payload).length === 0
+  );
 }

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-03T12:02:26+00:00", "story": "WEB-PROVIDERS-2", "detail": "S-0067-a17f: Corrected T1 verification to root package scripts; the actual focused Vitest proof is host-side because this linked worktree shares a read-only sibling Vite cache. The implementation tests are rerun f"}
