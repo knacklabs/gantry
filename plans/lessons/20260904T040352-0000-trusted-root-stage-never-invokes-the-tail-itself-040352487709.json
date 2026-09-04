@@ -1,0 +1,12 @@
+{
+  "topic": "trusted-root stage never invokes the tail itself",
+  "lesson": "resolveTrustedRootStage must only prepare the trusted-root prompt/learning state and continue through the remembered-allow and classifier-cache stages to the single tail invocation, with any persistent-root writeback after that decision \u2014 autoreview r2 P2 at permission-decision-coordinator.ts:320: with a candidate root but no learned grant it invoked the tail directly, skipping the authoritative order and forcing a live classifier call despite a cached verdict. Pin it in the stage-order test.",
+  "source": "autoreview ASKFLOOR-1-T1 stage-local round 2 P2 permission-decision-coordinator.ts:320",
+  "applies_to": [
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-04T04:03:52+00:00"
+}
