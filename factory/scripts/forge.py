@@ -202,6 +202,12 @@ def main() -> None:
         help="reopen a done-but-unshipped task (move the frontier back to it)",
     )
     p_task_reopen.add_argument("id", help="task id")
+    p_task_reopen.add_argument(
+        "--base",
+        help="the commit the task's work started from (default: the stage's recorded "
+             "base); `stage start` pins the reopened stage to it so the diff is the "
+             "task's real delta, not an empty diff from today's HEAD",
+    )
     p_task_reopen.add_argument("--repo")
     p_task_reopen.set_defaults(func=tasks_mod.cmd_task_reopen)
     p_task_reconcile = task_sub.add_parser(
