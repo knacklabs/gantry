@@ -30,7 +30,9 @@
         "product_tree_digest": "b77de745780574f241a7d5169da06f10d84bff2d706cc9ccca3a3446e3129c79",
         "recorded_at": "2026-09-04T12:42:40+00:00",
         "generated_by": "autoreview"
-      }
+      },
+      "incomplete": "reopened stage measures an empty diff: T1's product work shipped in the original stage (closed 2fdbd8e00, six clean autoreview rounds, three-lens forge review 9/8/10); the reopen exists only because record_decomposition dropped the stage-local stamp (symphony-forge #171) \u2014 nothing is missing from the task",
+      "updated_at": "2026-09-04T12:48:20+00:00"
     },
     {
       "id": "ASKFLOOR-1-T2a",
