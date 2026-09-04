@@ -4,21 +4,33 @@
     {
       "id": "ASKFLOOR-1-T1",
       "title": "Routing: the judge's verdict stands in interactive auto",
-      "status": "done",
-      "started_at": "2026-09-04T02:41:19+00:00",
-      "base_sha": "00a6c01f9774561ed8b6d9794d07965c9cf24512",
+      "status": "active",
+      "started_at": "2026-09-04T12:33:48+00:00",
+      "base_sha": "2702d68769ab6b9d22958b5fec6553f3e310d02e",
       "dirty_at_start": {
-        ".factory/stories/ASKFLOOR-1/grill-rounds/cffe5698-0292-4dea-a0e6-8cad90cb68a3.json": {
-          "digest": "ca26abe22650f9064eccd416ff6dfbe5256445e9c492335448cbf98cb82b1d12",
-          "git": "? .factory/stories/ASKFLOOR-1/grill-rounds/cffe5698-0292-4dea-a0e6-8cad90cb68a3.json\u0000\u0000\u0000"
+        ".factory/stages.json": {
+          "digest": "1c65d0cb6daeabd7ec4cbda22ba7d255f7dff5b78e10be94948468ed623cb461",
+          "git": "1 .M N... 100644 100644 100644 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d .factory/stages.json\u0000\u0000100644 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
         },
         ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json": {
-          "digest": "58b9d33912df99949499ae7bc1900b00a02cb15b44a76b7a84460c3f71dce2ff",
-          "git": "? .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000\u0000"
+          "digest": "063c8c4cd1c7cfea5688589faf074eacbbabe36cfbdbdf0ef2cfa2fca6de808a",
+          "git": "1 .M N... 100644 100644 100644 df98498066ed669bc9bb53b0d914062044a6ae83 df98498066ed669bc9bb53b0d914062044a6ae83 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000100644 df98498066ed669bc9bb53b0d914062044a6ae83 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T1.json\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/stages.json": {
+          "digest": "1c65d0cb6daeabd7ec4cbda22ba7d255f7dff5b78e10be94948468ed623cb461",
+          "git": "1 .M N... 100644 100644 100644 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d .factory/stories/ASKFLOOR-1/stages.json\u0000\u0000100644 9803db300d7af1ebd5ff5667efbf6cfdb868dd0d 0\t.factory/stories/ASKFLOOR-1/stages.json\u0000\u0000H .factory/stories/ASKFLOOR-1/stages.json\u0000"
         }
       },
       "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70",
-      "completed_at": "2026-09-04T06:44:50+00:00"
+      "local_review_stamp": {
+        "stage_id": "ASKFLOOR-1-T1",
+        "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70",
+        "brief_sha256": "fa1e8434ccc35fb3d3198d8211bbf203c641c3d06e3bc56622f47594e26e13e0",
+        "base_sha": "2702d68769ab6b9d22958b5fec6553f3e310d02e",
+        "product_tree_digest": "b77de745780574f241a7d5169da06f10d84bff2d706cc9ccca3a3446e3129c79",
+        "recorded_at": "2026-09-04T12:42:40+00:00",
+        "generated_by": "autoreview"
+      }
     },
     {
       "id": "ASKFLOOR-1-T2a",
