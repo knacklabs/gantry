@@ -114,7 +114,13 @@ function permissionLane(
 }
 
 function isReadOnlyFind(command: string | undefined): boolean {
-  if (!command || /[()]/.test(command)) return false;
+  if (
+    !command ||
+    /[()]/.test(command) ||
+    hasUnquotedPathnameExpansion(command)
+  ) {
+    return false;
+  }
   const parsed = parseBashCommandForHardBoundaryAnalysis(command);
   if (
     !parsed.ok ||
@@ -142,6 +148,33 @@ function isReadOnlyFind(command: string | undefined): boolean {
     return false;
   }
   return hasOnlyRecognizedReadOnlyFindArguments(args);
+}
+
+function hasUnquotedPathnameExpansion(command: string): boolean {
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (const character of command) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === '\\' && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+    if (character === '*' || character === '?' || character === '[') {
+      return true;
+    }
+  }
+  return false;
 }
 
 function hasOnlyRecognizedReadOnlyFindArguments(

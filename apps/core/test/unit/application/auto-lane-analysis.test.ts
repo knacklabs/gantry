@@ -51,6 +51,10 @@ describe('auto lane analysis', () => {
       'find ./artifacts/skills',
       'find artifacts/skills/.',
       'find agents/main/./skills',
+      'find . ?delete',
+      'find . *delete',
+      'find . [-]delete',
+      'find . -name *.ts',
       'find . > results.txt',
       'find . 2>/dev/null',
       'find . && echo done',
@@ -64,5 +68,6 @@ describe('auto lane analysis', () => {
     expect(
       readOnlyMetaExecutor("find -P ./src -type f -name '*.ts' -print"),
     ).toBe(true);
+    expect(readOnlyMetaExecutor('find . \\*delete')).toBe(true);
   });
 });
