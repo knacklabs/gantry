@@ -83,8 +83,7 @@
       "verify_commands": [
         "python3 factory/scripts/verify.py",
         "npx tsc --noEmit",
-        "npm run check:architecture",
-        "npm run test:integration:postgres"
+        "npm run check:architecture"
       ],
       "review_budget": {
         "max_changed_files": 26,
@@ -184,7 +183,7 @@
         "Shared parser untouched (fail-closed; nine write-capable find actions pinned in the parser's own test file); pathCandidates ignores stderr-to-/dev/null with a per-lane pin; rails/sandbox policy still runs before any grant (0001).",
         "No domain error type introduced (no named failure contract in T1). DEFERRED with markers: TODO(T2a) typed classifier status; TODO(T3b) memory stages in the coordinator's decision order (documented no-op slots, not speculative abstractions).",
         "Concerns that must not share a file: the analyzer (application) and the IPC tail (runtime); the AF-AC8 harness is the reusable module apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts exporting `replayPermissionRequest(fixture: TapBudgetFixture): Promise<{ taps: number; decidedBy: PermissionApprovalDecision['decidedBy']; source: PermissionDecisionSource; railProvenance: RailProvenance | null }>` (existing PermissionDecisionSource at domain/types.ts:255, the decided-by union from permission-decision.ts, RailProvenance from domain/permission-lane.ts \u2014 concrete types, never unknown) and the `TapBudgetFixture` type (lane inputs, command/tool input, trusted roots, stubbed classifier verdict) so later tasks add fixtures without editing T1's tests; no stringified JSONB equality; runner-spawn sandbox copy sets stay derivable.",
-        "Verification: python3 factory/scripts/verify.py is authoritative; the Postgres gate (npm run test:integration:postgres, GANTRY_TEST_DATABASE_URL exported) must stay green even though T1 touches no storage code."
+        "Verification: python3 factory/scripts/verify.py is authoritative; the Postgres lane (npm run test:integration:postgres, GANTRY_TEST_DATABASE_URL exported) is run by the orchestrator as stage evidence, not as a gate command: T1 touches no storage code, and two pre-existing suites (live-waiting-admission, inline-agent-runtime child runs) are red on base 00a6c01f9 / origin/main independent of this story and are tracked as a main quickfix before T3a, whose contract restores the lane as a gate."
       ]
     },
     {
@@ -333,5 +332,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "0db9efa9fef0758e0dc3cab204fd30b883a3fedc"
+  "commit": "7d9b15e1b6dbd0e9a1406ae913b54df033da9946"
 }

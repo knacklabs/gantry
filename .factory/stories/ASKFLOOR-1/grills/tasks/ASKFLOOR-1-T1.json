@@ -51,12 +51,12 @@
       "frontier_empty": true
     }
   ],
-  "summary": "T1 task grill re-recorded after run 9 + autoreview r5 (lesson 74: unquoted glob fail-closed); contract unchanged, product tree advanced",
-  "input_sha256": "55df5f430b727f341946cfc339e438dad7d21f4edcf770b5ffe00cb02ec52d0b",
+  "summary": "T1 task grill re-recorded after run 10 + autoreview r6 (clean) + contract amendment: Postgres lane moved from gate command to orchestrator-run stage evidence (two pre-existing suites red on base/origin/main, tracked as a main quickfix before T3a)",
+  "input_sha256": "a3b476f3de64af1a452c5342a779cbdfc6fbdb8d4cf509f8f2a009107acd8026",
   "task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
-  "recorded_at": "2026-09-04T05:30:16+00:00",
-  "commit": "2b63491e41ffdc07ac04a3a9c1c3ef1be14b8625",
+  "recorded_at": "2026-09-04T06:16:07+00:00",
+  "commit": "7d9b15e1b6dbd0e9a1406ae913b54df033da9946",
   "approved_task_plan_sha256": "d47fdc3ca7fbf7a9b5b1783c56b5f519bd2468a55b0773c9ba3ccabd3ee61e6f",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-04T05:30:17+00:00"
+  "approved_at": "2026-09-04T06:16:14+00:00"
 }
