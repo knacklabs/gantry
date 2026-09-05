@@ -43,6 +43,31 @@ function makeBuffer(
 }
 
 describe('streamed generation persistence', () => {
+  it('signals the runner once when an ambient no-reply decision is finalized', async () => {
+    const onIntentionalNoReply = vi.fn();
+    const buffer = createGroupOutputBuffer({
+      channelRuntime: { sendStreamingChunk: vi.fn(async () => {}) } as never,
+      chatJid: 'sl:C1',
+      groupName: 'group',
+      supportsStreamingChunks: true,
+      allowIntentionalNoReply: true,
+      onIntentionalNoReply,
+      buildStreamingOptions: () => ({}) as never,
+      buildMessageOptions: () => undefined,
+      sendMessageToChannel: async () => {},
+      applyDeliverySettlement: vi.fn(),
+      getStreamedTranscriptDeliveryStatus: () => 'none',
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    await buffer.appendRawOutput('<internal>GANTRY_NO_REPLY</internal>');
+    await buffer.flushBufferedOutput('success-marker');
+    await buffer.appendRawOutput('<internal>GANTRY_NO_REPLY</internal>');
+    await buffer.flushBufferedOutput('turn-complete');
+
+    expect(onIntentionalNoReply).toHaveBeenCalledTimes(1);
+  });
+
   it('settles a successful delivery before running the first-visible hook', async () => {
     const order: string[] = [];
     const buffer = createGroupOutputBuffer({
