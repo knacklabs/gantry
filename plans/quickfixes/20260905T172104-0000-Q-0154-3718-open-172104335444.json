@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0154-3718",
+  "profile": "quickfix",
+  "reason": "four pre-existing integration reds on main that block ASKFLOOR-1-T3a's Postgres verify gate: live-waiting-admission x2 (getOldestWaitingLiveAdmission null under provider-account-qualified ids) and inline-agent-runtime x2 (run never reaches completed; child runs stay running)",
+  "started_at": "2026-09-05T17:21:04+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
