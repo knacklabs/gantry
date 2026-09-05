@@ -343,16 +343,158 @@
       "title": "Default-allow risk table for gantry-native tools",
       "objective": "gantry-tool-risk.ts becomes ONE small typed table: every gantry-native tool is LOW by default in interactive auto (all browser actions, file list/read with host-side entry protection, scheduler/admin reads, attachment tools); only the closed high-risk rows are HIGH (destructive or protected writes incl. raw-path browser file actions, the registry scheduler-mutation and admin-mutation exports); unmapped or malformed shapes are ambiguous and go to the classifier.",
       "acceptance_criteria": [
-        "every browser_* action, file list/read, scheduler/admin reads and attachment tools auto-allow in interactive auto with typed provenance; exhaustive valid-and-malformed table test per row",
-        "destructive or protected writes (native Write/Edit outside the workspace or protected/secret; file writes to protected virtual paths; browser file_attach with a raw path outside the workspace, protected or secret \u2014 file_upload stays LOW), the registry's scheduler-mutation set and admin-mutation exports incl. DELEGATION_DISPATCHERS still ask; unmapped tools and shapes failing the tool schema reach the classifier as ambiguous and are never forced HIGH; send_message stays today's 0052 birthright",
-        "file is judged by the discriminated per-action predicate over its complete contract (list: scope+optional path/limit; read: artifactId+version or scope+path, +offset/readLimit; write: scope+path+content+optional encoding/contentType/protected, LOW to unprotected virtual paths; promote_scratch: source path+targetScope+targetPath; else ambiguous); list hides protected entries with the count line and read refuses them with the fixed error text, host-side; Write/Edit inside the workspace allow, outside or protected ask, symlinks rejected; the eligibility gate widens only for those two facade tools",
-        "ask mode, auto_strict and job lanes are unchanged by the table (explicit tests)",
-        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+        "`application/permissions/gantry-tool-risk.ts` is ONE typed table. The verdict type is the closed `GantryToolRiskVerdict = low | high | ambiguous` (the old `medium` and the identity HIGH-by-default are gone; `GantryToolRisk` keeps its name only if the enum is replaced in place \u2014 no parallel type). Input is `{ toolName: GantryMcpToolName-or-string, toolInput: unknown }`. Rules, in order: (1) a suffix not in `ALL_GANTRY_MCP_TOOL_NAMES` (`shared/admin-mcp-tools.ts:206-215`) \u2192 `ambiguous`; (2) the CLOSED HIGH-RISK rows \u2192 `high`: scheduler mutations = `SCHEDULER_MUTATION_MCP_TOOL_NAMES` (`:32-39`, incl. pause/resume/run_now); admin mutations = the registry's mutation exports `AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES`, `DECISION_ACTOR_GANTRY_MCP_TOOL_NAMES`, `DURABLE_GRANT_EXCLUDED_DISPATCHERS` and `DELEGATION_DISPATCHERS` (`:129-177`), IMPORTED, never restated; destructive or protected writes = `file` `write`/`promote_scratch` whose virtual target is protected or `protected: true`, and `browser_act` `file_attach`/`file_upload` whose payload source is a raw filesystem path (`paths`, or `source.type === \"path\"`) outside the workspace, protected or secret (AC3 helper); (3) OWNER RULING 2026-09-05: the generic executors `async_run_command`, `async_mcp_call`, `mcp_call_tool`, `capability_run` \u2192 `ambiguous` (the classifier judges them with their arguments; never forced HIGH, never LOW); (4) argument-shaped rows: `file` per-action discriminated predicate \u2014 `list` (`scope` + optional `path`, `limit`) \u2192 `low`; `read` (`artifactId` + optional `version`, or `scope` + `path`, + optional `offset`, `readLimit`) \u2192 `low`; `write` (`scope` + `path` + `content` + optional `encoding`, `contentType`, `protected`) \u2192 `low` to an unprotected virtual path without `protected: true`, else `high`; `promote_scratch` (`path` + `targetScope` + `targetPath`) \u2192 same rule on the target; any other shape \u2192 `ambiguous`; `browser_act` `file_attach`/`file_upload` with a raw-path source inside the workspace \u2192 `low`, artifact- or bytes-sourced `file_upload` \u2192 `low`, malformed \u2192 `ambiguous`; (5) every other registered tool \u2192 `low` (all remaining `browser_*` actions, `file` list/read, scheduler/admin READS, attachment tools, canvas, render, memory, brain, procedure, task reads and cancel). Exhaustive table test: every suffix in `ALL_GANTRY_MCP_TOOL_NAMES` is asserted with a valid shape and, for the argument-shaped rows, a malformed shape; the registry-import rows are asserted by iterating the imported sets, so a registry addition is covered without editing the test.",
+        "the table is applied under lane `interactive_auto` ONLY. `evaluateNativeRiskBranch` (`runtime/permission-classifier-native-risk.ts`) gains `toolInput` (the classifier copy the caller already holds, `permission-classifier.ts:302`), `workspaceRoot` and `lane: PermissionLane`; under `interactive_auto` it returns `low` \u2192 the existing native `allow` result (`status: skipped`, provenance unchanged: `decidedBy`/`source` `auto_classifier`), `high` \u2192 the existing native ask result, `ambiguous` \u2192 `undefined` (LLM consult continues); under every other lane it returns exactly what it returns today. The lane is derived once in the classifier from `permissionMode` + `hostJobId` with T1's derivation (`application/permissions/auto-lane-analysis.ts:97-114` \u2014 reused, not re-implemented); the classifier input gains `hostJobId` if it does not carry it, and the inline live consult (`app/bootstrap/inline-agent-loop-tools.ts:389-445`) passes its job id so an inline SCHEDULED run in auto mode derives `autonomous` and never sees the table (the T2b lane-leak fix; the inline memory/latch work stays T3b/T6). `auto_strict` keeps the strict guard's precedence (`permission-classifier.ts:348-364`); `ask` and job lanes never reach the branch (IPC `:325-383`). Explicit tests: the same `browser_act` click fixture allows under `interactive_auto`, asks under `auto_strict`, and is never consulted under `ask`/`autonomous`; an inline run with a job id derives `autonomous`.",
+        "NEW `application/permissions/native-file-write-risk.ts` exports `judgeNativeFileWrite({ toolName, toolInput, workspaceRoot })` \u2192 `low | high | ambiguous` for the native file-write facades (`FileWrite`/`FileEdit` \u2014 the ids the gate receives from both runners, `shared/gantry-tool-facades.ts:64-76`; argument key `file_path` from the Anthropic runner, `path` from the deepagents facade, `gantry-facade-tools.ts:110-132,160-189` \u2014 both accepted, both pinned) and the shared prospective-write containment predicate `isProspectiveWriteInsideWorkspace(workspaceRoot, candidatePath)`: lexical containment after normalisation, the nearest EXISTING ancestor realpath-contained, no symlink component or symlink target (`lstat`), a non-existent target allowed; protected/hidden/secret destinations refused via the existing capability-path predicates (`shared/tool-execution-protected-paths.ts:40-102`) \u2014 the same helper the AC1 browser raw-path row uses; `gantry-facade-file-safety.ts:39-67` stays the execution-time authority and is not imported (it is async, config-bound and creates directories). The eligibility gate (`application/permissions/permission-classifier.ts:11-28`) accepts exactly `FileWrite` and `FileEdit` in addition to today's predicates; the native-risk helper routes those two ids to `judgeNativeFileWrite` and every gantry name to the table. Tests: inside the workspace \u2192 allow with no LLM call; outside, protected (`settings.yaml`), hidden segment, secret name, symlinked parent, symlinked target \u2192 ask; missing target inside \u2192 allow; malformed input \u2192 ambiguous \u2192 LLM consult; a third facade id (`FileRead`) stays ineligible.",
+        "host-side entry protection in `jobs/ipc-file-artifact-handlers.ts`: ONE `(scope, path)` predicate `isProtectedArtifactEntry` combining the generic virtual protection (`domain/file-artifacts/protected-virtual-path.ts:23-57`, which excludes `AGENTS.md` by design) with the prompt-profile scope's own protection (`isAgentProfileArtifactWrite`, so `prompt-profile/**/AGENTS.md` and `SOUL.md` stay hidden), applied during `list` (protected descriptors filtered out; the response gains `protectedHidden: number`) and after id resolution for `read` (a protected entry is rejected through the existing `reject(error, code)` convention with code `protected_entry` and message `Refused: <path> is protected. This is not a permission question \u2014 don't retry, tell the owner.`); the runner tool `runner/mcp/tools/file.ts` appends `(N protected entries hidden \u2014 not a permission question, don't retry.)` to the `list` text when `protectedHidden > 0` and relays the refusal text unchanged. Tests: ordinary-scope counter-tests (nothing hidden, `protectedHidden: 0`, no suffix line), a protected `settings.yaml` hidden from list and refused on read by id and by path, `prompt-profile/AGENTS.md` hidden and refused, `write`/`promote_scratch` protection unchanged.",
+        "AF-AC8 fixtures through T1's `replayPermissionRequest`: S2 (browser action in interactive auto), S4 (`file` read by path), S5 (`file` write to an unprotected virtual path), S6 (native `FileWrite` inside the workspace) each cost 0 taps with `decidedBy: auto_classifier` and NO LLM call (the fixture's stubbed consult must not be invoked); the mirror fixtures \u2014 `file` write to `settings.yaml`, `FileWrite` outside the workspace, `scheduler_delete_job`, `browser_act file_attach` with a path outside the workspace \u2014 cost 1 tap; the same four S-fixtures under `auto_strict`, `ask` and `autonomous` produce today's outcome (pinned by value).",
+        "existing unit suites pass with every verdict of `ask`, `auto_strict` and job lanes unchanged (a changed expectation in an existing test outside `gantry-tool-risk.test.ts` is a defect); tsc and check:architecture green (AF-AC7)."
       ],
       "depends_on": [
         "ASKFLOOR-1-T2a"
       ],
-      "user_facing": false
+      "user_facing": false,
+      "plan_contracts": [
+        {
+          "id": "ASKFLOOR-1-T2b-AC1",
+          "statement": "`application/permissions/gantry-tool-risk.ts` is ONE typed table. The verdict type is the closed `GantryToolRiskVerdict = low | high | ambiguous` (the old `medium` and the identity HIGH-by-default are gone; `GantryToolRisk` keeps its name only if the enum is replaced in place \u2014 no parallel type). Input is `{ toolName: GantryMcpToolName-or-string, toolInput: unknown }`. Rules, in order: (1) a suffix not in `ALL_GANTRY_MCP_TOOL_NAMES` (`shared/admin-mcp-tools.ts:206-215`) \u2192 `ambiguous`; (2) the CLOSED HIGH-RISK rows \u2192 `high`: scheduler mutations = `SCHEDULER_MUTATION_MCP_TOOL_NAMES` (`:32-39`, incl. pause/resume/run_now); admin mutations = the registry's mutation exports `AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES`, `DECISION_ACTOR_GANTRY_MCP_TOOL_NAMES`, `DURABLE_GRANT_EXCLUDED_DISPATCHERS` and `DELEGATION_DISPATCHERS` (`:129-177`), IMPORTED, never restated; destructive or protected writes = `file` `write`/`promote_scratch` whose virtual target is protected or `protected: true`, and `browser_act` `file_attach`/`file_upload` whose payload source is a raw filesystem path (`paths`, or `source.type === \"path\"`) outside the workspace, protected or secret (AC3 helper); (3) OWNER RULING 2026-09-05: the generic executors `async_run_command`, `async_mcp_call`, `mcp_call_tool`, `capability_run` \u2192 `ambiguous` (the classifier judges them with their arguments; never forced HIGH, never LOW); (4) argument-shaped rows: `file` per-action discriminated predicate \u2014 `list` (`scope` + optional `path`, `limit`) \u2192 `low`; `read` (`artifactId` + optional `version`, or `scope` + `path`, + optional `offset`, `readLimit`) \u2192 `low`; `write` (`scope` + `path` + `content` + optional `encoding`, `contentType`, `protected`) \u2192 `low` to an unprotected virtual path without `protected: true`, else `high`; `promote_scratch` (`path` + `targetScope` + `targetPath`) \u2192 same rule on the target; any other shape \u2192 `ambiguous`; `browser_act` `file_attach`/`file_upload` with a raw-path source inside the workspace \u2192 `low`, artifact- or bytes-sourced `file_upload` \u2192 `low`, malformed \u2192 `ambiguous`; (5) every other registered tool \u2192 `low` (all remaining `browser_*` actions, `file` list/read, scheduler/admin READS, attachment tools, canvas, render, memory, brain, procedure, task reads and cancel). Exhaustive table test: every suffix in `ALL_GANTRY_MCP_TOOL_NAMES` is asserted with a valid shape and, for the argument-shaped rows, a malformed shape; the registry-import rows are asserted by iterating the imported sets, so a registry addition is covered without editing the test.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2b-AC2",
+          "statement": "the table is applied under lane `interactive_auto` ONLY. `evaluateNativeRiskBranch` (`runtime/permission-classifier-native-risk.ts`) gains `toolInput` (the classifier copy the caller already holds, `permission-classifier.ts:302`), `workspaceRoot` and `lane: PermissionLane`; under `interactive_auto` it returns `low` \u2192 the existing native `allow` result (`status: skipped`, provenance unchanged: `decidedBy`/`source` `auto_classifier`), `high` \u2192 the existing native ask result, `ambiguous` \u2192 `undefined` (LLM consult continues); under every other lane it returns exactly what it returns today. The lane is derived once in the classifier from `permissionMode` + `hostJobId` with T1's derivation (`application/permissions/auto-lane-analysis.ts:97-114` \u2014 reused, not re-implemented); the classifier input gains `hostJobId` if it does not carry it, and the inline live consult (`app/bootstrap/inline-agent-loop-tools.ts:389-445`) passes its job id so an inline SCHEDULED run in auto mode derives `autonomous` and never sees the table (the T2b lane-leak fix; the inline memory/latch work stays T3b/T6). `auto_strict` keeps the strict guard's precedence (`permission-classifier.ts:348-364`); `ask` and job lanes never reach the branch (IPC `:325-383`). Explicit tests: the same `browser_act` click fixture allows under `interactive_auto`, asks under `auto_strict`, and is never consulted under `ask`/`autonomous`; an inline run with a job id derives `autonomous`.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2b-AC3",
+          "statement": "NEW `application/permissions/native-file-write-risk.ts` exports `judgeNativeFileWrite({ toolName, toolInput, workspaceRoot })` \u2192 `low | high | ambiguous` for the native file-write facades (`FileWrite`/`FileEdit` \u2014 the ids the gate receives from both runners, `shared/gantry-tool-facades.ts:64-76`; argument key `file_path` from the Anthropic runner, `path` from the deepagents facade, `gantry-facade-tools.ts:110-132,160-189` \u2014 both accepted, both pinned) and the shared prospective-write containment predicate `isProspectiveWriteInsideWorkspace(workspaceRoot, candidatePath)`: lexical containment after normalisation, the nearest EXISTING ancestor realpath-contained, no symlink component or symlink target (`lstat`), a non-existent target allowed; protected/hidden/secret destinations refused via the existing capability-path predicates (`shared/tool-execution-protected-paths.ts:40-102`) \u2014 the same helper the AC1 browser raw-path row uses; `gantry-facade-file-safety.ts:39-67` stays the execution-time authority and is not imported (it is async, config-bound and creates directories). The eligibility gate (`application/permissions/permission-classifier.ts:11-28`) accepts exactly `FileWrite` and `FileEdit` in addition to today's predicates; the native-risk helper routes those two ids to `judgeNativeFileWrite` and every gantry name to the table. Tests: inside the workspace \u2192 allow with no LLM call; outside, protected (`settings.yaml`), hidden segment, secret name, symlinked parent, symlinked target \u2192 ask; missing target inside \u2192 allow; malformed input \u2192 ambiguous \u2192 LLM consult; a third facade id (`FileRead`) stays ineligible.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2b-AC4",
+          "statement": "host-side entry protection in `jobs/ipc-file-artifact-handlers.ts`: ONE `(scope, path)` predicate `isProtectedArtifactEntry` combining the generic virtual protection (`domain/file-artifacts/protected-virtual-path.ts:23-57`, which excludes `AGENTS.md` by design) with the prompt-profile scope's own protection (`isAgentProfileArtifactWrite`, so `prompt-profile/**/AGENTS.md` and `SOUL.md` stay hidden), applied during `list` (protected descriptors filtered out; the response gains `protectedHidden: number`) and after id resolution for `read` (a protected entry is rejected through the existing `reject(error, code)` convention with code `protected_entry` and message `Refused: <path> is protected. This is not a permission question \u2014 don't retry, tell the owner.`); the runner tool `runner/mcp/tools/file.ts` appends `(N protected entries hidden \u2014 not a permission question, don't retry.)` to the `list` text when `protectedHidden > 0` and relays the refusal text unchanged. Tests: ordinary-scope counter-tests (nothing hidden, `protectedHidden: 0`, no suffix line), a protected `settings.yaml` hidden from list and refused on read by id and by path, `prompt-profile/AGENTS.md` hidden and refused, `write`/`promote_scratch` protection unchanged.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2b-AC5",
+          "statement": "AF-AC8 fixtures through T1's `replayPermissionRequest`: S2 (browser action in interactive auto), S4 (`file` read by path), S5 (`file` write to an unprotected virtual path), S6 (native `FileWrite` inside the workspace) each cost 0 taps with `decidedBy: auto_classifier` and NO LLM call (the fixture's stubbed consult must not be invoked); the mirror fixtures \u2014 `file` write to `settings.yaml`, `FileWrite` outside the workspace, `scheduler_delete_job`, `browser_act file_attach` with a path outside the workspace \u2014 cost 1 tap; the same four S-fixtures under `auto_strict`, `ask` and `autonomous` produce today's outcome (pinned by value).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T2b-AC6",
+          "statement": "existing unit suites pass with every verdict of `ask`, `auto_strict` and job lanes unchanged (a changed expectation in an existing test outside `gantry-tool-risk.test.ts` is a defect); tsc and check:architecture green (AF-AC7).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md#acceptance-criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/application/permissions/gantry-tool-risk.ts",
+        "apps/core/src/application/permissions/native-file-write-risk.ts",
+        "apps/core/src/application/permissions/permission-classifier.ts",
+        "apps/core/src/runtime/permission-classifier-native-risk.ts",
+        "apps/core/src/runtime/permission-classifier.ts",
+        "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+        "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+        "apps/core/src/jobs/ipc-file-artifact-handlers.ts",
+        "apps/core/src/domain/file-artifacts/protected-virtual-path.ts",
+        "apps/core/src/runner/mcp/tools/file.ts",
+        "apps/core/test/unit/application/gantry-tool-risk.test.ts",
+        "apps/core/test/unit/application/native-file-write-risk.test.ts",
+        "apps/core/test/unit/application/permission-classifier.test.ts",
+        "apps/core/test/unit/runtime/permission-classifier.test.ts",
+        "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+        "apps/core/test/unit/jobs/ipc-file-artifact-handlers.test.ts",
+        "apps/core/test/unit/runner/mcp/file-tool.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts"
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py",
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 20,
+        "max_changed_lines": 1700,
+        "reason": "The task plan spans 10 source files (the risk table rewrite; NEW native-file-write-risk helper; the eligibility gate; the native-risk helper gaining arguments and lane; one call site each in the classifier, the IPC helper and the inline consult for hostJobId/workspaceRoot; the file handler entry protection with its pure predicate; the runner file tool's count line) and 9 test files (the exhaustive table suite, NEW helper suite, gate/classifier/IPC leaves, handler + runner-tool leaves, the S2/S4/S5/S6 fixtures and one harness field) = 19 files; one file of headroom under 20 for a barrel or types edit the implementer must raise as a signal."
+      },
+      "required_tests": [
+        {
+          "id": "judges every registered gantry tool: low by default, the imported scheduler and admin mutation sets high, executors and unknown suffixes ambiguous",
+          "path": "apps/core/test/unit/application/gantry-tool-risk.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "judges file by action: list and read low, write and promote_scratch low to an unprotected virtual path and high to a protected one or with protected true, malformed shapes ambiguous",
+          "path": "apps/core/test/unit/application/gantry-tool-risk.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "judges browser file actions by payload source: raw path inside the workspace low, outside or protected or secret high, artifact and bytes sources low, malformed ambiguous",
+          "path": "apps/core/test/unit/application/gantry-tool-risk.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "contains a prospective write: inside allows including a missing target, outside, protected, hidden, secret, symlinked parent and symlinked target refuse",
+          "path": "apps/core/test/unit/application/native-file-write-risk.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "accepts FileWrite and FileEdit for classification and keeps FileRead ineligible",
+          "path": "apps/core/test/unit/application/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "applies the risk table under interactive_auto only: a browser click allows, the same fixture asks under auto_strict, and memory_save keeps its prior verdict outside interactive_auto",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "judges a native FileWrite inside the workspace low without an LLM call and outside the workspace high, for both the file_path and path argument keys",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "threads hostJobId and workspaceRoot into the classifier consult so a job-lane request never reaches the native-risk table",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "hides protected entries from list with a protectedHidden count and refuses a protected read by id and by path with the fixed not-a-permission-question text",
+          "path": "apps/core/test/unit/jobs/ipc-file-artifact-handlers.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "appends the protected-entries-hidden line to list output only when the count is positive and relays a protected read refusal unchanged",
+          "path": "apps/core/test/unit/runner/mcp/file-tool.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "S2 S4 S5 S6: a browser action, a file read by path, an unprotected file write and a native FileWrite inside the workspace cost 0 taps in interactive auto with no LLM call",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "mirror fixtures cost 1 tap: a protected file write, a FileWrite outside the workspace, scheduler_delete_job and a raw-path file_attach outside the workspace",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps today's outcome for the S2 S4 S5 S6 fixtures under auto_strict, ask and autonomous",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "reviewer_focus": [
+        "Constitution (load-bearing): constitution/03-modular-monolith-structure.md and pnp-coding-standards-modular-monolith.md (typed enums over string literals; application vs runtime vs domain placement; no circular imports \u2014 application/permissions imports shared/admin-mcp-tools and shared/tool-execution-protected-paths, never runtime). Naming follows the sibling convention (kebab-case, no dotted role suffix) \u2014 the recorded repo-wide deviation from the constitution suffix table.",
+        "ONE TYPED TABLE, DEFAULT LOW (spec AF-AC1 owner ruling 2026-09-03): gantry-tool-risk.ts judges { toolName, toolInput, workspaceRoot } to the closed verdict low | high | ambiguous (medium removed; no parallel type). Rule order: unknown suffix (not in ALL_GANTRY_MCP_TOOL_NAMES, shared/admin-mcp-tools.ts:206-215) -> ambiguous; closed HIGH rows -> high: SCHEDULER_MUTATION_MCP_TOOL_NAMES (:32-39), AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES, DECISION_ACTOR_GANTRY_MCP_TOOL_NAMES, DURABLE_GRANT_EXCLUDED_DISPATCHERS, DELEGATION_DISPATCHERS (:129-177) IMPORTED never restated; protected/destructive writes by argument (file write/promote_scratch to a protected virtual target or protected:true; browser_act file_attach/file_upload with a raw-path source \u2014 paths or source.type path \u2014 outside the workspace, protected or secret); OWNER RULING 2026-09-05: async_run_command, async_mcp_call, mcp_call_tool, capability_run -> ambiguous (judged with arguments; never forced HIGH, never LOW); argument-shaped rows (file per-action discriminated predicate over the complete contract, runner/mcp/tools/file.ts:12-62; browser raw-path predicate mirroring browser-artifact-policy.ts:47-153 by shape, that file untouched); everything else registered -> low. A shape failing the tool's own schema is ambiguous, never high. The exhaustive test iterates ALL_GANTRY_MCP_TOOL_NAMES and the imported sets so registry additions are covered without editing the test.",
+        "LANE GATE (0121, spec 'ask mode, auto_strict and jobs unchanged'): evaluateNativeRiskBranch gains toolInput (the classifier copy already built at permission-classifier.ts:302), workspaceRoot and lane: PermissionLane; the table applies under interactive_auto ONLY; under every other lane the branch returns exactly today's result. Lane derived once in the classifier via T1's derivation (application/permissions/auto-lane-analysis.ts:97-114 \u2014 reused, not re-implemented) from permissionMode + hostJobId; hostJobId added to the classifier input and threaded from the IPC helper (one call site, :367-375) and from the inline live consult (app/bootstrap/inline-agent-loop-tools.ts:389-445, one call site) \u2014 closes the inline scheduled-run leak (an inline job in auto mode derives autonomous). auto_strict keeps the strict guard's precedence (permission-classifier.ts:348-364). The ONE legitimately changed existing expectation is the T2a helper pin for memory_save under interactive_auto (now low); any other changed expectation outside gantry-tool-risk.test.ts is a defect.",
+        "NATIVE FILE WRITES (spec AF-AC2/AF-AC4): the eligibility gate (application/permissions/permission-classifier.ts:11-28) accepts exactly FileWrite and FileEdit in addition to today's predicates (these facade ids are what BOTH runners send: Anthropic maps native Write/Edit -> FileWrite/FileEdit, shared/gantry-tool-facades.ts:64-76; deepagents sends FileWrite/FileEdit with { path, ... }, gantry-facade-tools.ts:110-132,160-189; Anthropic input keeps { file_path, ... } \u2014 both keys accepted and pinned). NEW application/permissions/native-file-write-risk.ts: judgeNativeFileWrite({ toolName, toolInput, workspaceRoot }) -> low | high | ambiguous plus the shared PROSPECTIVE-write containment predicate (lexical containment after normalisation; nearest EXISTING ancestor realpath-contained; no symlink component or symlink target via lstat; missing target allowed) and the existing protected/hidden/secret capability-path predicates (shared/tool-execution-protected-paths.ts:40-102). gantry-facade-file-safety.ts stays the execution authority (async, config-bound, mkdir) and is NOT imported; T2a's hard-boundaries evaluator is NOT reused (it checks EXISTING read targets). The browser raw-path row uses the same helper.",
+        "HOST-SIDE ENTRY PROTECTION (spec AF-AC2 owner ruling 2026-09-02): ONE pure (scope, path) predicate isProtectedArtifactEntry combining domain/file-artifacts/protected-virtual-path.ts:23-57 (excludes AGENTS.md by design) with the prompt-profile scope's own protection (isAgentProfileArtifactWrite \u2014 prompt-profile/**/AGENTS.md and SOUL.md stay hidden); list filters protected descriptors and adds protectedHidden: number to its { ok: true, artifacts } response; read refuses after id resolution through the existing reject(error, code) convention with code protected_entry and the exact text 'Refused: <path> is protected. This is not a permission question \u2014 don't retry, tell the owner.'; runner/mcp/tools/file.ts appends '(N protected entries hidden \u2014 not a permission question, don't retry.)' only when protectedHidden > 0 and relays the refusal unchanged. write/promote_scratch protection (authorizeProtectedPromptMutation) unchanged. Ordinary-scope counter-tests required.",
+        "PROVENANCE UNCHANGED: a native low verdict is the existing native allow result (status skipped; decidedBy/source auto_classifier); no new provenance field; the harness asserts decidedBy and that the stubbed LLM consult was NOT invoked for S2/S4/S5/S6.",
+        "Concerns that must not share a file: the table (application, pure over arguments + one fs-backed containment call) vs the native-risk helper (runtime, lane + result construction) vs the classifier orchestration; the entry predicate (domain or handler module, pure) vs the handler I/O vs the runner tool rendering.",
+        "No domain error type introduced. Nothing DEFERRED: the rails are untouched (attachment_open birthright is T2a's); decision memory (T3), the outage latch (T6) and the inline memory/latch wiring stay out; browser-artifact-policy.ts runtime behaviour untouched.",
+        "Verification: python3 factory/scripts/verify.py is authoritative in the gate environment; the Postgres lane (npm run test:integration:postgres, GANTRY_TEST_DATABASE_URL exported) is orchestrator-run stage evidence as for T1/T2a \u2014 T2b touches no storage code; four pre-existing suites are red on origin/main independent of this story (main quickfix before T3a)."
+      ]
     },
     {
       "id": "ASKFLOOR-1-T3a",
@@ -468,5 +610,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "9b728c6dd963f65e4ec1d22ef765c88eec66052c"
+  "commit": "06b7c093ae10959052d7945e03572e07d23a56e9"
 }

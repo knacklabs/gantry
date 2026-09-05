@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "T2b makes every gantry-native tool LOW by default in interactive auto, except the closed high-risk rows. Four generic executor tools (async_run_command, async_mcp_call, mcp_call_tool, capability_run) run other commands or tools with whatever arguments they get; they are HIGH by identity today and not in the spec's high-risk rows. How should the table treat them?",
+      "options": [
+        "Ambiguous \u2192 judge (Recommended)",
+        "LOW like everything else",
+        "HIGH (always ask)"
+      ],
+      "chosen": "Ambiguous \u2192 judge (Recommended)"
+    }
+  ],
+  "at": "2026-09-05T02:01:05.317149+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
