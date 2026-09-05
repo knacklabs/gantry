@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from factory_lib import (
+    task_evidence_path,
     evidence_path, load_json, now_iso, parse_sections,
     plan_digest_without_assumptions, repo_root, run_state_path, story_dir, task_rows,
 )
@@ -120,6 +121,28 @@ def merge_task_detail(
         task.update(derived.get(stage.get("id"), {}))
         tasks.append(task)
     return tasks
+
+
+def _proven_tasks(base: Path, key: str, tasks: list[dict],
+                  shipped: bool) -> dict:
+    """How many of a story's tasks carry complete, clean proof.
+
+    Skipped for a shipped story — its proof is archived and the answer is
+    already known — so the board does not re-read every artifact of every
+    finished story on each poll.
+    """
+    total = len(tasks or [])
+    if shipped or not total or not key:
+        return {"done": total if shipped else 0, "total": total}
+    from factory_lib import task_proof_problems
+    done = 0
+    for task in tasks:
+        try:
+            if not task_proof_problems(base, key, task):
+                done += 1
+        except (Exception, SystemExit):
+            continue
+    return {"done": done, "total": total}
 
 
 def _plan_evidence(
@@ -351,6 +374,12 @@ def aggregate_state(base: Path) -> dict:
             "verify": evidence["verify"],
             "tests": evidence["tests"],
             "reviews": evidence["reviews"],
+            # Proof is per task now, so a story's progress through checks is a
+            # COUNT of proven tasks rather than one story-wide tick. Computed
+            # with the same predicate the ship gate uses, so the board cannot
+            # say a story is ready while closeout refuses it.
+            "proven": _proven_tasks(base, item.get("key", ""), tasks,
+                                    item.get("status") == "done"),
             "shipped": item.get("status") == "done",
         }
         story["state"] = _story_state(story, bool(story["blocked_by"]))
@@ -1002,14 +1031,29 @@ def task_dossiers(base: Path, key: str, detail: dict) -> list[dict]:
         covered = [t for t in required
                    if isinstance((tid := t.get("id") if isinstance(t, dict) else t), str)
                    and any(tid in str(recorded) for recorded in recorded_tests)]
+        # A task's OWN review is all of that task's findings — no attribution
+        # needed, because the review covered that task's diff and nothing else.
+        # The story-scoped fallback still has to guess by matching the task id
+        # in the finding text, which is why per-task storage removes a whole
+        # class of misattribution rather than only a class of overwriting.
+        own_reviews = {}
+        for aspect in ("quality", "performance", "security"):
+            scoped = task_evidence_path(base, key, str(task.get("id") or ""),
+                                        f"reviews/{aspect}.json")
+            if scoped.is_file():
+                own_reviews[aspect] = load_json(scoped, default={})
+
         findings = []
-        for aspect, review in reviews.items():
+        for aspect, review in (own_reviews or reviews).items():
             if not isinstance(review, dict):
                 continue
             for finding in (review.get("blocking_findings") or []) + \
                            (review.get("non_blocking_findings") or []):
                 text = finding if isinstance(finding, str) else finding.get("summary", "")
                 area = "" if isinstance(finding, str) else finding.get("area", "")
+                if own_reviews:
+                    findings.append({"aspect": aspect, "summary": text})
+                    continue
                 # Bounded match: a substring test hands TS-3.10's findings to
                 # TS-3.1, which is silent misattribution of review evidence.
                 if re.search(rf"(?<![\w.]){re.escape(task['id'])}(?![\w]|\.\d)",

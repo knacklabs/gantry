@@ -142,6 +142,62 @@ def warnings_for(job: dict, *, stage_active: bool, stale_minutes: int,
     return notes
 
 
+def dead_reviews(base: Path) -> list[dict]:
+    """Review releases the ledger still calls running whose process is GONE.
+
+    `forge review` blocks for the whole run, so a crash of the review itself
+    already surfaces as a non-zero exit. What it could not survive was the
+    LAUNCHER being killed uncatchably: no handler runs, no terminal row is
+    written, and nothing afterwards could say a review had ever been in
+    flight. A delegation was covered by its own ledger; the review -- the
+    release a coordinator is told to watch every time -- was not.
+    """
+    import json as _json
+
+    try:
+        from .delegate import _pid_alive, _process_start_identity
+        from .review import codex_runs_path
+        path = codex_runs_path(base)
+    except (Exception, SystemExit):
+        return []
+    if not path.is_file():
+        return []
+
+    latest: dict[str, dict] = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = _json.loads(line)
+            except ValueError:
+                continue  # advisory ledger: a torn line is not a crash report
+            if isinstance(row, dict) and row.get("run_id"):
+                latest[str(row["run_id"])] = {**latest.get(str(row["run_id"]), {}),
+                                              **row}
+    except OSError:
+        return []
+
+    dead = []
+    for row in latest.values():
+        if row.get("status") != "running":
+            continue
+        pid = row.get("pid")
+        if not isinstance(pid, int):
+            continue
+        try:
+            if _pid_alive(pid):
+                recorded = row.get("pid_started")
+                identity = _process_start_identity(pid) if recorded else None
+                if (not recorded or identity is None
+                        or str(identity) == str(recorded)):
+                    continue
+        except (Exception, SystemExit):
+            continue
+        dead.append(row)
+    return dead
+
+
 def dead_launches(base: Path) -> list[dict]:
     """Launches the ledger still calls running whose process is GONE.
 
@@ -201,6 +257,12 @@ def cmd_status(args: argparse.Namespace) -> None:
     # dead launch is the finding, and it is true whether or not the registry
     # still carries a row for it (or exists at all).
     corpses = dead_launches(base)
+    for entry in dead_reviews(base):
+        print(f"[DEAD     ] {str(entry.get('label', 'review')):<22} "
+              f"pid={entry.get('pid')} is GONE but the review ledger still says "
+              "'running'")
+        print("            That review CRASHED or its launcher was killed — "
+              "nothing is coming. Re-run `./forge review <task-id>`.")
     for entry in corpses:
         print(f"[DEAD     ] {str(entry.get('task', '?')):<22} "
               f"pid={entry.get('pid')} is GONE but the launch ledger still says "

@@ -4,7 +4,9 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-from factory_lib import head_sha, gate, dump_json, now_iso, repo_root, run_cmd, run_state_path, verify_state_path, load_json
+from factory_lib import (active_story_key, head_sha, gate, dump_json, now_iso,
+                         proof_path, repo_root, run_cmd, run_state_path,
+                         verify_state_path, load_json)
 from forge_cli.events import append_event
 
 parser = argparse.ArgumentParser(description="Run deterministic validation sequence")
@@ -120,7 +122,11 @@ verify = {
     "commit": head_sha(root),
     "results": results,
 }
-dump_json(verify_state_path(root, for_write=True), verify)
+# Task-scoped when a task owns this working copy: a verify run proves the
+# tree THAT TASK produced, and a story-scoped singleton would be rewritten
+# by the next task with a different tree behind it.
+dump_json(proof_path(root, active_story_key(root), "verify.json",
+                     for_write=True), verify)
 # During a stage-done proof run (forge sets FORGE_PROCESS_TOKEN) verify stays
 # read-only: mutating run.json or appending an event here churns the protected
 # authority and events ledger between the proof's before/after snapshots, so the

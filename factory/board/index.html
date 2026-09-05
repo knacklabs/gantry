@@ -206,6 +206,10 @@
     border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--surface-2);
   }
   .flag.urgent { background: var(--tint); }
+  .flag-fold { display: block; padding: .35rem .7rem .45rem; }
+  .flag-fold .next-head { padding: .15rem 0; }
+  .flag-fold .ledger { margin-top: .35rem; }
+  .fold-panel { max-height: 22rem; overflow-y: auto; }
   .flag em { font-style: normal; color: var(--accent); }
   .flag b { font-weight: 600; }
   .flag code, .flag .do { font-size: .72rem; color: var(--muted); }
@@ -240,7 +244,7 @@
 
   /* column header — the ruler the whole board reads against */
   .colhead {
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    display: grid; grid-template-columns: repeat(var(--stations, 4), minmax(0, 1fr));
     gap: 0 .5rem; margin-top: .5rem;
   }
   .colhead > div {
@@ -639,7 +643,7 @@
   .lane-rule { flex: 1; }
   .lane-count { flex: none; font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .lane-grid {
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    display: grid; grid-template-columns: repeat(var(--stations, 4), minmax(0, 1fr));
     gap: .55rem .5rem; align-items: start;
     padding-bottom: 1rem; min-height: 1.6rem;
   }
@@ -762,7 +766,7 @@
      badge is a cleared gate, a ring is one still ahead; the joining line fills
      in behind the work you've done. */
   .rail {
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0;
+    display: grid; grid-template-columns: repeat(var(--stations, 4), minmax(0, 1fr)); gap: 0;
     padding: .5rem 0 .2rem;
   }
   .rail .st {
@@ -1561,10 +1565,13 @@ const prReference = (story) => {
 /* The gate sequence, as the drawer's rail reads it. "Story derived" is not a
    station: every card on this board is already a roadmap item, so the flag was
    always true and its column could never hold a card. */
-const STATIONS = ["Spec", "Plan", "Build", "Checks", "Ship"];
+const STATIONS = ["Spec", "Plan", "Build", "Ship"];
 /* Column headings name what a card IS, not the gate it faces — a card under
    "Plan" reads as planned when it means the opposite. */
-const COLUMNS = ["Needs spec", "Awaiting plan", "Building", "In checks", "Shipped"];
+const COLUMNS = ["Needs spec", "Awaiting plan", "Building", "Shipped"];
+// The CSS grids that lay out the kanban and the gate rail read this, so the
+// column count can only ever come from the column list.
+document.documentElement.style.setProperty("--stations", String(COLUMNS.length));
 // todo is an empty ring — the badge outline already reads as "pending".
 const FLAG_GLYPH = {done: "✓", partial: "◐", todo: "", gap: "✗"};
 const STATE_GLYPH = {shipped: "✓", building: "◐", ready: "★", blocked: "⊘", waiting: "·"};
@@ -1572,28 +1579,32 @@ const STATE_WORD = {shipped: "shipped", building: "building", ready: "ready to p
                     blocked: "blocked", waiting: "waiting"};
 
 const REVIEW_ASPECTS = ["quality", "performance", "security"];
-/* verify + tests + one review per aspect — the gates pr_ready.py demands. */
-const CHECKS_TOTAL = 2 + REVIEW_ASPECTS.length;
 
-function checksDone(lc) {
-  const reviews = lc.reviews || {};
-  const reviewed = REVIEW_ASPECTS.filter(a => reviews[a]).length;
-  return [lc.verify, lc.tests].filter(Boolean).length + reviewed;
+
+// Proof is per task: a story has no checks stage of its own, so "how far
+// through checks" is how many of its tasks are proven.
+function provenTasks(lc) {
+  const p = lc.proven || {};
+  return {done: p.done || 0, total: p.total || 0};
 }
 
 /** One flag per station: done | partial | todo | gap, plus a short note. */
 function stationFlags(story) {
   const lc = story.lifecycle || {};
   const st = lc.stages;
-  const done = checksDone(lc);
+  const proven = provenTasks(lc);
+  // Build is done when every task is done AND proven: a task that has not
+  // been verified and reviewed is not built, it is only written.
+  const built = st && st.total && st.done === st.total
+    && proven.total && proven.done === proven.total;
+  const partial = st && st.total && (st.done || proven.done);
   return [
     {flag: lc.spec === "confirmed" ? "done" : (lc.spec === "draft" ? "partial" : "gap"),
      note: lc.spec === "confirmed" ? "" : String(lc.spec || "missing")},
     {flag: lc.planned ? "done" : "todo", note: ""},
-    {flag: !st || !st.total ? "todo" : (st.done === st.total ? "done" : (st.done ? "partial" : "todo")),
-     note: st && st.total ? `${st.done}/${st.total}` : ""},
-    {flag: done === CHECKS_TOTAL ? "done" : (done ? "partial" : "todo"),
-     note: done ? `${done}/${CHECKS_TOTAL}` : ""},
+    {flag: built ? "done" : (partial ? "partial" : "todo"),
+     note: st && st.total
+       ? `${st.done}/${st.total} done · ${proven.done}/${proven.total} proven` : ""},
     {flag: lc.shipped ? "done" : "todo", note: ""},
   ];
 }
@@ -1667,7 +1678,9 @@ function cardMark(story, leverage) {
 const signature = (s) => {
   const lc = s.lifecycle || {};
   const st = lc.stages;
-  return [columnOf(s), s.state, st ? `${st.done}/${st.total}` : "-", checksDone(lc)].join("|");
+  const pv = provenTasks(lc);
+  return [columnOf(s), s.state, st ? `${st.done}/${st.total}` : "-",
+          `${pv.done}/${pv.total}`].join("|");
 };
 const changed = new Set();
 let snapshot = null;
@@ -1775,9 +1788,25 @@ function renderBanner(state) {
   }
   const proposedDecisions = (state.decisions || []).filter(d => d.status === "proposed");
   if (proposedDecisions.length) {
-    rows.push(`<div class="flag"><em>\u00b7</em><span>${
-      plural(proposedDecisions.length, "decision")} proposed and awaiting you —
-      ${proposedDecisions.map(d => esc(d.id)).join(", ")}</span></div>`);
+    // Behind a disclosure, like the Next card. A backlog of forty-five ids
+    // printed in full is not a summary — it buries every other banner row and
+    // pushes the board itself off the screen. The COUNT is the signal; the
+    // list is what you open when you want to act on it.
+    rows.push(`<div class="flag flag-fold">
+      <button class="next-head" type="button" data-fold="proposed-decisions"
+              aria-expanded="false" aria-controls="proposed-decisions">
+        <em>\u00b7</em>
+        <span class="next-verb">${plural(proposedDecisions.length, "decision")}
+          proposed and awaiting you</span>
+        <span class="next-count">${proposedDecisions.length}</span>
+      </button>
+      <div class="fold-panel" id="proposed-decisions" hidden>
+        <div class="ledger">${proposedDecisions.map(d => `<div>
+          <span class="id">${esc(d.id)}</span><span>${esc(d.title || "")}</span>${
+            openFile(d.path)}
+        </div>`).join("")}</div>
+      </div>
+    </div>`);
   }
   const a = (state.summary || {}).attention || {};
   const quiet = [];
@@ -1787,6 +1816,7 @@ function renderBanner(state) {
   if (quiet.length) rows.push(`<div class="flag"><em>·</em><span>${quiet.join(" · ")}</span></div>`);
   $("banner").innerHTML = rows.join("");
   $("banner").hidden = rows.length === 0;
+  restoreFolds();
 }
 
 function renderNext(state) {
@@ -1802,6 +1832,31 @@ $("next-toggle").addEventListener("click", () => {
   const open = $("next-steps").classList.toggle("open");
   $("next-toggle").setAttribute("aria-expanded", String(open));
 });
+
+// Banner rows are rebuilt on every poll, so the fold is delegated and its
+// open state is remembered across renders — a panel that closed itself every
+// few seconds would be worse than no panel.
+const openFolds = new Set();
+$("banner").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-fold]");
+  if (!button) return;
+  const panel = $(button.getAttribute("data-fold"));
+  if (!panel) return;
+  const open = panel.hidden;
+  panel.hidden = !open;
+  button.setAttribute("aria-expanded", String(open));
+  if (open) openFolds.add(panel.id); else openFolds.delete(panel.id);
+});
+
+function restoreFolds() {
+  for (const id of openFolds) {
+    const panel = $(id);
+    if (!panel) continue;
+    panel.hidden = false;
+    const button = document.querySelector(`[data-fold="${id}"]`);
+    if (button) button.setAttribute("aria-expanded", "true");
+  }
+}
 
 let bottleneck = -1;
 const colCells = [];

@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 from factory_lib import (
@@ -343,6 +344,60 @@ def product_only_tip(worktree: Path, base_sha: str) -> str:
     return _require_git(worktree, "resolving the review tip", "rev-parse", "HEAD")
 
 
+def codex_runs_path(root: Path) -> Path:
+    """Advisory ledger of Codex releases that are not delegations.
+
+    The delegation ledger is gate authority and has a schema to match; a review
+    is neither, so it gets its own append-only file rather than smuggling rows
+    into an artifact that `stage done` reads.
+    """
+    from factory_lib import git_control_dir
+    return git_control_dir(root) / "codex_runs.jsonl"
+
+
+def _append_codex_run(root: Path, record: dict) -> None:
+    try:
+        path = codex_runs_path(root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+    except (OSError, SystemExit):
+        return  # advisory: never fail a review because bookkeeping failed
+
+
+def _record_codex_run(root: Path, label: str, argv: list) -> str:
+    from factory_lib import now_iso
+    run_id = f"review-{uuid.uuid4().hex[:12]}"
+    _append_codex_run(root, {
+        "run_id": run_id, "kind": "review", "label": label,
+        "status": "starting", "at": now_iso(), "argv0": argv[0] if argv else "",
+    })
+    return run_id
+
+
+def _stamp_codex_run(root: Path, run_id: str, *, pid: int) -> None:
+    from factory_lib import now_iso
+    identity = ""
+    try:
+        from .delegate import _process_start_identity
+        identity = str(_process_start_identity(pid) or "")
+    except (Exception, SystemExit):
+        identity = ""
+    _append_codex_run(root, {
+        "run_id": run_id, "kind": "review", "status": "running",
+        "pid": pid, "pid_started": identity, "at": now_iso(),
+    })
+
+
+def _close_codex_run(root: Path, run_id: str, returncode) -> None:
+    from factory_lib import now_iso
+    _append_codex_run(root, {
+        "run_id": run_id, "kind": "review",
+        "status": "finished" if returncode in (0, 1) else "failed",
+        "exit_code": returncode, "at": now_iso(),
+    })
+
+
 def _run_skill(skill: Path, worktree: Path, base_sha: str, prompt_rel: str,
                json_out: Path, engine: str, max_priority: str) -> dict:
     argv = [
@@ -352,9 +407,24 @@ def _run_skill(skill: Path, worktree: Path, base_sha: str, prompt_rel: str,
     ]
     # Inherit stdio: the skill's heartbeat ("review still running ...") and any
     # streamed engine output are how the coordinator WATCHES this Codex release.
-    proc = subprocess.run(argv, cwd=worktree, env={**os.environ, "PYTHONUTF8": "1"})
-    if proc.returncode not in (0, 1):  # 1 == findings present, not an error
-        fail(f"autoreview exited {proc.returncode} for {prompt_rel}; see its output above")
+    #
+    # Ledger the pid before waiting. This command BLOCKS, so a crash of the
+    # review itself already surfaces as a non-zero exit -- but if this launcher
+    # is killed uncatchably (a job-object teardown, TerminateProcess, SIGKILL)
+    # no handler runs, and without a recorded pid nothing afterwards can say a
+    # review was ever in flight. A delegation is covered by its own ledger; a
+    # review was the blind spot, and it is the release the coordinator is told
+    # to watch every time.
+    started = _record_codex_run(worktree, prompt_rel, argv)
+    process = subprocess.Popen(argv, cwd=worktree,
+                               env={**os.environ, "PYTHONUTF8": "1"})
+    _stamp_codex_run(worktree, started, pid=process.pid)
+    try:
+        returncode = process.wait()
+    finally:
+        _close_codex_run(worktree, started, getattr(process, "returncode", None))
+    if returncode not in (0, 1):  # 1 == findings present, not an error
+        fail(f"autoreview exited {returncode} for {prompt_rel}; see its output above")
     if not json_out.is_file():
         fail(f"autoreview produced no JSON for {prompt_rel} (the run aborted?)")
     return json.loads(json_out.read_text(encoding="utf-8"))

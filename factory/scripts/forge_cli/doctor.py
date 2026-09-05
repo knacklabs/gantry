@@ -1505,19 +1505,33 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     # Codex loads its OWN skills dir (~/.codex/skills), not ~/.claude/skills, so
     # mirror grill-me across: the read-only Codex cold-reader then RUNS it as a
     # native skill, not only via the griller.md contract.
-    if (args.fix and (grill_me / "SKILL.md").is_file()
-            and not (grill_me_codex / "SKILL.md").is_file()):
-        print("[fix ] mirroring grill-me into ~/.codex/skills ...")
-        grill_me_codex.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(grill_me, grill_me_codex, dirs_exist_ok=True)
+    #
+    # grill-me is a POINTER — its whole body is "Call the Skill tool with
+    # 'grilling'" — and `grilling` holds the technique. Mirroring only grill-me
+    # therefore gave Codex a signpost to a skill its runtime did not have: the
+    # chain resolves on the Claude side and dead-ends on the Codex side, so the
+    # cold reader silently fell back to the harness contract alone. Mirror what
+    # it points at too.
+    grilling = home / ".claude" / "skills" / "grilling"
+    grilling_codex = home / ".codex" / "skills" / "grilling"
+    for source, target, label in ((grill_me, grill_me_codex, "grill-me"),
+                                  (grilling, grilling_codex, "grilling")):
+        if (args.fix and (source / "SKILL.md").is_file()
+                and not (target / "SKILL.md").is_file()):
+            print(f"[fix ] mirroring {label} into ~/.codex/skills ...")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source, target, dirs_exist_ok=True)
+    # Both halves must be present for Codex: the trigger AND what it delegates to.
     grill_me_ok = ((grill_me / "SKILL.md").is_file()
-                   and (grill_me_codex / "SKILL.md").is_file())
+                   and (grill_me_codex / "SKILL.md").is_file()
+                   and (grilling_codex / "SKILL.md").is_file())
     checks.append(_check(
         "grill-me skill (both runtimes)",
         grill_me_ok,
         "installed" if grill_me_ok else "not installed",
-        "`npx -y skills add mattpocock/skills -g --copy --all`, then mirror it "
-        "into ~/.codex/skills/grill-me so Codex loads it (the grill skill the "
+        "`npx -y skills add mattpocock/skills -g --copy --all`, then mirror BOTH "
+        "grill-me and grilling into ~/.codex/skills (grill-me only points at "
+        "grilling, so mirroring it alone leaves Codex a dead signpost) — "
         "plan/task gates require) — or rerun with --fix",
     ))
 

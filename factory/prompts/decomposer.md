@@ -17,13 +17,17 @@ never mandatory.
 Rules:
 - decompose by capability and vertical slice
 - do not decompose by markdown file or arbitrary file count
-- SIZE each leaf task by judgement, not by a number. A task must fit ONE bounded
-  session end to end — implement, verify, three-lens review, fix the findings.
-  Ask: can one worker carry this from start to a clean review without the diff
-  outgrowing what a reviewer can hold at once? If not, split it; if the pieces
-  would each be trivial, merge them. Neither too big to review nor so small the
-  ceremony outweighs the work — a fragmented graph costs a full plan, grill,
-  approval, review and PR per sliver.
+- MINIMISE the task count. Start from the minimum — one backend task, plus one
+  frontend task if there is UI — and add another ONLY when you can name what
+  forces it: the work does not fit one bounded session end to end (implement,
+  verify, three-lens review, fix the findings), or the diff would outgrow what a
+  reviewer holds at once. State that reason for every task beyond the minimum.
+  "It is a clean seam" is NOT a reason; seams are always available, so the
+  burden is on splitting, never on merging. Each extra task costs a human a
+  plan, a grill, an approval, a review and a PR.
+- The floor still binds: a task that cannot be done in one bounded session is
+  refused by the grill no matter how few tasks it buys, and its oversized diff
+  chunks the reviewer so contract verdicts are never emitted.
 - BACKEND and FRONTEND are separate tasks, always: they have disjoint write
   scopes, different reviewer focus, and only the frontend one is `user_facing`.
   When either side is still too large for one bounded session, split THAT side

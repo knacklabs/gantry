@@ -779,6 +779,65 @@ def protected_decomposition_state_path(root: Path) -> Path:
     return git_control_dir(root) / "decomposition.json"
 
 
+def active_task_id(root: Path) -> str:
+    """The task this working copy is executing, or "" for a story-level run.
+
+    `forge task start` stamps `task_id` into the worktree's own run pointer, so
+    a recorder running there knows which task its proof belongs to without the
+    caller having to say. A story-level run has no task_id and keeps writing
+    story-scoped evidence, which is what makes the change backward compatible
+    rather than a flag day.
+    """
+    pointer = load_json(run_state_path(root), default={})
+    task_id = pointer.get("task_id") if isinstance(pointer, dict) else ""
+    return task_id if isinstance(task_id, str) else ""
+
+
+def proof_path(
+    root: Path,
+    key: str | None,
+    name: str,
+    *,
+    task_id: str = "",
+    for_write: bool = False,
+) -> Path:
+    """Where THIS run's proof belongs: the task's directory when a task owns
+    the run, the story's when one does not."""
+    resolved = task_id or active_task_id(root)
+    if resolved:
+        return task_evidence_path(root, key, resolved, name, for_write=for_write)
+    return evidence_path(root, key, name, for_write=for_write)
+
+
+def task_evidence_path(
+    root: Path,
+    key: str | None,
+    task_id: str,
+    name: str,
+    *,
+    for_write: bool = False,
+) -> Path:
+    """Proof belonging to ONE task.
+
+    Reviews, verify and tests were story-scoped singletons: one
+    `reviews/quality.json` per story, rewritten by every task in turn. So a
+    story's recorded review described whichever task ran last, and a task PR's
+    proof check read a file that might describe a different task entirely.
+    Per-task review was real in execution and fictional in storage.
+
+    Task proof therefore lives under the task's own directory, beside the
+    completion marker that already lives there. Story-level artifacts keep
+    their meaning: they are about the story, not a stand-in for its parts.
+    """
+    for label, value in (("story key", key or ""), ("task id", task_id)):
+        if (not isinstance(value, str) or not value
+                or value in {".", ".."} or Path(value).name != value
+                or "\\" in value):
+            raise ValueError(f"{label} must be one path component")
+    return evidence_path(
+        root, key, f"tasks/{task_id}/{name}", for_write=for_write)
+
+
 def task_marker_path(key: str, task_id: str) -> Path:
     """Return the committed marker shared by task start and task closeout."""
     for label, value in (("story key", key), ("task id", task_id)):
@@ -1276,8 +1335,81 @@ def require_all_stages_done(root: Path) -> list[str]:
     ]
 
 
+def task_proof_problems(root: Path, key: str, task: dict) -> list[str]:
+    """One task's proof, read from the task's own directory.
+
+    Falls back to the story-scoped singleton for work recorded before proof
+    was task-scoped, so a story already in flight can still close on the
+    evidence it legitimately has.
+    """
+    from forge_cli.readiness import review_passed, tests_passed, verify_passed
+
+    task_id = str(task.get("id") or "")
+    problems: list[str] = []
+
+    def read(name: str) -> dict:
+        scoped = task_evidence_path(root, key, task_id, name)
+        if scoped.is_file():
+            return load_json(scoped, default={})
+        return load_json(evidence_path(root, key, name), default={})
+
+    # Every refusal names the ONE command that answers it. A gate that says
+    # what is wrong but not what to run is where a coordinator stops and asks
+    # a human to decide something the harness already knows.
+    if not verify_passed(read("verify.json")):
+        problems.append(
+            f"{task_id}: no passing verify — from its worktree run "
+            "`python3 factory/scripts/verify.py`")
+
+    tests = read("tests.json")
+    if not tests_passed(tests.get("automated")):
+        problems.append(
+            f"{task_id}: no passing automated tests — run them, then record with "
+            "`python3 factory/scripts/record_test_from_json.py --kind automated "
+            "--input <json>`")
+    if bool(task.get("user_facing")):
+        functional = tests.get("functional") or {}
+        if not functional:
+            problems.append(
+                f"{task_id}: user_facing, so a functional check is required — run "
+                "the functional-checker, then record with "
+                "`python3 factory/scripts/record_test_from_json.py --kind functional "
+                "--input <json>`")
+        elif not tests_passed(functional, functional=True):
+            problems.append(
+                f"{task_id}: functional check must have no blockers and score >= 8 "
+                "— fix what it found and re-record it")
+
+    for lens in ("quality", "performance", "security"):
+        review = read(f"reviews/{lens}.json")
+        if not review:
+            problems.append(
+                f"{task_id}: no {lens} review — `./forge review {task_id}` runs all "
+                "three lenses in Codex and records them")
+        elif not review_passed(review):
+            blocking = len(review.get("blocking_findings") or [])
+            problems.append(
+                f"{task_id}: {lens} review is not clean ({blocking} blocking "
+                f"finding(s)) — delegate the fixes with `./forge delegate {task_id}`, "
+                f"commit, then rerun `./forge review {task_id}`. Findings are work, "
+                "not a question for the human.")
+    return problems
+
+
 def require_closeout_order(root: Path) -> list[str]:
-    """Return closeout problems in their required prerequisite order."""
+    """Story closeout, sourced from the proof its TASKS produced.
+
+    A story used to re-prove itself: a second verify, a second three-lens
+    review and a second functional check over the whole story diff, all
+    stamped at HEAD. Under per-task PRs every task has already shipped with
+    exactly that proof over its own diff, and each task PR is gated on it — so
+    the story-level pass re-reviewed reviewed code, and one late fix in the
+    last task invalidated the evidence of every task before it.
+
+    The story is the sum of its tasks. What remains story-shaped is the
+    outcome: what shipped and what someone can now do, which no single task
+    can answer.
+    """
     from forge_cli.outcome import load_outcome
     from forge_cli.readiness import tests_passed
 
@@ -1293,36 +1425,91 @@ def require_closeout_order(root: Path) -> list[str]:
             "forge stage done; WORKFLOW.md Stage Loop)"
         )
 
-    verify = load_json(verify_state_path(root), default={})
-    if not verify or not verify.get("ok"):
-        problems.append("successful .factory/verify.json")
-    elif verify.get("commit") != head:
-        stamp = verify.get("commit")
-        shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
-        problems.append(
-            f"verify must be stamped at HEAD {expected} (got {shown})"
-        )
-
-    reviews, review_problems = load_review_artifacts(root, require_head=True)
-    problems.extend(review_problems)
-    problems.extend(require_coherent_review_run(root, reviews))
-
+    # WHICH proof closes a story depends on how its work reached the trunk.
+    #
+    # A task-level run ships each task as its own PR, and each of those PRs is
+    # gated on that task's proof — so the story is the sum of its tasks and a
+    # second story-wide pass re-reviews reviewed code. A story-level run has no
+    # per-task PRs and no per-task markers; its work reached the trunk as one
+    # story, so the story-level chain is the only proof there is.
+    #
+    # Selecting on the run mode is what keeps both flows working. Requiring
+    # per-task proof everywhere would strand every story-level run — a
+    # deadlock, since a story-level run cannot produce task markers at all.
+    task_level = bool(load_json(run_state_path(root), default={}).get("base_main_sha"))
+    key = _active_story_key(root)
     decomposition = load_json(protected_decomposition_state_path(root), default={})
-    if bool(decomposition.get("user_facing", True)):
-        tests = load_json(tests_state_path(root), default={})
-        functional = tests.get("functional", {}) if tests else {}
-        if not functional:
-            problems.append(".factory/tests.json:functional")
-        elif not tests_passed(functional, functional=True):
-            problems.append(
-                "functional testing must have no blockers, no failed status and score >= 8"
-            )
-        if functional and tests.get("commit") != head:
-            stamp = tests.get("commit")
+    tasks = [t for t in decomposition.get("tasks", []) if isinstance(t, dict)]
+
+    if task_level and tasks:
+        for task in tasks:
+            problems.extend(task_proof_problems(root, key, task))
+    else:
+        verify = load_json(verify_state_path(root), default={})
+        if not verify or not verify.get("ok"):
+            problems.append("successful .factory/verify.json")
+        elif verify.get("commit") != head:
+            stamp = verify.get("commit")
             shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
             problems.append(
-                f"functional testing must be stamped at HEAD {expected} (got {shown})"
+                f"verify must be stamped at HEAD {expected} (got {shown})"
             )
+
+        reviews, review_problems = load_review_artifacts(root, require_head=True)
+        problems.extend(review_problems)
+        problems.extend(require_coherent_review_run(root, reviews))
+
+        decomposition = load_json(protected_decomposition_state_path(root), default={})
+        if bool(decomposition.get("user_facing", True)):
+            tests = load_json(tests_state_path(root), default={})
+            functional = tests.get("functional", {}) if tests else {}
+            if not functional:
+                problems.append(".factory/tests.json:functional")
+            elif not tests_passed(functional, functional=True):
+                problems.append(
+                    "functional testing must have no blockers, no failed status and score >= 8"
+                )
+            if functional and tests.get("commit") != head:
+                stamp = tests.get("commit")
+                shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
+                problems.append(
+                    f"functional testing must be stamped at HEAD {expected} (got {shown})"
+                )
+
+    # Plan contracts are verified by the task that owns them; the union across
+    # tasks must still account for every declared contract, so a contract
+    # cannot be dropped by being in nobody's task.
+    # Contracts are declared PER TASK (task["plan_contracts"]); there is no
+    # decomposition-level key, so reading one silently found nothing and the
+    # gate passed everything.
+    from forge_cli.review_brief import declared_contracts
+    declared = [c["id"] for c in declared_contracts(decomposition)]
+    if declared:
+        # A contract is verified wherever the proof for it actually lives: in a
+        # task-level run that is the owning task's quality review, in a
+        # story-level run the story's. The GUARANTEE is the same either way —
+        # every declared contract is verified implemented — and it must not
+        # depend on which flow shipped the story, or a contract could be
+        # dropped merely by choosing a flow.
+        sources = ([task_evidence_path(root, key, str(t.get("id") or ""),
+                                       "reviews/quality.json")
+                    for t in tasks] if task_level and tasks else [])
+        sources.append(evidence_path(root, key, "reviews/quality.json"))
+        verified: set[str] = set()
+        for source in sources:
+            if not source.is_file():
+                continue
+            for verdict in load_json(source, default={}).get("contract_verdicts") or []:
+                if (isinstance(verdict, dict)
+                        and verdict.get("verdict") == "implemented"
+                        and isinstance(verdict.get("contract_id"), str)):
+                    verified.add(verdict["contract_id"])
+        unverified = [c for c in declared if c not in verified]
+        if unverified:
+            problems.append(
+                "quality review must verify every plan contract as implemented; "
+                f"unverified: {', '.join(unverified)} — compose the reviewer "
+                "prompt with `./forge review-brief --all`")
 
     outcome = load_outcome(root) or {}
     if not outcome.get("outcome"):

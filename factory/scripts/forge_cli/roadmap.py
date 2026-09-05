@@ -47,8 +47,13 @@ def load_items(base: Path) -> list[dict]:
 
 
 def save_roadmap(base: Path, items: list[dict], epics: list[dict] | None = None,
-                 generated_by: str | None = None) -> None:
-    data = load_roadmap(base)
+                 generated_by: str | None = None,
+                 envelope: dict | None = None) -> None:
+    """`envelope` supplies the top-level fields when the caller already holds
+    them. Without it this re-reads the file it is about to replace, which is
+    fine everywhere except the one caller that runs while that file is
+    unparseable: heal had the right answer in memory and crashed writing it."""
+    data = load_roadmap(base) if envelope is None else dict(envelope)
     items.sort(key=lambda item: item.get("order", 0))
     data["items"] = items
     if epics is not None:
@@ -765,45 +770,179 @@ def heal_items(items: list[dict]) -> tuple[list[dict], int]:
     return [best[k] for k in order], len(items) - len(best)
 
 
+def _merge_stage_items(base: Path) -> tuple[list[dict], list[dict], bool]:
+    """The two sides of an in-progress merge, whatever state the working file
+    is in.
+
+    Reading the working file was the bug. A file resolved to one side PARSES
+    PERFECTLY and has no duplicate keys, so the union found nothing to do and
+    reported success over a roadmap that had already dropped the other side's
+    done-flip. Parseability was never evidence that both sides survived.
+    """
+    # `git show <ref>:<path>` resolves the path from the REPOSITORY ROOT, not
+    # from cwd. A roadmap that is not the tracked plans/roadmap.json of its own
+    # repo - a board fixture nested inside this one, or a subdirectory passed
+    # as --repo - would otherwise be unioned with the ENCLOSING repo's roadmap
+    # and overwritten with someone else's stories.
+    top = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=base,
+        capture_output=True, text=True, encoding="utf-8")
+    if top.returncode != 0:
+        return [], [], False
+    try:
+        relative = roadmap_path(base).resolve().relative_to(
+            Path(top.stdout.strip()).resolve()).as_posix()
+    except ValueError:
+        return [], [], False
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", relative], cwd=base,
+        capture_output=True, text=True, encoding="utf-8")
+    if tracked.returncode != 0:
+        return [], [], False
+
+    stages: list[dict] = []
+    for stage in ("2", "3"):
+        proc = subprocess.run(
+            ["git", "show", f":{stage}:{relative}"],
+            cwd=base, capture_output=True, text=True, encoding="utf-8",
+        )
+        if proc.returncode != 0:
+            continue
+        try:
+            stages.append(json.loads(proc.stdout))
+        except json.JSONDecodeError:
+            continue
+    if len(stages) == 2:
+        return (stages[0].get("items", []) + stages[1].get("items", []),
+                [e for s in stages for e in s.get("epics", [])], True)
+
+    # The index has no unmerged stages: either the human already resolved the
+    # file, or a merge just finished. Both sides still exist as commits, so the
+    # union is still recoverable — which is exactly the case that used to lose
+    # data silently.
+    # HEAD^1/HEAD^2 matter once the merge is COMMITTED: MERGE_HEAD is gone by
+    # then, but a merge commit still names both sides, so a flip noticed after
+    # the merge landed is still recoverable.
+    #
+    # They are read ONLY when HEAD really is a merge. `HEAD^1` resolves on any
+    # non-root commit, so reading it unconditionally unions the roadmap with
+    # its own previous commit — and because heal only ever raises a status,
+    # that would silently resurrect a status a human had deliberately moved
+    # back (a story reopened from done, a done-flip corrected to pending) and
+    # report it as a successful heal. Recovering a lost flip and undoing an
+    # intended one are the same operation from the inside; only the presence
+    # of a second parent separates them.
+    parents = subprocess.run(
+        ["git", "rev-list", "--parents", "-n", "1", "HEAD"], cwd=base,
+        capture_output=True, text=True, encoding="utf-8")
+    refs = ["MERGE_HEAD", "REBASE_HEAD"]
+    if len(parents.stdout.split()) >= 3:      # sha + two parents
+        refs += ["HEAD^1", "HEAD^2"]
+
+    sides = []
+    for ref in refs:
+        proc = subprocess.run(
+            ["git", "show", f"{ref}:{relative}"],
+            cwd=base, capture_output=True, text=True, encoding="utf-8",
+        )
+        if proc.returncode == 0:
+            try:
+                sides.append(json.loads(proc.stdout))
+            except json.JSONDecodeError:
+                continue
+    # One recovered side is enough: the caller unions it with the working file,
+    # and together they are the two sides of the merge.
+    if sides:
+        return ([i for h in sides for i in h.get("items", [])],
+                [e for h in sides for e in h.get("epics", [])], True)
+    return [], [], False
+
+
 def cmd_heal(args: argparse.Namespace) -> None:
     """Post-merge convergence: parallel story branches both touch
     plans/roadmap.json; heal rebuilds the union deterministically instead of
-    a human hand-editing JSON. Works on a parseable file with duplicate keys,
-    and mid-merge on an unparseable (conflict-markered) file by unioning the
-    two merge stages."""
+    a human hand-editing JSON.
+
+    Heal only ever RAISES an item's status. Two branches disagreeing about a
+    story means one of them has newer information — never that the story went
+    backwards — so a write that lowers any status is a bug in heal, and is
+    refused rather than reported as a success.
+    """
     base = Path(args.repo).resolve() if args.repo else repo_root()
     path = roadmap_path(base)
     if not path.exists():
         fail("no plans/roadmap.json to heal")
+
+    working: dict = {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        items = data.get("items", [])
-        epics = data.get("epics", [])
+        working = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        stages = []
-        for stage in ("2", "3"):
-            proc = subprocess.run(
-                ["git", "show", f":{stage}:plans/roadmap.json"],
-                cwd=base, capture_output=True, text=True, encoding="utf-8",
-            )
-            if proc.returncode == 0:
-                stages.append(json.loads(proc.stdout))
-        if len(stages) != 2:
+        working = {}
+
+    merge_items, merge_epics, merged = _merge_stage_items(base)
+    items = list(working.get("items", [])) + merge_items
+    epics_by_id = {e["id"]: e for e in
+                   list(working.get("epics", [])) + merge_epics
+                   if isinstance(e, dict) and e.get("id")}
+    epics = list(epics_by_id.values())
+
+    if not items:
+        fail(
+            "plans/roadmap.json is unparseable and no merge is in progress — "
+            "restore a good copy first (git show <branch>:plans/roadmap.json)."
+        )
+
+    # What every input believed about each story, before the union runs.
+    highest: dict[str, int] = {}
+    for item in items:
+        key = item.get("key")
+        highest[key] = max(highest.get(key, 0),
+                           STATUS_RANK.get(item.get("status", "pending"), 1))
+
+    # Reading several sources means the same item arrives several times, so a
+    # raw copy count says nothing. What a human wants to know is how many
+    # stories the sources actually DISAGREED about — that number is the same
+    # whether it came from two copies or five.
+    seen: dict[str, set[str]] = {}
+    for item in items:
+        seen.setdefault(item.get("key"), set()).add(item.get("status", "pending"))
+    disagreements = sum(1 for statuses in seen.values() if len(statuses) > 1)
+
+    healed, _removed = heal_items(items)
+
+    # The invariant, checked rather than trusted. This holds for any future
+    # input path too, so the next way of feeding heal cannot revert a flip.
+    ranks = {value: name for name, value in STATUS_RANK.items()}
+    for item in healed:
+        key = item.get("key")
+        got = STATUS_RANK.get(item.get("status", "pending"), 1)
+        if got < highest.get(key, 0):
             fail(
-                "plans/roadmap.json is unparseable and no merge is in progress — "
-                "restore a good copy first (git show <branch>:plans/roadmap.json)."
+                f"heal would move {key} BACKWARDS from "
+                f"{ranks.get(highest[key], '?')} to {item.get('status')!r} — "
+                "refusing. Heal only ever raises a status; this is a bug in "
+                "heal, not something to resolve by hand."
             )
-        items = stages[0].get("items", []) + stages[1].get("items", [])
-        epics_by_id = {e["id"]: e for s in stages for e in s.get("epics", [])}
-        epics = list(epics_by_id.values())
-    healed, removed = heal_items(items)
+
     # A union of two branches' dependency edges can close a cycle neither
     # branch had; healing into a deadlocked frontier is worse than refusing.
     check_dag(healed)
-    save_roadmap(base, healed, epics=epics)
+    envelope = working if working else {"generated_by": "human"}
+    save_roadmap(base, healed, epics=epics, envelope=envelope)
     done = sum(1 for i in healed if i.get("status") == "done")
-    print(f"Healed plans/roadmap.json: {len(healed)} item(s), "
-          f"{removed} duplicate(s) unioned (status: further-along wins); {done} done.")
+    raised = [i.get("key") for i in healed
+              if STATUS_RANK.get(i.get("status", "pending"), 1)
+              > STATUS_RANK.get(
+                  next((w.get("status", "pending")
+                        for w in working.get("items", [])
+                        if w.get("key") == i.get("key")), "pending"), 1)]
+    source = "both merge sides + working file" if merged else "working file"
+    print(f"Healed plans/roadmap.json from {source}: {len(healed)} item(s), "
+          f"{disagreements} disagreement(s) reconciled (status: further-along "
+          f"wins); {done} done.")
+    if raised:
+        # Naming them makes "3 done" checkable instead of asserted.
+        print(f"  raised: {', '.join(sorted(k for k in raised if k))}")
 
 
 def cmd_parallel(args: argparse.Namespace) -> None:

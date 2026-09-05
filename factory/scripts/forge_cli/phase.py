@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -76,6 +77,61 @@ def _auto_heal_roadmap_after_merge(base: Path) -> None:
             }, indent=2) + "\n", encoding="utf-8")
     cmd_heal(argparse.Namespace(repo=str(base)))
     marker.write_text(token + "\n", encoding="utf-8")
+
+
+def _task_count_hint(base: Path, state: dict) -> str:
+    """A recommended task count, derived from the plan the human is about to
+    decompose.
+
+    Asking "how many tasks?" with nothing behind it is a rubber stamp: the
+    answer is always the same number and nothing was decided. The plan already
+    says how many acceptance criteria it has and which surfaces it touches, so
+    the question can carry that and be worth answering.
+
+    Guidance, never a gate — a genuinely large story must not be forced to
+    understate itself.
+    """
+    plan_file = state.get("plan_file") or ""
+    text = ""
+    if plan_file:
+        candidate = base / plan_file
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            text = ""   # a plan we cannot read still gets the generic advice
+    if not text:
+        return ("prefer 4 or fewer, 1-2 for a small story — but never at the "
+                "cost of the bounded-session rule (WORKFLOW.md): a task that "
+                "cannot be done in one session is not bounded because the "
+                "count is convenient")
+
+    criteria = len(re.findall(r"^\s*\d+\.\s+\S", text, re.MULTILINE))
+    surfaces = sorted({
+        name for name, pattern in (
+            ("backend", r"apps/api|packages/api|src/server"),
+            ("frontend", r"apps/web|packages/web|src/app/"),
+            ("database", r"drizzle|migrations?/|schema\.ts"),
+        ) if re.search(pattern, text)
+    })
+    # Backend and frontend never share a task, so each is at least one; the
+    # criteria count sets how far above that floor to start. Coarse on
+    # purpose: this is a defensible opening number for a human to accept or
+    # move, not an estimate pretending to be precise.
+    # The MINIMUM is one per side; anything above it has to be forced. Seams are
+    # always findable, so a recommendation that merely balances drifts upward —
+    # the number offered is the floor, and the reason to exceed it is the thing
+    # the human is being asked to weigh.
+    floor = max(1, len([s for s in surfaces if s in ("backend", "frontend")]))
+    by_criteria = 1 if criteria <= 3 else 2 if criteria <= 6 else 3 if criteria <= 9 else 4
+    suggested = min(4, max(floor, by_criteria))
+    detail = f"{criteria} acceptance criteria" if criteria else "this plan"
+    touching = f" across {', '.join(surfaces)}" if surfaces else ""
+    return (f"{detail}{touching} — start at {suggested} and go UP only where a "
+            "task will not fit one bounded session. Fewest-that-stay-bounded is "
+            "the target, not a balance: every extra task costs a human a plan, "
+            "grill, approval, review and PR, and 'it is a clean seam' is not a "
+            "reason. The grill refuses a task that is not bounded, so the floor "
+            "holds either way.")
 
 
 def cmd_next(args: argparse.Namespace) -> None:
@@ -322,9 +378,14 @@ def cmd_next(args: argparse.Namespace) -> None:
                          f"--story {issue}")
     elif state.get("decomposition_status") != "recorded":
         phase("decomposing")
-        steps.append("[dev] Run docs-decomposer (factory/prompts/decomposer.md), then "
-                     "record_decomposition_from_json.py and "
-                     "update_run.py --phase implementing --decomposition-status recorded")
+        steps.append(
+            "[dev] FIRST ask the human how many tasks this story should split "
+            f"into — {_task_count_hint(base, state)}. Every task costs its own "
+            "plan, grill, approval, review and PR, so the count is the human's "
+            "call, not a by-product of finding seams. THEN run docs-decomposer "
+            "(factory/prompts/decomposer.md) to that number, and record it: "
+            "record_decomposition_from_json.py and update_run.py --phase "
+            "implementing --decomposition-status recorded")
     else:
         issue = state.get("issue_key")
         tests = load_json(evidence_path(base, issue, "tests.json"), default={})
@@ -346,6 +407,16 @@ def cmd_next(args: argparse.Namespace) -> None:
             and tests.get("commit") == head
         )
         outcome = load_outcome(base) or {}
+        # A task-level run proves itself per task; the story-scoped reads above
+        # describe a story-level run and say nothing about it.
+        task_level = bool(state.get("base_main_sha")) and bool(decomp.get("tasks"))
+        task_closeout = []
+        if task_level:
+            from factory_lib import require_closeout_order
+            task_closeout = [
+                problem for problem in require_closeout_order(base)
+                if "stage completion" not in problem
+            ]
         frontier_state = task_frontier_state(base)
         if open_stages or frontier_state:
             phase("implementing")
@@ -364,7 +435,9 @@ def cmd_next(args: argparse.Namespace) -> None:
                         f"[dev] Grill the saved {task_id} plan with `/grill-me` "
                         "(factory/prompts/griller.md --gate task). Because YOU authored "
                         "the plan, EVERY round starts with a fresh read-only Codex "
-                        "cold-read (`gpt-5.6-terra` @ xhigh, via `/codex:rescue`) — not "
+                        f"cold-read: `./forge grill run --gate task --task {task_id}` "
+                        "(ledgered, so a killed launcher still shows in `forge codex "
+                        "status`; it pins the cold reader from harness.yaml) — not "
                         "a Claude sub-agent, never inline — and you MUST actively WATCH "
                         "that Codex run (it can pause on a signal awaiting you). Carry "
                         "its findings into your own AskUserQuestion rounds, fold in the "
@@ -459,6 +532,12 @@ def cmd_next(args: argparse.Namespace) -> None:
                         "skills_used); apple-design advisory for gesture/motion — "
                         "harness.yaml required_skills"
                     )
+        elif task_closeout:
+            # Sourced from require_closeout_order so `forge next` and the ship
+            # gate can never disagree: re-deriving the same facts twice is how
+            # a prompt starts asking for work the gate already accepted.
+            phase("closeout")
+            steps.append(f"[dev] {task_closeout[0]}")
         elif not tests.get("automated"):
             phase("testing")
             steps.append("[dev] Record the completed stages' automated proof: "
@@ -469,13 +548,14 @@ def cmd_next(args: argparse.Namespace) -> None:
         elif review_problems:
             phase("reviewing")
             review_detail = ", ".join(reviews_missing) or "stale or incoherent lenses"
-            steps.append("[dev] Run the autoreview DIRECTLY (the orchestrating "
-                         "session — 0011, never a Codex review job), three lenses "
-                         f"(factory/prompts/reviewer.md); repair: {review_detail}. On "
-                         "ANY finding, delegate the fix to Codex (`./forge delegate "
-                         "<id>`), then re-run the autoreview — loop until every lens is "
-                         "clean; record each pass via record_review_from_json.py. Do "
-                         "NOT stop for a human between rounds.")
+            steps.append("[dev] Review is ONE three-lens pass PER TASK, run by "
+                         "Codex: `./forge review <task-id>` records all three "
+                         f"lenses as that task's proof; repair: {review_detail}. "
+                         "On ANY finding, delegate the fix (`./forge delegate "
+                         "<task-id>`), commit, then rerun `./forge review "
+                         "<task-id>` — loop until every lens is clean. Findings "
+                         "are work, not a question for the human; do NOT stop "
+                         "between rounds.")
         elif user_facing and not functional_ready:
             phase("functional-check")
             steps.append("[dev] Task is user-facing: run functional-checker and record: "

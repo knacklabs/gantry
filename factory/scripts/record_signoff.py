@@ -121,8 +121,9 @@ def main() -> int:
         print(
             "The 0c order that produces these: `forge spec save <slug> --from "
             "<draft>` -> grill it (`record_grill_from_json.py --gate spec "
-            "--input-digest docs/specs/<slug>.md --input <grill.json>`, 2 logged "
-            "rounds) -> `forge spec confirm <slug>` -> `forge roadmap derive "
+            "--input-digest docs/specs/<slug>.md --input <grill.json>`, at "
+            "least 1 logged round) -> `forge spec confirm <slug>` -> "
+            "`forge roadmap derive "
             "--input <roadmap.json>` -> grill sign-off -> accept the "
             "client-signoff decision -> re-run this script. `forge next` prints "
             "the step you are actually on."

@@ -24,10 +24,13 @@ from factory_lib import (
     task_frontier_state, task_stage_record, validate_payload,
 )
 from forge_cli.specs import resolve_spec_reference
+from grill_gates import FLOOR_IS_NOT_A_TARGET, GATES, gate_names, get_gate
 
 VERDICTS = {"pass", "blocked"}
 TASK_DECISIONS = {"keep", "split", "block"}
-GATE_ROUND_FLOORS = {"spec": 2, "requirements": 1, "plan": 2, "task": 1}
+# Floors live in the gate table: every gate has one, so no gate can be
+# gated-but-unfloored the way signoff and epics silently were.
+GATE_ROUND_FLOORS = {name: gate.min_rounds for name, gate in GATES.items()}
 
 
 def _non_empty_string(value: object) -> bool:
@@ -40,7 +43,10 @@ def _validate_round_provenance(
     floor = GATE_ROUND_FLOORS[gate]
     rounds = payload.get("rounds")
     if not isinstance(rounds, list) or len(rounds) < floor:
-        raise SystemExit(f"{gate} grill requires at least {floor} logged round(s)")
+        raise SystemExit(
+            f"{gate} grill requires at least {floor} logged round(s). "
+            + FLOOR_IS_NOT_A_TARGET
+        )
 
     ledger_rounds: list[dict] = []
     directories = (
@@ -57,9 +63,8 @@ def _validate_round_provenance(
                 if isinstance(entry, dict)
             )
 
-    current_name = f"grills/tasks/{task_id}.json" if gate == "task" \
-        else f"grills/{gate}.json"
-    current_story = story if gate in ("requirements", "plan", "task") else ""
+    current_name = get_gate(gate).evidence_name(task_id)
+    current_story = story if get_gate(gate).story_scoped else ""
     current_path = evidence_path(root, current_story, current_name)
     grill_directories = (
         evidence_path(root, story, "grills"),
@@ -289,8 +294,7 @@ if any(
     )
 
 parser = argparse.ArgumentParser(description="Record a handover/plan grill from structured JSON")
-parser.add_argument("--gate", required=True,
-                    choices=["signoff", "spec", "epics", "requirements", "plan", "task"])
+parser.add_argument("--gate", required=True, choices=gate_names())
 parser.add_argument("--input", help="Path to grill JSON. If omitted, read from stdin.")
 parser.add_argument("--input-digest", dest="input_digest",
                     help="Path to the artifact this grill interrogated (roadmap input for "
@@ -420,16 +424,14 @@ if args.gate == "plan":
 payload["recorded_at"] = now_iso()
 payload["commit"] = head_sha(root)
 active_story = load_json(run_state_path(root), default={}).get("issue_key", "")
-if args.gate in GATE_ROUND_FLOORS:
-    _validate_round_provenance(
-        root, payload, args.gate, active_story, args.task or "",
-    )
-story = active_story \
-    if args.gate in ("requirements", "plan", "task") else ""
-if args.gate == "task":
-    name = f"grills/tasks/{args.task}.json"
-else:
-    name = f"grills/{args.gate}.json"
+_gate = get_gate(args.gate)
+# Unconditional: every row in the table carries a floor, so there is no longer
+# a gate this check can skip.
+_validate_round_provenance(
+    root, payload, args.gate, active_story, args.task or "",
+)
+story = active_story if _gate.story_scoped else ""
+name = _gate.evidence_name(args.task or "")
 dest = evidence_path(root, story, name, for_write=True)
 dump_json(dest, payload)
 print(f"Recorded {args.gate} grill: {payload['verdict']} "

@@ -55,6 +55,7 @@ from factory_lib import (
     product_tree_digest, require_task_grill,
     task_frontier_state, task_rows,
 )
+from grill_gates import GATES
 from forge_cli.events import load_events
 from forge_cli.stages import task_digest, write_stages
 from record_signoff import REQUIRED_BRIEF_HEADINGS
@@ -309,10 +310,13 @@ def record_grill(repo: Path, gate: str, verdict: str = "pass",
         code, out = record_grill(repo, "requirements")
         if code != 0:
             return code, out
-    floors = {"spec": 2, "requirements": 1, "plan": 2, "task": 1}
+    # A ninth copy of the floors lived here and drifted with the rest. The
+    # suite now reads the same table the harness does, so a floor change is
+    # exercised rather than silently bypassed.
+    floor = GATES[gate].min_rounds if gate in GATES else 0
     rounds = over.get("rounds")
-    if gate in floors and rounds is None:
-        rounds = grill_rounds(gate, floors[gate])
+    if floor and rounds is None:
+        rounds = grill_rounds(gate, floor)
         over["rounds"] = rounds
     if rounds is not None:
         code, out = log_grill_rounds(repo, rounds)
@@ -6063,11 +6067,18 @@ def test_grill_refuses_round_not_in_ledger(repo):
 
 
 def test_grill_refuses_below_gate_floor(repo):
-    rounds = grill_rounds("spec", 1)
-    code, out = log_grill_rounds(repo, rounds)
-    assert code == 0, out
+    # The floor is read from the gate table rather than restated here, so a
+    # future floor change is EXERCISED by this test instead of silently
+    # bypassing it — restating it is how the suite's own copy drifted.
+    floor = GATES["spec"].min_rounds
+    rounds = grill_rounds("spec", floor)[:floor - 1]
+    if rounds:
+        code, out = log_grill_rounds(repo, rounds)
+        assert code == 0, out
     code, out = _record_spec_rounds(repo, rounds)
-    assert code != 0 and "requires at least 2 logged round(s)" in out
+    assert code != 0 and f"at least {floor} logged round(s)" in out
+    # And the refusal must not read as "reach this number and you are done".
+    assert "not a target" in out
 
 
 def test_grill_refuses_missing_frontier_empty(repo):
@@ -10122,7 +10133,10 @@ def test_roadmap_heal_unions_duplicates_done_wins(repo, tmp_path):
     data["items"] = [dupe_active, data["items"][1], dupe_done]
     p.write_text(json.dumps(data))
     code, out = run(repo, "forge.py", "roadmap", "heal")
-    assert code == 0 and "1 duplicate(s) unioned" in out, out
+    # One story, two statuses in the file: that is ONE disagreement however
+    # many copies carried it. A raw copy count went misleading once heal
+    # started reading the merge sides as well as the working file.
+    assert code == 0 and "1 disagreement(s) reconciled" in out, out
     items = roadmap_items(repo)
     assert items["ENG-1"]["status"] == "done"  # further-along wins
     assert items["ENG-1"]["history"] == ".factory/history/ENG-1/"
@@ -10172,7 +10186,7 @@ def test_forge_next_auto_heals_roadmap_after_merge(repo, tmp_path):
     merged["items"].append({**merged["items"][0], "status": "active"})
     path.write_text(json.dumps(merged, indent=2) + "\n")
     code, after_commit = run(repo, "forge.py", "next")
-    assert code == 0 and "1 duplicate(s) unioned" in after_commit, after_commit
+    assert code == 0 and "1 disagreement(s) reconciled" in after_commit, after_commit
 
 
 # ------------------------------------------------- the record of what shipped
@@ -12560,6 +12574,87 @@ GATE_REQUIRES = {
     "task_pr_ready": ["stage_done", "verify", "review"],
     "story_closeout": ["task_pr_ready"],
 }
+
+
+def test_task_proof_is_stored_per_task_and_tasks_do_not_overwrite_each_other(
+        repo, tmp_path):
+    # Reviews, verify and tests were story-scoped singletons: ONE
+    # reviews/quality.json per story, rewritten by every task in turn. A
+    # story's recorded review therefore described whichever task ran last, and
+    # a task PR's proof check could pass a task on another task's evidence.
+    lib = load_factory_lib(repo)
+    control = Path(git(repo, "rev-parse", "--absolute-git-dir")) / "forge"
+    control.mkdir(parents=True, exist_ok=True)
+
+    for task_id in ("T1", "T2"):
+        lib.dump_json(control / "run.json",
+                      {"issue_key": "ENG-1", "task_id": task_id})
+        assert lib.active_task_id(repo) == task_id
+        path = lib.proof_path(repo, "ENG-1", "reviews/quality.json", for_write=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lib.dump_json(path, {"generated_by": "t", "aspect": "quality",
+                             "verdict": "pass", "score": 9,
+                             "covers": task_id, "blocking_findings": []})
+
+    first = json.loads(lib.task_evidence_path(
+        repo, "ENG-1", "T1", "reviews/quality.json").read_text())
+    second = json.loads(lib.task_evidence_path(
+        repo, "ENG-1", "T2", "reviews/quality.json").read_text())
+    assert first["covers"] == "T1" and second["covers"] == "T2"
+
+    # A story-level run (no task_id) keeps the story-scoped location, so work
+    # already in flight elsewhere is not stranded by the layout change.
+    lib.dump_json(control / "run.json", {"issue_key": "ENG-1"})
+    legacy = lib.proof_path(repo, "ENG-1", "reviews/quality.json", for_write=True)
+    assert "tasks" not in legacy.parts
+
+
+def test_task_proof_overrides_a_clean_story_record_rather_than_joining_it(
+        repo, tmp_path):
+    # The safety property. If task-scoped proof were merged with the legacy
+    # story record instead of overriding it, a task could hide a blocking
+    # finding behind a clean story-level review.
+    lib = load_factory_lib(repo)
+    task = {"id": "T1", "user_facing": False}
+
+    clean = {"generated_by": "t", "verdict": "pass", "score": 9,
+             "blocking_findings": []}
+    for name in ("verify.json", "tests.json"):
+        path = lib.evidence_path(repo, "ENG-1", name, for_write=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+    lib.dump_json(lib.evidence_path(repo, "ENG-1", "verify.json", for_write=True),
+                  {"generated_by": "t", "ok": True})
+    lib.dump_json(lib.evidence_path(repo, "ENG-1", "tests.json", for_write=True),
+                  {"automated": {"generated_by": "t", "status": "passed"}})
+    for lens in ("quality", "performance", "security"):
+        path = lib.evidence_path(repo, "ENG-1", f"reviews/{lens}.json",
+                                 for_write=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lib.dump_json(path, dict(clean, aspect=lens))
+    assert not lib.task_proof_problems(repo, "ENG-1", task), "fallback should pass"
+
+    # Now the task records its OWN security review, and it is not clean.
+    for name in ("verify.json", "tests.json"):
+        path = lib.task_evidence_path(repo, "ENG-1", "T1", name, for_write=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+    lib.dump_json(lib.task_evidence_path(repo, "ENG-1", "T1", "verify.json",
+                                         for_write=True),
+                  {"generated_by": "t", "ok": True})
+    lib.dump_json(lib.task_evidence_path(repo, "ENG-1", "T1", "tests.json",
+                                         for_write=True),
+                  {"automated": {"generated_by": "t", "status": "passed"}})
+    for lens in ("quality", "performance", "security"):
+        path = lib.task_evidence_path(repo, "ENG-1", "T1", f"reviews/{lens}.json",
+                                      for_write=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = dict(clean, aspect=lens)
+        if lens == "security":
+            record["blocking_findings"] = ["unvalidated input"]
+        lib.dump_json(path, record)
+
+    problems = lib.task_proof_problems(repo, "ENG-1", task)
+    assert problems, "task proof must override the story record, not join it"
+    assert any("security" in p for p in problems)
 
 
 def test_state_audit_reports_a_stage_split_between_working_copies(repo, tmp_path):
@@ -17135,7 +17230,11 @@ def test_docs_state_enforced_order():
     assert "marker the agent cannot mint" not in approval_spec
     for text in (decision, loop_spec, approval_spec):
         unwrapped = " ".join(text.split())
-        assert "GATE_ROUND_FLOORS" in text or "floors spec 2" in unwrapped
+        # The docs must NAME whatever enforces the floors. That used to be
+        # the recorder's own map; it is now the gate table the recorder
+        # derives that map from.
+        assert ("grill_gates.GATES" in text or "GATE_ROUND_FLOORS" in text
+                or "floors spec 2" in unwrapped)
         assert "frontier_empty: true" in text
         assert "ledger-matched" in text or "match a logged record" in unwrapped
     for text in (decision, approval_spec):
