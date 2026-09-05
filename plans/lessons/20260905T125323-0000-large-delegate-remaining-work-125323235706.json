@@ -1,0 +1,12 @@
+{
+  "topic": "large-delegate-remaining-work",
+  "lesson": "Remaining T2b work after the checkpoint is ONLY: (1) test/unit/runner/tool-permission-gate.test.ts:1347-1358 \u2014 re-point the CAPSAFE-1-BOUNDARY import from the deleted gantryToolDefaultRisk to gantryToolRisk and assert capability_run is high; (2) test/unit/runtime/permission-classifier.test.ts \u2014 replace the 'auto-approves a routine gantry mutation via the deterministic map' expectation (medium is gone) and make the lane-independent-high leaf pass (the consult stub must not be invoked for a table-judged tool); (3) create test/unit/runtime/browser-file-attach-source.test.ts; (4) the remaining required_tests leaves in ipc-permission-classifier-decision, ipc-file-artifact-handlers, file-tool and askfloor-tap-budget. Source files are complete and committed; do not re-read them.",
+  "source": "5e060951a",
+  "applies_to": [
+    "apps/core/test/unit/**",
+    "apps/core/src/runtime/permission-classifier*.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-05T12:53:23+00:00"
+}
