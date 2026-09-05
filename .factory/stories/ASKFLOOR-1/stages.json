@@ -16,7 +16,7 @@
     {
       "id": "ASKFLOOR-1-T2b",
       "title": "Default-allow risk table for gantry-native tools",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-09-05T14:48:40+00:00",
       "base_sha": "6d9189e81726de0f17419b187687c09eb7e216d8",
       "dirty_at_start": {
@@ -101,7 +101,22 @@
           "git": "1 .M N... 100644 100644 100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 34f4c543f1c9128f52ccd2c05179f050540f4d67 .factory/stories/ASKFLOOR-1/stages.json\u0000\u0000100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 0\t.factory/stories/ASKFLOOR-1/stages.json\u0000\u0000H .factory/stories/ASKFLOOR-1/stages.json\u0000"
         }
       },
-      "task_sha256": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080"
+      "task_sha256": "f51df506bfbf31f97f7318c90fd16325653bf5766ad484000bcc9b58784fd560",
+      "local_review_stamp": {
+        "stage_id": "ASKFLOOR-1-T2b",
+        "task_sha256": "f51df506bfbf31f97f7318c90fd16325653bf5766ad484000bcc9b58784fd560",
+        "brief_sha256": "d24fe56a5d5fcd48dec980abbd4c6eac752a413d1d9ca74ca6661eab1aced9f8",
+        "base_sha": "6d9189e81726de0f17419b187687c09eb7e216d8",
+        "product_tree_digest": "a03bfb4b216860d51e8c5054612a1f5795423049ab7b9c1caaf2d7475aeea475",
+        "recorded_at": "2026-09-05T15:06:41+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-09-05T15:11:11+00:00",
+      "contract_changed": {
+        "at": "2026-09-05T15:11:11+00:00",
+        "from": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080",
+        "to": "f51df506bfbf31f97f7318c90fd16325653bf5766ad484000bcc9b58784fd560"
+      }
     },
     {
       "id": "ASKFLOOR-1-T3a",
