@@ -1,9 +1,9 @@
 {
-  "commit": "3dcd70c9af16afd61c6a91d2e29ad999be75188c",
+  "commit": "d33022f29f760769f147c860933848a4ae3e86d0",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "ASKFLOOR-1-T2b automated proof: the fifteen required leaf tests ran through the exact-leaf JUnit gate and pass on commit 3dcd70c9a (contract v18: 0155 bullet 13 plus the review-round-1 fixes \u2014 raw parent-traversal rejection and the closed browser_act action list); the touched unit suites pass on the host (86 files / 1141 tests in the permission, file-artifact, browser-attach and runner-gate areas; the classifier and inline-bootstrap suites 128/128 after the bullet-13 change; 16 files / 213 tests across the prospective-write, table, runner browser/file tool, classifier and tap-budget suites after the review fixes); verify.py passed (format:check, check:architecture, typecheck, full unit suite); the stage-local autoreview (base e668706f2, rounds 2-4) returned no findings; three-lens review round 1 quality findings (symlink dot-segment escape, unknown browser action) fixed in commit 3dcd70c9a. Postgres integration lane: T2b touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.",
+    "summary": "ASKFLOOR-1-T2b automated proof: the fifteen required leaf tests ran through the exact-leaf JUnit gate and pass on commit d33022f29 (contract v18: 0155 bullet 13 plus the review-round-1 fixes \u2014 raw parent-traversal rejection on both path separators and the closed browser_act action list); the touched unit suites pass on the host (86 files / 1141 tests in the permission, file-artifact, browser-attach and runner-gate areas; the classifier and inline-bootstrap suites 128/128 after the bullet-13 change; 16 files / 213 tests across the prospective-write, table, runner browser/file tool, classifier and tap-budget suites after the review fixes); verify.py passed (format:check, check:architecture, typecheck, full unit suite); the stage-local autoreview (base e668706f2, rounds 2-5) returned no findings; three-lens review round 1 quality findings (symlink dot-segment escape, unknown browser action) fixed in commit 3dcd70c9a; round 2 security finding (forward-slash traversal on Windows) fixed in d33022f29. Postgres integration lane: T2b touches no storage code; the lane carries 4 pre-existing reds on origin/main (live-waiting-admission x2, inline-agent-runtime child runs x2) tracked as a main quickfix before T3a.",
     "blocking_findings": [],
     "commands_run": [
       "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/gantry-tool-risk.test.ts -t \"judges every registered gantry tool with a deterministic reason per rule: low by default, the imported scheduler and admin mutation sets and capability_run high, the other three executors and unknown suffixes ambiguous\" --outputFile=<junit-report>",
@@ -22,7 +22,7 @@
       "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/askfloor-tap-budget.test.ts -t \"mirror fixtures: a protected file write, a FileWrite outside the workspace and scheduler_delete_job cost 1 tap, and a raw-path file_attach reaches the stubbed LLM consult as ambiguous\" --outputFile=<junit-report>",
       "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/askfloor-tap-budget.test.ts -t \"keeps today's outcome for the TB1 TB2 TB3 TB4 fixtures under auto_strict, ask and autonomous\" --outputFile=<junit-report>",
       "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/permission-classifier.test.ts apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts (128 tests)",
-      "python3 factory/scripts/verify.py (format:check + check:architecture, typecheck, npm test) -> Verification passed on 88052d37c and 3dcd70c9a",
+      "python3 factory/scripts/verify.py (format:check + check:architecture, typecheck, npm test) -> Verification passed on 88052d37c, 3dcd70c9a and d33022f29",
       "npx tsc --noEmit",
       "npx prettier --check <touched files>"
     ],
@@ -72,8 +72,8 @@
     "non_blocking_findings": [],
     "residual_risks": [],
     "manual_validation_steps": [],
-    "recorded_at": "2026-09-05T15:06:41+00:00",
-    "commit": "3dcd70c9af16afd61c6a91d2e29ad999be75188c"
+    "recorded_at": "2026-09-05T15:28:13+00:00",
+    "commit": "d33022f29f760769f147c860933848a4ae3e86d0"
   },
-  "updated_at": "2026-09-05T15:06:41+00:00"
+  "updated_at": "2026-09-05T15:28:13+00:00"
 }

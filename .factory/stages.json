@@ -17,16 +17,44 @@
       "id": "ASKFLOOR-1-T2b",
       "title": "Default-allow risk table for gantry-native tools",
       "status": "done",
-      "started_at": "2026-09-05T14:48:40+00:00",
+      "started_at": "2026-09-05T15:19:35+00:00",
       "base_sha": "6d9189e81726de0f17419b187687c09eb7e216d8",
       "dirty_at_start": {
+        ".factory/events/01be3d6203f746d7bd9918d1e7ac9568.json": {
+          "digest": "d0070e7fd70a5790e7ec2a713a1d102947f9c25bc83b6988cd4a5a0ad30292e2",
+          "git": "? .factory/events/01be3d6203f746d7bd9918d1e7ac9568.json\u0000\u0000\u0000"
+        },
+        ".factory/events/0d7a73e3a85945dea6407709d75f48aa.json": {
+          "digest": "b852a96c7e91d7dcdf64d1a566330d2e20bd220965a0fdcd21ee5ae002c8311b",
+          "git": "? .factory/events/0d7a73e3a85945dea6407709d75f48aa.json\u0000\u0000\u0000"
+        },
         ".factory/events/10395e89ea024be1be69f8de7b39d3dd.json": {
           "digest": "ca684c2878c3231ebea366523fcf1194ab4963d96741573bd0d8d7d0581d4f50",
           "git": "? .factory/events/10395e89ea024be1be69f8de7b39d3dd.json\u0000\u0000\u0000"
         },
+        ".factory/events/153f24fdd4c641159c95b1f9b1924b33.json": {
+          "digest": "c22020bf84768ac29f93ed972d256f00659d4d4f6de67c44928392f586a01c00",
+          "git": "? .factory/events/153f24fdd4c641159c95b1f9b1924b33.json\u0000\u0000\u0000"
+        },
         ".factory/events/15d174c1481a411db33fd6a4a1b41106.json": {
           "digest": "e00447ef97e2f4ba60bfc5ba298d5e0b548132a14463fb1c20e1c191c2c78c25",
           "git": "? .factory/events/15d174c1481a411db33fd6a4a1b41106.json\u0000\u0000\u0000"
+        },
+        ".factory/events/166858946e1e4c71b23f99f398d65c81.json": {
+          "digest": "c218653fcf3eb198a3312330e6d10e87091e4f218dab33fa45e183e6ecf972d2",
+          "git": "? .factory/events/166858946e1e4c71b23f99f398d65c81.json\u0000\u0000\u0000"
+        },
+        ".factory/events/25d8b4b2534c4b2da3e2139906f92f37.json": {
+          "digest": "85585628bc0caeb6e83f1c5e19461203f2cd1ecf20c2667b1a28890ece41766f",
+          "git": "? .factory/events/25d8b4b2534c4b2da3e2139906f92f37.json\u0000\u0000\u0000"
+        },
+        ".factory/events/27bf3b8b54fb479490ff631fc7c7df21.json": {
+          "digest": "0613e774f7798dd6aad2d0480a520d9ec9be122a71a6a4210667b3e82b523c68",
+          "git": "? .factory/events/27bf3b8b54fb479490ff631fc7c7df21.json\u0000\u0000\u0000"
+        },
+        ".factory/events/2f6f7baf829a44b4adc1702cada0ced3.json": {
+          "digest": "47a2fbba8a8c5e604206876789d261304fbb310045f2e2acf57f5927008b4c5d",
+          "git": "? .factory/events/2f6f7baf829a44b4adc1702cada0ced3.json\u0000\u0000\u0000"
         },
         ".factory/events/40b694129e3240f8b07ab2a8cfa57548.json": {
           "digest": "96a10bb20f703bb27fc782114a3a385335bc6460f3930fe8149d3dae5bdae5fd",
@@ -44,9 +72,25 @@
           "digest": "b7da0ef14697df81bb8e29a545e0d7d3c437525e84ab7191e8f7310521a5f8ad",
           "git": "? .factory/events/5e61601772c44fa78d868a563454cc58.json\u0000\u0000\u0000"
         },
+        ".factory/events/66a0a7e1f9de4bab9f36f637098a0958.json": {
+          "digest": "30010fe768e897c6bc2eb4b04710e5ccc2a360aa354b8190d77b87a87d3bdac8",
+          "git": "? .factory/events/66a0a7e1f9de4bab9f36f637098a0958.json\u0000\u0000\u0000"
+        },
+        ".factory/events/691f05b101644338bef39e5da34e2a15.json": {
+          "digest": "8b414bf8aff9701601275b06170f5180dad800f0d7a05fb33e84eed58b2ccad2",
+          "git": "? .factory/events/691f05b101644338bef39e5da34e2a15.json\u0000\u0000\u0000"
+        },
         ".factory/events/699a9cf17eb348b58c41b3b2af311cdc.json": {
           "digest": "b1cd669b3463ba58e361b7230c3c4257697d50adc34bc25078a621a8ad8820ad",
           "git": "? .factory/events/699a9cf17eb348b58c41b3b2af311cdc.json\u0000\u0000\u0000"
+        },
+        ".factory/events/6aea38f4e30c4f1b886d2d5cb7bb6e5a.json": {
+          "digest": "db9d833cc099bf5022cf2d07fe33491e6cc6aead64411d6791f2123ac33a0364",
+          "git": "? .factory/events/6aea38f4e30c4f1b886d2d5cb7bb6e5a.json\u0000\u0000\u0000"
+        },
+        ".factory/events/6ea39ddcfba449258e68d11c5ee5ac62.json": {
+          "digest": "7f6ee3d30a4f2dbfbbf937fab63009695ddb2cc3e65fcb4973caf097a73c1558",
+          "git": "? .factory/events/6ea39ddcfba449258e68d11c5ee5ac62.json\u0000\u0000\u0000"
         },
         ".factory/events/75dc1d6790c2409dbafe3e667b3c6395.json": {
           "digest": "d67dd0d7f7985c3a27043b879a56b5e0885f31a1d528c1c5fdcd9104d0ccfed2",
@@ -80,43 +124,50 @@
           "digest": "943a544addf91dda3f4e31307b11bbc39d6a670a2462a743b4799ac3c85d39ce",
           "git": "? .factory/events/d047dc6663b4494386e9068174e259eb.json\u0000\u0000\u0000"
         },
+        ".factory/events/dfbd958e32a54a3681e864e7dd5aebd4.json": {
+          "digest": "debc872eff1857afbf33ca985d4eb6022d9b6cd8b465d36c1af3b10d40e2e682",
+          "git": "? .factory/events/dfbd958e32a54a3681e864e7dd5aebd4.json\u0000\u0000\u0000"
+        },
+        ".factory/events/e34aa69c7ac24a09ba4b8a38f58bf5d3.json": {
+          "digest": "ff60fee8b26afa37997145f9574ff81c3f5027fa4d15692dace832cdcc8f1969",
+          "git": "? .factory/events/e34aa69c7ac24a09ba4b8a38f58bf5d3.json\u0000\u0000\u0000"
+        },
+        ".factory/events/e916e617fecd4db1bb150b3475229ae7.json": {
+          "digest": "67b162463cd11faad7a5fe6f3822939e389c900255a80c745b889fea8d3fed6b",
+          "git": "? .factory/events/e916e617fecd4db1bb150b3475229ae7.json\u0000\u0000\u0000"
+        },
         ".factory/events/fd2d58e1bfa54267a058f0adeb5d8167.json": {
           "digest": "9b6c422ebef7ebef12a855929c128b0a3ea9937c2b5ce0f885da5676a15a2070",
           "git": "? .factory/events/fd2d58e1bfa54267a058f0adeb5d8167.json\u0000\u0000\u0000"
         },
         ".factory/stages.json": {
           "digest": "6f141d2602e944bbd561582a332cd3677711ee631aef5461506f8992ef77b4c6",
-          "git": "1 .M N... 100644 100644 100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 34f4c543f1c9128f52ccd2c05179f050540f4d67 .factory/stages.json\u0000\u0000100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+          "git": "1 .M N... 100644 100644 100644 57b4960d6f87f2f354acecade928a65862f5b0c8 57b4960d6f87f2f354acecade928a65862f5b0c8 .factory/stages.json\u0000\u0000100644 57b4960d6f87f2f354acecade928a65862f5b0c8 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
         },
         ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json": {
-          "digest": "03f03d9d18dd3fe709dd6b707ee152dc02b1d21e6ba3caf2b6e4717d127797e3",
-          "git": "1 .M N... 100644 100644 100644 63dfb5a94d35cea260720f2ea3641fa2e8df016b 63dfb5a94d35cea260720f2ea3641fa2e8df016b .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000\u0000100644 63dfb5a94d35cea260720f2ea3641fa2e8df016b 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000"
+          "digest": "08853cfcb9794a5205b804cc99b17f581452a54517859a287120202501443147",
+          "git": "1 .M N... 100644 100644 100644 e77032ff9901c4e00ccc33ebcdfe9fdde896357d e77032ff9901c4e00ccc33ebcdfe9fdde896357d .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000\u0000100644 e77032ff9901c4e00ccc33ebcdfe9fdde896357d 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000"
         },
         ".factory/stories/ASKFLOOR-1/review-run.json": {
-          "digest": "ed11ae8c5158144fc4456296e04cfe097d5c456a77d3fd9169ef4b79b9ba55c0",
-          "git": "1 .M N... 100644 100644 100644 eca581914c9975a1aebb5e96c99ee95c75882586 eca581914c9975a1aebb5e96c99ee95c75882586 .factory/stories/ASKFLOOR-1/review-run.json\u0000\u0000100644 eca581914c9975a1aebb5e96c99ee95c75882586 0\t.factory/stories/ASKFLOOR-1/review-run.json\u0000\u0000H .factory/stories/ASKFLOOR-1/review-run.json\u0000"
+          "digest": "ebc1f70e240d3ebbaba4efda4e3f5faff71d1e8ee1715074584e8e1f1c58c257",
+          "git": "1 .M N... 100644 100644 100644 ebd83cce80b8d497a02d912740117f3f6d3a4bd8 ebd83cce80b8d497a02d912740117f3f6d3a4bd8 .factory/stories/ASKFLOOR-1/review-run.json\u0000\u0000100644 ebd83cce80b8d497a02d912740117f3f6d3a4bd8 0\t.factory/stories/ASKFLOOR-1/review-run.json\u0000\u0000H .factory/stories/ASKFLOOR-1/review-run.json\u0000"
         },
         ".factory/stories/ASKFLOOR-1/stages.json": {
           "digest": "6f141d2602e944bbd561582a332cd3677711ee631aef5461506f8992ef77b4c6",
-          "git": "1 .M N... 100644 100644 100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 34f4c543f1c9128f52ccd2c05179f050540f4d67 .factory/stories/ASKFLOOR-1/stages.json\u0000\u0000100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 0\t.factory/stories/ASKFLOOR-1/stages.json\u0000\u0000H .factory/stories/ASKFLOOR-1/stages.json\u0000"
+          "git": "1 .M N... 100644 100644 100644 57b4960d6f87f2f354acecade928a65862f5b0c8 57b4960d6f87f2f354acecade928a65862f5b0c8 .factory/stories/ASKFLOOR-1/stages.json\u0000\u0000100644 57b4960d6f87f2f354acecade928a65862f5b0c8 0\t.factory/stories/ASKFLOOR-1/stages.json\u0000\u0000H .factory/stories/ASKFLOOR-1/stages.json\u0000"
         }
       },
       "task_sha256": "f51df506bfbf31f97f7318c90fd16325653bf5766ad484000bcc9b58784fd560",
       "local_review_stamp": {
         "stage_id": "ASKFLOOR-1-T2b",
         "task_sha256": "f51df506bfbf31f97f7318c90fd16325653bf5766ad484000bcc9b58784fd560",
-        "brief_sha256": "d24fe56a5d5fcd48dec980abbd4c6eac752a413d1d9ca74ca6661eab1aced9f8",
+        "brief_sha256": "78939a5777b7a3725cbf445a35848f8e94c2b83b9e45f09f791fb66cab97c5c0",
         "base_sha": "6d9189e81726de0f17419b187687c09eb7e216d8",
-        "product_tree_digest": "a03bfb4b216860d51e8c5054612a1f5795423049ab7b9c1caaf2d7475aeea475",
-        "recorded_at": "2026-09-05T15:06:41+00:00",
+        "product_tree_digest": "7d35e178df0fe2361bebcf1d1f91da752e9b661310255992e3cf56d20865a16c",
+        "recorded_at": "2026-09-05T15:28:13+00:00",
         "generated_by": "autoreview"
       },
-      "completed_at": "2026-09-05T15:11:11+00:00",
-      "contract_changed": {
-        "at": "2026-09-05T15:11:11+00:00",
-        "from": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080",
-        "to": "f51df506bfbf31f97f7318c90fd16325653bf5766ad484000bcc9b58784fd560"
-      }
+      "completed_at": "2026-09-05T15:32:51+00:00"
     },
     {
       "id": "ASKFLOOR-1-T3a",
