@@ -39,13 +39,16 @@ What moves through this task: one permission request for a gantry-native tool ca
 
 ```mermaid
 flowchart TD
-  R[permission request after rails] --> E{eligible?\nBash/RunCommand, MCP, gantry,\n+ FileWrite/FileEdit}
-  E -- no --> P[prompt as today]
-  E -- yes --> L{lane passed by the IPC caller}
-  L -- absent / ask / autonomous / auto_strict --> LEG[legacy identity verdict\nexactly today's path]
-  L -- interactive_auto --> N{native-risk helper}
+  R[permission request after rails] --> L{lane passed by the IPC caller}
+  L -- ask / autonomous --> P[no classifier consult; prompt as today]
+  L -- absent / auto_strict --> E0{eligible? today's predicates only\nFileWrite/FileEdit stay ineligible}
+  E0 -- no --> P
+  E0 -- yes --> LEG[legacy identity verdict\nexactly today's path, strict guard first]
+  L -- interactive_auto --> E1{eligible? today's predicates\n+ FileWrite/FileEdit}
+  E1 -- no --> P
+  E1 -- yes --> N{native-risk helper}
   N -- FileWrite/FileEdit --> W[prospective-write boundary\ninside + unprotected? low : high]
-  N -- gantry tool --> T{typed risk table}
+  N -- gantry tool --> T{typed risk table, pure}
   T -- unknown suffix / executor set /\nraw-path browser file / malformed --> A[ambiguous -> LLM consult]
   T -- scheduler or admin mutation\nprotected file write or promote --> H[high -> ask]
   T -- everything else --> LO[low -> allow, auto_classifier]
