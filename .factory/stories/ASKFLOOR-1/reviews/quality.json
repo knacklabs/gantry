@@ -1,22 +1,10 @@
 {
   "generated_by": "autoreview",
-  "score": 9,
-  "summary": "quality lens over ASKFLOOR-1-T2b (25 product path(s), 6d9189e..bddc9b5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. VERDICT ASKFLOOR-1-T2b-AC1: implemented \u2014 apps/core/src/application/permissions/gantry-tool-risk.ts:65 defines the closed typed table and ordered judgments.\nVERDICT ASKFLOOR-1-T2b-AC2: implemented \u2014 apps/core/src/runtime/permission-classifier-native-risk.ts:17 implements lane-aware native verdicts, with cache fences at apps/core/src/runtime/ipc-permission-classifier-decision.ts:467.\nVERDICT ASKFLOOR-1-T2b-AC3: partial \u2014 apps/core/src/shared/permission-prospective-write.ts:22 misses forward-slash parent traversal on Windows before `path.resolve` collapses it.\nVERDICT ASKFLOOR-1-T2b-AC4: implemented \u2014 apps/core/src/domain/file-artifacts/protected-virtual-path.ts:60 centralizes entry protection, consumed by the host handlers and browser resolver.\nVERDICT ASKFLOOR-1-T2b-AC5: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:87 adds the required TB1\u2013TB4 and mirror fixture coverage.\nVERDICT ASKFLOOR-1-T2b-AC6: implemented \u2014 apps/core/test/unit/runtime/permission-classifier.test.ts:1047 pins the intended lane behavior, and the recorded verification reports format, architecture, typecheck, and tests passing.\nThe patch substantially implements the requested contracts, but the prospective-write boundary remains bypassable on Windows because its raw traversal check recognizes only the preferred separator.",
-  "blocking_findings": [
-    {
-      "category": "plan-contract-partial",
-      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T2b-AC3: NEW `shared/permission-prospective-write.ts` (shared layer, filesystem-backed like `shared/permission-hard-boundaries.ts`) exports `evaluateProspectiveWriteBoundary({ workspaceRoot, candidatePath }) \u2192 Promise<{ inside: boolean; reason?: string }>`: lexical containment after normalisation; the nearest EXISTING ancestor realpath-contained in the realpath of the root; no symlink component and no symlink target (`lstat`); a non-existent target allowed; and the three protection checks by import \u2014 `isProtectedCapabilityPathLike` (`shared/tool-execution-protected-paths.ts:40`), `hasHiddenPathSegment` (`shared/auto-permission-read-only-catalog.ts:143`), `isSecretLikeValue` (`shared/permission-hard-boundaries.ts:83`) \u2014 applied to the candidate relative to the root. FAIL-CLOSED, TOTAL: boundary uncertainty never throws through permission evaluation \u2014 a missing, non-absolute or unresolvable root (IPC supplies a syntactically resolved path without proving it exists, `platform/workspace-folder.ts:21-25`), and any `realpath`/`lstat`/filesystem error all return `{ inside: false, reason }` (the pattern of `permission-hard-boundaries.ts:33-52`). A NON-ABSOLUTE candidate is provider-relative and is resolved against the verified workspace root BEFORE evaluation (`path.resolve(root, candidate)`; the deepagents facade accepts only relative paths and forwards that `{ path, \u2026 }` input to permission IPC, `shared/gantry-tool-facades.ts:455-475`, `gantry-facade-tools.ts:121-130`) \u2014 so `notes/a.md` inside is `low` and `../x` is `high`; only a non-absolute ROOT fails closed. NEW `application/permissions/native-file-write-risk.ts` exports `judgeNativeFileWrite({ toolName, toolInput, workspaceRoot }) \u2192 Promise<{ verdict: GantryToolRiskVerdict; reason: string }>` (the reason is the boundary's `reason` or a fixed string per rule, copied into the classifier result): accepts exactly `FileWrite`/`FileEdit`; destinations are EVERY non-blank string among `file_path` (Anthropic runner, `tool-permission-gate.ts:621-674`) and `path` (deepagents facade, `gantry-facade-tools.ts:110-132,160-189`) \u2014 when both are present both are evaluated and the verdict fails closed (`high` if any destination is not inside); `low` only when every supplied destination is inside and unprotected; `high` when any is outside, protected, hidden, secret, symlink-involved, or `workspaceRoot` is undefined; `ambiguous` when no string destination is supplied. `gantry-facade-file-safety.ts:39-67` stays the execution-time authority and is not imported (async, config-bound, creates directories); T2a's `evaluateReadHardBoundaries` is not reused (it checks EXISTING read targets). The eligibility gate (`application/permissions/permission-classifier.ts:11-28`) gains an optional `lane` parameter and accepts `FileWrite`/`FileEdit` ONLY when `lane === interactive_auto`, evaluated before today's exits; with the lane absent or any other value those ids stay ineligible, so `consultPermissionClassifierBeforePrompt` returns today's `undefined` and emits nothing (the classifier passes its input's optional `lane` to the gate). The native-risk helper routes those two ids to `judgeNativeFileWrite` and gantry names to the table. Tests: inside \u2192 allow with no LLM call (each key alone, absolute and provider-relative such as `notes/a.md`; `../x` \u2192 ask); conflicting dual keys (inside `file_path`, outside `path`) \u2192 ask; outside, protected (`settings.yaml`), hidden segment, secret name, symlinked parent, symlinked target, a symlink-plus-dot-segment path such as `link/../victim` where `link` points outside (review round 1: the RAW candidate is inspected for `..` segments before any `path.resolve` collapse and fails closed), unresolvable root, non-absolute root \u2192 ask; missing target inside \u2192 allow; no string destination \u2192 ambiguous \u2192 LLM consult; `FileRead` stays ineligible; `FileWrite` under `auto_strict` or with the lane absent \u2192 ineligible, `undefined`, no event."
-    }
-  ],
-  "non_blocking_findings": [
-    {
-      "category": "security",
-      "area": "apps/core/src/shared",
-      "summary": "[P2] Detect both path separators before resolving parent traversal (apps/core/src/shared/permission-prospective-write.ts:22): The raw traversal guard splits only on the host's `path.sep`."
-    }
-  ],
-  "recommendation": "approve-with-caveats",
+  "score": 10,
+  "summary": "quality lens over ASKFLOOR-1-T2b (25 product path(s), 6d9189e..c5f9eab, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT ASKFLOOR-1-T2b-AC1: implemented \u2014 apps/core/src/application/permissions/gantry-tool-risk.ts:64\nVERDICT ASKFLOOR-1-T2b-AC2: implemented \u2014 apps/core/src/runtime/permission-classifier-native-risk.ts:16; apps/core/src/runtime/ipc-permission-classifier-decision.ts:467\nVERDICT ASKFLOOR-1-T2b-AC3: implemented \u2014 apps/core/src/shared/permission-prospective-write.ts:13; apps/core/src/application/permissions/native-file-write-risk.ts:7\nVERDICT ASKFLOOR-1-T2b-AC4: implemented \u2014 apps/core/src/domain/file-artifacts/protected-virtual-path.ts:60; apps/core/src/jobs/ipc-file-artifact-handlers.ts:119\nVERDICT ASKFLOOR-1-T2b-AC5: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:86\nVERDICT ASKFLOOR-1-T2b-AC6: implemented \u2014 apps/core/test/unit/runtime/permission-classifier.test.ts:1047\nThe diff implements the typed risk table, lane-aware native decisions and cache isolation, fail-closed prospective write checks, protected artifact handling, and the required fixture coverage. The supplied verification evidence reports all required tests and repository gates passing. No actionable P0\u2013P2 defect is demonstrated by the bundle.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
   "reviewed_scope": [
     "apps/core/src/application/permissions/gantry-tool-risk.ts",
     "apps/core/src/application/permissions/native-file-write-risk.ts",
@@ -49,32 +37,32 @@
     {
       "contract_id": "ASKFLOOR-1-T2b-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/gantry-tool-risk.ts:65 defines the closed typed table and ordered judgments."
+      "evidence": "apps/core/src/application/permissions/gantry-tool-risk.ts:64"
     },
     {
       "contract_id": "ASKFLOOR-1-T2b-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/permission-classifier-native-risk.ts:17 implements lane-aware native verdicts, with cache fences at apps/core/src/runtime/ipc-permission-classifier-decision.ts:467."
+      "evidence": "apps/core/src/runtime/permission-classifier-native-risk.ts:16; apps/core/src/runtime/ipc-permission-classifier-decision.ts:467"
     },
     {
       "contract_id": "ASKFLOOR-1-T2b-AC3",
-      "verdict": "partial",
-      "evidence": "apps/core/src/shared/permission-prospective-write.ts:22 misses forward-slash parent traversal on Windows before `path.resolve` collapses it."
+      "verdict": "implemented",
+      "evidence": "apps/core/src/shared/permission-prospective-write.ts:13; apps/core/src/application/permissions/native-file-write-risk.ts:7"
     },
     {
       "contract_id": "ASKFLOOR-1-T2b-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/file-artifacts/protected-virtual-path.ts:60 centralizes entry protection, consumed by the host handlers and browser resolver."
+      "evidence": "apps/core/src/domain/file-artifacts/protected-virtual-path.ts:60; apps/core/src/jobs/ipc-file-artifact-handlers.ts:119"
     },
     {
       "contract_id": "ASKFLOOR-1-T2b-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:87 adds the required TB1\u2013TB4 and mirror fixture coverage."
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:86"
     },
     {
       "contract_id": "ASKFLOOR-1-T2b-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/permission-classifier.test.ts:1047 pins the intended lane behavior, and the recorded verification reports format, architecture, typecheck, and tests passing."
+      "evidence": "apps/core/test/unit/runtime/permission-classifier.test.ts:1047"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -128,10 +116,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "7418607c89f23533c1b821118068be97e2db946d4c10a43cf263596620390992",
-  "brief_sha256": "f2958896f27030ed190a8a2110b6527e8bac4b4e8f622255fa9e5a0a937eec24",
-  "branch_diff_digest": "2419401b09787f0792e7ee735fbdf311f454f2ba82f1b8b62e16c05c542da145",
+  "review_run_id": "af57da0e4e909c7fda3cdb329b540ab2b16aec6fc51c6f0e0ac217d9f2c06875",
+  "brief_sha256": "cb633674c631d5efdbed00867f7baa42376b3c9b3d746c1756dee694bfe55f1a",
+  "branch_diff_digest": "51cb4767f36eb85045956eb4c8719d1e3712b3af78081483b8300345297c408e",
   "residual_risks": [],
-  "recorded_at": "2026-09-05T15:17:42+00:00",
-  "commit": "bddc9b57bf9d3b7cb3cd2a4cb89237e16ce4231a"
+  "recorded_at": "2026-09-05T15:39:18+00:00",
+  "commit": "c5f9eab38c9d11c409b21fda94d986732d171d70"
 }
