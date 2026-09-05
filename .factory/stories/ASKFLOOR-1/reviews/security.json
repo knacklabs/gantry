@@ -1,21 +1,29 @@
 {
   "generated_by": "autoreview",
-  "score": 10,
-  "summary": "security lens over ASKFLOOR-1-T2b (23 product path(s), 1102837..580b112, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. The change implements the specified security boundaries without an actionable P0\u2013P2 defect visible in the bundle: high-risk Gantry operations remain lane-independent asks, ambiguous requests cannot receive deterministic allows, native file writes fail closed on containment and protected-path checks, classifier cache isolation prevents the new interactive-auto allows from crossing lanes, capability_run bypasses cached verdicts, and protected artifacts are filtered or refused at host-side read and browser-attachment boundaries. The recorded verification also covers the required security-sensitive cases.",
-  "blocking_findings": [],
+  "score": 7,
+  "summary": "security lens over ASKFLOOR-1-T2b (25 product path(s), 6d9189e..bddc9b5, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The new prospective-write boundary has a platform-specific traversal bypass that undermines its fail-closed symlink protection and can auto-approve writes outside the workspace on Windows.",
+  "blocking_findings": [
+    {
+      "category": "security",
+      "area": "apps/core/src/shared",
+      "summary": "Reject forward-slash parent traversal on Windows (apps/core/src/shared/permission-prospective-write.ts:23): The raw traversal guard splits only on `path.sep`."
+    }
+  ],
   "non_blocking_findings": [],
-  "recommendation": "approve",
+  "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/application/permissions/gantry-tool-risk.ts",
     "apps/core/src/application/permissions/native-file-write-risk.ts",
     "apps/core/src/application/permissions/permission-classifier.ts",
     "apps/core/src/domain/file-artifacts/protected-virtual-path.ts",
     "apps/core/src/jobs/ipc-file-artifact-handlers.ts",
+    "apps/core/src/runner/mcp/tools/browser.ts",
     "apps/core/src/runner/mcp/tools/file.ts",
     "apps/core/src/runtime/browser-file-attach-source.ts",
     "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
     "apps/core/src/runtime/permission-classifier-native-risk.ts",
     "apps/core/src/runtime/permission-classifier.ts",
+    "apps/core/src/shared/browser-backend-actions.ts",
     "apps/core/src/shared/permission-prospective-write.ts",
     "apps/core/test/unit/application/gantry-tool-risk.test.ts",
     "apps/core/test/unit/application/native-file-write-risk.test.ts",
@@ -32,10 +40,10 @@
   ],
   "skills_used": [],
   "aspect": "security",
-  "review_run_id": "de4b1967831381e42fc9d8c282f0772004f5baf7d459106946f4c309338c34e5",
-  "brief_sha256": "50b38d94ec4434dc634d47d7e194962bb3eeb35972816790610b43aa16ac7926",
-  "branch_diff_digest": "200fd29100fb17057be2657d98ec7d300f84c5da6c404d5f02a8c31275533160",
+  "review_run_id": "7418607c89f23533c1b821118068be97e2db946d4c10a43cf263596620390992",
+  "brief_sha256": "f2958896f27030ed190a8a2110b6527e8bac4b4e8f622255fa9e5a0a937eec24",
+  "branch_diff_digest": "2419401b09787f0792e7ee735fbdf311f454f2ba82f1b8b62e16c05c542da145",
   "residual_risks": [],
-  "recorded_at": "2026-09-05T14:46:50+00:00",
-  "commit": "580b11247ee1f4e9940e681808ab037e446f7bd6"
+  "recorded_at": "2026-09-05T15:17:42+00:00",
+  "commit": "bddc9b57bf9d3b7cb3cd2a4cb89237e16ce4231a"
 }
