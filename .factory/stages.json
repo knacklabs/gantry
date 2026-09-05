@@ -16,7 +16,7 @@
     {
       "id": "ASKFLOOR-1-T2b",
       "title": "Default-allow risk table for gantry-native tools",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-09-05T11:36:55+00:00",
       "base_sha": "1102837907b1d3623fe11dca60e2173537f94211",
       "dirty_at_start": {
@@ -45,7 +45,22 @@
           "git": "? .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "2eea18e6e8fa51d8c037d9a3fb06c6f86dafeb4d961738d3d583b6b9c360294d"
+      "task_sha256": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080",
+      "local_review_stamp": {
+        "stage_id": "ASKFLOOR-1-T2b",
+        "task_sha256": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080",
+        "brief_sha256": "0b83fb0b8e91c74cae42241af4214d702547866365680c6acef3d4f8cb35b546",
+        "base_sha": "1102837907b1d3623fe11dca60e2173537f94211",
+        "product_tree_digest": "e8e2bbd0de47bf2e934a7fa6043cd59d7bf9531c239375706d074fca8d0cc2da",
+        "recorded_at": "2026-09-05T14:34:23+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-09-05T14:39:17+00:00",
+      "contract_changed": {
+        "at": "2026-09-05T14:39:17+00:00",
+        "from": "2eea18e6e8fa51d8c037d9a3fb06c6f86dafeb4d961738d3d583b6b9c360294d",
+        "to": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080"
+      }
     },
     {
       "id": "ASKFLOOR-1-T3a",
