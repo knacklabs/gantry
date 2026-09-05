@@ -1,0 +1,2 @@
+# r11 sol@xhigh attempt 1 — FAILED (upstream compact 404 at 76 commands); partial output:
+I’ve confirmed the round-11 cardinalities at the artifact level: 6 ACs/6 matching plan contracts, 23 scoped files, 15 leaf tests, and a 25-file/2100-line budget. I’m now replaying the prior-round findings and folds, then I’ll re-check the decision amendments and current source seams for any remaining contradiction.

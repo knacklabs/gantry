@@ -1,0 +1,12 @@
+1. **Cache isolation still permits a new `auto_strict` allow.** AC2 excludes native (`status: skipped`) verdicts from cache writes, but T2b also changes executors such as `async_run_command` from native HIGH to `ambiguous`, allowing an LLM LOW result. That answered result remains cacheable. Today those executors return HIGH without consulting the LLM. [decomposition.json:346](/Users/ravikiranvemula/Workdir/myclaw-askfloor1/.factory/stories/ASKFLOOR-1/decomposition.json:346), [decomposition.json:347](/Users/ravikiranvemula/Workdir/myclaw-askfloor1/.factory/stories/ASKFLOOR-1/decomposition.json:347), [gantry-tool-risk.ts:109](/Users/ravikiranvemula/Workdir/myclaw-askfloor1/apps/core/src/application/permissions/gantry-tool-risk.ts:109).
+
+   Concrete sequence: an interactive-auto executor request receives LLM LOW and writes an allow; repeat the same effect in `auto_strict`. Non-shell Gantry requests can have no rail decision, and the coordinator returns the cached allow before reaching the strict guard. Thus T2b expands the cache leak despite AC6’s unchanged-verdict requirement and Decision 0155’s assertion that this property is “not created or widened.” [permission-deterministic-rails.ts:177](/Users/ravikiranvemula/Workdir/myclaw-askfloor1/apps/core/src/domain/permission-deterministic-rails.ts:177), [ipc-permission-classifier-decision.ts:462](/Users/ravikiranvemula/Workdir/myclaw-askfloor1/apps/core/src/runtime/ipc-permission-classifier-decision.ts:462), [permission-decision-coordinator.ts:223](/Users/ravikiranvemula/Workdir/myclaw-askfloor1/apps/core/src/runtime/permission-decision-coordinator.ts:223), [Decision 0155:34](/Users/ravikiranvemula/Workdir/myclaw-askfloor1/docs/decisions/0155-default-allow-gantry-tools-interactive-auto.md:34).
+
+   **Minimal fix:** extend IPC cache isolation to LLM allows from newly ambiguous T2b rows—for example, suppress their cache writes—and require an interactive-auto→`auto_strict` replay regression in the existing IPC leaf. Reconcile AC2, reviewer focus, Decision 0155 and D-0075 with that boundary.
+
+Non-blocking notes:
+
+- All six ACs match their `plan_contracts` and saved task-plan counterparts. Confirmed 23 unique scoped paths, fifteen unique test titles within scope, and budget 25 files/2100 lines.
+- The round-9 objective and host-protection diagram fixes are present.
+- Reviewer focus still says “nothing else deferred” despite D-0075. [decomposition.json:509](/Users/ravikiranvemula/Workdir/myclaw-askfloor1/.factory/stories/ASKFLOOR-1/decomposition.json:509).
+- No files written; no tests run.
