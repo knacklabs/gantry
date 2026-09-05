@@ -50,14 +50,18 @@ export async function evaluateNativeRiskBranch(input: {
 
   if (
     !risk ||
-    risk.verdict === GantryToolRiskVerdict.Ambiguous ||
+    (risk.verdict === GantryToolRiskVerdict.Ambiguous &&
+      input.lane !== undefined) ||
     (risk.verdict === GantryToolRiskVerdict.Low &&
       input.lane !== PermissionLane.InteractiveAuto)
   ) {
     return undefined;
   }
   return {
-    risk_level: risk.verdict,
+    risk_level:
+      risk.verdict === GantryToolRiskVerdict.Ambiguous
+        ? GantryToolRiskVerdict.High
+        : risk.verdict,
     reason: risk.reason,
     latencyMs: 0,
     status: PermissionClassifierStatus.Skipped,

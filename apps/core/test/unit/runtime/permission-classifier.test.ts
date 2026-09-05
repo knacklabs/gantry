@@ -1047,7 +1047,7 @@ describe('permission classifier decision events', () => {
     },
   );
 
-  it('applies the table with a lane-independent high: a browser click allows under interactive_auto and asks under auto_strict, an absent lane yields no native verdict for the click and for memory_save but a native ask for scheduler_delete_job and for capability_run even against an allow-leaning classifier stub, and an unknown suffix reaches the LLM consult', async () => {
+  it('applies the table with a lane-independent high: a browser click allows under interactive_auto and asks under auto_strict, an absent lane yields no native verdict for the click and for memory_save but a native ask for scheduler_delete_job, for capability_run and for an unregistered suffix even against an allow-leaning classifier stub, and an unknown suffix under interactive_auto reaches the LLM consult', async () => {
     const consult = (
       canonicalToolName: string,
       toolInput: unknown,
@@ -1112,6 +1112,7 @@ describe('permission classifier decision events', () => {
     for (const toolName of [
       'mcp__gantry__scheduler_delete_job',
       'mcp__gantry__capability_run',
+      'mcp__gantry__frobnicate_everything',
     ]) {
       await expect(
         consult(toolName, {}, { classifierConsult: llmAllow }),
