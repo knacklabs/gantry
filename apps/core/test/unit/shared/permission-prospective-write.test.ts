@@ -45,6 +45,7 @@ describe('prospective write boundary', () => {
 
     for (const candidatePath of [
       '../outside.md',
+      'notes/../forward-slash-victim.md',
       'settings.yaml',
       '.private/notes.md',
       'config/private-key.pem',

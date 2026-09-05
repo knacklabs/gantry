@@ -18,7 +18,7 @@ export async function evaluateProspectiveWriteBoundary(input: {
   if (!path.isAbsolute(input.workspaceRoot)) {
     return outside('workspace root must be absolute');
   }
-  if (input.candidatePath.split(path.sep).includes('..')) {
+  if (input.candidatePath.split(/[\\/]/).includes('..')) {
     return outside('write target uses parent traversal');
   }
   try {
