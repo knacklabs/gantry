@@ -1,0 +1,5 @@
+{
+  "event": "done",
+  "id": "Q-EXTINGRESS",
+  "description": "Removed legacy hmac-sha256 symmetric secret for external ingresses"
+}

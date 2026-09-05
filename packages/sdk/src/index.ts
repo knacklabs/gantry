@@ -677,8 +677,7 @@ export type {
 export { conversationMessageTarget } from './ingresses.js';
 export {
   buildIngressSignaturePayload,
-  signIngressRequest,
-  signIngressSignaturePayload,
-  verifyIngressSignature,
+  signIngressRequestEd25519,
+  verifyIngressSignatureEd25519,
 } from './ingress-signature.js';
 export { verifyWebhookSignature } from './webhook-signature.js';

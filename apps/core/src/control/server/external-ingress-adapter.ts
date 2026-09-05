@@ -1,9 +1,11 @@
 import {
   createHash,
   createHmac,
+  generateKeyPairSync,
   randomBytes,
   randomUUID,
   timingSafeEqual,
+  verify as cryptoVerify,
 } from 'node:crypto';
 
 import { ConversationMessageIngressModule } from '../../application/external-ingress/conversation-message-ingress.js';
@@ -183,7 +185,17 @@ export function createExternalIngressModule(
       : undefined,
     jobs: ctx.jobManagement,
     now: nowIso,
-    createSecret: () => randomBytes(32).toString('hex'),
+    createKeyPair: () => {
+      const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+      return {
+        publicKeyPem: publicKey
+          .export({ format: 'pem', type: 'spki' })
+          .toString(),
+        privateKeyPem: privateKey
+          .export({ format: 'pem', type: 'pkcs8' })
+          .toString(),
+      };
+    },
     createInvocationId: randomUUID,
     signatureCrypto: nodeSignatureCrypto,
     consumeTriggerRateLimit: (key, limit) =>
@@ -252,9 +264,6 @@ const nodeSignatureCrypto = {
   sha256(input: string): string {
     return createHash('sha256').update(input).digest('hex');
   },
-  hmacSha256(secret: string, payload: string): string {
-    return createHmac('sha256', secret).update(payload).digest('hex');
-  },
   constantTimeEqual(left: string, right: string): boolean {
     const leftBuffer = Buffer.from(left);
     const rightBuffer = Buffer.from(right);
@@ -262,5 +271,21 @@ const nodeSignatureCrypto = {
       leftBuffer.length === rightBuffer.length &&
       timingSafeEqual(leftBuffer, rightBuffer)
     );
+  },
+  ed25519Verify(
+    publicKeyPem: string,
+    payload: string,
+    signatureBase64: string,
+  ): boolean {
+    try {
+      return cryptoVerify(
+        null,
+        Buffer.from(payload, 'utf8'),
+        publicKeyPem,
+        Buffer.from(signatureBase64, 'base64'),
+      );
+    } catch {
+      return false;
+    }
   },
 };

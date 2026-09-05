@@ -7,8 +7,8 @@ import {
   conversationMessageTarget,
   GantryClient,
   SessionTypingTracker,
-  signIngressRequest,
-  verifyIngressSignature,
+  signIngressRequestEd25519,
+  verifyIngressSignatureEd25519,
   verifyWebhookSignature,
 } from '../../../../../packages/sdk/src/index.js';
 
@@ -49,7 +49,8 @@ describe('@gantry/sdk webhook verification', () => {
 
     expect(
       verifyWebhookSignature({
-        secret: 'secret',
+        privateKeyPem:
+          '-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIP3tUBmenbAl2OxVGr17vT4NhVixlR3wdV/PPYjCXNMY\n-----END PRIVATE KEY-----\n',
         timestamp,
         eventId,
         eventType,
@@ -64,8 +65,9 @@ describe('@gantry/sdk webhook verification', () => {
 describe('@gantry/sdk ingress signature verification', () => {
   it('accepts a valid ingress signature', () => {
     const timestamp = String(Date.now());
-    const signature = signIngressRequest({
-      secret: 'secret',
+    const signature = signIngressRequestEd25519({
+      privateKeyPem:
+        '-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIP3tUBmenbAl2OxVGr17vT4NhVixlR3wdV/PPYjCXNMY\n-----END PRIVATE KEY-----\n',
       method: 'post',
       path: '/v1/external-ingress/invoke',
       timestamp,
@@ -74,8 +76,9 @@ describe('@gantry/sdk ingress signature verification', () => {
     });
 
     expect(
-      verifyIngressSignature({
-        secret: 'secret',
+      verifyIngressSignatureEd25519({
+        publicKeyPem:
+          '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA/UscBZxWkpUgnjdboiEX6XQubDDYu7/5CqWqyawyuHE=\n-----END PUBLIC KEY-----\n',
         method: 'POST',
         path: '/v1/external-ingress/invoke',
         timestamp,
@@ -89,8 +92,9 @@ describe('@gantry/sdk ingress signature verification', () => {
 
   it('rejects stale ingress signatures by default', () => {
     const timestamp = String(Date.now() - 10 * 60_000);
-    const signature = signIngressRequest({
-      secret: 'secret',
+    const signature = signIngressRequestEd25519({
+      privateKeyPem:
+        '-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIP3tUBmenbAl2OxVGr17vT4NhVixlR3wdV/PPYjCXNMY\n-----END PRIVATE KEY-----\n',
       method: 'POST',
       path: '/v1/external-ingress/invoke',
       timestamp,
@@ -99,8 +103,9 @@ describe('@gantry/sdk ingress signature verification', () => {
     });
 
     expect(
-      verifyIngressSignature({
-        secret: 'secret',
+      verifyIngressSignatureEd25519({
+        publicKeyPem:
+          '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA/UscBZxWkpUgnjdboiEX6XQubDDYu7/5CqWqyawyuHE=\n-----END PUBLIC KEY-----\n',
         method: 'POST',
         path: '/v1/external-ingress/invoke',
         timestamp,
@@ -114,8 +119,9 @@ describe('@gantry/sdk ingress signature verification', () => {
 
   it('rejects tampered ingress payloads', () => {
     const timestamp = String(Date.now());
-    const signature = signIngressRequest({
-      secret: 'secret',
+    const signature = signIngressRequestEd25519({
+      privateKeyPem:
+        '-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIP3tUBmenbAl2OxVGr17vT4NhVixlR3wdV/PPYjCXNMY\n-----END PRIVATE KEY-----\n',
       method: 'POST',
       path: '/v1/external-ingress/invoke',
       timestamp,
@@ -124,8 +130,9 @@ describe('@gantry/sdk ingress signature verification', () => {
     });
 
     expect(
-      verifyIngressSignature({
-        secret: 'secret',
+      verifyIngressSignatureEd25519({
+        publicKeyPem:
+          '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA/UscBZxWkpUgnjdboiEX6XQubDDYu7/5CqWqyawyuHE=\n-----END PUBLIC KEY-----\n',
         method: 'POST',
         path: '/v1/external-ingress/invoke',
         timestamp,

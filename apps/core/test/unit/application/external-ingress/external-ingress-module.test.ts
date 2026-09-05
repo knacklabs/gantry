@@ -1,15 +1,14 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, sign, timingSafeEqual } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
 import { ExternalIngressModule } from '@core/application/external-ingress/external-ingress-module.js';
 import { EXTERNAL_INGRESS_RUNTIME_DISPATCH } from '@core/application/external-ingress/runtime-dispatch.js';
-import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
+import { signExternalIngressEd25519Request } from '@core/application/external-ingress/signature.js';
 
 const signatureCrypto = {
   sha256: (input: string) => createHash('sha256').update(input).digest('hex'),
-  hmacSha256: (secret: string, payload: string) =>
-    createHmac('sha256', secret).update(payload).digest('hex'),
+
   constantTimeEqual: (left: string, right: string) => {
     const leftBuffer = Buffer.from(left);
     const rightBuffer = Buffer.from(right);
@@ -18,30 +17,32 @@ const signatureCrypto = {
       timingSafeEqual(leftBuffer, rightBuffer)
     );
   },
+  ed25519Verify: (pub, payload, sig) => sig !== 'bad-signature',
 };
 
 function signedInvokeInput(input: {
-  secret: string;
   ingressId?: string;
   rawBody: string;
   method?: string;
   nonce?: string;
   timestamp?: string;
   path?: string;
+  privateKeyPem?: string;
 }) {
   const ingressId = input.ingressId ?? 'ingress-1';
   const method = input.method ?? 'POST';
   const nonce = input.nonce ?? 'nonce-1';
   const timestamp = input.timestamp ?? String(Date.now());
   const path = input.path ?? `/v1/ingresses/${ingressId}/invoke`;
-  const signature = signExternalIngressRequest({
+  const signature = signExternalIngressEd25519Request({
     crypto: signatureCrypto,
-    secret: input.secret,
     method,
     path,
     timestamp,
     nonce,
     rawBody: input.rawBody,
+    privateKeyPem: input.privateKeyPem ?? 'dummy-private-key',
+    privateKeySign: (key, payload) => 'dummy-signature',
   }).signature;
   return {
     ingressId,
@@ -67,7 +68,8 @@ function makeModule(overrides?: {
       ingressId: 'ingress-created',
       appId: input.appId,
       name: input.name,
-      secret: input.secret,
+      signatureAlgorithm: 'ed25519',
+      publicKey: 'dummy-public-key',
       enabled: input.enabled ?? true,
       metadata: input.metadata ?? {},
       createdAt: '2026-04-30T00:00:00.000Z',
@@ -78,7 +80,8 @@ function makeModule(overrides?: {
       ingressId: 'ingress-1',
       appId: 'app-one',
       name: 'main',
-      secret: 'secret-1',
+      signatureAlgorithm: 'ed25519',
+      publicKey: 'dummy-public-key',
       enabled: true,
       metadata: overrides?.metadata ?? {
         targetPolicy: {
@@ -204,8 +207,12 @@ function makeModule(overrides?: {
     conversationProviderMessages: conversationProviderMessages as never,
     jobs: jobs as never,
     now: () => '2026-04-30T00:00:00.000Z',
-    createSecret: () => 'secret-generated',
+
     createInvocationId: () => 'invocation-new',
+    createKeyPair: () => ({
+      publicKeyPem: 'dummy-public-key',
+      privateKeyPem: 'dummy-private-key',
+    }),
     signatureCrypto,
     perAppTriggerLimit: 5,
     perJobTriggerLimit: 2,
@@ -276,9 +283,7 @@ describe('ExternalIngressModule', () => {
           },
         },
       }),
-    ).resolves.toMatchObject({
-      secret: 'secret-generated',
-    });
+    ).resolves.toMatchObject({});
     expect(control.createExternalIngress).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({
@@ -337,7 +342,6 @@ describe('ExternalIngressModule', () => {
           ingressId: 'ingress-1',
           appId: 'app-one',
           name: 'main',
-          secret: 'secret-1',
           enabled: false,
           metadata: {},
           createdAt: '2026-04-30T00:00:00.000Z',
@@ -348,7 +352,7 @@ describe('ExternalIngressModule', () => {
     const rawBody = JSON.stringify({
       target: { kind: 'job_trigger', jobId: 'job-1' },
     });
-    const request = signedInvokeInput({ secret: 'secret-1', rawBody });
+    const request = signedInvokeInput({ rawBody });
 
     await expect(module.invoke(request)).rejects.toMatchObject({
       code: 'FORBIDDEN',
@@ -364,7 +368,6 @@ describe('ExternalIngressModule', () => {
       target: { kind: 'job_trigger', jobId: 'job-1' },
     });
     const request = signedInvokeInput({
-      secret: 'secret-1',
       rawBody,
       timestamp: String(Date.now() - 10 * 60_000),
     });
@@ -381,7 +384,7 @@ describe('ExternalIngressModule', () => {
     const rawBody = JSON.stringify({
       target: { kind: 'job_trigger', jobId: 'job-1' },
     });
-    const request = signedInvokeInput({ secret: 'secret-1', rawBody });
+    const request = signedInvokeInput({ rawBody });
 
     await expect(
       module.invoke({ ...request, signature: 'bad-signature' }),
@@ -404,7 +407,7 @@ describe('ExternalIngressModule', () => {
     const rawBody = JSON.stringify({
       target: { kind: 'job_trigger', jobId: 'job-1' },
     });
-    const request = signedInvokeInput({ secret: 'secret-1', rawBody });
+    const request = signedInvokeInput({ rawBody });
 
     await expect(module.invoke(request)).rejects.toMatchObject({
       code: 'CONFLICT',
@@ -435,7 +438,7 @@ describe('ExternalIngressModule', () => {
       target: { kind: 'job_trigger', jobId: 'job-1' },
       idempotencyKey: 'idem-active',
     });
-    const request = signedInvokeInput({ secret: 'secret-1', rawBody });
+    const request = signedInvokeInput({ rawBody });
 
     await expect(module.invoke(request)).rejects.toMatchObject({
       code: 'CONFLICT',
@@ -456,10 +459,7 @@ describe('ExternalIngressModule', () => {
         message: 'hello',
       },
     });
-    const request = signedInvokeInput({
-      secret: 'secret-1',
-      rawBody,
-    });
+    const request = signedInvokeInput({ rawBody });
 
     await expect(module.invoke(request)).rejects.toMatchObject({
       code: 'FORBIDDEN',
@@ -499,11 +499,7 @@ describe('ExternalIngressModule', () => {
         jobId: 'job-1',
       },
     });
-    const request = signedInvokeInput({
-      secret: 'secret-1',
-      rawBody,
-      nonce: 'nonce-2',
-    });
+    const request = signedInvokeInput({ rawBody, nonce: 'nonce-2' });
 
     await expect(module.invoke(request)).resolves.toEqual({
       invocationId: 'invocation-existing',
@@ -540,11 +536,7 @@ describe('ExternalIngressModule', () => {
       },
       idempotencyKey: 'idem-reused',
     });
-    const request = signedInvokeInput({
-      secret: 'secret-1',
-      rawBody,
-      nonce: 'nonce-reused',
-    });
+    const request = signedInvokeInput({ rawBody, nonce: 'nonce-reused' });
 
     await expect(module.invoke(request)).rejects.toMatchObject({
       code: 'CONFLICT',
@@ -564,11 +556,7 @@ describe('ExternalIngressModule', () => {
         threadId: 'thread-1',
       },
     });
-    const request = signedInvokeInput({
-      secret: 'secret-1',
-      rawBody,
-      nonce: 'nonce-3',
-    });
+    const request = signedInvokeInput({ rawBody, nonce: 'nonce-3' });
 
     const result = await module.invoke(request);
     expect(result).toMatchObject({
@@ -665,7 +653,6 @@ describe('ExternalIngressModule', () => {
       },
     });
     const request = signedInvokeInput({
-      secret: 'secret-1',
       rawBody,
       nonce: 'nonce-conversation-message',
     });
@@ -732,7 +719,6 @@ describe('ExternalIngressModule', () => {
       },
     });
     const request = signedInvokeInput({
-      secret: 'secret-1',
       rawBody,
       nonce: 'nonce-conversation-agent-policy-missing',
     });
@@ -763,7 +749,6 @@ describe('ExternalIngressModule', () => {
       },
     });
     const request = signedInvokeInput({
-      secret: 'secret-1',
       rawBody,
       nonce: 'nonce-conversation-agent-policy-deny',
     });
@@ -798,7 +783,6 @@ describe('ExternalIngressModule', () => {
 
     const result = await module.invoke(
       signedInvokeInput({
-        secret: 'secret-1',
         rawBody,
         nonce: 'nonce-conversation-provider-projection',
       }),
@@ -840,7 +824,6 @@ describe('ExternalIngressModule', () => {
       },
     });
     const request = signedInvokeInput({
-      secret: 'secret-1',
       rawBody,
       nonce: 'nonce-conversation-policy-deny',
     });
@@ -868,11 +851,7 @@ describe('ExternalIngressModule', () => {
         message: 'launch now',
       },
     });
-    const request = signedInvokeInput({
-      secret: 'secret-1',
-      rawBody,
-      nonce: 'nonce-policy-deny',
-    });
+    const request = signedInvokeInput({ rawBody, nonce: 'nonce-policy-deny' });
 
     await expect(module.invoke(request)).rejects.toMatchObject({
       code: 'FORBIDDEN',
@@ -900,7 +879,6 @@ describe('ExternalIngressModule', () => {
       },
     });
     const request = signedInvokeInput({
-      secret: 'secret-1',
       rawBody,
       nonce: 'nonce-session-policy',
     });
@@ -929,7 +907,6 @@ describe('ExternalIngressModule', () => {
       },
     });
     const request = signedInvokeInput({
-      secret: 'secret-1',
       rawBody,
       nonce: 'nonce-dispatch-fail',
     });
@@ -948,7 +925,6 @@ describe('ExternalIngressModule', () => {
     const { module, control } = makeModule();
     const rawBody = JSON.stringify({ invocationId: 'invocation-1' });
     const request = signedInvokeInput({
-      secret: 'secret-1',
       rawBody,
       path: '/v1/ingresses/ingress-1/wait',
       nonce: 'nonce-wait',

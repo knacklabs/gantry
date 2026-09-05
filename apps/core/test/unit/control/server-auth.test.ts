@@ -1,5 +1,11 @@
 import fs from 'node:fs';
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import {
+  createHash,
+  createHmac,
+  timingSafeEqual,
+  sign,
+  createPrivateKey,
+} from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import net from 'node:net';
 import os from 'node:os';
@@ -22,7 +28,7 @@ import {
   getConfiguredAgentRuntime,
   syncRuntimeSettingsFromProjection,
 } from '@core/config/index.js';
-import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
+import { signExternalIngressEd25519Request } from '@core/application/external-ingress/signature.js';
 import { preflightModelProvider } from '@core/adapters/llm/model-provider-preflight.js';
 import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
@@ -211,7 +217,9 @@ const controlRepo = {
     ingressId: 'ingress-1',
     appId: 'app-one',
     name: 'ingress-main',
-    secret: 'ingress-secret',
+    signatureAlgorithm: 'ed25519',
+    publicKey:
+      '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
     enabled: true,
     metadata: {
       targetPolicy: {
@@ -373,6 +381,7 @@ const ingressSignatureCrypto = {
       timingSafeEqual(leftBuffer, rightBuffer)
     );
   },
+  ed25519Verify: (pub, payload, sig) => sig !== 'bad-signature',
 };
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
@@ -563,9 +572,14 @@ function signIngressRequest(input: {
   const timestamp = input.timestamp ?? String(Date.now());
   const nonce = input.nonce ?? 'nonce-1';
   const path = input.path ?? `/v1/ingresses/${input.ingressId}/invoke`;
-  const signature = signExternalIngressRequest({
+  const signature = signExternalIngressEd25519Request({
     crypto: ingressSignatureCrypto,
-    secret: input.secret ?? 'ingress-secret',
+    privateKeyPem:
+      '-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHamHYYXeydH88t+YtbmslU3Yfg16V0UEODYvyAFMgvE\n-----END PRIVATE KEY-----\n',
+    privateKeySign: (key, payload) =>
+      sign(null, Buffer.from(payload, 'utf8'), createPrivateKey(key)).toString(
+        'base64',
+      ),
     method,
     path,
     timestamp,
@@ -604,7 +618,9 @@ beforeEach(() => {
     ingressId: 'ingress-1',
     appId: 'app-one',
     name: 'ingress-main',
-    secret: 'ingress-secret',
+    signatureAlgorithm: 'ed25519',
+    publicKey:
+      '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
     enabled: true,
     metadata: {
       targetPolicy: {
@@ -2208,7 +2224,9 @@ describe('control server runtime hardening', () => {
       ingressId: 'ingress-1',
       appId: 'app-one',
       name: 'ingress-main',
-      secret: 'ingress-secret',
+      signatureAlgorithm: 'ed25519',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
       enabled: true,
       metadata: {
         targetPolicy: {
@@ -2367,7 +2385,9 @@ describe('control server runtime hardening', () => {
       ingressId: 'ingress-1',
       appId: 'app-one',
       name: 'ingress-main',
-      secret: 'ingress-secret',
+      signatureAlgorithm: 'ed25519',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
       enabled: true,
       metadata: {
         targetPolicy: {
@@ -2492,7 +2512,9 @@ describe('control server runtime hardening', () => {
       ingressId: 'ingress-1',
       appId: 'app-one',
       name: 'ingress-main',
-      secret: 'ingress-secret',
+      signatureAlgorithm: 'ed25519',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
       enabled: true,
       metadata: {
         targetPolicy: {
@@ -4800,7 +4822,9 @@ describe('control server runtime hardening', () => {
       ingressId: 'ingress-1',
       appId: 'app-one',
       name: 'ingress-main',
-      secret: 'ingress-secret',
+      signatureAlgorithm: 'ed25519',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkP1E2keGr7wp/N+BjdrZrvWbw2scCDzw1ZcPT5LNN94=\n-----END PUBLIC KEY-----\n',
       enabled: false,
       metadata: {},
       createdAt: '2026-04-24T00:00:00.000Z',

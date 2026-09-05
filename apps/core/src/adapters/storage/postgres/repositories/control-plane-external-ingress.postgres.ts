@@ -30,7 +30,8 @@ export class PostgresExternalIngressRepository {
     ingressId?: string;
     appId: string;
     name: string;
-    secret: string;
+    signatureAlgorithm?: string;
+    publicKey: string;
     enabled?: boolean;
     metadata?: unknown;
   }) {
@@ -47,7 +48,9 @@ export class PostgresExternalIngressRepository {
         ingressId: input.ingressId ?? randomUUID(),
         appId: input.appId,
         name: input.name,
-        secret: encryptExternalIngressSecret(input.secret, this.runtimeSecrets),
+
+        signatureAlgorithm: input.signatureAlgorithm ?? 'hmac-sha256',
+        publicKey: input.publicKey,
         enabled: input.enabled ?? true,
         metadataJson: JSON.stringify(input.metadata ?? {}),
         createdAt: now,
@@ -87,7 +90,9 @@ export class PostgresExternalIngressRepository {
     appId: string,
     patch: {
       name?: string;
-      secret?: string;
+
+      signatureAlgorithm?: string;
+      publicKey?: string;
       enabled?: boolean;
       metadata?: unknown;
     },
@@ -108,10 +113,11 @@ export class PostgresExternalIngressRepository {
       .update(pgSchema.externalIngressesPostgres)
       .set({
         name: patch.name ?? existing.name,
-        secret:
-          patch.secret !== undefined
-            ? encryptExternalIngressSecret(patch.secret, this.runtimeSecrets)
-            : existing.secret,
+
+        signatureAlgorithm:
+          patch.signatureAlgorithm ?? existing.signatureAlgorithm,
+        publicKey:
+          patch.publicKey !== undefined ? patch.publicKey : existing.publicKey,
         enabled: patch.enabled ?? existing.enabled,
         metadataJson:
           patch.metadata !== undefined
@@ -399,7 +405,8 @@ function mapExternalIngress(
     ingressId: string;
     appId: string;
     name: string;
-    secret: string;
+    signatureAlgorithm: string;
+    publicKey: string;
     enabled: boolean;
     metadataJson: string;
     createdAt: string;
@@ -411,160 +418,13 @@ function mapExternalIngress(
     ingressId: row.ingressId,
     appId: row.appId,
     name: row.name,
-    secret: decryptExternalIngressSecret(row.secret, runtimeSecrets),
+    signatureAlgorithm: row.signatureAlgorithm,
+    publicKey: row.publicKey,
     enabled: row.enabled,
     metadata: parseJson(row.metadataJson, {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
-}
-
-export function resolveExternalIngressSecretKey(
-  runtimeSecrets: RuntimeSecretProvider,
-): Buffer {
-  const keyringJson = runtimeSecrets
-    .getOptionalSecret({ env: SECRET_ENCRYPTION_KEYRING_ENV })
-    ?.trim();
-  if (keyringJson) {
-    return parseExternalIngressSecretKeyring(keyringJson).activeKey;
-  }
-  const raw = runtimeSecrets
-    .getOptionalSecret({ env: SECRET_ENCRYPTION_KEY_ENV })
-    ?.trim();
-  if (!raw) {
-    throw new Error(
-      `${SECRET_ENCRYPTION_KEY_ENV} or ${SECRET_ENCRYPTION_KEYRING_ENV} is required for external ingress secret encryption.`,
-    );
-  }
-  const decoded = Buffer.from(raw, 'base64');
-  if (decoded.length === 32) return decoded;
-  throw new Error(
-    `${SECRET_ENCRYPTION_KEY_ENV} must be a base64-encoded 32-byte secret for external ingress secret encryption.`,
-  );
-}
-
-function resolveExternalIngressSecretKeyCandidates(
-  runtimeSecrets: RuntimeSecretProvider,
-): Buffer[] {
-  const keyringJson = runtimeSecrets
-    .getOptionalSecret({ env: SECRET_ENCRYPTION_KEYRING_ENV })
-    ?.trim();
-  if (!keyringJson) return [resolveExternalIngressSecretKey(runtimeSecrets)];
-  const keyring = parseExternalIngressSecretKeyring(keyringJson);
-  return [
-    keyring.activeKey,
-    ...keyring.keys.filter((key) => !key.equals(keyring.activeKey)),
-  ];
-}
-
-function parseExternalIngressSecretKeyring(raw: string): {
-  activeKey: Buffer;
-  keys: Buffer[];
-} {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`${SECRET_ENCRYPTION_KEYRING_ENV} must be valid JSON.`, {
-      cause: error,
-    });
-  }
-  const record = parsed as { active?: unknown; keys?: unknown };
-  if (
-    !record ||
-    typeof record !== 'object' ||
-    typeof record.active !== 'string' ||
-    !record.active.trim() ||
-    !record.keys ||
-    typeof record.keys !== 'object' ||
-    Array.isArray(record.keys)
-  ) {
-    throw new Error(
-      `${SECRET_ENCRYPTION_KEYRING_ENV} must include active and keys.`,
-    );
-  }
-  const keys = new Map<string, Buffer>();
-  for (const [keyId, encoded] of Object.entries(
-    record.keys as Record<string, unknown>,
-  )) {
-    if (!keyId.trim() || typeof encoded !== 'string') {
-      throw new Error(
-        `${SECRET_ENCRYPTION_KEYRING_ENV} keys must map key ids to base64 secrets.`,
-      );
-    }
-    const decoded = Buffer.from(encoded, 'base64');
-    if (decoded.length !== 32) {
-      throw new Error(
-        `${SECRET_ENCRYPTION_KEYRING_ENV} key ${keyId} must be a base64-encoded 32-byte secret.`,
-      );
-    }
-    keys.set(keyId, decoded);
-  }
-  const activeKey = keys.get(record.active);
-  if (!activeKey) {
-    throw new Error(
-      `${SECRET_ENCRYPTION_KEYRING_ENV} active key is not present in keys.`,
-    );
-  }
-  return { activeKey, keys: [...keys.values()] };
-}
-
-export function encryptExternalIngressSecret(
-  secret: string,
-  runtimeSecrets: RuntimeSecretProvider,
-): string {
-  if (secret.startsWith(EXTERNAL_INGRESS_SECRET_PREFIX)) return secret;
-  const iv = randomBytes(12);
-  const cipher = createCipheriv(
-    'aes-256-gcm',
-    resolveExternalIngressSecretKey(runtimeSecrets),
-    iv,
-  );
-  const ciphertext = Buffer.concat([
-    cipher.update(secret, 'utf8'),
-    cipher.final(),
-  ]);
-  const tag = cipher.getAuthTag();
-  return [
-    EXTERNAL_INGRESS_SECRET_PREFIX.slice(0, -1),
-    iv.toString('base64url'),
-    tag.toString('base64url'),
-    ciphertext.toString('base64url'),
-  ].join(':');
-}
-
-export function decryptExternalIngressSecret(
-  stored: string,
-  runtimeSecrets: RuntimeSecretProvider,
-): string {
-  if (!stored.startsWith(EXTERNAL_INGRESS_SECRET_PREFIX)) {
-    throw new Error(
-      'External ingress secret is not encrypted. Rotate the ingress secret before use.',
-    );
-  }
-  const [_enc, _v1, ivRaw, tagRaw, ciphertextRaw] = stored.split(':');
-  if (!ivRaw || !tagRaw || !ciphertextRaw) {
-    throw new Error('External ingress secret ciphertext is malformed.');
-  }
-  const iv = Buffer.from(ivRaw, 'base64url');
-  const tag = Buffer.from(tagRaw, 'base64url');
-  const ciphertext = Buffer.from(ciphertextRaw, 'base64url');
-  let lastError: unknown;
-  for (const key of resolveExternalIngressSecretKeyCandidates(runtimeSecrets)) {
-    const decipher = createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(tag);
-    try {
-      return Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final(),
-      ]).toString('utf8');
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error('External ingress secret decryption failed.');
 }
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {

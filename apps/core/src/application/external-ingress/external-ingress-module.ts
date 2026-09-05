@@ -9,7 +9,7 @@ import {
 } from './runtime-dispatch.js';
 import {
   type ExternalIngressSignaturePort,
-  verifyExternalIngressRequestSignature,
+  verifyExternalIngressEd25519Signature,
 } from './signature.js';
 import {
   assertTargetAllowed,
@@ -27,7 +27,8 @@ type ExternalIngressRecord = {
   ingressId: string;
   appId: string;
   name: string;
-  secret: string;
+  signatureAlgorithm: string;
+  publicKey: string;
   enabled: boolean;
   metadata: unknown;
   createdAt: string;
@@ -38,7 +39,8 @@ type ExternalIngressControlPort = {
   createExternalIngress(input: {
     appId: string;
     name: string;
-    secret: string;
+    signatureAlgorithm?: string;
+    publicKey?: string;
     enabled?: boolean;
     metadata?: unknown;
   }): Promise<ExternalIngressRecord>;
@@ -52,7 +54,8 @@ type ExternalIngressControlPort = {
     appId: string,
     patch: {
       name?: string;
-      secret?: string;
+      signatureAlgorithm?: string;
+      publicKey?: string;
       enabled?: boolean;
       metadata?: unknown;
     },
@@ -134,7 +137,7 @@ export class ExternalIngressModule {
       conversationProviderMessages?: ConversationMessageProjectionPort;
       jobs: JobManagementService;
       now: () => string;
-      createSecret: () => string;
+      createKeyPair: () => { publicKeyPem: string; privateKeyPem: string };
       createInvocationId: () => string;
       signatureCrypto: ExternalIngressSignaturePort;
       consumeTriggerRateLimit?: (key: string, limit: number) => boolean;
@@ -148,20 +151,35 @@ export class ExternalIngressModule {
     name: string;
     enabled?: boolean;
     metadata?: unknown;
+    signatureAlgorithm?: string;
+    publicKey?: string;
   }) {
     if (!input.name.trim()) {
       throw new ApplicationError('INVALID_REQUEST', 'name is required');
     }
-    const secret = this.deps.createSecret();
     const metadata = validateIngressMetadata(input.metadata ?? {});
+    const publicKey = input.publicKey?.trim() ?? null;
+    let privateKeyPem: string | undefined;
+    let storedPublicKey: string;
+    if (publicKey) {
+      storedPublicKey = publicKey;
+    } else {
+      const keyPair = this.deps.createKeyPair();
+      storedPublicKey = keyPair.publicKeyPem;
+      privateKeyPem = keyPair.privateKeyPem;
+    }
     const ingress = await this.deps.control.createExternalIngress({
       appId: input.appId,
       name: input.name.trim(),
-      secret,
+      signatureAlgorithm: 'ed25519',
+      publicKey: storedPublicKey,
       enabled: input.enabled ?? true,
       metadata,
     });
-    return { ...publicIngress(ingress), secret };
+    return {
+      ...publicIngress(ingress),
+      ...(privateKeyPem ? { privateKey: privateKeyPem } : {}),
+    };
   }
 
   async list(appId: string) {
@@ -199,14 +217,23 @@ export class ExternalIngressModule {
   }
 
   async rotate(input: { appId: string; ingressId: string }) {
-    const secret = this.deps.createSecret();
-    const ingress = await this.deps.control.updateExternalIngress(
+    const existing = await this.deps.control.getExternalIngressById(
       input.ingressId,
       input.appId,
-      { secret },
     );
-    if (!ingress) throw new ApplicationError('NOT_FOUND', 'Ingress not found');
-    return { ...publicIngress(ingress), secret };
+    if (!existing) throw new ApplicationError('NOT_FOUND', 'Ingress not found');
+    if (existing.signatureAlgorithm === 'ed25519') {
+      const keyPair = this.deps.createKeyPair();
+      const ingress = await this.deps.control.updateExternalIngress(
+        input.ingressId,
+        input.appId,
+        { publicKey: keyPair.publicKeyPem },
+      );
+      if (!ingress) {
+        throw new ApplicationError('NOT_FOUND', 'Ingress not found');
+      }
+      return { ...publicIngress(ingress), privateKey: keyPair.privateKeyPem };
+    }
   }
 
   async delete(input: { appId: string; ingressId: string }) {
@@ -234,16 +261,18 @@ export class ExternalIngressModule {
     if (!ingress.enabled) {
       throw new ApplicationError('FORBIDDEN', 'Ingress is disabled');
     }
-    const ok = verifyExternalIngressRequestSignature({
-      crypto: this.deps.signatureCrypto,
-      secret: ingress.secret,
-      method: input.method,
-      path: input.path,
-      timestamp: input.timestamp,
-      nonce: input.nonce,
-      rawBody: input.rawBody,
-      signature: input.signature,
-    });
+    const ok = ingress.publicKey
+      ? verifyExternalIngressEd25519Signature({
+          crypto: this.deps.signatureCrypto,
+          publicKeyPem: ingress.publicKey,
+          method: input.method,
+          path: input.path,
+          timestamp: input.timestamp,
+          nonce: input.nonce,
+          rawBody: input.rawBody,
+          signature: input.signature,
+        })
+      : false;
     if (!ok) {
       throw new ApplicationError(
         'FORBIDDEN',
@@ -382,16 +411,19 @@ export class ExternalIngressModule {
     if (!ingress.enabled) {
       throw new ApplicationError('FORBIDDEN', 'Ingress is disabled');
     }
-    const ok = verifyExternalIngressRequestSignature({
-      crypto: this.deps.signatureCrypto,
-      secret: ingress.secret,
-      method: input.method,
-      path: input.path,
-      timestamp: input.timestamp,
-      nonce: input.nonce,
-      rawBody: input.rawBody,
-      signature: input.signature,
-    });
+    const ok =
+      ingress.signatureAlgorithm === 'ed25519' && ingress.publicKey
+        ? verifyExternalIngressEd25519Signature({
+            crypto: this.deps.signatureCrypto,
+            publicKeyPem: ingress.publicKey,
+            method: input.method,
+            path: input.path,
+            timestamp: input.timestamp,
+            nonce: input.nonce,
+            rawBody: input.rawBody,
+            signature: input.signature,
+          })
+        : false;
     if (!ok) {
       throw new ApplicationError(
         'FORBIDDEN',
@@ -629,6 +661,8 @@ function publicIngress(ingress: ExternalIngressRecord) {
     ingressId: ingress.ingressId,
     appId: ingress.appId,
     name: ingress.name,
+    signatureAlgorithm: ingress.signatureAlgorithm,
+    ...(ingress.publicKey ? { publicKey: ingress.publicKey } : {}),
     enabled: ingress.enabled,
     metadata: ingress.metadata,
     createdAt: ingress.createdAt,
