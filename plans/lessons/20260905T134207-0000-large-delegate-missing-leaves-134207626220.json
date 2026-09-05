@@ -1,0 +1,11 @@
+{
+  "topic": "large-delegate-missing-leaves",
+  "lesson": "Exactly six required leaves are still missing; every source file and every other suite is complete, committed and green (tsc clean). Write ONLY these six it() titles verbatim, one file at a time, running only that file after each: - apps/core/test/unit/jobs/ipc-file-artifact-handlers.test.ts: it('hides protected entries from list with a protectedHidden count and refuses a protected read by id and by path with the fixed not-a-permission-question text') - apps/core/test/unit/runner/mcp/file-tool.test.ts: it('appends the protected-entries-hidden line to list output only when the count is positive and relays a protected read refusal unchanged') - apps/core/test/unit/runner/tool-permission-gate.test.ts: it('keeps capability_run high through the typed table for the CAPSAFE-1 boundary with no classifier-derived or cached allow') - apps/core/test/unit/runtime/askfloor-tap-budget.test.ts: it('TB1 TB2 TB3 TB4: a browser click, a file read by path, an unprotected file write and a native FileWrite inside the workspace cost 0 taps in interactive auto with the LLM consult not invoked') - apps/core/test/unit/runtime/askfloor-tap-budget.test.ts: it('mirror fixtures: a protected file write, a FileWrite outside the workspace and scheduler_delete_job cost 1 tap, and a raw-path file_attach reaches the stubbed LLM consult as ambiguous') - apps/core/test/unit/runtime/askfloor-tap-budget.test.ts: it('keeps today's outcome for the TB1 TB2 TB3 TB4 fixtures under auto_strict, ask and autonomous')",
+  "source": "5e060951a",
+  "applies_to": [
+    "apps/core/test/unit/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-05T13:42:07+00:00"
+}
