@@ -15,7 +15,9 @@ export default makeVitestConfig({
           'apps/core/test/integration/fleet-capability-chaos-combo.postgres.integration.test.ts',
         ]
       : lane === 'hot-path'
-        ? ['apps/core/test/integration/**/*-explain.postgres.integration.test.ts']
+        ? [
+            'apps/core/test/integration/**/*-explain.postgres.integration.test.ts',
+          ]
         : ['apps/core/test/integration/**/*.postgres.integration.test.ts'],
   exclude:
     lane === 'default'
