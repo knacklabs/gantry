@@ -19,9 +19,12 @@ export async function getOldestWaitingLiveAdmission(
 ): Promise<OldestWaitingLiveAdmission | null> {
   if (input.conversationJids.length === 0) return null;
   const now = input.now ?? currentIso();
-  // messages.conversation_id is `conversation:<jid>`; live_turns.conversation_id
-  // is the raw jid. Normalize the routed input once so live_turns predicates stay
-  // plain-column comparisons instead of expression joins.
+  // messages.conversation_id is `conversation:<jid>` for legacy rows and
+  // `conversation:<providerAccountId>:<jid>` for current writes (0091/0092), with
+  // the raw jid kept in external_ref_json.chat_jid — the same two-axis match as
+  // messageConversationFilter. live_turns.conversation_id is the raw jid.
+  // Normalize the routed input once so live_turns predicates stay plain-column
+  // comparisons instead of expression joins.
   const routed = sql.join(
     input.conversationJids.map(
       (jid) => sql`(${jid}::text, ${`conversation:${jid}`}::text)`,
@@ -42,7 +45,9 @@ export async function getOldestWaitingLiveAdmission(
            m.created_at AS waiting_since,
            floor(extract(epoch FROM (${now}::timestamptz - m.created_at)))::int AS age_seconds
     FROM routed
-    INNER JOIN messages m ON m.conversation_id = routed.conversation_id
+    INNER JOIN messages m
+      ON m.conversation_id = routed.conversation_id
+      OR m.external_ref_json::jsonb->>'chat_jid' = routed.raw_jid
     WHERE m.direction = 'inbound'
       AND NOT EXISTS (
         SELECT 1 FROM live_turns lt
