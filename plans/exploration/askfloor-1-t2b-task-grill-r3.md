@@ -1,0 +1,14 @@
+# ASKFLOOR-1-T2b task-contract grill — round 3
+
+Read-only cold-read review, no file edits, no writes. Follow `factory/prompts/griller.md --gate task` for the `ASKFLOOR-1-T2b` entry in `.factory/stories/ASKFLOOR-1/decomposition.json` and its saved task plan `.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md`. Inputs of record as in round 1 (`plans/exploration/askfloor-1-t2b-task-grill.md`); rounds 1–2 briefs and answers `-r1-answer.md`, `-r2.md`, `-r2-answer.md`.
+
+Round 2 found four blockers; all folded:
+1. The eligibility gate gains an optional `lane` parameter; `FileWrite`/`FileEdit` are eligible ONLY when the caller-provided lane is `interactive_auto`, evaluated before today's exits; absent or any other lane keeps them ineligible (today's `undefined`, nothing emitted). Required leaf 6 pins absent and `auto_strict`.
+2. Artifact-sourced `file_upload` → `ambiguous` (0155 amendment extended); artifact-sourced `file_attach` stays LOW and `runtime/browser-file-attach-source.ts` applies `isProtectedArtifactEntry` after resolving the artifact (NEW standalone suite `test/unit/runtime/browser-file-attach-source.test.ts`; required leaf 11). Scope 22 files, budget 24/2000, fourteen required tests.
+3. The prospective boundary is total and fail-closed: missing/non-absolute/unresolvable root, non-absolute candidate, any `realpath`/`lstat`/fs error → `{ inside: false, reason }`, never throws; required leaf 4 covers them.
+4. Native destinations: EVERY non-blank string among `file_path` and `path` is evaluated; both present → fail closed (`high` if any not inside); `ambiguous` only with no string destination; required leaf 5 covers the conflicting-dual-key case.
+Also: the stale `:302` locator corrected to `:290-304`.
+
+Verify with `path:line` citations, adversarially: (a) every current-code claim (the gate's callers and how the classifier would pass its input lane into it; the resolver's export, consumer and the artifact fields available after resolution — does the resolved artifact expose `scope` and `path` for the predicate?; the `file read` refusal path the resolver should mirror; the browser handler's error propagation for a refused attach); (b) that the lane-gated eligibility keeps `auto_strict`, `ask`, job and inline outcomes byte-identical including emitted events and cache writes; (c) that the resolver check cannot change any non-protected attach behaviour; (d) consistency across the task plan, `plan_contracts`, `acceptance_criteria`, `required_tests` (fourteen — each a single `-t` selectable leaf), `reviewer_focus`, `write_scope` (22) and `review_budget` (24/2000); (e) whether the decision 0155 amendment (now four bullets) and the task plan agree on every rule.
+
+Blockers must be defects that would make the implementer build the wrong thing or make an AC unprovable. Output: `CONTRACT SOUND` or a numbered list of blockers (what, where, why, minimal fix), then non-blocking notes.
