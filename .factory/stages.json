@@ -4,12 +4,14 @@
     {
       "id": "ASKFLOOR-1-T1",
       "title": "Routing: the judge's verdict stands in interactive auto",
-      "status": "done"
+      "status": "done",
+      "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70"
     },
     {
       "id": "ASKFLOOR-1-T2a",
       "title": "Shape classifier extraction, attachment birthright, judge status",
-      "status": "done"
+      "status": "done",
+      "task_sha256": "50b0ea1feb43722f37ffef399152c3e78a98bbb5b1da76c9717e828467630626"
     },
     {
       "id": "ASKFLOOR-1-T2b",
