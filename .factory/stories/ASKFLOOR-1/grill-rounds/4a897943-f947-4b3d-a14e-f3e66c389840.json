@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Browser file actions with a raw filesystem path (file_attach with a path, or file_upload with a path source) do not read from the agent workspace: the browser executor resolves relative paths under the session's extra directory and only accepts files under that directory or the OS temp directory; anything else is rejected at execution. Decision 0155 currently says such paths are LOW inside the workspace and HIGH outside or protected or secret, which cannot be proven against the real root. How should T2b judge these rows?",
+      "options": [
+        "Ambiguous \u2192 judge (Recommended)",
+        "Judge against the browser root",
+        "Always HIGH (ask)"
+      ],
+      "chosen": "Ambiguous \u2192 judge (Recommended)"
+    }
+  ],
+  "at": "2026-09-05T06:39:26.617659+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

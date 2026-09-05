@@ -1,0 +1,9 @@
+# ASKFLOOR-1-T2b task-contract grill — round 5
+
+Read-only cold-read review, no file edits, no writes. Follow `factory/prompts/griller.md --gate task` for the `ASKFLOOR-1-T2b` entry in `.factory/stories/ASKFLOOR-1/decomposition.json` and its saved task plan `.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md`. Inputs of record as in round 1 (`plans/exploration/askfloor-1-t2b-task-grill.md`); rounds 1–4 briefs and answers (`-r1-answer.md` … `-r4-answer.md`).
+
+Round 4 found one blocker: browser raw-path containment was judged against the wrong root. OWNER RULING 2026-09-05 (ledgered; decision 0155 amendment, fifth bullet): every raw filesystem path source on a browser file action is `ambiguous` (the classifier judges with the path in hand; the executor's own root confinement — `DATA_DIR/sessions/<agent>/extra` or OS temp — remains the safety property). Consequences folded: no browser containment row; the risk table is PURE and synchronous (`gantryToolRisk({ toolName, toolInput })`); the shared prospective boundary is consumed by `native-file-write-risk.ts` only; the browser table leaf and the mirror-fixture leaf are retitled; the protected-writes row covers native Write/Edit and `file` write/promote only. Citation cleanups applied (file.ts list rendering `:113-123`; browser handler call `:390-394`; classifier input `:290-304`; list/read omitted scope = unfiltered).
+
+Round 5 is a consistency and residual check: (a) every `path:line` citation in the ACs resolves to the claimed fact; (b) consistency across the task plan, `plan_contracts`, `acceptance_criteria`, `required_tests` (fourteen — each a single `-t` selectable leaf matching the AC it proves), `reviewer_focus`, `write_scope` (22) and `review_budget` (24/2000); (c) any remaining defect that would make the implementer build the wrong thing or make an AC unprovable.
+
+Output: `CONTRACT SOUND` or a numbered list of blockers (what, where, why, minimal fix), then non-blocking notes.
