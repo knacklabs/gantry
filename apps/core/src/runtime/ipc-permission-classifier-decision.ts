@@ -175,8 +175,8 @@ export async function resolvePermissionIpcDecision(input: {
     },
     skipClassifierVerdictCache: Boolean(
       hostJobId ||
-        gantryNativeCanonicalToolName(input.request.toolName)?.canonical ===
-          'capability_run',
+      gantryNativeCanonicalToolName(input.request.toolName)?.canonical ===
+        'capability_run',
     ),
     analysis,
     tail: (context) =>

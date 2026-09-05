@@ -59,9 +59,7 @@ export async function resolveBrowserFileAttachPayload(input: {
       result.artifact.virtualPath,
     )
   ) {
-    throw new Error(
-      protectedArtifactEntryRefusal(result.artifact.virtualPath),
-    );
+    throw new Error(protectedArtifactEntryRefusal(result.artifact.virtualPath));
   }
   const content =
     typeof result.content === 'string'

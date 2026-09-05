@@ -19,12 +19,18 @@ export async function evaluateProspectiveWriteBoundary(input: {
     return outside('workspace root must be absolute');
   }
   try {
+    const declaredRoot = path.resolve(input.workspaceRoot);
     const root = await fs.realpath(input.workspaceRoot);
-    const candidate = path.resolve(root, input.candidatePath);
-    if (!isWithinPath(root, candidate)) {
+    const declaredCandidate = path.resolve(declaredRoot, input.candidatePath);
+    const relative = isWithinPath(declaredRoot, declaredCandidate)
+      ? path.relative(declaredRoot, declaredCandidate)
+      : isWithinPath(root, declaredCandidate)
+        ? path.relative(root, declaredCandidate)
+        : undefined;
+    if (relative === undefined) {
       return outside('write target escapes workspace');
     }
-    const relative = path.relative(root, candidate);
+    const candidate = path.resolve(root, relative);
     if (isProtectedCapabilityPathLike(relative)) {
       return outside('write target is protected');
     }

@@ -13,6 +13,7 @@ import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-permission-run-restriction.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import { unregisterPermissionRunRestriction } from '@core/runtime/permission-decision-coordinator.js';
+import * as permissionClassifier from '@core/runtime/permission-classifier.js';
 import type { PermissionMode } from '@core/shared/permission-mode.js';
 import * as autoLaneAnalysis from '@core/application/permissions/auto-lane-analysis.js';
 import * as permissionCoordinator from '@core/runtime/permission-decision-coordinator.js';
@@ -186,6 +187,106 @@ describe('IPC permission classifier decision', () => {
     expect(source).toMatch(
       /cachedClassifierVerdict,\s*status: PermissionClassifierStatus\.Skipped,\s*latencyMs: 0/,
     );
+  });
+
+  it('passes the derived lane and workspace root into the classifier consult, never writes a native verdict whether allow or ask to the classifier cache, never writes an interactive-auto LLM allow for a gantry tool or a native file-write facade so an ambiguous executor allowed by the LLM does not replay in auto_strict, and skips the cache for capability_run even with a seeded allow', async () => {
+    const workspaceRoot = resolveWorkspaceFolderPath('main_agent');
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+    const getClassifierVerdict = vi.fn(async () => null);
+    const putClassifierVerdict = vi.fn(async () => undefined);
+    const decisionMemory = {
+      getClassifierVerdict,
+      putClassifierVerdict,
+    } as never;
+    const consult = vi.spyOn(
+      permissionClassifier,
+      'consultPermissionClassifierBeforePrompt',
+    );
+
+    try {
+      const nativeLow = await resolveWithClassifierRisk({
+        toolName: 'FileWrite',
+        toolInput: { path: 'notes/a.md', content: 'hello' },
+        riskLevel: 'high',
+        riskCategory: 'filesystem',
+        decisionMemory,
+      });
+      expect(consult).toHaveBeenCalledWith(
+        expect.objectContaining({
+          lane: 'interactive_auto',
+          workspaceRoot,
+        }),
+      );
+      expect(nativeLow.classifierConsult).not.toHaveBeenCalled();
+      expect(nativeLow.decision).toMatchObject({
+        approved: true,
+        decidedBy: 'auto_classifier',
+      });
+
+      const nativeHigh = await resolveWithClassifierRisk({
+        toolName: 'mcp__gantry__scheduler_delete_job',
+        toolInput: { jobId: 'job-1' },
+        riskLevel: 'low',
+        riskCategory: 'benign',
+        decisionMemory,
+      });
+      expect(nativeHigh.classifierConsult).not.toHaveBeenCalled();
+      expect(nativeHigh.requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(putClassifierVerdict).not.toHaveBeenCalled();
+
+      const executorInput = {
+        toolName: 'mcp__gantry__async_run_command',
+        toolInput: { command: 'git status' },
+        riskLevel: 'low' as const,
+        riskCategory: 'benign' as const,
+        decisionMemory,
+      };
+      const executorAllow = await resolveWithClassifierRisk(executorInput);
+      expect(executorAllow.classifierConsult).toHaveBeenCalledOnce();
+      expect(executorAllow.decision).toMatchObject({ approved: true });
+      expect(putClassifierVerdict).not.toHaveBeenCalled();
+
+      const strictExecutor = await resolveWithClassifierRisk({
+        ...executorInput,
+        permissionMode: 'auto_strict',
+      });
+      expect(strictExecutor.classifierConsult).not.toHaveBeenCalled();
+      expect(strictExecutor.decision).toMatchObject({ approved: false });
+
+      const ambiguousFileWrite = await resolveWithClassifierRisk({
+        toolName: 'FileWrite',
+        toolInput: { content: 'missing destination' },
+        riskLevel: 'low',
+        riskCategory: 'filesystem',
+        decisionMemory,
+      });
+      expect(ambiguousFileWrite.classifierConsult).toHaveBeenCalledOnce();
+      expect(ambiguousFileWrite.decision).toMatchObject({ approved: true });
+      expect(putClassifierVerdict).not.toHaveBeenCalled();
+
+      const seededGetClassifierVerdict = vi.fn(async () => ({
+        decision: 'allow' as const,
+        reason: 'Seeded allow.',
+        risk_level: 'low' as const,
+        risk_category: 'benign' as const,
+      }));
+      const capabilityRun = await resolveWithClassifierRisk({
+        toolName: 'mcp__gantry__capability_run',
+        toolInput: { capabilityId: 'capability-1' },
+        riskLevel: 'low',
+        riskCategory: 'benign',
+        decisionMemory: {
+          getClassifierVerdict: seededGetClassifierVerdict,
+          putClassifierVerdict,
+        } as never,
+      });
+      expect(seededGetClassifierVerdict).not.toHaveBeenCalled();
+      expect(capabilityRun.classifierConsult).not.toHaveBeenCalled();
+      expect(capabilityRun.requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(capabilityRun.decision).toMatchObject({ approved: false });
+    } finally {
+      consult.mockRestore();
+    }
   });
 
   it.each(['low', 'medium'] as const)(

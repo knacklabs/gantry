@@ -79,7 +79,10 @@ describe('gantry tool risk table', () => {
       ).toBe(GantryToolRiskVerdict.High);
     }
     for (const toolName of DURABLE_GRANT_EXCLUDED_DISPATCHERS) {
-      expect(gantryToolRisk({ toolName, toolInput: {} }).verdict, toolName).toBe(
+      expect(
+        gantryToolRisk({ toolName, toolInput: {} }).verdict,
+        toolName,
+      ).toBe(
         toolName === 'capability_run'
           ? GantryToolRiskVerdict.High
           : GantryToolRiskVerdict.Ambiguous,
@@ -100,9 +103,7 @@ describe('gantry tool risk table', () => {
     const judge = (toolInput: unknown) =>
       gantryToolRisk({ toolName: 'file', toolInput });
 
-    expect(judge({ action: 'list' }).verdict).toBe(
-      GantryToolRiskVerdict.Low,
-    );
+    expect(judge({ action: 'list' }).verdict).toBe(GantryToolRiskVerdict.Low);
     expect(judge({ action: 'read', path: 'notes/a.md' }).verdict).toBe(
       GantryToolRiskVerdict.Low,
     );

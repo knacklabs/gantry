@@ -41,9 +41,7 @@ export async function evaluateNativeRiskBranch(input: {
       toolInput: input.toolInput,
       workspaceRoot: input.workspaceRoot,
     });
-  } else if (
-    gantryNativeCanonicalToolName(input.canonicalToolName) !== null
-  ) {
+  } else if (gantryNativeCanonicalToolName(input.canonicalToolName) !== null) {
     risk = gantryToolRisk({
       toolName: input.canonicalToolName,
       toolInput: input.toolInput,

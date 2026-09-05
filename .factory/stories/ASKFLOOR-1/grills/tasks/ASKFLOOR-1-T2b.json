@@ -65,13 +65,13 @@
     }
   ],
   "summary": "T2b task grill: fourteen Codex cold-read rounds (plans/exploration/askfloor-1-t2b-task-grill.md, -r2 \u2026 -r14), gpt-5.6-sol@xhigh every round and gpt-6-astra (@medium r7, @high r8-r14) in parallel from round 7 at the owner's request, both answers ledgered per round. Blockers folded: r1 10, r2 4, r3 3, r4 1, r5 2, r6 4, r7 2 (sol) / 0 (astra@medium), r8 2 (astra) + 2 (sol), r9 1 (astra) + 3 (sol), r10 1 (astra) + the same 1 (sol), r11 0 (astra) + 1 (sol retry; attempt 1 died on the upstream compaction 404), r12 0 (astra) + 4 (sol: verdict+reason, promote protected, two cache fences, HIGH lane-independent), r13 2 wording residues (astra) + CONTRACT SOUND (sol, on the folded contract). Four owner rulings recorded as the decision 0155 amendment (bullets 1-12): executors ambiguous with DURABLE_GRANT_EXCLUDED_DISPATCHERS as the source set; raw-path browser file actions ambiguous; decision 0130 wins so capability_run stays HIGH in every lane (lane-independent guard); no legacy code \u2014 gantryToolDefaultRisk and medium deleted, other lanes get no native verdict; plus cache isolation (no native verdict and no interactive-auto LLM allow for a gantry tool or file-write facade is cached; capability_run never reads the cache; D-0074/D-0075 deferrals) and the lane-independent HIGH rule (bullet 12). Final: 23 files / 15 tests / 25-2100, objective 499. r14 (astra re-check of the same recorded contract): CONTRACT SOUND \u2014 both models sound on the final contract.",
-  "input_sha256": "dc36d3e124dbe9f08e13e7671e671ced350c1b2dcaae47ee85d19e42bca8cdee",
+  "input_sha256": "83b98c0e6447160df869edafd46f62a776af23c36916a797cb5ad145f759825d",
   "grounding_basis": "working-tree",
   "grounding_treeish": "",
   "task_plan_sha256": "1f2e359f84dd349be91fa3ab76e667e93e1596f63b29d07c8d13d9298eb79a6e",
-  "recorded_at": "2026-09-05T11:37:53+00:00",
-  "commit": "e668706f24b3e4df856050062f845e686c7c01c8",
+  "recorded_at": "2026-09-05T12:40:08+00:00",
+  "commit": "48f7d1dcb3c41d67761a42bac57395179c0ff171",
   "approved_task_plan_sha256": "1f2e359f84dd349be91fa3ab76e667e93e1596f63b29d07c8d13d9298eb79a6e",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-05T11:38:01+00:00"
+  "approved_at": "2026-09-05T12:40:16+00:00"
 }

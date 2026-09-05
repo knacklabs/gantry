@@ -270,7 +270,9 @@ function stringOrUndefined(value: unknown): string | undefined {
 }
 
 function isNonEmptyStringArray(value: unknown): boolean {
-  return Array.isArray(value) && value.length > 0 && value.every(nonBlankString);
+  return (
+    Array.isArray(value) && value.length > 0 && value.every(nonBlankString)
+  );
 }
 
 function validInlineFiles(value: unknown): boolean {

@@ -128,4 +128,49 @@ describe('mcp__gantry__file', () => {
       handleFileToolAction({ action: 'read', path: 'attachments/skills.md' }),
     ).resolves.toBe('# ATS Skills\nRead this file.');
   });
+
+  it('appends the protected-entries-hidden line to list output only when the count is positive and relays a protected read refusal unchanged', async () => {
+    const refusal =
+      "Refused: settings.yaml is protected. This is not a permission question — don't retry, tell the owner.";
+    const writeIpcFile = vi.fn();
+    const waitForTaskResponse = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          ok: true,
+          artifacts: [{ path: 'notes/today.md' }],
+          protectedHidden: 0,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          ok: true,
+          artifacts: [{ path: 'notes/today.md' }],
+          protectedHidden: 2,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        code: 'protected_entry',
+        error: refusal,
+      });
+    vi.doMock('@core/runner/mcp/ipc.js', () => ({
+      writeIpcFile,
+      waitForTaskResponse,
+    }));
+    const { handleFileToolAction } =
+      await import('@core/runner/mcp/tools/file.js');
+
+    await expect(handleFileToolAction({ action: 'list' })).resolves.toBe(
+      'Files (1):\n- notes/today.md',
+    );
+    await expect(handleFileToolAction({ action: 'list' })).resolves.toBe(
+      "Files (1):\n- notes/today.md\n(2 protected entries hidden — not a permission question, don't retry.)",
+    );
+    await expect(
+      handleFileToolAction({ action: 'read', path: 'settings.yaml' }),
+    ).resolves.toBe(refusal);
+  });
 });
