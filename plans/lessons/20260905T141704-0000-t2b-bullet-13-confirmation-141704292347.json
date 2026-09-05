@@ -1,0 +1,12 @@
+{
+  "topic": "t2b-bullet-13-confirmation",
+  "lesson": "T2b is implemented (commit 3d31be483, 15/15 leaves green). This run makes ONLY the bullet-13 change: in evaluateNativeRiskBranch, an ambiguous gantry verdict returns the native ask result when lane is undefined (still undefined under interactive_auto and auto_strict); then extend the lane-independent-high leaf in test/unit/runtime/permission-classifier.test.ts to its recorded title (an unregistered suffix with the lane absent yields the native ask) and run that suite plus test/unit/bootstrap/inline-agent-loop-tools.test.ts. Do not re-read the other 21 scope files.",
+  "source": "9118b7d94",
+  "applies_to": [
+    "apps/core/src/runtime/permission-classifier-native-risk.ts",
+    "apps/core/test/unit/runtime/permission-classifier.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-05T14:17:04+00:00"
+}

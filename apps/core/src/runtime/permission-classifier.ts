@@ -36,6 +36,7 @@ import type {
   PermissionApprovalUpdate,
   PermissionRiskCategory,
 } from '../domain/types.js';
+import type { PermissionLane } from '../domain/permission-lane.js';
 import {
   classifierUserPayload,
   parsePermissionClassifierResponse,
@@ -148,6 +149,7 @@ export interface PermissionClassifierPromptConsultInput {
   policyDecisionReason: string;
   approvedCapabilityIds: string[];
   workspaceRoot?: string;
+  lane?: PermissionLane;
   reviewedMcpReadBindings?: McpReadBinding[];
   yoloMode?: yolo.YoloModeSettings;
   suggestions?: PermissionApprovalUpdate[];
@@ -259,6 +261,7 @@ export async function consultPermissionClassifierBeforePrompt(
     !isPermissionClassifierEligible(
       input.canonicalToolName,
       input.requestFamily,
+      input.lane,
     )
   ) {
     return undefined;
@@ -328,8 +331,11 @@ export async function consultPermissionClassifierBeforePrompt(
   // Eligible already blocks non-'tool' families at the top of this function, so
   // this is defense-in-depth: the gantry map can never auto-allow a non-'tool'
   // request even if that eligibility gate is later broadened.
-  const nativeRisk = evaluateNativeRiskBranch({
+  const nativeRisk = await evaluateNativeRiskBranch({
     canonicalToolName: input.canonicalToolName,
+    toolInput: classifierToolInput,
+    workspaceRoot: input.workspaceRoot,
+    lane: input.lane,
     inputTruncated,
     yoloDenylistHit: Boolean(yoloDenylistMatch),
     requestFamily: input.requestFamily,

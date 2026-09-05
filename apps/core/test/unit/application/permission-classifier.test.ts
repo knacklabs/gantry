@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { isPermissionClassifierEligible } from '@core/application/permissions/permission-classifier.js';
+import { PermissionLane } from '@core/domain/permission-lane.js';
 
 describe('permission classifier gray-zone eligibility', () => {
   it.each([
@@ -49,6 +50,33 @@ describe('permission classifier gray-zone eligibility', () => {
     ['', false],
   ])('classifies tool-family canonical name %s as %s', (toolName, expected) => {
     expect(isPermissionClassifierEligible(toolName, 'tool')).toBe(expected);
+  });
+
+  it('accepts FileWrite and FileEdit for classification only under the interactive_auto lane, keeps them ineligible with the lane absent or auto_strict, and keeps FileRead ineligible', () => {
+    for (const toolName of ['FileWrite', 'FileEdit']) {
+      expect(
+        isPermissionClassifierEligible(
+          toolName,
+          'tool',
+          PermissionLane.InteractiveAuto,
+        ),
+      ).toBe(true);
+      expect(isPermissionClassifierEligible(toolName, 'tool')).toBe(false);
+      expect(
+        isPermissionClassifierEligible(
+          toolName,
+          'tool',
+          PermissionLane.AutoStrict,
+        ),
+      ).toBe(false);
+    }
+    expect(
+      isPermissionClassifierEligible(
+        'FileRead',
+        'tool',
+        PermissionLane.InteractiveAuto,
+      ),
+    ).toBe(false);
   });
 
   it.each(['admin', 'review', 'promotion'] as const)(

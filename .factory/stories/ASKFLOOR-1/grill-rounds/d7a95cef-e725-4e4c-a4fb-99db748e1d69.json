@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Your executor ruling makes the whole DURABLE_GRANT_EXCLUDED_DISPATCHERS set ambiguous, but that set includes capability_run, and accepted decision 0130 (CAPSAFE-1) requires capability_run to stay HIGH with no classifier-derived or cached allow; an existing test pins that. Which decision wins for capability_run?",
+      "options": [
+        "0130 wins (Recommended)",
+        "0155 wins"
+      ],
+      "chosen": "0130 wins (Recommended)"
+    }
+  ],
+  "at": "2026-09-05T09:26:59.365847+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

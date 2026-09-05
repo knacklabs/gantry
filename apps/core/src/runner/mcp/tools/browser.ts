@@ -1,6 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { BrowserBackendAction } from '../../../shared/browser-backend-actions.js';
 import { z } from 'zod';
+import {
+  BROWSER_ACT_ACTIONS,
+  type BrowserActAction,
+  type BrowserBackendAction,
+} from '../../../shared/browser-backend-actions.js';
 import { formatBrowserToolResponse } from '../formatting.js';
 import { requestBrowserAction } from '../ipc.js';
 import { formatOperatorError } from '../../../shared/operator-error.js';
@@ -25,28 +29,6 @@ type BrowserInspectMode =
   | 'screenshot'
   | 'console_messages'
   | 'network_requests';
-type BrowserActAction =
-  | 'navigate'
-  | 'back'
-  | 'tab_new'
-  | 'tab_select'
-  | 'tab_close'
-  | 'click'
-  | 'type'
-  | 'wait_for'
-  | 'screenshot'
-  | 'evaluate'
-  | 'press_key'
-  | 'hover'
-  | 'drag'
-  | 'drop'
-  | 'select_option'
-  | 'fill_form'
-  | 'file_upload'
-  | 'file_attach'
-  | 'handle_dialog'
-  | 'resize';
-
 const DEFAULT_BROWSER_TOOL_TIMEOUT_MS = 120_000;
 const FULL_INSPECT_MODES = new Set<BrowserInspectMode>([
   'console_messages',
@@ -201,28 +183,7 @@ const inspectMode = z.enum([
   'console_messages',
   'network_requests',
 ]);
-const actAction = z.enum([
-  'navigate',
-  'back',
-  'tab_new',
-  'tab_select',
-  'tab_close',
-  'click',
-  'type',
-  'wait_for',
-  'screenshot',
-  'evaluate',
-  'press_key',
-  'hover',
-  'drag',
-  'drop',
-  'select_option',
-  'fill_form',
-  'file_upload',
-  'file_attach',
-  'handle_dialog',
-  'resize',
-]);
+const actAction = z.enum(BROWSER_ACT_ACTIONS);
 
 export function registerBrowserTools(server: McpServer): void {
   register(

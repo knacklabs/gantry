@@ -1,0 +1,9 @@
+# ASKFLOOR-1-T2b task-contract grill — round 12
+
+Read-only cold-read review, no file edits, no writes. Follow `factory/prompts/griller.md --gate task` for the `ASKFLOOR-1-T2b` entry in `.factory/stories/ASKFLOOR-1/decomposition.json` and its saved task plan `.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md`. Inputs of record as in round 1 (`plans/exploration/askfloor-1-t2b-task-grill.md`); rounds 1–11 briefs and answers (rounds 7–11 were run on two models each: `-rN-answer.md` by gpt-5.6-sol @ xhigh, `-rN-answer-astra.md` by gpt-6-astra @ high; the first sol attempt at r11 died on the upstream compaction 404 and is ledgered as `-r11-answer-sol-failed.md`).
+
+Round 11: astra @ high returned CONTRACT SOUND; sol @ xhigh found one consistency blocker, folded: the `capability_run` cache bypass legitimately changes ONE `auto_strict` case (a seeded cached allow now asks, per 0130), so Scope, AC6 (and its `plan_contract`), Surface Impact and `reviewer_focus` now name that as the second documented exception beside the lane-less inline consult; every other IPC `auto_strict` verdict stays byte-identical; the five permitted existing-expectation changes are unchanged.
+
+Round 12 is the final consistency check: (a) `objective`, `acceptance_criteria`, `plan_contracts`, the task plan (diagram, Scope, Surface Impact, Risks, Decisions) and `reviewer_focus` agree on every rule; (b) `required_tests` (fifteen single-leaf `-t` titles), `write_scope` (23), `review_budget` (25/2100); (c) any remaining defect that would make the implementer build the wrong thing, make an AC unprovable, or contradict an accepted decision in `docs/decisions/*.md`. Keep the investigation focused on the recorded contract, the saved task plan, decisions 0130 and 0155, and only the source lines the ACs cite.
+
+Output: `CONTRACT SOUND` or a numbered list of blockers (what, where, why, minimal fix), then non-blocking notes.
