@@ -210,6 +210,7 @@ describe('gantry tool risk table', () => {
     for (const toolInput of [
       null,
       { action: 'click' },
+      { action: 'frobnicate_everything', payload: {} },
       { action: 'file_attach', payload: {} },
       { action: 'file_attach', payload: { paths: [] } },
       {

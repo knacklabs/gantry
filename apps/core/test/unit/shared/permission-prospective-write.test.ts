@@ -49,6 +49,7 @@ describe('prospective write boundary', () => {
       '.private/notes.md',
       'config/private-key.pem',
       'linked-parent/new.md',
+      'linked-parent/../victim',
       'linked-target.md',
       'plain-file/child.md',
     ]) {

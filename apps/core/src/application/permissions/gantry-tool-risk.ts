@@ -11,6 +11,7 @@ import {
   DURABLE_GRANT_EXCLUDED_DISPATCHERS,
   SCHEDULER_MUTATION_MCP_TOOL_NAMES,
 } from '../../shared/admin-mcp-tools.js';
+import { BROWSER_ACT_ACTIONS } from '../../shared/browser-backend-actions.js';
 
 const GANTRY_MCP_PREFIX = 'mcp__gantry__';
 const ALL_GANTRY_TOOL_NAME_SET = new Set<string>(ALL_GANTRY_MCP_TOOL_NAMES);
@@ -20,6 +21,7 @@ const EXECUTOR_TOOL_NAME_SET = new Set<string>(
 const SCHEDULER_MUTATION_TOOL_NAME_SET = new Set<string>(
   SCHEDULER_MUTATION_MCP_TOOL_NAMES,
 );
+const BROWSER_ACT_ACTION_SET = new Set<string>(BROWSER_ACT_ACTIONS);
 const HIGH_TOOL_NAME_SET = new Set<string>([
   ...SCHEDULER_MUTATION_MCP_TOOL_NAMES,
   ...AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
@@ -165,6 +167,7 @@ function judgeBrowserAction(value: unknown): GantryToolRisk {
   if (
     !isRecord(value) ||
     !nonBlankString(value.action) ||
+    !BROWSER_ACT_ACTION_SET.has(value.action) ||
     !isRecord(value.payload)
   ) {
     return ambiguous('malformed browser request');

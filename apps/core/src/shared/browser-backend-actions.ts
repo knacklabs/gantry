@@ -27,6 +27,31 @@ export const BROWSER_BACKEND_ACTIONS = [
 
 export type BrowserBackendAction = (typeof BROWSER_BACKEND_ACTIONS)[number];
 
+export const BROWSER_ACT_ACTIONS = [
+  'navigate',
+  'back',
+  'tab_new',
+  'tab_select',
+  'tab_close',
+  'click',
+  'type',
+  'wait_for',
+  'screenshot',
+  'evaluate',
+  'press_key',
+  'hover',
+  'drag',
+  'drop',
+  'select_option',
+  'fill_form',
+  'file_upload',
+  'file_attach',
+  'handle_dialog',
+  'resize',
+] as const;
+
+export type BrowserActAction = (typeof BROWSER_ACT_ACTIONS)[number];
+
 export const PUBLIC_BROWSER_GATEWAY_TOOL_NAMES = new Set([
   'browser_status',
   'browser_open',
