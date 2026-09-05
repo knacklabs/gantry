@@ -16,51 +16,92 @@
     {
       "id": "ASKFLOOR-1-T2b",
       "title": "Default-allow risk table for gantry-native tools",
-      "status": "done",
-      "started_at": "2026-09-05T11:36:55+00:00",
-      "base_sha": "1102837907b1d3623fe11dca60e2173537f94211",
+      "status": "active",
+      "started_at": "2026-09-05T14:48:40+00:00",
+      "base_sha": "6d9189e81726de0f17419b187687c09eb7e216d8",
       "dirty_at_start": {
-        ".factory/stories/ASKFLOOR-1/decomposition.json": {
-          "digest": "535269dc14bf86dc1cd7bff7d2102a3dca59eecc864e1215e4ed576d7df89554",
-          "git": "1 .M N... 100644 100644 100644 d7d7ba749eddf8ac779e37b41841683f571fe6a8 d7d7ba749eddf8ac779e37b41841683f571fe6a8 .factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000100644 d7d7ba749eddf8ac779e37b41841683f571fe6a8 0\t.factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000H .factory/stories/ASKFLOOR-1/decomposition.json\u0000"
+        ".factory/events/10395e89ea024be1be69f8de7b39d3dd.json": {
+          "digest": "ca684c2878c3231ebea366523fcf1194ab4963d96741573bd0d8d7d0581d4f50",
+          "git": "? .factory/events/10395e89ea024be1be69f8de7b39d3dd.json\u0000\u0000\u0000"
         },
-        ".factory/stories/ASKFLOOR-1/grill-rounds/4a897943-f947-4b3d-a14e-f3e66c389840.json": {
-          "digest": "68ebb77fcfc0e3b150e51ec97ade43bf78b23d06980fcc604f6844fbdfbadb2d",
-          "git": "? .factory/stories/ASKFLOOR-1/grill-rounds/4a897943-f947-4b3d-a14e-f3e66c389840.json\u0000\u0000\u0000"
+        ".factory/events/15d174c1481a411db33fd6a4a1b41106.json": {
+          "digest": "e00447ef97e2f4ba60bfc5ba298d5e0b548132a14463fb1c20e1c191c2c78c25",
+          "git": "? .factory/events/15d174c1481a411db33fd6a4a1b41106.json\u0000\u0000\u0000"
         },
-        ".factory/stories/ASKFLOOR-1/grill-rounds/aed0d5b3-1f70-48aa-80ad-15b252175bcd.json": {
-          "digest": "4744e8706dfb72eec6cf4ca9c6dd0beaee70bbfc711daa558ee943f340e8d141",
-          "git": "? .factory/stories/ASKFLOOR-1/grill-rounds/aed0d5b3-1f70-48aa-80ad-15b252175bcd.json\u0000\u0000\u0000"
+        ".factory/events/40b694129e3240f8b07ab2a8cfa57548.json": {
+          "digest": "96a10bb20f703bb27fc782114a3a385335bc6460f3930fe8149d3dae5bdae5fd",
+          "git": "? .factory/events/40b694129e3240f8b07ab2a8cfa57548.json\u0000\u0000\u0000"
         },
-        ".factory/stories/ASKFLOOR-1/grill-rounds/d7a95cef-e725-4e4c-a4fb-99db748e1d69.json": {
-          "digest": "3754ccbf6ce00bae34877bd6f04e176d8e3a2800706e44e674505de92e56cf10",
-          "git": "? .factory/stories/ASKFLOOR-1/grill-rounds/d7a95cef-e725-4e4c-a4fb-99db748e1d69.json\u0000\u0000\u0000"
+        ".factory/events/41af9d826be4489bb0acd2526eee57ea.json": {
+          "digest": "1af01526e4b9092be07ac7a25954b2a56476f27aba44b07f2e0dda19cb5cfe65",
+          "git": "? .factory/events/41af9d826be4489bb0acd2526eee57ea.json\u0000\u0000\u0000"
+        },
+        ".factory/events/41f625a42bda4b489b134d4c382e2e52.json": {
+          "digest": "c9588dc5eabd1ce75afcf5923e777d6bd8bd51ce428094300f5edf4dabf9c9a6",
+          "git": "? .factory/events/41f625a42bda4b489b134d4c382e2e52.json\u0000\u0000\u0000"
+        },
+        ".factory/events/5e61601772c44fa78d868a563454cc58.json": {
+          "digest": "b7da0ef14697df81bb8e29a545e0d7d3c437525e84ab7191e8f7310521a5f8ad",
+          "git": "? .factory/events/5e61601772c44fa78d868a563454cc58.json\u0000\u0000\u0000"
+        },
+        ".factory/events/699a9cf17eb348b58c41b3b2af311cdc.json": {
+          "digest": "b1cd669b3463ba58e361b7230c3c4257697d50adc34bc25078a621a8ad8820ad",
+          "git": "? .factory/events/699a9cf17eb348b58c41b3b2af311cdc.json\u0000\u0000\u0000"
+        },
+        ".factory/events/75dc1d6790c2409dbafe3e667b3c6395.json": {
+          "digest": "d67dd0d7f7985c3a27043b879a56b5e0885f31a1d528c1c5fdcd9104d0ccfed2",
+          "git": "? .factory/events/75dc1d6790c2409dbafe3e667b3c6395.json\u0000\u0000\u0000"
+        },
+        ".factory/events/8d91b9ad8f434a53ba675788a3f0023f.json": {
+          "digest": "3faede04f8c21e8fdfce42755f0eaaadca6583544bf96384a452f9da53301bcf",
+          "git": "? .factory/events/8d91b9ad8f434a53ba675788a3f0023f.json\u0000\u0000\u0000"
+        },
+        ".factory/events/9dd04089cbb548048d6c46c23436bf0a.json": {
+          "digest": "ce81d22809cb738c8c121d4db6435b96347343b390750898d837931fdf6ba0c1",
+          "git": "? .factory/events/9dd04089cbb548048d6c46c23436bf0a.json\u0000\u0000\u0000"
+        },
+        ".factory/events/a723b6db739a425f894e53cffd075cc2.json": {
+          "digest": "2a5de85ccfe7eaf7c4c102efdf2c2622354025a9472f728f18d150a7a1f8fd1c",
+          "git": "? .factory/events/a723b6db739a425f894e53cffd075cc2.json\u0000\u0000\u0000"
+        },
+        ".factory/events/ab1ea41675c042af8b4a5df48b64e726.json": {
+          "digest": "e087c850d55e098f9d6c7a2e117d639099c2d7d1b270e1b7d82b4342a011af74",
+          "git": "? .factory/events/ab1ea41675c042af8b4a5df48b64e726.json\u0000\u0000\u0000"
+        },
+        ".factory/events/b5ad90d0a3854f9d82db6d1378e3b819.json": {
+          "digest": "f48a5e0c94d62056bb3fb4c6fdaf25a25b06d1a6e8d7280efcf05ac0c932f04d",
+          "git": "? .factory/events/b5ad90d0a3854f9d82db6d1378e3b819.json\u0000\u0000\u0000"
+        },
+        ".factory/events/cc300092a93047b48318aece598a1c46.json": {
+          "digest": "8cfc8fc37fc4bbbb4b367c5fe6c8e168bcc1759cda0d7d1d53434fb1f4ae99e1",
+          "git": "? .factory/events/cc300092a93047b48318aece598a1c46.json\u0000\u0000\u0000"
+        },
+        ".factory/events/d047dc6663b4494386e9068174e259eb.json": {
+          "digest": "943a544addf91dda3f4e31307b11bbc39d6a670a2462a743b4799ac3c85d39ce",
+          "git": "? .factory/events/d047dc6663b4494386e9068174e259eb.json\u0000\u0000\u0000"
+        },
+        ".factory/events/fd2d58e1bfa54267a058f0adeb5d8167.json": {
+          "digest": "9b6c422ebef7ebef12a855929c128b0a3ea9937c2b5ce0f885da5676a15a2070",
+          "git": "? .factory/events/fd2d58e1bfa54267a058f0adeb5d8167.json\u0000\u0000\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "6f141d2602e944bbd561582a332cd3677711ee631aef5461506f8992ef77b4c6",
+          "git": "1 .M N... 100644 100644 100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 34f4c543f1c9128f52ccd2c05179f050540f4d67 .factory/stages.json\u0000\u0000100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
         },
         ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json": {
-          "digest": "44a755e8b934b50d8371c80045295ac151a0657de99fc59de910ef762aa29a00",
-          "git": "? .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000\u0000\u0000"
+          "digest": "03f03d9d18dd3fe709dd6b707ee152dc02b1d21e6ba3caf2b6e4717d127797e3",
+          "git": "1 .M N... 100644 100644 100644 63dfb5a94d35cea260720f2ea3641fa2e8df016b 63dfb5a94d35cea260720f2ea3641fa2e8df016b .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000\u0000100644 63dfb5a94d35cea260720f2ea3641fa2e8df016b 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000"
         },
-        ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md": {
-          "digest": "08c26c507fc5ece3c7aae00dd017e8c9eae775f4583a369bab9b07227038ab97",
-          "git": "? .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md\u0000\u0000\u0000"
+        ".factory/stories/ASKFLOOR-1/review-run.json": {
+          "digest": "ed11ae8c5158144fc4456296e04cfe097d5c456a77d3fd9169ef4b79b9ba55c0",
+          "git": "1 .M N... 100644 100644 100644 eca581914c9975a1aebb5e96c99ee95c75882586 eca581914c9975a1aebb5e96c99ee95c75882586 .factory/stories/ASKFLOOR-1/review-run.json\u0000\u0000100644 eca581914c9975a1aebb5e96c99ee95c75882586 0\t.factory/stories/ASKFLOOR-1/review-run.json\u0000\u0000H .factory/stories/ASKFLOOR-1/review-run.json\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/stages.json": {
+          "digest": "6f141d2602e944bbd561582a332cd3677711ee631aef5461506f8992ef77b4c6",
+          "git": "1 .M N... 100644 100644 100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 34f4c543f1c9128f52ccd2c05179f050540f4d67 .factory/stories/ASKFLOOR-1/stages.json\u0000\u0000100644 34f4c543f1c9128f52ccd2c05179f050540f4d67 0\t.factory/stories/ASKFLOOR-1/stages.json\u0000\u0000H .factory/stories/ASKFLOOR-1/stages.json\u0000"
         }
       },
-      "task_sha256": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080",
-      "local_review_stamp": {
-        "stage_id": "ASKFLOOR-1-T2b",
-        "task_sha256": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080",
-        "brief_sha256": "0b83fb0b8e91c74cae42241af4214d702547866365680c6acef3d4f8cb35b546",
-        "base_sha": "1102837907b1d3623fe11dca60e2173537f94211",
-        "product_tree_digest": "e8e2bbd0de47bf2e934a7fa6043cd59d7bf9531c239375706d074fca8d0cc2da",
-        "recorded_at": "2026-09-05T14:34:23+00:00",
-        "generated_by": "autoreview"
-      },
-      "completed_at": "2026-09-05T14:39:17+00:00",
-      "contract_changed": {
-        "at": "2026-09-05T14:39:17+00:00",
-        "from": "2eea18e6e8fa51d8c037d9a3fb06c6f86dafeb4d961738d3d583b6b9c360294d",
-        "to": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080"
-      }
+      "task_sha256": "3226bf2c71f41be80083dd141a86ee7c5c7c85d52f4e8bedcba7c06f6b630080"
     },
     {
       "id": "ASKFLOOR-1-T3a",

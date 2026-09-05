@@ -65,13 +65,13 @@
     }
   ],
   "summary": "T2b task grill: sixteen Codex cold-read rounds (plans/exploration/askfloor-1-t2b-task-grill.md, -r2 \u2026 -r16), gpt-5.6-sol@xhigh every round and gpt-6-astra (@medium r7, @high r8-r16) in parallel from round 7 at the owner's request, both answers ledgered per round. Blockers folded: r1 10, r2 4, r3 3, r4 1, r5 2, r6 4, r7 2 (sol) / 0 (astra@medium), r8 2 (astra) + 2 (sol), r9 1 (astra) + 3 (sol), r10 1 (astra) + the same 1 (sol), r11 0 (astra) + 1 (sol retry; attempt 1 died on the upstream compaction 404), r12 0 (astra) + 4 (sol: verdict+reason, promote protected, two cache fences, HIGH lane-independent), r13 2 wording residues (astra) + CONTRACT SOUND (sol, on the folded contract). Four owner rulings recorded as the decision 0155 amendment (bullets 1-13): executors ambiguous with DURABLE_GRANT_EXCLUDED_DISPATCHERS as the source set; raw-path browser file actions ambiguous; decision 0130 wins so capability_run stays HIGH in every lane (lane-independent guard); no legacy code \u2014 gantryToolDefaultRisk and medium deleted, other lanes get no native verdict; plus cache isolation (no native verdict and no interactive-auto LLM allow for a gantry tool or file-write facade is cached; capability_run never reads the cache; D-0074/D-0075 deferrals) and the lane-independent HIGH rule (bullet 12). Final: 23 files / 15 tests / 25-2100, objective 499. r14 (astra re-check of the same recorded contract): CONTRACT SOUND \u2014 both models sound on the final contract. Post-implementation (3d31be483) verify.py exposed one lane-less gap (the inline suite expects an unregistered suffix not to be consulted); refined as 0155 bullet 13 (lane absent + ambiguous -> native ask; only LOW rows lose their old identity verdict there), contract v17 (17b35fe77): r15 1 blocker found by BOTH models (four summaries still carried the old rule) folded (9118b7d94); r16 CONTRACT SOUND on both (sol @ xhigh gate, astra @ high).",
-  "input_sha256": "0bf9d772f9e74b9e5f13368083c48a96ec1eb51dbf945ad4c1cbe80126699710",
+  "input_sha256": "966d45f94b84d4191ce55469ce9d72f49c74c2188b7e2ad8142ed7e6f016936c",
   "grounding_basis": "working-tree",
   "grounding_treeish": "",
   "task_plan_sha256": "7eca3e631378d751479d61122585dd79780f864a8af7c7aa8ee0d84249bb4adc",
-  "recorded_at": "2026-09-05T14:24:07+00:00",
-  "commit": "38b0db4b87136b4d5aff42179ad2ef438b311120",
+  "recorded_at": "2026-09-05T14:48:09+00:00",
+  "commit": "8d3953a029e41d65b3183f86aceab18388935f2f",
   "approved_task_plan_sha256": "7eca3e631378d751479d61122585dd79780f864a8af7c7aa8ee0d84249bb4adc",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-05T14:24:14+00:00"
+  "approved_at": "2026-09-05T14:48:16+00:00"
 }
