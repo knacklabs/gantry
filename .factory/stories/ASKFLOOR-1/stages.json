@@ -9,43 +9,41 @@
     {
       "id": "ASKFLOOR-1-T2a",
       "title": "Shape classifier extraction, attachment birthright, judge status",
-      "status": "done",
-      "started_at": "2026-09-04T18:59:56+00:00",
-      "base_sha": "529ad28c50bed28536205d88120c528fa44c5adc",
-      "dirty_at_start": {
-        ".factory/stories/ASKFLOOR-1/decomposition.json": {
-          "digest": "54526f319fa58cc68dee13638f319934d887cf293549632de280b7beec280861",
-          "git": "1 .M N... 100644 100644 100644 7b1cbba9799bbc59dc51a18cd7a0ebef058c9367 7b1cbba9799bbc59dc51a18cd7a0ebef058c9367 .factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000100644 7b1cbba9799bbc59dc51a18cd7a0ebef058c9367 0\t.factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000H .factory/stories/ASKFLOOR-1/decomposition.json\u0000"
-        },
-        ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2a.json": {
-          "digest": "6a58eb2632bc7fdfd350aa929851962e58ae3f363d807797d83e7d6891686f91",
-          "git": "? .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2a.json\u0000\u0000\u0000"
-        },
-        ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md": {
-          "digest": "5a90052d3da5225ffb1b4f4dc7e2ccfe13c710a153ce97d5f460636fa3bb0f0f",
-          "git": "1 .M N... 100644 100644 100644 472094c8144e050a51163fd74d4990de9925fce6 472094c8144e050a51163fd74d4990de9925fce6 .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md\u0000\u0000100644 472094c8144e050a51163fd74d4990de9925fce6 0\t.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md\u0000\u0000H .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2a.md\u0000"
-        },
-        "plans/roadmap.json": {
-          "digest": "63a08d90379a80a27bfb53dbc79dee9c902c58480c26e10888bd6b72737e7064",
-          "git": "1 .M N... 100644 100644 100644 5f462cf150775ce08a144aacc96c5aa729c7384e 5f462cf150775ce08a144aacc96c5aa729c7384e plans/roadmap.json\u0000\u0000100644 5f462cf150775ce08a144aacc96c5aa729c7384e 0\tplans/roadmap.json\u0000\u0000H plans/roadmap.json\u0000"
-        }
-      },
-      "task_sha256": "50b0ea1feb43722f37ffef399152c3e78a98bbb5b1da76c9717e828467630626",
-      "local_review_stamp": {
-        "stage_id": "ASKFLOOR-1-T2a",
-        "task_sha256": "50b0ea1feb43722f37ffef399152c3e78a98bbb5b1da76c9717e828467630626",
-        "brief_sha256": "280214e53c9260da3f629e9e46f3e25da4e0d1355c58185aff7ffcceccf5f843",
-        "base_sha": "529ad28c50bed28536205d88120c528fa44c5adc",
-        "product_tree_digest": "3d1a2a6b4ed22ca9200b5697c5a7f04a94109c3d6831cca46326ff9d7dcadb75",
-        "recorded_at": "2026-09-04T21:22:48+00:00",
-        "generated_by": "autoreview"
-      },
-      "completed_at": "2026-09-04T21:27:54+00:00"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T2b",
       "title": "Default-allow risk table for gantry-native tools",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-09-05T11:36:55+00:00",
+      "base_sha": "1102837907b1d3623fe11dca60e2173537f94211",
+      "dirty_at_start": {
+        ".factory/stories/ASKFLOOR-1/decomposition.json": {
+          "digest": "535269dc14bf86dc1cd7bff7d2102a3dca59eecc864e1215e4ed576d7df89554",
+          "git": "1 .M N... 100644 100644 100644 d7d7ba749eddf8ac779e37b41841683f571fe6a8 d7d7ba749eddf8ac779e37b41841683f571fe6a8 .factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000100644 d7d7ba749eddf8ac779e37b41841683f571fe6a8 0\t.factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000H .factory/stories/ASKFLOOR-1/decomposition.json\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/grill-rounds/4a897943-f947-4b3d-a14e-f3e66c389840.json": {
+          "digest": "68ebb77fcfc0e3b150e51ec97ade43bf78b23d06980fcc604f6844fbdfbadb2d",
+          "git": "? .factory/stories/ASKFLOOR-1/grill-rounds/4a897943-f947-4b3d-a14e-f3e66c389840.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/grill-rounds/aed0d5b3-1f70-48aa-80ad-15b252175bcd.json": {
+          "digest": "4744e8706dfb72eec6cf4ca9c6dd0beaee70bbfc711daa558ee943f340e8d141",
+          "git": "? .factory/stories/ASKFLOOR-1/grill-rounds/aed0d5b3-1f70-48aa-80ad-15b252175bcd.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/grill-rounds/d7a95cef-e725-4e4c-a4fb-99db748e1d69.json": {
+          "digest": "3754ccbf6ce00bae34877bd6f04e176d8e3a2800706e44e674505de92e56cf10",
+          "git": "? .factory/stories/ASKFLOOR-1/grill-rounds/d7a95cef-e725-4e4c-a4fb-99db748e1d69.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json": {
+          "digest": "44a755e8b934b50d8371c80045295ac151a0657de99fc59de910ef762aa29a00",
+          "git": "? .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T2b.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md": {
+          "digest": "08c26c507fc5ece3c7aae00dd017e8c9eae775f4583a369bab9b07227038ab97",
+          "git": "? .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md\u0000\u0000\u0000"
+        }
+      },
+      "task_sha256": "2eea18e6e8fa51d8c037d9a3fb06c6f86dafeb4d961738d3d583b6b9c360294d"
     },
     {
       "id": "ASKFLOOR-1-T3a",

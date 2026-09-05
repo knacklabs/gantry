@@ -1,6 +1,10 @@
 import path from 'path';
 
 import type { FileArtifactId } from '../domain/file-artifacts/file-artifact.js';
+import {
+  isProtectedArtifactEntry,
+  protectedArtifactEntryRefusal,
+} from '../domain/file-artifacts/protected-virtual-path.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 import type { BrowserBackendAction } from '../shared/browser-backend-actions.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
@@ -49,6 +53,16 @@ export async function resolveBrowserFileAttachPayload(input: {
     ...(scope ? { virtualScope: scope } : {}),
     ...(virtualPath ? { virtualPath } : {}),
   });
+  if (
+    isProtectedArtifactEntry(
+      result.artifact.virtualScope,
+      result.artifact.virtualPath,
+    )
+  ) {
+    throw new Error(
+      protectedArtifactEntryRefusal(result.artifact.virtualPath),
+    );
+  }
   const content =
     typeof result.content === 'string'
       ? Buffer.from(result.content, 'utf8')

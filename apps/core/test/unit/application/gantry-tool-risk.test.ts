@@ -1,147 +1,249 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  GantryToolRiskVerdict,
   gantryNativeCanonicalToolName,
-  gantryToolDefaultRisk,
+  gantryToolRisk,
 } from '@core/application/permissions/gantry-tool-risk.js';
+import {
+  ALL_GANTRY_MCP_TOOL_NAMES,
+  AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
+  DECISION_ACTOR_GANTRY_MCP_TOOL_NAMES,
+  DELEGATION_DISPATCHERS,
+  DURABLE_GRANT_EXCLUDED_DISPATCHERS,
+  SCHEDULER_MUTATION_MCP_TOOL_NAMES,
+} from '@core/shared/admin-mcp-tools.js';
 
-const AUTO_APPROVE = new Set(['low', 'medium']);
+const HIGH_TOOLS = new Set<string>([
+  ...SCHEDULER_MUTATION_MCP_TOOL_NAMES,
+  ...AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
+  ...DECISION_ACTOR_GANTRY_MCP_TOOL_NAMES,
+  ...DELEGATION_DISPATCHERS,
+  'capability_run',
+]);
+const AMBIGUOUS_EXECUTORS = new Set<string>(
+  DURABLE_GRANT_EXCLUDED_DISPATCHERS.filter(
+    (toolName) => toolName !== 'capability_run',
+  ),
+);
+
+function validInput(toolName: string): unknown {
+  if (toolName === 'file') return { action: 'list' };
+  if (toolName === 'browser_act') return { action: 'click', payload: {} };
+  return {};
+}
+
+function expectedReason(toolName: string): string {
+  if (toolName === 'capability_run') {
+    return 'capability dispatch requires approval';
+  }
+  if (AMBIGUOUS_EXECUTORS.has(toolName)) {
+    return 'executor judged by the classifier';
+  }
+  if (SCHEDULER_MUTATION_MCP_TOOL_NAMES.includes(toolName as never)) {
+    return 'scheduler mutation';
+  }
+  if (HIGH_TOOLS.has(toolName)) return 'admin mutation';
+  if (toolName === 'file') return 'virtual file read';
+  if (toolName === 'browser_act') return 'browser action';
+  return 'registered gantry tool';
+}
+
+describe('gantry tool risk table', () => {
+  it('judges every registered gantry tool with a deterministic reason per rule: low by default, the imported scheduler and admin mutation sets and capability_run high, the other three executors and unknown suffixes ambiguous', () => {
+    for (const toolName of ALL_GANTRY_MCP_TOOL_NAMES) {
+      const result = gantryToolRisk({
+        toolName: `mcp__gantry__${toolName}`,
+        toolInput: validInput(toolName),
+      });
+      const expectedVerdict = HIGH_TOOLS.has(toolName)
+        ? GantryToolRiskVerdict.High
+        : AMBIGUOUS_EXECUTORS.has(toolName)
+          ? GantryToolRiskVerdict.Ambiguous
+          : GantryToolRiskVerdict.Low;
+      expect(result, toolName).toEqual({
+        verdict: expectedVerdict,
+        reason: expectedReason(toolName),
+      });
+    }
+
+    for (const toolName of [
+      ...SCHEDULER_MUTATION_MCP_TOOL_NAMES,
+      ...AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
+      ...DECISION_ACTOR_GANTRY_MCP_TOOL_NAMES,
+      ...DELEGATION_DISPATCHERS,
+    ]) {
+      expect(
+        gantryToolRisk({ toolName, toolInput: validInput(toolName) }).verdict,
+        toolName,
+      ).toBe(GantryToolRiskVerdict.High);
+    }
+    for (const toolName of DURABLE_GRANT_EXCLUDED_DISPATCHERS) {
+      expect(gantryToolRisk({ toolName, toolInput: {} }).verdict, toolName).toBe(
+        toolName === 'capability_run'
+          ? GantryToolRiskVerdict.High
+          : GantryToolRiskVerdict.Ambiguous,
+      );
+    }
+    expect(
+      gantryToolRisk({
+        toolName: 'mcp__gantry__frobnicate_everything',
+        toolInput: {},
+      }),
+    ).toEqual({
+      verdict: GantryToolRiskVerdict.Ambiguous,
+      reason: 'unknown gantry tool',
+    });
+  });
+
+  it('judges file by action with omitted scopes accepted and non-throwing host-equivalent normalization: list and read low, write and promote_scratch low to an unprotected virtual target and high to a protected one or with protected true on either action including a whitespace-padded profile path, absolute or dot-segment or invalid-scope shapes ambiguous', () => {
+    const judge = (toolInput: unknown) =>
+      gantryToolRisk({ toolName: 'file', toolInput });
+
+    expect(judge({ action: 'list' }).verdict).toBe(
+      GantryToolRiskVerdict.Low,
+    );
+    expect(judge({ action: 'read', path: 'notes/a.md' }).verdict).toBe(
+      GantryToolRiskVerdict.Low,
+    );
+    expect(judge({ action: 'read', artifactId: 'artifact-1' }).verdict).toBe(
+      GantryToolRiskVerdict.Low,
+    );
+    for (const toolInput of [
+      { action: 'write', path: 'notes/a.md', content: 'hello' },
+      {
+        action: 'promote_scratch',
+        path: 'scratch/a.md',
+        targetPath: 'notes/a.md',
+      },
+    ]) {
+      expect(judge(toolInput).verdict).toBe(GantryToolRiskVerdict.Low);
+    }
+    for (const toolInput of [
+      { action: 'write', path: 'settings.yaml', content: 'x' },
+      {
+        action: 'write',
+        scope: ' prompt-profile ',
+        path: ' profiles/AGENTS.md ',
+        content: 'x',
+      },
+      { action: 'write', path: 'notes/a.md', content: 'x', protected: true },
+      {
+        action: 'promote_scratch',
+        path: 'scratch/a.md',
+        targetScope: ' prompt-profile ',
+        targetPath: ' profiles/AGENTS.md ',
+      },
+      {
+        action: 'promote_scratch',
+        path: 'scratch/a.md',
+        targetPath: 'notes/a.md',
+        protected: true,
+      },
+    ]) {
+      expect(judge(toolInput).verdict).toBe(GantryToolRiskVerdict.High);
+    }
+    for (const toolInput of [
+      { action: 'write', path: '/tmp/a', content: 'x' },
+      { action: 'write', path: 'notes/../a', content: 'x' },
+      { action: 'write', scope: 'bad scope', path: 'a', content: 'x' },
+      {
+        action: 'promote_scratch',
+        path: './scratch',
+        targetPath: 'notes/a.md',
+      },
+      { action: 'read', path: '/tmp/a' },
+      { action: 'write', path: 'notes/a.md' },
+    ]) {
+      expect(judge(toolInput).verdict).toBe(GantryToolRiskVerdict.Ambiguous);
+    }
+  });
+
+  it('judges browser file actions by payload source: any raw filesystem path source and artifact-source upload ambiguous, artifact-source attach and bytes source and inline files low, every other browser action low, malformed ambiguous', () => {
+    const judge = (toolInput: unknown) =>
+      gantryToolRisk({ toolName: 'browser_act', toolInput }).verdict;
+
+    for (const toolInput of [
+      { action: 'file_attach', payload: { paths: ['/tmp/a'] } },
+      { action: 'file_upload', payload: { paths: ['/tmp/a'] } },
+      {
+        action: 'file_attach',
+        payload: { source: { type: 'path', path: '/tmp/a' } },
+      },
+      {
+        action: 'file_upload',
+        payload: { source: { type: 'path', paths: ['/tmp/a'] } },
+      },
+      {
+        action: 'file_upload',
+        payload: { source: { type: 'artifact', artifactId: 'artifact-1' } },
+      },
+    ]) {
+      expect(judge(toolInput)).toBe(GantryToolRiskVerdict.Ambiguous);
+    }
+    for (const toolInput of [
+      {
+        action: 'file_attach',
+        payload: { source: { type: 'artifact', path: 'notes/a.md' } },
+      },
+      {
+        action: 'file_attach',
+        payload: { source: { type: 'bytes', content: 'a' } },
+      },
+      {
+        action: 'file_upload',
+        payload: { source: { type: 'bytes', content: 'a' } },
+      },
+      {
+        action: 'file_attach',
+        payload: { files: [{ name: 'a.txt', content: 'a' }] },
+      },
+      {
+        action: 'file_upload',
+        payload: { files: [{ name: 'a.txt', content: 'a' }] },
+      },
+      { action: 'click', payload: { ref: 'button-1' } },
+    ]) {
+      expect(judge(toolInput)).toBe(GantryToolRiskVerdict.Low);
+    }
+    for (const toolInput of [
+      null,
+      { action: 'click' },
+      { action: 'file_attach', payload: {} },
+      { action: 'file_attach', payload: { paths: [] } },
+      {
+        action: 'file_attach',
+        payload: { paths: ['/tmp/a'], files: [] },
+      },
+      {
+        action: 'file_attach',
+        payload: { source: { type: 'artifact' } },
+      },
+      {
+        action: 'file_upload',
+        payload: { source: { type: 'bytes' } },
+      },
+    ]) {
+      expect(judge(toolInput)).toBe(GantryToolRiskVerdict.Ambiguous);
+    }
+  });
+});
 
 describe('gantryNativeCanonicalToolName', () => {
-  it('strips the mcp__gantry__ prefix and flags known tools', () => {
+  it('distinguishes known, unknown namespaced, bare, and non-gantry names', () => {
     expect(gantryNativeCanonicalToolName('mcp__gantry__memory_save')).toEqual({
       canonical: 'memory_save',
       known: true,
     });
-  });
-
-  it('accepts bare canonical gantry names', () => {
-    expect(gantryNativeCanonicalToolName('scheduler_update_job')).toEqual({
-      canonical: 'scheduler_update_job',
+    expect(gantryNativeCanonicalToolName('memory_save')).toEqual({
+      canonical: 'memory_save',
       known: true,
     });
-  });
-
-  it('marks namespaced-but-unknown gantry tools as not known', () => {
     expect(gantryNativeCanonicalToolName('mcp__gantry__frobnicate')).toEqual({
       canonical: 'frobnicate',
       known: false,
     });
-  });
-
-  it('returns null for non-gantry tools', () => {
     expect(gantryNativeCanonicalToolName('Bash')).toBeNull();
     expect(gantryNativeCanonicalToolName('mcp__github__search')).toBeNull();
-    expect(gantryNativeCanonicalToolName('WebSearch')).toBeNull();
-  });
-});
-
-describe('gantryToolDefaultRisk', () => {
-  it('returns undefined for non-gantry tools (existing paths unchanged)', () => {
-    expect(gantryToolDefaultRisk('Bash')).toBeUndefined();
-    expect(gantryToolDefaultRisk('RunCommand')).toBeUndefined();
-    expect(
-      gantryToolDefaultRisk('mcp__github__pull_requests.list'),
-    ).toBeUndefined();
-  });
-
-  // (a) representative reads + routine low-risk mutations -> auto-approvable.
-  it.each([
-    'mcp__gantry__memory_search',
-    'mcp__gantry__brain_query',
-    'mcp__gantry__scheduler_get_job',
-    'mcp__gantry__scheduler_list_jobs',
-    'mcp__gantry__agent_profile_read',
-    'mcp__gantry__admin_permission_list',
-    'mcp__gantry__guided_action_preview',
-    'mcp__gantry__scheduler_wait_for_events',
-    'mcp__gantry__continuity_summary',
-    'mcp__gantry__render_status',
-    'mcp__gantry__ask_user_question',
-    'mcp__gantry__browser_status',
-    'mcp__gantry__browser_inspect',
-  ])('rates read/display tool %s low (auto-approve)', (tool) => {
-    const risk = gantryToolDefaultRisk(tool);
-    expect(risk?.risk_level).toBe('low');
-    expect(AUTO_APPROVE.has(risk!.risk_level)).toBe(true);
-  });
-
-  it.each([
-    'mcp__gantry__memory_save',
-    'mcp__gantry__brain_write',
-    'mcp__gantry__procedure_save',
-    'mcp__gantry__memory_patch',
-  ])('rates routine mutation %s medium (auto-approve)', (tool) => {
-    const risk = gantryToolDefaultRisk(tool);
-    expect(risk?.risk_level).toBe('medium');
-    expect(AUTO_APPROVE.has(risk!.risk_level)).toBe(true);
-  });
-
-  // (b) genuinely risky gantry tools stay high (ask, never auto-approved).
-  it.each([
-    'mcp__gantry__request_access', // capability grant
-    'mcp__gantry__request_skill_install', // authority-changing
-    'mcp__gantry__request_mcp_server', // authority-changing
-    'mcp__gantry__request_settings_update', // settings mutation
-    'mcp__gantry__settings_desired_state', // admin settings mutation
-    'mcp__gantry__admin_permission_revoke', // permission revoke
-    'mcp__gantry__service_restart', // service restart
-    'mcp__gantry__register_agent', // authority-changing
-    'mcp__gantry__scheduler_delete_job', // destructive (delete)
-    'mcp__gantry__scheduler_update_job',
-    'mcp__gantry__scheduler_upsert_job',
-    'mcp__gantry__scheduler_pause_job',
-    'mcp__gantry__scheduler_resume_job',
-    'mcp__gantry__scheduler_run_now',
-    'mcp__gantry__mcp_call_tool', // unscoped dispatcher
-    'mcp__gantry__async_run_command', // unscoped dispatcher
-    'mcp__gantry__async_mcp_call', // unscoped dispatcher
-    'mcp__gantry__pattern_candidate_decision', // decision actor
-    'mcp__gantry__proactive_surfacing_consent', // decision actor
-    'mcp__gantry__file', // arg-dependent protected config writes
-    'mcp__gantry__browser_open', // browser action -> unbounded real-world effect
-    'mcp__gantry__browser_act', // submit/click/type on a real page
-    'mcp__gantry__browser_close', // browser action
-    'mcp__gantry__send_message', // external mutation: destination/payload dependent
-  ])('rates high-risk tool %s high (ask)', (tool) => {
-    const risk = gantryToolDefaultRisk(tool);
-    expect(risk?.risk_level).toBe('high');
-    expect(AUTO_APPROVE.has(risk!.risk_level)).toBe(false);
-  });
-
-  it('keeps capability_run high-risk outside its dispatch-only runner boundary', () => {
-    const risk = gantryToolDefaultRisk('mcp__gantry__capability_run');
-
-    expect(risk?.risk_level).toBe('high');
-    expect(AUTO_APPROVE.has(risk!.risk_level)).toBe(false);
-  });
-
-  // (c) unknown / unmapped gantry tools default to ask, never silent approve.
-  it.each([
-    'mcp__gantry__frobnicate_everything',
-    'mcp__gantry__totally_new_tool',
-    'mcp__gantry__delete_all_the_things',
-  ])('defaults unmapped gantry tool %s to high (ask)', (tool) => {
-    expect(gantryToolDefaultRisk(tool)?.risk_level).toBe('high');
-  });
-
-  it('never auto-approves any authority-changing tool', () => {
-    const authorityTools = [
-      'request_skill_install',
-      'request_skill_proposal',
-      'request_skill_dependency_install',
-      'request_mcp_server',
-      'request_access',
-      'request_agent_profile_update',
-      'admin_permission_revoke',
-      'register_agent',
-      'request_settings_update',
-      'service_restart',
-    ];
-    for (const tool of authorityTools) {
-      expect(gantryToolDefaultRisk(`mcp__gantry__${tool}`)?.risk_level).toBe(
-        'high',
-      );
-    }
   });
 });

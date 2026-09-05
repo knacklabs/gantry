@@ -4,7 +4,9 @@ import {
 } from '../domain/file-artifacts/file-artifact.js';
 import {
   isAgentProfileArtifactWrite,
+  isProtectedArtifactEntry,
   isProtectedFileArtifactVirtualPath,
+  protectedArtifactEntryRefusal,
 } from '../domain/file-artifacts/protected-virtual-path.js';
 import {
   normalizeFileArtifactPath,
@@ -117,7 +119,14 @@ const fileArtifactHandler: TaskHandler = async (context) => {
           : {}),
         limit: toBoundedLimit(payload.limit, 50, 100),
       });
-      acceptData('FileArtifacts listed.', { ok: true, artifacts });
+      const visible = artifacts.filter(
+        (artifact) => !isProtectedArtifactEntry(artifact.scope, artifact.path),
+      );
+      acceptData('FileArtifacts listed.', {
+        ok: true,
+        artifacts: visible,
+        protectedHidden: artifacts.length - visible.length,
+      });
       return;
     }
 
@@ -145,6 +154,18 @@ const fileArtifactHandler: TaskHandler = async (context) => {
           ? { version: Math.floor(payload.version) }
           : {}),
       });
+      if (
+        isProtectedArtifactEntry(
+          result.artifact.virtualScope,
+          result.artifact.virtualPath,
+        )
+      ) {
+        reject(
+          protectedArtifactEntryRefusal(result.artifact.virtualPath),
+          'protected_entry',
+        );
+        return;
+      }
       acceptData('FileArtifact read.', {
         ok: true,
         artifact: describeFileArtifact(result.artifact),

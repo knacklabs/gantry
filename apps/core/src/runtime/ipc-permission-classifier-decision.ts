@@ -59,6 +59,7 @@ import {
   type PermissionDecisionTailContext,
 } from './permission-decision-coordinator.js';
 import { deriveAutoLaneAnalysis } from '../application/permissions/auto-lane-analysis.js';
+import { gantryNativeCanonicalToolName } from '../application/permissions/gantry-tool-risk.js';
 
 type PermissionRuntimeSettings = ReturnType<
   NonNullable<IpcDeps['getPermissionRuntimeSettings']>
@@ -172,7 +173,11 @@ export async function resolvePermissionIpcDecision(input: {
           : { allowedToolRules: policy.rules }),
       });
     },
-    skipClassifierVerdictCache: Boolean(hostJobId),
+    skipClassifierVerdictCache: Boolean(
+      hostJobId ||
+        gantryNativeCanonicalToolName(input.request.toolName)?.canonical ===
+          'capability_run',
+    ),
     analysis,
     tail: (context) =>
       resolvePermissionIpcDecisionTail({
@@ -372,6 +377,7 @@ async function consultIpcPermissionClassifier(
           input.request.decisionReason ?? 'Human approval is required.',
         approvedCapabilityIds,
         workspaceRoot: resolveWorkspaceFolderPath(input.sourceAgentFolder),
+        lane: input.context.analysis.lane,
         reviewedMcpReadBindings,
         yoloMode,
         suggestions: input.request.suggestions,
@@ -461,6 +467,8 @@ async function writeIpcClassifierCache(
   // under railRequiresApproval, so this guard already covers it.)
   if (
     classifierDecision &&
+    classifierDecision.status !== PermissionClassifierStatus.Skipped &&
+    !isInteractiveAutoUncacheableAllow(input, classifierDecision) &&
     !merge.railRequiresApproval &&
     input.effectHash &&
     input.decisionMemory
@@ -482,6 +490,23 @@ async function writeIpcClassifierCache(
       // ponytail: a cache-write failure must never block the live decision.
       .catch(() => undefined);
   }
+}
+
+function isInteractiveAutoUncacheableAllow(
+  input: PermissionIpcDecisionTailInput,
+  classifierDecision: PermissionClassifierPromptConsultResult,
+): boolean {
+  if (
+    input.context.analysis.lane !== PermissionLane.InteractiveAuto ||
+    classifierDecision.decision !== 'allow'
+  ) {
+    return false;
+  }
+  return (
+    input.request.toolName === 'FileWrite' ||
+    input.request.toolName === 'FileEdit' ||
+    gantryNativeCanonicalToolName(input.request.toolName) !== null
+  );
 }
 
 async function resolveIpcPermissionPromptOrTerminal(

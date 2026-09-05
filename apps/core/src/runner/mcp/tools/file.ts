@@ -99,6 +99,9 @@ async function requestHostFileArtifactAction(
     return 'That file action was rejected: the host did not confirm it in time.';
   }
   if (!response.ok) {
+    if (response.code === 'protected_entry' && response.error) {
+      return response.error;
+    }
     return `That file action was rejected: ${response.error || 'the file action failed.'}`;
   }
   const data =
@@ -111,7 +114,16 @@ async function requestHostFileArtifactAction(
   const encodedContent = decodeReadContent(data.content);
   if (encodedContent) return encodedContent;
   if (Array.isArray(data.artifacts)) {
-    if (data.artifacts.length === 0) return 'No files found.';
+    const protectedHidden =
+      typeof data.protectedHidden === 'number' && data.protectedHidden > 0
+        ? data.protectedHidden
+        : 0;
+    const hiddenLine = protectedHidden
+      ? `(${protectedHidden} protected entries hidden — not a permission question, don't retry.)`
+      : undefined;
+    if (data.artifacts.length === 0) {
+      return ['No files found.', hiddenLine].filter(Boolean).join('\n');
+    }
     const lines = data.artifacts.map((entry) => {
       const rec =
         entry && typeof entry === 'object'
@@ -119,7 +131,9 @@ async function requestHostFileArtifactAction(
           : {};
       return `- ${String(rec.virtualPath ?? rec.path ?? 'file')}`;
     });
-    return [`Files (${data.artifacts.length}):`, ...lines].join('\n');
+    return [`Files (${data.artifacts.length}):`, ...lines, hiddenLine]
+      .filter(Boolean)
+      .join('\n');
   }
   const artifact =
     data.artifact && typeof data.artifact === 'object'
