@@ -1,0 +1,9 @@
+# ASKFLOOR-1-T2b task-contract grill — round 7
+
+Read-only cold-read review, no file edits, no writes. Follow `factory/prompts/griller.md --gate task` for the `ASKFLOOR-1-T2b` entry in `.factory/stories/ASKFLOOR-1/decomposition.json` and its saved task plan `.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T2b.md`. Inputs of record as in round 1 (`plans/exploration/askfloor-1-t2b-task-grill.md`); rounds 1–6 briefs and answers.
+
+Round 6 found four blockers; all folded: (1) the diagram's native-write branch now yields `ambiguous` for no string destination and the ambiguous branch names artifact-source upload and malformed file/browser shapes; Objective, Scope and Surface Impact name artifact-upload ambiguity and the every-mode host resolver protection; (2) Problem and Surface Impact no longer claim that today's "medium" tools ask — "stop asking" is limited to today's HIGH/ineligible cases and the medium tools keep their allow while their verdict becomes `low`; (3) AC6 and `reviewer_focus` enumerate exactly three permitted existing-expectation changes (the table suite rewrite, the `memory_save` helper pin, the gate's `FileWrite`/`FileEdit` expectations); (4) the `file` rows normalise scope/path with the domain normalisers (`virtual-path.ts:4,14`) inside a non-throwing boundary — thrown normalisation → `ambiguous`; whitespace-padded profile paths still match — pinned in the file leaf.
+
+Round 7 is the final consistency check: (a) `objective`, `acceptance_criteria`, `plan_contracts`, the task plan (diagram, Scope, Surface Impact) and `reviewer_focus` agree on every rule; (b) `required_tests` (fourteen single-leaf `-t` titles), `write_scope` (22), `review_budget` (24/2000); (c) any remaining defect that would make the implementer build the wrong thing or make an AC unprovable.
+
+Output: `CONTRACT SOUND` or a numbered list of blockers (what, where, why, minimal fix), then non-blocking notes.
