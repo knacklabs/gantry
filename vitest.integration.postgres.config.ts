@@ -25,7 +25,7 @@ export default makeVitestConfig({
           // ponytail: these match the convention but were never in the old
           // hard-coded script list and have never run in CI with a live
           // database. Excluded to keep behavior; delete a line to adopt one.
-          '**/live-waiting-admission.postgres.integration.test.ts',
+          // (live-waiting-admission adopted by Q-0154 once its query was fixed.)
           '**/pattern-candidate-atomic-claim.postgres.integration.test.ts',
           '**/toolchain-bake-reconciler.postgres.integration.test.ts',
           '**/worker-coordination.postgres.integration.test.ts',
