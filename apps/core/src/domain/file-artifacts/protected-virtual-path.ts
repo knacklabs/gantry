@@ -56,3 +56,17 @@ export function isAgentProfileArtifactWrite(
     isProtectedProfileFileArtifactVirtualPath(virtualPath)
   );
 }
+
+export function isProtectedArtifactEntry(
+  virtualScope: string,
+  virtualPath: string,
+): boolean {
+  return (
+    isProtectedFileArtifactVirtualPath(virtualPath) ||
+    isAgentProfileArtifactWrite(virtualScope, virtualPath)
+  );
+}
+
+export function protectedArtifactEntryRefusal(virtualPath: string): string {
+  return `Refused: ${virtualPath} is protected. This is not a permission question — don't retry, tell the owner.`;
+}

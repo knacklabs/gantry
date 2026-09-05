@@ -83,6 +83,7 @@ function contextFor(input: {
   ipcBaseDir?: string;
   writeFileArtifact: ReturnType<typeof vi.fn>;
   readFileArtifact?: ReturnType<typeof vi.fn>;
+  listFileArtifacts?: ReturnType<typeof vi.fn>;
 }) {
   return {
     data: input.data,
@@ -90,6 +91,7 @@ function contextFor(input: {
     ipcBaseDir: input.ipcBaseDir,
     deps: {
       getFileArtifactStore: () => ({
+        listFileArtifacts: input.listFileArtifacts,
         readFileArtifact: input.readFileArtifact,
         writeFileArtifact: input.writeFileArtifact,
       }),
@@ -257,6 +259,104 @@ describe('file artifact IPC handlers', () => {
           text: 'from artifact store',
         },
       },
+    });
+  });
+
+  it('hides protected entries from list with a protectedHidden count and refuses a protected read by id and by path with the fixed not-a-permission-question text', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-file-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { fileArtifactTaskHandlers, taskData } =
+      await loadFileArtifactHandlers(runtimeHome);
+    const ordinary = makeArtifact({
+      virtualScope: 'default',
+      virtualPath: 'docs/AGENTS.md',
+      content: 'ordinary',
+    });
+    const settings = makeArtifact({
+      virtualScope: 'default',
+      virtualPath: 'settings.yaml',
+      content: 'protected',
+    });
+    const profile = makeArtifact({
+      virtualScope: 'prompt-profile',
+      virtualPath: 'main_agent/AGENTS.md',
+      content: 'protected',
+    });
+    const descriptor = (artifact: FileArtifact) => ({
+      id: artifact.id,
+      scope: artifact.virtualScope,
+      path: artifact.virtualPath,
+      version: artifact.version,
+      contentHash: artifact.contentHash,
+      sizeBytes: artifact.sizeBytes,
+      contentType: artifact.contentType,
+      createdAt: artifact.createdAt,
+    });
+    const listFileArtifacts = vi
+      .fn()
+      .mockResolvedValueOnce([descriptor(ordinary)])
+      .mockResolvedValueOnce([
+        descriptor(ordinary),
+        descriptor(settings),
+        descriptor(profile),
+      ]);
+    const readFileArtifact = vi.fn(async (input) => {
+      const artifact = input.id ? settings : profile;
+      return { artifact, content: 'protected' };
+    });
+    const writeFileArtifact = vi.fn();
+    const run = async (taskId: string, payload: Record<string, unknown>) => {
+      await fileArtifactTaskHandlers.file_artifact(
+        contextFor({
+          data: taskData(taskId, { payload }),
+          listFileArtifacts,
+          readFileArtifact,
+          writeFileArtifact,
+        }),
+      );
+      return readResponse(runtimeHome, taskId);
+    };
+
+    await expect(
+      run('list-ordinary', { action: 'list' }),
+    ).resolves.toMatchObject({
+      ok: true,
+      data: { ok: true, protectedHidden: 0 },
+    });
+    await expect(
+      run('list-protected', { action: 'list' }),
+    ).resolves.toMatchObject({
+      ok: true,
+      data: {
+        ok: true,
+        artifacts: [expect.objectContaining({ path: 'docs/AGENTS.md' })],
+        protectedHidden: 2,
+      },
+    });
+    await expect(
+      run('read-protected-id', {
+        action: 'read',
+        artifactId: settings.id,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'protected_entry',
+      error:
+        "Refused: settings.yaml is protected. This is not a permission question — don't retry, tell the owner.",
+    });
+    await expect(
+      run('read-protected-path', {
+        action: 'read',
+        scope: 'prompt-profile',
+        path: 'main_agent/AGENTS.md',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'protected_entry',
+      error:
+        "Refused: main_agent/AGENTS.md is protected. This is not a permission question — don't retry, tell the owner.",
     });
   });
 

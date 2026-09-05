@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 import type { PermissionApprovalDecision } from '@core/domain/types.js';
 import type { PermissionDecisionSource } from '@core/domain/types.js';
 import type { RailProvenance } from '@core/domain/permission-lane.js';
@@ -11,6 +13,7 @@ import { permissionDecisionResult } from '../channels/permission-approval-result
 export interface TapBudgetFixture {
   permissionMode: PermissionMode;
   hostJobId?: string;
+  workspaceRoot: string;
   command?: string;
   toolName?: string;
   toolInput?: Record<string, unknown>;
@@ -27,6 +30,13 @@ export interface TapBudgetFixture {
       | 'benign';
     reason: string;
   };
+  classifierConsult?: () => Promise<
+    TapBudgetFixture['classifierVerdict'] & { latencyMs: number }
+  >;
+}
+
+export async function assertLlmConsultNotInvoked(): Promise<never> {
+  throw new Error('Expected the LLM classifier consult not to be invoked.');
 }
 
 export async function replayPermissionRequest(
@@ -37,6 +47,7 @@ export async function replayPermissionRequest(
   source: PermissionDecisionSource;
   railProvenance: RailProvenance | null;
 }> {
+  fs.mkdirSync(fixture.workspaceRoot, { recursive: true });
   let taps = 0;
   const responseKeyId = fixture.hostJobId
     ? `tap-budget-${fixture.hostJobId}`
@@ -86,12 +97,15 @@ export async function replayPermissionRequest(
             approved: false,
             mode: 'cancel',
             decidedBy: 'owner',
+            source: 'user',
           });
         },
-        classifierConsult: async () => ({
-          ...fixture.classifierVerdict,
-          latencyMs: 1,
-        }),
+        classifierConsult:
+          fixture.classifierConsult ??
+          (async () => ({
+            ...fixture.classifierVerdict,
+            latencyMs: 1,
+          })),
         publishRuntimeEvent: async () => undefined,
         getPermissionRuntimeSettings: () => ({
           agents: {

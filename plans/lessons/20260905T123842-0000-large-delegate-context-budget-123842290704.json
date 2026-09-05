@@ -1,0 +1,13 @@
+{
+  "topic": "large-delegate-context-budget",
+  "lesson": "On a task touching 20+ files the Codex run hits the compaction limit after about 90 read commands; the source files are already complete and committed (checkpoint 5e060951a, tsc clean), so do NOT re-read finished source files \u2014 start from git status and the required_tests list, write or finish ONE test file at a time (run only that file with vitest), and stop reading the brief's cited source lines you have already implemented.",
+  "source": "5e060951a",
+  "applies_to": [
+    "apps/core/test/unit/**",
+    "apps/core/src/application/permissions/**",
+    "apps/core/src/runtime/permission-classifier*.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-05T12:38:42+00:00"
+}

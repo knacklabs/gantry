@@ -1,0 +1,16 @@
+{
+  "topic": "t2b-review-fixes",
+  "lesson": "T2b review fixes ONLY (two quality-lens findings, both verified): (1) shared/permission-prospective-write.ts \u2014 path.resolve collapses  before the lstat walk, so  with  a symlink to outside is judged inside; fail closed: if the RAW candidate (before resolve) contains a  segment return outside('write target uses parent traversal'), keep the rest; add the symlink-plus-dot-segment case to permission-prospective-write.test.ts. (2) application/permissions/gantry-tool-risk.ts judgeBrowserAction returns low for ANY non-file action string; hoist the 20 actAction names from runner/mcp/tools/browser.ts into an exported readonly BROWSER_ACT_ACTIONS tuple in shared/browser-backend-actions.ts (the runner's z.enum consumes that tuple \u2014 one source of truth), and the table returns ambiguous('malformed browser request') for an action not in it; add  -> ambiguous to gantry-tool-risk.test.ts. Do not re-read the other scope files; run those two suites plus the runner browser tool suite and tsc.",
+  "source": "580b11247",
+  "applies_to": [
+    "apps/core/src/shared/permission-prospective-write.ts",
+    "apps/core/src/application/permissions/gantry-tool-risk.ts",
+    "apps/core/src/shared/browser-backend-actions.ts",
+    "apps/core/src/runner/mcp/tools/browser.ts",
+    "apps/core/test/unit/shared/permission-prospective-write.test.ts",
+    "apps/core/test/unit/application/gantry-tool-risk.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-05T14:47:25+00:00"
+}

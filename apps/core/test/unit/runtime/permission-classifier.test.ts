@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { MemoryLlmClient } from '@core/domain/ports/memory-llm-client.js';
 import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
+import { PermissionLane } from '@core/domain/permission-lane.js';
 
 const query = vi.hoisted(() => vi.fn());
 const isConfigured = vi.hoisted(() => vi.fn());
@@ -185,6 +186,7 @@ describe('permission classifier verdict client', () => {
       {
         canonicalToolName: 'mcp__gantry__memory_save',
         toolInput: { content: 'Remember this.' },
+        lane: PermissionLane.InteractiveAuto,
       },
     ]) {
       await expect(
@@ -201,18 +203,22 @@ describe('permission classifier verdict client', () => {
   it('routes the native-risk branch through the named helper with an unchanged verdict', async () => {
     const helperInput = {
       canonicalToolName: 'mcp__gantry__memory_save',
+      toolInput: { content: 'Remember this.' },
+      workspaceRoot: undefined,
+      lane: PermissionLane.InteractiveAuto,
       inputTruncated: false,
       yoloDenylistHit: false,
       requestFamily: 'tool' as const,
     };
-    const expected = nativeRisk.evaluateNativeRiskBranch(helperInput);
+    const expected = await nativeRisk.evaluateNativeRiskBranch(helperInput);
     const evaluate = vi.spyOn(nativeRisk, 'evaluateNativeRiskBranch');
     try {
       await expect(
         consultPermissionClassifierBeforePrompt({
           ...basePromptInput,
           canonicalToolName: helperInput.canonicalToolName,
-          toolInput: { content: 'Remember this.' },
+          toolInput: helperInput.toolInput,
+          lane: helperInput.lane,
           classifierConsult: vi.fn(),
         }),
       ).resolves.toMatchObject({ ...expected, decision: 'allow' });
@@ -604,6 +610,7 @@ describe('permission classifier verdict client', () => {
     await expect(
       consultPermissionClassifierBeforePrompt({
         permissionMode: 'auto',
+        lane: PermissionLane.InteractiveAuto,
         requestFamily: 'tool',
         agentFolder: 'researcher',
         correlationId: 'request:malformed-verdict',
@@ -909,11 +916,12 @@ describe('permission classifier decision events', () => {
     expect(classifierConsult).toHaveBeenCalledOnce();
   });
 
-  it('auto-approves a routine gantry mutation via the deterministic map without the LLM in auto', async () => {
+  it('auto-approves a routine gantry mutation via the deterministic map without the LLM in interactive auto', async () => {
     const classifierConsult = vi.fn();
     await expect(
       consultPermissionClassifierBeforePrompt({
         permissionMode: 'auto',
+        lane: PermissionLane.InteractiveAuto,
         requestFamily: 'tool',
         agentFolder: 'researcher',
         correlationId: 'request:gantry-memory',
@@ -1039,27 +1047,93 @@ describe('permission classifier decision events', () => {
     },
   );
 
-  it('asks on an unmapped gantry tool without the LLM (never silent auto-approve)', async () => {
-    const classifierConsult = vi.fn();
-    await expect(
+  it('applies the table with a lane-independent high: a browser click allows under interactive_auto and asks under auto_strict, an absent lane yields no native verdict for the click and for memory_save but a native ask for scheduler_delete_job, for capability_run and for an unregistered suffix even against an allow-leaning classifier stub, and an unknown suffix under interactive_auto reaches the LLM consult', async () => {
+    const consult = (
+      canonicalToolName: string,
+      toolInput: unknown,
+      options: {
+        lane?: PermissionLane;
+        permissionMode?: 'auto' | 'auto_strict';
+        classifierConsult?: Parameters<
+          typeof consultPermissionClassifierBeforePrompt
+        >[0]['classifierConsult'];
+      } = {},
+    ) =>
       consultPermissionClassifierBeforePrompt({
-        permissionMode: 'auto',
-        requestFamily: 'tool',
-        agentFolder: 'researcher',
-        correlationId: 'request:gantry-unknown',
-        actor: 'permission',
-        intentSource: 'operator_message',
-        turnIntentSummary: 'Do something new.',
-        canonicalToolName: 'mcp__gantry__frobnicate_everything',
-        toolInput: {},
-        policyDecisionReason: 'No durable rule matched.',
-        approvedCapabilityIds: [],
-        classifierConfig: { memoryExtractorModel: 'extractor-model' },
-        publishRuntimeEvent: vi.fn(async () => undefined),
-        classifierConsult,
-      }),
+        ...basePromptInput,
+        permissionMode: options.permissionMode ?? 'auto',
+        canonicalToolName,
+        toolInput,
+        ...(options.lane ? { lane: options.lane } : {}),
+        classifierConsult: options.classifierConsult ?? vi.fn(),
+      });
+    const llmAllow = vi.fn(async () => ({
+      status: PermissionClassifierStatus.Answered,
+      risk_level: 'low' as const,
+      reason: 'LLM allowed the ambiguous row.',
+      latencyMs: 1,
+    }));
+
+    await expect(
+      consult(
+        'mcp__gantry__browser_act',
+        {
+          action: 'click',
+          payload: { selector: '#save' },
+        },
+        { lane: PermissionLane.InteractiveAuto },
+      ),
+    ).resolves.toMatchObject({ decision: 'allow', latencyMs: 0 });
+    await expect(
+      consult(
+        'mcp__gantry__browser_act',
+        { action: 'click', payload: { selector: '#save' } },
+        {
+          lane: PermissionLane.AutoStrict,
+          permissionMode: 'auto_strict',
+        },
+      ),
     ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
-    expect(classifierConsult).not.toHaveBeenCalled();
+
+    for (const [toolName, toolInput] of [
+      ['mcp__gantry__browser_act', { action: 'click', payload: {} }],
+      ['mcp__gantry__memory_save', { content: 'Remember this.' }],
+    ] as const) {
+      await expect(
+        consult(toolName, toolInput, { classifierConsult: llmAllow }),
+      ).resolves.toMatchObject({
+        decision: 'allow',
+        reason: 'LLM allowed the ambiguous row.',
+      });
+    }
+    expect(llmAllow).toHaveBeenCalledTimes(2);
+
+    llmAllow.mockClear();
+    for (const toolName of [
+      'mcp__gantry__scheduler_delete_job',
+      'mcp__gantry__capability_run',
+      'mcp__gantry__frobnicate_everything',
+    ]) {
+      await expect(
+        consult(toolName, {}, { classifierConsult: llmAllow }),
+      ).resolves.toMatchObject({ decision: 'ask', latencyMs: 0 });
+    }
+    expect(llmAllow).not.toHaveBeenCalled();
+
+    await expect(
+      consult(
+        'mcp__gantry__frobnicate_everything',
+        {},
+        {
+          lane: PermissionLane.InteractiveAuto,
+          classifierConsult: llmAllow,
+        },
+      ),
+    ).resolves.toMatchObject({
+      decision: 'allow',
+      reason: 'LLM allowed the ambiguous row.',
+    });
+    expect(llmAllow).toHaveBeenCalledOnce();
   });
 
   it.each(['auto', 'auto_strict'] as const)(
