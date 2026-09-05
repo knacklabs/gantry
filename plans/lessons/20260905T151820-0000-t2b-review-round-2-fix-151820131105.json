@@ -1,0 +1,12 @@
+{
+  "topic": "t2b-review-round-2-fix",
+  "lesson": "T2b review round 2, ONE P2 fix only: apps/core/src/shared/permission-prospective-write.ts:22 splits the raw candidate on path.sep, which on Windows is a backslash, so a forward-slash 'link/../victim' is not caught before path.resolve collapses it. Split on both separators (candidatePath.split(/[\\\\/]/).includes('..')) and add one test case with a forward-slash traversal to permission-prospective-write.test.ts. Do not read or edit any other file; run that suite and tsc.",
+  "source": "bddc9b57b",
+  "applies_to": [
+    "apps/core/src/shared/permission-prospective-write.ts",
+    "apps/core/test/unit/shared/permission-prospective-write.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-05T15:18:20+00:00"
+}
