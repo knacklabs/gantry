@@ -1180,11 +1180,13 @@ maybeDescribe('inline session turns through the control API', () => {
       app,
       channelWiring: {
         sendMessage: channelEffects.runtime.sendMessage,
-        requestPermissionApproval: (request) =>
-          channelEffects.runtime.requestPermissionApproval(
+        requestPermissionApproval: async (request) => ({
+          kind: 'decision' as const,
+          decision: await channelEffects.runtime.requestPermissionApproval(
             request.targetJid ?? baseInput.chatJid,
             request,
           ),
+        }),
         requestUserAnswer: (request) =>
           channelEffects.runtime.requestUserAnswer(
             request.targetJid ?? baseInput.chatJid,
@@ -1451,18 +1453,24 @@ maybeDescribe('inline session turns through the control API', () => {
     const { makeAgentThreadQueueKey } =
       await import('@core/shared/thread-queue-key.js');
     const conversationJid = 'app:default:delegation';
+    // Delegation scopes targets to the caller's canonical conversation, so
+    // every route in the map carries the same conversationId.
+    const conversationId = 'conversation:delegation';
     const parentGroup = {
       ...group,
+      conversationId,
       folder: 'parent_inline',
       agentConfig: { runtime: 'inline' },
     } as ConversationRoute;
     const inlineTarget = {
       ...group,
+      conversationId,
       folder: 'child_inline',
       agentConfig: { runtime: 'inline' },
     } as ConversationRoute;
     const workerTarget = {
       ...group,
+      conversationId,
       folder: 'child_worker',
       agentConfig: { runtime: 'worker' },
     } as ConversationRoute;
