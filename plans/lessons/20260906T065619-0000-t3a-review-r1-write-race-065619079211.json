@@ -1,0 +1,14 @@
+{
+  "topic": "t3a-review-r1-write-race",
+  "lesson": "TWO fixes only (review round 1). FIX 2 (performance P2): human-decision-memory-service.ts list() calls deriveHumanDecisionShortId(row.id, ids) per row, and that function re-normalises every sibling for every row and every prefix length \u2014 quadratic. Add an exported deriveHumanDecisionShortIds(ids: string[]): Map<string, string> that normalises each id ONCE, then resolves prefixes by counting: starting at length 6, build a Map<prefix, count> over the still-unresolved ids, mark ids whose prefix count is 1 as resolved at that length, and extend the rest by one character until resolved (O(n \u00d7 average prefix length)); list() computes the map once and reads shortId from it; keep deriveHumanDecisionShortId(id, siblings) with its exact current semantics as a thin wrapper over the batch function (the contract and the unit leaf name it). Add one unit case: 500 ids with a shared 6-char prefix on two of them resolve in one call with only those two extended to 7. FIX 1 (quality P2): putHumanDecision does select-then-insert inside its transaction with no lock, so two concurrent FIRST writes for the same (app_id, agent_folder, acting_person_id, scope, scope_key) race the partial unique index and the loser throws instead of refreshing. Fix at the top of the transaction, before the select: await tx.execute(sql) \u2014 a transaction-scoped advisory lock keyed on the human authority, released at commit; the same pattern as canonical-message-attachment-lock.postgres.ts and live-admission-work-item-repository.postgres.ts \u2014 then keep the existing select/refresh/insert unchanged. Prove it in the Postgres suite with one new case inside the existing round-trips leaf (do NOT add a new it() and do NOT change any title): Promise.all of two putHumanDecision calls for the same key with different ids resolves to one inserted and one refreshed sharing the stored id, and exactly one active row exists. Run the file after 'source /private/tmp/claude-501/-Users-ravikiranvemula-Workdir-myclaw/b4051e43-dbea-4d62-ba73-ae6210455474/scratchpad/pgfix-env.sh'; do not touch any other file; stop.",
+  "source": "ea7a830f3",
+  "applies_to": [
+    "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+    "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/test/unit/application/human-decision-memory-service.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T06:56:19+00:00"
+}
