@@ -1,7 +1,7 @@
 {
   "generated_by": "autoreview",
   "score": 10,
-  "summary": "quality lens over ASKFLOOR-1-T3a (20 product path(s), 098cd57..ef941c0, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
+  "summary": "quality lens over ASKFLOOR-1-T3a (20 product path(s), 098cd57..dd97afc, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
@@ -32,32 +32,32 @@
     {
       "contract_id": "ASKFLOOR-1-T3a-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/schema/migrations/20260906034855_permission_decision_memory_human.sql:1 evidence"
+      "evidence": "apps/core/src/adapters/storage/postgres/schema/migrations/20260906034855_permission_decision_memory_human.sql:2 adds the required columns, CHECK, and partial unique indexes; recorded drift and Postgres tests pass."
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:51 evidence"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:51 guards non-human access and implements person-scoped transactional human operations."
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/human-decision-scope.ts:1 evidence"
+      "evidence": "apps/core/src/application/permissions/human-decision-scope.ts:1 contains the dedicated scope-key module; recorded exhaustive unit tests pass."
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/human-decision-memory-service.ts:1 evidence"
+      "evidence": "apps/core/src/application/permissions/human-decision-memory-service.ts:1 provides the service and batch short-ID derivation; recorded unit tests pass."
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/human-decision.ts:1 evidence"
+      "evidence": "apps/core/src/domain/human-decision.ts:1 contains the additive domain types and provenance codec, while domain/types.ts only gains the decision-source member."
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC6",
       "verdict": "implemented",
-      "evidence": "docs/architecture/permission-decision-memory.md:1 evidence"
+      "evidence": "docs/architecture/permission-decision-memory.md:1 documents the design, and vitest.integration.config.ts:1 supplies the database-aware serialization; recorded verification is green."
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -141,10 +141,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "31881d458591a7f2770248a2145845b97a790d0eff169055340f49b391e165ad",
-  "brief_sha256": "f958b6a03d9341dce2aa1012d6fb42d7378b091ba8e1203681ee5de0bdbac5a3",
-  "branch_diff_digest": "c84594423a98cd7c7cbfff1d2274db7a3bf0b9bd5f81796caf67fea6795b24d3",
+  "review_run_id": "71f4ad8bf6ec0c68d2e1337c4a89814a7915ed754281cc648653e3e0820bc965",
+  "brief_sha256": "1be8d7b4c1ea09aaf3b44389c32d1be82f039bcabff814e93e7499979098acd4",
+  "branch_diff_digest": "61ef5bdef65a4c2b855f3d094e9339befd2bef04bf9d11e8ef5bf288895ac43b",
   "residual_risks": [],
-  "recorded_at": "2026-09-06T15:50:39+00:00",
-  "commit": "ef941c0e43c932067f10bc828e7d80ac4bec4cec"
+  "recorded_at": "2026-09-06T16:53:47+00:00",
+  "commit": "dd97afc6210df89272c3589e78a972cd9609ccaa"
 }
