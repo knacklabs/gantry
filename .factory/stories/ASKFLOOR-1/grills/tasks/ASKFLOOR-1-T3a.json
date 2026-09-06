@@ -70,13 +70,13 @@
     }
   ],
   "summary": "T2a task grill: contract sound.",
-  "input_sha256": "c98cbf0d6cb258ba0705fba449207e5f973399a3745dbc1630f347f93ea40569",
+  "input_sha256": "7eceb5f6d9f6c413fdb416443ee11ad6144ae435614d36a4a3f73940fa7fc09c",
   "grounding_basis": "working-tree",
   "grounding_treeish": "",
   "task_plan_sha256": "ab9060f3eb899036a2db6e6ef09b41b1c56fadb13db964eee6a35e0b8dbadcee",
-  "recorded_at": "2026-09-06T14:04:20+00:00",
-  "commit": "5760514fdcd9ecc96134de80ff5b32298e4907f2",
+  "recorded_at": "2026-09-06T14:44:01+00:00",
+  "commit": "15f30341279f08557c8d122995a57d897e3a1c42",
   "approved_task_plan_sha256": "ab9060f3eb899036a2db6e6ef09b41b1c56fadb13db964eee6a35e0b8dbadcee",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-06T14:04:27+00:00"
+  "approved_at": "2026-09-06T14:44:09+00:00"
 }
