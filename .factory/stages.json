@@ -22,7 +22,7 @@
     {
       "id": "ASKFLOOR-1-T3a",
       "title": "Human-decision memory persistence",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-09-06T03:34:39+00:00",
       "base_sha": "236eb4293dcd94f29e0f398db8e04e132a4a07dd",
       "dirty_at_start": {
@@ -39,7 +39,22 @@
           "git": "? .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "4a74200237fce7b1970e36c6372b9494f4338a7eedd86c62c143b37a5e246c65"
+      "task_sha256": "59c0ead2735465c5d6532ef82e057035eac0a693941e1671ad9092b9d4e4d3d0",
+      "local_review_stamp": {
+        "stage_id": "ASKFLOOR-1-T3a",
+        "task_sha256": "59c0ead2735465c5d6532ef82e057035eac0a693941e1671ad9092b9d4e4d3d0",
+        "brief_sha256": "2069c2eaa77372be5bf93074cc78b5cbd44c48c33dbd23928c1bd99cd8d72dcf",
+        "base_sha": "236eb4293dcd94f29e0f398db8e04e132a4a07dd",
+        "product_tree_digest": "845a6c57eee16d2465f915ccaa41764d8b3b8fa62d90f0b1ac7187196c0c89a1",
+        "recorded_at": "2026-09-06T06:20:28+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-09-06T06:36:53+00:00",
+      "contract_changed": {
+        "at": "2026-09-06T06:36:53+00:00",
+        "from": "4a74200237fce7b1970e36c6372b9494f4338a7eedd86c62c143b37a5e246c65",
+        "to": "59c0ead2735465c5d6532ef82e057035eac0a693941e1671ad9092b9d4e4d3d0"
+      }
     },
     {
       "id": "ASKFLOOR-1-T3b",
