@@ -1,0 +1,13 @@
+{
+  "topic": "t3a-implementation-order",
+  "lesson": "T3a order that fits one Codex run: (1) schema.ts + port + repository + domain/types.ts + the shared boundary canonicalPath, then run npm run db:migrations:generate -- --name permission_decision_memory_human (NEVER hand-write the SQL or snapshot; commit what drizzle-kit emits), then npx tsc --noEmit; (2) the scope-key module and the service; (3) tests ONE FILE AT A TIME in this order \u2014 provenance, scope, service, prospective-write pin, Postgres suite \u2014 running each file right after writing it and never re-reading a finished source file. Postgres tests need the TEST database: run 'source /private/tmp/claude-501/-Users-ravikiranvemula-Workdir-myclaw/b4051e43-dbea-4d62-ba73-ae6210455474/scratchpad/pgfix-env.sh' in the same shell before vitest (it exports GANTRY_TEST_DATABASE_URL for gantry_test; the live database gantry must never be touched). Required leaf titles are exact it() names from the brief.",
+  "source": "7fd8bc075",
+  "applies_to": [
+    "apps/core/src/adapters/storage/postgres/**",
+    "apps/core/src/application/permissions/human-decision-*.ts",
+    "apps/core/test/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T03:35:06+00:00"
+}

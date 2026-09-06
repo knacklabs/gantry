@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-06T06:18:54+00:00", "story": "ASKFLOOR-1", "detail": "Postgres verification for ASKFLOOR-1-T3a v9 is blocked because the managed sandbox refuses the test-database connection with EPERM 127.0.0.1:5432."}

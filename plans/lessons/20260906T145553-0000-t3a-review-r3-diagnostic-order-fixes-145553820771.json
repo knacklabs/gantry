@@ -1,0 +1,17 @@
+{
+  "topic": "t3a-review-r3-diagnostic-order-fixes",
+  "lesson": "Diagnostic run (read-only) after review round 3 found three more items that ship with lesson 92's fixes; the contract is unchanged, only the ORDER of two existing rules. (4) human-decision-scope.ts deriveNativeWriteScope returns undefined (which the caller turns into the full-hash Allow key) when file_path or path is a non-string, BEFORE boundary-checking the string destination that IS present; so { file_path: 'settings.yaml', path: 1 } is remembered as a full-hash Allow instead of refusing protected_destination. Fix: boundary-check every supplied non-blank string destination FIRST (any outside \u21d2 refused protected_destination), and only then apply the malformed-shape rule (\u21d2 undefined \u21d2 full hash, as the contract says). Add the mixed malformed-plus-protected case to human-decision-scope.test.ts. (5) deriveVirtualWriteScope likewise returns undefined for a malformed companion field before checking whether an available string path (write path, promote_scratch targetPath) is a protected virtual entry via isProtectedArtifactEntry; check protection of every available string destination (and protected: true) before the malformed fallback; add the case. (6) human-decision-memory-service.test.ts:139 defines request twice in one fixture literal (the second at :146 silently wins) \u2014 remove the first. Everything else stays as lesson 92 says; no new enum member, no wrapper, no rename.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+    "apps/core/src/domain/ports/permission-decision-memory.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+    "apps/core/src/application/permissions/human-decision-scope.ts",
+    "apps/core/test/unit/application/human-decision-scope.test.ts",
+    "apps/core/test/unit/shared/permission-prospective-write.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T14:55:53+00:00"
+}

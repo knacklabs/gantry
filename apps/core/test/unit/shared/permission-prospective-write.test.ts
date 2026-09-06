@@ -38,9 +38,30 @@ describe('prospective write boundary', () => {
 
     await expect(evaluate('notes/existing.md')).resolves.toEqual({
       inside: true,
+      canonicalPath: path.join(
+        fs.realpathSync(workspaceRoot),
+        'notes/existing.md',
+      ),
     });
     await expect(evaluate('notes/missing.md')).resolves.toEqual({
       inside: true,
+      canonicalPath: path.join(
+        fs.realpathSync(workspaceRoot),
+        'notes/missing.md',
+      ),
+    });
+
+    const aliasParent = makeRoot('alias-parent');
+    const workspaceAlias = path.join(aliasParent, 'workspace-alias');
+    fs.symlinkSync(workspaceRoot, workspaceAlias);
+    await expect(
+      evaluate('notes/existing.md', workspaceAlias),
+    ).resolves.toEqual({
+      inside: true,
+      canonicalPath: path.join(
+        fs.realpathSync(workspaceRoot),
+        'notes/existing.md',
+      ),
     });
 
     for (const candidatePath of [

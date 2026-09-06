@@ -257,7 +257,7 @@ export type PermissionApprovalDecisionMode =
 export type PermissionDecisionSource =
   | 'durable_rule' | 'birthright' | 'deterministic_policy'
   | 'auto_classifier' | 'cached_classifier' | 'trusted_root'
-  | 'human_once' | 'human_persistent';
+  | 'human_once' | 'human_persistent' | 'human_decision';
 
 export interface PermissionRecoveryEnvelope {
   version: 1;

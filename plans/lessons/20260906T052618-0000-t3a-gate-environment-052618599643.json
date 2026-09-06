@@ -1,0 +1,11 @@
+{
+  "topic": "t3a-gate-environment",
+  "lesson": "ONE fix only (contract v8 AC6): in vitest.integration.config.ts pass fileParallelism: process.env.GANTRY_TEST_DATABASE_URL ? false : undefined to makeVitestConfig (mirror the Postgres config's serial run) with a one-line comment that concurrent schema migrations against one database time out beforeAll hooks. Then prove it: 'source /private/tmp/claude-501/-Users-ravikiranvemula-Workdir-myclaw/b4051e43-dbea-4d62-ba73-ae6210455474/scratchpad/pgfix-env.sh && npx vitest run -c vitest.integration.config.ts' must be green (previously 11 suites hit Hook timed out in 10000ms), and 'npx tsc --noEmit'. Do not touch any other file; stop.",
+  "source": "HEAD",
+  "applies_to": [
+    "vitest.integration.config.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T05:26:18+00:00"
+}

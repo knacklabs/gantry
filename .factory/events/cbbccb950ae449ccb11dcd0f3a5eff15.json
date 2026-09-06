@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-06T07:31:47+00:00", "story": "ASKFLOOR-1", "detail": "S-0081-6050: Host-run evidence: the Postgres decision-memory suite passes on the host (the env file lives in the orchestrator scratchpad, outside the companion sandbox's read set); host-run leaves are the gate evi"}

@@ -1,0 +1,7 @@
+# ASKFLOOR-1-T3a task-contract grill — round 3
+
+Read-only cold-read review, no file edits, no writes. Follow `factory/prompts/griller.md --gate task` for the `ASKFLOOR-1-T3a` entry in `.factory/stories/ASKFLOOR-1/decomposition.json` and its saved task plan `.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md`. Inputs of record as in round 1 (`plans/exploration/askfloor-1-t3a-task-grill.md`); rounds 1–2 answers with fold notes at `-answer.md` and `-r2-answer.md`.
+
+Round 2 found three textual residues of the round-1 fold; all three are folded as contract v3 (reviewer_focus discriminated `protected_destination` result; the diagram's `deny + kind/place → deny_requires_exact` branch with Allow-only kind/place branches; the Postgres round-trip leaf enumerating the complete refresh set). Round 3 is the final consistency check: (a) the objective, acceptance criteria, plan contracts, reviewer_focus, the eight leaf titles and the task plan (Technical Approach, Decisions, Task Decomposition, Workflow diagram, Verify Plan) agree on every rule; (b) no residue of the superseded wording remains (`undefined` as a scope-key result, `principal = toolName`, an eight-character short id, a scalar `mode` on the remember DTO, a `revokeById` without app/folder, a codec without `railVersion`); (c) nothing contradicts 0154 / 0118 / 0107 / 0054 or the story plan's T3a ownership bullet. Do not re-litigate settled rulings.
+
+Output: `CONTRACT SOUND` or a numbered list of blockers (what, where, why, minimal fix), then non-blocking notes.

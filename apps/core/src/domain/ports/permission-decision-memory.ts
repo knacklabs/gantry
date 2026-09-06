@@ -8,7 +8,25 @@ export type PermissionDecisionMemoryKind =
   | 'classifier_verdict'
   | 'remembered_deny'
   | 'trusted_root'
-  | 'standing_grant';
+  | 'standing_grant'
+  | 'human_decision';
+
+export const HumanDecisionOutcome = {
+  Allow: 'allow',
+  Deny: 'deny',
+} as const;
+export type HumanDecisionOutcome =
+  (typeof HumanDecisionOutcome)[keyof typeof HumanDecisionOutcome];
+
+export const HumanDecisionScope = {
+  Exact: 'exact',
+  Kind: 'kind',
+  Place: 'place',
+} as const;
+export type HumanDecisionScope =
+  (typeof HumanDecisionScope)[keyof typeof HumanDecisionScope];
+
+export const HUMAN_DECISION_MEMORY_KIND = 'human_decision' as const;
 
 /** Persistable decision effect. Human `allow_once` is NEVER one of these. */
 export type PermissionDecisionMemoryEffect = 'allow' | 'ask' | 'deny';
@@ -21,6 +39,11 @@ export interface PermissionDecisionMemoryRow {
   lookupIdentity: string;
   effectHash?: string;
   decision?: PermissionDecisionMemoryEffect;
+  outcome?: HumanDecisionOutcome;
+  scope?: HumanDecisionScope;
+  scopeKey?: string;
+  actingPersonId?: string;
+  actingPersonLabel?: string;
   reason: string;
   risk_level?: PermissionRiskLevel;
   risk_category?: PermissionRiskCategory;
@@ -50,12 +73,45 @@ export interface PermissionDecisionMemoryPutInput {
   nowIso: string;
   effectHash?: string;
   decision?: PermissionDecisionMemoryEffect;
+  outcome?: HumanDecisionOutcome;
+  scope?: HumanDecisionScope;
+  scopeKey?: string;
+  actingPersonId?: string;
+  actingPersonLabel?: string;
   canonicalRoot?: string;
   principal?: string;
   expiresAt?: string;
   /** If this originated from a human prompt, its mode — an `allow_once` is refused. */
   sourceMode?: PermissionApprovalDecisionMode;
 }
+
+export interface HumanDecisionMemoryPutInput {
+  id: string;
+  appId: string;
+  agentFolder: string;
+  outcome: HumanDecisionOutcome;
+  scope: HumanDecisionScope;
+  scopeKey: string;
+  actingPersonId: string;
+  actingPersonLabel?: string;
+  canonicalTool: string;
+  reason: string;
+  effectSchemaVersion: number;
+  railVersion: number;
+  provenance: string;
+  nowIso: string;
+  effectHash?: string;
+}
+
+export type HumanDecisionMemoryPutResult = {
+  id: string;
+  status: 'inserted' | 'refreshed';
+};
+
+export type HumanDecisionRevokeResult =
+  | 'applied'
+  | 'already_revoked'
+  | 'not_found';
 
 /** A cached classifier verdict — only `allow`/`ask`, never a human ephemeral decision. */
 export interface ClassifierVerdict {
@@ -73,6 +129,15 @@ export class AllowOnceNeverPersistedError extends Error {
   constructor() {
     super('permission_decision_memory: human allow_once is never persisted');
     this.name = 'AllowOnceNeverPersistedError';
+  }
+}
+
+export class HumanDecisionRequiresTypedAccessError extends Error {
+  constructor() {
+    super(
+      'permission_decision_memory: human decisions require person-scoped typed access',
+    );
+    this.name = 'HumanDecisionRequiresTypedAccessError';
   }
 }
 
@@ -104,6 +169,31 @@ export interface PermissionDecisionMemoryRepository {
 
   /** Single write path for the owner-authored kinds. Refuses a human allow_once. */
   put(input: PermissionDecisionMemoryPutInput): Promise<void>;
+
+  putHumanDecision(
+    input: HumanDecisionMemoryPutInput,
+  ): Promise<HumanDecisionMemoryPutResult>;
+
+  listHumanDecisions(input: {
+    appId: string;
+    agentFolder: string;
+    actingPersonId: string;
+    includeRevoked?: boolean;
+  }): Promise<PermissionDecisionMemoryRow[]>;
+
+  revokeById(input: {
+    appId: string;
+    agentFolder: string;
+    actingPersonId: string;
+    recordId: string;
+    nowIso: string;
+  }): Promise<HumanDecisionRevokeResult>;
+
+  countExactAllowsByTool(input: {
+    appId: string;
+    agentFolder: string;
+    actingPersonId: string;
+  }): Promise<Record<string, number>>;
 
   get(input: {
     appId: string;

@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import {
   boolean,
+  check,
   doublePrecision,
   index,
   integer,
@@ -9,7 +10,6 @@ import {
   primaryKey,
   text,
   timestamp,
-  unique,
   uniqueIndex,
   uuid,
   vector,
@@ -73,6 +73,11 @@ export const permissionDecisionMemoryPostgres = pgTable(
     lookupIdentity: text('lookup_identity').notNull(),
     effectHash: text('effect_hash'),
     decision: text('decision'),
+    outcome: text('outcome'),
+    scope: text('scope'),
+    scopeKey: text('scope_key'),
+    actingPersonId: text('acting_person_id'),
+    actingPersonLabel: text('acting_person_label'),
     reason: text('reason').notNull(),
     riskLevel: text('risk_level'),
     riskCategory: text('risk_category'),
@@ -95,15 +100,27 @@ export const permissionDecisionMemoryPostgres = pgTable(
     }),
   },
   (table) => ({
-    lookupUq: unique('permission_decision_memory_lookup_uq').on(
-      table.appId,
-      table.agentFolder,
-      table.kind,
-      table.lookupIdentity,
-    ),
+    lookupUq: uniqueIndex('permission_decision_memory_lookup_uq')
+      .on(table.appId, table.agentFolder, table.kind, table.lookupIdentity)
+      .where(sql`${table.kind} <> 'human_decision'`),
+    humanUq: uniqueIndex('permission_decision_memory_human_uq')
+      .on(
+        table.appId,
+        table.agentFolder,
+        table.actingPersonId,
+        table.scope,
+        table.scopeKey,
+      )
+      .where(
+        sql`${table.kind} = 'human_decision' AND ${table.revokedAt} IS NULL`,
+      ),
     activeIdx: index('permission_decision_memory_active_idx')
       .on(table.appId, table.agentFolder, table.kind, table.lookupIdentity)
       .where(sql`revoked_at IS NULL`),
+    humanRowCheck: check(
+      'permission_decision_memory_human_row_ck',
+      sql`${table.kind} <> 'human_decision' OR (${table.outcome} IS NOT NULL AND ${table.scope} IS NOT NULL AND ${table.scopeKey} IS NOT NULL AND ${table.actingPersonId} IS NOT NULL)`,
+    ),
   }),
 );
 

@@ -1,0 +1,11 @@
+{
+  "topic": "t3a-raw-sql-allowlist",
+  "lesson": "ONE fix only: the raw-SQL allowlist unit test under test/unit/storage enumerates the files allowed to call pg_advisory_xact_lock, each with a one-line justification comment; add the permission-decision-memory Postgres repository (adapters/storage/postgres/repositories) to that list with the comment: pg_advisory_xact_lock serializes concurrent first writes of one human decision authority so the loser refreshes instead of racing the partial unique index \u2014 in the same style as the neighbouring entries. Run that test file and stop; touch nothing else.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/test/unit/storage/postgres-raw-sql-allowlist.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T07:14:39+00:00"
+}

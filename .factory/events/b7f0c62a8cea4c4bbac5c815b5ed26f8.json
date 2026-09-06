@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-06T04:42:41+00:00", "story": "ASKFLOOR-1", "detail": "S-0078-9af0: contract v7: every T3a domain addition moves to NEW domain/human-decision.ts; domain/types.ts keeps only the human_decision union member on its existing line (file stays at 740); the one-fix instructi"}
