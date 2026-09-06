@@ -1,0 +1,12 @@
+{
+  "topic": "t3a-architecture-crypto",
+  "lesson": "ONE fix only: npm run check:architecture rejects application/permissions/human-decision-memory-service.ts:1 importing node:crypto (application permits no external imports). Move the default id source to a NEW tiny shared helper apps/core/src/shared/human-decision-id.ts exporting newHumanDecisionId(): string (randomUUID from node:crypto \u2014 shared may import it, see shared/auth-tokens.ts) and isHumanDecisionId(value): boolean (the v4 UUID shape guard), and import both from the service (keep newId injectable, default = newHumanDecisionId). Do not touch any other file; run npm run check:architecture, npx tsc --noEmit and the service unit suite, then stop.",
+  "source": "8e6701dbc",
+  "applies_to": [
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/src/shared/human-decision-id.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T04:14:58+00:00"
+}
