@@ -42,12 +42,13 @@ flowchart TD
   R[remember dto: resolution, person, request] --> G{guards}
   G -- blank person / scalar mode instead of remember --> N[not_rememberable]
   G -- ok --> K{scope key module}
+  K -- deny + kind or place --> N2[not_rememberable: deny_requires_exact]
   K -- deny + exact --> FH[full effect hash]
   K -- allow + exact + single unprotected destination --> PO[path-only key: tool + canonical destination]
   K -- allow + exact otherwise --> FH
-  K -- kind --> KD[kind:category or kind:tool]
-  K -- place --> PL[place:canonicalRoot]
-  K -- protected / no category / no root / no hash --> N
+  K -- allow + kind --> KD[kind:category or kind:tool]
+  K -- allow + place --> PL[place:canonicalRoot]
+  K -- protected destination / no category / no root / incomplete effect --> N
   FH --> W[putHumanDecision: v4 uuid, lookup_identity = key, principal = canonicalTool, provenance codec with railVersion]
   PO --> W
   KD --> W
