@@ -1,9 +1,9 @@
 {
-  "commit": "e6f69f5d3351a6231f050376db68056d9713f3e8",
+  "commit": "3b40263073b340c63ad2f51f61ce81625c72e3c6",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "ASKFLOOR-1-T3a automated proof: the eight required leaf tests (three through the Postgres config against gantry_test with GANTRY_TEST_DATABASE_URL exported, five unit) ran through the exact-leaf JUnit gate and pass; the new unit suites (scope keys, service, provenance) and the extended prospective-write and Postgres decision-memory suites pass; npm run db:migrations:check reports no drift for the generated migration; verify.py passed URL-less (format:check, check:architecture, typecheck, full unit suite, the URL-less integration lane \u2014 repository gate practice); the full SERIAL npm run test:integration:postgres lane green with the URL exported (64 files / 385 tests). With the URL exported inside verify.py the file-parallel general integration lane hits the known parallel-migration beforeAll timeouts (11 suites, all 'Hook timed out in 10000ms', each green alone) \u2014 pre-existing load contention, not a T3a regression.",
+    "summary": "ASKFLOOR-1-T3a automated proof: the eight required leaf tests (three through the Postgres config against gantry_test with GANTRY_TEST_DATABASE_URL exported, five unit) ran through the exact-leaf JUnit gate and pass; the new unit suites (scope keys, service, provenance) and the extended prospective-write and Postgres decision-memory suites pass; npm run db:migrations:check reports no drift for the generated migration; verify.py passed WITH GANTRY_TEST_DATABASE_URL exported (format:check, check:architecture, typecheck, full unit suite, the general integration lane now running DB-gated files serially when the URL is set \u2014 contract v8 AC6) and the full serial npm run test:integration:postgres lane is green (64 files / 385 tests). Before the lane fix the file-parallel general lane hit 11 beforeAll migration timeouts with the URL exported; that class is closed by this task.",
     "blocking_findings": [],
     "commands_run": [
       "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts -t \"enforces the partial keys: non-human rows keep the four-column key, two active human rows for one person and scope key reject, a revoked human row admits a fresh row, two persons coexist, and the human-row CHECK rejects each missing field while a missing label is accepted\" --outputFile=<junit-report>",
@@ -17,7 +17,7 @@
       "npm run db:migrations:check",
       "npx tsc --noEmit",
       "npm run check:architecture",
-      "python3 factory/scripts/verify.py (URL-less; format:check + check:architecture, typecheck, npm test) -> Verification passed",
+      "python3 factory/scripts/verify.py (GANTRY_TEST_DATABASE_URL exported; format:check + check:architecture, typecheck, npm test incl. the serial DB-gated general lane) -> Verification passed",
       "GANTRY_TEST_DATABASE_URL=<gantry_test> npm run test:integration:postgres"
     ],
     "tests_added_or_updated": [
@@ -28,9 +28,7 @@
       "apps/core/test/unit/domain/human-decision-provenance.test.ts"
     ],
     "pass_fail_summary": "8/8 required leaves passed (3 Postgres, 5 unit); drift check clean; verify.py passed; Postgres lane green",
-    "remaining_gaps": [
-      "The file-parallel general integration lane cannot run the DB-gated suites concurrently against one Postgres (beforeAll migration timeouts); the serial Postgres lane is the evidence for them. Pre-existing; a worker cap or hookTimeout for that lane is a separate quickfix."
-    ],
+    "remaining_gaps": [],
     "reviewed_scope": [
       "apps/core/src/shared/human-decision-id.ts",
       "apps/core/src/shared/permission-prospective-write.ts",
@@ -52,8 +50,8 @@
     "non_blocking_findings": [],
     "residual_risks": [],
     "manual_validation_steps": [],
-    "recorded_at": "2026-09-06T05:06:28+00:00",
-    "commit": "e6f69f5d3351a6231f050376db68056d9713f3e8"
+    "recorded_at": "2026-09-06T05:46:22+00:00",
+    "commit": "3b40263073b340c63ad2f51f61ce81625c72e3c6"
   },
-  "updated_at": "2026-09-06T05:06:28+00:00"
+  "updated_at": "2026-09-06T05:46:22+00:00"
 }

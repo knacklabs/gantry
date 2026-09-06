@@ -39,7 +39,16 @@
           "git": "? .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md\u0000\u0000\u0000"
         }
       },
-      "task_sha256": "4a74200237fce7b1970e36c6372b9494f4338a7eedd86c62c143b37a5e246c65"
+      "task_sha256": "4a74200237fce7b1970e36c6372b9494f4338a7eedd86c62c143b37a5e246c65",
+      "local_review_stamp": {
+        "stage_id": "ASKFLOOR-1-T3a",
+        "task_sha256": "65f24fa26f4e67ec1bbd230c2f09ce4907bd69cdd510d93e8d56009775294bb4",
+        "brief_sha256": "f5cfdf3b3787f24053d6a9c8bcdc72bfa54d7cf5be652e0488b491043f9d8c9e",
+        "base_sha": "236eb4293dcd94f29e0f398db8e04e132a4a07dd",
+        "product_tree_digest": "d738d3e297d9cc1bb5eac76c919558f6a562a277f51f3df55a277a775d49d847",
+        "recorded_at": "2026-09-06T05:46:22+00:00",
+        "generated_by": "autoreview"
+      }
     },
     {
       "id": "ASKFLOOR-1-T3b",
