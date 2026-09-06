@@ -1,0 +1,57 @@
+{
+  "commit": "2c010d977b1dd879551753d3c337802fa003c188",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "ASKFLOOR-1-T3a automated proof: the eight required leaf tests (three through the Postgres config against gantry_test with GANTRY_TEST_DATABASE_URL exported, five unit) ran through the exact-leaf JUnit gate and pass; the new unit suites (scope keys, service, provenance) and the extended prospective-write and Postgres decision-memory suites pass; npm run db:migrations:check reports no drift for the generated migration; verify.py passed WITH GANTRY_TEST_DATABASE_URL exported (format:check, check:architecture, typecheck, full unit suite, the general integration lane now running DB-gated files serially when the URL is set \u2014 contract v8 AC6) and the full serial npm run test:integration:postgres lane is green (64 files / 385 tests). Before the lane fix the file-parallel general lane hit 11 beforeAll migration timeouts with the URL exported; that class is closed by this task. Review round 1's two P2s are fixed in-task: putHumanDecision takes a transaction-scoped advisory lock on the human authority (two concurrent first writes -> one inserted, one refreshed, one active row \u2014 Postgres case), and short ids derive in one batch pass (500-id collision case).",
+    "blocking_findings": [],
+    "commands_run": [
+      "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts -t \"enforces the partial keys: non-human rows keep the four-column key, two active human rows for one person and scope key reject, a revoked human row admits a fresh row, two persons coexist, and the human-row CHECK rejects each missing field while a missing label is accepted\" --outputFile=<junit-report>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts -t \"round-trips human decisions per person: putHumanDecision refreshes an active duplicate in place returning the stored id and status refreshed with the complete refresh set - outcome, decision, reason, label, effect hash, rail version, effect schema version, created_at and provenance re-encoded with the stored id - inserts a fresh row beside a revoked one without reactivating it, listHumanDecisions is person-scoped and newest first with includeRevoked defaulting to active rows only and true returning revoked rows with their revokedAt, revokeById returns applied then already_revoked and not_found across persons and across app and agent folder, and countExactAllowsByTool counts active exact allows by principal\" --outputFile=<junit-report>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts -t \"keeps the classifier verdict cache byte-identical, refuses a human_decision kind through the non-human put, get, list and revoke while an unfiltered non-human list excludes human rows, and refuses a malformed id or missing human field through putHumanDecision before any SQL\" --outputFile=<junit-report>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/human-decision-scope.test.ts -t \"keys a remembered No on the full effect hash for every shape and a remembered Allow path-only on canonical tool plus the boundary's canonicalPath or the virtual scope and path for a single unprotected native or virtual write including bare file and mcp__gantry__file and an omitted virtual scope, checking every supplied native destination first so a conflicting dual input with one unsafe destination is refused while an all-safe dual input, shell commands and malformed shapes fall back to the full hash, with a changed-content near-miss keeping allow keys equal and deny keys different\" --outputFile=<junit-report>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/human-decision-scope.test.ts -t \"returns the closed refusal reason for an Allow to a protected, outside, hidden, secret or symlinked destination, for a kind scope without a closed category including a mixed read and write pipeline, for a place scope without a root, for a deny outside exact scope and for an incomplete effect, and formats kind keys from the closed request table - read_only_command and file_read over every parsed leaf with the gate's compound stdinOk rule pinned for pipelines and and-or-semicolon compounds alike, virtual_file_read, web_search, web_read, the trust-growth tool kind - and place keys from the canonical root\" --outputFile=<junit-report>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/human-decision-memory-service.test.ts -t \"remember refuses an unresolved person and every scalar mode resolution before any repository call, relays each scope-key refusal reason verbatim, throws on a malformed injected id, writes a v4 uuid row with principal set to the canonical tool and the encoded provenance, and returns the stored id and short id including the refreshed-duplicate case\" --outputFile=<junit-report>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/human-decision-memory-service.test.ts -t \"list is person-scoped with short ids derived as six dash-free hex characters extended only on a sibling collision and disambiguated against every active sibling before the limit is applied, revoke relays applied, already_revoked and not_found with the app, folder and person axes, and countExactAllowsByTool relays the repository map\" --outputFile=<junit-report>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/domain/human-decision-provenance.test.ts -t \"encodes human_decision provenance with a fixed prefix and canonical body carrying id, person, outcome, scope and rail version and decodes it back, failing closed on another prefix, a malformed body, a missing field, a non-integer rail version or a non-uuid id, and the remember resolution guards distinguish a structured remember from every scalar mode\" --outputFile=<junit-report>",
+      "npm run db:migrations:check",
+      "npx tsc --noEmit",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py (GANTRY_TEST_DATABASE_URL exported; format:check + check:architecture, typecheck, npm test incl. the serial DB-gated general lane) -> Verification passed",
+      "GANTRY_TEST_DATABASE_URL=<gantry_test> npm run test:integration:postgres"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/shared/permission-prospective-write.test.ts",
+      "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+      "apps/core/test/unit/application/human-decision-scope.test.ts",
+      "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+      "apps/core/test/unit/domain/human-decision-provenance.test.ts"
+    ],
+    "pass_fail_summary": "8/8 required leaves passed (3 Postgres, 5 unit); drift check clean; verify.py passed; Postgres lane green",
+    "remaining_gaps": [],
+    "reviewed_scope": [
+      "apps/core/src/shared/human-decision-id.ts",
+      "apps/core/src/shared/permission-prospective-write.ts",
+      "apps/core/src/adapters/storage/postgres/schema/schema.ts",
+      "apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json",
+      "apps/core/src/domain/ports/permission-decision-memory.ts",
+      "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+      "apps/core/src/application/permissions/human-decision-scope.ts",
+      "apps/core/src/application/permissions/human-decision-memory-service.ts",
+      "apps/core/src/domain/human-decision.ts",
+      "apps/core/src/domain/types.ts",
+      "docs/architecture/permission-decision-memory.md",
+      "apps/core/test/unit/shared/permission-prospective-write.test.ts",
+      "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+      "apps/core/test/unit/application/human-decision-scope.test.ts",
+      "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+      "apps/core/test/unit/domain/human-decision-provenance.test.ts"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-09-06T14:11:21+00:00",
+    "commit": "2c010d977b1dd879551753d3c337802fa003c188"
+  },
+  "updated_at": "2026-09-06T14:11:21+00:00"
+}
