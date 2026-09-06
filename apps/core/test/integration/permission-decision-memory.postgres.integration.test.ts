@@ -27,7 +27,7 @@ maybeDescribe('Postgres permission decision memory', () => {
     runtime = await createPostgresIntegrationRuntime({
       schemaPrefix: 'permission_decision_memory',
     });
-  });
+  }, 60_000);
 
   afterAll(async () => {
     if (runtime) await runtime.cleanup();
