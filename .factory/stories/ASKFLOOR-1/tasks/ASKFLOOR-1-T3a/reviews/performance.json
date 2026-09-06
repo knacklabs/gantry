@@ -1,0 +1,44 @@
+{
+  "generated_by": "autoreview",
+  "score": 7,
+  "summary": "performance lens over ASKFLOOR-1-T3a (20 product path(s), 098cd57..d5e997d, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 1 finding(s). See preserved pass reports for provider conclusions.",
+  "blocking_findings": [
+    {
+      "category": "maintainability",
+      "area": "apps/core/test/integration",
+      "summary": "[P1] Remove the remaining \u201clegacy\u201d naming from the non-human access tests (apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts:33): The test title still describes `put`, `get`, `list`, and `revoke` as \u201clegacy,\u201d and the same test repeats that terminology in fixture identifiers."
+    }
+  ],
+  "non_blocking_findings": [],
+  "recommendation": "request-changes",
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/20260906034855_permission_decision_memory_human.sql",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260906034855_snapshot.json",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json",
+    "apps/core/src/adapters/storage/postgres/schema/schema.ts",
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/src/application/permissions/human-decision-scope.ts",
+    "apps/core/src/domain/human-decision.ts",
+    "apps/core/src/domain/ports/permission-decision-memory.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/shared/human-decision-id.ts",
+    "apps/core/src/shared/permission-prospective-write.ts",
+    "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+    "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+    "apps/core/test/unit/application/human-decision-scope.test.ts",
+    "apps/core/test/unit/domain/human-decision-provenance.test.ts",
+    "apps/core/test/unit/shared/permission-prospective-write.test.ts",
+    "apps/core/test/unit/storage/postgres-raw-sql-allowlist.test.ts",
+    "docs/architecture/permission-decision-memory.md",
+    "vitest.integration.config.ts"
+  ],
+  "skills_used": [],
+  "aspect": "performance",
+  "review_run_id": "8b6c22b643f8dedaff3f2a641fd94083dbd31c13977f2c6d04236abb0ec3d9a7",
+  "brief_sha256": "1663d0861c4556febf2112c0e304b7beeccd62bd934d9217af66357cf15cf18b",
+  "branch_diff_digest": "e8ae2e9bfcecb4c5d700ab8d4a2b4141cad487a5afed528e525270b995ea54a7",
+  "residual_risks": [],
+  "recorded_at": "2026-09-06T09:54:24+00:00",
+  "commit": "d5e997de3e25a41f80fd91a16d54712c71a12ff2"
+}

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-06T04:14:23+00:00", "story": "ASKFLOOR-1", "detail": "S-0077-a63e: Host-run evidence: all three Postgres leaves plus the existing suite pass against gantry_test on the host (the companion sandbox cannot open 127.0.0.1:5432); JUnit reports in the orchestrator scratchp"}

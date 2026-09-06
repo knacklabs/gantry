@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-06T06:19:39+00:00", "story": "ASKFLOOR-1", "detail": "S-0080-0dc7: Host-run evidence: the two renamed leaves pass on the host through the exact-leaf gate; the companion sandbox cannot open 127.0.0.1:5432"}

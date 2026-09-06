@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-06T04:12:48+00:00", "story": "ASKFLOOR-1", "detail": "Postgres integration verification cannot connect to the designated gantry_test database in the managed sandbox: connect EPERM 127.0.0.1:5432; all nine suite leaves were skipped."}
