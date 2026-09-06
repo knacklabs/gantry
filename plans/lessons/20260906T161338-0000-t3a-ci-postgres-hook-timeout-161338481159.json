@@ -1,0 +1,11 @@
+{
+  "topic": "t3a-ci-postgres-hook-timeout",
+  "lesson": "CI on PR 484 failed in the Postgres lane: apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts beforeAll (createPostgresIntegrationRuntime, which runs the full migration set including the new snapshot) exceeded vitest's default 10 s hook timeout under CI load (\"Hook timed out in 10000ms\" at :26); the other 63 Postgres files passed because they declare a hook timeout. Do exactly this: add the sibling convention to that beforeAll \u2014 close it with }, 60_000); (see attachment-metadata.postgres.integration.test.ts for the same shape) \u2014 and nothing else: no afterAll change, no other file, no product code. Run prettier on the file; the Postgres leaves cannot run in the sandbox (EPERM 127.0.0.1:5432) \u2014 the host runs them.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T16:13:38+00:00"
+}
