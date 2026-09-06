@@ -35,6 +35,15 @@ def _exec_hook(name: str) -> None:
         print(f"unknown hook: {name}", file=sys.stderr)
         raise SystemExit(2)
     path = Path(__file__).resolve().parent / script
+    if os.name == "nt":
+        # os.execv builds the Windows command line by joining argv WITHOUT
+        # quoting, so an interpreter under "C:\Program Files\..." is split at
+        # the space and the hook dies before it runs. Hooks fail quietly by
+        # design, so the caller sees a hook that ran and simply recorded
+        # nothing — which is indistinguishable from having nothing to record.
+        # Every ledger-matched grill gate is unsatisfiable on such a machine.
+        import subprocess
+        raise SystemExit(subprocess.run([sys.executable, str(path)]).returncode)
     os.execv(sys.executable, [sys.executable, str(path)])
 
 
@@ -43,6 +52,7 @@ if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "hook":
 
 from forge_cli import adopt as adopt_mod
 from forge_cli import audit as audit_mod
+from forge_cli import grill as grill_mod
 from forge_cli import board as board_mod
 from forge_cli import codex_status
 from forge_cli import assumptions as assumptions_mod
@@ -113,7 +123,8 @@ def main() -> None:
     p_pr_link.set_defaults(func=history_mod.cmd_pr_link)
 
     p_board = sub.add_parser("board", help="open the read-only local lifecycle board")
-    p_board.add_argument("--port", type=int, default=8765)
+    p_board.add_argument("--port", type=int,
+                         default=board_mod.DEFAULT_PORT)
     p_board.add_argument("--repo")
     p_board.set_defaults(func=board_mod.cmd_board)
 
@@ -513,6 +524,11 @@ def main() -> None:
     p_ss.add_argument("id", help="stage id from the recorded decomposition")
     p_ss.add_argument("--parallel", action="store_true",
                       help="unsupported: tasks are sequential inside one story worktree")
+    p_ss.add_argument(
+        "--trunk", action="store_true",
+        help="run this stage on the trunk's tree instead of a task worktree; "
+             "recorded on the stage, so a trunk-based run is a choice someone "
+             "made rather than a step someone forgot")
     p_ss.add_argument("--repo")
     p_ss.set_defaults(func=stages_mod.cmd_start)
     p_sd = st_sub.add_parser("done", help="finish a stage AFTER local autoreview + commit")
@@ -561,6 +577,12 @@ def main() -> None:
                        help="background exploration only; active write stages refuse it")
     p_del.add_argument("--print-only", action="store_true",
                        help="print the argv without launching or recording evidence")
+    p_del.add_argument(
+        "--effort", default="",
+        choices=["", "low", "medium", "high", "xhigh"],
+        help="raise the reasoning effort above the harness.yaml floor for this "
+             "run — harness.yaml names migrations, cross-domain work and "
+             "security-sensitive changes as the cases that warrant it")
     p_del.add_argument("--repo")
     p_del.set_defaults(func=delegate_mod.cmd_delegate)
 
@@ -615,6 +637,22 @@ def main() -> None:
     p_ll.add_argument("--repo")
     p_ll.set_defaults(func=lessons_mod.cmd_list)
 
+    p_grill = sub.add_parser(
+        "grill", help="release the read-only cold reader for a gate")
+    grill_sub = p_grill.add_subparsers(dest="grill_command", required=True)
+    p_gr = grill_sub.add_parser(
+        "run", help="cold-read an artifact through the ledgered launcher")
+    from grill_gates import gate_names
+    p_gr.add_argument("--gate", required=True, choices=gate_names())
+    p_gr.add_argument("--task", default="", help="task id for --gate task")
+    p_gr.add_argument(
+        "--file", default="",
+        help="the artifact to grill for gates that interrogate a CHOSEN one "
+             "(--gate spec/epics, and a --gate plan draft before it is saved)")
+    p_gr.add_argument("--print-only", action="store_true",
+                      help="compose and show the brief without releasing Codex")
+    p_gr.add_argument("--repo")
+    p_gr.set_defaults(func=grill_mod.cmd_grill_run)
     p_aud = sub.add_parser("audit",
                            help="loop-health: audit the improvement loops themselves (advisory)")
     p_aud.add_argument("--repo")
@@ -656,6 +694,19 @@ def main() -> None:
     p_sl.add_argument("--open", action="store_true")
     p_sl.add_argument("--repo")
     p_sl.set_defaults(func=signal_mod.cmd_list)
+    p_sig_esc = sig_sub.add_parser(
+        "escalate",
+        help="record the decision that does not exist, so the human may be asked")
+    p_sig_esc.add_argument(
+        "--missing-decision", dest="missing_decision", required=True,
+        help="the decision nobody has made, in a sentence")
+    p_sig_esc.add_argument(
+        "--checked", default="",
+        help="where you already looked: contract,plan,constitution,decisions,lessons")
+    p_sig_esc.add_argument("--task", default="", help="task id, when known")
+    p_sig_esc.add_argument("--repo")
+    p_sig_esc.set_defaults(func=signal_mod.cmd_escalate)
+
     p_sv = sig_sub.add_parser("resolve", help="orchestrator: answer an open signal")
     p_sv.add_argument("id", help="e.g. S-0001")
     p_sv.add_argument("--notes", required=True, help="the resolution the worker resumes with")

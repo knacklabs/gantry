@@ -19,6 +19,14 @@ modes:
     model: "gpt-5.6-terra"
     reasoning: "high"
     bound: 5
+  # The harness's cold reader for `forge grill` (its gate test pins this exact
+  # model). The per-task contract grills this project runs go out through the
+  # codex companion on gpt-5.6-sol at xhigh — owner policy 2026-09-05, one
+  # grill per round, no parallel second model.
+  grill:
+    model: "gpt-5.6-terra"
+    reasoning: "xhigh"
+    bound: 0
 
 phases:
   discovery: # 0a
@@ -95,7 +103,10 @@ phases:
   implementation:
     owner: "codex:/codex:rescue"
     model: "gpt-5.6-sol"
-    reasoning: "xhigh (escalate effort to high for migrations/cross-domain/security-sensitive)"
+    # Floor, not a ceiling; this project runs its implementers at xhigh. Raise
+    # a single run with `./forge delegate <id> --effort high` when a pin lower
+    # than that is ever chosen for migrations, cross-domain or security work.
+    reasoning: "xhigh"
     prompts: "factory/prompts/implementer.md"
     required_skills: # ENFORCED by feature type — the decomposition's user_facing flag:
       # the recorder refuses a user-facing testing artifact unless skills_used

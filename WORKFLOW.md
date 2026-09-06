@@ -207,6 +207,30 @@ genuine `confusion`, a hard `blocked`, or a `scope-change` — via
 that thread instead of guessing. The orchestrator resolves the event
 (`forge.py signal resolve <id> --notes "<answer>"` — an answer, a decision
 record, or a plan revision) and resumes the worker with the resolution.
+
+The orchestrator ANSWERS IT ITSELF, records the reasoning in `--notes`, and
+resumes — it does not relay the signal to the human — whenever the answer
+follows from what is already decided:
+
+- a `review_budget` ceiling reached: raise it with headroom and say why. The
+  ceiling stops runaway scope; it is not a statement about what the task must
+  do, and it is not a number worth a human's attention.
+- `write_scope` one or two files short of what the work mechanically implies —
+  a lockfile, a barrel/index file, a generated type, a doc reference to a
+  renamed script: extend the scope, name each file and why the work implies it.
+- a sandbox or environment block with a documented path (`docs/degraded-mode.md`,
+  a binding lesson, a pinned mirror): take that path.
+- anything answerable from the contract, the approved plan, the constitution or
+  an accepted decision record. Quote the source in the notes.
+
+It ESCALATES to the human only for a decision nobody has made yet: two accepted
+decisions that genuinely conflict, a requirement that cannot be met without
+changing what the feature DOES, or a scope extension that changes the task
+rather than completing it. When escalating, state the options and the
+recommendation — never relay the raw signal.
+
+A stop costs the human a context switch and costs the run its momentum, so the
+burden is on ESCALATING, never on deciding.
 Signals are schema-validated (`factory/schemas/signal.json`, attested
 `generated_by`), surfaced by `forge next` and the session-start hook, and
 OPEN SIGNALS BLOCK `pr_ready` — an unanswered contradiction cannot ship.
@@ -286,14 +310,22 @@ history, but are exempt from the newer outcome and link requirements.
   acceptance criteria, verify commands, required tests, and reviewer focus.
   Re-record the decomposition before grilling that contract. Do not guess
   later-task detail during the initial decomposition (decision 0032).
-- Task size is a JUDGEMENT, not a number. One task fits ONE bounded session end
-  to end — implement, verify, three-lens review, fix the findings — and its diff
-  stays small enough for a reviewer to hold at once. Backend and frontend are
-  always separate tasks (disjoint write scopes, different reviewer focus, only
-  the frontend is `user_facing`); when either side is still too large, split that
-  side again along its own seam. Do not fragment: each sliver costs a full plan,
-  grill, approval, review and PR, so a task too small to justify that ceremony
-  belongs merged with its neighbour.
+- Decompose to the FEWEST tasks that each still fit ONE bounded session. This
+  is a minimisation, not a balance: start from the minimum — one backend task
+  and, if there is UI, one frontend task — and add a task only when something
+  FORCES it. Backend and frontend never share a task (disjoint write scopes,
+  different reviewer focus, only the frontend is `user_facing`); that split is
+  the only free one.
+- Every task beyond that minimum must NAME what forces it: the work does not
+  fit one bounded session end to end (implement, verify, three-lens review, fix
+  the findings), or its diff would outgrow what a reviewer holds at once. "It is
+  a clean seam" is not a reason — seams are always available, which is why the
+  burden is on SPLITTING and never on merging. Each extra task costs a full
+  plan, grill, approval, review and PR, and that cost is paid by a human.
+- The floor is real and the grill enforces it: a task that cannot be done in one
+  session is refused however convenient the count. Under-splitting fails worse
+  than over-splitting — an oversized diff chunks the reviewer, the contract
+  verdicts are never emitted, and every contract records `partial`.
 
 ## Project Roadmap
 

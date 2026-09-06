@@ -19,6 +19,18 @@ VERDICT_INSTRUCTION = (
     "replace the quality/performance/security lenses."
 )
 
+# Every lens hunts for code the diff kept only for compatibility: the owner's
+# standing ruling is "we don't need legacy code", and a leftover that survives
+# review ships. Rendered beside the lens focus in every brief.
+LEFTOVER_INSTRUCTION = (
+    "LEFTOVERS (blocking): the diff must carry no code kept only for "
+    "compatibility — no wrapper or shim over its replacement, no re-export or "
+    "alias kept 'for callers', no renamed-but-retained symbol, no dead branch "
+    "behind a removed feature, no 'legacy'/'deprecated'/'backward' naming or "
+    "comment. Report each as a BLOCKING finding with file:line and verdict the "
+    "contract it belongs to as partial; a clean diff says so in one line."
+)
+
 
 def declared_contracts(decomposition: dict) -> list[dict]:
     """Return the validated decomposition-wide contract union in task order."""

@@ -779,6 +779,65 @@ def protected_decomposition_state_path(root: Path) -> Path:
     return git_control_dir(root) / "decomposition.json"
 
 
+def active_task_id(root: Path) -> str:
+    """The task this working copy is executing, or "" for a story-level run.
+
+    `forge task start` stamps `task_id` into the worktree's own run pointer, so
+    a recorder running there knows which task its proof belongs to without the
+    caller having to say. A story-level run has no task_id and keeps writing
+    story-scoped evidence, which is what makes the change backward compatible
+    rather than a flag day.
+    """
+    pointer = load_json(run_state_path(root), default={})
+    task_id = pointer.get("task_id") if isinstance(pointer, dict) else ""
+    return task_id if isinstance(task_id, str) else ""
+
+
+def proof_path(
+    root: Path,
+    key: str | None,
+    name: str,
+    *,
+    task_id: str = "",
+    for_write: bool = False,
+) -> Path:
+    """Where THIS run's proof belongs: the task's directory when a task owns
+    the run, the story's when one does not."""
+    resolved = task_id or active_task_id(root)
+    if resolved:
+        return task_evidence_path(root, key, resolved, name, for_write=for_write)
+    return evidence_path(root, key, name, for_write=for_write)
+
+
+def task_evidence_path(
+    root: Path,
+    key: str | None,
+    task_id: str,
+    name: str,
+    *,
+    for_write: bool = False,
+) -> Path:
+    """Proof belonging to ONE task.
+
+    Reviews, verify and tests were story-scoped singletons: one
+    `reviews/quality.json` per story, rewritten by every task in turn. So a
+    story's recorded review described whichever task ran last, and a task PR's
+    proof check read a file that might describe a different task entirely.
+    Per-task review was real in execution and fictional in storage.
+
+    Task proof therefore lives under the task's own directory, beside the
+    completion marker that already lives there. Story-level artifacts keep
+    their meaning: they are about the story, not a stand-in for its parts.
+    """
+    for label, value in (("story key", key or ""), ("task id", task_id)):
+        if (not isinstance(value, str) or not value
+                or value in {".", ".."} or Path(value).name != value
+                or "\\" in value):
+            raise ValueError(f"{label} must be one path component")
+    return evidence_path(
+        root, key, f"tasks/{task_id}/{name}", for_write=for_write)
+
+
 def task_marker_path(key: str, task_id: str) -> Path:
     """Return the committed marker shared by task start and task closeout."""
     for label, value in (("story key", key), ("task id", task_id)):
@@ -1276,8 +1335,81 @@ def require_all_stages_done(root: Path) -> list[str]:
     ]
 
 
+def task_proof_problems(root: Path, key: str, task: dict) -> list[str]:
+    """One task's proof, read from the task's own directory.
+
+    Falls back to the story-scoped singleton for work recorded before proof
+    was task-scoped, so a story already in flight can still close on the
+    evidence it legitimately has.
+    """
+    from forge_cli.readiness import review_passed, tests_passed, verify_passed
+
+    task_id = str(task.get("id") or "")
+    problems: list[str] = []
+
+    def read(name: str) -> dict:
+        scoped = task_evidence_path(root, key, task_id, name)
+        if scoped.is_file():
+            return load_json(scoped, default={})
+        return load_json(evidence_path(root, key, name), default={})
+
+    # Every refusal names the ONE command that answers it. A gate that says
+    # what is wrong but not what to run is where a coordinator stops and asks
+    # a human to decide something the harness already knows.
+    if not verify_passed(read("verify.json")):
+        problems.append(
+            f"{task_id}: no passing verify — from its worktree run "
+            "`python3 factory/scripts/verify.py`")
+
+    tests = read("tests.json")
+    if not tests_passed(tests.get("automated")):
+        problems.append(
+            f"{task_id}: no passing automated tests — run them, then record with "
+            "`python3 factory/scripts/record_test_from_json.py --kind automated "
+            "--input <json>`")
+    if bool(task.get("user_facing")):
+        functional = tests.get("functional") or {}
+        if not functional:
+            problems.append(
+                f"{task_id}: user_facing, so a functional check is required — run "
+                "the functional-checker, then record with "
+                "`python3 factory/scripts/record_test_from_json.py --kind functional "
+                "--input <json>`")
+        elif not tests_passed(functional, functional=True):
+            problems.append(
+                f"{task_id}: functional check must have no blockers and score >= 8 "
+                "— fix what it found and re-record it")
+
+    for lens in ("quality", "performance", "security"):
+        review = read(f"reviews/{lens}.json")
+        if not review:
+            problems.append(
+                f"{task_id}: no {lens} review — `./forge review {task_id}` runs all "
+                "three lenses in Codex and records them")
+        elif not review_passed(review):
+            blocking = len(review.get("blocking_findings") or [])
+            problems.append(
+                f"{task_id}: {lens} review is not clean ({blocking} blocking "
+                f"finding(s)) — delegate the fixes with `./forge delegate {task_id}`, "
+                f"commit, then rerun `./forge review {task_id}`. Findings are work, "
+                "not a question for the human.")
+    return problems
+
+
 def require_closeout_order(root: Path) -> list[str]:
-    """Return closeout problems in their required prerequisite order."""
+    """Story closeout, sourced from the proof its TASKS produced.
+
+    A story used to re-prove itself: a second verify, a second three-lens
+    review and a second functional check over the whole story diff, all
+    stamped at HEAD. Under per-task PRs every task has already shipped with
+    exactly that proof over its own diff, and each task PR is gated on it — so
+    the story-level pass re-reviewed reviewed code, and one late fix in the
+    last task invalidated the evidence of every task before it.
+
+    The story is the sum of its tasks. What remains story-shaped is the
+    outcome: what shipped and what someone can now do, which no single task
+    can answer.
+    """
     from forge_cli.outcome import load_outcome
     from forge_cli.readiness import tests_passed
 
@@ -1293,36 +1425,91 @@ def require_closeout_order(root: Path) -> list[str]:
             "forge stage done; WORKFLOW.md Stage Loop)"
         )
 
-    verify = load_json(verify_state_path(root), default={})
-    if not verify or not verify.get("ok"):
-        problems.append("successful .factory/verify.json")
-    elif verify.get("commit") != head:
-        stamp = verify.get("commit")
-        shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
-        problems.append(
-            f"verify must be stamped at HEAD {expected} (got {shown})"
-        )
-
-    reviews, review_problems = load_review_artifacts(root, require_head=True)
-    problems.extend(review_problems)
-    problems.extend(require_coherent_review_run(root, reviews))
-
+    # WHICH proof closes a story depends on how its work reached the trunk.
+    #
+    # A task-level run ships each task as its own PR, and each of those PRs is
+    # gated on that task's proof — so the story is the sum of its tasks and a
+    # second story-wide pass re-reviews reviewed code. A story-level run has no
+    # per-task PRs and no per-task markers; its work reached the trunk as one
+    # story, so the story-level chain is the only proof there is.
+    #
+    # Selecting on the run mode is what keeps both flows working. Requiring
+    # per-task proof everywhere would strand every story-level run — a
+    # deadlock, since a story-level run cannot produce task markers at all.
+    task_level = bool(load_json(run_state_path(root), default={}).get("base_main_sha"))
+    key = _active_story_key(root)
     decomposition = load_json(protected_decomposition_state_path(root), default={})
-    if bool(decomposition.get("user_facing", True)):
-        tests = load_json(tests_state_path(root), default={})
-        functional = tests.get("functional", {}) if tests else {}
-        if not functional:
-            problems.append(".factory/tests.json:functional")
-        elif not tests_passed(functional, functional=True):
-            problems.append(
-                "functional testing must have no blockers, no failed status and score >= 8"
-            )
-        if functional and tests.get("commit") != head:
-            stamp = tests.get("commit")
+    tasks = [t for t in decomposition.get("tasks", []) if isinstance(t, dict)]
+
+    if task_level and tasks:
+        for task in tasks:
+            problems.extend(task_proof_problems(root, key, task))
+    else:
+        verify = load_json(verify_state_path(root), default={})
+        if not verify or not verify.get("ok"):
+            problems.append("successful .factory/verify.json")
+        elif verify.get("commit") != head:
+            stamp = verify.get("commit")
             shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
             problems.append(
-                f"functional testing must be stamped at HEAD {expected} (got {shown})"
+                f"verify must be stamped at HEAD {expected} (got {shown})"
             )
+
+        reviews, review_problems = load_review_artifacts(root, require_head=True)
+        problems.extend(review_problems)
+        problems.extend(require_coherent_review_run(root, reviews))
+
+        decomposition = load_json(protected_decomposition_state_path(root), default={})
+        if bool(decomposition.get("user_facing", True)):
+            tests = load_json(tests_state_path(root), default={})
+            functional = tests.get("functional", {}) if tests else {}
+            if not functional:
+                problems.append(".factory/tests.json:functional")
+            elif not tests_passed(functional, functional=True):
+                problems.append(
+                    "functional testing must have no blockers, no failed status and score >= 8"
+                )
+            if functional and tests.get("commit") != head:
+                stamp = tests.get("commit")
+                shown = stamp[:8] if isinstance(stamp, str) and stamp else "missing"
+                problems.append(
+                    f"functional testing must be stamped at HEAD {expected} (got {shown})"
+                )
+
+    # Plan contracts are verified by the task that owns them; the union across
+    # tasks must still account for every declared contract, so a contract
+    # cannot be dropped by being in nobody's task.
+    # Contracts are declared PER TASK (task["plan_contracts"]); there is no
+    # decomposition-level key, so reading one silently found nothing and the
+    # gate passed everything.
+    from forge_cli.review_brief import declared_contracts
+    declared = [c["id"] for c in declared_contracts(decomposition)]
+    if declared:
+        # A contract is verified wherever the proof for it actually lives: in a
+        # task-level run that is the owning task's quality review, in a
+        # story-level run the story's. The GUARANTEE is the same either way —
+        # every declared contract is verified implemented — and it must not
+        # depend on which flow shipped the story, or a contract could be
+        # dropped merely by choosing a flow.
+        sources = ([task_evidence_path(root, key, str(t.get("id") or ""),
+                                       "reviews/quality.json")
+                    for t in tasks] if task_level and tasks else [])
+        sources.append(evidence_path(root, key, "reviews/quality.json"))
+        verified: set[str] = set()
+        for source in sources:
+            if not source.is_file():
+                continue
+            for verdict in load_json(source, default={}).get("contract_verdicts") or []:
+                if (isinstance(verdict, dict)
+                        and verdict.get("verdict") == "implemented"
+                        and isinstance(verdict.get("contract_id"), str)):
+                    verified.add(verdict["contract_id"])
+        unverified = [c for c in declared if c not in verified]
+        if unverified:
+            problems.append(
+                "quality review must verify every plan contract as implemented; "
+                f"unverified: {', '.join(unverified)} — compose the reviewer "
+                "prompt with `./forge review-brief --all`")
 
     outcome = load_outcome(root) or {}
     if not outcome.get("outcome"):
@@ -1458,6 +1645,41 @@ def _grill_exempt(rel: str, ignore_names: tuple[str, ...]) -> bool:
     )
 
 
+def board_views_path(root: Path) -> Path:
+    """Per-worktree and uncommitted, beside the delegation ledger.
+
+    "This human saw this plan" is a fact about one machine at one moment, not
+    about the repository, so it never travels in a commit.
+    """
+    return git_control_dir(root) / "board-views.json"
+
+
+def record_plan_view(root: Path, story: str, task_id: str, digest: str) -> None:
+    """The board released this EXACT plan text to a browser.
+
+    One entry per task holding the newest digest seen, not an append-only
+    ledger: the drawer re-polls every few seconds and an ever-growing log of
+    the same fact is noise. A later edit produces a new digest, which lands
+    here only when the board sends the new text — so re-approval after an edit
+    needs the human to look again, exactly as first approval did.
+    """
+    if not (story and task_id and digest):
+        return
+    path = board_views_path(root)
+    views = load_json(path, default={}) or {}
+    key = f"{story}/{task_id}"
+    if views.get(key, {}).get("digest") == digest:
+        return
+    views[key] = {"digest": digest, "at": now_iso()}
+    dump_json(path, views)
+
+
+def plan_was_viewed(root: Path, story: str, task_id: str, digest: str) -> bool:
+    """Whether THIS plan text was put in front of a human on the board."""
+    views = load_json(board_views_path(root), default={}) or {}
+    return views.get(f"{story}/{task_id}", {}).get("digest") == digest
+
+
 def require_grill(
     root: Path,
     gate: str,
@@ -1549,7 +1771,10 @@ def require_task_grill(
             f".factory/grills/tasks/{task_id}.json has no commit stamp — re-record "
             f"with current tooling using `{record_command}`."
         )
-    if data.get("input_sha256") != grounding_digest(root, task, treeish=treeish):
+    if not grounding_matches(
+        root, task, data.get("input_sha256"), treeish=treeish,
+        in_stage=task_in_stage(root, task_id),
+    ):
         # A digest mismatch has two very different causes, and reporting both as
         # "STALE" sent a reader hunting for a content change that never
         # happened. When the grill was ground on a DIFFERENT BASIS than the one
@@ -1706,8 +1931,37 @@ def requirements_digest(root: Path, spec_path: Path) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def grounding_digest(root: Path, task: dict, *, treeish: str = "") -> str:
-    """Bind a task grill to its full contract, approved plan, and product tree."""
+GROUNDING_CONTRACT_FIELDS = (
+    # What the task IS. A change here changes the work, so the grill that
+    # examined the old version no longer speaks to the new one.
+    "objective",
+    "acceptance_criteria",
+    "plan_contracts",
+    "write_scope",
+    "required_tests",
+    "verify_commands",
+    "user_facing",
+)
+# Deliberately NOT grounded: `review_budget` and `reviewer_focus` are
+# bookkeeping for the reviewer, and `title`/`id`/`epic_id` are labels. Raising
+# a file-count ceiling used to invalidate the grill and force a full re-grill
+# round — the ceiling is a stop on runaway scope, never a statement about what
+# the task must do.
+
+
+def task_in_stage(root: Path, task_id: str) -> bool:
+    """True once `stage start` has opened this task's stage.
+
+    From this moment the product tree moves because of the work the grill
+    authorised, so it stops being part of the grounding.
+    """
+    return task_stage_record(root, task_id).get("status") in ("active", "done")
+
+
+def grounding_digest(root: Path, task: dict, *, treeish: str = "",
+                     in_stage: bool = False) -> str:
+    """Bind a task grill to what the work IS: the substantive contract, the
+    approved plan, and — only before the stage opens — the product tree."""
     decomposition = load_json(protected_decomposition_state_path(root), default={})
     plan_file = decomposition.get("plan_file")
     if not isinstance(plan_file, str) or not plan_file.strip():
@@ -1730,6 +1984,45 @@ def grounding_digest(root: Path, task: dict, *, treeish: str = "") -> str:
             f"cannot derive the task grounding digest: approved plan {plan_file!r} "
             "does not exist"
         )
+    body = {
+        "contract": {field: task.get(field) for field in GROUNDING_CONTRACT_FIELDS},
+        "plan_sha256": plan_digest_without_assumptions(plan),
+    }
+    # The product tree is part of the grounding only until the stage opens.
+    # Before work starts, the plan was grilled against a codebase and a change
+    # there means the grill read something else. After work starts, the tree
+    # moves BECAUSE OF the work the grill authorised, so binding to it makes
+    # the gate self-defeating: committing the implementation stales the grill,
+    # and the grill is what `forge delegate` needs to fix the implementation.
+    if not in_stage:
+        body["product_tree_sha256"] = product_tree_digest(root, treeish)
+    payload = json.dumps(body, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=True)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def legacy_grounding_digest(root: Path, task: dict, *, treeish: str = "") -> str:
+    """The pre-split digest: the WHOLE task dict plus the tree, unconditionally.
+
+    Kept so a grill recorded by older tooling still verifies. It is strictly
+    STRICTER than the current rule — it covers every field the current one
+    covers and more — so accepting it as an alternative can never let through
+    something the current rule would refuse.
+    """
+    decomposition = load_json(protected_decomposition_state_path(root), default={})
+    plan_file = decomposition.get("plan_file") or load_json(
+        run_state_path(root), default={}).get("plan_file")
+    if not isinstance(plan_file, str) or not plan_file.strip():
+        raise SystemExit(
+            "cannot derive the task grounding digest: the protected decomposition "
+            "does not name its approved plan"
+        )
+    plan = (root / plan_file).resolve()
+    if not plan.is_file():
+        raise SystemExit(
+            f"cannot derive the task grounding digest: approved plan {plan_file!r} "
+            "does not exist"
+        )
     payload = json.dumps(
         {
             "contract": task,
@@ -1741,6 +2034,53 @@ def grounding_digest(root: Path, task: dict, *, treeish: str = "") -> str:
         ensure_ascii=True,
     )
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def grounding_matches(root: Path, task: dict, recorded: str, *,
+                      treeish: str = "", in_stage: bool = False) -> bool:
+    """Does a recorded grill still bind its inputs?
+
+    Accepts the legacy digest too. That is a compatibility path, not a hole:
+    the legacy digest covers a superset of the inputs, so anything it accepts
+    the current rule would also accept.
+    """
+    if not recorded:
+        return False
+    if recorded == grounding_digest(root, task, treeish=treeish,
+                                    in_stage=in_stage):
+        return True
+    if in_stage:
+        # Stamped BEFORE the stage opened, so the tree was part of it. The
+        # stage pinned that same tree as its baseline, so measuring against
+        # the baseline reproduces exactly what was recorded. Without this the
+        # act of opening the stage staled every grill.
+        baseline = _stage_baseline_for(root, str(task.get("id") or ""))
+        if baseline:
+            try:
+                if recorded == grounding_digest(root, task, treeish=baseline,
+                                                in_stage=False):
+                    return True
+            except SystemExit:
+                pass
+    try:
+        return recorded == legacy_grounding_digest(root, task, treeish=treeish)
+    except SystemExit:
+        return False
+
+
+def _stage_baseline_for(root: Path, task_id: str) -> str:
+    """The tree this task's stage pinned when it opened, or "" if unknowable."""
+    if not task_id:
+        return ""
+    try:
+        from forge_cli.stages import stage_baseline
+        stage = task_stage_record(root, task_id)
+        if not stage:
+            return ""
+        return stage_baseline(task_state_root(root, task_id), stage) or ""
+    except Exception:
+        # Never let a baseline lookup decide a gate by crashing it.
+        return ""
 
 
 _TASK_CONTRACT_FIELDS = (
@@ -1769,7 +2109,10 @@ def _task_grill_fresh(root: Path, task: dict, grill: dict) -> bool:
         grill.get("task_plan_sha256") == plan_digest_without_assumptions(plan)
     )
     try:
-        grounding = grounding_digest(root, task)
+        grounded = grounding_matches(
+            root, task, grill.get("input_sha256"),
+            in_stage=task_in_stage(root, str(task_id or "")),
+        )
     except SystemExit:
         # The approved story plan is gone — e.g. a shipped or archived story
         # whose plan moved out of plans/active/. A grill cannot be "fresh"
@@ -1781,7 +2124,7 @@ def _task_grill_fresh(root: Path, task: dict, grill: dict) -> bool:
     return bool(
         grill.get("verdict") == "pass"
         and grill.get("commit")
-        and grill.get("input_sha256") == grounding
+        and grounded
         and plan_provenance_ok
     )
 
@@ -2096,6 +2439,96 @@ def task_frontier_state(root: Path) -> tuple[str, dict] | None:
     return state, frontier
 
 
+INTERRUPT_REFUSAL = (
+    "You are inside an OPEN implementation stage. Questions to the human "
+    "belong in PLANNING — the plan is already approved, and from here to the "
+    "PR the run is yours.\n\n"
+    "Check first whether this is already settled by: the task contract - the "
+    "approved plan - the constitution - an accepted decision record - a lesson "
+    "in force for these paths. If it is, act on it and CONTINUE.\n\n"
+    "Never a question for the human:\n"
+    "  - a review budget ceiling: raise it with a recorded reason and continue. "
+    "It is measured by `stage done` on a FINISHED diff, which is the only "
+    "point splitting can be judged, and changing it no longer re-grills.\n"
+    "  - a file the work mechanically implies but write_scope omits (a "
+    "lockfile, a module registration, a barrel, a doc reference): extend the "
+    "scope, name each file and why the work implies it, continue.\n"
+    "  - an environment or sandbox block: take the documented path "
+    "(docs/degraded-mode.md, a binding lesson, a pinned mirror).\n\n"
+    "If a decision GENUINELY does not exist yet, name it and this stands "
+    "down:\n"
+    "  ./forge signal escalate --missing-decision \"<what nobody has decided>\" "
+    "--checked \"contract,plan,constitution,decisions,lessons\"\n\n"
+    "A mid-stage re-grill is allowed the same way: escalate naming the "
+    "substantive contract field that changed."
+)
+
+
+def may_interrupt(root: Path, *, spend: bool = False) -> tuple[bool, str]:
+    """Whether the agent may stop to involve the human right now.
+
+    The window is the OPEN STAGE — `stage start` follows the human approving
+    the task plan, `stage done` follows the review — so from approval to PR the
+    run belongs to the agent. The way out is to finish the task; there is no
+    proxy for having finished it.
+
+    Asked by BOTH hooks so they cannot disagree. Fails OPEN on unreadable
+    state: a missed interruption costs one question, a broken hook costs the
+    session.
+    """
+    try:
+        from forge_cli.signal import open_escalation, spend_escalation
+        stages = load_json(
+            git_control_dir(root) / "stages.json", default={})
+        active = any(stage.get("status") == "active"
+                     for stage in stages.get("stages", []))
+        if not active:
+            return True, ""                      # planning: ask freely
+        record = open_escalation(root)
+        if record:
+            # Spent HERE, not by the caller: one escalation authorises one
+            # interruption through either door. The Stop hook used to let a
+            # turn end without consuming it, so a single genuine question left
+            # the gate open for the rest of the stage.
+            if spend:
+                spend_escalation(root, record)
+            return True, ""
+        return False, INTERRUPT_REFUSAL
+    except Exception:
+        return True, ""
+
+
+def require_task_start_recorded(root: Path, task_id: str, *,
+                                trunk: bool = False) -> None:
+    """`stage start` is the wrong place to discover `task start` was skipped.
+
+    require_task_worktree returns early when the run pointer has no task_id --
+    the very state a skipped `task start` leaves -- so every task-level guard
+    silently stopped checking. This asks the question those guards assume has
+    already been answered, at the one moment it can still be answered cheaply:
+    before the stage opens and pins a baseline.
+    """
+    state = load_json(run_state_path(root), default={})
+    recorded = state.get("task_id")
+    if isinstance(recorded, str) and recorded:
+        return
+    if trunk:
+        return
+    raise SystemExit(
+        f"stage start refused: `./forge task start {task_id}` has not been run "
+        f"on this checkout.\n"
+        f"  It creates the task branch and its SIBLING WORKTREE and pins "
+        f"base_main_sha; without it the work lands on the trunk's own tree and "
+        f"the seal cannot measure the diff later.\n"
+        f"  Run `./forge task start {task_id}`, then run this from INSIDE the "
+        f"worktree it prints.\n"
+        f"  Deliberately working on the trunk instead? Say so: "
+        f"`./forge stage start {task_id} --trunk`. It is recorded on the "
+        f"stage, so a trunk-based run is a choice someone made rather than "
+        f"a step someone forgot."
+    )
+
+
 def require_task_worktree(root: Path, *, allow_completed: bool = False) -> None:
     """Bind task-level actions to the worktree recorded by `task start`."""
     state = load_json(run_state_path(root), default={})
@@ -2130,6 +2563,36 @@ def require_task_worktree(root: Path, *, allow_completed: bool = False) -> None:
             f"branch {current_branch or '<detached>'!r} at frontier "
             f"{frontier_id or 'none'!r}"
         )
+
+
+def required_tests_outside_scope(task: dict, root: Path | None = None) -> list[str]:
+    """Required-test paths the task is not allowed to write.
+
+    Prefix matching on write_scope entries, which name directories or files:
+    "src/" covers "src/a/b.spec.ts", and an entry naming the file covers
+    exactly it. An empty scope is not judged here — the contract completeness
+    check already refuses that.
+    """
+    scope = [str(entry).replace("\\", "/").rstrip("/")
+             for entry in (task.get("write_scope") or []) if entry]
+    if not scope:
+        return []
+    outside: list[str] = []
+    for test in task.get("required_tests") or []:
+        path = str((test or {}).get("path") or "").replace("\\", "/").strip()
+        if not path:
+            continue
+        if any(path == entry or path.startswith(entry + "/")
+               for entry in scope):
+            continue
+        # Outside the scope is only a CONTRADICTION when the task has to
+        # create the file. A required test that already exists is a proof the
+        # task must not break — it needs no write access to it, and refusing
+        # that would forbid a perfectly good contract.
+        if root is not None and (root / path).exists():
+            continue
+        outside.append(path)
+    return outside
 
 
 def require_ready_task(
@@ -2176,6 +2639,19 @@ def require_ready_task(
                 "dependencies are done (a task without explicit dependencies "
                 "follows its predecessor)."
             )
+
+    unreachable = required_tests_outside_scope(task, root)
+    if unreachable:
+        raise SystemExit(
+            f"{task_id} cannot produce its own required tests: "
+            f"{', '.join(unreachable)} "
+            f"{'is' if len(unreachable) == 1 else 'are'} outside write_scope "
+            f"({', '.join(task.get('write_scope') or []) or 'empty'}).\n"
+            "  The contract asks the task to CREATE a proof it is not allowed "
+            "to write (the file does not exist yet). "
+            "Fix it in the decomposition NOW — discovering this mid-"
+            "implementation costs a paused worker and an interrupted human."
+        )
 
     for field in _TASK_CONTRACT_FIELDS:
         value = task.get(field)
