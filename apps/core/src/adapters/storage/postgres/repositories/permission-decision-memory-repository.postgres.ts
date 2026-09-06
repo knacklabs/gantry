@@ -1,14 +1,34 @@
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import {
   AllowOnceNeverPersistedError,
   type ClassifierVerdict,
+  HUMAN_DECISION_MEMORY_KIND,
+  HumanDecisionOutcome,
+  HumanDecisionRequiresTypedAccessError,
+  HumanDecisionScope,
+  type HumanDecisionMemoryPutInput,
+  type HumanDecisionMemoryPutResult,
+  type HumanDecisionRevokeResult,
+  isHumanDecisionId,
   type PermissionDecisionMemoryEffect,
   type PermissionDecisionMemoryKind,
   type PermissionDecisionMemoryPutInput,
   type PermissionDecisionMemoryRepository,
   type PermissionDecisionMemoryRow,
 } from '../../../../domain/ports/permission-decision-memory.js';
+import { encodeHumanDecisionProvenance } from '../../../../domain/types.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 
@@ -27,10 +47,33 @@ function assertPersistable(input: {
   }
 }
 
+function assertLegacyAccess(kind: PermissionDecisionMemoryKind | undefined): void {
+  if (kind === HUMAN_DECISION_MEMORY_KIND) {
+    throw new HumanDecisionRequiresTypedAccessError();
+  }
+}
+
+function assertHumanDecisionInput(input: HumanDecisionMemoryPutInput): void {
+  if (
+    !isHumanDecisionId(input.id) ||
+    (input.outcome !== HumanDecisionOutcome.Allow &&
+      input.outcome !== HumanDecisionOutcome.Deny) ||
+    (input.scope !== HumanDecisionScope.Exact &&
+      input.scope !== HumanDecisionScope.Kind &&
+      input.scope !== HumanDecisionScope.Place) ||
+    !input.scopeKey?.trim() ||
+    !input.actingPersonId?.trim() ||
+    !input.canonicalTool?.trim()
+  ) {
+    throw new TypeError('Invalid human permission decision memory input');
+  }
+}
+
 export class PostgresPermissionDecisionMemoryRepository implements PermissionDecisionMemoryRepository {
   constructor(private readonly db: CanonicalDb) {}
 
   async put(input: PermissionDecisionMemoryPutInput): Promise<void> {
+    assertLegacyAccess(input.kind);
     assertPersistable(input);
     await this.db
       .insert(table)
@@ -61,6 +104,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
           table.kind,
           table.lookupIdentity,
         ],
+        targetWhere: sql`${table.kind} <> 'human_decision'`,
         set: {
           effectHash: input.effectHash ?? null,
           decision: input.decision ?? null,
@@ -77,6 +121,170 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
           revokedAt: null,
         },
       });
+  }
+
+  async putHumanDecision(
+    input: HumanDecisionMemoryPutInput,
+  ): Promise<HumanDecisionMemoryPutResult> {
+    assertHumanDecisionInput(input);
+    return this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(table)
+        .where(
+          and(
+            eq(table.appId, input.appId),
+            eq(table.agentFolder, input.agentFolder),
+            eq(table.kind, HUMAN_DECISION_MEMORY_KIND),
+            eq(table.actingPersonId, input.actingPersonId),
+            eq(table.scope, input.scope),
+            eq(table.scopeKey, input.scopeKey),
+            isNull(table.revokedAt),
+          ),
+        )
+        .limit(1)
+        .for('update');
+      const id = existing?.id ?? input.id;
+      const provenance = encodeHumanDecisionProvenance({
+        id,
+        actingPersonId: input.actingPersonId,
+        outcome: input.outcome,
+        scope: input.scope,
+        railVersion: input.railVersion,
+      });
+      if (existing) {
+        await tx
+          .update(table)
+          .set({
+            outcome: input.outcome,
+            decision: input.outcome,
+            reason: input.reason,
+            actingPersonLabel: input.actingPersonLabel ?? null,
+            principal: input.canonicalTool,
+            effectHash: input.effectHash ?? null,
+            railVersion: input.railVersion,
+            effectSchemaVersion: input.effectSchemaVersion,
+            createdAt: input.nowIso,
+            provenance,
+          })
+          .where(and(eq(table.id, id), isNull(table.revokedAt)));
+        return { id, status: 'refreshed' };
+      }
+      await tx.insert(table).values({
+        id,
+        appId: input.appId,
+        agentFolder: input.agentFolder,
+        kind: HUMAN_DECISION_MEMORY_KIND,
+        lookupIdentity: input.scopeKey,
+        effectHash: input.effectHash ?? null,
+        decision: input.outcome,
+        outcome: input.outcome,
+        scope: input.scope,
+        scopeKey: input.scopeKey,
+        actingPersonId: input.actingPersonId,
+        actingPersonLabel: input.actingPersonLabel ?? null,
+        reason: input.reason,
+        riskLevel: null,
+        riskCategory: null,
+        canonicalRoot: null,
+        principal: input.canonicalTool,
+        effectSchemaVersion: input.effectSchemaVersion,
+        railVersion: input.railVersion,
+        provenance,
+        createdAt: input.nowIso,
+        expiresAt: null,
+        revokedAt: null,
+      });
+      return { id, status: 'inserted' };
+    });
+  }
+
+  async listHumanDecisions(input: {
+    appId: string;
+    agentFolder: string;
+    actingPersonId: string;
+    includeRevoked?: boolean;
+  }): Promise<PermissionDecisionMemoryRow[]> {
+    const rows = await this.db
+      .select()
+      .from(table)
+      .where(
+        and(
+          eq(table.appId, input.appId),
+          eq(table.agentFolder, input.agentFolder),
+          eq(table.kind, HUMAN_DECISION_MEMORY_KIND),
+          eq(table.actingPersonId, input.actingPersonId),
+          input.includeRevoked ? undefined : isNull(table.revokedAt),
+        ),
+      )
+      .orderBy(desc(table.createdAt));
+    return rows.map(mapRow);
+  }
+
+  async revokeById(input: {
+    appId: string;
+    agentFolder: string;
+    actingPersonId: string;
+    recordId: string;
+    nowIso: string;
+  }): Promise<HumanDecisionRevokeResult> {
+    const revoked = await this.db
+      .update(table)
+      .set({ revokedAt: input.nowIso })
+      .where(
+        and(
+          eq(table.id, input.recordId),
+          eq(table.appId, input.appId),
+          eq(table.agentFolder, input.agentFolder),
+          eq(table.kind, HUMAN_DECISION_MEMORY_KIND),
+          eq(table.actingPersonId, input.actingPersonId),
+          isNull(table.revokedAt),
+        ),
+      )
+      .returning({ id: table.id });
+    if (revoked.length === 1) return 'applied';
+    const [existing] = await this.db
+      .select({ id: table.id })
+      .from(table)
+      .where(
+        and(
+          eq(table.id, input.recordId),
+          eq(table.appId, input.appId),
+          eq(table.agentFolder, input.agentFolder),
+          eq(table.kind, HUMAN_DECISION_MEMORY_KIND),
+          eq(table.actingPersonId, input.actingPersonId),
+        ),
+      )
+      .limit(1);
+    return existing ? 'already_revoked' : 'not_found';
+  }
+
+  async countExactAllowsByTool(input: {
+    appId: string;
+    agentFolder: string;
+    actingPersonId: string;
+  }): Promise<Record<string, number>> {
+    const rows = await this.db
+      .select({ principal: table.principal, count: count() })
+      .from(table)
+      .where(
+        and(
+          eq(table.appId, input.appId),
+          eq(table.agentFolder, input.agentFolder),
+          eq(table.kind, HUMAN_DECISION_MEMORY_KIND),
+          eq(table.actingPersonId, input.actingPersonId),
+          eq(table.outcome, HumanDecisionOutcome.Allow),
+          eq(table.scope, HumanDecisionScope.Exact),
+          isNull(table.revokedAt),
+          isNotNull(table.principal),
+        ),
+      )
+      .groupBy(table.principal);
+    return Object.fromEntries(
+      rows.flatMap((row) =>
+        row.principal ? [[row.principal, row.count] as const] : [],
+      ),
+    );
   }
 
   async putClassifierVerdict(input: {
@@ -152,6 +360,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
     kind: PermissionDecisionMemoryKind;
     lookupIdentity: string;
   }): Promise<PermissionDecisionMemoryRow | null> {
+    assertLegacyAccess(input.kind);
     const [row] = await this.db
       .select()
       .from(table)
@@ -174,6 +383,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
     agentFolder: string;
     kind?: PermissionDecisionMemoryKind;
   }): Promise<PermissionDecisionMemoryRow[]> {
+    assertLegacyAccess(input.kind);
     const rows = await this.db
       .select()
       .from(table)
@@ -183,7 +393,9 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
           eq(table.agentFolder, input.agentFolder),
           isNull(table.revokedAt),
           or(isNull(table.expiresAt), gt(table.expiresAt, sql`now()`)),
-          input.kind ? eq(table.kind, input.kind) : undefined,
+          input.kind
+            ? eq(table.kind, input.kind)
+            : ne(table.kind, HUMAN_DECISION_MEMORY_KIND),
         ),
       );
     return rows.map(mapRow);
@@ -196,6 +408,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
     lookupIdentity: string;
     nowIso: string;
   }): Promise<boolean> {
+    assertLegacyAccess(input.kind);
     const rows = await this.db
       .update(table)
       .set({ revokedAt: input.nowIso })
@@ -228,6 +441,15 @@ function mapRow(row: typeof table.$inferSelect): PermissionDecisionMemoryRow {
     decision: (row.decision ?? undefined) as
       | PermissionDecisionMemoryEffect
       | undefined,
+    outcome: (row.outcome ?? undefined) as
+      | PermissionDecisionMemoryRow['outcome']
+      | undefined,
+    scope: (row.scope ?? undefined) as
+      | PermissionDecisionMemoryRow['scope']
+      | undefined,
+    scopeKey: row.scopeKey ?? undefined,
+    actingPersonId: row.actingPersonId ?? undefined,
+    actingPersonLabel: row.actingPersonLabel ?? undefined,
     reason: row.reason,
     risk_level: (row.riskLevel ?? undefined) as
       | PermissionDecisionMemoryRow['risk_level']

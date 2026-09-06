@@ -5,10 +5,9 @@ import { hasHiddenPathSegment } from './auto-permission-read-only-catalog.js';
 import { isSecretLikeValue } from './permission-hard-boundaries.js';
 import { isProtectedCapabilityPathLike } from './tool-execution-protected-paths.js';
 
-export interface ProspectiveWriteBoundaryResult {
-  inside: boolean;
-  reason?: string;
-}
+export type ProspectiveWriteBoundaryResult =
+  | { inside: true; canonicalPath: string }
+  | { inside: false; reason: string };
 
 export async function evaluateProspectiveWriteBoundary(input: {
   workspaceRoot?: string;
@@ -60,7 +59,7 @@ export async function evaluateProspectiveWriteBoundary(input: {
     const existingAncestor = await nearestExistingAncestor(current, root);
     const realAncestor = await fs.realpath(existingAncestor);
     return isWithinPath(root, realAncestor)
-      ? { inside: true }
+      ? { inside: true, canonicalPath: candidate }
       : outside('write target escapes workspace');
   } catch {
     return outside('workspace root could not be resolved');

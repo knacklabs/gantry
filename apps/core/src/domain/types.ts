@@ -10,7 +10,13 @@ import type { ObserverDigestMessageView } from './observer-digest-view.js';
 import type { BrainReviewCardView } from './brain-review-card.js';
 import type { PermissionApprovalResult } from './permission-approval-result.js';
 import type { RailProvenance } from './permission-lane.js';
+import {
+  HumanDecisionOutcome,
+  HumanDecisionScope,
+  isHumanDecisionId,
+} from './ports/permission-decision-memory.js';
 export type { PermissionApprovalResult } from './permission-approval-result.js';
+export { HumanDecisionOutcome, HumanDecisionScope };
 export type {
   MessageActionAffordanceKind,
   MemoryReviewActionDecision,
@@ -253,11 +259,110 @@ export type PermissionApprovalDecisionMode =
   | 'allow_persistent_rule'
   | 'cancel';
 
+export interface PermissionRememberResolution {
+  kind: 'remember';
+  outcome: HumanDecisionOutcome;
+  scope: HumanDecisionScope;
+}
+
+export type PermissionApprovalResolution =
+  | { kind: 'mode'; mode: PermissionApprovalDecisionMode }
+  | PermissionRememberResolution;
+
+export function isRememberResolution(
+  resolution: PermissionApprovalResolution,
+): resolution is PermissionRememberResolution {
+  return resolution.kind === 'remember';
+}
+
+export function resolutionMode(
+  resolution: PermissionApprovalResolution,
+): PermissionApprovalDecisionMode | undefined {
+  return resolution.kind === 'mode' ? resolution.mode : undefined;
+}
+
+export interface HumanDecisionRememberRequest {
+  appId: string;
+  agentFolder: string;
+  actingPersonId: string;
+  actingPersonLabel?: string;
+  resolution: PermissionApprovalResolution;
+  request: PermissionApprovalRequest;
+  effectHash?: string;
+  workspaceRoot?: string;
+  canonicalRoot?: string;
+  trustGrowthTool?: boolean;
+  railVersion: number;
+  effectSchemaVersion: number;
+  reason: string;
+}
+
+export interface HumanDecisionProvenance {
+  id: string;
+  actingPersonId: string;
+  outcome: HumanDecisionOutcome;
+  scope: HumanDecisionScope;
+  railVersion: number;
+}
+
+const HUMAN_DECISION_PROVENANCE_PREFIX = 'human_decision:';
+
+export function encodeHumanDecisionProvenance(
+  input: HumanDecisionProvenance,
+): string {
+  return `${HUMAN_DECISION_PROVENANCE_PREFIX}${JSON.stringify({
+    actingPersonId: input.actingPersonId,
+    id: input.id,
+    outcome: input.outcome,
+    railVersion: input.railVersion,
+    scope: input.scope,
+  })}`;
+}
+
+export function decodeHumanDecisionProvenance(
+  text: string,
+): HumanDecisionProvenance | undefined {
+  if (!text.startsWith(HUMAN_DECISION_PROVENANCE_PREFIX)) return undefined;
+  try {
+    const value: unknown = JSON.parse(
+      text.slice(HUMAN_DECISION_PROVENANCE_PREFIX.length),
+    );
+    if (!isRecord(value)) return undefined;
+    if (
+      !isHumanDecisionId(value.id) ||
+      typeof value.actingPersonId !== 'string' ||
+      !value.actingPersonId.trim() ||
+      (value.outcome !== HumanDecisionOutcome.Allow &&
+        value.outcome !== HumanDecisionOutcome.Deny) ||
+      (value.scope !== HumanDecisionScope.Exact &&
+        value.scope !== HumanDecisionScope.Kind &&
+        value.scope !== HumanDecisionScope.Place) ||
+      typeof value.railVersion !== 'number' ||
+      !Number.isInteger(value.railVersion)
+    ) {
+      return undefined;
+    }
+    return {
+      id: value.id,
+      actingPersonId: value.actingPersonId,
+      outcome: value.outcome,
+      scope: value.scope,
+      railVersion: value.railVersion,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
 // prettier-ignore
 export type PermissionDecisionSource =
   | 'durable_rule' | 'birthright' | 'deterministic_policy'
   | 'auto_classifier' | 'cached_classifier' | 'trusted_root'
-  | 'human_once' | 'human_persistent';
+  | 'human_once' | 'human_persistent' | 'human_decision';
 
 export interface PermissionRecoveryEnvelope {
   version: 1;
