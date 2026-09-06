@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 from factory_lib import (
@@ -29,7 +30,9 @@ from factory_lib import (
 )
 
 from .common import fail
-from .review_brief import VERDICT_INSTRUCTION, _task_section, cmd_review_brief
+from .review_brief import (
+    LEFTOVER_INSTRUCTION, VERDICT_INSTRUCTION, _task_section, cmd_review_brief,
+)
 # Reuse the task module's git helpers rather than adding another lossless
 # capture site: theirs is already reviewed and content-pinned for path output.
 from .tasks import _git, _require_git
@@ -133,7 +136,7 @@ def _product_dirty(base: Path) -> list[str]:
 
 def _lens_prompt(task: dict, lens: str, base: Path | None = None) -> bytes:
     lines = [f"# Review brief — {task.get('id', '')} — {lens} lens", "",
-             COMMON_PREAMBLE, LENS_FOCUS[lens]]
+             COMMON_PREAMBLE, LENS_FOCUS[lens], LEFTOVER_INSTRUCTION]
     if lens == "quality":
         lines += [QUALITY_VERDICT_FORMAT, VERDICT_INSTRUCTION, ""]
     lines += _task_section(task, base)
@@ -217,16 +220,40 @@ def _recommendation(blocking: int, non_blocking: int) -> str:
     return "approve-with-caveats" if non_blocking else "approve"
 
 
+_VERDICT_SEVERITY = {"implemented": 0, "partial": 1, "missing": 2}
+
+
 def _parse_verdicts(texts: list[str]) -> dict[str, tuple[str, str]]:
+    """One verdict per contract across every text; when a contract is verdicted
+    more than once (a chunked review emits one VERDICT line per pass) the WORST
+    verdict wins — missing over partial over implemented — so a pass that saw
+    a defect is never outvoted by a pass that only saw the files exist."""
     verdicts: dict[str, tuple[str, str]] = {}
     for text in texts:
         for match in VERDICT_LINE.finditer(text or ""):
-            verdicts.setdefault(
-                match.group("id").strip(),
-                (match.group("verdict").lower(),
-                 (match.group("evidence") or "").strip() or "reviewer verdict"),
-            )
+            cid = match.group("id").strip()
+            found = (match.group("verdict").lower(),
+                     (match.group("evidence") or "").strip() or "reviewer verdict")
+            current = verdicts.get(cid)
+            if current is None or (_VERDICT_SEVERITY[found[0]]
+                                   > _VERDICT_SEVERITY[current[0]]):
+                verdicts[cid] = found
     return verdicts
+
+
+def _verdict_texts(reviewed: dict) -> list[str]:
+    """The merged explanation and findings, PLUS every preserved pass report: a
+    chunked autoreview keeps the reviewer's conclusions (and its VERDICT lines)
+    per pass and replaces the top-level explanation with a summary line."""
+    texts = [reviewed.get("overall_explanation", "")]
+    texts += [f.get("body", "") for f in reviewed.get("findings", []) or []]
+    for entry in reviewed.get("pass_reports", []) or []:
+        report = entry.get("report") if isinstance(entry, dict) else None
+        if not isinstance(report, dict):
+            continue
+        texts.append(report.get("overall_explanation", ""))
+        texts += [f.get("body", "") for f in report.get("findings", []) or []]
+    return texts
 
 
 def _contract_verdicts(
@@ -236,8 +263,7 @@ def _contract_verdicts(
     tasks already done are attested as shipped at their own seal; contracts of
     tasks that have not started are not required (recorder, decision 0049)."""
     out: list[dict] = []
-    parsed = _parse_verdicts([reviewed.get("overall_explanation", "")]
-                             + [f.get("body", "") for f in reviewed.get("findings", [])])
+    parsed = _parse_verdicts(_verdict_texts(reviewed))
     for contract in task.get("plan_contracts") or []:
         cid = contract.get("id")
         if not isinstance(cid, str):
@@ -343,6 +369,60 @@ def product_only_tip(worktree: Path, base_sha: str) -> str:
     return _require_git(worktree, "resolving the review tip", "rev-parse", "HEAD")
 
 
+def codex_runs_path(root: Path) -> Path:
+    """Advisory ledger of Codex releases that are not delegations.
+
+    The delegation ledger is gate authority and has a schema to match; a review
+    is neither, so it gets its own append-only file rather than smuggling rows
+    into an artifact that `stage done` reads.
+    """
+    from factory_lib import git_control_dir
+    return git_control_dir(root) / "codex_runs.jsonl"
+
+
+def _append_codex_run(root: Path, record: dict) -> None:
+    try:
+        path = codex_runs_path(root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+    except (OSError, SystemExit):
+        return  # advisory: never fail a review because bookkeeping failed
+
+
+def _record_codex_run(root: Path, label: str, argv: list) -> str:
+    from factory_lib import now_iso
+    run_id = f"review-{uuid.uuid4().hex[:12]}"
+    _append_codex_run(root, {
+        "run_id": run_id, "kind": "review", "label": label,
+        "status": "starting", "at": now_iso(), "argv0": argv[0] if argv else "",
+    })
+    return run_id
+
+
+def _stamp_codex_run(root: Path, run_id: str, *, pid: int) -> None:
+    from factory_lib import now_iso
+    identity = ""
+    try:
+        from .delegate import _process_start_identity
+        identity = str(_process_start_identity(pid) or "")
+    except (Exception, SystemExit):
+        identity = ""
+    _append_codex_run(root, {
+        "run_id": run_id, "kind": "review", "status": "running",
+        "pid": pid, "pid_started": identity, "at": now_iso(),
+    })
+
+
+def _close_codex_run(root: Path, run_id: str, returncode) -> None:
+    from factory_lib import now_iso
+    _append_codex_run(root, {
+        "run_id": run_id, "kind": "review",
+        "status": "finished" if returncode in (0, 1) else "failed",
+        "exit_code": returncode, "at": now_iso(),
+    })
+
+
 def _run_skill(skill: Path, worktree: Path, base_sha: str, prompt_rel: str,
                json_out: Path, engine: str, max_priority: str) -> dict:
     argv = [
@@ -352,9 +432,24 @@ def _run_skill(skill: Path, worktree: Path, base_sha: str, prompt_rel: str,
     ]
     # Inherit stdio: the skill's heartbeat ("review still running ...") and any
     # streamed engine output are how the coordinator WATCHES this Codex release.
-    proc = subprocess.run(argv, cwd=worktree, env={**os.environ, "PYTHONUTF8": "1"})
-    if proc.returncode not in (0, 1):  # 1 == findings present, not an error
-        fail(f"autoreview exited {proc.returncode} for {prompt_rel}; see its output above")
+    #
+    # Ledger the pid before waiting. This command BLOCKS, so a crash of the
+    # review itself already surfaces as a non-zero exit -- but if this launcher
+    # is killed uncatchably (a job-object teardown, TerminateProcess, SIGKILL)
+    # no handler runs, and without a recorded pid nothing afterwards can say a
+    # review was ever in flight. A delegation is covered by its own ledger; a
+    # review was the blind spot, and it is the release the coordinator is told
+    # to watch every time.
+    started = _record_codex_run(worktree, prompt_rel, argv)
+    process = subprocess.Popen(argv, cwd=worktree,
+                               env={**os.environ, "PYTHONUTF8": "1"})
+    _stamp_codex_run(worktree, started, pid=process.pid)
+    try:
+        returncode = process.wait()
+    finally:
+        _close_codex_run(worktree, started, getattr(process, "returncode", None))
+    if returncode not in (0, 1):  # 1 == findings present, not an error
+        fail(f"autoreview exited {returncode} for {prompt_rel}; see its output above")
     if not json_out.is_file():
         fail(f"autoreview produced no JSON for {prompt_rel} (the run aborted?)")
     return json.loads(json_out.read_text(encoding="utf-8"))

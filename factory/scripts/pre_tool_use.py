@@ -216,6 +216,21 @@ command = (tool_input.get("command") or "").strip()
 permission_mode = payload.get("permission_mode", "")
 
 
+# ---------------------------------------------------------------- ask gate --
+# One of the two ways to interrupt the human. The rule itself lives in
+# factory_lib.may_interrupt so this and the Stop hook cannot drift apart.
+if tool_name == "AskUserQuestion":
+    try:
+        from factory_lib import may_interrupt
+        allowed, reason = may_interrupt(Path.cwd(), spend=True)
+        if not allowed:
+            deny(reason)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+
+
 # Session lock: product and canon writes are always refused unless a bounded
 # degraded window is open. Orchestration surfaces stay available.
 # .factory/ is deliberately NOT writable by hand: run.json holds plan_status,

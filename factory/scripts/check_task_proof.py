@@ -54,10 +54,23 @@ def read_at_head(root: Path, path: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def evidence(root: Path, key: str, name: str) -> dict | None:
-    """Story-scoped evidence, falling back to the legacy live singleton so a
-    story recorded before the scoped layout still satisfies the gate."""
-    for path in (f".factory/stories/{key}/{name}", f".factory/{name}"):
+def evidence(root: Path, key: str, name: str, task_id: str = "") -> dict | None:
+    """This TASK's proof, falling back to older layouts.
+
+    Proof used to be a story-scoped singleton, so every task in a story wrote
+    over the previous task's record: `reviews/quality.json` described whichever
+    task was reviewed last, and this gate could pass a task on another task's
+    evidence. Task-scoped proof is therefore preferred.
+
+    The two fallbacks are what keep work already in flight from stranding: a
+    story recorded before task scoping, and one recorded before story scoping,
+    both still satisfy the gate on the evidence they legitimately have.
+    """
+    candidates = []
+    if task_id:
+        candidates.append(f".factory/stories/{key}/tasks/{task_id}/{name}")
+    candidates += [f".factory/stories/{key}/{name}", f".factory/{name}"]
+    for path in candidates:
         found = read_at_head(root, path)
         if found is not None:
             return found
@@ -83,14 +96,14 @@ def added_markers(root: Path, base: str) -> list[tuple[str, str, dict]]:
 def proof_problems(root: Path, key: str, task_id: str) -> list[str]:
     problems: list[str] = []
 
-    verify = evidence(root, key, "verify.json")
+    verify = evidence(root, key, "verify.json", task_id)
     if verify is None:
         problems.append(
             "verify.json is not recorded — run `python3 factory/scripts/verify.py`")
     elif verify.get("ok") is not True:
         problems.append("verify.json records ok=false — fix the failures and re-run verify")
 
-    tests = evidence(root, key, "tests.json")
+    tests = evidence(root, key, "tests.json", task_id)
     automated = (tests or {}).get("automated")
     if tests is None or not isinstance(automated, dict):
         problems.append(
@@ -101,7 +114,7 @@ def proof_problems(root: Path, key: str, task_id: str) -> list[str]:
             f"tests.json records automated status={automated.get('status')!r}, not 'passed'")
 
     for lens in LENSES:
-        review = evidence(root, key, f"reviews/{lens}.json")
+        review = evidence(root, key, f"reviews/{lens}.json", task_id)
         if review is None:
             problems.append(
                 f"reviews/{lens}.json is not recorded — run `./forge review {task_id}` "
