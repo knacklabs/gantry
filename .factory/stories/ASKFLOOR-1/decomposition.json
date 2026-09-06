@@ -598,7 +598,7 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "round-trips human decisions per person: putHumanDecision refreshes an active duplicate in place returning the stored id and status refreshed with the complete refresh set (outcome, decision, reason, label, effect hash, rail version, effect schema version, created_at and provenance re-encoded with the stored id), inserts a fresh row beside a revoked one without reactivating it, listHumanDecisions is person-scoped and newest first with includeRevoked defaulting to active rows only and true returning revoked rows with their revokedAt, revokeById returns applied then already_revoked and not_found across persons and across app and agent folder, and countExactAllowsByTool counts active exact allows by principal",
+          "id": "round-trips human decisions per person: putHumanDecision refreshes an active duplicate in place returning the stored id and status refreshed with the complete refresh set - outcome, decision, reason, label, effect hash, rail version, effect schema version, created_at and provenance re-encoded with the stored id - inserts a fresh row beside a revoked one without reactivating it, listHumanDecisions is person-scoped and newest first with includeRevoked defaulting to active rows only and true returning revoked rows with their revokedAt, revokeById returns applied then already_revoked and not_found across persons and across app and agent folder, and countExactAllowsByTool counts active exact allows by principal",
           "path": "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --outputFile={report}"
         },
@@ -613,7 +613,7 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "returns the closed refusal reason for an Allow to a protected, outside, hidden, secret or symlinked destination, for a kind scope without a closed category including a mixed read and write pipeline, for a place scope without a root, for a deny outside exact scope and for an incomplete effect, and formats kind keys from the closed request table (read_only_command and file_read over every parsed leaf with the gate's compound stdinOk rule pinned for pipelines and and-or-semicolon compounds alike, virtual_file_read, web_search, web_read, the trust-growth tool kind) and place keys from the canonical root",
+          "id": "returns the closed refusal reason for an Allow to a protected, outside, hidden, secret or symlinked destination, for a kind scope without a closed category including a mixed read and write pipeline, for a place scope without a root, for a deny outside exact scope and for an incomplete effect, and formats kind keys from the closed request table - read_only_command and file_read over every parsed leaf with the gate's compound stdinOk rule pinned for pipelines and and-or-semicolon compounds alike, virtual_file_read, web_search, web_read, the trust-growth tool kind - and place keys from the canonical root",
           "path": "apps/core/test/unit/application/human-decision-scope.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
@@ -742,5 +742,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "37c637e92d1a92a7610dab56f8c31ab842330291"
+  "commit": "4ac5ed117e50e10764cd75da48c69495253ffddf"
 }
