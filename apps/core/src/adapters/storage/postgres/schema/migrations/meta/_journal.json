@@ -1016,6 +1016,13 @@
       "when": 1787852479130,
       "tag": "20260827174119_agents_web_ui_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1788666535983,
+      "tag": "20260906034855_permission_decision_memory_human",
+      "breakpoints": true
     }
   ]
 }

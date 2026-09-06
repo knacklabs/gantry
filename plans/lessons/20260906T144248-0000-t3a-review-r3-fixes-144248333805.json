@@ -1,0 +1,16 @@
+{
+  "topic": "t3a-review-r3-fixes",
+  "lesson": "Review round 3 (quality lens) accepted two P2s; fix exactly these, nothing else. (1) human-decision-memory-service.ts remember(): after putHumanDecision the method lists the ACTIVE rows and reads the short id with a non-null assertion; a concurrent revoke between the two calls makes it undefined. Fix: derive the short ids over the sibling ids PLUS stored.id (dedupe; stored.id first or last does not matter, the derivation is order-independent) so the stored row always has a short id; drop the non-null assertion. Add one unit case in human-decision-memory-service.test.ts where the fake repository's list omits the stored row and the result still carries a six-hex-char shortId. (2) domain/ports/permission-decision-memory.ts exports an isHumanDecisionId that duplicates shared/human-decision-id.ts byte for byte. Delete the port copy; the repository (permission-decision-memory-repository.postgres.ts:24) and the service (:11) import isHumanDecisionId from shared/human-decision-id.js like domain/human-decision.ts already does. No wrapper, no re-export from the port (owner no-leftovers rule). Run tsc, the service unit suite, prettier, and npm run check:architecture (application and adapters importing shared is allowed; the layer rule only forbids node:crypto in application).\n(3) Performance lens P2 accepted: shared/permission-prospective-write.ts:62 returns the syntactic candidate as canonicalPath even when realAncestor resolved an in-workspace symlink, so one physical file gets two path-only keys through its alias and its real path. Fix: build canonicalPath from the resolved ancestor plus the nonexistent suffix (the resolved candidate when it exists); keep the inside/outside verdict logic untouched. Add one case to test/unit/shared/permission-prospective-write.test.ts: an in-workspace symlink alias to a real directory yields canonicalPath under the real directory; compute expectations with fs.realpathSync of the temp workspace root (macOS resolves /tmp to /private/tmp). The separate finding about a non-partial history index for includeRevoked reads is DEFERRED to T5b (not yours).",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+    "apps/core/src/domain/ports/permission-decision-memory.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+    "apps/core/src/shared/permission-prospective-write.ts",
+    "apps/core/test/unit/shared/permission-prospective-write.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T14:42:48+00:00"
+}

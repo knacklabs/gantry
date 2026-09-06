@@ -1,0 +1,13 @@
+{
+  "topic": "t3a-remaining-after-checkpoint",
+  "lesson": "T3a source files are COMPLETE and committed (tsc + db:migrations:check green; the three new unit suites pass). Remaining work is ONLY tests, one file at a time, without re-reading finished sources: (1) test/unit/shared/permission-prospective-write.test.ts \u2014 the success result is now { inside: true, canonicalPath } so extend the existing leaf's inside expectations to include canonicalPath using the REAL path (fs.realpathSync of the workspace root, /private/var on macOS) and keep every refusal case; (2) test/integration/permission-decision-memory.postgres.integration.test.ts \u2014 add the three required Postgres leaves with their EXACT titles from the brief (partial keys + CHECK; per-person round-trips incl. refresh set, no reactivation, includeRevoked, revokeById across app/folder/person, countExactAllowsByTool; classifier cache byte-identical + legacy refusals + putHumanDecision guards), keeping the existing four-column pin; run it with 'source /private/tmp/claude-501/-Users-ravikiranvemula-Workdir-myclaw/b4051e43-dbea-4d62-ba73-ae6210455474/scratchpad/pgfix-env.sh' in the same shell then npx vitest run -c vitest.integration.postgres.config.ts <file>; (3) confirm the five unit leaves in the three new suites carry the EXACT required titles (rename it() names if they differ). Then stop.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/test/unit/shared/permission-prospective-write.test.ts",
+    "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+    "apps/core/test/unit/application/human-decision-*.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T03:58:55+00:00"
+}

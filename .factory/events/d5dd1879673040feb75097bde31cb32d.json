@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-06T04:20:04+00:00", "story": "ASKFLOOR-1", "detail": "check:architecture still fails because apps/core/src/domain/types.ts is 845 lines over the 740-line budget; the active one-fix instruction forbids editing any file beyond the new shared id helper and "}

@@ -1,0 +1,11 @@
+{
+  "topic": "t3a-review-r2-legacy-wording",
+  "lesson": "Review round 2 (post re-vendor, all three lenses): ONE P1 finding, the same in every lens \u2014 the Postgres integration test title and its fixture identifiers still say \"legacy\" for the non-human put, get, list and revoke (apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts:36 and :80-94). Those methods are live access paths, and the contract's NO LEFTOVERS rule forbids \"legacy\" naming anywhere in the diff. The wording came from the contract's own leaf title; contract v12 renames the leaf to \"non-human put, get, list and revoke\" / \"unfiltered non-human list\". Do exactly this and nothing else: (1) rename that it(...) title to the v12 leaf title verbatim; (2) rename the fixture strings exact:legacy-guard, person-legacy-guard (both), effect-human-legacy-guard to exact:non-human-guard, person-non-human-guard, effect-human-non-human-guard; (3) grep the whole diff against origin/main for the word legacy (case-insensitive) and remove any other occurrence you introduced \u2014 do NOT touch pre-existing occurrences outside this task's files. Run the renamed leaf through the Postgres config (source the env file the brief names) and prettier on the file. No product-code change is expected.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T09:56:13+00:00"
+}

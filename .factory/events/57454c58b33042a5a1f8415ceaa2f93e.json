@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-06T05:39:06+00:00", "story": "ASKFLOOR-1", "detail": "ASKFLOOR-1-T3a AC6 DB-backed integration proof is blocked because this sandbox denies localhost Postgres with connect EPERM 127.0.0.1:5432; npx tsc --noEmit passes."}
