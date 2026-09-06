@@ -1,0 +1,15 @@
+{
+  "topic": "t3a-no-leftovers",
+  "lesson": "OWNER RULING 2026-09-06 (we do not need legacy code): TWO removals only. (1) Delete the single-id deriveHumanDecisionShortId(id, siblings) wrapper from the human-decision memory service; remember() and list() call deriveHumanDecisionShortIds(...) directly and the unit test uses the batch function (keep every current case, including the 6-to-7 collision and the 500-id list). (2) Rename assertLegacyAccess to assertNonHumanKind in the Postgres decision-memory repository and reword every comment or doc sentence that says 'legacy' (port, repository, the architecture note) to 'non-human kinds' \u2014 those four methods are live code for classifier verdicts, remembered denies, trusted roots and standing grants, not compatibility code. No other change; run the service unit suite, the repository unit guards and tsc, then stop.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+    "apps/core/src/domain/ports/permission-decision-memory.ts",
+    "docs/architecture/permission-decision-memory.md"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T07:22:13+00:00"
+}
