@@ -94,13 +94,6 @@ async function deriveNativeWriteScope(input: {
 }): Promise<HumanDecisionScopeKeyResult | undefined> {
   const toolInput = decisionToolInput(input.request);
   if (!toolInput) return undefined;
-  if (
-    (toolInput.file_path !== undefined &&
-      typeof toolInput.file_path !== 'string') ||
-    (toolInput.path !== undefined && typeof toolInput.path !== 'string')
-  ) {
-    return undefined;
-  }
   const destinations = [toolInput.file_path, toolInput.path].filter(
     (value): value is string =>
       typeof value === 'string' && value.trim().length > 0,
@@ -115,6 +108,13 @@ async function deriveNativeWriteScope(input: {
       return refused(HumanDecisionNotRememberableReason.ProtectedDestination);
     }
     canonicalPaths.push(boundary.canonicalPath);
+  }
+  if (
+    (toolInput.file_path !== undefined &&
+      typeof toolInput.file_path !== 'string') ||
+    (toolInput.path !== undefined && typeof toolInput.path !== 'string')
+  ) {
+    return undefined;
   }
   return canonicalPaths.length === 1
     ? remembered(`exact:path:${input.canonicalTool}:${canonicalPaths[0]}`, true)
@@ -131,31 +131,54 @@ function deriveVirtualWriteScope(
       ? refused(HumanDecisionNotRememberableReason.ProtectedDestination)
       : undefined;
   }
-  if (
-    toolInput.protected !== undefined &&
-    typeof toolInput.protected !== 'boolean'
-  ) {
-    return undefined;
-  }
   try {
     let scope: string;
     let path: string;
     if (toolInput.action === 'write') {
+      if (typeof toolInput.path === 'string') {
+        const protectedScope = normalizeFileArtifactScope(
+          typeof toolInput.scope === 'string' ? toolInput.scope : undefined,
+        );
+        const protectedPath = normalizeFileArtifactPath(toolInput.path);
+        if (isProtectedArtifactEntry(protectedScope, protectedPath)) {
+          return refused(
+            HumanDecisionNotRememberableReason.ProtectedDestination,
+          );
+        }
+      }
       if (
         typeof toolInput.path !== 'string' ||
         typeof toolInput.content !== 'string' ||
-        (toolInput.scope !== undefined && typeof toolInput.scope !== 'string')
+        (toolInput.scope !== undefined &&
+          typeof toolInput.scope !== 'string') ||
+        (toolInput.protected !== undefined &&
+          typeof toolInput.protected !== 'boolean')
       ) {
         return undefined;
       }
       scope = normalizeFileArtifactScope(toolInput.scope);
       path = normalizeFileArtifactPath(toolInput.path);
     } else if (toolInput.action === 'promote_scratch') {
+      if (typeof toolInput.targetPath === 'string') {
+        const protectedScope = normalizeFileArtifactScope(
+          typeof toolInput.targetScope === 'string'
+            ? toolInput.targetScope
+            : undefined,
+        );
+        const protectedPath = normalizeFileArtifactPath(toolInput.targetPath);
+        if (isProtectedArtifactEntry(protectedScope, protectedPath)) {
+          return refused(
+            HumanDecisionNotRememberableReason.ProtectedDestination,
+          );
+        }
+      }
       if (
         typeof toolInput.path !== 'string' ||
         typeof toolInput.targetPath !== 'string' ||
         (toolInput.targetScope !== undefined &&
-          typeof toolInput.targetScope !== 'string')
+          typeof toolInput.targetScope !== 'string') ||
+        (toolInput.protected !== undefined &&
+          typeof toolInput.protected !== 'boolean')
       ) {
         return undefined;
       }
@@ -165,9 +188,7 @@ function deriveVirtualWriteScope(
     } else {
       return undefined;
     }
-    return isProtectedArtifactEntry(scope, path)
-      ? refused(HumanDecisionNotRememberableReason.ProtectedDestination)
-      : remembered(`exact:path:${canonicalTool}:${scope}/${path}`, true);
+    return remembered(`exact:path:${canonicalTool}:${scope}/${path}`, true);
   } catch {
     return undefined;
   }

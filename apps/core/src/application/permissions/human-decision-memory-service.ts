@@ -110,12 +110,16 @@ export class HumanDecisionMemoryService {
       agentFolder: dto.agentFolder,
       actingPersonId: dto.actingPersonId,
     });
+    const activeIds = new Set(siblings.map((row) => row.id));
+    activeIds.add(stored.id);
+    const shortId = deriveHumanDecisionShortIds([...activeIds]).get(stored.id);
+    if (shortId === undefined) {
+      throw new Error('Human decision short id derivation failed');
+    }
     return {
       status: 'remembered',
       id: stored.id,
-      shortId: deriveHumanDecisionShortIds(siblings.map((row) => row.id)).get(
-        stored.id,
-      )!,
+      shortId,
       scopeKey: derived.scopeKey,
       pathOnly: derived.pathOnly,
       stored: stored.status,

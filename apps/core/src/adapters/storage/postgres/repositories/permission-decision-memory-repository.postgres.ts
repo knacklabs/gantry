@@ -21,13 +21,13 @@ import {
   type HumanDecisionMemoryPutInput,
   type HumanDecisionMemoryPutResult,
   type HumanDecisionRevokeResult,
-  isHumanDecisionId,
   type PermissionDecisionMemoryEffect,
   type PermissionDecisionMemoryKind,
   type PermissionDecisionMemoryPutInput,
   type PermissionDecisionMemoryRepository,
   type PermissionDecisionMemoryRow,
 } from '../../../../domain/ports/permission-decision-memory.js';
+import { isHumanDecisionId } from '../../../../shared/human-decision-id.js';
 import { encodeHumanDecisionProvenance } from '../../../../domain/human-decision.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';

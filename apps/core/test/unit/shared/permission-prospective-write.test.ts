@@ -51,6 +51,19 @@ describe('prospective write boundary', () => {
       ),
     });
 
+    const aliasParent = makeRoot('alias-parent');
+    const workspaceAlias = path.join(aliasParent, 'workspace-alias');
+    fs.symlinkSync(workspaceRoot, workspaceAlias);
+    await expect(
+      evaluate('notes/existing.md', workspaceAlias),
+    ).resolves.toEqual({
+      inside: true,
+      canonicalPath: path.join(
+        fs.realpathSync(workspaceRoot),
+        'notes/existing.md',
+      ),
+    });
+
     for (const candidatePath of [
       '../outside.md',
       'notes/../forward-slash-victim.md',

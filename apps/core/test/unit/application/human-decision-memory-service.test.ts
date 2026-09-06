@@ -136,7 +136,6 @@ describe('human decision memory service', () => {
     > = [
       [
         {
-          request: rememberRequest().request,
           resolution: {
             kind: 'remember',
             outcome: HumanDecisionOutcome.Allow,
@@ -289,6 +288,25 @@ describe('human decision memory service', () => {
         stored: 'refreshed',
       },
     );
+
+    const concurrentlyRevokedRepository = fakeRepository({
+      putHumanDecision: vi.fn(async () => ({
+        id: STORED_ID,
+        status: 'refreshed' as const,
+      })),
+      listHumanDecisions: vi.fn(async () => []),
+    });
+    const concurrentlyRevokedService = new HumanDecisionMemoryService({
+      repository: concurrentlyRevokedRepository,
+      newId: () => ID,
+      now: () => NOW,
+    });
+    await expect(
+      concurrentlyRevokedService.remember(rememberRequest()),
+    ).resolves.toMatchObject({
+      id: STORED_ID,
+      shortId: 'abcdef',
+    });
   });
 
   it('list is person-scoped with short ids derived as six dash-free hex characters extended only on a sibling collision and disambiguated against every active sibling before the limit is applied, revoke relays applied, already_revoked and not_found with the app, folder and person axes, and countExactAllowsByTool relays the repository map', async () => {

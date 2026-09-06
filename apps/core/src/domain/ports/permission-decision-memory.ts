@@ -141,15 +141,6 @@ export class HumanDecisionRequiresTypedAccessError extends Error {
   }
 }
 
-export function isHumanDecisionId(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value,
-    )
-  );
-}
-
 export interface PermissionDecisionMemoryRepository {
   /** Reuse a cached classifier verdict keyed by the versioned effect hash. */
   getClassifierVerdict(input: {

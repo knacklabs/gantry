@@ -251,9 +251,30 @@ describe('human decision scope keys', () => {
         reason: HumanDecisionNotRememberableReason.ProtectedDestination,
       });
     }
+    await expect(
+      deriveHumanDecisionScopeKey({
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Exact,
+        request: request('FileWrite', {
+          file_path: 'settings.yaml',
+          path: 1,
+        }),
+        effectHash: 'malformed-protected-native-hash',
+        workspaceRoot,
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      reason: HumanDecisionNotRememberableReason.ProtectedDestination,
+    });
     for (const toolInput of [
       { action: 'write', path: 'settings.yaml', content: 'x' },
       { action: 'write', path: 'notes/a.md', content: 'x', protected: true },
+      { action: 'write', path: 'settings.yaml', content: 1 },
+      {
+        action: 'promote_scratch',
+        path: 1,
+        targetPath: 'settings.yaml',
+      },
     ]) {
       await expect(
         deriveHumanDecisionScopeKey({
