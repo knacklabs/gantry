@@ -1,21 +1,27 @@
 {
   "generated_by": "autoreview",
-  "score": 7,
-  "summary": "quality lens over ASKFLOOR-1-T3a (20 product path(s), 098cd57..d5e997d, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 1 finding(s). See preserved pass reports for provider conclusions.",
+  "score": 9,
+  "summary": "quality lens over ASKFLOOR-1-T3a (20 product path(s), 098cd57..bf278ba, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 2 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [
-    {
-      "category": "maintainability",
-      "area": "apps/core/test/integration",
-      "summary": "[P1] Remove the remaining \u201clegacy\u201d naming from the live repository tests (apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts:33): The test still calls `put`, `get`, `list`, and `revoke` \u201clegacy\u201d APIs and repeats that label in its fixture names."
-    },
     {
       "category": "plan-contract-partial",
       "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T3a-AC2: PORT + REPOSITORY. `PermissionDecisionMemoryKind` gains `'human_decision'`; the row and put types gain optional `outcome?: HumanDecisionOutcome` (`allow | deny`), `scope?: HumanDecisionScope` (`exact | kind | place`), `scopeKey?`, `actingPersonId?`, `actingPersonLabel?` (closed typed enums exported from the port; no string literals elsewhere). The existing methods `put`, `get`, `list` and `revoke` serve the four NON-HUMAN kinds (classifier verdicts, remembered denies, trusted roots, standing grants \u2014 live code, not compatibility code; nothing in the diff may be named or commented \"legacy\"): each REFUSES `kind: 'human_decision'` (throws `HumanDecisionRequiresTypedAccessError`, a named domain error in the port, raised by one guard `assertNonHumanKind` \u2014 the human path has its own person-scoped methods below), `put` keeps today's conflict target, and an unfiltered `list` (no `kind`) EXCLUDES human rows (`kind <> 'human_decision'`), so no non-human path can read or revoke across persons (0154/0118). NEW `putHumanDecision(input) \u2192 Promise<{ id: string; status: 'inserted' | 'refreshed' }>`: requires all four human fields and a v4-UUID-shaped `id` (a missing field or a malformed id throws before any SQL \u2014 the same guard style as `assertPersistable`, `:17-34`), always `lookupIdentity = scopeKey`, `decision = outcome`, `principal = canonicalTool`; it runs in ONE transaction: select the ACTIVE row for `(app_id, agent_folder, acting_person_id, scope, scope_key)` (the human partial index's key) \u2014 if one exists it is REFRESHED in place with `outcome`, `decision`, `reason`, `acting_person_label`, `effect_hash`, `rail_version`, `effect_schema_version`, `created_at` AND `provenance` re-encoded (AC5) with the STORED id, and the STORED id is returned with `status: 'refreshed'` (the caller's fresh id is discarded \u2014 an opposite-outcome write for the same authority simply replaces the older decision: newest human decision wins, one Forget still revokes the only active record, 0118); if none exists a NEW row is inserted with the caller's id and `provenance` encoded with it (`status: 'inserted'`) \u2014 a REVOKED row is NEVER reactivated: it stays as history beside the new row (the partial index ignores revoked rows, so the insert succeeds). NEW `listHumanDecisions({ appId, agentFolder, actingPersonId, includeRevoked? })` ordered newest first by `created_at`, person-scoped (no cross-person rows, pinned); `includeRevoked` defaults to false (active rows only); `true` returns revoked rows too, each with its `revokedAt` (pinned); NEW `revokeById({ appId, agentFolder, actingPersonId, recordId, nowIso })` \u2192 `'applied' | 'already_revoked' | 'not_found'` \u2014 `not_found` when the id exists for ANOTHER person, app or agent folder (never crosses any of the three axes, pinned by cross-person, cross-app and cross-folder tests); NEW `countExactAllowsByTool({ appId, agentFolder, actingPersonId })` \u2192 `Record<toolName, number>` of ACTIVE `outcome = allow`, `scope = exact` rows grouped by the canonical tool name carried in `principal` (the human row stores AC3's `canonicalTool` in the existing `principal` column \u2014 the trust-growth input read by T5a; documented in the architecture note). `getClassifierVerdict`/`putClassifierVerdict` are byte-identical. Tests: Postgres round-trips for each new method per person; unit guard test for the refusals."
+      "summary": "ASKFLOOR-1-T3a-AC4: SERVICE. NEW `application/permissions/human-decision-memory-service.ts` exporting `HumanDecisionMemoryService` (class, constructor-injected `{ repository, newId = randomUUID, now = currentIso }` \u2014 the `CapabilitySecretService` pattern, `application/capability-secrets/capability-secret-service.ts:17`; no adapter construction, port import only per `scripts/architecture-map.json`): `remember(dto: HumanDecisionRememberRequest) \u2192 { status: 'remembered'; id; shortId; scopeKey; pathOnly; stored: 'inserted' | 'refreshed' } | { status: 'not_rememberable'; reason: HumanDecisionServiceRefusal }` where `HumanDecisionServiceRefusal = HumanDecisionNotRememberableReason | 'unresolved_person' | 'once_never_remembered'` \u2014 refuses a blank `actingPersonId` (`unresolved_person`) and a `resolution` whose `kind` is not `'remember'` (`once_never_remembered`: a scalar `allow_once`/`allow_persistent_rule`/`cancel` never reaches the store) BEFORE any repository call; derives the key via AC3 and relays an `ok: false` reason verbatim; generates a v4 UUID via `newId` and validates its shape (a malformed injected id \u21d2 throws \u2014 pinned); writes via `putHumanDecision` with `reason` = the DTO's human-readable line, `railVersion`/`effectSchemaVersion` from the DTO (the caller's rails catalogue), `principal = canonicalTool`; the returned `id` is the repository's EFFECTIVE stored id (a refreshed duplicate returns the stored id, never the discarded fresh one \u2014 pinned) and `shortId` is derived from it. `deriveHumanDecisionShortIds(ids: string[]) \u2192 Map<id, shortId>` (exported, tested; the ONLY short-id function \u2014 no single-id wrapper, no compatibility shim, OWNER RULING 2026-09-06 \"we don't need legacy code\"): each id normalised once, the first 6 hex characters of the dash-free lowercase UUID, extended one character at a time only while another id in the list (this person's ACTIVE records) shares the prefix, resolved by prefix counting in one pass \u2014 so short ids are unique within a person's active list; `list({ appId, agentFolder, actingPersonId, limit? })` \u2192 active rows newest first; short ids are disambiguated against ALL of the person's active ids BEFORE `limit` is applied, so a truncated page never shows an ambiguous short id (pinned); `revoke({ appId, agentFolder, actingPersonId, recordId })` \u2192 the repository's result verbatim (the full record id; prefix resolution is T5b's); `countExactAllowsByTool(...)` \u2192 the repository's map. Tests (unit, in-memory fake repository): every refusal reason, once-never-remembered for each scalar mode, malformed injected id, a remembered allow and deny round-trip, refreshed duplicate returns the stored id, list is person-scoped, batch short-id derivation incl. a 6-char collision extending to 7 and a 500-id list resolved in one pass, revoke results. NO LEFTOVERS (owner ruling 2026-09-06): the diff carries no compatibility wrapper, shim, re-export kept \"for callers\", renamed-but-retained symbol or \"legacy\" naming; a reviewer finding one is a blocking finding."
     }
   ],
-  "non_blocking_findings": [],
-  "recommendation": "request-changes",
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/application/permissions",
+      "summary": "[P2] Handle revocation before deriving the remembered row's short ID (apps/core/src/application/permissions/human-decision-memory-service.ts:119): After `putHumanDecision` commits, `remember` performs a separate active-only list and assumes the stored row is present."
+    },
+    {
+      "category": "maintainability",
+      "area": "apps/core/src/domain/ports",
+      "summary": "[P2] Consolidate the duplicated human-decision UUID validator (apps/core/src/domain/ports/permission-decision-memory.ts:148): This port exports an `isHumanDecisionId` regex that duplicates the newly added validator in `shared/human-decision-id.ts`; different parts of the feature already consume different copies."
+    }
+  ],
+  "recommendation": "approve-with-caveats",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
     "apps/core/src/adapters/storage/postgres/schema/migrations/20260906034855_permission_decision_memory_human.sql",
@@ -47,8 +53,8 @@
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC2",
-      "verdict": "partial",
-      "evidence": "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts:33 evidence"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:129"
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC3",
@@ -57,8 +63,8 @@
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC4",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/human-decision-memory-service.ts:1"
+      "verdict": "partial",
+      "evidence": "apps/core/src/application/permissions/human-decision-memory-service.ts:119"
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC5",
@@ -68,7 +74,7 @@
     {
       "contract_id": "ASKFLOOR-1-T3a-AC6",
       "verdict": "implemented",
-      "evidence": "docs/architecture/permission-decision-memory.md:1; vitest.integration.config.ts:1"
+      "evidence": "docs/architecture/permission-decision-memory.md:1"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -152,10 +158,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "8b6c22b643f8dedaff3f2a641fd94083dbd31c13977f2c6d04236abb0ec3d9a7",
-  "brief_sha256": "1663d0861c4556febf2112c0e304b7beeccd62bd934d9217af66357cf15cf18b",
-  "branch_diff_digest": "e8ae2e9bfcecb4c5d700ab8d4a2b4141cad487a5afed528e525270b995ea54a7",
+  "review_run_id": "d735668bcf9f6b81bee64b4fecbbe5739118d57fc5bb408320bbe80d30c483b2",
+  "brief_sha256": "cd9fd6546567b75fd565f7859de9451a60f1a904bf545b82b9f32757af093622",
+  "branch_diff_digest": "1f6fc0ad9cf4bd25c172391a47c6c85d06407d2a8780dbef6a62f5d52367b4db",
   "residual_risks": [],
-  "recorded_at": "2026-09-06T09:54:23+00:00",
-  "commit": "d5e997de3e25a41f80fd91a16d54712c71a12ff2"
+  "recorded_at": "2026-09-06T14:42:07+00:00",
+  "commit": "bf278bac1c192051574ff3e2b430dc4536172bc7"
 }
