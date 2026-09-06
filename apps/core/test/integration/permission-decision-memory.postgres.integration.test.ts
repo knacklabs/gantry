@@ -33,7 +33,7 @@ maybeDescribe('Postgres permission decision memory', () => {
     if (runtime) await runtime.cleanup();
   });
 
-  it('keeps the classifier verdict cache byte-identical, refuses a human_decision kind through the legacy put, get, list and revoke while an unfiltered legacy list excludes human rows, and refuses a malformed id or missing human field through putHumanDecision before any SQL', async () => {
+  it('keeps the classifier verdict cache byte-identical, refuses a human_decision kind through the non-human put, get, list and revoke while an unfiltered non-human list excludes human rows, and refuses a malformed id or missing human field through putHumanDecision before any SQL', async () => {
     const repository = runtime.repositories.permissionDecisionMemory;
     await repository.putClassifierVerdict({
       appId: APP,
@@ -77,21 +77,21 @@ maybeDescribe('Postgres permission decision memory', () => {
       agentFolder: FOLDER,
       outcome: 'allow',
       scope: 'exact',
-      scopeKey: 'exact:legacy-guard',
-      actingPersonId: 'person-legacy-guard',
+      scopeKey: 'exact:non-human-guard',
+      actingPersonId: 'person-non-human-guard',
       canonicalTool: 'WebSearch',
       reason: 'remember search',
       effectSchemaVersion: 1,
       railVersion: 3,
       provenance: encodeHumanDecisionProvenance({
         id: '10000000-0000-4000-8000-000000000010',
-        actingPersonId: 'person-legacy-guard',
+        actingPersonId: 'person-non-human-guard',
         outcome: 'allow',
         scope: 'exact',
         railVersion: 3,
       }),
       nowIso: '2026-07-12T00:01:00.000Z',
-      effectHash: 'effect-human-legacy-guard',
+      effectHash: 'effect-human-non-human-guard',
     };
     await repository.putHumanDecision(humanInput);
 
