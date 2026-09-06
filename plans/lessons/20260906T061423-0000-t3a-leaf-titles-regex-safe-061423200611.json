@@ -1,0 +1,12 @@
+{
+  "topic": "t3a-leaf-titles-regex-safe",
+  "lesson": "ONE fix only (contract v9): two it() titles must be renamed to the EXACT required-test ids from the brief because the stage gate passes the id to vitest -t as a REGEX and parentheses match nothing: in permission-decision-memory.postgres.integration.test.ts the round-trips leaf now reads '... with the complete refresh set - outcome, decision, reason, label, effect hash, rail version, effect schema version, created_at and provenance re-encoded with the stored id - inserts a fresh row ...' and in human-decision-scope.test.ts the refusal-reason leaf now reads '... from the closed request table - read_only_command and file_read ... the trust-growth tool kind - and place keys from the canonical root'. Copy the ids from the brief verbatim; change nothing else; run the two files (Postgres one after sourcing /private/tmp/claude-501/-Users-ravikiranvemula-Workdir-myclaw/b4051e43-dbea-4d62-ba73-ae6210455474/scratchpad/pgfix-env.sh) and stop.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+    "apps/core/test/unit/application/human-decision-scope.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-06T06:14:23+00:00"
+}
