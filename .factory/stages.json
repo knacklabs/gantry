@@ -22,8 +22,11 @@
     {
       "id": "ASKFLOOR-1-T3a",
       "title": "Human-decision memory persistence",
-      "status": "pending",
-      "reopen_base_sha": "236eb4293dcd94f29e0f398db8e04e132a4a07dd"
+      "status": "active",
+      "started_at": "2026-09-06T16:16:01+00:00",
+      "base_sha": "236eb4293dcd94f29e0f398db8e04e132a4a07dd",
+      "dirty_at_start": {},
+      "task_sha256": "d98075b30f22cdd450a7fde8c3c9b8269698b898cd70319c34e98da8dcc0af77"
     },
     {
       "id": "ASKFLOOR-1-T3b",
