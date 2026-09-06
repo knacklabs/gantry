@@ -1,27 +1,10 @@
 {
   "generated_by": "autoreview",
-  "score": 9,
-  "summary": "quality lens over ASKFLOOR-1-T3a (20 product path(s), 098cd57..bf278ba, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 2 finding(s). See preserved pass reports for provider conclusions.",
-  "blocking_findings": [
-    {
-      "category": "plan-contract-partial",
-      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T3a-AC4: SERVICE. NEW `application/permissions/human-decision-memory-service.ts` exporting `HumanDecisionMemoryService` (class, constructor-injected `{ repository, newId = randomUUID, now = currentIso }` \u2014 the `CapabilitySecretService` pattern, `application/capability-secrets/capability-secret-service.ts:17`; no adapter construction, port import only per `scripts/architecture-map.json`): `remember(dto: HumanDecisionRememberRequest) \u2192 { status: 'remembered'; id; shortId; scopeKey; pathOnly; stored: 'inserted' | 'refreshed' } | { status: 'not_rememberable'; reason: HumanDecisionServiceRefusal }` where `HumanDecisionServiceRefusal = HumanDecisionNotRememberableReason | 'unresolved_person' | 'once_never_remembered'` \u2014 refuses a blank `actingPersonId` (`unresolved_person`) and a `resolution` whose `kind` is not `'remember'` (`once_never_remembered`: a scalar `allow_once`/`allow_persistent_rule`/`cancel` never reaches the store) BEFORE any repository call; derives the key via AC3 and relays an `ok: false` reason verbatim; generates a v4 UUID via `newId` and validates its shape (a malformed injected id \u21d2 throws \u2014 pinned); writes via `putHumanDecision` with `reason` = the DTO's human-readable line, `railVersion`/`effectSchemaVersion` from the DTO (the caller's rails catalogue), `principal = canonicalTool`; the returned `id` is the repository's EFFECTIVE stored id (a refreshed duplicate returns the stored id, never the discarded fresh one \u2014 pinned) and `shortId` is derived from it. `deriveHumanDecisionShortIds(ids: string[]) \u2192 Map<id, shortId>` (exported, tested; the ONLY short-id function \u2014 no single-id wrapper, no compatibility shim, OWNER RULING 2026-09-06 \"we don't need legacy code\"): each id normalised once, the first 6 hex characters of the dash-free lowercase UUID, extended one character at a time only while another id in the list (this person's ACTIVE records) shares the prefix, resolved by prefix counting in one pass \u2014 so short ids are unique within a person's active list; `list({ appId, agentFolder, actingPersonId, limit? })` \u2192 active rows newest first; short ids are disambiguated against ALL of the person's active ids BEFORE `limit` is applied, so a truncated page never shows an ambiguous short id (pinned); `revoke({ appId, agentFolder, actingPersonId, recordId })` \u2192 the repository's result verbatim (the full record id; prefix resolution is T5b's); `countExactAllowsByTool(...)` \u2192 the repository's map. Tests (unit, in-memory fake repository): every refusal reason, once-never-remembered for each scalar mode, malformed injected id, a remembered allow and deny round-trip, refreshed duplicate returns the stored id, list is person-scoped, batch short-id derivation incl. a 6-char collision extending to 7 and a 500-id list resolved in one pass, revoke results. NO LEFTOVERS (owner ruling 2026-09-06): the diff carries no compatibility wrapper, shim, re-export kept \"for callers\", renamed-but-retained symbol or \"legacy\" naming; a reviewer finding one is a blocking finding."
-    }
-  ],
-  "non_blocking_findings": [
-    {
-      "category": "bug",
-      "area": "apps/core/src/application/permissions",
-      "summary": "[P2] Handle revocation before deriving the remembered row's short ID (apps/core/src/application/permissions/human-decision-memory-service.ts:119): After `putHumanDecision` commits, `remember` performs a separate active-only list and assumes the stored row is present."
-    },
-    {
-      "category": "maintainability",
-      "area": "apps/core/src/domain/ports",
-      "summary": "[P2] Consolidate the duplicated human-decision UUID validator (apps/core/src/domain/ports/permission-decision-memory.ts:148): This port exports an `isHumanDecisionId` regex that duplicates the newly added validator in `shared/human-decision-id.ts`; different parts of the feature already consume different copies."
-    }
-  ],
-  "recommendation": "approve-with-caveats",
+  "score": 10,
+  "summary": "quality lens over ASKFLOOR-1-T3a (20 product path(s), 098cd57..ef941c0, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
     "apps/core/src/adapters/storage/postgres/schema/migrations/20260906034855_permission_decision_memory_human.sql",
@@ -49,32 +32,32 @@
     {
       "contract_id": "ASKFLOOR-1-T3a-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/schema/migrations/20260906034855_permission_decision_memory_human.sql:2"
+      "evidence": "apps/core/src/adapters/storage/postgres/schema/migrations/20260906034855_permission_decision_memory_human.sql:1 evidence"
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:129"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:51 evidence"
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/human-decision-scope.ts:1"
+      "evidence": "apps/core/src/application/permissions/human-decision-scope.ts:1 evidence"
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC4",
-      "verdict": "partial",
-      "evidence": "apps/core/src/application/permissions/human-decision-memory-service.ts:119"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/permissions/human-decision-memory-service.ts:1 evidence"
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/human-decision.ts:1"
+      "evidence": "apps/core/src/domain/human-decision.ts:1 evidence"
     },
     {
       "contract_id": "ASKFLOOR-1-T3a-AC6",
       "verdict": "implemented",
-      "evidence": "docs/architecture/permission-decision-memory.md:1"
+      "evidence": "docs/architecture/permission-decision-memory.md:1 evidence"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -158,10 +141,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "d735668bcf9f6b81bee64b4fecbbe5739118d57fc5bb408320bbe80d30c483b2",
-  "brief_sha256": "cd9fd6546567b75fd565f7859de9451a60f1a904bf545b82b9f32757af093622",
-  "branch_diff_digest": "1f6fc0ad9cf4bd25c172391a47c6c85d06407d2a8780dbef6a62f5d52367b4db",
+  "review_run_id": "31881d458591a7f2770248a2145845b97a790d0eff169055340f49b391e165ad",
+  "brief_sha256": "f958b6a03d9341dce2aa1012d6fb42d7378b091ba8e1203681ee5de0bdbac5a3",
+  "branch_diff_digest": "c84594423a98cd7c7cbfff1d2274db7a3bf0b9bd5f81796caf67fea6795b24d3",
   "residual_risks": [],
-  "recorded_at": "2026-09-06T14:42:07+00:00",
-  "commit": "bf278bac1c192051574ff3e2b430dc4536172bc7"
+  "recorded_at": "2026-09-06T15:50:39+00:00",
+  "commit": "ef941c0e43c932067f10bc828e7d80ac4bec4cec"
 }

@@ -1,7 +1,7 @@
 {
   "generated_by": "autoreview",
   "score": 10,
-  "summary": "security lens over ASKFLOOR-1-T3a (20 product path(s), 098cd57..bf278ba, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
+  "summary": "security lens over ASKFLOOR-1-T3a (20 product path(s), 098cd57..ef941c0, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
@@ -29,10 +29,10 @@
   ],
   "skills_used": [],
   "aspect": "security",
-  "review_run_id": "d735668bcf9f6b81bee64b4fecbbe5739118d57fc5bb408320bbe80d30c483b2",
-  "brief_sha256": "cd9fd6546567b75fd565f7859de9451a60f1a904bf545b82b9f32757af093622",
-  "branch_diff_digest": "1f6fc0ad9cf4bd25c172391a47c6c85d06407d2a8780dbef6a62f5d52367b4db",
+  "review_run_id": "31881d458591a7f2770248a2145845b97a790d0eff169055340f49b391e165ad",
+  "brief_sha256": "f958b6a03d9341dce2aa1012d6fb42d7378b091ba8e1203681ee5de0bdbac5a3",
+  "branch_diff_digest": "c84594423a98cd7c7cbfff1d2274db7a3bf0b9bd5f81796caf67fea6795b24d3",
   "residual_risks": [],
-  "recorded_at": "2026-09-06T14:42:07+00:00",
-  "commit": "bf278bac1c192051574ff3e2b430dc4536172bc7"
+  "recorded_at": "2026-09-06T15:50:39+00:00",
+  "commit": "ef941c0e43c932067f10bc828e7d80ac4bec4cec"
 }
