@@ -697,7 +697,7 @@
         "apps/core/src/app/bootstrap/inline-permission-memory.ts",
         "apps/core/src/app/bootstrap/inline-agent-loop-tool-types.ts",
         "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
-        "apps/core/src/app/bootstrap/runtime-services.ts",
+        "apps/core/test/unit/application/human-decision-memory-service.test.ts",
         "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
         "apps/core/test/unit/runtime/permission-human-memory-stage.test.ts",
         "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
@@ -713,7 +713,7 @@
       "review_budget": {
         "max_changed_files": 16,
         "max_changed_lines": 1600,
-        "reason": "Nine source files (port, repository, provenance map, NEW stage module, coordinator with two calls and one input, NEW inline inputs module, inline deps type, the inline file at 739/750 lines touched by a handful of lines, one dep wire) and five test files = 14; two files of headroom for a barrel or type edit the implementer must raise as a signal; no generated files."
+        "reason": "Nine source files (port, repository, provenance map, NEW stage module, coordinator with two calls and one input, NEW inline inputs module, inline deps type, the inline file at 739/750 lines touched by a handful of lines, the service test whose typed fake gains the lookup) and five test files = 14; two files of headroom for a barrel or type edit the implementer must raise as a signal; no generated files."
       },
       "required_tests": [
         {
@@ -737,7 +737,7 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "short-circuits the inline classifier with a seeded remembered Allow for the run person while a scheduled run and a run without memoryUserId keep today's consult, with the new decision-memory dep wired",
+          "id": "short-circuits the inline classifier with a seeded remembered Allow for the run person and never reads the classifier verdict cache, while a scheduled run and a run without memoryUserId keep today's consult, with the new decision-memory dep wired",
           "path": "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         }
@@ -833,5 +833,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "abf3f66c2b4fbc433d0f7c1f70365a572ad502a9"
+  "commit": "de2a3c376d522e9ae515a9171721942b9ded2d0f"
 }

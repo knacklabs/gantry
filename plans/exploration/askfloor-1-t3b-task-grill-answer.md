@@ -1,0 +1,12 @@
+# ASKFLOOR-1-T3b task-contract grill — round 1 answer (gpt-5.6-sol @ xhigh)
+
+1. **Inline wiring would unintentionally enable the classifier-verdict cache.** Spreading both `effectHash` and `decisionMemory` into the inline coordinator call (`permission-decision-coordinator.ts:216-236`) makes cached classifier Allows bypass today's inline classifier, beyond T3b's scope and without coverage. Minimal fix: set the existing `skipClassifierVerdictCache: true` on the inline call; the inline leaf asserts `findHumanDecision` is consulted while `getClassifierVerdict` is never called.
+2. **AC1 references an undefined `HumanDecisionRow` type.** T3a exposes only `PermissionDecisionMemoryRow` (`domain/ports/permission-decision-memory.ts:34-58`). Minimal fix: name `PermissionDecisionMemoryRow`.
+3. **The write scope is stale in both directions.** A required repository method invalidates the typed fake in `test/unit/application/human-decision-memory-service.test.ts:26-44` (outside scope), while `runtime-services.ts` already carries the getter through `resolved` into the inline wiring (`:141-146,331-345`); `:493-496` is the IPC-watcher wiring, not the inline seam. Minimal fix: replace `runtime-services.ts` with the service test in `write_scope` (still 14 files).
+4. **The stale-record reason contradicts the active story plan.** T3b says "since you last allowed this"; the story plan (`:150,162`) says "since you last decided this", which is also truthful for a stale remembered No. Minimal fix: adopt the plan's wording and re-record.
+
+Non-blocking: ACs equal `plan_contracts`; all five leaf titles unique, concrete and valid `-t` patterns; coordinator order, shared scope-key derivation, person/lane guards and provenance route feasible; the inline file is at 739/750 so the module split must stay surgical.
+
+## Fold (orchestrator, contract v2)
+
+All four folded: (1) AC4 — the inline coordinator call passes `skipClassifierVerdictCache: true` alongside the memory inputs; the inline leaf pins that `getClassifierVerdict` is never called while `findHumanDecision` is; (2) AC1 — `PermissionDecisionMemoryRow`; (3) write scope — `runtime-services.ts` out (the getter already flows through `resolved`; no edit), `test/unit/application/human-decision-memory-service.test.ts` in (the typed fake gains `findHumanDecision`); (4) AC2 — stale line is `Asking again — the safety rules were updated since you last decided this`. Wording-only fold; no confirmation round (owner rule).
