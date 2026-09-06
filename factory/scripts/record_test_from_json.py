@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 
 from factory_lib import (
-    dump_json, gate, head_sha, load_json, now_iso, repo_root, require_skills,
-    read_stdin_utf8, run_state_path, tests_state_path, validate_payload,
+    active_story_key, dump_json, gate, head_sha, load_json, now_iso, proof_path,
+    repo_root, require_skills, read_stdin_utf8, run_state_path,
+    tests_state_path, validate_payload,
 )
 from forge_cli.events import append_event
 
@@ -39,8 +40,10 @@ root = repo_root()
 gate(root, signoff=True, approved_plan=True, decomposition=True)
 validate_payload(root, f"test-{args.kind}", payload)
 require_skills(root, f"test-{args.kind}", payload)
-read_path = tests_state_path(root)
-path = tests_state_path(root, for_write=True)
+# Task-scoped when a task owns this working copy (see verify.py): the tests a
+# task recorded describe that task's work, not the story's.
+read_path = proof_path(root, active_story_key(root), "tests.json")
+path = proof_path(root, active_story_key(root), "tests.json", for_write=True)
 existing = load_json(read_path, default={}) or {}
 entry = dict(payload)
 for key in (

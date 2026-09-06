@@ -858,14 +858,21 @@ def _find(data: dict, stage_id: str) -> dict:
 
 
 def _cmd_start_locked(args: argparse.Namespace, base: Path) -> None:
+    # Argument validity first: `--parallel` is wrong about the request itself,
+    # so it must not be reported as a missing `task start`. A refusal that
+    # names the wrong problem sends the reader to fix something that was never
+    # broken.
+    if args.parallel:
+        fail("task stages are sequential inside one story worktree; parallelism "
+             "belongs between dependency-ready stories in separate worktrees")
+    from factory_lib import require_task_start_recorded
+    trunk = bool(getattr(args, "trunk", False))
+    require_task_start_recorded(base, args.id, trunk=trunk)
     require_task_worktree(base)
     data = load_stages(base)
     if not data:
         fail("no .factory/stages.json — record the decomposition first "
              "(record_decomposition_from_json.py creates the stage tracker)")
-    if args.parallel:
-        fail("task stages are sequential inside one story worktree; parallelism "
-             "belongs between dependency-ready stories in separate worktrees")
     stage = _find(data, args.id)
     if stage.get("status") == "done":
         fail(f"{args.id} is already done — stages don't reopen; a follow-up is a "

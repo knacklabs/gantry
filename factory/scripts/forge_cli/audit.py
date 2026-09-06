@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import subprocess
+import json
 from pathlib import Path
 
 from factory_lib import factory_dir, repo_root, story_dir
@@ -202,11 +203,15 @@ def grills_still_ground(base: Path) -> list[str]:
             from factory_lib import task_state_root
             treeish = stage_baseline(task_state_root(base, task_id), stage)
         try:
-            expected = grounding_digest(base, task, treeish=treeish)
+            from factory_lib import grounding_matches, task_in_stage
+            grounded = grounding_matches(
+                base, task, record.get("input_sha256"), treeish=treeish,
+                in_stage=task_in_stage(base, task_id),
+            )
         except SystemExit as exc:
             problems.append(f"{task_id} grill cannot be re-derived: {exc}")
             continue
-        if record.get("input_sha256") != expected:
+        if not grounded:
             basis = record.get("grounding_basis") or "unrecorded"
             problems.append(
                 f"{task_id} grill no longer grounds: it claims "
@@ -314,9 +319,48 @@ def state_issues(base: Path) -> list[str]:
     return problems
 
 
+def interruptions_after_approval(base: Path) -> list[str]:
+    """Escalations recorded once the plan was approved and a stage was open.
+
+    Each one is a moment the run stopped for the human. Some are right. A
+    recurring reason is a gap in what the harness can settle by itself, and
+    naming the count is how it becomes fixable instead of felt.
+    """
+    try:
+        from .signal import escalations_path
+        path = escalations_path(base)
+        if not path.exists():
+            return []
+        records = [json.loads(line) for line in
+                   path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (Exception, SystemExit):
+        return []
+    if not records:
+        return []
+
+    by_story: dict[str, list[dict]] = {}
+    for record in records:
+        by_story.setdefault(record.get("story") or "(no story)", []).append(record)
+
+    problems: list[str] = []
+    for story, entries in sorted(by_story.items()):
+        if len(entries) < 3:
+            continue
+        latest = entries[-1].get("missing_decision", "")[:90]
+        problems.append(
+            f"INTERRUPTIONS: {story} stopped for the human {len(entries)} "
+            f"time(s) after the plan was approved — the run from approval to "
+            f"PR is meant to be the agent's. Latest: {latest!r}. If a reason "
+            "recurs, it belongs in the plan or in what the orchestrator "
+            "settles itself (WORKFLOW.md), not in a repeated question."
+        )
+    return problems
+
+
 def issues(base: Path) -> list[str]:
     return (ignored_escalations(base) + stale_deferrals(base)
-            + decayed_lessons(base) + review_drift(base))
+            + decayed_lessons(base) + review_drift(base)
+            + interruptions_after_approval(base))
 
 
 def cmd_audit(args: argparse.Namespace) -> None:

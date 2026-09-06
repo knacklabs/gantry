@@ -177,3 +177,54 @@ def test_review_brief_carries_the_recorded_verification_evidence(repo, tmp_path)
     assert "### Recorded evidence" in brief
     assert "verify.py: ok" in brief
     assert "automated tests: passed" in brief
+
+
+def test_contract_verdicts_read_every_preserved_pass_report_and_keep_the_worst():
+    """A chunked autoreview replaces the top-level explanation with a summary
+    line and keeps each pass's conclusions (with its VERDICT lines) under
+    pass_reports; the recorder must read those, and when two passes disagree
+    the worse verdict wins (a pass that saw a defect is never outvoted by a
+    pass that only saw the files exist)."""
+    from forge_cli.review import _contract_verdicts
+
+    task = {"id": "T1", "plan_contracts": [
+        {"id": "T1-AC1", "statement": "a", "source": "p"},
+        {"id": "T1-AC2", "statement": "b", "source": "p"},
+        {"id": "T1-AC3", "statement": "c", "source": "p"},
+    ]}
+    reviewed = {
+        "overall_explanation": "Review passes returned. chunk 1/2: 1 finding(s), "
+                               "chunk 2/2: 0 finding(s). See preserved pass reports.",
+        "findings": [],
+        "pass_reports": [
+            {"report": {"overall_explanation":
+                        "VERDICT T1-AC1: implemented — src/a.py:1 present\n"
+                        "VERDICT T1-AC2: partial — src/b.py:9 races the index\n",
+                        "findings": []}},
+            {"report": {"overall_explanation":
+                        "VERDICT T1-AC1: implemented — src/a.py:1\n"
+                        "VERDICT T1-AC2: implemented — src/b.py:1 exists\n"
+                        "VERDICT T1-AC3: missing — nothing in this chunk\n",
+                        "findings": []}},
+        ],
+    }
+    out = {v["contract_id"]: v for v in _contract_verdicts(task, reviewed, [task], {})}
+    assert out["T1-AC1"]["verdict"] == "implemented"
+    assert out["T1-AC2"]["verdict"] == "partial"
+    assert "races the index" in out["T1-AC2"]["evidence"]
+    assert out["T1-AC3"]["verdict"] == "missing"
+    assert "no VERDICT line" not in out["T1-AC1"]["evidence"]
+
+
+def test_every_lens_brief_hunts_for_compatibility_leftovers():
+    """Owner ruling: no legacy code. Every lens prompt carries the leftover
+    instruction (wrappers, shims, aliases, retained symbols, dead branches,
+    'legacy' naming are blocking and verdict the contract partial)."""
+    from forge_cli.review import _lens_prompt
+    from forge_cli.review_brief import LEFTOVER_INSTRUCTION
+
+    task = {"id": "T1", "plan_contracts": [], "reviewer_focus": "focus"}
+    for lens in ("quality", "performance", "security"):
+        text = _lens_prompt(task, lens).decode()
+        assert LEFTOVER_INSTRUCTION in text, lens
+        assert "BLOCKING" in LEFTOVER_INSTRUCTION

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory_lib import (
+    plan_was_viewed,
     clean_git_env, default_trunk_branch, dump_json, evidence_path,
     git_control_dir, load_json, now_iso,
     plan_digest_without_assumptions, repo_root, require_ready_task,
@@ -153,13 +154,37 @@ def require_fresh_task_grill(
              f"{str(verdict)!r}, not 'pass'. Fix what it found, re-grill until a "
              "round is clean, then approve.")
     digest = plan_digest_without_assumptions(plan)
-    if digest not in (grill.get("task_plan_sha256"),
-                      grill.get("approved_task_plan_sha256")):
-        fail(f"task approval refused: the grill for {task_id} was recorded "
-             "against different plan text — the plan was edited after it passed, "
-             "so the grill no longer covers what you are approving (this is why "
-             "the board is not showing it). Re-grill the current plan, then "
-             "approve.")
+    if digest in (grill.get("task_plan_sha256"),
+                  grill.get("approved_task_plan_sha256")):
+        return
+    # The plan changed since the grill. WHO has to act depends on whether it
+    # had already been approved.
+    #
+    # Never approved: the grill has not read this text, so it is a re-grill.
+    #
+    # Already approved: the grill DID converge on this design and a human
+    # signed it off; the words then changed. Another adversarial cold read is
+    # not what is missing — the human is, because they approved specific text
+    # and it is no longer that text. Sending this back through the grill cost
+    # a full round for a one-sentence rewording, and worse, let a real design
+    # change be cleared by an agent re-grilling instead of by the person who
+    # approved the original.
+    if grill.get("approved_at") and grill.get("approved_by"):
+        fail(
+            f"task approval refused: the {task_id} plan CHANGED after "
+            f"{grill.get('approved_by')} approved it on "
+            f"{grill.get('approved_at')}.\n"
+            "  This does not need another grill — the grill already converged "
+            "on this design. It needs the human to read what changed and "
+            "approve the new text.\n"
+            f"  Show them the diff, then re-run this command once they have "
+            f"re-read the plan on the board."
+        )
+    fail(f"task approval refused: the grill for {task_id} was recorded "
+         "against different plan text — the plan was edited after it passed, "
+         "so the grill no longer covers what you are approving (this is why "
+         "the board is not showing it). Re-grill the current plan, then "
+         "approve.")
 
 
 def cmd_approve(args: argparse.Namespace) -> None:
@@ -186,7 +211,25 @@ def cmd_approve(args: argparse.Namespace) -> None:
     )
     grill = load_json(grill_path, default={})
     require_fresh_task_grill(base, args.id, plan, grill)
-    grill["approved_task_plan_sha256"] = plan_digest_without_assumptions(plan)
+    digest = plan_digest_without_assumptions(plan)
+    # The plan is reviewed on the BOARD, not in chat. That was guidance only,
+    # and guidance is what failed: `forge next` announced the plan "is now
+    # visible on the board" without checking a board was running, gave no URL,
+    # and this command accepted the approval with no evidence anyone had seen
+    # it. A plan can now only be approved after the board actually sent THIS
+    # text to a reader.
+    if not plan_was_viewed(base, story or "", args.id, digest):
+        fail(
+            f"task approval refused: this {args.id} plan has not been opened on "
+            f"the board.\n"
+            f"  The human reviews the plan THERE, not in chat — approving text "
+            f"nobody opened is the gap this closes.\n"
+            f"  Run `./forge board`, open {story or 'the story'}, read the "
+            f"{args.id} plan, then approve.\n"
+            f"  (If it was edited after they read it, the digest changed and "
+            f"they need to look again.)"
+        )
+    grill["approved_task_plan_sha256"] = digest
     grill["approved_by"] = approved_by
     grill["approved_at"] = now_iso()
     validate_payload(base, "grill", grill)

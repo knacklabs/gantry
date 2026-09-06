@@ -73,13 +73,31 @@ them to arbitrate something already settled.
 
 ## Artifact Contracts
 
-Review artifacts live under `.factory/reviews/`; testing artifacts in
-`.factory/tests.json` (`automated`, `functional` keys). Recorders refuse
-payloads that do not match their schema.
+Proof is stored under the task that produced it:
 
-PR-ready requires:
+    .factory/stories/<key>/tasks/<id>/verify.json
+    .factory/stories/<key>/tasks/<id>/tests.json      (automated, functional)
+    .factory/stories/<key>/tasks/<id>/reviews/{quality,performance,security}.json
+
+Recorders resolve the owning task from the worktree's run pointer, so running
+them inside a task worktree records task-scoped proof without being told. A
+story-level run (no `task_id`) still records story-scoped proof, and readers
+fall back to it — work recorded before task scoping is never stranded.
+
+This used to be one set of artifacts per STORY, rewritten by each task in
+turn: a story's review described whichever task ran last, and a task PR could
+pass on another task's evidence. Recorders refuse payloads that do not match
+their schema.
+
+A TASK is PR-ready when its own proof is complete and clean:
 - no testing blockers
 - no review blockers
 - review scores >= 8 (all three lenses)
-- functional score >= 8 when required (`user_facing: true`)
+- functional score >= 8 when the TASK is `user_facing: true`
 - evidence for acceptance criteria
+
+A STORY ships on the sum of its tasks: every task marker on the trunk, every
+task's proof clean, every plan contract verified by the task that owns it, and
+the recorded outcome. Closeout runs no second verify, no second three-lens
+review and no second functional check — those re-review reviewed code, and one
+late fix in the last task would invalidate every earlier task's evidence.
