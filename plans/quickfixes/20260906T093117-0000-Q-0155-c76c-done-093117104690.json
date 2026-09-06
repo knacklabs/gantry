@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0155-c76c",
+  "profile": "quickfix",
+  "reason": "re-vendor symphony-forge 95ba363 with the project-owned harness.yaml grill pin and .gitignore plans/active un-ignore the vendored suite requires",
+  "started_at": "2026-09-06T09:31:10+00:00",
+  "completed_at": "2026-09-06T09:31:17+00:00",
+  "files": []
+}

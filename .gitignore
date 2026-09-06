@@ -36,8 +36,6 @@ apps/core/groups/global/*
 # Temp files
 .tmp/
 .tmp-*
-plans/active/
-plans/debt/
 __pycache__/
 *.pyc
 *.pyo

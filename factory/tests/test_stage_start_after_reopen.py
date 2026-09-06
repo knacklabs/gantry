@@ -33,7 +33,7 @@ def test_stage_start_pins_a_reopened_base_and_measures_the_real_delta(repo, tmp_
     assert code == 0 and "Reopened" in out, out
     code, out = record_task_grill(repo, STAGE_TASK)
     assert code == 0, out
-    code, out = run(repo, "forge.py", "stage", "start", "T1")
+    code, out = run(repo, "forge.py", "stage", "start", "T1", "--trunk")
     assert code == 0 and "Stage baseline restored" in out, out
     assert git(repo, "rev-parse", "refs/forge/stage/T1") == original
     delta = git(repo, "diff", "--name-only", f"{original}..HEAD").splitlines()
@@ -51,6 +51,6 @@ def test_stage_start_pins_a_reopened_base_and_measures_the_real_delta(repo, tmp_
     write_stages(repo, data)
     code, out = record_task_grill(repo, STAGE_TASK)
     assert code == 0, out
-    code, out = run(repo, "forge.py", "stage", "start", "T1")
+    code, out = run(repo, "forge.py", "stage", "start", "T1", "--trunk")
     assert code == 0 and "not an ancestor of HEAD" in out, out
     assert git(repo, "rev-parse", "refs/forge/stage/T1") == head(repo)

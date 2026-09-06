@@ -8,7 +8,8 @@ from pathlib import Path
 
 from factory_lib import (
     branch_diff_digest, dump_json, gate, head_sha, load_json, now_iso,
-    evidence_path, protected_decomposition_state_path, repo_root, require_skills,
+    evidence_path, proof_path, protected_decomposition_state_path, repo_root,
+    require_skills,
     read_stdin_utf8, run_state_path, story_dir, validate_payload,
 )
 from forge_cli.events import append_event
@@ -57,6 +58,9 @@ parser.add_argument(
     "--aspect", required=True,
     choices=["quality", "performance", "security", "stage-local"],
 )
+parser.add_argument(
+    "--task", default="",
+    help="task this review covers; defaults to the task this worktree runs")
 parser.add_argument("--input", help="Path to a JSON file. If omitted, read JSON from stdin.")
 args = parser.parse_args()
 
@@ -78,8 +82,12 @@ state = gate(
 )
 validate_payload(root, "review", payload)
 require_skills(root, "review", payload)
-path = evidence_path(
-    root, state.get("issue_key"), f"reviews/{args.aspect}.json", for_write=True,
+# A review is ALWAYS about one task's diff, so it is stored under that task.
+# Story-scoped storage meant every task overwrote the last one's review, and a
+# story's recorded review described whichever task happened to run last.
+path = proof_path(
+    root, state.get("issue_key"), f"reviews/{args.aspect}.json",
+    task_id=args.task, for_write=True,
 )
 review = dict(payload)
 review["aspect"] = args.aspect
