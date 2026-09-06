@@ -131,9 +131,10 @@ export class HumanDecisionMemoryService {
   }): Promise<HumanDecisionMemoryListRow[]> {
     const rows = await this.repository.listHumanDecisions(input);
     const ids = rows.map((row) => row.id);
+    const shortIds = deriveHumanDecisionShortIds(ids);
     const withShortIds = rows.map((row) => ({
       ...row,
-      shortId: deriveHumanDecisionShortId(row.id, ids),
+      shortId: shortIds.get(row.id)!,
     }));
     return input.limit === undefined
       ? withShortIds
@@ -162,19 +163,37 @@ export function deriveHumanDecisionShortId(
   id: string,
   siblings: string[],
 ): string {
-  const normalized = id.replaceAll('-', '').toLowerCase();
-  let length = 6;
-  while (
-    length < normalized.length &&
-    siblings.some((sibling) => {
-      const candidate = sibling.replaceAll('-', '').toLowerCase();
-      return (
-        candidate !== normalized &&
-        candidate.startsWith(normalized.slice(0, length))
-      );
-    })
-  ) {
-    length += 1;
+  return deriveHumanDecisionShortIds([id, ...siblings]).get(id)!;
+}
+
+export function deriveHumanDecisionShortIds(
+  ids: string[],
+): Map<string, string> {
+  const idsByNormalized = new Map<string, string[]>();
+  for (const id of ids) {
+    const normalized = id.replaceAll('-', '').toLowerCase();
+    const originals = idsByNormalized.get(normalized);
+    if (originals) originals.push(id);
+    else idsByNormalized.set(normalized, [id]);
   }
-  return normalized.slice(0, length);
+
+  const shortIds = new Map<string, string>();
+  const unresolved = new Set(idsByNormalized.keys());
+  for (let length = 6; unresolved.size > 0; length += 1) {
+    const counts = new Map<string, number>();
+    for (const normalized of unresolved) {
+      const prefix = normalized.slice(0, length);
+      counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+    }
+    for (const normalized of unresolved) {
+      const prefix = normalized.slice(0, length);
+      if (counts.get(prefix) === 1 || length >= normalized.length) {
+        for (const id of idsByNormalized.get(normalized)!) {
+          shortIds.set(id, prefix);
+        }
+        unresolved.delete(normalized);
+      }
+    }
+  }
+  return shortIds;
 }

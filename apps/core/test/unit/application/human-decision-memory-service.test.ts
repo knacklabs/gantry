@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   deriveHumanDecisionShortId,
+  deriveHumanDecisionShortIds,
   HumanDecisionMemoryService,
 } from '@core/application/permissions/human-decision-memory-service.js';
 import { HumanDecisionNotRememberableReason } from '@core/application/permissions/human-decision-scope.js';
@@ -357,5 +358,24 @@ describe('human decision memory service', () => {
       file: 2,
     });
     expect(countExactAllowsByTool).toHaveBeenCalledWith(countInput);
+  });
+
+  it('derives a large batch of short ids in one pass', () => {
+    const ids = Array.from(
+      { length: 500 },
+      (_, index) =>
+        `${index.toString(16).padStart(6, '0')}00-1234-4abc-8def-1234567890ab`,
+    );
+    ids[0] = STORED_ID;
+    ids[1] = COLLIDING_ID;
+
+    const shortIds = deriveHumanDecisionShortIds(ids);
+
+    expect(shortIds.size).toBe(500);
+    expect(shortIds.get(STORED_ID)).toBe('abcdef0');
+    expect(shortIds.get(COLLIDING_ID)).toBe('abcdef1');
+    expect(
+      [...shortIds.values()].filter((shortId) => shortId.length === 7),
+    ).toEqual(['abcdef0', 'abcdef1']);
   });
 });

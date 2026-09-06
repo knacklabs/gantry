@@ -633,6 +633,45 @@ maybeDescribe('Postgres permission decision memory', () => {
         actingPersonId: person,
       }),
     ).resolves.toEqual({});
+
+    const concurrentPerson = 'person-concurrent';
+    const concurrentScopeKey = 'exact:path:file:workspace/concurrent.md';
+    const concurrentInputs = [
+      '30000000-0000-4000-8000-000000000008',
+      '30000000-0000-4000-8000-000000000009',
+    ].map(
+      (id, index): HumanDecisionMemoryPutInput => ({
+        ...first,
+        id,
+        actingPersonId: concurrentPerson,
+        scopeKey: concurrentScopeKey,
+        provenance: encodeHumanDecisionProvenance({
+          id,
+          actingPersonId: concurrentPerson,
+          outcome: 'allow',
+          scope: 'exact',
+          railVersion: 3,
+        }),
+        nowIso: `2026-07-12T02:08:0${index}.000Z`,
+      }),
+    );
+    const concurrentResults = await Promise.all(
+      concurrentInputs.map((input) => repository.putHumanDecision(input)),
+    );
+    expect(concurrentResults.map(({ status }) => status).sort()).toEqual([
+      'inserted',
+      'refreshed',
+    ]);
+    expect(new Set(concurrentResults.map(({ id }) => id)).size).toBe(1);
+    await expect(
+      repository.listHumanDecisions({
+        appId: APP,
+        agentFolder: FOLDER,
+        actingPersonId: concurrentPerson,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({ id: concurrentResults[0]!.id }),
+    ]);
   });
 
   it('revoke hides the row via the active index', async () => {

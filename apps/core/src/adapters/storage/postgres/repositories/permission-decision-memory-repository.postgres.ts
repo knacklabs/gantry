@@ -130,6 +130,16 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
   ): Promise<HumanDecisionMemoryPutResult> {
     assertHumanDecisionInput(input);
     return this.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${JSON.stringify([
+          'permission_decision_memory_human',
+          input.appId,
+          input.agentFolder,
+          input.actingPersonId,
+          input.scope,
+          input.scopeKey,
+        ])}, 0))`,
+      );
       const [existing] = await tx
         .select()
         .from(table)
