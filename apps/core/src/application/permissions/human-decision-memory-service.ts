@@ -6,7 +6,7 @@ import {
   encodeHumanDecisionProvenance,
   type HumanDecisionRememberRequest,
   isRememberResolution,
-} from '../../domain/types.js';
+} from '../../domain/human-decision.js';
 import {
   isHumanDecisionId,
   newHumanDecisionId,

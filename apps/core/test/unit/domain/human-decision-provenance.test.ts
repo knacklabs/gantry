@@ -7,9 +7,9 @@ import {
   HumanDecisionScope,
   isRememberResolution,
   resolutionMode,
-  type PermissionApprovalDecisionMode,
   type PermissionApprovalResolution,
-} from '@core/domain/types.js';
+} from '@core/domain/human-decision.js';
+import type { PermissionApprovalDecisionMode } from '@core/domain/types.js';
 
 describe('human decision provenance', () => {
   it('encodes human_decision provenance with a fixed prefix and canonical body carrying id, person, outcome, scope and rail version and decodes it back, failing closed on another prefix, a malformed body, a missing field, a non-integer rail version or a non-uuid id, and the remember resolution guards distinguish a structured remember from every scalar mode', () => {

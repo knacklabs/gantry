@@ -7,7 +7,7 @@ import {
   HumanDecisionRequiresTypedAccessError,
   type HumanDecisionMemoryPutInput,
 } from '@core/domain/ports/permission-decision-memory.js';
-import { encodeHumanDecisionProvenance } from '@core/domain/types.js';
+import { encodeHumanDecisionProvenance } from '@core/domain/human-decision.js';
 
 import {
   createPostgresIntegrationRuntime,

@@ -7,16 +7,16 @@ import {
 import { HumanDecisionNotRememberableReason } from '@core/application/permissions/human-decision-scope.js';
 import {
   HUMAN_DECISION_MEMORY_KIND,
-  HumanDecisionOutcome,
-  HumanDecisionScope,
   type PermissionDecisionMemoryRepository,
   type PermissionDecisionMemoryRow,
 } from '@core/domain/ports/permission-decision-memory.js';
 import {
   decodeHumanDecisionProvenance,
+  HumanDecisionOutcome,
+  HumanDecisionScope,
   type HumanDecisionRememberRequest,
-  type PermissionApprovalDecisionMode,
-} from '@core/domain/types.js';
+} from '@core/domain/human-decision.js';
+import type { PermissionApprovalDecisionMode } from '@core/domain/types.js';
 
 const ID = '12345678-1234-4abc-8def-1234567890ab';
 const STORED_ID = 'abcdef00-1234-4abc-8def-1234567890ab';

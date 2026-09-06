@@ -28,7 +28,7 @@ import {
   type PermissionDecisionMemoryRepository,
   type PermissionDecisionMemoryRow,
 } from '../../../../domain/ports/permission-decision-memory.js';
-import { encodeHumanDecisionProvenance } from '../../../../domain/types.js';
+import { encodeHumanDecisionProvenance } from '../../../../domain/human-decision.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 

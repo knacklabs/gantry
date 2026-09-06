@@ -8,7 +8,7 @@ import {
   HumanDecisionScope,
   type HumanDecisionOutcome as HumanDecisionOutcomeValue,
   type HumanDecisionScope as HumanDecisionScopeValue,
-} from '../../domain/ports/permission-decision-memory.js';
+} from '../../domain/human-decision.js';
 import type { PermissionApprovalRequest } from '../../domain/types.js';
 import { parseBashCommand } from '../../shared/bash-command-parser.js';
 import {
