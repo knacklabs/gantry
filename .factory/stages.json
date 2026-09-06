@@ -22,7 +22,7 @@
     {
       "id": "ASKFLOOR-1-T3a",
       "title": "Human-decision memory persistence",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-09-06T14:45:04+00:00",
       "base_sha": "236eb4293dcd94f29e0f398db8e04e132a4a07dd",
       "dirty_at_start": {},
@@ -35,7 +35,8 @@
         "product_tree_digest": "fcb9d89ab51b32de35a5b50061e3d90c3cf31b0cd0d7b8ec9add8d32df8e32b3",
         "recorded_at": "2026-09-06T15:24:10+00:00",
         "generated_by": "autoreview"
-      }
+      },
+      "completed_at": "2026-09-06T15:43:10+00:00"
     },
     {
       "id": "ASKFLOOR-1-T3b",
