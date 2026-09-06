@@ -352,7 +352,9 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       ingressId: 'ingress:control-repo:a',
       appId: 'default',
       name: 'scraper-a',
-      secret: 'secret-a',
+      signatureAlgorithm: 'ed25519',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEACcAMqjoGZVAFfZX/oeyYrz1AdxDZin2MV8Q9IsR/s00=\n-----END PUBLIC KEY-----\n',
       metadata: {
         targetPolicy: {
           allowedTargetKinds: ['session_message'],
@@ -364,7 +366,9 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       ingressId: 'ingress:control-repo:b',
       appId: 'default',
       name: 'scraper-b',
-      secret: 'secret-b',
+      signatureAlgorithm: 'ed25519',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEACcAMqjoGZVAFfZX/oeyYrz1AdxDZin2MV8Q9IsR/s00=\n-----END PUBLIC KEY-----\n',
       metadata: {
         targetPolicy: {
           allowedTargetKinds: ['job_trigger'],
@@ -392,7 +396,7 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
     ).resolves.toMatchObject({
       name: 'scraper-a',
       enabled: true,
-      secret: 'secret-a',
+      signatureAlgorithm: 'ed25519',
     });
     await expect(
       runtime.control.updateExternalIngress(ingress.ingressId, 'default', {
@@ -403,7 +407,9 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       ingressId: 'ingress:control-repo:plaintext',
       appId: 'default',
       name: 'plaintext-rotatable',
-      secret: 'plaintext-secret',
+      signatureAlgorithm: 'ed25519',
+      publicKey:
+        '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEACcAMqjoGZVAFfZX/oeyYrz1AdxDZin2MV8Q9IsR/s00=\n-----END PUBLIC KEY-----\n',
       enabled: true,
       metadataJson: '{}',
       createdAt: now,
@@ -414,14 +420,14 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
         'ingress:control-repo:plaintext',
         'default',
       ),
-    ).rejects.toThrow('not encrypted');
+    ).resolves.toMatchObject({ name: 'plaintext-rotatable' });
     await expect(
       runtime.control.updateExternalIngress(
         'ingress:control-repo:plaintext',
         'default',
-        { secret: 'rotated-secret' },
+        { name: 'rotated-ingress' },
       ),
-    ).resolves.toMatchObject({ secret: 'rotated-secret' });
+    ).resolves.toMatchObject({ name: 'rotated-ingress' });
 
     await expect(
       runtime.control.reserveExternalIngressNonce({

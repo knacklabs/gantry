@@ -263,7 +263,8 @@ export class PostgresControlPlaneRepository {
     ingressId?: string;
     appId: string;
     name: string;
-    secret: string;
+    signatureAlgorithm?: string;
+    publicKey: string;
     enabled?: boolean;
     metadata?: unknown;
   }) {
@@ -283,7 +284,8 @@ export class PostgresControlPlaneRepository {
     appId: string,
     patch: {
       name?: string;
-      secret?: string;
+      signatureAlgorithm?: string;
+      publicKey?: string;
       enabled?: boolean;
       metadata?: unknown;
     },

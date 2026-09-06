@@ -36,6 +36,12 @@ export async function handleExternalIngressRoutes(
         name: String(body.name || ''),
         enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
         metadata: body.metadata,
+        signatureAlgorithm:
+          typeof body.signatureAlgorithm === 'string'
+            ? body.signatureAlgorithm
+            : undefined,
+        publicKey:
+          typeof body.publicKey === 'string' ? body.publicKey : undefined,
       });
       sendJson(res, 201, created);
     } catch (error) {

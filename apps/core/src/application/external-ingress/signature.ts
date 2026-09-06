@@ -2,8 +2,12 @@ import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 
 export interface ExternalIngressSignaturePort {
   sha256(input: string): string;
-  hmacSha256(secret: string, payload: string): string;
   constantTimeEqual(left: string, right: string): boolean;
+  ed25519Verify(
+    publicKeyPem: string,
+    payload: string,
+    signatureBase64: string,
+  ): boolean;
 }
 
 export interface ExternalIngressSignaturePayloadInput {
@@ -42,9 +46,10 @@ export function isExternalIngressTimestampFresh(input: {
   );
 }
 
-export function signExternalIngressRequest(input: {
+export function signExternalIngressEd25519Request(input: {
   crypto: ExternalIngressSignaturePort;
-  secret: string;
+  privateKeySign: (privateKeyPem: string, payload: string) => string;
+  privateKeyPem: string;
   method: string;
   path: string;
   timestamp: string;
@@ -61,15 +66,15 @@ export function signExternalIngressRequest(input: {
     bodyHash,
   });
   return {
-    signature: input.crypto.hmacSha256(input.secret, payload),
+    signature: input.privateKeySign(input.privateKeyPem, payload),
     bodyHash,
     payload,
   };
 }
 
-export function verifyExternalIngressRequestSignature(input: {
+export function verifyExternalIngressEd25519Signature(input: {
   crypto: ExternalIngressSignaturePort;
-  secret: string;
+  publicKeyPem: string;
   method: string;
   path: string;
   timestamp: string;
@@ -88,14 +93,26 @@ export function verifyExternalIngressRequestSignature(input: {
   ) {
     return false;
   }
-  const expected = signExternalIngressRequest({
-    crypto: input.crypto,
-    secret: input.secret,
+  const bodyHash = input.crypto.sha256(input.rawBody);
+  const payload = buildExternalIngressSignaturePayload({
     method: input.method,
     path: input.path,
     timestamp: input.timestamp,
     nonce: input.nonce,
     rawBody: input.rawBody,
-  }).signature;
-  return input.crypto.constantTimeEqual(expected, input.signature);
+    bodyHash,
+  });
+  console.log(
+    'VERIFY_PAYLOAD:',
+    payload,
+    '\nSIG:',
+    input.signature,
+    '\nPUB:',
+    input.publicKeyPem,
+  );
+  return input.crypto.ed25519Verify(
+    input.publicKeyPem,
+    payload,
+    input.signature,
+  );
 }

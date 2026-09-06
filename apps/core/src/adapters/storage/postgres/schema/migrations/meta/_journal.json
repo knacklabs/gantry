@@ -1016,6 +1016,13 @@
       "when": 1787852479130,
       "tag": "20260827174119_agents_web_ui_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1788194977520,
+      "tag": "20260831164937_brave_frog_thor",
+      "breakpoints": true
     }
   ]
 }
