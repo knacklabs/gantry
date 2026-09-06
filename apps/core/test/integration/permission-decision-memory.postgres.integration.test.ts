@@ -360,7 +360,7 @@ maybeDescribe('Postgres permission decision memory', () => {
     });
   });
 
-  it('round-trips human decisions per person: putHumanDecision refreshes an active duplicate in place returning the stored id and status refreshed with the complete refresh set (outcome, decision, reason, label, effect hash, rail version, effect schema version, created_at and provenance re-encoded with the stored id), inserts a fresh row beside a revoked one without reactivating it, listHumanDecisions is person-scoped and newest first with includeRevoked defaulting to active rows only and true returning revoked rows with their revokedAt, revokeById returns applied then already_revoked and not_found across persons and across app and agent folder, and countExactAllowsByTool counts active exact allows by principal', async () => {
+  it('round-trips human decisions per person: putHumanDecision refreshes an active duplicate in place returning the stored id and status refreshed with the complete refresh set - outcome, decision, reason, label, effect hash, rail version, effect schema version, created_at and provenance re-encoded with the stored id - inserts a fresh row beside a revoked one without reactivating it, listHumanDecisions is person-scoped and newest first with includeRevoked defaulting to active rows only and true returning revoked rows with their revokedAt, revokeById returns applied then already_revoked and not_found across persons and across app and agent folder, and countExactAllowsByTool counts active exact allows by principal', async () => {
     const repository = runtime.repositories.permissionDecisionMemory;
     const firstId = '30000000-0000-4000-8000-000000000001';
     const person = 'person-round-trip';
