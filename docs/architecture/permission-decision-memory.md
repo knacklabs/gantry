@@ -7,7 +7,7 @@ that consults or writes human decisions is owned by later ASKFLOOR tasks.
 ## Keys and access
 
 - Non-human kinds keep the unique key `(app_id, agent_folder, kind,
-  lookup_identity)` and the legacy `put | get | list | revoke` methods.
+  lookup_identity)` and the non-human `put | get | list | revoke` methods.
 - An active human decision is unique by `(app_id, agent_folder,
   acting_person_id, scope, scope_key)`. Human rows use only the typed
   `putHumanDecision | listHumanDecisions | revokeById` methods, each scoped by

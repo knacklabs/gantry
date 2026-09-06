@@ -113,10 +113,9 @@ export class HumanDecisionMemoryService {
     return {
       status: 'remembered',
       id: stored.id,
-      shortId: deriveHumanDecisionShortId(
-        stored.id,
+      shortId: deriveHumanDecisionShortIds(
         siblings.map((row) => row.id),
-      ),
+      ).get(stored.id)!,
       scopeKey: derived.scopeKey,
       pathOnly: derived.pathOnly,
       stored: stored.status,
@@ -157,13 +156,6 @@ export class HumanDecisionMemoryService {
   }) {
     return this.repository.countExactAllowsByTool(input);
   }
-}
-
-export function deriveHumanDecisionShortId(
-  id: string,
-  siblings: string[],
-): string {
-  return deriveHumanDecisionShortIds([id, ...siblings]).get(id)!;
 }
 
 export function deriveHumanDecisionShortIds(

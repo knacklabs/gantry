@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  deriveHumanDecisionShortId,
   deriveHumanDecisionShortIds,
   HumanDecisionMemoryService,
 } from '@core/application/permissions/human-decision-memory-service.js';
@@ -293,13 +292,15 @@ describe('human decision memory service', () => {
   });
 
   it('list is person-scoped with short ids derived as six dash-free hex characters extended only on a sibling collision and disambiguated against every active sibling before the limit is applied, revoke relays applied, already_revoked and not_found with the app, folder and person axes, and countExactAllowsByTool relays the repository map', async () => {
-    expect(deriveHumanDecisionShortId(STORED_ID, [STORED_ID])).toBe('abcdef');
-    expect(
-      deriveHumanDecisionShortId(STORED_ID, [STORED_ID, COLLIDING_ID]),
-    ).toBe('abcdef0');
-    expect(
-      deriveHumanDecisionShortId(COLLIDING_ID, [STORED_ID, COLLIDING_ID]),
-    ).toBe('abcdef1');
+    expect(deriveHumanDecisionShortIds([STORED_ID]).get(STORED_ID)).toBe(
+      'abcdef',
+    );
+    const collidingShortIds = deriveHumanDecisionShortIds([
+      STORED_ID,
+      COLLIDING_ID,
+    ]);
+    expect(collidingShortIds.get(STORED_ID)).toBe('abcdef0');
+    expect(collidingShortIds.get(COLLIDING_ID)).toBe('abcdef1');
 
     const listHumanDecisions = vi.fn(async () => [
       humanRow(STORED_ID, 'person-one', '2026-09-06T02:00:00.000Z'),

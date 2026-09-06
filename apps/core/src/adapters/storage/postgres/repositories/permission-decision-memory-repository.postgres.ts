@@ -47,7 +47,7 @@ function assertPersistable(input: {
   }
 }
 
-function assertLegacyAccess(
+function assertNonHumanKind(
   kind: PermissionDecisionMemoryKind | undefined,
 ): void {
   if (kind === HUMAN_DECISION_MEMORY_KIND) {
@@ -75,7 +75,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
   constructor(private readonly db: CanonicalDb) {}
 
   async put(input: PermissionDecisionMemoryPutInput): Promise<void> {
-    assertLegacyAccess(input.kind);
+    assertNonHumanKind(input.kind);
     assertPersistable(input);
     await this.db
       .insert(table)
@@ -372,7 +372,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
     kind: PermissionDecisionMemoryKind;
     lookupIdentity: string;
   }): Promise<PermissionDecisionMemoryRow | null> {
-    assertLegacyAccess(input.kind);
+    assertNonHumanKind(input.kind);
     const [row] = await this.db
       .select()
       .from(table)
@@ -395,7 +395,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
     agentFolder: string;
     kind?: PermissionDecisionMemoryKind;
   }): Promise<PermissionDecisionMemoryRow[]> {
-    assertLegacyAccess(input.kind);
+    assertNonHumanKind(input.kind);
     const rows = await this.db
       .select()
       .from(table)
@@ -420,7 +420,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
     lookupIdentity: string;
     nowIso: string;
   }): Promise<boolean> {
-    assertLegacyAccess(input.kind);
+    assertNonHumanKind(input.kind);
     const rows = await this.db
       .update(table)
       .set({ revokedAt: input.nowIso })
