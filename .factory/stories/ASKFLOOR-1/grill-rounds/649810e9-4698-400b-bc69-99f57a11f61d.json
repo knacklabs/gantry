@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "When you have a remembered Allow for an exact action and later tap a remembered No for the same action (or the reverse), what should happen to the earlier record?",
+      "options": [
+        "Newest wins, in place (Recommended)",
+        "Keep both as history",
+        "Refuse the second tap"
+      ],
+      "chosen": "Newest wins, in place (Recommended)"
+    }
+  ],
+  "at": "2026-09-06T03:33:03.048873+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
