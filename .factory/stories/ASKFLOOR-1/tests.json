@@ -1,9 +1,9 @@
 {
-  "commit": "e02c50b09b177df2eb452c1889637f05591c1952",
+  "commit": "3d1ce6664bbf18137bafdc2d928e3b58f87f460e",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "ASKFLOOR-1-T3a automated proof: the eight required leaf tests (three through the Postgres config against gantry_test with GANTRY_TEST_DATABASE_URL exported, five unit) ran through the exact-leaf JUnit gate and pass; the new unit suites (scope keys, service, provenance) and the extended prospective-write and Postgres decision-memory suites pass; npm run db:migrations:check reports no drift for the generated migration; verify.py passed WITH GANTRY_TEST_DATABASE_URL exported (format:check, check:architecture, typecheck, full unit suite, the general integration lane now running DB-gated files serially when the URL is set \u2014 contract v8 AC6) and the full serial npm run test:integration:postgres lane is green (64 files / 385 tests). Before the lane fix the file-parallel general lane hit 11 beforeAll migration timeouts with the URL exported; that class is closed by this task.",
+    "summary": "ASKFLOOR-1-T3a automated proof: the eight required leaf tests (three through the Postgres config against gantry_test with GANTRY_TEST_DATABASE_URL exported, five unit) ran through the exact-leaf JUnit gate and pass; the new unit suites (scope keys, service, provenance) and the extended prospective-write and Postgres decision-memory suites pass; npm run db:migrations:check reports no drift for the generated migration; verify.py passed WITH GANTRY_TEST_DATABASE_URL exported (format:check, check:architecture, typecheck, full unit suite, the general integration lane now running DB-gated files serially when the URL is set \u2014 contract v8 AC6) and the full serial npm run test:integration:postgres lane is green (64 files / 385 tests). Before the lane fix the file-parallel general lane hit 11 beforeAll migration timeouts with the URL exported; that class is closed by this task. Review round 1's two P2s are fixed in-task: putHumanDecision takes a transaction-scoped advisory lock on the human authority (two concurrent first writes -> one inserted, one refreshed, one active row \u2014 Postgres case), and short ids derive in one batch pass (500-id collision case).",
     "blocking_findings": [],
     "commands_run": [
       "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts -t \"enforces the partial keys: non-human rows keep the four-column key, two active human rows for one person and scope key reject, a revoked human row admits a fresh row, two persons coexist, and the human-row CHECK rejects each missing field while a missing label is accepted\" --outputFile=<junit-report>",
@@ -50,8 +50,8 @@
     "non_blocking_findings": [],
     "residual_risks": [],
     "manual_validation_steps": [],
-    "recorded_at": "2026-09-06T06:19:58+00:00",
-    "commit": "e02c50b09b177df2eb452c1889637f05591c1952"
+    "recorded_at": "2026-09-06T07:08:47+00:00",
+    "commit": "3d1ce6664bbf18137bafdc2d928e3b58f87f460e"
   },
-  "updated_at": "2026-09-06T06:19:58+00:00"
+  "updated_at": "2026-09-06T07:08:47+00:00"
 }

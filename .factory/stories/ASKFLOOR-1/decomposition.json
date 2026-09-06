@@ -574,6 +574,7 @@
         "vitest.integration.config.ts",
         "docs/architecture/permission-decision-memory.md",
         "apps/core/test/unit/shared/permission-prospective-write.test.ts",
+        "apps/core/test/unit/storage/postgres-raw-sql-allowlist.test.ts",
         "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
         "apps/core/test/unit/application/human-decision-scope.test.ts",
         "apps/core/test/unit/application/human-decision-memory-service.test.ts",
@@ -587,9 +588,9 @@
         "npm run test:integration:postgres"
       ],
       "review_budget": {
-        "max_changed_files": 21,
+        "max_changed_files": 22,
         "max_changed_lines": 22000,
-        "reason": "The task plan spans 13 source files (vitest.integration.config.ts running files serially when GANTRY_TEST_DATABASE_URL is set so verify.py passes in the gate environment, a NEW domain/human-decision.ts holding every domain addition because domain/types.ts sits at its 740-line ceiling, a NEW shared id helper human-decision-id.ts holding randomUUID + the v4 guard because application may not import node:crypto, the shared prospective-write boundary gaining canonicalPath, schema + generated migration SQL and meta snapshot + journal, port, repository, NEW scope-key module, NEW service, domain types), one architecture note and 5 test files (the boundary suite, the extended Postgres suite and three NEW unit suites) = 19 files; the generated migration SQL and meta snapshot carry timestamp/sequence names unknown until drizzle-kit generate runs, so they are added by forge stage amend-scope at close; two files of headroom for a type or barrel edit the implementer must raise as a signal. LINES: the generated drizzle snapshot alone is ~19,000 lines (meta/20260827174119_snapshot.json is 18,937) and stage measurement counts every added line of the generated SQL + snapshot + journal, so the ceiling is 22,000; the hand-written delta is expected under 1,500 lines and the reviewer judges that part."
+        "reason": "The task plan spans 13 source files (vitest.integration.config.ts running files serially when GANTRY_TEST_DATABASE_URL is set so verify.py passes in the gate environment, a NEW domain/human-decision.ts holding every domain addition because domain/types.ts sits at its 740-line ceiling, a NEW shared id helper human-decision-id.ts holding randomUUID + the v4 guard because application may not import node:crypto, the shared prospective-write boundary gaining canonicalPath, schema + generated migration SQL and meta snapshot + journal, port, repository, NEW scope-key module, NEW service, domain types), one architecture note and 5 test files (the boundary suite, the extended Postgres suite and three NEW unit suites) = 20 files (the raw-SQL allowlist test gains the repository's advisory-lock entry); the generated migration SQL and meta snapshot carry timestamp/sequence names unknown until drizzle-kit generate runs, so they are added by forge stage amend-scope at close; two files of headroom for a type or barrel edit the implementer must raise as a signal. LINES: the generated drizzle snapshot alone is ~19,000 lines (meta/20260827174119_snapshot.json is 18,937) and stage measurement counts every added line of the generated SQL + snapshot + journal, so the ceiling is 22,000; the hand-written delta is expected under 1,500 lines and the reviewer judges that part."
       },
       "required_tests": [
         {
@@ -742,5 +743,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "4ac5ed117e50e10764cd75da48c69495253ffddf"
+  "commit": "3d1ce6664bbf18137bafdc2d928e3b58f87f460e"
 }
