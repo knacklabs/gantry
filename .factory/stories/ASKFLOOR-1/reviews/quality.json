@@ -1,68 +1,99 @@
 {
   "generated_by": "autoreview",
-  "score": 10,
-  "summary": "quality lens over ASKFLOOR-1-T2b (25 product path(s), 6d9189e..c5f9eab, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT ASKFLOOR-1-T2b-AC1: implemented \u2014 apps/core/src/application/permissions/gantry-tool-risk.ts:64\nVERDICT ASKFLOOR-1-T2b-AC2: implemented \u2014 apps/core/src/runtime/permission-classifier-native-risk.ts:16; apps/core/src/runtime/ipc-permission-classifier-decision.ts:467\nVERDICT ASKFLOOR-1-T2b-AC3: implemented \u2014 apps/core/src/shared/permission-prospective-write.ts:13; apps/core/src/application/permissions/native-file-write-risk.ts:7\nVERDICT ASKFLOOR-1-T2b-AC4: implemented \u2014 apps/core/src/domain/file-artifacts/protected-virtual-path.ts:60; apps/core/src/jobs/ipc-file-artifact-handlers.ts:119\nVERDICT ASKFLOOR-1-T2b-AC5: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:86\nVERDICT ASKFLOOR-1-T2b-AC6: implemented \u2014 apps/core/test/unit/runtime/permission-classifier.test.ts:1047\nThe diff implements the typed risk table, lane-aware native decisions and cache isolation, fail-closed prospective write checks, protected artifact handling, and the required fixture coverage. The supplied verification evidence reports all required tests and repository gates passing. No actionable P0\u2013P2 defect is demonstrated by the bundle.",
-  "blocking_findings": [],
-  "non_blocking_findings": [],
-  "recommendation": "approve",
+  "score": 9,
+  "summary": "quality lens over ASKFLOOR-1-T3a (19 product path(s), 236eb42..ea7a830, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. Review passes returned. chunk 1/2: 1 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
+  "blocking_findings": [
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T3a-AC1: SCHEMA. `permission_decision_memory` gains nullable text columns `outcome`, `scope`, `scope_key`, `acting_person_id`, `acting_person_label` (physical snake_case \u2014 the table's existing convention; the deviation from the constitution's camelCase rule is recorded as deliberate in the migration note and the architecture note) and a CHECK `permission_decision_memory_human_row_ck`: `kind <> 'human_decision' OR (outcome IS NOT NULL AND scope IS NOT NULL AND scope_key IS NOT NULL AND acting_person_id IS NOT NULL)` (the label may be NULL \u2014 rows render \"someone\", 0154). The unconditional `permission_decision_memory_lookup_uq` is DROPPED and replaced by two partial unique indexes: `permission_decision_memory_lookup_uq` on `(app_id, agent_folder, kind, lookup_identity) WHERE kind <> 'human_decision'` and `permission_decision_memory_human_uq` on `(app_id, agent_folder, acting_person_id, scope, scope_key) WHERE kind = 'human_decision' AND revoked_at IS NULL`; the active lookup index stays. The migration is GENERATED (`npm run db:migrations:generate`, timestamp-named like `20260827174119_agents_web_ui_foundation.sql` \u2014 the currently live convention in `schema/migrations/`, not the retired `0107_`/`0110_` sequence) so the drizzle drift gate (`db:migrations:check`, `.github/workflows/ci.yml:63`) stays clean; the `meta/_journal.json` and snapshot travel with it. Human `id`s are UUID strings in the existing text column (no column type change). Tests (Postgres, `permission-decision-memory.postgres.integration.test.ts`, `schemaPrefix: 'permission_decision_memory'`): raw inserts prove (a) two non-human rows on the same four-column key still reject \u2014 the existing pin at `:154-175` is kept with its kind; (b) two ACTIVE human rows for the same person + scope + scope_key reject; (c) the same person + scope + scope_key with the first row REVOKED accepts a second row; (d) two different persons with the same scope + scope_key both insert; (e) a `human_decision` row missing any of outcome, scope, scope_key or acting_person_id rejects (one case each), and a missing label is accepted."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T3a-AC2: PORT + REPOSITORY. `PermissionDecisionMemoryKind` gains `'human_decision'`; the row and put types gain optional `outcome?: HumanDecisionOutcome` (`allow | deny`), `scope?: HumanDecisionScope` (`exact | kind | place`), `scopeKey?`, `actingPersonId?`, `actingPersonLabel?` (closed typed enums exported from the port; no string literals elsewhere). The legacy methods `put`, `get`, `list` and `revoke` are for the non-human kinds only: each REFUSES `kind: 'human_decision'` (throws `HumanDecisionRequiresTypedAccessError`, a named domain error in the port \u2014 the human path has its own person-scoped methods below), `put` keeps today's conflict target, and an unfiltered legacy `list` (no `kind`) EXCLUDES human rows (`kind <> 'human_decision'`), so no legacy path can read or revoke across persons (0154/0118). NEW `putHumanDecision(input) \u2192 Promise<{ id: string; status: 'inserted' | 'refreshed' }>`: requires all four human fields and a v4-UUID-shaped `id` (a missing field or a malformed id throws before any SQL \u2014 the same guard style as `assertPersistable`, `:17-34`), always `lookupIdentity = scopeKey`, `decision = outcome`, `principal = canonicalTool`; it runs in ONE transaction: select the ACTIVE row for `(app_id, agent_folder, acting_person_id, scope, scope_key)` (the human partial index's key) \u2014 if one exists it is REFRESHED in place with `outcome`, `decision`, `reason`, `acting_person_label`, `effect_hash`, `rail_version`, `effect_schema_version`, `created_at` AND `provenance` re-encoded (AC5) with the STORED id, and the STORED id is returned with `status: 'refreshed'` (the caller's fresh id is discarded \u2014 an opposite-outcome write for the same authority simply replaces the older decision: newest human decision wins, one Forget still revokes the only active record, 0118); if none exists a NEW row is inserted with the caller's id and `provenance` encoded with it (`status: 'inserted'`) \u2014 a REVOKED row is NEVER reactivated: it stays as history beside the new row (the partial index ignores revoked rows, so the insert succeeds). NEW `listHumanDecisions({ appId, agentFolder, actingPersonId, includeRevoked? })` ordered newest first by `created_at`, person-scoped (no cross-person rows, pinned); `includeRevoked` defaults to false (active rows only); `true` returns revoked rows too, each with its `revokedAt` (pinned); NEW `revokeById({ appId, agentFolder, actingPersonId, recordId, nowIso })` \u2192 `'applied' | 'already_revoked' | 'not_found'` \u2014 `not_found` when the id exists for ANOTHER person, app or agent folder (never crosses any of the three axes, pinned by cross-person, cross-app and cross-folder tests); NEW `countExactAllowsByTool({ appId, agentFolder, actingPersonId })` \u2192 `Record<toolName, number>` of ACTIVE `outcome = allow`, `scope = exact` rows grouped by the canonical tool name carried in `principal` (the human row stores AC3's `canonicalTool` in the existing `principal` column \u2014 the trust-growth input read by T5a; documented in the architecture note). `getClassifierVerdict`/`putClassifierVerdict` are byte-identical. Tests: Postgres round-trips for each new method per person; unit guard test for the refusals."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T3a-AC3: SCOPE KEYS in ONE module, NEW `application/permissions/human-decision-scope.ts`, ONE async function (async only because the native destination check awaits T2b's filesystem boundary; everything else is pure): `deriveHumanDecisionScopeKey({ outcome, scope, request, effectHash, workspaceRoot, canonicalRoot, trustGrowthTool }) \u2192 Promise<HumanDecisionScopeKeyResult>` where `HumanDecisionScopeKeyResult = { ok: true; scopeKey: string; pathOnly: boolean } | { ok: false; reason: HumanDecisionNotRememberableReason }` and `HumanDecisionNotRememberableReason` is the closed enum `protected_destination | no_category | no_root | incomplete_effect | deny_requires_exact` exported from this module (AC4 relays it verbatim, so no derivation logic is duplicated). Canonical tool identity: `canonicalTool = gantryNativeCanonicalToolName(request.toolName)?.canonical ?? request.toolName` (the helper returns `{ canonical, known } | null`, `application/permissions/gantry-tool-risk.ts:46`), so bare `file` and every registered `mcp__gantry__file` spelling are one tool, and the facade ids `WebSearch`/`WebRead` (`shared/gantry-tool-facades.ts:5-6`; `WebFetch` is already mapped to `WebRead` by the facade table) are used as given. Rules. `scope = exact`: `outcome = deny` \u21d2 the full effect hash (`computePermissionEffectHash`, `domain/permission-effect-key.ts:48-99`, content included; `pathOnly: false`); `outcome = allow` on a NATIVE write (`FileWrite`/`FileEdit`): FIRST every supplied non-blank string destination among `file_path` and `path` is checked with `evaluateProspectiveWriteBoundary({ workspaceRoot, candidatePath })` (`shared/permission-prospective-write.ts`); any `inside: false` (outside, protected, hidden, secret, symlinked, undefined root) \u21d2 `{ ok: false, reason: 'protected_destination' }` \u2014 protected destinations never key an Allow, whatever the destination count; then EXACTLY ONE destination \u21d2 `exact:path:<canonicalTool>:<canonicalPath>` (`pathOnly: true`) using the `canonicalPath` the boundary now returns on success (T3a extends the shared helper's success result to `{ inside: true; canonicalPath: string }` \u2014 the resolved absolute path it already computes \u2014 because `application` may not import `node:path`, `scripts/architecture-map.json:84`); an all-safe dual input \u21d2 the full hash (`pathOnly: false`); no string destination \u21d2 full hash. `outcome = allow` on a VIRTUAL write \u2014 canonical `file` with `action: 'write'` \u2192 `(scope, path)` or `action: 'promote_scratch'` \u2192 `(targetScope, targetPath)` \u2014 \u21d2 `exact:path:<canonicalTool>:<destination>` (`pathOnly: true`) when unprotected; every other allow \u21d2 the full hash (`pathOnly: false`), so shell commands (redirects, `cp`, `mv`, `tee`, multi-target) are never path-only. The same request with `outcome = deny` always keys on the full hash (no destination check). virtual \u2192 `<normalizeFileArtifactScope(scope)>/<normalizeFileArtifactPath(path)>` (`domain/file-artifacts/virtual-path.ts`; an omitted `scope`/`targetScope` takes the same host default the normaliser applies) unless `isProtectedArtifactEntry` (`domain/file-artifacts/protected-virtual-path.ts`) or `protected: true` \u21d2 `protected_destination` for an allow; a malformed shape (missing path, non-string fields, a normaliser throw) \u21d2 full hash. `scope = kind` \u21d2 `kind:<categoryId>` from this CLOSED request-to-category table (anything not in it \u21d2 `{ ok: false, reason: 'no_category' }`): (1) `Bash`/`RunCommand`: parse with `parseBashCommand` (the same parser the read-only gate uses, `shared/auto-permission-read-only-gate.ts:93`), classify EVERY leaf with `classifyPermissionEffectShape(leaf, { stdinOk })` where `stdinOk` mirrors the gate EXACTLY: `false` for a single leaf, `true` for every leaf of any multi-leaf compound (`&&`, `||`, `;`, `|` alike \u2014 the parser exposes only aggregate topology, `:98-106`; pinned by a compound/pipeline parity test); all leaves `read_only_command` \u21d2 `read_only_command`; all leaves `file_read` \u21d2 `file_read`; a mix of those two \u21d2 `read_only_command`; any `not_read_only` leaf, a parse failure or zero leaves \u21d2 `no_category`; (2) canonical `file` with `action: 'list' | 'read'` \u21d2 `virtual_file_read`; (3) `WebSearch` \u21d2 `web_search`, `WebRead` \u21d2 `web_read`; (4) trust growth (0154): `trustGrowthTool: true` \u21d2 `kind:tool:<canonicalTool>` for ANY tool, evaluated before rows 1-3 (the card offers it only for high-risk gantry tools; T3a does not police that). The category ids are a closed exported enum `HumanDecisionKindCategory`. `scope = place` \u21d2 `place:<canonicalRoot>` from the caller-supplied `canonicalRoot` (resolved by T3b via `resolveTrustedRootStage`; T3a only formats it) \u21d2 `no_root` when absent or blank. `outcome = deny` with `scope \u2260 exact` \u21d2 `deny_requires_exact` (a No is always exact, 0154). An undefined `effectHash` (incomplete input) \u21d2 `incomplete_effect` wherever the hash is needed (every deny; every non-path-only allow). Tests (unit, exhaustive): each shape \u00d7 outcome \u00d7 scope, dual native keys, bare `file` vs `mcp__gantry__file`, omitted virtual scope, protected/outside/symlink destinations, changed-content near-miss (same path, different content: allow keys equal, deny keys differ), whitespace-padded virtual paths, every kind row incl. multi-leaf pipelines and a mixed read/write pipeline \u21d2 `no_category`, missing hash, missing root, deny with kind/place."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T3a-AC4: SERVICE. NEW `application/permissions/human-decision-memory-service.ts` exporting `HumanDecisionMemoryService` (class, constructor-injected `{ repository, newId = randomUUID, now = currentIso }` \u2014 the `CapabilitySecretService` pattern, `application/capability-secrets/capability-secret-service.ts:17`; no adapter construction, port import only per `scripts/architecture-map.json`): `remember(dto: HumanDecisionRememberRequest) \u2192 { status: 'remembered'; id; shortId; scopeKey; pathOnly; stored: 'inserted' | 'refreshed' } | { status: 'not_rememberable'; reason: HumanDecisionServiceRefusal }` where `HumanDecisionServiceRefusal = HumanDecisionNotRememberableReason | 'unresolved_person' | 'once_never_remembered'` \u2014 refuses a blank `actingPersonId` (`unresolved_person`) and a `resolution` whose `kind` is not `'remember'` (`once_never_remembered`: a scalar `allow_once`/`allow_persistent_rule`/`cancel` never reaches the store) BEFORE any repository call; derives the key via AC3 and relays an `ok: false` reason verbatim; generates a v4 UUID via `newId` and validates its shape (a malformed injected id \u21d2 throws \u2014 pinned); writes via `putHumanDecision` with `reason` = the DTO's human-readable line, `railVersion`/`effectSchemaVersion` from the DTO (the caller's rails catalogue), `principal = canonicalTool`; the returned `id` is the repository's EFFECTIVE stored id (a refreshed duplicate returns the stored id, never the discarded fresh one \u2014 pinned) and `shortId` is derived from it. `deriveHumanDecisionShortId(id, siblings: string[])` (exported, tested): the first 6 hex characters of the dash-free lowercase UUID, extended one character at a time only while another id in `siblings` (this person's ACTIVE records) shares the prefix \u2014 so short ids are unique within a person's active list; `list({ appId, agentFolder, actingPersonId, limit? })` \u2192 active rows newest first; short ids are disambiguated against ALL of the person's active ids BEFORE `limit` is applied, so a truncated page never shows an ambiguous short id (pinned); `revoke({ appId, agentFolder, actingPersonId, recordId })` \u2192 the repository's result verbatim (the full record id; prefix resolution is T5b's); `countExactAllowsByTool(...)` \u2192 the repository's map. Tests (unit, in-memory fake repository): every refusal reason, once-never-remembered for each scalar mode, malformed injected id, a remembered allow and deny round-trip, refreshed duplicate returns the stored id, list is person-scoped, short-id derivation incl. a 6-char collision extending to 7, revoke results."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T3a-AC5: DOMAIN TYPES (T3b/T3c only consume them; all additive). `domain/types.ts` sits exactly at its 740-line architecture ceiling (`scripts/architecture-map.json:41`), so the ONLY change there is `PermissionDecisionSource` gaining `'human_decision'` on its existing `prettier-ignore` union line (`:257-260`, no new line); every other addition lives in the NEW sibling module `domain/human-decision.ts` (imported by the port, the scope module, the service and T3b/T3c; `types.ts` does not re-export it): the structured, provider-neutral remember resolution beside today's scalar modes \u2014 `HumanDecisionOutcome`/`HumanDecisionScope` re-exported here from the port for callers, `PermissionRememberResolution = { kind: 'remember'; outcome: HumanDecisionOutcome; scope: HumanDecisionScope }`, `PermissionApprovalResolution = { kind: 'mode'; mode: PermissionApprovalDecisionMode } | PermissionRememberResolution` (the option/claim DTO the story plan names; T3c owns wiring it into `PermissionCallbackClaimIntent`, the recovery envelope, settlement and the provider codecs \u2014 T3a only defines the type and its two guards `isRememberResolution`/`resolutionMode`); NEW `HumanDecisionRememberRequest` DTO = `{ appId, agentFolder, actingPersonId, actingPersonLabel?, resolution: PermissionApprovalResolution, request: PermissionApprovalRequest, effectHash?, workspaceRoot?, canonicalRoot?, trustGrowthTool?, railVersion, effectSchemaVersion, reason }`; NEW provenance codec `encodeHumanDecisionProvenance({ id, actingPersonId, outcome, scope, railVersion }) \u2192 string` / `decodeHumanDecisionProvenance(text) \u2192 {\u2026} | undefined` (a fixed `human_decision:` prefix with a canonical sorted-key JSON body; decode fails closed on any other prefix, a malformed body, a missing field, a non-integer `railVersion` or a non-UUID id) \u2014 the `provenance` column of a human row is always the encoded form and never free text (the agent-visible provenance per 0054/0107 is derived from it, never inferred from strings). Tests: codec round-trip incl. `railVersion`, fail-closed decode for each malformed case, the resolution guards."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3a.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T3a-AC6: architecture note `docs/architecture/permission-decision-memory.md` (or the existing decision-memory note if one exists \u2014 the implementer checks and extends rather than duplicates) records the record kind, the per-kind keys, the `principal = canonicalTool` convention for human rows, the snake_case physical names and the history-not-reactivation rule; existing unit and Postgres integration suites pass; tsc and check:architecture green; the drizzle drift gate clean (AF-AC7). GATE ENVIRONMENT: `stage done` runs every `verify_commands` entry in ONE environment with `GANTRY_TEST_DATABASE_URL` exported (the Postgres lane refuses without it), and today `verify.py`'s `npm test` general integration lane (`vitest.integration.config.ts`, file-parallel) then fails on `Hook timed out in 10000ms` in `beforeAll` for the DB-gated suites (concurrent schema migrations against one database \u2014 eleven suites, each green alone). T3a therefore sets `fileParallelism: false` in `vitest.integration.config.ts` ONLY when `GANTRY_TEST_DATABASE_URL` is set (URL-less runs keep today's parallelism; the Postgres config already runs serially), so `verify.py` passes with the URL exported and the gate is honest end to end."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/adapters/storage/postgres/repositories",
+      "summary": "Concurrent first writes can fail instead of refreshing (apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:176): `SELECT ."
+    }
+  ],
+  "recommendation": "approve-with-caveats",
   "reviewed_scope": [
-    "apps/core/src/application/permissions/gantry-tool-risk.ts",
-    "apps/core/src/application/permissions/native-file-write-risk.ts",
-    "apps/core/src/application/permissions/permission-classifier.ts",
-    "apps/core/src/domain/file-artifacts/protected-virtual-path.ts",
-    "apps/core/src/jobs/ipc-file-artifact-handlers.ts",
-    "apps/core/src/runner/mcp/tools/browser.ts",
-    "apps/core/src/runner/mcp/tools/file.ts",
-    "apps/core/src/runtime/browser-file-attach-source.ts",
-    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
-    "apps/core/src/runtime/permission-classifier-native-risk.ts",
-    "apps/core/src/runtime/permission-classifier.ts",
-    "apps/core/src/shared/browser-backend-actions.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/20260906034855_permission_decision_memory_human.sql",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260906034855_snapshot.json",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json",
+    "apps/core/src/adapters/storage/postgres/schema/schema.ts",
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/src/application/permissions/human-decision-scope.ts",
+    "apps/core/src/domain/human-decision.ts",
+    "apps/core/src/domain/ports/permission-decision-memory.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/shared/human-decision-id.ts",
     "apps/core/src/shared/permission-prospective-write.ts",
-    "apps/core/test/unit/application/gantry-tool-risk.test.ts",
-    "apps/core/test/unit/application/native-file-write-risk.test.ts",
-    "apps/core/test/unit/application/permission-classifier.test.ts",
-    "apps/core/test/unit/jobs/ipc-file-artifact-handlers.test.ts",
-    "apps/core/test/unit/runner/mcp/file-tool.test.ts",
-    "apps/core/test/unit/runner/tool-permission-gate.test.ts",
-    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
-    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
-    "apps/core/test/unit/runtime/browser-file-attach-source.test.ts",
-    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
-    "apps/core/test/unit/runtime/permission-classifier.test.ts",
-    "apps/core/test/unit/shared/permission-prospective-write.test.ts"
+    "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+    "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+    "apps/core/test/unit/application/human-decision-scope.test.ts",
+    "apps/core/test/unit/domain/human-decision-provenance.test.ts",
+    "apps/core/test/unit/shared/permission-prospective-write.test.ts",
+    "docs/architecture/permission-decision-memory.md",
+    "vitest.integration.config.ts"
   ],
   "skills_used": [],
   "contract_verdicts": [
     {
-      "contract_id": "ASKFLOOR-1-T2b-AC1",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/gantry-tool-risk.ts:64"
+      "contract_id": "ASKFLOOR-1-T3a-AC1",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
-      "contract_id": "ASKFLOOR-1-T2b-AC2",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/permission-classifier-native-risk.ts:16; apps/core/src/runtime/ipc-permission-classifier-decision.ts:467"
+      "contract_id": "ASKFLOOR-1-T3a-AC2",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
-      "contract_id": "ASKFLOOR-1-T2b-AC3",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/shared/permission-prospective-write.ts:13; apps/core/src/application/permissions/native-file-write-risk.ts:7"
+      "contract_id": "ASKFLOOR-1-T3a-AC3",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
-      "contract_id": "ASKFLOOR-1-T2b-AC4",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/domain/file-artifacts/protected-virtual-path.ts:60; apps/core/src/jobs/ipc-file-artifact-handlers.ts:119"
+      "contract_id": "ASKFLOOR-1-T3a-AC4",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
-      "contract_id": "ASKFLOOR-1-T2b-AC5",
-      "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:86"
+      "contract_id": "ASKFLOOR-1-T3a-AC5",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
-      "contract_id": "ASKFLOOR-1-T2b-AC6",
-      "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/permission-classifier.test.ts:1047"
+      "contract_id": "ASKFLOOR-1-T3a-AC6",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -113,13 +144,43 @@
       "contract_id": "ASKFLOOR-1-T2a-AC5",
       "verdict": "implemented",
       "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
     }
   ],
   "aspect": "quality",
-  "review_run_id": "af57da0e4e909c7fda3cdb329b540ab2b16aec6fc51c6f0e0ac217d9f2c06875",
-  "brief_sha256": "cb633674c631d5efdbed00867f7baa42376b3c9b3d746c1756dee694bfe55f1a",
-  "branch_diff_digest": "51cb4767f36eb85045956eb4c8719d1e3712b3af78081483b8300345297c408e",
+  "review_run_id": "53b95e782f092f32f111953632b0e207dfc072f3ea55b22b02432f816a1cea08",
+  "brief_sha256": "7a47e6d7447fd4664768f1ddb795d1cc4023910fa6ad3ef05575195ce94a8009",
+  "branch_diff_digest": "98a0998737fa4f99dd10baee22ef1e4282939867380654b5a66a9f7985462750",
   "residual_risks": [],
-  "recorded_at": "2026-09-05T15:39:18+00:00",
-  "commit": "c5f9eab38c9d11c409b21fda94d986732d171d70"
+  "recorded_at": "2026-09-06T06:44:50+00:00",
+  "commit": "ea7a830f340756741ea56954289f1b47f8de36a5"
 }
