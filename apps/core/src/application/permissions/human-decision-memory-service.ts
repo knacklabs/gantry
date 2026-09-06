@@ -1,7 +1,4 @@
-import { randomUUID } from 'node:crypto';
-
 import {
-  isHumanDecisionId,
   type PermissionDecisionMemoryRepository,
   type PermissionDecisionMemoryRow,
 } from '../../domain/ports/permission-decision-memory.js';
@@ -10,6 +7,10 @@ import {
   type HumanDecisionRememberRequest,
   isRememberResolution,
 } from '../../domain/types.js';
+import {
+  isHumanDecisionId,
+  newHumanDecisionId,
+} from '../../shared/human-decision-id.js';
 import { nowIso as currentIso } from '../../shared/time/datetime.js';
 import { gantryNativeCanonicalToolName } from './gantry-tool-risk.js';
 import {
@@ -33,7 +34,7 @@ export class HumanDecisionMemoryService {
 
   constructor({
     repository,
-    newId = randomUUID,
+    newId = newHumanDecisionId,
     now = currentIso,
   }: {
     repository: PermissionDecisionMemoryRepository;
