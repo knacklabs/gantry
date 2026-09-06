@@ -117,10 +117,7 @@ async function deriveNativeWriteScope(input: {
     canonicalPaths.push(boundary.canonicalPath);
   }
   return canonicalPaths.length === 1
-    ? remembered(
-        `exact:path:${input.canonicalTool}:${canonicalPaths[0]}`,
-        true,
-      )
+    ? remembered(`exact:path:${input.canonicalTool}:${canonicalPaths[0]}`, true)
     : undefined;
 }
 
@@ -196,7 +193,9 @@ function deriveKindScope(
     const shapes = parsed.leaves.map((leaf) =>
       classifyPermissionEffectShape(leaf, { stdinOk }),
     );
-    if (shapes.some((shape) => shape.kind === PermissionEffectShape.NotReadOnly)) {
+    if (
+      shapes.some((shape) => shape.kind === PermissionEffectShape.NotReadOnly)
+    ) {
       return refused(HumanDecisionNotRememberableReason.NoCategory);
     }
     const category = shapes.every(
@@ -231,7 +230,9 @@ function decisionToolInput(
     : undefined;
 }
 
-function fullEffect(effectHash: string | undefined): HumanDecisionScopeKeyResult {
+function fullEffect(
+  effectHash: string | undefined,
+): HumanDecisionScopeKeyResult {
   return effectHash === undefined
     ? refused(HumanDecisionNotRememberableReason.IncompleteEffect)
     : remembered(effectHash);

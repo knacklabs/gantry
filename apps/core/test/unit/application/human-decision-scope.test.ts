@@ -225,7 +225,7 @@ describe('human decision scope keys', () => {
     }
   });
 
-  it('returns the closed refusal reason for an Allow to a protected, outside, hidden, secret or symlinked destination, for a kind scope without a closed category including a mixed read and write pipeline, for a place scope without a root, for a deny outside exact scope and for an incomplete effect, and formats kind keys from the closed request table (read_only_command and file_read over every parsed leaf with the gate\'s compound stdinOk rule pinned for pipelines and and-or-semicolon compounds alike, virtual_file_read, web_search, web_read, the trust-growth tool kind) and place keys from the canonical root', async () => {
+  it("returns the closed refusal reason for an Allow to a protected, outside, hidden, secret or symlinked destination, for a kind scope without a closed category including a mixed read and write pipeline, for a place scope without a root, for a deny outside exact scope and for an incomplete effect, and formats kind keys from the closed request table (read_only_command and file_read over every parsed leaf with the gate's compound stdinOk rule pinned for pipelines and and-or-semicolon compounds alike, virtual_file_read, web_search, web_read, the trust-growth tool kind) and place keys from the canonical root", async () => {
     const workspaceRoot = makeRoot('protected-workspace');
     const outsideRoot = makeRoot('outside');
     fs.mkdirSync(path.join(workspaceRoot, 'notes'));
@@ -273,11 +273,23 @@ describe('human decision scope keys', () => {
       [request('Bash', { command: 'cat notes/a.md' }), 'kind:file_read'],
       [request('Bash', { command: 'cat notes/a.md | cat' }), 'kind:file_read'],
       [request('Bash', { command: 'echo hi | cat' }), 'kind:read_only_command'],
-      [request('Bash', { command: 'echo a && echo b' }), 'kind:read_only_command'],
-      [request('Bash', { command: 'echo a || echo b' }), 'kind:read_only_command'],
-      [request('Bash', { command: 'echo a; echo b' }), 'kind:read_only_command'],
+      [
+        request('Bash', { command: 'echo a && echo b' }),
+        'kind:read_only_command',
+      ],
+      [
+        request('Bash', { command: 'echo a || echo b' }),
+        'kind:read_only_command',
+      ],
+      [
+        request('Bash', { command: 'echo a; echo b' }),
+        'kind:read_only_command',
+      ],
       [request('file', { action: 'list' }), 'kind:virtual_file_read'],
-      [request('mcp__gantry__file', { action: 'read', path: 'a.md' }), 'kind:virtual_file_read'],
+      [
+        request('mcp__gantry__file', { action: 'read', path: 'a.md' }),
+        'kind:virtual_file_read',
+      ],
       [request('WebSearch', { query: 'gantry' }), 'kind:web_search'],
       [request('WebRead', { url: 'https://example.com' }), 'kind:web_read'],
     ];

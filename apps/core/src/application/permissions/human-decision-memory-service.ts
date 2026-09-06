@@ -45,9 +45,7 @@ export class HumanDecisionMemoryService {
     this.now = now;
   }
 
-  async remember(
-    dto: HumanDecisionRememberRequest,
-  ): Promise<
+  async remember(dto: HumanDecisionRememberRequest): Promise<
     | {
         status: 'remembered';
         id: string;
@@ -169,7 +167,10 @@ export function deriveHumanDecisionShortId(
     length < normalized.length &&
     siblings.some((sibling) => {
       const candidate = sibling.replaceAll('-', '').toLowerCase();
-      return candidate !== normalized && candidate.startsWith(normalized.slice(0, length));
+      return (
+        candidate !== normalized &&
+        candidate.startsWith(normalized.slice(0, length))
+      );
     })
   ) {
     length += 1;

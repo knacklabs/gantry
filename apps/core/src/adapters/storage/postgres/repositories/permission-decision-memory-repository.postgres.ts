@@ -47,7 +47,9 @@ function assertPersistable(input: {
   }
 }
 
-function assertLegacyAccess(kind: PermissionDecisionMemoryKind | undefined): void {
+function assertLegacyAccess(
+  kind: PermissionDecisionMemoryKind | undefined,
+): void {
   if (kind === HUMAN_DECISION_MEMORY_KIND) {
     throw new HumanDecisionRequiresTypedAccessError();
   }

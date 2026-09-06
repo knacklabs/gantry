@@ -23,7 +23,9 @@ const STORED_ID = 'abcdef00-1234-4abc-8def-1234567890ab';
 const COLLIDING_ID = 'abcdef10-1234-4abc-8def-1234567890ab';
 const NOW = '2026-09-06T00:00:00.000Z';
 
-function fakeRepository(overrides: Partial<PermissionDecisionMemoryRepository> = {}) {
+function fakeRepository(
+  overrides: Partial<PermissionDecisionMemoryRepository> = {},
+) {
   return {
     getClassifierVerdict: vi.fn(async () => null),
     putClassifierVerdict: vi.fn(async () => undefined),
@@ -127,7 +129,10 @@ describe('human decision memory service', () => {
     }
 
     const refusals: Array<
-      [Partial<HumanDecisionRememberRequest>, HumanDecisionNotRememberableReason]
+      [
+        Partial<HumanDecisionRememberRequest>,
+        HumanDecisionNotRememberableReason,
+      ]
     > = [
       [
         {
@@ -191,7 +196,9 @@ describe('human decision memory service', () => {
       ],
     ];
     for (const [overrides, reason] of refusals) {
-      await expect(service.remember(rememberRequest(overrides))).resolves.toEqual({
+      await expect(
+        service.remember(rememberRequest(overrides)),
+      ).resolves.toEqual({
         status: 'not_rememberable',
         reason,
       });
@@ -203,9 +210,9 @@ describe('human decision memory service', () => {
       newId: () => 'not-a-uuid',
       now: () => NOW,
     });
-    await expect(malformedIdService.remember(rememberRequest())).rejects.toThrow(
-      'UUID v4',
-    );
+    await expect(
+      malformedIdService.remember(rememberRequest()),
+    ).rejects.toThrow('UUID v4');
     expect(repository.putHumanDecision).not.toHaveBeenCalled();
 
     repository.listHumanDecisions.mockResolvedValueOnce([humanRow(ID)]);
@@ -272,14 +279,16 @@ describe('human decision memory service', () => {
       newId: () => ID,
       now: () => NOW,
     });
-    await expect(refreshedService.remember(rememberRequest())).resolves.toEqual({
-      status: 'remembered',
-      id: STORED_ID,
-      shortId: 'abcdef',
-      scopeKey: 'exact:path:file:default/notes/a.md',
-      pathOnly: true,
-      stored: 'refreshed',
-    });
+    await expect(refreshedService.remember(rememberRequest())).resolves.toEqual(
+      {
+        status: 'remembered',
+        id: STORED_ID,
+        shortId: 'abcdef',
+        scopeKey: 'exact:path:file:default/notes/a.md',
+        pathOnly: true,
+        stored: 'refreshed',
+      },
+    );
   });
 
   it('list is person-scoped with short ids derived as six dash-free hex characters extended only on a sibling collision and disambiguated against every active sibling before the limit is applied, revoke relays applied, already_revoked and not_found with the app, folder and person axes, and countExactAllowsByTool relays the repository map', async () => {
