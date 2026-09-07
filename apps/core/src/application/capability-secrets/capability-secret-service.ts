@@ -55,7 +55,7 @@ export class CapabilitySecretService {
     });
     await this.publishAudit({
       appId: input.appId,
-      actor: input.actor ?? 'capability-secret-service',
+      actor: { kind: 'system', source: input.actor ?? 'capability-secret-service' },
       eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_CAPABILITY_UPDATED,
       payload: {
         name: metadata.name,
@@ -80,7 +80,7 @@ export class CapabilitySecretService {
     if (deleted) {
       await this.publishAudit({
         appId: input.appId,
-        actor: input.actor ?? 'capability-secret-service',
+        actor: { kind: 'system', source: input.actor ?? 'capability-secret-service' },
         eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_CAPABILITY_REMOVED,
         payload: { name },
       });

@@ -109,7 +109,7 @@ export class ModelCredentialService {
     });
     await this.publishAudit({
       appId: input.appId,
-      actor: input.actor ?? 'model-credential-service',
+      actor: { kind: 'system', source: input.actor ?? 'model-credential-service' },
       eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_UPDATED,
       payload: {
         providerId: metadata.providerId,
@@ -176,7 +176,7 @@ export class ModelCredentialService {
     });
     await this.publishAudit({
       appId: input.appId,
-      actor: input.actor ?? 'model-credential-service',
+      actor: { kind: 'system', source: input.actor ?? 'model-credential-service' },
       eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_UPDATED,
       payload: {
         providerId: metadata.providerId,
@@ -201,7 +201,7 @@ export class ModelCredentialService {
     if (metadata) {
       await this.publishAudit({
         appId: input.appId,
-        actor: input.actor ?? 'model-credential-service',
+        actor: { kind: 'system', source: input.actor ?? 'model-credential-service' },
         eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_DISABLED,
         payload: {
           providerId: metadata.providerId,
@@ -227,7 +227,7 @@ export class ModelCredentialService {
     if (metadata) {
       await this.publishAudit({
         appId: input.appId,
-        actor: input.actor ?? 'model-credential-service',
+        actor: { kind: 'system', source: input.actor ?? 'model-credential-service' },
         eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_REMOVED,
         payload: {
           providerId: metadata.providerId,

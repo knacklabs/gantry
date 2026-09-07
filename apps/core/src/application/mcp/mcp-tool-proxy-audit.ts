@@ -105,7 +105,7 @@ export async function publishMcpToolActivity(input: {
         ? { runId: input.options.runId as AgentRunId }
         : {}),
       eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-      actor: 'mcp-tool-proxy',
+      actor: { kind: 'system', source: 'mcp-tool-proxy' },
       responseMode: 'none',
       payload,
     });

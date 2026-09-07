@@ -388,7 +388,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
                 conversationId: deps.context.conversationId as never,
                 threadId: deps.context.threadId as never,
                 eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-                actor: 'inline-agent',
+                actor: { kind: 'system', source: 'inline-agent' },
                 correlationId: context.invocationId,
                 responseMode: 'none',
                 payload: {

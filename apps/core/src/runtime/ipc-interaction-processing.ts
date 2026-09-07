@@ -553,7 +553,7 @@ async function denyLockedPermissionInteraction(
       conversationId: input.request.targetJid as never,
       threadId: input.request.threadId as never,
       eventType: RUNTIME_EVENT_TYPES.PERMISSION_DENIED,
-      actor: `agent:${input.sourceAgentFolder}`,
+      actor: { kind: 'system', source: `agent:${input.sourceAgentFolder}` },
       correlationId: input.request.requestId,
       payload: {
         requestId: input.request.requestId,

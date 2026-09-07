@@ -136,7 +136,7 @@ export async function recordJobSetupRequired(input: {
   await input.deps.runtimeEvents.publish({
     appId: appId as never,
     eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
-    actor: 'scheduler',
+    actor: { kind: 'system', source: 'scheduler' },
     sessionId: appSession?.sessionId as never,
     jobId: input.job.id as never,
     conversationId: input.job.execution_context?.conversationJid as never,

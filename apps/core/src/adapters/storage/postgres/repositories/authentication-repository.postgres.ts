@@ -410,7 +410,7 @@ export class PostgresAuthenticationRepository {
       await this.runtimeEvents.appendRuntimeEventWithExecutor(tx, {
         appId: updated.appId as AppId,
         eventType: RUNTIME_EVENT_TYPES.AUTH_ACCESS_RECOVERED,
-        actor: input.actor,
+        actor: { kind: 'system', source: input.actor },
         payload: { userId: updated.userId, role: updated.role },
       });
       return updated;

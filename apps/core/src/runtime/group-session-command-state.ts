@@ -340,7 +340,7 @@ export function createSessionCompactionHandlers(
         conversationId: input.chatJid as never,
         ...(input.threadId ? { threadId: input.threadId as never } : {}),
         eventType: sessionCompactionEventType(state),
-        actor: 'runtime',
+        actor: { kind: 'system', source: 'runtime' },
         responseMode: 'none',
         payload: {
           state,

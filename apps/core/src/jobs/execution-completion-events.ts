@@ -50,7 +50,7 @@ export async function publishSchedulerRunCompletion(input: {
         summary: input.summary,
         nextRun: input.nextRun,
       },
-      actor: 'scheduler',
+      actor: { kind: 'system', source: 'scheduler' },
       sessionId: eventAppSession?.sessionId as never,
       jobId: input.currentJob.id as never,
       runId: input.runId as never,

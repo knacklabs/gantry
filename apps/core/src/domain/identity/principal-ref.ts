@@ -39,3 +39,19 @@ export function isPrincipalRef(value: unknown): value is PrincipalRef {
     (principal.aliasId === undefined || typeof principal.aliasId === 'string')
   );
 }
+
+/** Text columns retain their names while storing the structured principal. */
+export function serializePrincipalRef(principal: PrincipalRef): string {
+  return JSON.stringify(principal);
+}
+
+/** Historical bare actors remain observable as their original system source. */
+export function parsePrincipalRef(value: string): PrincipalRef {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (isPrincipalRef(parsed)) return parsed;
+  } catch {
+    // Pre-PrincipalRef rows used a literal actor value.
+  }
+  return systemPrincipal(value);
+}

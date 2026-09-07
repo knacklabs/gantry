@@ -150,7 +150,7 @@ export async function publishInvalidMcpToolRequestAudit(input: {
       agentId: input.agentId,
       ...(input.runId ? { runId: input.runId as AgentRunId } : {}),
       eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-      actor: 'mcp-tool-handler',
+      actor: { kind: 'system', source: 'mcp-tool-handler' },
       responseMode: 'none',
       payload,
     });

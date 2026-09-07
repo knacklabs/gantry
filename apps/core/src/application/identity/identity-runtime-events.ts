@@ -1,4 +1,5 @@
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
+import type { PrincipalRef } from '../../domain/identity/principal-ref.js';
 import {
   isRuntimeEventConversationFkId,
   isRuntimeEventThreadFkId,
@@ -17,7 +18,7 @@ type IdentityAliasEventInput = {
   provider: string;
   providerAccountId?: string | null;
   verificationStatus: 'verified' | 'unverified' | 'retired';
-  actor: string;
+  actor: PrincipalRef;
 };
 
 export type IdentityEventSource = 'control_api' | 'live_turn';
@@ -96,7 +97,7 @@ export function identityResolvedEvent(input: {
       ? { threadId: input.threadId as never }
       : {}),
     eventType: RUNTIME_EVENT_TYPES.IDENTITY_RESOLVED,
-    actor: input.source,
+    actor: { kind: 'system', source: input.source },
     payload: {
       source: input.source,
       provider: input.provider,
@@ -178,7 +179,7 @@ export function identityMergedEvent(input: {
   appId: string;
   sourcePersonId: string;
   targetPersonId: string;
-  actor: string;
+  actor: PrincipalRef;
   aliasesMoved: number;
   memoryRowsMoved: number;
 }): RuntimeEventPublishInput {
@@ -202,7 +203,7 @@ export function identityUnmergedEvent(input: {
   auditId: string;
   sourcePersonId: string;
   targetPersonId: string;
-  actor: string;
+  actor: PrincipalRef;
   memoryRowsRestored: number;
   unmergedAt: string;
 }): RuntimeEventPublishInput {
@@ -249,7 +250,7 @@ export async function publishMemoryHydrationDecisionEvent(
         ? { threadId: input.threadId as never }
         : {}),
       eventType: RUNTIME_EVENT_TYPES.MEMORY_HYDRATION_DECISION,
-      actor: input.source,
+      actor: { kind: 'system', source: input.source },
       payload: {
         source: input.source,
         conversationKind: input.conversationKind,

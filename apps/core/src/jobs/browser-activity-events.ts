@@ -70,7 +70,7 @@ export async function publishBrowserJobActivityEvent(input: {
     appId: (eventAppSession?.appId ?? activity.appId ?? runtimeAppId) as never,
     ...(activity.agentId ? { agentId: activity.agentId as never } : {}),
     eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-    actor: 'browser',
+    actor: { kind: 'system', source: 'browser' },
     correlationId: activity.invocationId,
     sessionId: eventAppSession?.sessionId as never,
     ...(activity.jobId ? { jobId: activity.jobId as never } : {}),

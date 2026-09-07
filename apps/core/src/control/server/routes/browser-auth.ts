@@ -68,7 +68,7 @@ async function recordAuthEvent(input: {
   ).appendRuntimeEvent({
     appId: input.appId as AppId,
     eventType: input.eventType,
-    actor: input.actor,
+    actor: { kind: 'system', source: input.actor },
     payload: input.payload,
   });
 }

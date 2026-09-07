@@ -76,7 +76,7 @@ export async function auditConnect(
         ? { conversationId: eventConversationId as never }
         : {}),
       eventType: RUNTIME_EVENT_TYPES.EGRESS_CONNECT as RuntimeEventType,
-      actor: 'egress-gateway',
+      actor: { kind: 'system', source: 'egress-gateway' },
       responseMode: 'none',
       payload,
     });

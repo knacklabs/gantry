@@ -302,7 +302,7 @@ export function createInlineCoreTools(
         agentId: run.agentId as never,
         runId: activeRunId as never,
         eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-        actor: 'inline-agent',
+        actor: { kind: 'system', source: 'inline-agent' },
         responseMode: 'none',
         payload,
       })
@@ -434,7 +434,7 @@ export function createInlineCoreTools(
               conversationId: run.chatJid,
               threadId: run.threadId,
               correlationId: permissionRequestId,
-              actor: 'permission',
+              actor: { kind: 'system', source: 'permission' },
               intentSource: 'operator_message',
               turnIntentSummary: run.prompt,
               canonicalToolName: name,

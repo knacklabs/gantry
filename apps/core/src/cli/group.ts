@@ -618,7 +618,7 @@ async function runOffboard(runtimeHome: string, args: string[]): Promise<number>
         expectedSettingsRevision: revision?.revision ?? 0,
         settingsDocument: settingsToRevisionDocument(nextSettings),
         createdBy: 'cli:agent-offboard',
-        actor: 'cli:agent-offboard',
+        actor: { kind: 'system', source: 'cli:agent-offboard' },
         now: nowIso(),
         minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
       });

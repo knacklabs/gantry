@@ -32,6 +32,10 @@ import {
   RUNTIME_EVENT_TYPES,
 } from '../../../../domain/events/runtime-event-types.js';
 import type { RuntimeEventRepository } from '../../../../domain/ports/repositories.js';
+import {
+  parsePrincipalRef,
+  serializePrincipalRef,
+} from '../../../../domain/identity/principal-ref.js';
 import { logger } from '../../../../infrastructure/logging/logger.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
@@ -231,7 +235,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         conversationId,
         threadId,
         eventType: requireRuntimeEventType(input.eventType),
-        actor: input.actor,
+        actor: serializePrincipalRef(input.actor),
         correlationId: input.correlationId ?? null,
         responseMode: input.responseMode ?? null,
         webhookId: input.webhookId ?? null,
@@ -497,7 +501,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         ? (row.threadId as RuntimeEvent['threadId'])
         : undefined,
       eventType: requireRuntimeEventType(row.eventType),
-      actor: row.actor,
+      actor: parsePrincipalRef(row.actor),
       correlationId: row.correlationId ?? undefined,
       responseMode: row.responseMode as RuntimeEvent['responseMode'],
       webhookId: row.webhookId ?? undefined,

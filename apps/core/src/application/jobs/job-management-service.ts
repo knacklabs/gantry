@@ -483,7 +483,7 @@ export class JobManagementService {
         triggerId: trigger.triggerId,
         jobId: job.id,
       },
-      actor: 'sdk',
+      actor: { kind: 'system', source: 'sdk' },
       sessionId: appSession.sessionId as never,
       jobId: job.id as never,
       triggerId: trigger.triggerId,

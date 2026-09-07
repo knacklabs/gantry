@@ -23,6 +23,7 @@ import type {
 import type { BrandedId } from '../../shared/ids/branded-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { RuntimeEventType } from './runtime-event-types.js';
+import type { PrincipalRef } from '../identity/principal-ref.js';
 
 export type AgentRunId = BrandedId<'AgentRunId'>;
 
@@ -67,7 +68,7 @@ export interface RuntimeEvent {
   conversationIds?: ConversationId[];
   threadId?: ConversationThreadId;
   eventType: RuntimeEventType;
-  actor: string;
+  actor: PrincipalRef;
   correlationId?: string;
   responseMode?: RuntimeResponseMode;
   webhookId?: string;
@@ -94,7 +95,7 @@ export interface RuntimeEventPublishInput {
   conversationIds?: ConversationId[];
   threadId?: ConversationThreadId;
   eventType: RuntimeEventType;
-  actor: string;
+  actor: PrincipalRef;
   correlationId?: string | null;
   responseMode?: RuntimeResponseMode | null;
   webhookId?: string | null;

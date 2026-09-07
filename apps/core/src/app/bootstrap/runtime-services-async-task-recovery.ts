@@ -235,7 +235,7 @@ async function publishSessionCompactionTimeoutEvent(
       : {}),
     ...(task.threadId ? { threadId: task.threadId as never } : {}),
     eventType: RUNTIME_EVENT_TYPES.SESSION_COMPACTION_TIMEOUT,
-    actor: 'runtime',
+    actor: { kind: 'system', source: 'runtime' },
     responseMode: 'none',
     payload: {
       state: 'timeout',

@@ -362,7 +362,7 @@ async function consultIpcPermissionClassifier(
         conversationId: input.request.targetJid,
         threadId: input.request.threadId,
         correlationId: input.request.requestId,
-        actor: 'permission',
+        actor: { kind: 'system', source: 'permission' },
         // Host-injected at spawn; best-effort context for the classifier to
         // narrow with — never a trust input.
         intentSource: input.request.turnIntentSummary

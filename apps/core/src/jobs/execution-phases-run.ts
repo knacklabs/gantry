@@ -439,7 +439,8 @@ async function settleActiveJobAgentOutput(
     });
     await forwardRunnerRuntimeEvents({
       events: browserActivityEvents.filter(
-        (event) => event.actor === 'browser',
+        (event) =>
+          event.actor.kind === 'system' && event.actor.source === 'browser',
       ),
       diagnostics: context.diagnostics!,
     });

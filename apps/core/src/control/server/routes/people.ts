@@ -281,7 +281,7 @@ export async function handlePeopleRoutes(
             provider: result.provider,
             providerAccountId: result.providerAccountId,
             verificationStatus: result.verificationStatus,
-            actor: auth.kid,
+            actor: { kind: 'system', source: auth.kid },
           }),
       );
       sendJson(res, 201, { alias: created });
@@ -312,7 +312,7 @@ export async function handlePeopleRoutes(
             provider: result.provider,
             providerAccountId: result.providerAccountId,
             verificationStatus: result.verificationStatus,
-            actor: auth.kid,
+            actor: { kind: 'system', source: auth.kid },
           }),
       );
       sendJson(res, 200, { alias: retired });
@@ -354,7 +354,7 @@ export async function handlePeopleRoutes(
               appId,
               sourcePersonId: merged.sourcePersonId,
               targetPersonId: merged.targetPersonId,
-              actor: auth.kid,
+              actor: { kind: 'system', source: auth.kid },
               aliasesMoved: merged.aliasesToMove.length,
               memoryRowsMoved: merged.memoryRowsToMove,
             }),
@@ -396,7 +396,7 @@ export async function handlePeopleRoutes(
               auditId: unmerged.auditId,
               sourcePersonId: unmerged.sourcePersonId,
               targetPersonId: unmerged.targetPersonId,
-              actor: auth.kid,
+              actor: { kind: 'system', source: auth.kid },
               memoryRowsRestored: unmerged.memoryRowsRestored,
               unmergedAt: unmerged.unmergedAt,
             }),

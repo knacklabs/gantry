@@ -23,7 +23,7 @@ export class PostgresAgentOffboardingRepository {
     expectedSettingsRevision: number;
     settingsDocument: Record<string, unknown>;
     createdBy: string;
-    actor: string;
+    actor: { kind: 'system'; source: string };
     now: string;
     minReaderVersion: number;
   }): Promise<
@@ -157,7 +157,7 @@ export class PostgresAgentOffboardingRepository {
         idempotencyKey,
         personId: person.id,
         agentId: agent.id,
-        actor: input.actor,
+        actor: JSON.stringify(input.actor),
         resultJson: {
           providerAccountsDisabled: accountIds.length,
           conversationInstallsRemoved: installs.length,
