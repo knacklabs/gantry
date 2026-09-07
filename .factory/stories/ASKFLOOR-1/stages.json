@@ -67,7 +67,16 @@
           "git": "1 .M N... 100644 100644 100644 768594b605f3296862d2fef400ef3fb0b352bce3 768594b605f3296862d2fef400ef3fb0b352bce3 plans/exploration/askfloor-1-t3c-taskplan.md\u0000\u0000100644 768594b605f3296862d2fef400ef3fb0b352bce3 0\tplans/exploration/askfloor-1-t3c-taskplan.md\u0000\u0000H plans/exploration/askfloor-1-t3c-taskplan.md\u0000"
         }
       },
-      "task_sha256": "d23f9c1994ad7e6039911d00dd277e82b9a92cecec6f28db8e852fc97b07cd96"
+      "task_sha256": "d23f9c1994ad7e6039911d00dd277e82b9a92cecec6f28db8e852fc97b07cd96",
+      "local_review_stamp": {
+        "stage_id": "ASKFLOOR-1-T3c",
+        "task_sha256": "d23f9c1994ad7e6039911d00dd277e82b9a92cecec6f28db8e852fc97b07cd96",
+        "brief_sha256": "520c0bd776c26744535c3c6e4139a4206d00a576edb65cc29b18187aa81492c8",
+        "base_sha": "689550bcc3f28115a713775ca35f8559dc396121",
+        "product_tree_digest": "94f1faab8c4a2c9aa9af95c5b45077c0953f7f334d53d449adf54b201635899f",
+        "recorded_at": "2026-09-07T16:37:20+00:00",
+        "generated_by": "autoreview"
+      }
     },
     {
       "id": "ASKFLOOR-1-T4",
