@@ -7,6 +7,7 @@ import type {
   PermissionApprovalRequest,
   PermissionCallbackScope,
   PermissionRecoveryEnvelope,
+  PermissionRememberCode,
 } from '../../domain/types.js';
 import {
   durablePermissionRequestSnapshot,
@@ -38,7 +39,7 @@ export function configurePendingInteractionPromptBinding(
 
 export async function bindPendingPermissionInteractionMessage(input: {
   request: PermissionApprovalRequest;
-  decisionOptions: PermissionApprovalDecisionMode[];
+  decisionOptions: (PermissionApprovalDecisionMode | PermissionRememberCode)[];
   callbackId?: string;
   externalMessageId?: string;
   provider?: string | null;
@@ -52,6 +53,7 @@ export async function bindPendingPermissionInteractionMessage(input: {
   const requestIds = request.permissionBatch?.requestIds?.length
     ? request.permissionBatch.requestIds
     : [request.requestId];
+  const matchKind = requestIds.length > 1 ? 'batch' : 'individual';
   const envelope: PermissionRecoveryEnvelope = {
     version: 1,
     renderedDecisionOptions: [...input.decisionOptions],
@@ -74,7 +76,7 @@ export async function bindPendingPermissionInteractionMessage(input: {
       setupFingerprint: request.setupFingerprint ?? null,
       sourceAgentFolder: request.sourceAgentFolder,
       interactionId: request.requestId,
-      matchKind: requestIds.length > 1 ? 'batch' : 'individual',
+      matchKind,
       members: requestIds.map((requestId, index) => ({
         idempotencyKey: pendingInteractionIdempotencyKey({
           kind: 'permission',
@@ -116,7 +118,7 @@ export interface DurablePermissionPromptMessageContext {
   approvalContextJid: string | null;
   threadId: string | null;
   decisionPolicy: PermissionApprovalRequest['decisionPolicy'] | null;
-  decisionOptions: PermissionApprovalDecisionMode[];
+  decisionOptions: (PermissionApprovalDecisionMode | PermissionRememberCode)[];
   request: PermissionApprovalRequest;
   claim?: NonNullable<PermissionPromptGroup['prompt']['claim']>;
 }

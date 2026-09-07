@@ -5,7 +5,9 @@ import type {
 import type {
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
+  PermissionRememberCode,
 } from '../../domain/types.js';
+import { decodePermissionDecisionCode } from '../../application/permissions/permission-remember-codec.js';
 import { firstPersistentRule } from '../../domain/permission-decision.js';
 import {
   bindPendingPermissionInteractionMessage,
@@ -81,10 +83,14 @@ function permissionDecisionModes(
 }
 
 function apiDecisionOptions(
-  modes: PermissionApprovalDecisionMode[],
+  modes: (PermissionApprovalDecisionMode | PermissionRememberCode)[],
 ): SessionInteractionDecision[] {
+  const scalarModes = modes.flatMap((mode) => {
+    const decoded = decodePermissionDecisionCode(mode);
+    return decoded ? [decoded.mode] : [];
+  });
   return SESSION_INTERACTION_DECISIONS.filter((decision) =>
-    modes.includes(DECISION_TO_MODE[decision]),
+    scalarModes.includes(DECISION_TO_MODE[decision]),
   );
 }
 
@@ -254,10 +260,13 @@ export async function respondToSessionPermissionInteraction(input: {
   });
   if (!resolved) return { status: 'retryable' };
   const persistedMode = claimed.persistedClaim?.intent.mode ?? mode;
+  const persistedDecision = decodePermissionDecisionCode(persistedMode);
   return {
     status: 'resolved',
     interactionId,
-    decision: MODE_TO_DECISION[persistedMode] ?? input.decision,
+    decision: persistedDecision
+      ? (MODE_TO_DECISION[persistedDecision.mode] ?? input.decision)
+      : input.decision,
     decidedBy: claimed.persistedClaim?.intent.approverRef ?? input.decidedBy,
   };
 }

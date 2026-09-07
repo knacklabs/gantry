@@ -1,0 +1,13 @@
+{
+  "topic": "t3c-batch-finalize-in-repository",
+  "lesson": "Host verify after run 10: 6 batch failures in channels/slack.test.ts and channels/teams/teams.test.ts \u2014 bindPendingPermissionInteractionMessage now calls active.repository.listPendingInteractions (pending-interaction-prompt-binding.ts:87) for batch prompts to decide whether to attach updateMemberPayloads, and the older durability fakes have no such method, so binding throws \"Pending permission prompt binding could not be persisted\". This is the same family as lessons 99 and 102: the application binding must make NO new repository call and pass NO new argument on any existing path. Move the batch finalization INTO the repository's own bind implementation, keyed on the matchKind the bind input already carries: in the Postgres bindPermissionPrompt (worker-coordination-permission-prompt.postgres.ts and the interaction repository it uses), when matchKind === 'batch', inside the SAME transaction that inserts the prompt, update every member payload that holds a parseable rememberContext to eligible: false (one statement, no per-member round trips); members without a context are untouched. Delete the updateMemberPayloads hook from the port and the application binding, and delete the listPendingInteractions pre-read; the application binding's arguments return to exactly what they were before T3c. The in-memory durability fake that T3c's own suites use implements the same batch rule so the durability round-trip leaf still proves 'a batch binding turns an eligible context ineligible before the prompt is claimable'; the Postgres integration leaf proves the atomic finalization for real. Do not touch slack.test.ts or teams.test.ts. Then re-run the twelve leaves, tsc, check:architecture, prettier; the host runs npm test.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
+    "apps/core/src/domain/ports/worker-coordination.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-07T16:10:25+00:00"
+}

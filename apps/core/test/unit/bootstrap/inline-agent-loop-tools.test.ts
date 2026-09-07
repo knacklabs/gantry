@@ -1,6 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
+import {
+  bindPendingPermissionInteractionMessage,
+  claimPermissionInteractionCallback,
+  configurePendingInteractionDurability,
+  replayPersistedPermissionDecisionForRequest,
+} from '@core/application/interactions/pending-interaction-durability.js';
 
 const spawnAgent = vi.hoisted(() => vi.fn());
 
@@ -41,6 +47,7 @@ import {
   resolveTurnToolPolicyFromSnapshot,
 } from '@core/runtime/group-run-context.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import { inMemoryPermissionDurability } from '../runtime/askfloor-tap-budget-harness.js';
 
 const publishRuntimeEvent = vi.fn(async () => undefined);
 const sendMessage = vi.fn(async () => undefined);
@@ -197,6 +204,10 @@ beforeEach(() => {
     await onOutput?.({ status: 'success', result: 'delegated done' });
     return { status: 'success', result: 'delegated done' };
   });
+});
+
+afterEach(() => {
+  configurePendingInteractionDurability(null);
 });
 
 describe('inline core tool bootstrap', () => {
@@ -882,6 +893,104 @@ describe('inline core tool bootstrap', () => {
       'permission.resumed',
       'permission.final_outcome',
     ]);
+  });
+
+  it("persists an eligible remembered Allow once from the after-decision hook on a non-scheduled auto run with the person id and label from the run's host identity and an undefined label when the run has none, persists nothing on a scheduled run, and leaves the decision applied when the memory port fails", async () => {
+    const runRememberScenario = async (options: {
+      scheduled?: boolean;
+      failWrite?: boolean;
+    }) => {
+      const { repository } = inMemoryPermissionDurability();
+      configurePendingInteractionDurability({
+        repository: repository as never,
+      });
+      const putHumanDecision = options.failWrite
+        ? vi.fn(async () => {
+            throw new Error('memory unavailable');
+          })
+        : vi.fn(async (input) => ({
+            id: input.id,
+            status: 'inserted' as const,
+          }));
+      const warn = vi.fn();
+      const decisionMemory = {
+        getClassifierVerdict: vi.fn(async () => null),
+        putClassifierVerdict: vi.fn(async () => undefined),
+        findHumanDecision: vi.fn(async () => null),
+        putHumanDecision,
+        listHumanDecisions: vi.fn(async () => []),
+      } as never;
+      if (!options.scheduled) {
+        requestPermissionApproval.mockImplementationOnce(async (request) => {
+          await bindPendingPermissionInteractionMessage({
+            request,
+            decisionOptions: ['remember_allow_exact'],
+          });
+          const claimed = await claimPermissionInteractionCallback({
+            scope: {
+              appId: request.appId || 'default',
+              sourceAgentFolder: request.sourceAgentFolder,
+              interactionId: request.requestId,
+            },
+            mode: 'remember_allow_exact',
+            approverRef: 'person-one',
+            matchKind: 'individual',
+          });
+          if (claimed.status !== 'claimed') throw new Error('claim failed');
+          const recovered = await replayPersistedPermissionDecisionForRequest({
+            appId: request.appId,
+            sourceAgentFolder: request.sourceAgentFolder,
+            requestId: request.requestId,
+          });
+          if (!recovered) throw new Error('decision recovery failed');
+          return permissionDecisionResult(recovered);
+        });
+      }
+      wire({
+        classifierConsult: vi.fn(async () => ({
+          risk_level: 'high' as const,
+          reason: 'Ask the person.',
+          latencyMs: 1,
+        })),
+        getPermissionDecisionMemoryRepository: () => decisionMemory,
+        warn,
+      });
+      const input = laneInput();
+      input.input.permissionMode = 'auto';
+      input.input.memoryUserId = 'person-one';
+      if (options.scheduled) {
+        input.input.isScheduledJob = true;
+        input.input.jobId = 'job-one';
+      }
+      input.mcpServers = [
+        { name: 'crm', allowedToolNames: ['mcp__crm__read'] },
+      ] as never;
+      const result = await createInlineCoreTools(
+        input,
+        support((() => ({
+          status: 'prompt',
+          reason: 'Approval required.',
+        })) as never),
+      ).authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' });
+      return { result, putHumanDecision, warn };
+    };
+
+    const eligible = await runRememberScenario({});
+    expect(eligible.result).toEqual({ allowed: true });
+    expect(eligible.putHumanDecision).toHaveBeenCalledOnce();
+    expect(eligible.putHumanDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actingPersonId: 'person-one',
+        actingPersonLabel: undefined,
+      }),
+    );
+
+    const scheduled = await runRememberScenario({ scheduled: true });
+    expect(scheduled.putHumanDecision).not.toHaveBeenCalled();
+
+    const failed = await runRememberScenario({ failWrite: true });
+    expect(failed.result).toEqual({ allowed: true });
+    expect(failed.warn).toHaveBeenCalledOnce();
   });
 
   it('prompts for allowed remote MCP tools that are not auto-approved', async () => {

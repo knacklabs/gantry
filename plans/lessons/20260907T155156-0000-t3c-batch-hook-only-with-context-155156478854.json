@@ -1,0 +1,12 @@
+{
+  "topic": "t3c-batch-hook-only-with-context",
+  "lesson": "Host verify after the review-r1 fixes: 9,149 of 9,150 pass; the one failure is apps/core/test/unit/channels/telegram.test.ts \"lets exactly one concurrent Allow all or Review each Telegram callback claim a batch\", whose exact-argument pin on the bind call now sees an extra key: bindPendingPermissionInteractionMessage passes updateMemberPayloads for EVERY batch prompt, even when no member carries a remember context. The contract's own rule is that context-less prompts take today's path exactly (byte-identical arguments, no new hook). Fix in pending-interaction-prompt-binding.ts: attach updateMemberPayloads only when at least one bound member's payload holds a parseable rememberContext (the members are known before the bind); the atomic finalize-in-bind stays for that case; a batch without contexts binds exactly as before. Do NOT edit telegram.test.ts (provider tests are another task's). Keep the durability suite's cases (batch with contexts -> ineligible atomically; batch without contexts -> no hook, no extra call). Then re-run the twelve leaves, tsc, check:architecture, prettier; the host runs npm test.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts",
+    "apps/core/test/unit/application/pending-interaction-durability.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-07T15:51:56+00:00"
+}

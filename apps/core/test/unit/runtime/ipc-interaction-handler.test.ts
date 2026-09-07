@@ -11,6 +11,7 @@ import {
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
+import { computePermissionEffectHash } from '@core/domain/permission-effect-key.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 import { buildPermissionResponseSignaturePayload } from '@core/shared/ipc-signing.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
@@ -40,10 +41,18 @@ import {
   unregisterPermissionRunRestriction,
 } from '@core/runtime/permission-decision-coordinator.js';
 import {
+  bindPendingPermissionInteractionMessage,
   claimPermissionInteractionCallback,
   configurePendingInteractionDurability,
   DurableInteractionPersistenceError,
+  pendingInteractionIdempotencyKey,
+  rememberSettlementForClaim,
+  replayPersistedPermissionDecisionForRequest,
 } from '@core/application/interactions/pending-interaction-durability.js';
+import {
+  inMemoryDecisionMemory,
+  inMemoryPermissionDurability,
+} from './askfloor-tap-budget-harness.js';
 
 function fileMode(filePath: string): number {
   return fs.statSync(filePath).mode & 0o777;
@@ -171,6 +180,375 @@ describe('ipc-interaction-handler', () => {
       }),
     );
     expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists the remember context before delegating to the durable flow on both the denylist and classifier-ask prompt exits with a lane and effect hash equal to the helper's and a person id and label from the same host source that no callback identity overrides and an undefined label when the host source has none, still recovers a context after a crash between the provider claim and the helper returning, persists an eligible remembered Allow once before the current call is applied once-only with unchanged events, persists a remembered No with the current call denied, persists nothing for an ask, auto_strict, group, batch or scheduled-job prompt, a blank person, or a persisted context whose lane input re-derives outside interactive_auto, and treats a provider double-delivery as already decided with zero writes", async () => {
+    const runRemembered = async (options: {
+      code: 'remember_allow_exact' | 'remember_deny_exact';
+      permissionMode?: 'ask' | 'auto' | 'auto_strict';
+      personId?: string;
+      denylist?: boolean;
+      forgedPersonId?: string;
+      mutateLane?: 'ask';
+      batch?: boolean;
+      crashAfterClaim?: boolean;
+      group?: boolean;
+      scheduledJob?: boolean;
+      contextPersistenceFails?: boolean;
+    }) => {
+      const durability = inMemoryPermissionDurability();
+      const rows = [];
+      const decisionMemory = inMemoryDecisionMemory(rows);
+      const putHumanDecision = vi.spyOn(decisionMemory, 'putHumanDecision');
+      const createTransientGrant = vi.spyOn(
+        durability.repository as never,
+        'createTransientGrant',
+      );
+      if (options.contextPersistenceFails) {
+        vi.spyOn(
+          durability.repository as never,
+          'updatePendingInteractionPayload',
+        ).mockResolvedValueOnce(false);
+      }
+      configurePendingInteractionDurability({
+        repository: durability.repository as never,
+      });
+      const envelope = createIpcAuthEnvelope('main_agent', null);
+      registerPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId: envelope.responseKeyId,
+        hideAuthorityTools: false,
+        runKind: options.scheduledJob ? 'scheduled' : 'interactive',
+        ...(options.scheduledJob ? { jobId: 'job-remembered' } : {}),
+        ...(options.personId ? { memoryUserId: options.personId } : {}),
+        runId: 'run-remembered',
+      });
+      const workspaceRoot = resolveWorkspaceFolderPath('main_agent');
+      const command = options.denylist ? '[redacted]' : 'git log';
+      const targetJid = options.group ? 'tg:group' : 'tg:permission';
+      const request = {
+        requestId: `permission-${options.code}-${options.permissionMode ?? 'auto'}-${options.personId ?? 'blank'}-${options.denylist ? 'denylist' : 'classifier'}-${options.batch ? 'batch' : 'single'}-${options.scheduledJob ? 'scheduled' : 'interactive'}`,
+        appId: 'default',
+        agentId: 'agent-one',
+        responseKeyId: envelope.responseKeyId,
+        responseNonce: 'nonce-one',
+        sourceAgentFolder: 'main_agent',
+        runId: 'run-remembered',
+        runLeaseToken: 'lease-one',
+        runLeaseFencingVersion: 1,
+        targetJid,
+        personId: options.forgedPersonId,
+        toolName: 'RunCommand',
+        toolInput: { command },
+        ...(options.denylist
+          ? {
+              classifierToolInput: { command: 'git log' },
+              toolInputSanitized: true,
+            }
+          : {}),
+        ...(options.batch
+          ? {
+              permissionBatch: {
+                requestIds: ['placeholder', 'placeholder-2'],
+                rows: ['one', 'two'],
+              },
+            }
+          : {}),
+      };
+      if (options.batch) {
+        request.permissionBatch!.requestIds = [
+          request.requestId,
+          `${request.requestId}-2`,
+        ];
+      }
+      const expectedEffectHash = computePermissionEffectHash({
+        request,
+        workspaceRoot,
+      });
+      let contextBeforeDelegation: Record<string, unknown> | undefined;
+      let claimedReference:
+        | {
+            id: string;
+            scope: {
+              appId: string;
+              sourceAgentFolder: string;
+              interactionId: string;
+            };
+          }
+        | undefined;
+      const requestPermissionApproval = vi.fn(async (currentRequest) => {
+        contextBeforeDelegation = durability.member()?.payload
+          .rememberContext as Record<string, unknown> | undefined;
+        if (options.batch) {
+          const secondRequestId =
+            currentRequest.permissionBatch!.requestIds[1]!;
+          await (
+            durability.repository as {
+              createPendingInteraction(
+                input: Record<string, unknown>,
+              ): Promise<unknown>;
+            }
+          ).createPendingInteraction({
+            id: `${secondRequestId}-interaction`,
+            appId: 'default',
+            runId: currentRequest.runId ?? null,
+            sourceAgentFolder: 'main_agent',
+            requestId: secondRequestId,
+            runLeaseToken: currentRequest.runLeaseToken ?? null,
+            runLeaseFencingVersion:
+              currentRequest.runLeaseFencingVersion ?? null,
+            kind: 'permission',
+            payload: {},
+            callbackRoute: null,
+            idempotencyKey: pendingInteractionIdempotencyKey({
+              kind: 'permission',
+              sourceAgentFolder: 'main_agent',
+              requestId: secondRequestId,
+              appId: 'default',
+            }),
+            expiresAt: '2026-09-08T00:00:00.000Z',
+          });
+        }
+        await bindPendingPermissionInteractionMessage({
+          request: currentRequest,
+          decisionOptions: [options.code],
+        });
+        if (options.mutateLane) {
+          const context = durability.member()?.payload
+            .rememberContext as Record<string, unknown>;
+          context.laneInput = { permissionMode: options.mutateLane };
+        }
+        const claimed = await claimPermissionInteractionCallback({
+          scope: {
+            appId: 'default',
+            sourceAgentFolder: 'main_agent',
+            interactionId: currentRequest.requestId,
+          },
+          mode: options.code,
+          approverRef: 'callback-person',
+          matchKind: options.batch ? 'batch' : 'individual',
+        });
+        if (claimed.status !== 'claimed') throw new Error('claim failed');
+        claimedReference = claimed.claim;
+        if (options.crashAfterClaim) throw new Error('provider crashed');
+        const recovered = await replayPersistedPermissionDecisionForRequest({
+          appId: 'default',
+          sourceAgentFolder: 'main_agent',
+          requestId: currentRequest.requestId,
+        });
+        if (!recovered) throw new Error('recovery failed');
+        return permissionDecisionResult(recovered);
+      });
+      const publishRuntimeEvent = vi.fn(async () => undefined);
+      const claimedPath = path.join(tempDir, `${request.requestId}.json`);
+      fs.writeFileSync(claimedPath, '{}');
+      try {
+        await processPermissionInteractionIpc({
+          request,
+          sourceAgentFolder: 'main_agent',
+          deps: {
+            conversationRoutes: () =>
+              options.group || options.scheduledJob
+                ? {
+                    [makeAgentThreadQueueKey(
+                      targetJid,
+                      agentIdForFolder('main_agent'),
+                    )]: {
+                      name: 'Permission route',
+                      folder: 'main_agent',
+                      trigger: '',
+                      added_at: new Date(0).toISOString(),
+                      agentId: agentIdForFolder('main_agent'),
+                      conversationKind: 'channel',
+                    },
+                  }
+                : {},
+            requestPermissionApproval,
+            classifierConsult: vi.fn(async () => ({
+              risk_level: 'high' as const,
+              reason: 'Ask the person.',
+              latencyMs: 1,
+            })),
+            publishRuntimeEvent,
+            getPermissionDecisionMemoryRepository: () => decisionMemory,
+            ...(options.scheduledJob
+              ? {
+                  jobPermissionDurability: {
+                    attachRequest: vi.fn(async () => true),
+                  },
+                }
+              : {}),
+            getPermissionRuntimeSettings: () => ({
+              agents: {
+                main_agent: {
+                  permissionMode: options.permissionMode ?? 'auto',
+                },
+              },
+              permissions: {
+                autoMode: {},
+                trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
+                ...(options.denylist
+                  ? {
+                      yoloMode: {
+                        enabled: true,
+                        denylist: ['git log'],
+                        denylistPaths: [],
+                      },
+                    }
+                  : {}),
+              },
+              memory: { llm: { models: { extractor: 'sonnet' } } },
+            }),
+          } as never,
+          ipcBaseDir: tempDir,
+          file: path.basename(claimedPath),
+          claimedPath,
+          logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+        });
+      } finally {
+        unregisterPermissionRunRestriction({
+          sourceAgentFolder: 'main_agent',
+          responseKeyId: envelope.responseKeyId,
+        });
+      }
+      return {
+        durability,
+        rows,
+        putHumanDecision,
+        createTransientGrant,
+        requestPermissionApproval,
+        publishRuntimeEvent,
+        contextBeforeDelegation,
+        claimedReference,
+        expectedEffectHash,
+        request,
+      };
+    };
+
+    for (const denylist of [false, true]) {
+      const allowed = await runRemembered({
+        code: 'remember_allow_exact',
+        personId: 'host-person',
+        forgedPersonId: 'forged-person',
+        denylist,
+      });
+      expect(allowed.contextBeforeDelegation).toMatchObject({
+        eligible: true,
+        lane: 'interactive_auto',
+        personId: 'host-person',
+        effectHash: allowed.expectedEffectHash,
+      });
+      expect(allowed.contextBeforeDelegation).not.toHaveProperty('personLabel');
+      expect(allowed.putHumanDecision).toHaveBeenCalledOnce();
+      expect(allowed.putHumanDecision).toHaveBeenCalledWith(
+        expect.objectContaining({ actingPersonId: 'host-person' }),
+      );
+      expect(allowed.putHumanDecision.mock.invocationCallOrder[0]).toBeLessThan(
+        allowed.createTransientGrant.mock.invocationCallOrder[0]!,
+      );
+      expect(
+        allowed.publishRuntimeEvent.mock.calls.map(
+          ([event]) => event.eventType,
+        ),
+      ).toEqual([
+        'interaction.pending',
+        'permission.requested',
+        ...(denylist ? ['permission.yolo_denylist_hit'] : []),
+        'permission.classifier_decision',
+        'permission.allowed',
+        'permission.resumed',
+        'permission.final_outcome',
+      ]);
+      const replay = await claimPermissionInteractionCallback({
+        scope: {
+          appId: 'default',
+          sourceAgentFolder: 'main_agent',
+          interactionId: allowed.durability.member()!.requestId!,
+        },
+        mode: 'remember_allow_exact',
+        approverRef: 'callback-person',
+        matchKind: 'individual',
+      });
+      expect(replay.status).toBe('already_decided');
+      expect(allowed.putHumanDecision).toHaveBeenCalledOnce();
+    }
+
+    const denied = await runRemembered({
+      code: 'remember_deny_exact',
+      personId: 'host-person',
+    });
+    expect(denied.putHumanDecision).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'deny', scope: 'exact' }),
+    );
+    expect(denied.createTransientGrant).not.toHaveBeenCalled();
+
+    for (const permissionMode of ['ask', 'auto_strict'] as const) {
+      const ineligible = await runRemembered({
+        code: 'remember_allow_exact',
+        permissionMode,
+        personId: 'host-person',
+      });
+      expect(ineligible.putHumanDecision).not.toHaveBeenCalled();
+    }
+    const blankPerson = await runRemembered({
+      code: 'remember_allow_exact',
+    });
+    expect(blankPerson.putHumanDecision).not.toHaveBeenCalled();
+    const group = await runRemembered({
+      code: 'remember_allow_exact',
+      group: true,
+    });
+    expect(group.putHumanDecision).not.toHaveBeenCalled();
+    const batch = await runRemembered({
+      code: 'remember_allow_exact',
+      personId: 'host-person',
+      batch: true,
+    });
+    expect(batch.putHumanDecision).not.toHaveBeenCalled();
+    const scheduled = await runRemembered({
+      code: 'remember_allow_exact',
+      personId: 'host-person',
+      scheduledJob: true,
+    });
+    expect(scheduled.putHumanDecision).not.toHaveBeenCalled();
+    const forgedLane = await runRemembered({
+      code: 'remember_allow_exact',
+      personId: 'host-person',
+      mutateLane: 'ask',
+    });
+    expect(forgedLane.putHumanDecision).not.toHaveBeenCalled();
+
+    const persistenceFailure = await runRemembered({
+      code: 'remember_allow_exact',
+      personId: 'host-person',
+      contextPersistenceFails: true,
+    });
+    expect(persistenceFailure.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(persistenceFailure.putHumanDecision).not.toHaveBeenCalled();
+
+    const crashed = await runRemembered({
+      code: 'remember_allow_exact',
+      personId: 'host-person',
+      crashAfterClaim: true,
+    });
+    expect(crashed.putHumanDecision).not.toHaveBeenCalled();
+    expect(crashed.claimedReference).toBeDefined();
+    await expect(
+      rememberSettlementForClaim(crashed.claimedReference!),
+    ).resolves.toMatchObject({
+      context: { eligible: true, personId: 'host-person' },
+      resolution: {
+        mode: 'allow_once',
+        remember: { outcome: 'allow', scope: 'exact' },
+      },
+    });
+    await expect(
+      replayPersistedPermissionDecisionForRequest({
+        appId: 'default',
+        sourceAgentFolder: 'main_agent',
+        requestId: crashed.request.requestId,
+      }),
+    ).resolves.toMatchObject({ mode: 'allow_once' });
   });
 
   it('delegates user questions through the domain handler', async () => {
@@ -1348,6 +1726,11 @@ describe('ipc-interaction-handler', () => {
         firstAskedAt: '2026-07-12T00:00:00.000Z',
         decisionOptions: ['allow_persistent_rule', 'allow_once', 'cancel'],
       }),
+      expect.objectContaining({
+        analysis: expect.objectContaining({ lane: 'ask' }),
+        effectHash: expect.any(String),
+        workspaceRoot: expect.any(String),
+      }),
     );
   });
 
@@ -1641,6 +2024,7 @@ describe('ipc-interaction-handler', () => {
             heartbeatAt: '2026-06-10T00:00:00.000Z',
           })),
           createPendingInteraction: vi.fn(async () => true),
+          updatePendingInteractionPayload: vi.fn(async () => true),
           findPendingPermissionPromptByMember: vi.fn(async () => null),
           listPendingInteractions: vi.fn(async () => []),
           resolvePendingInteraction: vi.fn(async () => true),
@@ -1767,6 +2151,7 @@ describe('ipc-interaction-handler', () => {
     });
     const repository = {
       createPendingInteraction: vi.fn(async () => true),
+      updatePendingInteractionPayload: vi.fn(async () => true),
       findPendingPermissionPromptByMember: vi.fn(async () => null),
       listPendingInteractions: vi.fn(async () => []),
       claimPendingPermissionCallback: vi.fn(async () => {
@@ -2059,6 +2444,7 @@ describe('ipc-interaction-handler', () => {
     configurePendingInteractionDurability({
       repository: {
         createPendingInteraction: vi.fn(async () => true),
+        updatePendingInteractionPayload: vi.fn(async () => true),
         findPendingPermissionPromptByMember: vi.fn(async () => null),
         listPendingInteractions: vi.fn(async () => []),
         getActiveRunLease: vi
@@ -2133,6 +2519,7 @@ describe('ipc-interaction-handler', () => {
     configurePendingInteractionDurability({
       repository: {
         createPendingInteraction: vi.fn(async () => true),
+        updatePendingInteractionPayload: vi.fn(async () => true),
         findPendingPermissionPromptByMember: vi.fn(async () => null),
         listPendingInteractions: vi.fn(async () => []),
         getActiveRunLease: vi
@@ -2730,6 +3117,7 @@ describe('ipc-interaction-handler', () => {
           heartbeatAt: '2026-06-10T00:00:00.000Z',
         })),
         createPendingInteraction: vi.fn(async () => true),
+        updatePendingInteractionPayload: vi.fn(async () => true),
         findPendingPermissionPromptByMember: vi.fn(async () => null),
         listPendingInteractions: vi.fn(async () => []),
         resolvePendingInteraction,
@@ -2829,6 +3217,7 @@ describe('ipc-interaction-handler', () => {
           heartbeatAt: '2026-06-10T00:00:00.000Z',
         })),
         createPendingInteraction: vi.fn(async () => true),
+        updatePendingInteractionPayload: vi.fn(async () => true),
         findPendingPermissionPromptByMember: vi.fn(async () => null),
         listPendingInteractions: vi.fn(async () => []),
         resolvePendingInteraction,
@@ -3151,6 +3540,7 @@ describe('ipc-interaction-handler', () => {
     const repository = {
       getActiveRunLease,
       createPendingInteraction: vi.fn(async () => true),
+      updatePendingInteractionPayload: vi.fn(async () => true),
       findPendingPermissionPromptByMember: vi.fn(async () => null),
       listPendingInteractions: vi.fn(async () => []),
       resolvePendingInteraction: vi.fn(async () => true),
@@ -3244,6 +3634,7 @@ describe('ipc-interaction-handler', () => {
       repository: {
         getActiveRunLease,
         createPendingInteraction: vi.fn(async () => true),
+        updatePendingInteractionPayload: vi.fn(async () => true),
         findPendingPermissionPromptByMember: vi.fn(async () => null),
         listPendingInteractions: vi.fn(async () => []),
         resolvePendingInteraction: vi.fn(async () => true),

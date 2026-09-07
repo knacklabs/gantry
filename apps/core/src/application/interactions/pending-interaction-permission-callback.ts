@@ -5,12 +5,20 @@ import type {
 import { decisionForMode } from '../../domain/permission-decision.js';
 import type {
   PermissionApprovalDecision,
-  PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
   PermissionCallbackClaim,
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
+  PermissionRecoveryEnvelope,
 } from '../../domain/types.js';
+import {
+  parsePermissionRememberContext,
+  type PermissionRememberContext,
+} from '../permissions/human-decision-learning.js';
+import {
+  decodePermissionDecisionCode,
+  type DecodedPermissionDecisionCode,
+} from '../permissions/permission-remember-codec.js';
 import type { PermissionInteractionDecisionInput } from './pending-interaction-grants.js';
 import type { PendingInteractionResolutionOutcome } from './pending-interaction-resolution.js';
 import {
@@ -45,6 +53,7 @@ interface PermissionCallbackBackend {
   resolveOutcome?: (
     input: PermissionCallbackResolutionInput,
   ) => Promise<PendingInteractionResolutionOutcome>;
+  learn?: (claim: PermissionCallbackClaimReference) => Promise<void>;
   warn?: (context: Record<string, unknown>, message: string) => void;
 }
 
@@ -207,7 +216,7 @@ export interface DurablePermissionInteractionContext {
   approvalContextJid: string | null;
   threadId: string | null;
   decisionPolicy: PermissionApprovalRequest['decisionPolicy'] | null;
-  decisionOptions: PermissionApprovalDecisionMode[];
+  decisionOptions: PermissionRecoveryEnvelope['renderedDecisionOptions'];
   externalPromptMessageId: string | null;
   externalPromptProvider: string | null;
   externalPromptConversationId: string | null;
@@ -436,6 +445,30 @@ export async function settlePermissionInteractionCallback(input: {
   }
 }
 
+export async function rememberSettlementForClaim(
+  claim: PermissionCallbackClaimReference,
+): Promise<{
+  context: PermissionRememberContext;
+  resolution: DecodedPermissionDecisionCode;
+} | null> {
+  const active = backend;
+  if (!active) return null;
+  const group = await active.repository.findPendingPermissionPrompt({
+    scope: claim.scope,
+    includeTerminalSettlement: true,
+  });
+  if (!group?.prompt.claim || !samePermissionClaim(group.prompt.claim, claim)) {
+    return null;
+  }
+  const context = parsePermissionRememberContext(
+    group.members[0]?.payload.rememberContext,
+  );
+  const resolution = decodePermissionDecisionCode(
+    group.prompt.claim.intent.mode,
+  );
+  return context && resolution ? { context, resolution } : null;
+}
+
 export async function resolveDurablePermissionInteractionByRequestId(input: {
   claim: PermissionCallbackClaimReference;
   reason?: string | null;
@@ -500,6 +533,14 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
       });
       const decisionClaim = decision.permissionCallbackClaim!;
       try {
+        try {
+          await active.learn?.(decisionClaim);
+        } catch (err) {
+          active.warn?.(
+            { err, claim: decisionClaim },
+            'Failed to learn remembered permission decision',
+          );
+        }
         applicationStarted = true;
         const applied = await active.applyDecision({
           request,
@@ -581,9 +622,11 @@ function recoveredPermissionDecision(input: {
   claim: PermissionCallbackClaim;
   reason?: string | null;
 }): PermissionApprovalDecision {
+  const decoded = decodePermissionDecisionCode(input.claim.intent.mode);
+  if (!decoded) throw new Error('Persisted permission decision is malformed');
   const decision = decisionForMode(
     input.request,
-    input.claim.intent.mode,
+    decoded.mode,
     input.claim.intent.approverRef,
   );
   return {

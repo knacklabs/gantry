@@ -1,0 +1,13 @@
+{
+  "topic": "t3c-run3-continue",
+  "lesson": "Run 3 of ASKFLOOR-1-T3c also died on the Codex compaction bug; the tree now holds 18 modified files plus NEW permission-remember-codec.ts, human-decision-learning.ts, permission-remember-settlement.ts and their three suites (codec, learning, control). Run 3's last note: the IPC and recovery chokepoints share the persisted claim accessor, the context is written before delegation, learning runs after the claim and immediately before application, and runtime-store supplies the decision-memory repository. CONTINUE from that tree \u2014 never reset. Remaining, in order: the inline path (inline-permission-memory.ts context derivation + afterDecision learning; inline file under 750 lines), the Postgres mapper validation + its integration case, the provider-affordance parity case, the S2 harness/fixture, then the twelve leaves by their exact titles, tsc, check:architecture, prettier. Commit nothing; the host commits. Keep each step small so a compaction cannot lose it.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-07T12:32:23+00:00"
+}
