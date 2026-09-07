@@ -287,7 +287,7 @@ export function AgentCreateDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className={`w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-[9px] p-0 sm:max-w-none ${
+        className={`w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border border-border bg-surface p-0 shadow-popover sm:max-w-none ${
           step === 'base'
             ? 'max-h-[calc(100dvh-46px)]'
             : 'h-[calc(100dvh-46px)] max-h-[900px]'
@@ -427,9 +427,25 @@ export function AgentCreateDialog({
               </div>
               {ownedAccounts.length ? (
                 <div className="grid gap-2">
-                  <h3 className="m-0 text-sm font-semibold">
-                    Existing accounts
-                  </h3>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="m-0 text-sm font-semibold">
+                      Existing accounts
+                    </h3>
+                    <Button
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setProviderAccountId('');
+                        setConversationId('');
+                        setProviderId('');
+                        setAccountLabel('');
+                        setCredentials({});
+                      }}
+                    >
+                      Add another account
+                    </Button>
+                  </div>
                   {ownedAccounts.map((account) => (
                     <button
                       className={`grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
@@ -462,90 +478,100 @@ export function AgentCreateDialog({
                   ))}
                 </div>
               ) : null}
-              <div className="grid gap-3 rounded-lg border border-border bg-surface-muted p-4">
-                <div>
-                  <h3 className="m-0 text-sm font-semibold">
-                    Add a channel account
-                  </h3>
-                  <p className="mt-1 mb-0 text-xs text-text-secondary">
-                    The account is owned by {name || 'this AI employee'}.
-                  </p>
-                </div>
-                <label className="grid gap-1.5 text-xs font-semibold text-text">
-                  Provider
-                  <select
-                    className="h-9 rounded-md border border-border bg-surface px-3 text-[13px] text-text"
-                    value={providerId}
-                    onChange={(event) => {
-                      setProviderId(event.target.value);
-                      setCredentials({});
-                    }}
-                  >
-                    <option value="">Choose a provider</option>
-                    {(providers.data?.providers ?? []).map((provider) => (
-                      <option
-                        disabled={provider.status === 'unavailable'}
-                        key={provider.id}
-                        value={provider.id}
-                      >
-                        {provider.displayName}
-                        {provider.status === 'setup_only'
-                          ? ' · setup only'
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <TextField
-                  id="channel-account-label"
-                  label="Account label"
-                  placeholder="Acme Slack · Support bot"
-                  value={accountLabel}
-                  onChange={(event) => setAccountLabel(event.target.value)}
-                />
-                {selectedProvider?.credentialKeys.map((key) => (
+              {!providerAccountId ? (
+                <div className="grid gap-3 rounded-lg border border-border bg-surface-muted p-4">
+                  <div>
+                    <h3 className="m-0 text-sm font-semibold">
+                      Add a channel account
+                    </h3>
+                    <p className="mt-1 mb-0 text-xs text-text-secondary">
+                      The account is owned by {name || 'this AI employee'}.
+                    </p>
+                  </div>
+                  <label className="grid gap-1.5 text-xs font-semibold text-text">
+                    Provider
+                    <select
+                      className="h-9 rounded-md border border-border bg-surface px-3 text-[13px] text-text"
+                      value={providerId}
+                      onChange={(event) => {
+                        setProviderId(event.target.value);
+                        setCredentials({});
+                      }}
+                    >
+                      <option value="">Choose a provider</option>
+                      {(providers.data?.providers ?? []).map((provider) => (
+                        <option
+                          disabled={provider.status === 'unavailable'}
+                          key={provider.id}
+                          value={provider.id}
+                        >
+                          {provider.displayName}
+                          {provider.status === 'setup_only'
+                            ? ' · setup only'
+                            : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <TextField
-                    id={`channel-credential-${key}`}
-                    key={key}
-                    label={formatCredentialLabel(key)}
-                    placeholder="Enter value"
-                    type="password"
-                    value={credentials[key] ?? ''}
-                    onChange={(event) =>
-                      setCredentials((current) => ({
-                        ...current,
-                        [key]: event.target.value,
-                      }))
-                    }
+                    id="channel-account-label"
+                    label="Account label"
+                    placeholder="Acme Slack · Support bot"
+                    value={accountLabel}
+                    onChange={(event) => setAccountLabel(event.target.value)}
                   />
-                ))}
-                {selectedProvider?.status === 'setup_only' ? (
-                  <p className="m-0 rounded-md border border-status-attention/40 bg-status-attention-soft p-3 text-xs text-status-attention">
-                    This provider supports setup and discovery only. It cannot
-                    activate a conversation yet.
-                  </p>
-                ) : null}
-                <Button
-                  disabled={
-                    saveAccount.isPending ||
-                    !providerId ||
-                    !accountLabel.trim() ||
-                    (selectedProvider?.credentialKeys ?? []).some(
-                      (key) => !credentials[key]?.trim(),
-                    )
-                  }
-                  type="button"
-                  variant="secondary"
-                  onClick={() => saveAccount.mutate()}
-                >
-                  {saveAccount.isPending ? 'Saving account…' : 'Save account'}
-                </Button>
-                {saveAccount.isError ? (
-                  <p className="m-0 text-xs text-danger" role="alert">
-                    {saveAccount.error.message}
-                  </p>
-                ) : null}
-              </div>
+                  {selectedProvider?.credentialKeys.map((key) => (
+                    <TextField
+                      id={`channel-credential-${key}`}
+                      key={key}
+                      label={formatCredentialLabel(key)}
+                      placeholder="Enter value"
+                      type="password"
+                      value={credentials[key] ?? ''}
+                      onChange={(event) =>
+                        setCredentials((current) => ({
+                          ...current,
+                          [key]: event.target.value,
+                        }))
+                      }
+                    />
+                  ))}
+                  {selectedProvider?.status === 'setup_only' ? (
+                    <p className="m-0 rounded-md border border-status-attention/40 bg-status-attention-soft p-3 text-xs text-status-attention">
+                      This provider supports setup and discovery only. It cannot
+                      activate a conversation yet.
+                    </p>
+                  ) : null}
+                  <Button
+                    disabled={
+                      saveAccount.isPending ||
+                      !providerId ||
+                      !accountLabel.trim() ||
+                      (selectedProvider?.credentialKeys ?? []).some(
+                        (key) => !credentials[key]?.trim(),
+                      )
+                    }
+                    type="button"
+                    variant="secondary"
+                    onClick={() => saveAccount.mutate()}
+                  >
+                    {saveAccount.isPending ? 'Saving account…' : 'Save account'}
+                  </Button>
+                  {saveAccount.isError ? (
+                    <p className="m-0 text-xs text-danger" role="alert">
+                      {saveAccount.error.message}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="m-0 rounded-[7px] border border-border bg-surface-muted p-[13px] text-xs leading-[1.45] text-text-secondary">
+                  <strong className="block text-text">
+                    Saved account selected
+                  </strong>
+                  {selectedAccount?.label} · {selectedAccount?.providerId} ·
+                  owned by {name || 'this AI employee'}
+                </p>
+              )}
               <p className="m-0 text-xs text-text-secondary">
                 Credential values are write-only. Invite the bot to the
                 destination conversation before discovery.
