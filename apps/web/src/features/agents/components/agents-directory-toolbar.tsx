@@ -32,7 +32,7 @@ export function AgentsDirectoryToolbar({
     <div className="grid items-end gap-2.5 md:grid-cols-[minmax(200px,1fr)_145px_160px]">
       <TextField
         id="agent-search"
-        label="Search agents"
+        label="Search AI employees"
         name="q"
         placeholder="Name or purpose…"
         value={query}

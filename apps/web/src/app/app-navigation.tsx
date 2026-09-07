@@ -53,7 +53,7 @@ const navigation = [
   {
     label: 'Administration',
     items: [
-      { to: '/agents', label: 'Agents', icon: Bot },
+      { to: '/agents', label: 'AI employees', icon: Bot },
       { to: '/people', label: 'People', icon: Users },
     ],
   },

@@ -106,8 +106,8 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
       if (!response.ok)
         throw new Error(
           agentId
-            ? 'Agent changes could not be saved.'
-            : 'The agent could not be created.',
+            ? 'AI employee changes could not be saved.'
+            : 'The AI employee could not be created.',
         );
       return response.json() as Promise<{ agent: { id: string } }>;
     },
@@ -123,7 +123,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const errors = {
-      name: name.trim() ? undefined : 'Enter an agent name.',
+      name: name.trim() ? undefined : 'Enter an AI employee name.',
       role: selectedRole ? undefined : 'Select a role.',
     };
     setBaseErrors(errors);
@@ -143,7 +143,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="grid gap-1">
             <DialogTitle className="text-lg font-semibold">
-              Create agent
+              Create AI employee
             </DialogTitle>
             <DialogDescription className="text-xs text-text-secondary">
               Build the identity first, then optionally connect sources and
@@ -152,7 +152,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
           </div>
           <DialogClose asChild>
             <Button
-              aria-label="Close create agent dialog"
+              aria-label="Close create AI employee dialog"
               size="icon-sm"
               variant="ghost"
             >
@@ -179,7 +179,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                 </span>
                 <span className="mt-1 block">
                   {item === 'base'
-                    ? 'Agent'
+                    ? 'AI employee'
                     : item[0].toUpperCase() + item.slice(1)}
                 </span>
               </li>
@@ -225,8 +225,8 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                     Allow capabilities
                   </h2>
                   <p className="mt-1 mb-0 text-sm text-text-secondary">
-                    Choose durable actions for this agent. Risky use may still
-                    ask for approval.
+                    Choose durable actions for this AI employee. Risky use may
+                    still ask for approval.
                   </p>
                 </div>
                 <Button
@@ -251,8 +251,8 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
               <div>
                 <h2 className="font-semibold">Review setup</h2>
                 <p className="mt-1 text-sm text-text-secondary">
-                  These are the saved settings that will apply on the agent’s
-                  next run.
+                  These are the saved settings that will apply on the AI
+                  employee’s next run.
                 </p>
               </div>
               {savedAgent.data &&
@@ -278,7 +278,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                   aria-required="true"
                   label={
                     <>
-                      Agent name{' '}
+                      AI employee name{' '}
                       <span className="text-danger" aria-hidden="true">
                         *
                       </span>
@@ -311,8 +311,8 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                 onCreateCustom={() => setRoleEditor({ mode: 'create' })}
               />
               <p className="m-0 text-xs text-text-secondary">
-                Continue saves this agent now so you can configure sources and
-                capabilities. Returning here updates the same saved agent.
+                Continue saves this AI employee now so you can configure sources
+                and capabilities. Returning here updates the same AI employee.
               </p>
             </form>
           ) : null}
@@ -338,7 +338,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
               : step === 'sources'
                 ? 'Optional · select existing reviewed sources.'
                 : step === 'capabilities'
-                  ? 'Optional · choose durable agent authority.'
+                  ? 'Optional · choose durable AI employee authority.'
                   : 'Review saved configuration and finish.'}
           </span>
           {step === 'base' ? (
@@ -351,7 +351,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
                 ? 'Saving…'
                 : agentId
                   ? 'Save changes and continue'
-                  : 'Save agent and continue'}{' '}
+                  : 'Save AI employee and continue'}{' '}
               <ArrowRight size={16} aria-hidden="true" />
             </Button>
           ) : null}
@@ -482,7 +482,7 @@ function ReviewSummary({
         <h3 className="m-0 text-sm font-semibold">Activation</h3>
         <p className="mt-3 mb-0 rounded-lg border border-status-attention/40 bg-status-attention-soft p-3 text-sm">
           Source and capability changes are <strong>available next run</strong>.
-          No conversations or scheduled jobs use this agent yet.
+          No conversations or scheduled jobs use this AI employee yet.
         </p>
         <div className="mt-3 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2 rounded-lg border border-border bg-surface-muted p-3 text-center text-xs">
           <span>

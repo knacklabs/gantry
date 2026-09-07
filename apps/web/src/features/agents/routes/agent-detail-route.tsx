@@ -73,7 +73,7 @@ export function AgentDetailRoute() {
           headers: browserCsrfHeader(),
         },
       );
-      if (!response.ok) throw new Error(`Agent could not be ${action}d.`);
+      if (!response.ok) throw new Error(`AI employee could not be ${action}d.`);
     },
     onSuccess: () =>
       void Promise.all([
@@ -92,19 +92,19 @@ export function AgentDetailRoute() {
             Retry
           </Button>
         }
-        description="Try loading this agent again."
+        description="Try loading this AI employee again."
         icon={<Power size={18} />}
         kind="error"
-        title="Agent could not be loaded"
+        title="AI employee could not be loaded"
       />
     );
   if (!detail.data)
     return (
       <PageState
-        description="Loading the selected agent."
+        description="Loading the selected AI employee."
         icon={<Power size={18} />}
         kind="loading"
-        title="Loading agent"
+        title="Loading AI employee"
       />
     );
 
@@ -127,7 +127,7 @@ export function AgentDetailRoute() {
           desc: false,
         }}
       >
-        <ArrowLeft size={15} aria-hidden="true" /> Back to agents
+        <ArrowLeft size={15} aria-hidden="true" /> Back to AI employees
       </Link>
       <section className="overflow-hidden rounded-lg border border-border bg-surface shadow-panel">
         <header className="flex flex-col gap-4 border-b border-border px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
@@ -137,7 +137,7 @@ export function AgentDetailRoute() {
             </span>
             <div className="min-w-0">
               <p className="mb-1 font-mono text-[10px] font-semibold tracking-[0.14em] text-text-secondary uppercase">
-                Agent configuration
+                AI employee configuration
               </p>
               <h1 className="m-0 text-2xl font-semibold tracking-tight text-text">
                 {agent.name}
@@ -145,7 +145,7 @@ export function AgentDetailRoute() {
               <p className="mt-1 mb-2 text-sm text-text-secondary">
                 {agent.roleName
                   ? `${agent.roleName} role configuration.`
-                  : 'Reusable agent configuration.'}
+                  : 'Reusable AI employee configuration.'}
               </p>
               <div className="flex flex-wrap gap-2">
                 <StatusPill status={agent.status} />
@@ -214,7 +214,7 @@ function DetailTabs({
   const tabs = ['overview', 'instructions', 'access', 'settings'] as const;
   return (
     <nav
-      aria-label="Agent detail"
+      aria-label="AI employee detail"
       className="flex gap-0 border-y border-border bg-surface-muted px-[18px]"
     >
       {tabs.map((tab) => (
@@ -345,8 +345,8 @@ function Instructions({ agent }: { agent: AgentDirectoryItem }) {
         title={hasRole ? 'Role snapshot' : 'No role assigned'}
         description={
           hasRole && agent.configVersion
-            ? `Copied into this agent at v${agent.configVersion}.`
-            : 'This agent currently uses Gantry’s default Developer behavior.'
+            ? `Copied into this AI employee at v${agent.configVersion}.`
+            : 'This AI employee currently uses Gantry’s default Developer behavior.'
         }
       >
         {hasRole ? (
@@ -358,7 +358,7 @@ function Instructions({ agent }: { agent: AgentDirectoryItem }) {
           </>
         ) : (
           <p className="m-0 text-sm text-text-secondary">
-            Assign a role to give this agent a reusable, visible behavior
+            Assign a role to give this AI employee a reusable, visible behavior
             prompt. Its runtime, safety, and access rules remain separate.
           </p>
         )}
@@ -372,7 +372,7 @@ function Instructions({ agent }: { agent: AgentDirectoryItem }) {
       </InfoCard>
       <InfoCard
         title="How role changes work"
-        description="Role changes are versioned with this agent."
+        description="Role changes are versioned with this AI employee."
       >
         <p className="m-0 text-sm text-text-secondary">
           New work uses the saved role snapshot. Work already running keeps its
@@ -595,7 +595,7 @@ function Access({ agent }: { agent: AgentDirectoryItem }) {
       </section>
       <InfoCard
         title="Capabilities"
-        description="Tool capabilities this agent is allowed to use."
+        description="Tool capabilities this AI employee is allowed to use."
       >
         <SummaryList
           empty="No capabilities allowed."
@@ -640,7 +640,7 @@ function AgentAccessEditorDialog({
   const title = isSources ? 'Connect existing sources' : 'Allow capabilities';
   const description = isSources
     ? 'Optional · select reviewed skills and MCP servers. Sources expose inventory; they do not grant actions.'
-    : 'Optional · choose durable actions for this agent. Risky use may still ask for approval.';
+    : 'Optional · choose durable actions for this AI employee. Risky use may still ask for approval.';
   return (
     <Dialog open={kind !== null} onOpenChange={onOpenChange}>
       <DialogContent
@@ -679,7 +679,7 @@ function AgentAccessEditorDialog({
           <p className="m-0 text-xs text-text-secondary">
             {isSources
               ? 'Sources become available on the next run.'
-              : 'Saved capabilities are durable agent authority.'}
+              : 'Saved capabilities are durable AI employee authority.'}
           </p>
           <div className="flex items-center gap-3">
             <DialogClose asChild>
@@ -727,8 +727,8 @@ function StatusDialog({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {disabling
-              ? 'Gantry will reject new sessions and delegation to this agent.'
-              : 'Gantry will allow new sessions and delegation to this agent again.'}
+              ? 'Gantry will reject new sessions and delegation to this AI employee.'
+              : 'Gantry will allow new sessions and delegation to this AI employee again.'}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {disabling ? (
@@ -748,7 +748,9 @@ function StatusDialog({
               />
             </div>
             <div className="rounded-lg border border-status-attention/40 bg-status-attention-soft p-4 text-sm">
-              <strong className="block">This does not delete the agent.</strong>
+              <strong className="block">
+                This does not delete the AI employee.
+              </strong>
               <span>You can enable it again from Settings.</span>
             </div>
           </>
@@ -768,7 +770,9 @@ function StatusDialog({
             variant={disabling ? 'destructive' : 'default'}
             onClick={onConfirm}
           >
-            {pending ? 'Saving…' : `${disabling ? 'Disable' : 'Enable'} agent`}
+            {pending
+              ? 'Saving…'
+              : `${disabling ? 'Disable' : 'Enable'} AI employee`}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

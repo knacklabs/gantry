@@ -105,7 +105,7 @@ export function RolesLibrary({
               Custom roles
             </h2>
             <p className="mt-[3px] mb-0 text-[length:var(--table-meta-font-size)] text-text-secondary">
-              Reusable templates · edits affect future agents only
+              Reusable templates · edits affect future AI employees only
             </p>
           </div>
           <div className="w-56">

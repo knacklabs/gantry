@@ -107,7 +107,7 @@ export function AgentSetupCatalog({
               </Button>
             }
             open={accessOpen}
-            title="How agent access works"
+            title="How AI employee access works"
             onOpenChange={setAccessOpen}
           >
             <div
@@ -115,12 +115,12 @@ export function AgentSetupCatalog({
               className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-[7px]"
             >
               <AccessStage
-                description="Expose reviewed tools and information to the agent."
+                description="Expose reviewed tools and information to the AI employee."
                 title="1 · Sources"
               />
               <span className="self-center text-sm text-text-secondary">→</span>
               <AccessStage
-                description="Authorize the durable actions this agent may request."
+                description="Authorize the durable actions this AI employee may request."
                 title="2 · Capabilities"
               />
               <span className="self-center text-sm text-text-secondary">→</span>
@@ -136,12 +136,12 @@ export function AgentSetupCatalog({
               <div className="grid gap-[13px]">
                 <AccessRule
                   mark="S"
-                  description="A source can be available while all of its actions remain unavailable to this agent."
+                  description="A source can be available while all of its actions remain unavailable to this AI employee."
                   title="Connecting does not grant authority"
                 />
                 <AccessRule
                   mark="C"
-                  description="The agent can request only the actions selected in this step. Raw IDs remain visible under each capability’s Details."
+                  description="The AI employee can request only the actions selected in this step. Raw IDs remain visible under each capability’s Details."
                   title="Capabilities are explicit"
                 />
                 <AccessRule
@@ -151,7 +151,7 @@ export function AgentSetupCatalog({
                 />
                 <AccessRule
                   mark="↻"
-                  description="Saved source and capability changes become available on this agent’s next run."
+                  description="Saved source and capability changes become available on this AI employee’s next run."
                   title="Changes apply to future work"
                 />
               </div>

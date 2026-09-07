@@ -56,20 +56,20 @@ export function AgentsRoute() {
     <div className="mx-auto w-full max-w-[1240px]">
       <PageHeader
         eyebrow="Administration"
-        title="Agents"
+        title="AI employees"
         description="Reusable identities, instructions, models, and access for work Gantry runs."
         action={
           <Button onClick={() => setCreateOpen(true)}>
             <Plus size={16} aria-hidden="true" />
-            New agent
+            New AI employee
           </Button>
         }
       />
       <div className="mt-5">
         <RouteTabs
-          label="Agents administration"
+          label="AI employee administration"
           tabs={[
-            { value: 'agents', label: 'Agents' },
+            { value: 'agents', label: 'AI employees' },
             { value: 'roles', label: 'Roles' },
           ]}
           value={search.tab}
@@ -140,10 +140,10 @@ export function AgentsRoute() {
             ) : null}
             {directory.isLoading && !directory.data ? (
               <PageState
-                description="Loading the agent directory."
+                description="Loading AI employees."
                 icon={<Bot size={18} aria-hidden="true" />}
                 kind="loading"
-                title="Loading agents"
+                title="Loading AI employees"
               />
             ) : directory.isError ? (
               <PageState
@@ -156,7 +156,7 @@ export function AgentsRoute() {
                 description="Your filters were kept. Try loading this directory again."
                 icon={<Bot size={18} aria-hidden="true" />}
                 kind="error"
-                title="Agents could not be loaded"
+                title="AI employees could not be loaded"
               />
             ) : (
               <>
@@ -164,8 +164,8 @@ export function AgentsRoute() {
                   agents={directory.data?.data ?? []}
                   emptyMessage={
                     hasFilters
-                      ? 'No agents match these filters.'
-                      : 'Create an agent to give Gantry a reusable configuration for work.'
+                      ? 'No AI employees match these filters.'
+                      : 'Create an AI employee to give Gantry a reusable configuration for work.'
                   }
                   page={search.page}
                   pageCount={
@@ -187,8 +187,8 @@ export function AgentsRoute() {
                   agents={directory.data?.data ?? []}
                   emptyMessage={
                     hasFilters
-                      ? 'No agents match these filters.'
-                      : 'Create an agent to give Gantry a reusable configuration for work.'
+                      ? 'No AI employees match these filters.'
+                      : 'Create an AI employee to give Gantry a reusable configuration for work.'
                   }
                   page={search.page}
                   pageSize={search.pageSize}
@@ -243,8 +243,8 @@ function MobileAgentList({
   return (
     <Panel
       className="md:hidden"
-      title="Agent directory"
-      description={`${total} agents`}
+      title="AI employees"
+      description={`${total} AI employee${total === 1 ? '' : 's'}`}
     >
       <div className="grid max-h-[calc(100vh-25rem)] min-h-56 overflow-y-auto">
         {agents.length ? (

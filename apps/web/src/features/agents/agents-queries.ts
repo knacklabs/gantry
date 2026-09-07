@@ -57,7 +57,7 @@ export function agentDetailQuery(agentId: string) {
         `/ui/api/agents/${encodeURIComponent(agentId)}`,
         { credentials: 'same-origin' },
       );
-      if (!response.ok) throw new Error('Agent could not be loaded.');
+      if (!response.ok) throw new Error('AI employee could not be loaded.');
       return response.json() as Promise<{ agent: AgentDirectoryItem }>;
     },
   });
@@ -122,7 +122,9 @@ export function agentSourcesQuery(agentId: string) {
         `/ui/api/agents/${encodeURIComponent(agentId)}/sources`,
         { credentials: 'same-origin' },
       );
-      if (!response.ok) throw new Error('Agent sources could not be loaded.');
+      if (!response.ok) {
+        throw new Error('AI employee sources could not be loaded.');
+      }
       return response.json() as Promise<{ sources: { sources: AgentSource } }>;
     },
   });
@@ -140,7 +142,7 @@ export function agentCapabilitiesQuery(agentId: string) {
         { credentials: 'same-origin' },
       );
       if (!response.ok)
-        throw new Error('Agent capabilities could not be loaded.');
+        throw new Error('AI employee capabilities could not be loaded.');
       return response.json() as Promise<{
         capabilities: AgentCapabilities;
         catalog: CapabilityCatalog;
@@ -243,7 +245,7 @@ export function agentDirectoryQuery(input: {
       const response = await browserFetch(`/ui/api/agents?${params}`, {
         credentials: 'same-origin',
       });
-      if (!response.ok) throw new Error('Agents could not be loaded.');
+      if (!response.ok) throw new Error('AI employees could not be loaded.');
       return response.json() as Promise<AgentDirectoryPage>;
     },
   });

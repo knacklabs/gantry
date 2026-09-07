@@ -98,7 +98,9 @@ export function AgentSetupManager({
         headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
         body: JSON.stringify(body),
       });
-      if (!response.ok) throw new Error(`Agent ${kind} could not be saved.`);
+      if (!response.ok) {
+        throw new Error(`AI employee ${kind} could not be saved.`);
+      }
     },
     onSuccess: async () => {
       await Promise.all([

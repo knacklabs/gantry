@@ -70,7 +70,7 @@ export function CustomRolesTable({
               Prompt summary
             </th>
             <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
-              Agent copies
+              AI employee copies
             </th>
             <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold">
               Updated
@@ -134,7 +134,7 @@ export function CustomRolesTable({
                       <AlertDialogHeader>
                         <AlertDialogTitle>Delete {role.name}?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          {role.retainedAgentCount ?? 0} existing agent
+                          {role.retainedAgentCount ?? 0} existing AI employee
                           {role.retainedAgentCount === 1 ? '' : 's'} retain{' '}
                           {role.retainedAgentCount === 1 ? 'its' : 'their'}{' '}
                           saved role snapshot. This only removes the role from

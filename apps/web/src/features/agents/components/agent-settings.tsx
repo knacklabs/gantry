@@ -36,7 +36,7 @@ export function AgentSettings({
           body: JSON.stringify({ name, modelAlias }),
         },
       );
-      if (!response.ok) throw new Error('Agent name could not be saved.');
+      if (!response.ok) throw new Error('AI employee name could not be saved.');
     },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: agentQueryKeys.all }),
@@ -56,13 +56,13 @@ export function AgentSettings({
       <section className="rounded-lg border border-border bg-surface p-4">
         <h2 className="m-0 text-base font-semibold">General settings</h2>
         <p className="mt-1 mb-4 text-sm text-text-secondary">
-          Changes to the name are saved directly to this agent.
+          Changes to the name are saved directly to this AI employee.
         </p>
         <form className="grid max-w-xl gap-3" onSubmit={submit}>
           <TextField
             error={rename.isError ? rename.error.message : undefined}
             id="agent-name"
-            label="Agent name"
+            label="AI employee name"
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
@@ -86,8 +86,8 @@ export function AgentSettings({
         <h2 className="m-0 text-base font-semibold">Availability</h2>
         <p className="mt-1 mb-4 text-sm text-text-secondary">
           {agent.status === 'active'
-            ? 'Disable this agent to reject new sessions and delegation.'
-            : 'Enable this agent to accept new sessions and delegation.'}
+            ? 'Disable this AI employee to reject new sessions and delegation.'
+            : 'Enable this AI employee to accept new sessions and delegation.'}
         </p>
         <p className="mb-4 text-sm font-semibold capitalize">
           Current status: {agent.status}
@@ -96,7 +96,9 @@ export function AgentSettings({
           variant={agent.status === 'active' ? 'destructive' : 'default'}
           onClick={onStatusRequest}
         >
-          {agent.status === 'active' ? 'Disable agent' : 'Enable agent'}
+          {agent.status === 'active'
+            ? 'Disable AI employee'
+            : 'Enable AI employee'}
         </Button>
         <div className="mt-4 rounded-md border border-status-attention/40 bg-status-attention-soft p-3 text-xs text-text-secondary">
           History and saved configuration are retained when availability
