@@ -27,10 +27,6 @@
     "INLINE PARITY. NEW `app/bootstrap/inline-permission-memory.ts` exports `inlinePermissionMemoryInputs({ run, laneInput, request, deps }) \u2192 { analysis?, effectHash?, workspaceRoot, decisionMemory?, personId? }`: lane `interactive_auto` only when `run.permissionMode === 'auto'` and `run.isScheduledJob !== true` (a job run yields lane `autonomous`; `auto_strict` / `ask` map to their lanes \u2014 through T1's `deriveAutoLaneAnalysis` (`application/permissions/auto-lane-analysis.ts:97`), never a second table), `effectHash` via `computePermissionEffectHash` with the resolved workspace root, `decisionMemory` from a NEW optional dep `getPermissionDecisionMemoryRepository()` on `InlineCoreToolHostDeps` (`inline-agent-loop-tool-types.ts:23-53`; `runtime-services.ts` already carries the repository getter through its `resolved` spread into the inline wiring (`:141-146,331-345`), so no `runtime-services.ts` edit is expected \u2014 the implementer raises a scope signal if the type does not flow), `personId = run.memoryUserId` for a non-scheduled run only. `inline-agent-loop-tools.ts` (at 739/750 lines \u2014 ONLY these edits) stamps `personId` on the request and spreads those inputs into its `coordinatePermissionDecision` call and ADDS `skipClassifierVerdictCache: true` to that call (the option exists on the coordinator input but the inline call does not pass it today, `:388-395`), so supplying `effectHash` never lets a cached classifier Allow bypass today's inline classifier (the cache stays out of scope); its classifier tail is untouched. Tests: the inline suite's existing consult expectations unchanged; new cases: a seeded remembered Allow for the run's person short-circuits the inline classifier while `getClassifierVerdict` is never called; a scheduled run and a run without `memoryUserId` never consult; wiring test for the new dep; the typed fake in `test/unit/application/human-decision-memory-service.test.ts` gains `findHumanDecision` so it still satisfies the port.": "AC4 INLINE PARITY: inline-permission-memory inputs through deriveAutoLaneAnalysis; new optional dep; the inline call adds skipClassifierVerdictCache: true (leaves 4 and 5).",
     "existing unit and Postgres suites pass; tsc and check:architecture green; `inline-agent-loop-tools.ts` stays \u2264 750 lines; `docs/architecture/permission-decision-memory.md` records the versioned path-exact keys, the kind-carrying place keys, the consult order and the rule that rows of another rails version are inert; no leftovers (the owner rule: no wrapper, shim, alias or \"legacy\" naming).": "AC5 gates: verify.py with the Postgres lane, tsc, check:architecture, the inline file under 750 lines, architecture doc updated, no leftovers."
   },
-  "decision": "keep",
-  "new_abstractions": [
-    "human_decision record kind on the existing table (two partial unique indexes, CHECK); NEW application/permissions/human-decision-scope.ts (outcome-aware scope keys reusing T2b destination helpers); NEW application/permissions/human-decision-memory-service.ts (remember | list | revoke | countExactAllowsByTool with injected id/clock); human_decision decision source + remember DTO + provenance codec in domain/types.ts."
-  ],
   "gaps": [
     "The exact-command memory key includes the safety-rules version, so after a rules update an old exact Allow/No can never be found again (it silently stops applying and the card asks normally). Only kind- and place-scoped memories can show the line \"Asking again \u2014 the safety rules were updated since you last decided this\". Which do you want?"
   ],
@@ -38,12 +34,17 @@
   "resolutions": [
     "Codex cold-reads \u2014 gpt-5.6-sol @ xhigh only (owner policy 2026-09-05: one grill per round, no parallel Astra), briefs and answers ledgered as plans/exploration/askfloor-1-t3a-task-grill*.md; every blocker folded into the recorded contract and saved task plan before recording. Seam-map open questions settled by orchestrator ruling in the plan: revoked rows are history (fresh UUID row on re-remember), T3c resolves and snapshots the acting person, canonical destination = resolved absolute path (native) or scope/path (virtual) with dual native keys ineligible, the service owns id/clock injection, decision source value human_decision."
   ],
+  "decision": "keep",
+  "new_abstractions": [
+    "human_decision record kind on the existing table (two partial unique indexes, CHECK); NEW application/permissions/human-decision-scope.ts (outcome-aware scope keys reusing T2b destination helpers); NEW application/permissions/human-decision-memory-service.ts (remember | list | revoke | countExactAllowsByTool with injected id/clock); human_decision decision source + remember DTO + provenance codec in domain/types.ts."
+  ],
   "citations": [
     {
       "finding": "The exact-command memory key includes the safety-rules version, so after a rules update an old exact Allow/No can never be found again (it silently stops applying and the card asks normally). Only kind- and place-scoped memories can show the line \"Asking again \u2014 the safety rules were updated since you last decided this\". Which do you want?",
       "source": "docs/decisions/0154-human-decision-memory-generic-scope.md; plans/exploration/askfloor-1-t3a-seam-map.md; plans/exploration/askfloor-1-t3a-task-grill.md and answers"
     }
   ],
+  "summary": "T2a task grill: contract sound.",
   "rounds": [
     {
       "question": "The exact-command memory key includes the safety-rules version, so after a rules update an old exact Allow/No can never be found again (it silently stops applying and the card asks normally). Only kind- and place-scoped memories can show the line \"Asking again \u2014 the safety rules were updated since you last decided this\". Which do you want?",
@@ -55,14 +56,13 @@
       "frontier_empty": true
     }
   ],
-  "summary": "T2a task grill: contract sound.",
   "input_sha256": "84bf3875831974a1c10bc23d9fd72b6b1ca5fb64ab468b67b5d20d235fec4f97",
-  "grounding_basis": "working-tree",
-  "grounding_treeish": "",
+  "grounding_basis": "stage-baseline",
+  "grounding_treeish": "893436d4b3c5445d7549d14943f88e27256709af",
   "task_plan_sha256": "ed9b622693a070499dd350e45315556d97094cb961a01dca84c3cc346651f56e",
-  "recorded_at": "2026-09-07T03:53:30+00:00",
-  "commit": "893436d4b3c5445d7549d14943f88e27256709af",
+  "recorded_at": "2026-09-07T06:47:29+00:00",
+  "commit": "097c0cfc1c89e70cb6c522ccb04482ee1dbc70e1",
   "approved_task_plan_sha256": "ed9b622693a070499dd350e45315556d97094cb961a01dca84c3cc346651f56e",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-07T03:53:38+00:00"
+  "approved_at": "2026-09-07T06:47:39+00:00"
 }
