@@ -122,6 +122,76 @@ describe('PostgresConversationRepository', () => {
       }),
     ]);
   });
+
+  it('binds an approver to its active human alias', async () => {
+    const rows: Record<string, unknown>[] = [];
+    const selectRows = (result: unknown[]) => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({ limit: vi.fn(async () => result) })),
+      })),
+    });
+    const joinedRows = (result: unknown[]) => ({
+      from: vi.fn(() => ({
+        innerJoin: vi.fn(() => ({ where: vi.fn(async () => result) })),
+      })),
+    });
+    const tx = {
+      select: vi
+        .fn()
+        .mockReturnValueOnce(selectRows([{ providerAccountId: 'account-one' }]))
+        .mockReturnValueOnce(
+          selectRows([{ id: 'account-one', providerId: 'slack' }]),
+        )
+        .mockReturnValueOnce(joinedRows([]))
+        .mockReturnValueOnce(
+          joinedRows([
+            {
+              aliasId: 'alias-one',
+              externalUserId: 'U0123ABC',
+              personId: 'person-one',
+            },
+          ]),
+        ),
+      delete: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      insert: vi.fn(() => ({
+        values: vi.fn(async (value: Record<string, unknown>[]) => {
+          rows.push(...value);
+        }),
+      })),
+    };
+    const db = {
+      transaction: vi.fn(async (run: (transaction: typeof tx) => unknown) =>
+        run(tx),
+      ),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ orderBy: vi.fn(async () => rows) })),
+        })),
+      })),
+    };
+    const repository = new PostgresConversationRepository(db as never);
+
+    await expect(
+      repository.replaceConversationApprovers({
+        appId: 'app-one' as never,
+        conversationId: 'conversation:one' as never,
+        externalUserIds: ['U0123ABC'],
+        updatedAt: '2026-07-15T00:00:00.000Z',
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        aliasId: 'alias-one',
+        externalUserId: 'U0123ABC',
+        personId: 'person-one',
+      }),
+    ]);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        aliasId: 'alias-one',
+        personId: 'person-one',
+      }),
+    ]);
+  });
 });
 
 describe('PostgresMessageRepository', () => {

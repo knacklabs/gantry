@@ -1109,6 +1109,8 @@ export class PostgresConversationRepository implements ConversationRepository {
       id: row.id,
       appId: row.appId,
       conversationId: row.conversationId,
+      personId: row.personId ?? undefined,
+      aliasId: row.aliasId ?? undefined,
       externalUserId: row.externalUserId,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -1121,6 +1123,147 @@ export class PostgresConversationRepository implements ConversationRepository {
     updatedAt: string;
   }): Promise<ConversationApprover[]> {
     await this.db.transaction(async (tx) => {
+      const externalUserIds = [...new Set(input.externalUserIds)];
+      const identities = new Map<
+        string,
+        { aliasId?: string; personId: string }
+      >();
+      if (externalUserIds.length) {
+        const [conversation] = await tx
+          .select({
+            providerAccountId: pgSchema.conversationsPostgres.providerAccountId,
+          })
+          .from(pgSchema.conversationsPostgres)
+          .where(
+            and(
+              eq(pgSchema.conversationsPostgres.appId, input.appId),
+              eq(pgSchema.conversationsPostgres.id, input.conversationId),
+            ),
+          )
+          .limit(1);
+        if (!conversation) throw new Error('Conversation was not found.');
+
+        const [providerAccount] = await tx
+          .select({
+            id: pgSchema.providerAccountsPostgres.id,
+            providerId: pgSchema.providerAccountsPostgres.providerId,
+          })
+          .from(pgSchema.providerAccountsPostgres)
+          .where(
+            and(
+              eq(pgSchema.providerAccountsPostgres.appId, input.appId),
+              eq(
+                pgSchema.providerAccountsPostgres.id,
+                conversation.providerAccountId,
+              ),
+            ),
+          )
+          .limit(1);
+        if (!providerAccount)
+          throw new Error('Provider account was not found.');
+
+        const participants = await tx
+          .select({
+            externalUserId:
+              pgSchema.conversationParticipantsPostgres.externalUserId,
+            personId: pgSchema.conversationParticipantsPostgres.userId,
+          })
+          .from(pgSchema.conversationParticipantsPostgres)
+          .innerJoin(
+            pgSchema.usersPostgres,
+            and(
+              eq(
+                pgSchema.conversationParticipantsPostgres.userId,
+                pgSchema.usersPostgres.id,
+              ),
+              eq(
+                pgSchema.conversationParticipantsPostgres.appId,
+                pgSchema.usersPostgres.appId,
+              ),
+            ),
+          )
+          .where(
+            and(
+              eq(pgSchema.conversationParticipantsPostgres.appId, input.appId),
+              eq(
+                pgSchema.conversationParticipantsPostgres.conversationId,
+                input.conversationId,
+              ),
+              inArray(
+                pgSchema.conversationParticipantsPostgres.externalUserId,
+                externalUserIds,
+              ),
+              eq(pgSchema.conversationParticipantsPostgres.status, 'active'),
+              eq(pgSchema.usersPostgres.kind, 'human'),
+              eq(pgSchema.usersPostgres.status, 'active'),
+            ),
+          );
+        for (const participant of participants) {
+          if (participant.personId) {
+            identities.set(participant.externalUserId, {
+              personId: participant.personId,
+            });
+          }
+        }
+
+        const aliases = await tx
+          .select({
+            aliasId: pgSchema.userAliasesPostgres.id,
+            externalUserId: pgSchema.userAliasesPostgres.externalUserId,
+            personId: pgSchema.userAliasesPostgres.userId,
+          })
+          .from(pgSchema.userAliasesPostgres)
+          .innerJoin(
+            pgSchema.usersPostgres,
+            and(
+              eq(
+                pgSchema.userAliasesPostgres.appId,
+                pgSchema.usersPostgres.appId,
+              ),
+              eq(
+                pgSchema.userAliasesPostgres.userId,
+                pgSchema.usersPostgres.id,
+              ),
+            ),
+          )
+          .where(
+            and(
+              eq(pgSchema.userAliasesPostgres.appId, input.appId),
+              eq(
+                pgSchema.userAliasesPostgres.provider,
+                providerAccount.providerId,
+              ),
+              eq(
+                pgSchema.userAliasesPostgres.providerAccountId,
+                providerAccount.id,
+              ),
+              inArray(
+                pgSchema.userAliasesPostgres.externalUserId,
+                externalUserIds,
+              ),
+              isNull(pgSchema.userAliasesPostgres.retiredAt),
+              eq(pgSchema.usersPostgres.kind, 'human'),
+              eq(pgSchema.usersPostgres.status, 'active'),
+            ),
+          );
+        for (const alias of aliases) {
+          const existing = identities.get(alias.externalUserId);
+          if (existing && existing.personId !== alias.personId) {
+            throw new Error('Control approver identity is ambiguous.');
+          }
+          identities.set(alias.externalUserId, {
+            aliasId: alias.aliasId,
+            personId: alias.personId,
+          });
+        }
+
+        const unresolved = externalUserIds.filter((id) => !identities.has(id));
+        if (unresolved.length) {
+          throw new Error(
+            `Control approver identities could not be resolved: ${unresolved.join(', ')}`,
+          );
+        }
+      }
       await tx
         .delete(pgSchema.conversationApproversPostgres)
         .where(
@@ -1133,10 +1276,11 @@ export class PostgresConversationRepository implements ConversationRepository {
           ),
         );
       await tx.insert(pgSchema.conversationApproversPostgres).values(
-        (input.externalUserIds.length
-          ? input.externalUserIds
+        (externalUserIds.length
+          ? externalUserIds
           : [AUTHORITATIVE_EMPTY_APPROVER]
         ).map((externalUserId) => ({
+          ...(identities.get(externalUserId) ?? {}),
           id: channelControlApproverId(input.conversationId, externalUserId),
           appId: input.appId,
           conversationId: input.conversationId,

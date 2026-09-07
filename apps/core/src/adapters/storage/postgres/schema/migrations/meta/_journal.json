@@ -1051,6 +1051,13 @@
       "when": 1788783541737,
       "tag": "20260907121901_mcp_audit_principal_refs",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1788806732003,
+      "tag": "20260907184532_conversation_approver_identity",
+      "breakpoints": true
     }
   ]
 }
