@@ -1,9 +1,9 @@
 {
-  "commit": "4938c090b79b9e0daad719cf4ae95faa95c57b68",
+  "commit": "36c0f18268139459e02fcd94a01f781d04ade379",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "ASKFLOOR-1-T3c automated proof: the twelve required leaves (one through the general integration config against gantry_test with GANTRY_TEST_DATABASE_URL exported \u2014 the default Postgres lane deliberately excludes the worker-coordination suite \u2014 and eleven unit) ran through the exact-leaf JUnit gate on the host and pass; npx tsc --noEmit and npm run check:architecture pass; python3 factory/scripts/verify.py passed WITH GANTRY_TEST_DATABASE_URL exported (format, architecture, typecheck, the full unit suite of 9,150 tests, the serial general integration lane). The first host verify had 47 regressions from one unconditional updatePendingInteractionPayload call in the prompt binding; fixed at the root (batch bindings finalize only members that carry a remember context; context-less prompts take today's path) and re-verified. Ceilings: types.ts 740/740, inline 749/750, IPC 851/865. Sandbox: 197 focused + 263 regression tests green; the Postgres leaf is host-run (EPERM in the sandbox).",
+    "summary": "ASKFLOOR-1-T3c automated proof after review round 1: the twelve required leaves (one through the general integration config against gantry_test with GANTRY_TEST_DATABASE_URL exported, eleven unit) ran through the exact-leaf JUnit gate on the host and pass; npx tsc --noEmit and npm run check:architecture pass; python3 factory/scripts/verify.py passed WITH GANTRY_TEST_DATABASE_URL exported (format, architecture, typecheck, the full unit suite of 9,150 tests, the serial general integration lane). Review r1 fixes: batch finalization moved into the Postgres bind transaction keyed on matchKind (no application hook, no pre-read \u2014 the two intermediate shapes each regressed provider suites: 1 and 6 failures, both fixed at the root); a false context-persistence result refuses the prompt; an empty claim_mode is refused at the mapper. Ceilings: types.ts 740/740, inline 749/750, IPC 851/865.",
     "blocking_findings": [],
     "commands_run": [
       "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/permission-remember-codec.test.ts -t \"round-trips the four remember codes and the three scalar modes and returns null for anything else\" --outputFile=.tmp-junit/leaf-0.xml",
@@ -38,7 +38,7 @@
       "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
       "apps/core/test/unit/storage/runtime-store.test.ts"
     ],
-    "pass_fail_summary": "12/12 required leaves pass on the host; tsc, check:architecture, verify.py (full unit suite + Postgres lane) green",
+    "pass_fail_summary": "12/12 required leaves pass on the host; tsc, check:architecture, verify.py (full unit suite + Postgres lane) green after the review r1 fixes",
     "remaining_gaps": [],
     "reviewed_scope": [
       "apps/core/src/application/permissions/permission-remember-codec.ts",
@@ -53,6 +53,9 @@
       "apps/core/src/application/interactions/pending-interaction-durability.ts",
       "apps/core/src/application/interactions/durable-interaction-handler.ts",
       "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
+      "apps/core/src/domain/ports/worker-coordination.ts",
+      "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-interaction-repository.postgres.ts",
+      "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-interaction.postgres.ts",
       "apps/core/src/adapters/storage/postgres/runtime-store.ts",
       "apps/core/src/control/server/session-interaction-approvals.ts",
       "apps/core/src/runtime/ipc-interaction-processing.ts",
@@ -77,8 +80,8 @@
     "non_blocking_findings": [],
     "residual_risks": [],
     "manual_validation_steps": [],
-    "recorded_at": "2026-09-07T14:52:22+00:00",
-    "commit": "4938c090b79b9e0daad719cf4ae95faa95c57b68"
+    "recorded_at": "2026-09-07T16:35:41+00:00",
+    "commit": "36c0f18268139459e02fcd94a01f781d04ade379"
   },
-  "updated_at": "2026-09-07T14:52:22+00:00"
+  "updated_at": "2026-09-07T16:35:41+00:00"
 }

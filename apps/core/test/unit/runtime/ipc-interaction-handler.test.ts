@@ -194,6 +194,7 @@ describe('ipc-interaction-handler', () => {
       crashAfterClaim?: boolean;
       group?: boolean;
       scheduledJob?: boolean;
+      contextPersistenceFails?: boolean;
     }) => {
       const durability = inMemoryPermissionDurability();
       const rows = [];
@@ -203,6 +204,12 @@ describe('ipc-interaction-handler', () => {
         durability.repository as never,
         'createTransientGrant',
       );
+      if (options.contextPersistenceFails) {
+        vi.spyOn(
+          durability.repository as never,
+          'updatePendingInteractionPayload',
+        ).mockResolvedValueOnce(false);
+      }
       configurePendingInteractionDurability({
         repository: durability.repository as never,
       });
@@ -510,6 +517,14 @@ describe('ipc-interaction-handler', () => {
       mutateLane: 'ask',
     });
     expect(forgedLane.putHumanDecision).not.toHaveBeenCalled();
+
+    const persistenceFailure = await runRemembered({
+      code: 'remember_allow_exact',
+      personId: 'host-person',
+      contextPersistenceFails: true,
+    });
+    expect(persistenceFailure.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(persistenceFailure.putHumanDecision).not.toHaveBeenCalled();
 
     const crashed = await runRemembered({
       code: 'remember_allow_exact',

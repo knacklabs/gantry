@@ -7,7 +7,10 @@ import {
   replayPersistedPermissionDecisionForRequest,
 } from '@core/application/interactions/pending-interaction-durability.js';
 import { runDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
-import type { PermissionRememberPromptFacts } from '@core/application/permissions/human-decision-learning.js';
+import {
+  parsePermissionRememberContext,
+  type PermissionRememberPromptFacts,
+} from '@core/application/permissions/human-decision-learning.js';
 import type {
   PermissionDecisionMemoryRepository,
   PermissionDecisionMemoryRow,
@@ -403,6 +406,19 @@ export function inMemoryPermissionDurability(): {
           )
         )
           return null;
+        if (input.matchKind === 'batch') {
+          for (const member of boundMembers) {
+            const context = parsePermissionRememberContext(
+              member.payload.rememberContext,
+            );
+            if (context) {
+              member.payload = {
+                ...member.payload,
+                rememberContext: { ...context, eligible: false },
+              };
+            }
+          }
+        }
         group = {
           prompt: {
             ...input,

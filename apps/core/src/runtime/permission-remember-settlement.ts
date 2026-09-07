@@ -1,4 +1,5 @@
 import {
+  DurableInteractionPersistenceError,
   rememberSettlementForClaim,
   updatePendingPermissionRememberContext,
 } from '../application/interactions/pending-interaction-durability.js';
@@ -40,13 +41,18 @@ export function rememberingPermissionApprovalRequester(input: {
 ) => Promise<PermissionApprovalResult> {
   return async (request, facts) => {
     if (facts) {
-      await persistPermissionRememberPromptContext({
+      const persisted = await persistPermissionRememberPromptContext({
         request,
         sourceAgentFolder: input.sourceAgentFolder,
         facts,
         personId: input.personId,
         hostJobId: input.hostJobId,
       });
+      if (!persisted) {
+        throw new DurableInteractionPersistenceError(
+          'Pending permission remember context could not be persisted',
+        );
+      }
     }
     if (!request.jobId) return input.deps.requestPermissionApproval(request);
     const outcome = await attachJobPermissionRequestOrDeny({

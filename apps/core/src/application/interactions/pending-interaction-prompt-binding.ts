@@ -9,7 +9,6 @@ import type {
   PermissionRecoveryEnvelope,
   PermissionRememberCode,
 } from '../../domain/types.js';
-import { parsePermissionRememberContext } from '../permissions/human-decision-learning.js';
 import {
   durablePermissionRequestSnapshot,
   readDurablePermissionFullView,
@@ -96,29 +95,6 @@ export async function bindPendingPermissionInteractionMessage(input: {
       externalPromptThreadId: request.threadId ?? null,
       providerAliases: callbackAlias ? [callbackAlias] : [],
     });
-    if (group && matchKind === 'batch') {
-      for (const member of group.members ?? []) {
-        if (!parsePermissionRememberContext(member.payload.rememberContext)) {
-          continue;
-        }
-        const updated = await active.repository.updatePendingInteractionPayload(
-          {
-            idempotencyKey: member.idempotencyKey,
-            update: (payload) => {
-              const context = parsePermissionRememberContext(
-                payload.rememberContext,
-              );
-              if (!context) return payload;
-              return {
-                ...payload,
-                rememberContext: { ...context, eligible: false },
-              };
-            },
-          },
-        );
-        if (!updated) return false;
-      }
-    }
     return group !== null;
   } catch (err) {
     active.warn?.(
