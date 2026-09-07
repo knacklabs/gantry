@@ -157,7 +157,7 @@ export function AgentDetailRoute() {
             </span>
             <div className="min-w-0">
               <p className="mb-1 font-mono text-[10px] font-semibold tracking-[0.14em] text-text-secondary uppercase">
-                AI employee configuration
+                AI employee · {agent.id}
               </p>
               <h1 className="m-0 text-2xl font-semibold tracking-tight text-text">
                 {agent.name}
@@ -178,7 +178,6 @@ export function AgentDetailRoute() {
                     ? `${agent.conversationCount} conversations`
                     : 'Not connected'}
                 </Badge>
-                <Badge variant="neutral">Scheduled jobs unavailable</Badge>
               </div>
             </div>
           </div>
