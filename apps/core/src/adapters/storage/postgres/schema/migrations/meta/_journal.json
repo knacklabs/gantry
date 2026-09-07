@@ -1023,6 +1023,13 @@
       "when": 1788666535983,
       "tag": "20260906034855_permission_decision_memory_human",
       "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1788764111669,
+      "tag": "20260907065511_agent_service_person_identity",
+      "breakpoints": true
     }
   ]
 }

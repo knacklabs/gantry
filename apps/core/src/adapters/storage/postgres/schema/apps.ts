@@ -31,6 +31,7 @@ export const usersPostgres = pgTable(
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull().default('human'),
+    agentId: text('agent_id'),
     displayName: text('display_name'),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -41,6 +42,9 @@ export const usersPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    serviceAgentUnique: uniqueIndex('idx_users_service_agent')
+      .on(table.agentId)
+      .where(sql`${table.agentId} IS NOT NULL`),
     appScopedIdentity: uniqueIndex('uniq_users_app_id_id').on(
       table.appId,
       table.id,

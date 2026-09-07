@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppMemoryService } from '@core/memory/app-memory-service.js';
+import { usersPostgres } from '@core/adapters/storage/postgres/schema/apps.js';
+import { and, eq } from 'drizzle-orm';
 import {
   DEFAULT_APP_ID,
   DEFAULT_LLM_PROFILE_ID,
@@ -42,6 +44,36 @@ maybeDescribe('application services with Postgres repositories', () => {
       createdAt: now,
       updatedAt: now,
     });
+    await expect(
+      runtime.service.db
+        .select()
+        .from(usersPostgres)
+        .where(
+          and(
+            eq(usersPostgres.appId, appId),
+            eq(usersPostgres.agentId, agentId),
+          ),
+        ),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        appId,
+        agentId,
+        kind: 'service',
+        displayName: 'Integration Agent',
+        status: 'active',
+      }),
+    ]);
+    await runtime.repositories.agents.disableAgent({
+      appId,
+      agentId,
+      updatedAt: '2026-04-28T00:01:00.000Z',
+    });
+    await expect(
+      runtime.service.db
+        .select({ status: usersPostgres.status })
+        .from(usersPostgres)
+        .where(eq(usersPostgres.agentId, agentId)),
+    ).resolves.toEqual([{ status: 'disabled' }]);
 
     const configVersionId = 'agent-config:integration:1' as never;
     await runtime.repositories.agentConfigs.saveConfigVersion({
