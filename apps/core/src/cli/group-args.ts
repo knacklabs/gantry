@@ -16,6 +16,11 @@ export interface GroupRemoveOptions {
   assumeYes: boolean;
 }
 
+export interface GroupOffboardOptions {
+  selector?: string;
+  assumeYes: boolean;
+}
+
 export interface GroupTriggerOptions {
   selector?: string;
   trigger?: string;
@@ -197,6 +202,32 @@ export function parseGroupRemoveArgs(
     };
   }
 
+  return options;
+}
+
+export function parseGroupOffboardArgs(
+  args: string[],
+): GroupOffboardOptions | { error: string } {
+  const options: GroupOffboardOptions = { assumeYes: false };
+  for (const arg of args) {
+    if (arg === '--yes' || arg === '-y') {
+      options.assumeYes = true;
+      continue;
+    }
+    if (arg.startsWith('--')) {
+      return { error: `Unknown option for agent offboard: ${arg}` };
+    }
+    if (!options.selector) {
+      options.selector = arg;
+      continue;
+    }
+    return { error: `Unexpected argument for agent offboard: ${arg}` };
+  }
+  if (!options.selector) {
+    return {
+      error: 'Missing agent id. Usage: gantry agent offboard <agentId> [--yes]',
+    };
+  }
   return options;
 }
 

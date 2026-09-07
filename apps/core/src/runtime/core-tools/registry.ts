@@ -162,6 +162,8 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
   ) => Promise<void> | void;
   durability?: DurableInteractionOperations;
   requestId?: (prefix: string) => string;
+  /** Rechecked immediately before every tool invocation. */
+  executionAdmission?: () => Promise<string | undefined>;
   evaluateToolPreChecks(input: {
     toolName: string;
     toolInput: unknown;
@@ -353,6 +355,10 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
           'validation',
           false,
         );
+      }
+      const admissionFailure = await deps.executionAdmission?.();
+      if (admissionFailure) {
+        return errorResult(admissionFailure, 'permission', false);
       }
       if (deps.context.toolRules?.length) {
         const ruleName = isCallableAgentToolName(name)

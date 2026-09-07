@@ -13,8 +13,11 @@ import {
   ensureConfiguredConversationBinding,
   loadDesiredRuntimeSettingsForWrite,
   loadRuntimeSettings,
+  saveRuntimeSettings,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
+import { settingsToRevisionDocument } from '../config/settings/settings-revision-document.js';
+import { CURRENT_SETTINGS_READER_VERSION } from '../config/settings/settings-fleet-import.js';
 import {
   defaultTriggerForAgentName,
   displayAgentName,
@@ -33,6 +36,7 @@ import { EnvRuntimeSecretProvider } from '../adapters/credentials/env-runtime-se
 import { getProviderRuntimeSecret } from '../channels/provider-runtime-secrets.js';
 import {
   parseGroupAddArgs,
+  parseGroupOffboardArgs,
   parseGroupPolicyArgs,
   parseGroupPolicyDefaultArgs,
   parseGroupPolicyShowArgs,
@@ -46,11 +50,13 @@ import {
   ensureGroupFiles,
   findConversationIdForAgent,
   formatAgentHarnessLine,
+  isAgentOffboardedForRemoval,
   isInteractiveTerminal,
   loadDatabase,
   normalizeGroupAddSelector,
   pruneAgentSenderPolicyOverride,
   pruneDesiredStateAgent,
+  removeAgentFromDesiredSettings,
   resolveGroupSelector,
   seedTelegramControlApproverForAgent,
   usage,
@@ -436,6 +442,15 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       );
       return 1;
     }
+    const offboarding = await isAgentOffboardedForRemoval(found.group.folder);
+    if (offboarding.error) {
+      p.log.error(`Could not verify offboarding status: ${offboarding.error}`);
+      return 1;
+    }
+    if (!offboarding.offboarded) {
+      p.log.error('Offboard this AI employee before removing it.');
+      return 1;
+    }
     if (!parsed.assumeYes) {
       if (!isInteractiveTerminal()) {
         p.log.error(
@@ -551,6 +566,83 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
     return 0;
   } finally {
     await db?.close();
+  }
+}
+
+async function runOffboard(runtimeHome: string, args: string[]): Promise<number> {
+  const parsed = parseGroupOffboardArgs(args);
+  if ('error' in parsed) {
+    p.log.error(parsed.error);
+    return 1;
+  }
+  if (!parsed.assumeYes) {
+    p.log.error('Refusing destructive offboarding without --yes.');
+    p.log.info('Next action: rerun with `--yes`.');
+    return 1;
+  }
+
+  try {
+    const settings = await loadDesiredRuntimeSettingsForWrite({ runtimeHome });
+    const selector = parsed.selector!.trim();
+    const folder = Object.keys(settings.agents).find(
+      (candidate) =>
+        candidate === selector || agentIdForFolder(candidate) === selector,
+    );
+    if (!folder) {
+      p.log.error(`No AI employee found for "${selector}".`);
+      return 1;
+    }
+    if (folder === 'main_agent') {
+      p.log.error('The default AI employee cannot be offboarded.');
+      return 1;
+    }
+
+    const nextSettings = structuredClone(settings);
+    removeAgentFromDesiredSettings(nextSettings, folder);
+    const { closeRuntimeStorage, getRuntimeStorage, initializeRuntimeStorage } =
+      await import('../adapters/storage/postgres/runtime-store.js');
+    const { PostgresAgentOffboardingRepository } = await import(
+      '../adapters/storage/postgres/repositories/agent-offboarding-repository.postgres.js'
+    );
+    await initializeRuntimeStorage({ runtimeSettings: settings });
+    let result;
+    try {
+      const storage = getRuntimeStorage();
+      const revision = await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+        'default' as never,
+      );
+      result = await new PostgresAgentOffboardingRepository(storage.service.db).offboard({
+        appId: 'default',
+        agentId: agentIdForFolder(folder),
+        defaultAgentId: agentIdForFolder('main_agent'),
+        expectedSettingsRevision: revision?.revision ?? 0,
+        settingsDocument: settingsToRevisionDocument(nextSettings),
+        createdBy: 'cli:agent-offboard',
+        actor: 'cli:agent-offboard',
+        now: nowIso(),
+        minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      });
+    } finally {
+      await closeRuntimeStorage();
+    }
+    if (result.status === 'already_offboarded') {
+      p.log.info('This AI employee is already offboarded.');
+      return 0;
+    }
+    try {
+      saveRuntimeSettings(runtimeHome, nextSettings);
+    } catch (err) {
+      p.log.warn(
+        `AI employee offboarded, but settings.yaml will be restored from the committed revision: ${errorMessage(err)}.`,
+      );
+    }
+    p.log.success(
+      `AI employee ${result.agentName} is offboarded. Provider accounts disabled, conversation installs removed, and scheduled jobs cancelled. Secrets were retained.`,
+    );
+    return 0;
+  } catch (err) {
+    p.log.error(`Could not offboard AI employee: ${errorMessage(err)}`);
+    return 1;
   }
 }
 
@@ -847,6 +939,8 @@ export async function runAgentCommand(
       return runInfo(runtimeHome, rest[0]);
     case 'add':
       return runAdd(runtimeHome, rest);
+    case 'offboard':
+      return runOffboard(runtimeHome, rest);
     case 'name':
       return runName(runtimeHome, rest);
     case 'remove':

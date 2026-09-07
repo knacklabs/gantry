@@ -36,6 +36,7 @@ export function usage(): string {
     '  gantry agent info <jid|folder>',
     '  gantry agent name <name>',
     '  gantry agent add <jid|chat-id> [--name <name>] [--folder <folder>] [--trigger <word>] [--requires-trigger true|false] [--test-message|--no-test-message]',
+    '  gantry agent offboard <agentId|folder> [--yes]',
     '  gantry agent remove <jid|folder> [--yes]',
     '  gantry agent trigger <jid|folder> <word>',
     '  gantry agent trigger <jid|folder> --off',
@@ -206,60 +207,10 @@ export async function pruneDesiredStateAgent(input: {
         keptForDelegates: delegateReferences,
       };
     }
-    delete settings.agents[input.folder];
-
-    // A provider account still pointing at the removed agent is a dangling
-    // "references unknown agent" reference that makes the settings write fail,
-    // so none may survive. Settings validation already guarantees a
-    // conversation's installed agent owns its provider account, so an account
-    // belonging to this agent can only serve this agent's conversations --
-    // both go together.
-    let providerAccountsPruned = 0;
-    for (const [accountId, account] of Object.entries(
-      settings.providerAccounts,
-    )) {
-      if (account.agentId !== input.folder) continue;
-      for (const [conversationId, conversation] of Object.entries(
-        settings.conversations,
-      )) {
-        // Drop only the installs backed by this account -- a conversation can
-        // host other agents, and deleting it wholesale would silently discard
-        // their configuration.
-        for (const [installKey, install] of Object.entries(
-          conversation.installedAgents,
-        )) {
-          if (
-            install.providerAccountId !== accountId &&
-            install.agentId !== input.folder
-          ) {
-            continue;
-          }
-          delete conversation.installedAgents[installKey];
-        }
-        const survivingInstalls = Object.values(conversation.installedAgents);
-        if (survivingInstalls.length === 0) {
-          delete settings.conversations[conversationId];
-          continue;
-        }
-        // Others remain: hand the conversation to a surviving install's
-        // account so its primary reference never points at a deleted account.
-        if (conversation.providerAccount === accountId) {
-          const replacement = survivingInstalls.find(
-            (install) =>
-              install.providerAccountId &&
-              install.providerAccountId !== accountId,
-          )?.providerAccountId;
-          if (!replacement) {
-            throw new Error(
-              `cannot remove ${input.folder}: conversation ${conversationId} still hosts ${survivingInstalls.length} agent(s) but has no other provider account to own it`,
-            );
-          }
-          conversation.providerAccount = replacement;
-        }
-      }
-      delete settings.providerAccounts[accountId];
-      providerAccountsPruned += 1;
-    }
+    const providerAccountsPruned = removeAgentFromDesiredSettings(
+      settings,
+      input.folder,
+    );
 
     // Persistence note: when a storage provider is configured (the CLI and the
     // runtime both do, cli/index.ts:34) this appends a settings revision -- the
@@ -285,6 +236,56 @@ export async function pruneDesiredStateAgent(input: {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/** Remove one agent and its dependent desired-state wiring from a settings copy. */
+export function removeAgentFromDesiredSettings(
+  settings: ReturnType<typeof loadRuntimeSettings>,
+  folder: string,
+): number {
+  delete settings.agents[folder];
+  let providerAccountsPruned = 0;
+  for (const [accountId, account] of Object.entries(
+    settings.providerAccounts,
+  )) {
+    if (account.agentId !== folder) continue;
+    for (const [conversationId, conversation] of Object.entries(
+      settings.conversations,
+    )) {
+      for (const [installKey, install] of Object.entries(
+        conversation.installedAgents,
+      )) {
+        if (
+          install.providerAccountId !== accountId &&
+          install.agentId !== folder
+        ) {
+          continue;
+        }
+        delete conversation.installedAgents[installKey];
+      }
+      const survivingInstalls = Object.values(conversation.installedAgents);
+      if (survivingInstalls.length === 0) {
+        delete settings.conversations[conversationId];
+        continue;
+      }
+      if (conversation.providerAccount === accountId) {
+        const replacement = survivingInstalls.find(
+          (install) =>
+            install.providerAccountId &&
+            install.providerAccountId !== accountId,
+        )?.providerAccountId;
+        if (!replacement) {
+          throw new Error(
+            `cannot remove ${folder}: conversation ${conversationId} still hosts ${survivingInstalls.length} agent(s) but has no other provider account to own it`,
+          );
+        }
+        conversation.providerAccount = replacement;
+      }
+    }
+    delete settings.providerAccounts[accountId];
+    providerAccountsPruned += 1;
+  }
+  return providerAccountsPruned;
 }
 
 /**
@@ -333,6 +334,30 @@ export async function disableRemovedAgentProjection(
       `Agent ${folder} removed from desired state, but its projected agents row could not be disabled (${error}); it stays removed and will not resurrect.`,
     );
     return { disabled: false, error };
+  }
+}
+
+/** Removal is allowed only after the durable identity lifecycle has ended. */
+export async function isAgentOffboardedForRemoval(
+  folder: string,
+): Promise<{ offboarded: boolean; error?: string }> {
+  try {
+    const { closeRuntimeStorage, getRuntimeStorage, initializeRuntimeStorage } =
+      await import('../adapters/storage/postgres/runtime-store.js');
+    await initializeRuntimeStorage();
+    try {
+      const agent = await getRuntimeStorage().repositories.agents.getAgent(
+        agentIdForFolder(folder),
+      );
+      return { offboarded: agent?.status === 'offboarded' };
+    } finally {
+      await closeRuntimeStorage();
+    }
+  } catch (err) {
+    return {
+      offboarded: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

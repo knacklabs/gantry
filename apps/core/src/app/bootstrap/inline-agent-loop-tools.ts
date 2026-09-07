@@ -140,6 +140,17 @@ export function createInlineCoreTools(
     ? createInlineToolSuccessLedger()
     : undefined;
   const taskLifecycleBackend = deps.createTaskLifecycleBackend(laneInput);
+  const executionAdmission = async (): Promise<string | undefined> => {
+    const repository = deps.getAgentRepository();
+    if (!repository?.getAgent) return undefined;
+    const agent = await repository.getAgent(
+      (run.agentId ??
+        memoryAgentIdForWorkspaceFolder(laneInput.group.folder)) as never,
+    );
+    return agent?.status === 'offboarded'
+      ? 'This AI employee is offboarded and cannot start another tool call.'
+      : undefined;
+  };
   const projectedCallableAgents =
     taskLifecycleBackend &&
     run.parentTaskId == null &&
@@ -193,6 +204,7 @@ export function createInlineCoreTools(
     onPermissionPromptFinished: (request) =>
       laneInput.jobActivity.finishPermissionRequest(request.requestId),
     taskLifecycleBackend,
+    executionAdmission,
     ...(callableAgentTaskLifecycleBackend && projectedCallableAgents.length
       ? {
           callableAgentManifest: projectedCallableAgents,
@@ -300,6 +312,8 @@ export function createInlineCoreTools(
     ...registry,
     authorizeThirdPartyMcpTool: async (name, toolInput, context) => {
       context?.signal?.throwIfAborted();
+      const admissionFailure = await executionAdmission();
+      if (admissionFailure) return { allowed: false, reason: admissionFailure };
       const toolRuleDenial = toolSuccessLedger
         ? support.evaluateToolPreChecks({
             toolName: name,

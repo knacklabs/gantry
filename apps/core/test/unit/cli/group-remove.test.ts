@@ -22,6 +22,7 @@ vi.mock('@core/cli/group-helpers.js', () => ({
   ensureGroupFiles: vi.fn(),
   findConversationIdForAgent: vi.fn(),
   formatAgentHarnessLine: vi.fn(),
+  isAgentOffboardedForRemoval: vi.fn(async () => ({ offboarded: true })),
   isInteractiveTerminal: vi.fn(() => false),
   loadDatabase: vi.fn(async () => ({
     close: state.close,

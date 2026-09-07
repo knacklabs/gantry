@@ -25,6 +25,7 @@ export class PostgresAgentOffboardingRepository {
     createdBy: string;
     actor: string;
     now: string;
+    minReaderVersion: number;
   }): Promise<
     | {
         status: 'offboarded';
@@ -138,7 +139,7 @@ export class PostgresAgentOffboardingRepository {
         {
           appId: input.appId,
           settingsDocument: input.settingsDocument,
-          minReaderVersion: 1,
+          minReaderVersion: input.minReaderVersion,
           createdBy: input.createdBy,
           note: `AI employee ${agent.id} offboarded`,
           expectedRevision: input.expectedSettingsRevision,
