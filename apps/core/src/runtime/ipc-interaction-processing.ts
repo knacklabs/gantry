@@ -7,6 +7,9 @@ import type {
 } from '../domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
+import { executionAdmissionForAgent } from '../application/agents/agent-execution-admission.js';
+import { decisionForMode } from '../domain/permission-decision.js';
+import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import type { PausedJobCapabilityRecheckResult } from '../application/jobs/job-permission-recovery.js';
 import { formatDurableAccessRuleForEvent } from '../shared/durable-access-policy.js';
 import {
@@ -232,6 +235,20 @@ export async function processPermissionInteractionIpc(input: {
     if (attachedToJobPermissionNeed) {
       fs.unlinkSync(input.claimedPath);
       return;
+    }
+    const executionFailure = decision.approved
+      ? await executionAdmissionForAgent({
+          agentId:
+            input.request.agentId ?? agentIdForFolder(input.sourceAgentFolder),
+          getAgentRepository: input.deps.getAgentRepository,
+        })
+      : undefined;
+    if (executionFailure) {
+      decision = {
+        ...decisionForMode(input.request, 'cancel', decision.decidedBy),
+        permissionCallbackClaim: decision.permissionCallbackClaim,
+        reason: executionFailure,
+      };
     }
     const claimedDecision = decision;
     await assertActiveScheduledPermissionLease(input);

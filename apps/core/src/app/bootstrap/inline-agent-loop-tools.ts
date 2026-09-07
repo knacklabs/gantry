@@ -6,6 +6,7 @@ import {
 } from '../../application/core-tools/callable-agent-tools.js';
 import { runDurablePermissionInteraction } from '../../application/interactions/durable-interaction-handler.js';
 import { decisionForMode } from '../../domain/permission-decision.js';
+import { executionAdmissionForAgent } from '../../application/agents/agent-execution-admission.js';
 import { reviewedMcpReadBindingsForRuntimeAccess } from '../../application/agents/agent-tool-runtime-rules.js';
 import { synthesizeHostPermissionSuggestions } from '../../application/permissions/permission-suggestion-synthesis.js';
 import {
@@ -140,17 +141,12 @@ export function createInlineCoreTools(
     ? createInlineToolSuccessLedger()
     : undefined;
   const taskLifecycleBackend = deps.createTaskLifecycleBackend(laneInput);
-  const executionAdmission = async (): Promise<string | undefined> => {
-    const repository = deps.getAgentRepository();
-    if (!repository?.getAgent) return undefined;
-    const agent = await repository.getAgent(
-      (run.agentId ??
-        memoryAgentIdForWorkspaceFolder(laneInput.group.folder)) as never,
-    );
-    return agent?.status === 'offboarded'
-      ? 'This AI employee is offboarded and cannot start another tool call.'
-      : undefined;
-  };
+  const executionAdmission = () =>
+    executionAdmissionForAgent({
+      agentId:
+        run.agentId ?? memoryAgentIdForWorkspaceFolder(laneInput.group.folder),
+      getAgentRepository: deps.getAgentRepository,
+    });
   const projectedCallableAgents =
     taskLifecycleBackend &&
     run.parentTaskId == null &&
