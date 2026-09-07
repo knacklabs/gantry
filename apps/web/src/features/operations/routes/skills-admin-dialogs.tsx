@@ -154,8 +154,8 @@ export function SkillInstallDialog({
             Install skill
           </DialogTitle>
           <DialogDescription>
-            Add a ZIP package to Gantry’s skill inventory. Agent attachment is
-            managed separately after installation.
+            Add a ZIP package to Gantry’s skill inventory. AI employee
+            attachment is managed separately after installation.
           </DialogDescription>
         </div>
 
@@ -190,7 +190,7 @@ export function SkillInstallDialog({
                   changeOpen(false);
                 }}
               >
-                Attach agents
+                Attach AI employees
               </Button>
             </div>
           </div>
@@ -239,8 +239,8 @@ export function SkillInstallDialog({
               />
               <span>
                 Installing a package with the same skill name updates it in
-                place. Attached agents receive the updated instructions on their
-                next run.
+                place. Attached AI employees receive the updated instructions on
+                their next run.
               </span>
             </p>
             {error ? (
@@ -382,7 +382,9 @@ export function SkillAttachmentsDialog({
       const savedAgents = attachedIds(result);
       setSelected(savedAgents);
       setConfirmed(new Set(savedAgents));
-      setSuccess('Attachments saved. Changes apply on each agent’s next run.');
+      setSuccess(
+        'Attachments saved. Changes apply on each AI employee’s next run.',
+      );
       onSaved(skill, result.agents.filter((agent) => agent.attached).length);
     } catch (caught) {
       const code = errorCode(caught);
@@ -438,18 +440,18 @@ export function SkillAttachmentsDialog({
       >
         <div className="grid gap-1 border-b border-border px-5 py-4">
           <DialogTitle className="text-lg font-semibold">
-            Attach agents
+            Attach AI employees
           </DialogTitle>
           <DialogDescription>
-            Choose which agents receive this skill’s instructions on their next
-            run.
+            Choose which AI employees receive this skill’s instructions on their
+            next run.
           </DialogDescription>
         </div>
 
         <div className="min-h-0 overflow-y-auto p-5">
           <p className="mt-0 mb-4 rounded-lg border border-border bg-surface-muted p-3 text-xs leading-5 text-text-secondary">
             Attachment is not authorization. Declared actions must still be
-            enabled from each agent’s Access tab.
+            enabled from each AI employee’s Access tab.
           </p>
           {query.isPending ? (
             <p aria-live="polite" className="m-0 text-sm text-text-secondary">
@@ -484,7 +486,7 @@ export function SkillAttachmentsDialog({
           {query.data && !query.isError ? (
             <fieldset className="m-0 grid gap-2 border-0 p-0" disabled={saving}>
               <legend className="mb-2 text-xs font-semibold text-text">
-                Agents
+                AI employees
               </legend>
               {query.data.agents.map((agent) => (
                 <label
@@ -506,7 +508,7 @@ export function SkillAttachmentsDialog({
                     </span>
                     <span className="text-xs text-text-secondary">
                       {agent.status === 'disabled'
-                        ? 'Disabled · available when the agent is enabled.'
+                        ? 'Disabled · available when the AI employee is enabled.'
                         : 'Active'}
                     </span>
                   </span>
@@ -514,7 +516,7 @@ export function SkillAttachmentsDialog({
               ))}
               {!query.data.agents.length ? (
                 <p className="m-0 text-sm text-text-secondary">
-                  No agents are available in this app.
+                  No AI employees are available in this app.
                 </p>
               ) : null}
             </fieldset>
@@ -533,7 +535,7 @@ export function SkillAttachmentsDialog({
               <p className="m-0 text-text-secondary">
                 {saving
                   ? 'Saving the complete attachment set…'
-                  : `${selected.size} agent${selected.size === 1 ? '' : 's'} selected${
+                  : `${selected.size} AI employee${selected.size === 1 ? '' : 's'} selected${
                       selected.size >= MAX_SELECTED_AGENTS
                         ? ` · Maximum ${MAX_SELECTED_AGENTS}`
                         : ''

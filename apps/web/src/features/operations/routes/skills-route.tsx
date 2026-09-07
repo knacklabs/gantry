@@ -271,7 +271,7 @@ export function SkillsRoute() {
             onOpenChange={setAttachmentOpen}
             onSaved={() =>
               setReceipt(
-                'Attachments saved. Changes apply on each agent’s next run.',
+                'Attachments saved. Changes apply on each AI employee’s next run.',
               )
             }
             open={attachmentOpen}
@@ -323,8 +323,8 @@ function SkillInventory({
                 {skill.description ?? 'No description provided.'}
               </span>
               <span className="font-mono text-[10px] tracking-wide text-text-muted uppercase">
-                {SOURCE_LABELS[skill.source]} · {skill.attachedAgents.length}{' '}
-                agent
+                {SOURCE_LABELS[skill.source]} · {skill.attachedAgents.length} AI
+                employee
                 {skill.attachedAgents.length === 1 ? '' : 's'}
               </span>
             </button>
@@ -401,7 +401,7 @@ function SkillDetail({
           { label: 'Files', value: 'files', count: files?.length },
           { label: 'Actions', value: 'actions', count: skill.actions.length },
           {
-            label: 'Agents',
+            label: 'AI employees',
             value: 'agents',
             count: skill.attachedAgents.length,
           },
@@ -444,8 +444,8 @@ function OverviewTab({ skill }: { skill: BrowserSkill }) {
           Package overview
         </h3>
         <p className="mt-1 mb-0 text-sm leading-6 text-text-secondary">
-          This inventory describes what the package contains. Agent attachment
-          and action authority remain separate controls.
+          This inventory describes what the package contains. AI employee
+          attachment and action authority remain separate controls.
         </p>
       </div>
       <dl className="m-0 grid gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-2">
@@ -730,18 +730,18 @@ function AgentsTab({ skill }: { skill: BrowserSkill }) {
   if (!skill.attachedAgents.length) {
     return (
       <PageState
-        description="This skill is not attached to an agent."
+        description="This skill is not attached to an AI employee."
         icon={<PackageCheck aria-hidden="true" />}
         kind="empty"
-        title="No attached agents"
+        title="No attached AI employees"
       />
     );
   }
   return (
     <div className="grid gap-3">
       <p className="m-0 text-sm leading-6 text-text-secondary">
-        Attachment makes the skill available to an agent. Agent Access remains
-        the only place to review authorization.
+        Attachment makes the skill available to an AI employee. AI employee
+        Access remains the only place to review authorization.
       </p>
       <ul className="m-0 grid list-none divide-y divide-border overflow-hidden rounded-lg border border-border p-0">
         {skill.attachedAgents.map((agent) => (
@@ -761,7 +761,7 @@ function AgentsTab({ skill }: { skill: BrowserSkill }) {
               search={{ tab: 'access' }}
               to="/agents/$agentId"
             >
-              Open Agent Access
+              Open AI employee access
             </Link>
           </li>
         ))}
