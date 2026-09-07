@@ -1,0 +1,13 @@
+{
+  "topic": "t3c-run4-continue-ceilings",
+  "lesson": "Run 4 of ASKFLOOR-1-T3c died on the Codex compaction bug with the bulk of the task in the tree: 26 files, about 1,700 lines, uncommitted. CONTINUE from that tree \u2014 never reset. Two ceilings are breached right now and check:architecture will fail until they are fixed: apps/core/src/domain/types.ts is 748 lines against 740 (the contract requires LINE-NEUTRAL edits there: declare PermissionRememberCode on one line and join existing multi-line declarations so the file returns to exactly 740 or fewer; nothing else may grow it) and apps/core/src/app/bootstrap/inline-agent-loop-tools.ts is 753 against 750 (move any added inline logic into inline-permission-memory.ts; the inline file may only gain the handful of call lines). ipc-interaction-processing.ts is 851/865 \u2014 fine. Then finish what remains (check each: the S2 harness/fixture, the Postgres mapper validation case, the parity case, any of the twelve leaves not yet green), run tsc, check:architecture, prettier. Commit nothing; the host commits.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/app/bootstrap/inline-permission-memory.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-07T13:12:05+00:00"
+}

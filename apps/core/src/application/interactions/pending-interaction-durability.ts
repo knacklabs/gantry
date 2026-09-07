@@ -10,6 +10,7 @@ import type {
   PermissionCallbackClaimReference,
   QuestionRecoveryEnvelope,
 } from '../../domain/types.js';
+import type { PermissionRememberContext } from '../permissions/human-decision-learning.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '../../shared/ipc-interaction-lifetime.js';
 import { nowMs, toIso } from '../../shared/time/datetime.js';
 import {
@@ -41,6 +42,7 @@ type InteractionDurabilityRepository = PendingInteractionRepository &
   TransientGrantRepository;
 interface InteractionDurabilityBackend extends PendingInteractionResolutionBackend {
   repository: InteractionDurabilityRepository;
+  learn?: (claim: PermissionCallbackClaimReference) => Promise<void>;
 }
 let backend: InteractionDurabilityBackend | null = null;
 let permissionPersistence: PermissionPersistenceBackend | null = null;
@@ -56,6 +58,7 @@ export function configurePendingInteractionDurability(
           applyDecision: applyPermissionInteractionDecision,
           resolve: resolvePendingInteractionRecord,
           resolveOutcome: resolvePendingInteractionRecordOutcome,
+          ...(next.learn ? { learn: next.learn } : {}),
           ...(next.warn ? { warn: next.warn } : {}),
         }
       : null,
@@ -67,6 +70,25 @@ export function configurePendingInteractionPermissionPersistence(
   permissionPersistence = next;
 }
 export { pendingInteractionIdempotencyKey } from './pending-interaction-idempotency.js';
+
+export async function updatePendingPermissionRememberContext(input: {
+  sourceAgentFolder: string;
+  requestId: string;
+  appId?: string | null;
+  context: PermissionRememberContext;
+}): Promise<boolean> {
+  const active = backend;
+  if (!active) return true;
+  return active.repository.updatePendingInteractionPayload({
+    idempotencyKey: pendingInteractionIdempotencyKey({
+      kind: 'permission',
+      sourceAgentFolder: input.sourceAgentFolder,
+      requestId: input.requestId,
+      appId: input.appId,
+    }),
+    update: (payload) => ({ ...payload, rememberContext: input.context }),
+  });
+}
 
 export async function recordPendingInteractionRequested(input: {
   interactionId?: string;
@@ -172,6 +194,7 @@ export {
   replayPersistedPermissionDecisionForRequest,
   releasePermissionInteractionCallback,
   resolveDurablePermissionInteractionByRequestId,
+  rememberSettlementForClaim,
   settlePermissionInteractionCallback,
 } from './pending-interaction-permission-callback.js';
 export type { DurablePermissionInteractionContext } from './pending-interaction-permission-callback.js';

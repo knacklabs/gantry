@@ -60,15 +60,22 @@ import {
 } from './permission-decision-coordinator.js';
 import { deriveAutoLaneAnalysis } from '../application/permissions/auto-lane-analysis.js';
 import { gantryNativeCanonicalToolName } from '../application/permissions/gantry-tool-risk.js';
+import type { PermissionRememberPromptFacts } from '../application/permissions/human-decision-learning.js';
 
 type PermissionRuntimeSettings = ReturnType<
   NonNullable<IpcDeps['getPermissionRuntimeSettings']>
 >;
+type PermissionDecisionIpcDeps = Omit<IpcDeps, 'requestPermissionApproval'> & {
+  requestPermissionApproval: (
+    request: PermissionApprovalRequest,
+    facts?: PermissionRememberPromptFacts,
+  ) => ReturnType<IpcDeps['requestPermissionApproval']>;
+};
 
 export async function resolvePermissionIpcDecision(input: {
   request: ParsedPermissionIpcRequest;
   sourceAgentFolder: string;
-  deps: IpcDeps;
+  deps: PermissionDecisionIpcDeps;
 }): Promise<PermissionApprovalDecision> {
   const settings = input.deps.getPermissionRuntimeSettings?.();
   const agentSettings = settings?.agents[input.sourceAgentFolder] as
@@ -185,6 +192,7 @@ export async function resolvePermissionIpcDecision(input: {
         effectHash,
         decisionMemory,
         hostJobId,
+        workspaceRoot,
         route,
         settings,
         permissionMode,
@@ -196,10 +204,11 @@ export async function resolvePermissionIpcDecision(input: {
 interface PermissionIpcDecisionTailInput {
   request: ParsedPermissionIpcRequest;
   sourceAgentFolder: string;
-  deps: IpcDeps;
+  deps: PermissionDecisionIpcDeps;
   effectHash?: string;
   decisionMemory?: PermissionDecisionMemoryRepository;
   hostJobId?: string;
+  workspaceRoot: string;
   route?: ConversationRoute;
   settings?: PermissionRuntimeSettings;
   permissionMode: PermissionMode;
@@ -558,7 +567,11 @@ async function resolveIpcPermissionPromptOrTerminal(
     // would never be honored while the denylist blocks rule-based auto-allows.
     input.request.suggestions = undefined;
     input.request.decisionOptions = ['allow_once', 'cancel'];
-    const result = await input.deps.requestPermissionApproval(input.request);
+    const result = await input.deps.requestPermissionApproval(input.request, {
+      analysis: input.context.analysis,
+      effectHash: input.effectHash,
+      workspaceRoot: input.workspaceRoot,
+    });
     if (result.kind === 'delivery_failure') {
       throw new Error(
         `Couldn't deliver the approval prompt: ${result.userMessage}`,
@@ -596,7 +609,11 @@ async function resolveIpcPermissionPromptOrTerminal(
       'cancel',
     ];
   }
-  const result = await input.deps.requestPermissionApproval(input.request);
+  const result = await input.deps.requestPermissionApproval(input.request, {
+    analysis: input.context.analysis,
+    effectHash: input.effectHash,
+    workspaceRoot: input.workspaceRoot,
+  });
   if (result.kind === 'delivery_failure') {
     throw new Error(
       `Couldn't deliver the approval prompt: ${result.userMessage}`,

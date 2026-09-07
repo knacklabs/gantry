@@ -28,7 +28,9 @@ import type {
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
   PermissionRecoveryEnvelope,
+  PermissionRememberCode,
 } from '../../../../domain/types.js';
+import { decodePermissionDecisionCode } from '../../../../application/permissions/permission-remember-codec.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { toPendingInteraction } from './worker-coordination-interaction.postgres.js';
@@ -43,6 +45,12 @@ function toPermissionPrompt(row: PermissionPromptRow): PermissionPrompt {
   ) {
     throw new Error('Permission prompt claim columns are incomplete');
   }
+  const claimMode = row.claimMode
+    ? parsePermissionDecisionCode(row.claimMode, 'claim mode')
+    : null;
+  const renderedDecisionOptions = parsePermissionDecisionCodes(
+    row.renderedDecisionOptionsJson,
+  );
   const claim = hasClaim
     ? ({
         id: row.claimId!,
@@ -52,7 +60,7 @@ function toPermissionPrompt(row: PermissionPromptRow): PermissionPrompt {
           interactionId: row.interactionId,
         },
         intent: {
-          mode: row.claimMode as PermissionApprovalDecisionMode,
+          mode: claimMode!,
           approverRef: row.claimApproverRef!,
           decidedAt: row.claimedAt!,
         },
@@ -75,8 +83,7 @@ function toPermissionPrompt(row: PermissionPromptRow): PermissionPrompt {
     memberCount: row.memberCount,
     envelope: {
       version: 1,
-      renderedDecisionOptions:
-        row.renderedDecisionOptionsJson as PermissionApprovalDecisionMode[],
+      renderedDecisionOptions,
       targetJid: row.targetJid,
       approvalContextJid: row.approvalContextJid,
       threadId: row.threadId,
@@ -98,6 +105,27 @@ function toPermissionPrompt(row: PermissionPromptRow): PermissionPrompt {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function parsePermissionDecisionCodes(
+  value: unknown,
+): (PermissionApprovalDecisionMode | PermissionRememberCode)[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Permission prompt rendered options are malformed');
+  }
+  return value.map((option) =>
+    parsePermissionDecisionCode(option, 'rendered option'),
+  );
+}
+
+function parsePermissionDecisionCode(
+  value: unknown,
+  field: string,
+): PermissionApprovalDecisionMode | PermissionRememberCode {
+  if (typeof value !== 'string' || !decodePermissionDecisionCode(value)) {
+    throw new Error(`Permission prompt ${field} is malformed`);
+  }
+  return value as PermissionApprovalDecisionMode | PermissionRememberCode;
 }
 
 async function loadPermissionPromptGroup(

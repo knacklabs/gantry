@@ -12,6 +12,7 @@ import { escapeTelegramMarkdownV2 } from './telegram-markdown-v2-escape.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
 import type {
   PermissionApprovalDecisionMode,
+  PermissionRememberCode,
   UserQuestionRequest,
 } from '../../domain/types.js';
 import {
@@ -49,26 +50,29 @@ export const TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES = 56;
 // This can be split into a separate config knob later if UX needs diverge.
 export const TELEGRAM_USER_QUESTION_TIMEOUT_MS = PERMISSION_APPROVAL_TIMEOUT_MS;
 export const TELEGRAM_PERMISSION_CALLBACK_PATTERN =
-  /^perm:(allow_once|allow_persistent_rule|cancel):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/;
+  /^perm:(allow_once|allow_persistent_rule|cancel|remember_allow_exact|remember_allow_kind|remember_allow_place|remember_deny_exact):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/;
 export const TELEGRAM_USER_QUESTION_CALLBACK_PATTERN =
   /^userq:(select|done|other):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})(?::(\d+))?(?::(\d+))?$/;
 export const TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN =
   /^dl:(retry|logs|pause|open)(?::(.+))?$/;
 
 export function telegramPermissionCallbackData(
-  mode: PermissionApprovalDecisionMode,
+  mode: PermissionApprovalDecisionMode | PermissionRememberCode,
   callbackId: string,
 ): string {
   return `perm:${mode}:${callbackId}`;
 }
 
-export function parseTelegramPermissionCallbackData(
-  value: string,
-): { mode: PermissionApprovalDecisionMode; callbackId: string } | null {
+export function parseTelegramPermissionCallbackData(value: string): {
+  mode: PermissionApprovalDecisionMode | PermissionRememberCode;
+  callbackId: string;
+} | null {
   const match = TELEGRAM_PERMISSION_CALLBACK_PATTERN.exec(value);
   return match
     ? {
-        mode: match[1] as PermissionApprovalDecisionMode,
+        mode: match[1] as
+          | PermissionApprovalDecisionMode
+          | PermissionRememberCode,
         callbackId: match[2]!,
       }
     : null;

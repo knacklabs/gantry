@@ -15,6 +15,7 @@ import {
 } from './pending-interaction-durability.js';
 import type { PendingInteractionResolutionOutcome } from './pending-interaction-resolution.js';
 import { durablePermissionRequestSnapshot } from './pending-interaction-permission-envelope.js';
+import type { PermissionRememberContext } from '../permissions/human-decision-learning.js';
 
 export { durablePermissionRequestSnapshot } from './pending-interaction-permission-envelope.js';
 
@@ -35,6 +36,7 @@ export async function beginDurablePermissionInteraction(input: {
   request: PermissionApprovalRequest;
   sourceAgentFolder: string;
   payload: Record<string, unknown>;
+  rememberContext?: PermissionRememberContext;
   callbackRoute?: Record<string, unknown> | null;
   operations?: DurableInteractionOperations;
 }): Promise<boolean> {
@@ -48,7 +50,12 @@ export async function beginDurablePermissionInteraction(input: {
     runId: input.request.runId,
     runLeaseToken: input.request.runLeaseToken,
     runLeaseFencingVersion: input.request.runLeaseFencingVersion,
-    payload: input.payload,
+    payload: {
+      ...input.payload,
+      ...(input.rememberContext
+        ? { rememberContext: input.rememberContext }
+        : {}),
+    },
     callbackRoute: input.callbackRoute,
   });
   if (!recorded) throw new Error('Permission prompt was not durably recorded');
@@ -152,11 +159,15 @@ export async function runDurablePermissionInteraction(input: {
   ) => Promise<void> | void;
   skipPromptWhenAlreadyPending?: boolean;
   operations?: DurableInteractionOperations;
+  rememberContext?: PermissionRememberContext;
 }): Promise<DurablePermissionInteractionResult> {
   const began = await beginDurablePermissionInteraction({
     request: input.request,
     sourceAgentFolder: input.sourceAgentFolder,
     operations: input.operations,
+    ...(input.rememberContext
+      ? { rememberContext: input.rememberContext }
+      : {}),
     payload: {
       sourceAgentFolder: input.sourceAgentFolder,
       requestId: input.request.requestId,

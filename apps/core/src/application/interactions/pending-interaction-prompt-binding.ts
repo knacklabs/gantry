@@ -7,7 +7,9 @@ import type {
   PermissionApprovalRequest,
   PermissionCallbackScope,
   PermissionRecoveryEnvelope,
+  PermissionRememberCode,
 } from '../../domain/types.js';
+import { parsePermissionRememberContext } from '../permissions/human-decision-learning.js';
 import {
   durablePermissionRequestSnapshot,
   readDurablePermissionFullView,
@@ -38,7 +40,7 @@ export function configurePendingInteractionPromptBinding(
 
 export async function bindPendingPermissionInteractionMessage(input: {
   request: PermissionApprovalRequest;
-  decisionOptions: PermissionApprovalDecisionMode[];
+  decisionOptions: (PermissionApprovalDecisionMode | PermissionRememberCode)[];
   callbackId?: string;
   externalMessageId?: string;
   provider?: string | null;
@@ -52,6 +54,7 @@ export async function bindPendingPermissionInteractionMessage(input: {
   const requestIds = request.permissionBatch?.requestIds?.length
     ? request.permissionBatch.requestIds
     : [request.requestId];
+  const matchKind = requestIds.length > 1 ? 'batch' : 'individual';
   const envelope: PermissionRecoveryEnvelope = {
     version: 1,
     renderedDecisionOptions: [...input.decisionOptions],
@@ -74,7 +77,7 @@ export async function bindPendingPermissionInteractionMessage(input: {
       setupFingerprint: request.setupFingerprint ?? null,
       sourceAgentFolder: request.sourceAgentFolder,
       interactionId: request.requestId,
-      matchKind: requestIds.length > 1 ? 'batch' : 'individual',
+      matchKind,
       members: requestIds.map((requestId, index) => ({
         idempotencyKey: pendingInteractionIdempotencyKey({
           kind: 'permission',
@@ -93,6 +96,29 @@ export async function bindPendingPermissionInteractionMessage(input: {
       externalPromptThreadId: request.threadId ?? null,
       providerAliases: callbackAlias ? [callbackAlias] : [],
     });
+    if (group && matchKind === 'batch') {
+      for (const member of group.members ?? []) {
+        if (!parsePermissionRememberContext(member.payload.rememberContext)) {
+          continue;
+        }
+        const updated = await active.repository.updatePendingInteractionPayload(
+          {
+            idempotencyKey: member.idempotencyKey,
+            update: (payload) => {
+              const context = parsePermissionRememberContext(
+                payload.rememberContext,
+              );
+              if (!context) return payload;
+              return {
+                ...payload,
+                rememberContext: { ...context, eligible: false },
+              };
+            },
+          },
+        );
+        if (!updated) return false;
+      }
+    }
     return group !== null;
   } catch (err) {
     active.warn?.(
@@ -116,7 +142,7 @@ export interface DurablePermissionPromptMessageContext {
   approvalContextJid: string | null;
   threadId: string | null;
   decisionPolicy: PermissionApprovalRequest['decisionPolicy'] | null;
-  decisionOptions: PermissionApprovalDecisionMode[];
+  decisionOptions: (PermissionApprovalDecisionMode | PermissionRememberCode)[];
   request: PermissionApprovalRequest;
   claim?: NonNullable<PermissionPromptGroup['prompt']['claim']>;
 }
