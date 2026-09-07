@@ -1509,7 +1509,7 @@
         "Every audit row carries a PrincipalRef actor; no bare 'agent' string remains",
         "gantry agent offboard retires aliases, removes installs, disables accounts, cancels jobs atomically; agent remove is gated on offboarded",
         "Agent senders never create a Person, load personal memory, or trigger a run",
-        "Migration from shipped IDENTITY-01 shape (users + user_aliases(provider, providerAccountId, externalUserId)) to (appId, kind, authorityId, subject) with collision-fail",
+        "Extend the shipped IDENTITY-01 alias key (users + user_aliases(provider, providerAccountId, externalUserId)) with service-alias provider values and collision-fail; preserve backend field names and use product terminology only in the frontend",
         "Atomic boundary defined as desired-state revision + identity/runtime/outbox orchestration with recovery (ADR 0025); settings.yaml is a mirror",
         "Agent-sender classification runs before participant/message persistence in Slack, Teams, Discord",
         "Offboard emits a named identity event through the existing runtime-event/outbox path (ADR 0016) and retires connector accounts (ADR 0137)"
