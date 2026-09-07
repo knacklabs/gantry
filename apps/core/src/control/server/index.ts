@@ -222,6 +222,7 @@ function createControlRequestHandler(
         (await handleBrowserChannelAccountRoutes(
           req,
           res,
+          ctx,
           pathname,
           getRuntimeSettingsForConfig(),
         ))

@@ -15,7 +15,7 @@ const source = fs.readFileSync(
   'utf8',
 );
 
-it('exposes only session-bound, redacted channel account reads', () => {
+it('exposes session-bound channel account reads and guarded write-only creation', () => {
   expect(isBrowserChannelAccountsPath('/ui/api/channel-providers')).toBe(true);
   expect(isBrowserChannelAccountsPath('/ui/api/channel-accounts')).toBe(true);
   expect(isBrowserChannelAccountsPath('/ui/api/conversations')).toBe(true);
@@ -31,7 +31,15 @@ it('exposes only session-bound, redacted channel account reads', () => {
   expect(source).toContain("'providers:read'");
   expect(source).toContain("'conversations:read'");
   expect(source).toContain("'agents:admin'");
-  expect(source).toContain('credentialKeys: Object.keys(account.runtimeSecretRefs)');
+  expect(source).toContain("'providers:admin'");
+  expect(source).toContain('requireBrowserMutationSession');
+  expect(source).toContain('isCanonicalBrowserOrigin');
+  expect(source).toContain('isRecentlyReauthenticated');
+  expect(source).toContain('new CapabilitySecretService');
+  expect(source).toContain('gantryRuntimeSecretRef(name)');
+  expect(source).toContain(
+    'credentialKeys: Object.keys(account.runtimeSecretRefs)',
+  );
   expect(source).not.toContain('runtimeSecretRefs: account.runtimeSecretRefs');
   expect(source).not.toContain('authorizeControlRequest(');
 });
