@@ -57,6 +57,26 @@ const skillsRoute = createRoute({
   ),
 });
 
+const channelAccountsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'channel-accounts',
+  component: lazyRouteComponent(
+    () =>
+      import('../../features/channel-accounts/routes/channel-accounts-route'),
+    'ChannelAccountsRoute',
+  ),
+});
+
+const channelAccountDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'channel-accounts/$accountId',
+  component: lazyRouteComponent(
+    () =>
+      import('../../features/channel-accounts/routes/channel-account-detail-route'),
+    'ChannelAccountDetailRoute',
+  ),
+});
+
 const conversationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'conversations',
@@ -92,6 +112,8 @@ export const operationsRoutes = [
   providersRoute,
   mcpServersRoute,
   skillsRoute,
+  channelAccountsRoute,
+  channelAccountDetailRoute,
   conversationsRoute,
   conversationDetailRoute,
   diagnosticsRoute,
