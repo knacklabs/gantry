@@ -229,11 +229,22 @@ function DetailTabs({
   value,
 }: {
   onValueChange: (
-    value: 'overview' | 'instructions' | 'access' | 'settings',
+    value:
+      | 'overview'
+      | 'conversations'
+      | 'instructions'
+      | 'access'
+      | 'settings',
   ) => void;
-  value: 'overview' | 'instructions' | 'access' | 'settings';
+  value: 'overview' | 'conversations' | 'instructions' | 'access' | 'settings';
 }) {
-  const tabs = ['overview', 'instructions', 'access', 'settings'] as const;
+  const tabs = [
+    'overview',
+    'conversations',
+    'instructions',
+    'access',
+    'settings',
+  ] as const;
   return (
     <nav
       aria-label="AI employee detail"
@@ -261,13 +272,99 @@ function Content({
   onStatusRequest,
 }: {
   agent: AgentDirectoryItem;
-  tab: 'overview' | 'instructions' | 'access' | 'settings';
+  tab: 'overview' | 'conversations' | 'instructions' | 'access' | 'settings';
   onStatusRequest: () => void;
 }) {
   if (tab === 'overview') return <Overview agent={agent} />;
+  if (tab === 'conversations') return <Conversations agent={agent} />;
   if (tab === 'instructions') return <Instructions agent={agent} />;
   if (tab === 'access') return <Access agent={agent} />;
   return <AgentSettings agent={agent} onStatusRequest={onStatusRequest} />;
+}
+
+function Conversations({ agent }: { agent: AgentDirectoryItem }) {
+  const accounts = useQuery(channelAccountsQuery());
+  const conversations = useQuery(channelConversationsQuery());
+  const installs = useQuery(agentConversationInstallsQuery(agent.id));
+  const accountById = new Map(
+    (accounts.data?.accounts ?? []).map((account) => [account.id, account]),
+  );
+  const conversationById = new Map(
+    (conversations.data?.conversations ?? []).map((conversation) => [
+      conversation.id,
+      conversation,
+    ]),
+  );
+  return (
+    <div className="grid gap-4 p-4">
+      <InfoCard
+        title="Conversations"
+        description="Each installation assigns this AI employee to one provider conversation with its own memory scope and approvers."
+      >
+        {installs.isLoading ? (
+          <p className="m-0 text-sm text-text-secondary">
+            Loading conversation installs…
+          </p>
+        ) : installs.data?.installs.length ? (
+          <ul className="m-0 grid list-none divide-y divide-border p-0">
+            {installs.data.installs.map((install) => {
+              const account = accountById.get(install.providerAccountId);
+              const conversation = conversationById.get(install.conversationId);
+              return (
+                <li
+                  className="flex flex-wrap items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
+                  key={install.id}
+                >
+                  <div className="min-w-0">
+                    <strong className="block text-sm">
+                      {conversation?.title ?? install.displayName}
+                    </strong>
+                    <span className="block text-xs text-text-secondary">
+                      {account?.label ?? 'Channel account unavailable'} ·{' '}
+                      {install.memoryScope} memory
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <StatusPill
+                      status={
+                        install.status === 'active' ? 'active' : 'disabled'
+                      }
+                    />
+                    {account ? (
+                      <Link
+                        className="text-xs font-semibold text-text underline underline-offset-2"
+                        params={{ accountId: account.id }}
+                        to="/channel-accounts/$accountId"
+                      >
+                        Manage account
+                      </Link>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="grid gap-3">
+            <p className="m-0 text-sm text-text-secondary">
+              This AI employee is not installed in a conversation yet.
+            </p>
+            <Link
+              className="inline-flex h-8 w-fit items-center justify-center rounded-md border border-text bg-text px-3 text-xs font-semibold text-surface no-underline hover:opacity-90"
+              to="/channel-accounts"
+            >
+              Connect a channel account
+            </Link>
+          </div>
+        )}
+      </InfoCard>
+      <p className="m-0 text-xs text-text-secondary">
+        A channel account is the bot identity. A conversation installation is
+        the place where that identity may respond; it does not make a reply
+        delivery claim.
+      </p>
+    </div>
+  );
 }
 
 function Overview({ agent }: { agent: AgentDirectoryItem }) {
