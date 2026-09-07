@@ -88,6 +88,10 @@ const PERMISSION_PROVENANCE_BY_DECIDER: Record<
     source: 'trusted_root',
     repeatableForFutureRuns: true,
   },
+  human_decision: {
+    source: 'human_decision',
+    repeatableForFutureRuns: true,
+  },
 };
 
 export type PermissionDecisionOrigin = 'machine' | 'human';

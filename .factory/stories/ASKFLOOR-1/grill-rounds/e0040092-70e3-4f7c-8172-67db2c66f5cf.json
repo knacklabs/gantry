@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The exact-command memory key includes the safety-rules version, so after a rules update an old exact Allow/No can never be found again (it silently stops applying and the card asks normally). Only kind- and place-scoped memories can show the line \"Asking again \u2014 the safety rules were updated since you last decided this\". Which do you want?",
+      "options": [
+        "Keep it simple (Recommended)",
+        "Version-stable exact key"
+      ],
+      "chosen": "Keep it simple (Recommended)"
+    }
+  ],
+  "at": "2026-09-07T02:10:49.837450+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

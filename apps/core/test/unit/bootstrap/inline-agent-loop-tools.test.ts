@@ -22,6 +22,10 @@ import {
   formatMemoryToolResponse,
   formatMemoryWriteResponse,
 } from '@core/runner/mcp/formatting.js';
+import {
+  HumanDecisionOutcome,
+  type PermissionDecisionMemoryRepository,
+} from '@core/domain/ports/permission-decision-memory.js';
 import type {
   AsyncTaskBacklogAdmissionInput,
   AsyncTaskClaimInput,
@@ -968,6 +972,109 @@ describe('inline core tool bootstrap', () => {
         }),
       }),
     );
+  });
+
+  it("short-circuits the inline classifier with a seeded remembered Allow for the run person and never reads the classifier verdict cache, while a scheduled run and a run without memoryUserId keep today's consult, with the new decision-memory dep wired", async () => {
+    const findHumanDecision: PermissionDecisionMemoryRepository['findHumanDecision'] =
+      vi.fn(async ({ candidates }) => {
+        const candidate = candidates[0]!;
+        return {
+          id: 'remembered-inline-allow',
+          appId: 'default',
+          agentFolder: 'main_agent',
+          kind: 'human_decision',
+          lookupIdentity: candidate.scopeKey,
+          decision: HumanDecisionOutcome.Allow,
+          outcome: HumanDecisionOutcome.Allow,
+          scope: candidate.scope,
+          scopeKey: candidate.scopeKey,
+          actingPersonId: 'approver-1',
+          reason: 'remembered inline allow',
+          effectSchemaVersion: 3,
+          railVersion: 2,
+          provenance: 'human_decision:test',
+          createdAt: '2026-09-07T00:00:00.000Z',
+        };
+      });
+    const getClassifierVerdict = vi.fn(async () => null);
+    const decisionMemory = {
+      findHumanDecision,
+      getClassifierVerdict,
+    } as never;
+    const getPermissionDecisionMemoryRepository = vi.fn(() => decisionMemory);
+    const settings = () => ({
+      agents: {
+        main_agent: {
+          capabilities: [{ id: 'mcp.crm.access', version: '1' }],
+        },
+      },
+      permissions: {
+        autoMode: {},
+        yoloMode: { enabled: false },
+      },
+      memory: { llm: { models: { extractor: 'sonnet' } } },
+    });
+    const promptPolicy = support((() => ({
+      status: 'prompt',
+      reason: 'Approval required.',
+    })) as never);
+    const classifierConsult = vi.fn(async () => ({
+      risk_level: 'low' as const,
+      reason: 'Read-only lookup.',
+      latencyMs: 1,
+    }));
+    wire({
+      classifierConsult,
+      getPermissionDecisionMemoryRepository,
+      getPermissionRuntimeSettings: settings,
+    });
+    const interactive = laneInput();
+    interactive.input.permissionMode = 'auto';
+    interactive.input.memoryUserId = 'approver-1';
+
+    await expect(
+      createInlineCoreTools(
+        interactive,
+        promptPolicy,
+      ).authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' }),
+    ).resolves.toEqual({ allowed: true });
+    expect(getPermissionDecisionMemoryRepository).toHaveBeenCalledOnce();
+    expect(findHumanDecision).toHaveBeenCalledTimes(2);
+    expect(findHumanDecision).toHaveBeenCalledWith(
+      expect.objectContaining({ actingPersonId: 'approver-1' }),
+    );
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(getClassifierVerdict).not.toHaveBeenCalled();
+
+    findHumanDecision.mockClear();
+    for (const run of [
+      { memoryUserId: 'approver-1', isScheduledJob: true, jobId: 'job-1' },
+      {},
+    ]) {
+      const currentClassifierConsult = vi.fn(async () => ({
+        risk_level: 'low' as const,
+        reason: 'Read-only lookup.',
+        latencyMs: 1,
+      }));
+      wire({
+        classifierConsult: currentClassifierConsult,
+        getPermissionDecisionMemoryRepository,
+        getPermissionRuntimeSettings: settings,
+      });
+      const input = laneInput();
+      input.input.permissionMode = 'auto';
+      Object.assign(input.input, run);
+
+      await expect(
+        createInlineCoreTools(input, promptPolicy).authorizeThirdPartyMcpTool(
+          'mcp__crm__read',
+          { id: 'crm-1' },
+        ),
+      ).resolves.toEqual({ allowed: true });
+      expect(currentClassifierConsult).toHaveBeenCalledOnce();
+    }
+    expect(findHumanDecision).not.toHaveBeenCalled();
+    expect(getClassifierVerdict).not.toHaveBeenCalled();
   });
 
   it('audits an auto-classifier ask verdict before preserving the existing prompt flow', async () => {

@@ -10,6 +10,7 @@ import {
   type HumanDecisionScope as HumanDecisionScopeValue,
 } from '../../domain/human-decision.js';
 import type { PermissionApprovalRequest } from '../../domain/types.js';
+import { RAIL_CATALOG_VERSION } from '../../domain/permission-effect-key.js';
 import { parseBashCommand } from '../../shared/bash-command-parser.js';
 import {
   classifyPermissionEffectShape,
@@ -65,9 +66,15 @@ export async function deriveHumanDecisionScopeKey(input: {
   }
   if (input.scope === HumanDecisionScope.Place) {
     const root = input.canonicalRoot?.trim();
-    return root
-      ? remembered(`place:${root}`)
-      : refused(HumanDecisionNotRememberableReason.NoRoot);
+    if (!root) return refused(HumanDecisionNotRememberableReason.NoRoot);
+    const kind = deriveKindScope(
+      input.request,
+      canonicalTool,
+      input.trustGrowthTool,
+    );
+    return kind.ok
+      ? remembered(`place:${kind.scopeKey.slice('kind:'.length)}:${root}`)
+      : kind;
   }
   if (input.outcome === HumanDecisionOutcome.Deny) {
     return fullEffect(input.effectHash);
@@ -117,7 +124,10 @@ async function deriveNativeWriteScope(input: {
     return undefined;
   }
   return canonicalPaths.length === 1
-    ? remembered(`exact:path:${input.canonicalTool}:${canonicalPaths[0]}`, true)
+    ? remembered(
+        `exact:path:${RAIL_CATALOG_VERSION}:${input.canonicalTool}:${canonicalPaths[0]}`,
+        true,
+      )
     : undefined;
 }
 
@@ -188,7 +198,10 @@ function deriveVirtualWriteScope(
     } else {
       return undefined;
     }
-    return remembered(`exact:path:${canonicalTool}:${scope}/${path}`, true);
+    return remembered(
+      `exact:path:${RAIL_CATALOG_VERSION}:${canonicalTool}:${scope}/${path}`,
+      true,
+    );
   } catch {
     return undefined;
   }
