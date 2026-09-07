@@ -166,3 +166,28 @@ export const personMergeAuditPostgres = pgTable(
     }),
   }),
 );
+
+export const identityOffboardingAuditPostgres = pgTable(
+  'identity_offboarding_audit',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    idempotencyKey: text('idempotency_key').notNull(),
+    personId: text('person_id').notNull(),
+    agentId: text('agent_id').notNull(),
+    actor: text('actor').notNull(),
+    resultJson: jsonb('result_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idempotencyUnique: uniqueIndex(
+      'idx_identity_offboarding_audit_app_idempotency',
+    ).on(table.appId, table.idempotencyKey),
+  }),
+);

@@ -9,6 +9,7 @@ import {
   type PostgresDomainRepositoryBundle,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import { PostgresPersonIdentityRepository } from '@core/adapters/storage/postgres/repositories/person-identity-repository.postgres.js';
+import { PostgresAgentOffboardingRepository } from '@core/adapters/storage/postgres/repositories/agent-offboarding-repository.postgres.js';
 import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '@core/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
 import { PostgresCapabilitySecretRepository } from '@core/adapters/storage/postgres/repositories/capability-secret-repository.postgres.js';
@@ -161,6 +162,129 @@ maybeDescribe('Postgres domain repositories', () => {
         externalThreadId: '1700.1',
       }),
     ).resolves.toMatchObject({ id: threadId });
+  });
+
+  it('offboards an AI employee atomically with its provider account, install, revision, and event', async () => {
+    const offboardAgentId = 'agent:test:offboard' as AgentId;
+    const offboardAccountId =
+      'channel-providerAccount:test:offboard' as ProviderAccountId;
+    const offboardConversationId =
+      'conversation:test:offboard' as ConversationId;
+    await repositories.agents.saveAgent({
+      id: offboardAgentId,
+      appId,
+      name: 'Support triage',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.providerAccounts.saveProviderAccount({
+      id: offboardAccountId,
+      appId,
+      agentId: offboardAgentId,
+      providerId,
+      externalIdentityRef: {
+        kind: 'provider_account',
+        value: 'U-support-triage',
+      },
+      label: 'Support Slack',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: { bot_token: 'env:SUPPORT_SLACK_BOT_TOKEN' },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.conversations.saveConversation({
+      id: offboardConversationId,
+      appId,
+      providerAccountId: offboardAccountId,
+      externalRef: { kind: 'conversation', value: 'C-offboard' },
+      kind: 'channel',
+      title: 'support',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.providerAccounts.saveConversationInstall({
+      id: 'agent-channel-binding:test:offboard' as never,
+      appId,
+      agentId: offboardAgentId,
+      providerAccountId: offboardAccountId,
+      conversationId: offboardConversationId,
+      displayName: 'Support triage',
+      status: 'active',
+      senderPolicy: 'provider_native',
+      controlPolicy: 'conversation_approvers',
+      memoryScope: 'conversation',
+      memorySubject: {
+        kind: 'conversation',
+        appId,
+        conversationId: offboardConversationId,
+      },
+      permissionPolicyIds: [DEFAULT_PERMISSION_POLICY_ID],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const initialRevision = await repositories.settingsRevisions.appendSettingsRevision({
+      appId,
+      settingsDocument: { agents: { offboard: { name: 'Support triage' } } },
+      minReaderVersion: 1,
+      createdBy: 'test',
+    });
+    expect(initialRevision.status).toBe('appended');
+    if (initialRevision.status !== 'appended') throw new Error('Expected revision');
+
+    const result = await new PostgresAgentOffboardingRepository(service.db).offboard({
+      appId,
+      agentId: offboardAgentId,
+      defaultAgentId: agentId,
+      expectedSettingsRevision: initialRevision.revision.revision,
+      settingsDocument: { agents: {}, provider_accounts: {}, conversations: {} },
+      createdBy: 'cli:agent-offboard',
+      actor: 'cli:agent-offboard',
+      now: '2026-04-28T00:00:00.000Z',
+    });
+
+    expect(result).toMatchObject({
+      status: 'offboarded',
+      providerAccountsDisabled: 1,
+      conversationInstallsRemoved: 1,
+      jobsCancelled: 0,
+      settingsRevision: initialRevision.revision.revision + 1,
+    });
+    await expect(repositories.agents.getAgent(offboardAgentId)).resolves.toMatchObject({
+      status: 'offboarded',
+    });
+    await expect(
+      repositories.providerAccounts.getProviderAccount(offboardAccountId),
+    ).resolves.toMatchObject({
+      status: 'disabled',
+      runtimeSecretRefs: { bot_token: 'env:SUPPORT_SLACK_BOT_TOKEN' },
+    });
+    await expect(
+      repositories.providerAccounts.listConversationInstalls(appId, offboardAgentId),
+    ).resolves.toEqual([]);
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: offboardAccountId,
+        externalUserId: 'U-support-triage',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(
+      repositories.runtimeEvents.listRuntimeEvents({
+        appId,
+        eventTypes: [RUNTIME_EVENT_TYPES.IDENTITY_OFFBOARDED],
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        agentId: offboardAgentId,
+        actor: 'cli:agent-offboard',
+      }),
+    ]);
   });
 
   it('resolves aliases by exact app, provider, providerAccountId, and external user id', async () => {

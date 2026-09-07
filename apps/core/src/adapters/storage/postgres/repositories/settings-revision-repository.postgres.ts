@@ -255,6 +255,21 @@ export class PostgresSettingsRevisionRepository implements SettingsRevisionRepos
     );
   }
 
+  async appendSettingsRevisionWithExecutor(
+    executor: CanonicalExecutor,
+    input: {
+      appId: string;
+      settingsDocument: Record<string, unknown>;
+      minReaderVersion: number;
+      createdBy: string;
+      note?: string | null;
+      expectedRevision: number;
+      now: string;
+    },
+  ): Promise<AppendSettingsRevisionResult> {
+    return this.appendAtExpectedRevisionWithDb(executor, input);
+  }
+
   /**
    * Conditional append (optimistic concurrency): insert exactly
    * `expectedRevision + 1` with NO retry past a conflict. The stale-head check

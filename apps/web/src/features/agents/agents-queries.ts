@@ -10,7 +10,7 @@ export const agentQueryKeys = {
 export type AgentDirectoryItem = {
   id: string;
   name: string;
-  status: 'active' | 'disabled';
+  status: 'active' | 'disabled' | 'offboarded';
   roleId: string | null;
   roleName: string | null;
   rolePrompt: string | null;
@@ -106,7 +106,7 @@ export type CapabilityCatalog = {
     name: string;
     displayName?: string;
     description?: string;
-    status: 'active' | 'disabled';
+    status: 'active' | 'disabled' | 'offboarded';
   }>;
 };
 

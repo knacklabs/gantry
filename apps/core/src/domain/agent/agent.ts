@@ -41,7 +41,7 @@ export interface Agent {
   id: AgentId;
   appId: AppId;
   name: string;
-  status: 'active' | 'disabled';
+  status: 'active' | 'disabled' | 'offboarded';
   currentConfigVersionId?: AgentConfigVersionId;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
