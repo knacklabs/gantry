@@ -1,6 +1,10 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import type { AgentId } from '../../../../domain/agent/agent.js';
+import {
+  serializePrincipalRef,
+  type PrincipalRef,
+} from '../../../../domain/identity/principal-ref.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
 import { PostgresSettingsRevisionRepository } from './settings-revision-repository.postgres.js';
@@ -23,7 +27,7 @@ export class PostgresAgentOffboardingRepository {
     expectedSettingsRevision: number;
     settingsDocument: Record<string, unknown>;
     createdBy: string;
-    actor: { kind: 'system'; source: string };
+    actor: PrincipalRef;
     now: string;
     minReaderVersion: number;
   }): Promise<
@@ -53,7 +57,8 @@ export class PostgresAgentOffboardingRepository {
       if (agent.id === input.defaultAgentId) {
         throw new Error('The default AI employee cannot be offboarded.');
       }
-      if (agent.status === 'offboarded') return { status: 'already_offboarded' };
+      if (agent.status === 'offboarded')
+        return { status: 'already_offboarded' };
 
       const [person] = await tx
         .select({ id: pgSchema.usersPostgres.id })
@@ -134,9 +139,8 @@ export class PostgresAgentOffboardingRepository {
         .set({ status: 'offboarded', updatedAt: input.now })
         .where(eq(pgSchema.usersPostgres.id, person.id));
 
-      const revision = await this.settingsRevisions.appendSettingsRevisionWithExecutor(
-        tx,
-        {
+      const revision =
+        await this.settingsRevisions.appendSettingsRevisionWithExecutor(tx, {
           appId: input.appId,
           settingsDocument: input.settingsDocument,
           minReaderVersion: input.minReaderVersion,
@@ -144,8 +148,7 @@ export class PostgresAgentOffboardingRepository {
           note: `AI employee ${agent.id} offboarded`,
           expectedRevision: input.expectedSettingsRevision,
           now: input.now,
-        },
-      );
+        });
       if (revision.status === 'conflict') {
         throw new Error('Desired state changed; retry offboarding.');
       }
@@ -157,7 +160,7 @@ export class PostgresAgentOffboardingRepository {
         idempotencyKey,
         personId: person.id,
         agentId: agent.id,
-        actor: JSON.stringify(input.actor),
+        actor: serializePrincipalRef(input.actor),
         resultJson: {
           providerAccountsDisabled: accountIds.length,
           conversationInstallsRemoved: installs.length,

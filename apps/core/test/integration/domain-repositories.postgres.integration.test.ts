@@ -225,23 +225,31 @@ maybeDescribe('Postgres domain repositories', () => {
       createdAt: now,
       updatedAt: now,
     });
-    const initialRevision = await repositories.settingsRevisions.appendSettingsRevision({
-      appId,
-      settingsDocument: { agents: { offboard: { name: 'Support triage' } } },
-      minReaderVersion: 1,
-      createdBy: 'test',
-    });
+    const initialRevision =
+      await repositories.settingsRevisions.appendSettingsRevision({
+        appId,
+        settingsDocument: { agents: { offboard: { name: 'Support triage' } } },
+        minReaderVersion: 1,
+        createdBy: 'test',
+      });
     expect(initialRevision.status).toBe('appended');
-    if (initialRevision.status !== 'appended') throw new Error('Expected revision');
+    if (initialRevision.status !== 'appended')
+      throw new Error('Expected revision');
 
-    const result = await new PostgresAgentOffboardingRepository(service.db).offboard({
+    const result = await new PostgresAgentOffboardingRepository(
+      service.db,
+    ).offboard({
       appId,
       agentId: offboardAgentId,
       defaultAgentId: agentId,
       expectedSettingsRevision: initialRevision.revision.revision,
-      settingsDocument: { agents: {}, provider_accounts: {}, conversations: {} },
+      settingsDocument: {
+        agents: {},
+        provider_accounts: {},
+        conversations: {},
+      },
       createdBy: 'cli:agent-offboard',
-      actor: 'cli:agent-offboard',
+      actor: { kind: 'system', source: 'cli:agent-offboard' },
       now: '2026-04-28T00:00:00.000Z',
     });
 
@@ -252,7 +260,9 @@ maybeDescribe('Postgres domain repositories', () => {
       jobsCancelled: 0,
       settingsRevision: initialRevision.revision.revision + 1,
     });
-    await expect(repositories.agents.getAgent(offboardAgentId)).resolves.toMatchObject({
+    await expect(
+      repositories.agents.getAgent(offboardAgentId),
+    ).resolves.toMatchObject({
       status: 'offboarded',
     });
     await expect(
@@ -262,7 +272,10 @@ maybeDescribe('Postgres domain repositories', () => {
       runtimeSecretRefs: { bot_token: 'env:SUPPORT_SLACK_BOT_TOKEN' },
     });
     await expect(
-      repositories.providerAccounts.listConversationInstalls(appId, offboardAgentId),
+      repositories.providerAccounts.listConversationInstalls(
+        appId,
+        offboardAgentId,
+      ),
     ).resolves.toEqual([]);
     await expect(
       people.resolveIdentity({
@@ -282,7 +295,7 @@ maybeDescribe('Postgres domain repositories', () => {
     ).resolves.toEqual([
       expect.objectContaining({
         agentId: offboardAgentId,
-        actor: 'cli:agent-offboard',
+        actor: { kind: 'system', source: 'cli:agent-offboard' },
       }),
     ]);
   });
