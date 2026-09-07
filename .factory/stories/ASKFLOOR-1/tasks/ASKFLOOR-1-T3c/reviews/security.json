@@ -1,0 +1,62 @@
+{
+  "generated_by": "autoreview",
+  "score": 6,
+  "summary": "security lens over ASKFLOOR-1-T3c (32 product path(s), 689550b..470d915, Codex via the autoreview skill at --max-priority P2): 1 blocking, 1 non-blocking. The change has a security-relevant race where batch prompts become claimable before their remember contexts are made ineligible, plus a persisted-code validation gap for empty claim modes. Both undermine the intended fail-closed trust boundaries.",
+  "blocking_findings": [
+    {
+      "category": "security",
+      "area": "apps/core/src/application/interactions",
+      "summary": "Finalize batch eligibility before making the prompt claimable (apps/core/src/application/interactions/pending-interaction-prompt-binding.ts:99): The batch members are marked `eligible: false` only after `bindPendingPermissionPrompt` has committed an open, claimable prompt."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/adapters/storage/postgres/repositories",
+      "summary": "Reject an empty persisted claim mode at the mapper boundary (apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts:47): The truthiness check skips `parsePermissionDecisionCode` when `claim_mode` is an empty string."
+    }
+  ],
+  "recommendation": "request-changes",
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/runtime-store.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+    "apps/core/src/application/interactions/durable-interaction-handler.ts",
+    "apps/core/src/application/interactions/pending-interaction-durability.ts",
+    "apps/core/src/application/interactions/pending-interaction-permission-callback.ts",
+    "apps/core/src/application/interactions/pending-interaction-permission-recovery-orchestrator.ts",
+    "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts",
+    "apps/core/src/application/permissions/human-decision-learning.ts",
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/src/application/permissions/permission-remember-codec.ts",
+    "apps/core/src/channels/slack/permission-action-id.ts",
+    "apps/core/src/channels/telegram/channel-shared.ts",
+    "apps/core/src/control/server/session-interaction-approvals.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/runtime/ipc-interaction-processing.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-remember-settlement.ts",
+    "apps/core/test/integration/worker-coordination.postgres.integration.test.ts",
+    "apps/core/test/unit/application/human-decision-learning.test.ts",
+    "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+    "apps/core/test/unit/application/pending-interaction-durability.test.ts",
+    "apps/core/test/unit/application/pending-interaction-permission-recovery-orchestrator.test.ts",
+    "apps/core/test/unit/application/permission-remember-codec.test.ts",
+    "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+    "apps/core/test/unit/channels/provider-affordance-parity.test.ts",
+    "apps/core/test/unit/control/session-interaction-approvals.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+    "apps/core/test/unit/storage/runtime-store.test.ts"
+  ],
+  "skills_used": [],
+  "aspect": "security",
+  "review_run_id": "1d58201d57b955209126e1b01d3c8c80c44163c2967b6b33bc74003b7bf05d40",
+  "brief_sha256": "9ed70c43717567c65770b556d41a2c3a860fae1b63c929f1e898d44785f5c087",
+  "branch_diff_digest": "b41cfa535400bcfcdff445457fbca4b24763ff702522f549ff1480fab6e35ad2",
+  "residual_risks": [],
+  "recorded_at": "2026-09-07T15:23:11+00:00",
+  "commit": "470d915e6dc8f6f06cfafdc28a70c68fd921e4b1"
+}

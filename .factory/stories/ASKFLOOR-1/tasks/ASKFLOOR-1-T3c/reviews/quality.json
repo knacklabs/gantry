@@ -1,0 +1,239 @@
+{
+  "generated_by": "autoreview",
+  "score": 6,
+  "summary": "quality lens over ASKFLOOR-1-T3c (32 product path(s), 689550b..470d915, Codex via the autoreview skill at --max-priority P2): 1 blocking, 1 non-blocking. The codec, learning service, settlement callers, and harness are present, but the durable context path has a claim race for batches and ignores an explicit persistence failure.\nVERDICT ASKFLOOR-1-T3c-AC1: implemented \u2014 apps/core/src/application/permissions/permission-remember-codec.ts:12 provides the closed codec and owned carrier support.\nVERDICT ASKFLOOR-1-T3c-AC2: partial \u2014 apps/core/src/application/interactions/pending-interaction-prompt-binding.ts:99 finalizes batch eligibility only after binding.\nVERDICT ASKFLOOR-1-T3c-AC3: implemented \u2014 apps/core/src/application/permissions/human-decision-learning.ts:171 implements the non-throwing learning helper and candidate selection.\nVERDICT ASKFLOOR-1-T3c-AC4: partial \u2014 apps/core/src/runtime/permission-remember-settlement.ts:43 continues after a false durable-context update, and batch finalization is not claim-safe.\nVERDICT ASKFLOOR-1-T3c-AC5: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:53 exercises the two-run S2 path.\nVERDICT ASKFLOOR-1-T3c-AC6: implemented \u2014 apps/core/src/domain/types.ts:248 contains the line-neutral carrier edits, and the recorded verification reports formatting, architecture, typecheck, and unit suites green.\nNo prohibited compatibility leftovers are visible in the diff.",
+  "blocking_findings": [
+    {
+      "category": "security",
+      "area": "apps/core/src/application/interactions",
+      "summary": "[P1] Finalize batch eligibility before making the prompt claimable (apps/core/src/application/interactions/pending-interaction-prompt-binding.ts:99): The prompt is bound first, and only afterward are its members updated one-by-one to `eligible: false`."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T3c-AC2: CONTEXT + DURABLE PATH. NEW `application/permissions/human-decision-learning.ts` declares `PermissionRememberContext` and exports async `derivePermissionRememberContext(input) \u2192 Promise<PermissionRememberContext>` (ruling 3) and `parsePermissionRememberContext(value: unknown) \u2192 PermissionRememberContext | null` (complete validation: `eligible` boolean; `lane` in the closed lane set; `laneInput.permissionMode` in the closed mode set and `hostJobId` string or absent; `appId`, `agentFolder`, `canonicalTool` non-empty strings; `personId`/`personLabel` strings or absent; `effectHash` non-empty string; `effectSchemaVersion`, `railVersion` integers; `workspaceRoot` string or absent; `kindVariant` in the closed pair; each candidate a well-formed `HumanDecisionScopeKeyResult`; anything else \u2192 `null`); the `requestPermissionApproval` closure in `ipc-interaction-processing.ts` derives the context and awaits `updatePendingInteractionPayload` BEFORE delegating to the durable flow (ruling 3; the helper's `IpcDeps.requestPermissionApproval` signature at `ipc-permission-classifier-decision.ts:68` gains the optional typed second argument, and its two prompt exits pass it); the inline path derives it in `inline-permission-memory.ts` and persists it with the member; `bindPendingPermissionInteractionMessage` finalizes `eligible` from `matchKind` (ruling 3) and its exposed options accept the widened carrier; `claimPermissionInteractionCallback` persists the tapped value verbatim in `claim_mode`; `rememberSettlementForClaim(claim)` is the single accessor every settlement path uses (context + decoded resolution from the same claimed row); the Postgres mapper validates `claimMode` and every rendered option through the codec on read; recovery decodes the persisted code into the identical `{ mode, remember }`; `already_decided` never learns; the control API stays scalar-only (ruling 9). Tests: the context round-trips through the member payload, a batch binding turns it ineligible, and `rememberSettlementForClaim` returns context and resolution by claim and by recovery (unit, `pending-interaction-durability.test.ts`); claim persists a code and the mapper refuses an unknown `claim_mode` or rendered option (Postgres, `worker-coordination.postgres.integration.test.ts`); exact, category-kind and tool-kind candidates in a persisted context equal a fresh derivation including each typed refusal, `kindVariant` selects between the two kind candidates, a place code resolves `no_root`, the encoder returns `null` for a deny with kind or place scope, and a malformed context (each field class) parses to `null` and learns nothing while the scalar current-request result still settles (`human-decision-learning.test.ts`); the control API renders a remember code as its scalar base and rejects a code on its POST (NEW `test/unit/control/session-interaction-approvals.test.ts`)."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T3c-AC4: WRITE-THEN-APPLY CALLERS. (a) IPC: NEW `runtime/permission-remember-settlement.ts` (the IPC module is at its 865-line ceiling) called from `ipc-interaction-processing.ts` just before `applyPermissionInteractionDecision` (`:269`): decodes the settled mode, reads the member's context, calls `learnRememberedDecision` with a `HumanDecisionMemoryService` over the coordinator's `decisionMemory` port; the application and event sequence (`:269-382`) are byte-identical for remembered and once-only taps. (b) Inline: `inline-permission-memory.ts` gains `inlineRememberSettlement(...)` called from the existing `afterDecision` hook (`inline-agent-loop-tools.ts:483-543`, \u2264 6 changed lines); it never throws into `runDurablePermissionInteraction`. (c) Recovery: `pending-interaction-permission-callback.ts` calls the optional `learn` dependency just before the recovered apply (`:491`); `pending-interaction-durability.ts` threads it; `runtime-store.ts` configures it (ruling 7). Tests: IPC suite (`ipc-interaction-handler.test.ts`) \u2014 the context is persisted before the durable flow is delegated to and its lane and effect hash equal the helper's; a crash after the provider claim but before the helper returns still recovers with a context; an eligible remembered Allow persists before application with unchanged events; a remembered No persists and the current call is denied; `ask`, `auto_strict`, group (blank person), batch and scheduled-job prompts persist nothing (one case each); a provider double-delivery is `already_decided` with zero writes; a persisted-eligible context whose `laneInput` re-derives a non-`interactive_auto` lane writes nothing. Inline suite \u2014 eligible Allow on a non-scheduled auto run persists once with `personId`/`personLabel` from the run's host identity (label undefined when the run has none); scheduled run persists nothing; port failure leaves the decision applied. Recovery suite \u2014 a recovered remember code learns once through the same helper; an unauthorized tapper is rejected before the claim with no write and no application; an authorized code on an ineligible card settles its scalar base once with no write; a crash before learning learns on recovery; a crash after learning ends with one active row through the refresh. Wiring \u2014 `test/unit/storage/runtime-store.test.ts` proves the production `learn` dependency reaches the callback path."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/runtime",
+      "summary": "[P2] Do not continue when remember-context persistence returns false (apps/core/src/runtime/permission-remember-settlement.ts:43): The boolean result from `persistPermissionRememberPromptContext` is ignored, so the code delegates to the approval flow even when the durable member was not updated."
+    }
+  ],
+  "recommendation": "request-changes",
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/runtime-store.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+    "apps/core/src/application/interactions/durable-interaction-handler.ts",
+    "apps/core/src/application/interactions/pending-interaction-durability.ts",
+    "apps/core/src/application/interactions/pending-interaction-permission-callback.ts",
+    "apps/core/src/application/interactions/pending-interaction-permission-recovery-orchestrator.ts",
+    "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts",
+    "apps/core/src/application/permissions/human-decision-learning.ts",
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/src/application/permissions/permission-remember-codec.ts",
+    "apps/core/src/channels/slack/permission-action-id.ts",
+    "apps/core/src/channels/telegram/channel-shared.ts",
+    "apps/core/src/control/server/session-interaction-approvals.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/runtime/ipc-interaction-processing.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-remember-settlement.ts",
+    "apps/core/test/integration/worker-coordination.postgres.integration.test.ts",
+    "apps/core/test/unit/application/human-decision-learning.test.ts",
+    "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+    "apps/core/test/unit/application/pending-interaction-durability.test.ts",
+    "apps/core/test/unit/application/pending-interaction-permission-recovery-orchestrator.test.ts",
+    "apps/core/test/unit/application/permission-remember-codec.test.ts",
+    "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+    "apps/core/test/unit/channels/provider-affordance-parity.test.ts",
+    "apps/core/test/unit/control/session-interaction-approvals.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+    "apps/core/test/unit/storage/runtime-store.test.ts"
+  ],
+  "skills_used": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/permissions/permission-remember-codec.ts:12 provides the closed codec and owned carrier support."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC2",
+      "verdict": "partial",
+      "evidence": "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts:99 finalizes batch eligibility only after binding."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC3",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/permissions/human-decision-learning.ts:171 implements the non-throwing learning helper and candidate selection."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC4",
+      "verdict": "partial",
+      "evidence": "apps/core/src/runtime/permission-remember-settlement.ts:43 continues after a false durable-context update, and batch finalization is not claim-safe."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC5",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:53 exercises the two-run S2 path."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC6",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/domain/types.ts:248 contains the line-neutral carrier edits, and the recorded verification reports formatting, architecture, typecheck, and unit suites green."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "1d58201d57b955209126e1b01d3c8c80c44163c2967b6b33bc74003b7bf05d40",
+  "brief_sha256": "9ed70c43717567c65770b556d41a2c3a860fae1b63c929f1e898d44785f5c087",
+  "branch_diff_digest": "b41cfa535400bcfcdff445457fbca4b24763ff702522f549ff1480fab6e35ad2",
+  "residual_risks": [],
+  "recorded_at": "2026-09-07T15:23:11+00:00",
+  "commit": "470d915e6dc8f6f06cfafdc28a70c68fd921e4b1"
+}
