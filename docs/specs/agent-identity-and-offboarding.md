@@ -11,11 +11,11 @@ saved: 2026-08-26T11:07:53+00:00
 
 Every AI agent is a principal in the same identity graph as the humans it works with.
 An agent is a `kind: service` Person (per the confirmed `person-identity-aliases` spec,
-decision 9) bound one-to-one to its `agentId`. Its channel seats (Provider Accounts)
-and tool accounts (Connector Accounts) attach as aliases exactly as a human's Slack,
-Teams, or OIDC logins do. Onboarding, scoped access, audit, and offboarding therefore
-read identically for a person and an agent, and `gantry <person|agent> offboard` is one
-use case with two entry points.
+decision 9) bound one-to-one to its `agentId`. Its Provider Accounts project to the
+same existing alias store as human channel identities. Onboarding, scoped access,
+audit, and offboarding therefore read identically for a person and an agent, and
+`gantry <person|agent> offboard` is one use case with two entry points. Connector
+Accounts are deliberately out of scope until Gantry persists their lifecycle.
 
 ## Why
 
@@ -27,11 +27,13 @@ Onboard, scope, audit, and offboard must read the same for a person and an agent
 
 - Agent principal: `people` row with `kind: service`, `agentId` as a unique, immutable
   binding. Created when the agent is created; never minted from a live message.
-- Agent aliases: alias kinds `provider_account` (subject = the provider's stable bot
-  identity, e.g. Slack `bot_user_id`; providerAccountId = the Provider Account id) and
-  `connector_account` (subject = the external account identity, e.g. mailbox address;
-  providerAccountId = the Connector Account id). `verified` is set by the connect
-  flow that proved control, never by the People API.
+- Agent aliases: Provider Accounts project to the existing
+  `user_aliases(provider, providerAccountId, externalUserId)` fields. `provider`
+  distinguishes the service alias; `providerAccountId` identifies the Provider Account;
+  and `externalUserId` is the provider's stable bot identity (for example Slack
+  `bot_user_id`). `verified` is set by the connect flow that proved control, never by
+  the People API. Backend field names remain unchanged; “Provider Account” is console
+  terminology only.
 - Cross-kind uniqueness: an alias key belongs to at most one Person of any kind. A
   subject can never be both human and service. Migration fails on collision.
 - Shipped baseline: `users` + `user_aliases(provider, providerAccountId, externalUserId)`
@@ -59,8 +61,8 @@ Onboard, scope, audit, and offboard must read the same for a person and an agent
 ### Offboarding
 
 - `offboard(personId)` is one atomic use case for both kinds: retire every alias (fail
-  closed), remove every Conversation Install, disable Provider and Connector Accounts
-  (secret references untouched), retire person-scoped grants (ADR 0118), cancel
+  closed), remove every Conversation Install, disable Provider Accounts (secret
+  references untouched), retire person-scoped grants (ADR 0118), cancel
   scheduled jobs with durable cancellation intent (in-flight runs finish but start no
   new tool call), set status `offboarded`, emit one identity audit row plus a named
   runtime event and outbox entry through the existing append path (ADR 0016).
@@ -92,7 +94,7 @@ mutation audited with `PrincipalRef`.
   - Extend the shipped IDENTITY-01 alias key (users + user_aliases(provider, providerAccountId, externalUserId)) with service-alias provider values and collision-fail; preserve backend field names and use product terminology only in the frontend
   - Atomic boundary defined as desired-state revision + identity/runtime/outbox orchestration with recovery (ADR 0025); settings.yaml is a mirror
   - Agent-sender classification runs before participant/message persistence in Slack, Teams, Discord
-  - Offboard emits a named identity event through the existing runtime-event/outbox path (ADR 0016) and retires connector accounts (ADR 0137)
+  - Offboard emits a named identity event through the existing runtime-event/outbox path (ADR 0016); Connector Accounts remain absent until they have a persisted lifecycle
 - **AUDIT-1** — Audit actor migration matrix to PrincipalRef
   - Migration matrix covers runtime_events.actor, permission_audit_events.actor_id, mcp_server_audit_events.actor_id, person_merge_audit.actor, decision approver_ref/actor_context_json, and provenance fields; each row: migrate, backfill, or explicitly exempt
   - All 103 writers route through one actor-stamping helper; bare strings ('agent','runtime','permission','sdk', CLI names) fail typecheck
