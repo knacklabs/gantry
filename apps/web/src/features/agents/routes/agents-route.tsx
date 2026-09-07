@@ -81,7 +81,7 @@ export function AgentsRoute() {
         action={
           <Button onClick={() => setCreateOpen(true)}>
             <Plus size={16} aria-hidden="true" />
-            New AI employee
+            Onboard an AI employee
           </Button>
         }
       />

@@ -32,9 +32,9 @@ export function AgentsDirectoryToolbar({
     <div className="grid items-end gap-2.5 md:grid-cols-[minmax(200px,1fr)_145px_160px]">
       <TextField
         id="agent-search"
-        label="Search AI employees"
+        label="Search directory"
         name="q"
-        placeholder="Name or purpose…"
+        placeholder="Name, role or account"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
@@ -42,8 +42,8 @@ export function AgentsDirectoryToolbar({
         label="Status"
         value={search.status}
         options={[
-          { value: 'all', label: 'All statuses' },
-          { value: 'active', label: 'Active' },
+          { value: 'all', label: 'All' },
+          { value: 'active', label: 'Enabled' },
           { value: 'disabled', label: 'Disabled' },
         ]}
         onValueChange={(status) => onChange({ status, page: 1 })}
