@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   assertLlmConsultNotInvoked,
+  replayRememberedExactAllow,
   replayPermissionRequest,
   TAP_BUDGET_WORKSPACE_ROOT,
 } from './askfloor-tap-budget-harness.js';
@@ -47,6 +48,15 @@ describe('ASKFLOOR tap budget', () => {
         railProvenance: null,
       });
     }
+  });
+
+  it('S2 taps at most once with a remembered exact Allow on the first run through the real claim, learning and application path and zero times on the second identical run through the real coordinator', async () => {
+    await expect(replayRememberedExactAllow()).resolves.toEqual({
+      taps: [1, 0],
+      claimedCodes: ['remember_allow_exact'],
+      applications: ['allow_once'],
+      activeRows: 1,
+    });
   });
 
   it('S3: 2>/dev/null and read-only find cost 0 taps in interactive auto', async () => {

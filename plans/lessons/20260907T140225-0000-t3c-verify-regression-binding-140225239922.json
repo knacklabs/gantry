@@ -1,0 +1,11 @@
+{
+  "topic": "t3c-verify-regression-binding",
+  "lesson": "The host verify of ASKFLOOR-1-T3c FAILED: npm test has 47 regressions in 4 suites (channels/slack.test.ts, channels/teams/teams.test.ts, jobs/ipc-handler.test.ts, runtime/ipc-locked-permission-denial.test.ts) with one root cause \u2014 bindPendingPermissionInteractionMessage (pending-interaction-prompt-binding.ts:75) now calls active.repository.updatePendingInteractionPayload unconditionally to finalize the remember eligibility, so every existing prompt flow whose durability fake or backend has no such method (and whose members carry NO remember context) throws \"Pending permission prompt binding could not be persisted\" and 47 downstream expectations break. Fix the root cause, not the callers: finalize eligibility ONLY when the bound members actually carry a rememberContext in their payload; a prompt without a context must take exactly today's binding path (no update call, no new persistence, byte-identical behaviour) \u2014 that is the contract's own rule that context-less prompts are unchanged. Do NOT guard with a typeof-function check on the repository (that is a shim); do NOT touch the four failing suites. Then run the FULL unit suite (npm test) and confirm 0 failures before reporting \u2014 the focused suites were green while the full suite was red. Keep all twelve leaves green; tsc, check:architecture, prettier.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-07T14:02:25+00:00"
+}

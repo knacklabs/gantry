@@ -128,6 +128,71 @@ describe('initializeRuntimeStorage', () => {
     expect(runtime.service.healthCheck).toHaveBeenCalledOnce();
   });
 
+  it('wires the production learn dependency over the decision-memory repository into the durable callback path', async () => {
+    const configurePendingInteractionDurability = vi.fn();
+    const rememberSettlementForClaim = vi.fn(async () => ({
+      context: { eligible: true },
+      resolution: {
+        mode: 'allow_once',
+        remember: { kind: 'remember', outcome: 'allow', scope: 'exact' },
+      },
+    }));
+    const learnRememberedDecision = vi.fn(async () => ({
+      status: 'remembered',
+      id: 'decision-one',
+    }));
+    vi.doMock(
+      '@core/application/interactions/pending-interaction-durability.js',
+      async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import('@core/application/interactions/pending-interaction-durability.js')
+        >()),
+        configurePendingInteractionDurability,
+        rememberSettlementForClaim,
+      }),
+    );
+    vi.doMock(
+      '@core/application/permissions/human-decision-learning.js',
+      async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import('@core/application/permissions/human-decision-learning.js')
+        >()),
+        learnRememberedDecision,
+      }),
+    );
+    const { module, runtime } = await loadRuntimeStore();
+    const permissionDecisionMemory = {};
+    Object.assign(runtime.repositories, { permissionDecisionMemory });
+
+    await module.initializeRuntimeStorage();
+
+    const configured = configurePendingInteractionDurability.mock.calls[0]![0];
+    const claim = {
+      id: 'claim-one',
+      scope: {
+        appId: 'default',
+        sourceAgentFolder: 'main_agent',
+        interactionId: 'permission-one',
+      },
+    };
+    await configured.learn(claim);
+    expect(rememberSettlementForClaim).toHaveBeenCalledWith(claim);
+    expect(learnRememberedDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: { eligible: true },
+        resolution: {
+          kind: 'remember',
+          outcome: 'allow',
+          scope: 'exact',
+        },
+        warn: expect.any(Function),
+      }),
+    );
+    expect(learnRememberedDecision.mock.calls[0]![0].service.repository).toBe(
+      permissionDecisionMemory,
+    );
+  });
+
   it('reuses service-owned storage without closing it', async () => {
     const { module, runtime } = await loadRuntimeStore();
     module._setRuntimeStorageForTest(runtime as never);

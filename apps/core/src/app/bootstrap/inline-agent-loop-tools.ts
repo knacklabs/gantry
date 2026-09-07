@@ -76,7 +76,7 @@ import type {
   InlineCoreToolHostDeps,
   InlineCoreToolSupport,
 } from './inline-agent-loop-tool-types.js';
-import { inlinePermissionMemoryInputs } from './inline-permission-memory.js';
+import * as remember from './inline-permission-memory.js';
 import { createInlineToolSuccessLedger } from './inline-tool-success-ledger.js';
 import type { RuntimeApp } from './runtime-app.js';
 
@@ -393,7 +393,8 @@ export function createInlineCoreTools(
         accessPreset: deps.getAgentAccessPreset(laneInput.group.folder),
         fixedImageRestricted: run.hideAuthorityTools === true,
         reviewedRuleDecision: decision,
-        ...inlinePermissionMemoryInputs({ run, laneInput, request, deps }),
+        // prettier-ignore
+        ...remember.inlinePermissionMemoryInputs({ run, laneInput, request, deps }),
         skipClassifierVerdictCache: true,
         tail: async () => {
           const promotion = promotionRepository
@@ -483,6 +484,8 @@ export function createInlineCoreTools(
           const interaction = await runDurablePermissionInteraction({
             request,
             sourceAgentFolder: laneInput.group.folder,
+            // prettier-ignore
+            rememberContext: await remember.inlinePermissionRememberContext({ run, laneInput, request, deps }),
             beforePrompt: async () => {
               laneInput.jobActivity.beginPermissionRequest(
                 request.requestId,
@@ -539,6 +542,7 @@ export function createInlineCoreTools(
                   decisionMode: permissionDecision.mode,
                 }),
               );
+              await remember.inlineRememberSettlement(permissionDecision, deps);
             },
           }).finally(() => laneInput.jobActivity.finishPermissionRequest(request.requestId));
           // prettier-ignore

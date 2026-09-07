@@ -22,7 +22,12 @@ import type {
   RuntimeLeaseAcquireOptions,
 } from '../../../domain/ports/runtime-lease.js';
 import type { WorkerCoordinationRepository } from '../../../domain/ports/worker-coordination.js';
-import { configurePendingInteractionDurability } from '../../../application/interactions/pending-interaction-durability.js';
+import {
+  configurePendingInteractionDurability,
+  rememberSettlementForClaim,
+} from '../../../application/interactions/pending-interaction-durability.js';
+import { learnRememberedDecision } from '../../../application/permissions/human-decision-learning.js';
+import { HumanDecisionMemoryService } from '../../../application/permissions/human-decision-memory-service.js';
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import {
@@ -127,6 +132,7 @@ export async function initializeRuntimeStorage(
     configurePendingInteractionDurability({
       repository: nextRuntime.repositories.workerCoordination,
       liveTurns: nextRuntime.repositories.liveTurns,
+      learn: permissionRememberLearner(nextRuntime),
       warn: (context, message) => logger.warn(context, message),
     });
     return nextRuntime;
@@ -516,7 +522,28 @@ export function _setRuntimeStorageForTest(
       ? {
           repository: workerCoordination,
           liveTurns: nextRuntime.repositories?.liveTurns ?? null,
+          learn: permissionRememberLearner(nextRuntime),
         }
       : null,
   );
+}
+
+function permissionRememberLearner(
+  storage: StorageRuntime,
+): NonNullable<
+  Parameters<typeof configurePendingInteractionDurability>[0]
+>['learn'] {
+  const service = new HumanDecisionMemoryService({
+    repository: storage.repositories.permissionDecisionMemory,
+  });
+  return async (claim) => {
+    const settlement = await rememberSettlementForClaim(claim);
+    if (!settlement?.resolution.remember) return;
+    await learnRememberedDecision({
+      context: settlement.context,
+      resolution: settlement.resolution.remember,
+      service,
+      warn: (context, message) => logger.warn(context, message),
+    });
+  };
 }

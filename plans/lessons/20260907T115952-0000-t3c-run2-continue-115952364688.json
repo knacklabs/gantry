@@ -1,0 +1,14 @@
+{
+  "topic": "t3c-run2-continue",
+  "lesson": "Run 2 of ASKFLOOR-1-T3c died mid-turn on the Codex compaction bug after a small start; the working tree ALREADY holds it uncommitted: apps/core/src/application/permissions/human-decision-memory-service.ts apps/core/src/domain/types.ts apps/core/src/application/permissions/human-decision-learning.ts apps/core/src/application/permissions/permission-remember-codec.ts . CONTINUE from that tree \u2014 never reset, never re-create files that exist; read them first. Work in this order so each compaction-sized chunk lands whole: (1) codec module + the three line-neutral domain/types.ts edits + the two owned provider codecs; (2) the learning module (context type, derive/parse, learn, rememberDerived on the service); (3) the durable path (member payload, binding finalization, claim, accessor, mapper validation, recovery learn + runtime-store wiring); (4) the IPC hand-off (IpcDeps signature + both prompt exits) and the IPC settlement helper; (5) the inline path; (6) the twelve leaves by their exact titles; then tsc, check:architecture, prettier. Postgres leaves cannot run in the sandbox (EPERM 127.0.0.1:5432) \u2014 the host runs them; do not raise a blocked signal for that. The personLabel question is resolved (S-0082): undefined on both paths, no carrier change.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/permissions/human-decision-learning.ts",
+    "apps/core/src/application/permissions/permission-remember-codec.ts",
+    "apps/core/src/runtime/permission-remember-settlement.ts",
+    "apps/core/src/runtime/ipc-interaction-processing.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-07T11:59:52+00:00"
+}

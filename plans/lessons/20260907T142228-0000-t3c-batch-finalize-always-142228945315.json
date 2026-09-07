@@ -1,0 +1,12 @@
+{
+  "topic": "t3c-batch-finalize-always",
+  "lesson": "Run 7's binding fix is too narrow: bindPendingPermissionInteractionMessage finalizes eligible=false for a batch ONLY when the rendered decisionOptions include a remember code. The contract (ruling 3, AC2) says EVERY coalesced batch ends ineligible: a batch member whose context is provisionally eligible must be set eligible=false whether or not a code is rendered (today no card renders codes, so the current condition never fires, and a forged remember code on a batch card would learn). Fix: drop the decisionOptions condition \u2014 for matchKind === 'batch', update every member that carries a parseable rememberContext to eligible=false; members without a context are untouched (no update call, today's path). Keep individual prompts exactly as they are (no update). Add the batch case to the durability suite's context round-trip leaf (a batch binding turns an eligible context ineligible; a batch without contexts makes no update call). Then re-run the 12 leaves, tsc, check:architecture, prettier. Do not run npm test in the sandbox (EMFILE); the host runs it.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts",
+    "apps/core/test/unit/application/pending-interaction-durability.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-07T14:22:28+00:00"
+}
