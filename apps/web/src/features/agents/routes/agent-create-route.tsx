@@ -283,6 +283,11 @@ export function AgentCreateDialog({
     setStep(next);
   }
 
+  function deferChannelSetup() {
+    setChannelDeferred(true);
+    setStep('review');
+  }
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
@@ -332,6 +337,13 @@ export function AgentCreateDialog({
               className={
                 item === step
                   ? 'min-w-28 border-r border-border bg-surface px-3 py-[11px] text-text last:border-r-0'
+                  : stepOrder.indexOf(item) < stepNumber - 1 &&
+                      !skippedSteps.has(item as 'sources' | 'capabilities') &&
+                      !(
+                        channelDeferred &&
+                        ['account', 'conversation', 'approvals'].includes(item)
+                      )
+                    ? 'min-w-28 border-r border-border px-3 py-[11px] text-status-success last:border-r-0'
                   : 'min-w-28 border-r border-border px-3 py-[11px] last:border-r-0'
               }
               key={item}
@@ -793,15 +805,20 @@ export function AgentCreateDialog({
             {agentId ? 'Close to save and resume later' : 'No employee saved yet'}
           </span>
           {step === 'base' ? (
-            <Button
-              disabled={saveAgent.isPending || !name.trim() || !selectedRole}
-              form="agent-base-form"
-              type="submit"
-            >
-              {saveAgent.isPending
-                ? 'Saving…'
-                : 'Continue & save'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="secondary" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                disabled={saveAgent.isPending || !name.trim() || !selectedRole}
+                form="agent-base-form"
+                type="submit"
+              >
+                {saveAgent.isPending
+                  ? 'Saving…'
+                  : 'Continue & save'}
+              </Button>
+            </div>
           ) : null}
           {step === 'sources' ? (
             <div className="flex items-center gap-2">
@@ -813,18 +830,18 @@ export function AgentCreateDialog({
                 Back
               </Button>
               <Button
-                disabled={setupPending}
-                form="agent-sources-form"
-                type="submit"
-              >
-                {setupPending ? 'Saving…' : 'Continue'}
-              </Button>
-              <Button
                 type="button"
                 variant="secondary"
                 onClick={() => skipStep('sources')}
               >
                 Skip for now
+              </Button>
+              <Button
+                disabled={setupPending}
+                form="agent-sources-form"
+                type="submit"
+              >
+                {setupPending ? 'Saving…' : 'Continue'}
               </Button>
             </div>
           ) : null}
@@ -838,18 +855,18 @@ export function AgentCreateDialog({
                 Back
               </Button>
               <Button
-                disabled={setupPending}
-                form="agent-capabilities-form"
-                type="submit"
-              >
-                {setupPending ? 'Saving…' : 'Continue'}
-              </Button>
-              <Button
                 type="button"
                 variant="secondary"
                 onClick={() => skipStep('capabilities')}
               >
                 Skip for now
+              </Button>
+              <Button
+                disabled={setupPending}
+                form="agent-capabilities-form"
+                type="submit"
+              >
+                {setupPending ? 'Saving…' : 'Continue'}
               </Button>
             </div>
           ) : null}
@@ -865,10 +882,7 @@ export function AgentCreateDialog({
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => {
-                  setChannelDeferred(true);
-                  setStep('review');
-                }}
+                onClick={deferChannelSetup}
               >
                 Set up channels later
               </Button>
@@ -898,6 +912,13 @@ export function AgentCreateDialog({
                 Back
               </Button>
               <Button
+                type="button"
+                variant="ghost"
+                onClick={deferChannelSetup}
+              >
+                Set up channels later
+              </Button>
+              <Button
                 disabled={!conversationId}
                 type="button"
                 onClick={() => setStep('approvals')}
@@ -914,6 +935,13 @@ export function AgentCreateDialog({
                 onClick={() => setStep('conversation')}
               >
                 Back
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={deferChannelSetup}
+              >
+                Set up channels later
               </Button>
               <Button
                 disabled={
