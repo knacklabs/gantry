@@ -37,7 +37,7 @@
   ],
   "contradictions": [],
   "resolutions": [
-    "Codex cold-reads \u2014 gpt-5.6-sol @ xhigh only (owner policy 2026-09-05: one grill per round, no parallel Astra), briefs and answers ledgered as plans/exploration/askfloor-1-t3a-task-grill*.md; every blocker folded into the recorded contract and saved task plan before recording. Seam-map open questions settled by orchestrator ruling in the plan: revoked rows are history (fresh UUID row on re-remember), T3c resolves and snapshots the acting person, canonical destination = resolved absolute path (native) or scope/path (virtual) with dual native keys ineligible, the service owns id/clock injection, decision source value human_decision."
+    "ledgered owner round: Same as exact: stop applying (Recommended)"
   ],
   "decision": "keep",
   "new_abstractions": [
@@ -61,13 +61,13 @@
       "frontier_empty": true
     }
   ],
-  "input_sha256": "bd7b01749381b633e84ee89cf28edb6beb2479f11f27d270269c684a2da8cb54",
+  "input_sha256": "77af4f8ccbd38941eb7e6514750c4edfa3afd0c446a34ec9430aa22bde3c74bd",
   "grounding_basis": "working-tree",
   "grounding_treeish": "",
   "task_plan_sha256": "b1a187c89c2c4e009ea502978f46362759ace2c3dd2eb54befdb28f5e5726d0d",
-  "recorded_at": "2026-09-07T11:18:34+00:00",
-  "commit": "758c2ebdd41af121d1ca720828c278fc0d80e3df",
+  "recorded_at": "2026-09-07T11:24:36+00:00",
+  "commit": "689550bcc3f28115a713775ca35f8559dc396121",
   "approved_task_plan_sha256": "b1a187c89c2c4e009ea502978f46362759ace2c3dd2eb54befdb28f5e5726d0d",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-07T11:18:36+00:00"
+  "approved_at": "2026-09-07T11:24:44+00:00"
 }
