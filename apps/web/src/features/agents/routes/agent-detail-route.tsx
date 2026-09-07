@@ -128,7 +128,12 @@ export function AgentDetailRoute() {
     (account) => account.agentId === agent.id,
   );
   const installedCount = conversationInstalls.data?.installs.length ?? 0;
-  const action = agent.status === 'active' ? 'disable' : 'enable';
+  const action =
+    agent.status === 'offboarded'
+      ? null
+      : agent.status === 'active'
+        ? 'disable'
+        : 'enable';
   const label = action === 'disable' ? 'Disable' : 'Enable';
   return (
     <div className="mx-auto grid w-full max-w-[1240px] gap-4">
@@ -189,19 +194,21 @@ export function AgentDetailRoute() {
               Channel accounts
             </Link>
             <AgentVersionHistory agent={agent} />
-            <Button
-              disabled={status.isPending}
-              className={
-                action === 'disable'
-                  ? 'border-danger/60 bg-surface px-3 text-xs font-semibold text-danger shadow-panel hover:bg-danger-soft'
-                  : 'border-border-strong bg-surface px-3 text-xs font-semibold shadow-panel hover:bg-surface-muted'
-              }
-              size="sm"
-              variant="outline"
-              onClick={() => setStatusOpen(true)}
-            >
-              {label}
-            </Button>
+            {action ? (
+              <Button
+                disabled={status.isPending}
+                className={
+                  action === 'disable'
+                    ? 'border-danger/60 bg-surface px-3 text-xs font-semibold text-danger shadow-panel hover:bg-danger-soft'
+                    : 'border-border-strong bg-surface px-3 text-xs font-semibold shadow-panel hover:bg-surface-muted'
+                }
+                size="sm"
+                variant="outline"
+                onClick={() => setStatusOpen(true)}
+              >
+                {label}
+              </Button>
+            ) : null}
           </div>
         </header>
         <DetailTabs
@@ -212,19 +219,21 @@ export function AgentDetailRoute() {
           agent={agent}
           tab={search.tab}
           onDeployRequest={() => setDeploymentOpen(true)}
-          onStatusRequest={() => setStatusOpen(true)}
+          onStatusRequest={() => action && setStatusOpen(true)}
         />
       </section>
-      <StatusDialog
-        action={action}
-        agent={agent}
-        open={statusOpen}
-        pending={status.isPending}
-        onOpenChange={setStatusOpen}
-        onConfirm={() =>
-          status.mutate(action, { onSuccess: () => setStatusOpen(false) })
-        }
-      />
+      {action ? (
+        <StatusDialog
+          action={action}
+          agent={agent}
+          open={statusOpen}
+          pending={status.isPending}
+          onOpenChange={setStatusOpen}
+          onConfirm={() =>
+            status.mutate(action, { onSuccess: () => setStatusOpen(false) })
+          }
+        />
+      ) : null}
       {deploymentOpen ? (
         <AgentCreateDialog
           existingAgent={agent}
