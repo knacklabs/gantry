@@ -79,6 +79,11 @@ import {
   type CanonicalDb,
 } from './canonical-graph-repository.postgres.js';
 import {
+  hasSameServiceAlias,
+  retireProviderAccountServiceAlias,
+  syncProviderAccountServiceAlias,
+} from './provider-account-service-alias.postgres.js';
+import {
   attachmentIdentityConflicts,
   existingAttachmentMetadataMaps,
   providerAttachmentStorageRefsRemovedByReplacement,
@@ -537,6 +542,14 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
   }
   async saveProviderAccount(providerAccount: ProviderAccount): Promise<void> {
     await this.db.transaction(async (tx) => {
+      const [existingRow] = await tx
+        .select()
+        .from(pgSchema.providerAccountsPostgres)
+        .where(eq(pgSchema.providerAccountsPostgres.id, providerAccount.id))
+        .limit(1);
+      const existing = existingRow
+        ? this.providerAccountFromRow(existingRow)
+        : null;
       await tx
         .insert(pgSchema.providersPostgres)
         .values({
@@ -577,6 +590,10 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
             updatedAt: providerAccount.updatedAt,
           },
         });
+      if (existing && !hasSameServiceAlias(existing, providerAccount)) {
+        await retireProviderAccountServiceAlias(tx, existing);
+      }
+      await syncProviderAccountServiceAlias(tx, providerAccount);
     });
   }
   async updateProviderAccount(input: {
@@ -608,34 +625,36 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
         input.patch.externalIdentityRef ?? undefined,
       );
     }
-    const rows = await this.db
-      .update(pgSchema.providerAccountsPostgres)
-      .set(set)
-      .where(
-        and(
-          eq(pgSchema.providerAccountsPostgres.appId, input.appId),
-          eq(pgSchema.providerAccountsPostgres.id, input.id),
-        ),
-      )
-      .returning();
-    return rows[0] ? this.providerAccountFromRow(rows[0]) : null;
+    return await this.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(pgSchema.providerAccountsPostgres)
+        .set(set)
+        .where(
+          and(
+            eq(pgSchema.providerAccountsPostgres.appId, input.appId),
+            eq(pgSchema.providerAccountsPostgres.id, input.id),
+          ),
+        )
+        .returning();
+      const providerAccount = rows[0]
+        ? this.providerAccountFromRow(rows[0])
+        : null;
+      if (providerAccount)
+        await syncProviderAccountServiceAlias(tx, providerAccount);
+      return providerAccount;
+    });
   }
   async disableProviderAccount(input: {
     appId: ProviderAccount['appId'];
     id: ProviderAccount['id'];
     updatedAt: string;
   }): Promise<ProviderAccount | null> {
-    await this.db
-      .update(pgSchema.providerAccountsPostgres)
-      .set({ status: 'disabled', updatedAt: input.updatedAt })
-      .where(
-        and(
-          eq(pgSchema.providerAccountsPostgres.appId, input.appId),
-          eq(pgSchema.providerAccountsPostgres.id, input.id),
-        ),
-      );
-    return await this.getProviderAccount(input.id);
+    return await this.updateProviderAccount({
+      ...input,
+      patch: { status: 'disabled' },
+    });
   }
+
   async saveConversationInstall(binding: ConversationInstall): Promise<void> {
     await this.db
       .insert(pgSchema.conversationInstallsPostgres)

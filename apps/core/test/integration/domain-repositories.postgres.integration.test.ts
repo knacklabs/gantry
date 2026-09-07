@@ -268,6 +268,99 @@ maybeDescribe('Postgres domain repositories', () => {
     });
   });
 
+  it('marks service aliases ineligible for personal memory', async () => {
+    const servicePersonId = 'person:service:identity';
+    await service.db.insert(pgSchema.usersPostgres).values({
+      id: servicePersonId,
+      appId,
+      kind: 'service',
+      agentId: 'agent:service:identity',
+      displayName: 'Support bot',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await people.addAlias({
+      appId,
+      personId: servicePersonId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-service-identity',
+      displayName: 'Support bot',
+      evidenceType: 'provider_user',
+      actor: 'test',
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-service-identity',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      personId: servicePersonId,
+      isServicePerson: true,
+      memoryHydrationEligible: false,
+    });
+  });
+
+  it('projects and retires a provider account service alias atomically', async () => {
+    const serviceProviderAccountId =
+      'channel-providerAccount:test:service-identity' as ProviderAccountId;
+    await repositories.providerAccounts.saveProviderAccount({
+      id: serviceProviderAccountId,
+      appId,
+      agentId,
+      providerId,
+      externalIdentityRef: {
+        kind: 'provider_account',
+        value: 'U-service-account',
+      },
+      label: 'Service Slack',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: serviceProviderAccountId,
+        externalUserId: 'U-service-account',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      isServicePerson: true,
+      memoryHydrationEligible: false,
+    });
+
+    await repositories.providerAccounts.disableProviderAccount({
+      appId,
+      id: serviceProviderAccountId,
+      updatedAt: '2026-04-27T00:00:01.000Z',
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: serviceProviderAccountId,
+        externalUserId: 'U-service-account',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).rejects.toThrow(/retired/);
+  });
+
   it('allows duplicate display names without conflating people', async () => {
     const [first, second] = await Promise.all([
       people.resolveIdentity({

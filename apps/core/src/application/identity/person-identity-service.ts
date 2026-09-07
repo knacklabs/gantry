@@ -85,6 +85,8 @@ export interface IdentityResolveResult {
   status: 'resolved' | 'created' | 'unresolved';
   personId: string | null;
   memoryHydrationEligible: boolean;
+  /** Internal ingress classification; never included in the control API response. */
+  isServicePerson?: boolean;
   matchedAlias?: PersonAliasRecord;
   createdAlias?: PersonAliasRecord;
   verificationStatus?: AliasVerificationStatus;

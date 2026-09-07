@@ -186,10 +186,11 @@ export async function handlePeopleRoutes(
           },
         );
       }
+      const { isServicePerson: _isServicePerson, ...response } = result;
       sendJson(
         res,
         200,
-        canReadAliasDetails ? result : redactIdentityResolveResult(result),
+        canReadAliasDetails ? response : redactIdentityResolveResult(response),
       );
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;

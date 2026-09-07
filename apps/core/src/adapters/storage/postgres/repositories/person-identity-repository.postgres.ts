@@ -68,6 +68,7 @@ import {
   PERSON_MERGE_DETAIL_LIMIT,
 } from './person-identity-merge-conflicts.postgres.js';
 import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
+import { findActiveIdentityAlias } from './person-identity-alias-lookup.postgres.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 type Executor = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -91,13 +92,14 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     // use of the person id any fresher. Reviews suggesting a lock here have
     // been rejected twice; merges re-point participants and re-key memory, so
     // stale ids self-heal at the data they touch.
-    const alias = await this.findActiveAlias(this.db, input);
-    if (alias) {
-      const mapped = toAlias(alias);
+    const identityAlias = await findActiveIdentityAlias(this.db, input);
+    if (identityAlias) {
+      const mapped = toAlias(identityAlias.alias);
       const result: IdentityResolveResult = {
         status: 'resolved',
         personId: mapped.personId,
-        memoryHydrationEligible: true,
+        memoryHydrationEligible: identityAlias.matchedPersonKind !== 'service',
+        isServicePerson: identityAlias.matchedPersonKind === 'service',
         matchedAlias: mapped,
         verificationStatus: mapped.verificationStatus,
       };
@@ -124,13 +126,14 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     }
     return await this.db.transaction(async (tx) => {
       await lockPersonAliasKey(tx, input);
-      const existing = await this.findActiveAlias(tx, input);
+      const existing = await findActiveIdentityAlias(tx, input);
       if (existing) {
-        const mapped = toAlias(existing);
+        const mapped = toAlias(existing.alias);
         const result = {
           status: 'resolved' as const,
           personId: mapped.personId,
-          memoryHydrationEligible: true,
+          memoryHydrationEligible: existing.matchedPersonKind !== 'service',
+          isServicePerson: existing.matchedPersonKind === 'service',
           matchedAlias: mapped,
           verificationStatus: mapped.verificationStatus,
         };
