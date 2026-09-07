@@ -107,6 +107,9 @@ export function AgentCreateDialog({
     | 'review'
   >(startAt);
   const [channelDeferred, setChannelDeferred] = useState(false);
+  const [skippedSteps, setSkippedSteps] = useState<
+    Set<'sources' | 'capabilities'>
+  >(() => new Set());
   const [providerAccountId, setProviderAccountId] = useState('');
   const [providerId, setProviderId] = useState('');
   const [accountLabel, setAccountLabel] = useState('');
@@ -252,33 +255,58 @@ export function AgentCreateDialog({
   const accountConversations = (conversations.data?.conversations ?? []).filter(
     (conversation) => conversation.providerAccountId === providerAccountId,
   );
+  const stepOrder = [
+    'base',
+    'sources',
+    'capabilities',
+    'account',
+    'conversation',
+    'approvals',
+    'review',
+  ] as const;
+  const stepNumber = stepOrder.indexOf(step) + 1;
+
+  function skipStep(item: 'sources' | 'capabilities') {
+    setSkippedSteps((current) => new Set(current).add(item));
+    setStep(item === 'sources' ? 'capabilities' : 'account');
+  }
+
+  function continueFromStep(
+    item: 'sources' | 'capabilities',
+    next: 'capabilities' | 'account',
+  ) {
+    setSkippedSteps((current) => {
+      const nextSteps = new Set(current);
+      nextSteps.delete(item);
+      return nextSteps;
+    });
+    setStep(next);
+  }
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className={`w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-none ${
+        className={`w-[min(888px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-[9px] p-0 sm:max-w-none ${
           step === 'base'
             ? 'max-h-[calc(100dvh-46px)]'
             : 'h-[calc(100dvh-46px)] max-h-[900px]'
         }`}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+        <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div className="grid gap-1">
             <DialogTitle className="text-lg font-semibold">
-              {existingAgent
-                ? `Deploy ${existingAgent.name}`
-                : 'Create AI employee'}
+              Onboard an AI employee
             </DialogTitle>
-            <DialogDescription className="text-xs text-text-secondary">
-              {existingAgent
-                ? 'Choose a channel account, conversation, and approvers for this saved AI employee.'
-                : 'Build the identity first, then optionally connect sources and allow actions.'}
+            <DialogDescription className="text-sm text-text-secondary">
+              {agentId
+                ? `${name || existingAgent?.name || 'AI employee'} · employee saved`
+                : 'Create the identity, configure access and connect a conversation.'}
             </DialogDescription>
           </div>
           <DialogClose asChild>
             <Button
-              aria-label="Close create AI employee dialog"
+              aria-label="Close onboarding"
               size="icon-sm"
               variant="ghost"
             >
@@ -287,28 +315,37 @@ export function AgentCreateDialog({
           </DialogClose>
         </header>
         <ol
-          className="grid grid-cols-7 overflow-x-auto border-b border-border bg-surface-muted text-xs font-semibold text-text-secondary"
-          aria-label="Creation steps"
+          className="grid grid-cols-7 overflow-x-auto border-b border-border bg-surface-muted text-[11px] font-semibold text-text-secondary"
+          aria-label="Onboarding steps"
         >
-          {[
+          {([
             ['base', 'Employee'],
-            ['sources', 'Sources'],
-            ['capabilities', 'Capabilities'],
+            ['sources', 'Sources', 'optional'],
+            ['capabilities', 'Capabilities', 'optional'],
             ['account', 'Channel account'],
             ['conversation', 'Conversation'],
             ['approvals', 'Approvals'],
             ['review', 'Review'],
-          ].map(([item, label], index) => (
+          ] as const).map(([item, label, optional], index) => (
             <li
+              aria-current={item === step ? 'step' : undefined}
               className={
                 item === step
-                  ? 'min-w-28 border-r border-border bg-surface px-3 py-3 text-text last:border-r-0'
-                  : 'min-w-28 border-r border-border px-3 py-3 last:border-r-0'
+                  ? 'min-w-28 border-r border-border bg-surface px-3 py-[11px] text-text last:border-r-0'
+                  : 'min-w-28 border-r border-border px-3 py-[11px] last:border-r-0'
               }
               key={item}
             >
-              <span className="block font-mono text-[10px]">
+              <span className="block font-mono text-[10px] text-text-secondary">
                 {String(index + 1).padStart(2, '0')}
+                {skippedSteps.has(item as 'sources' | 'capabilities')
+                  ? ' · skipped'
+                  : optional
+                    ? ' · optional'
+                    : channelDeferred &&
+                        ['account', 'conversation', 'approvals'].includes(item)
+                      ? ' · deferred'
+                      : ''}
               </span>
               <span className="mt-1 block">{label}</span>
             </li>
@@ -320,18 +357,21 @@ export function AgentCreateDialog({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="m-0 text-lg font-semibold">
-                    Connect existing sources
+                    Sources{' '}
+                    <span className="text-sm font-normal text-text-secondary">
+                      Optional
+                    </span>
                   </h2>
                   <p className="mt-1 mb-0 text-sm text-text-secondary">
-                    Optional · select reviewed skills and MCP servers. Sources
-                    expose inventory; they do not grant actions.
+                    Attach instructions and integrations. Choose allowed actions
+                    in the next step.
                   </p>
                 </div>
                 <Button
                   size="sm"
                   type="button"
                   variant="ghost"
-                  onClick={() => setStep('capabilities')}
+                  onClick={() => skipStep('sources')}
                 >
                   Skip for now
                 </Button>
@@ -340,7 +380,7 @@ export function AgentCreateDialog({
                 agentId={agentId}
                 formId="agent-sources-form"
                 kind="sources"
-                onSaved={() => setStep('capabilities')}
+                onSaved={() => continueFromStep('sources', 'capabilities')}
                 onSavingChange={setSetupPending}
               />
             </section>
@@ -350,17 +390,19 @@ export function AgentCreateDialog({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="m-0 text-lg font-semibold">
-                    Allow capabilities
+                    Capabilities{' '}
+                    <span className="text-sm font-normal text-text-secondary">
+                      Optional
+                    </span>
                   </h2>
                   <p className="mt-1 mb-0 text-sm text-text-secondary">
-                    Choose durable actions for this AI employee. Risky use may
-                    still ask for approval.
+                    Choose explicit actions this employee may request.
                   </p>
                 </div>
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => setStep('account')}
+                  onClick={() => skipStep('capabilities')}
                 >
                   Skip for now
                 </Button>
@@ -369,7 +411,7 @@ export function AgentCreateDialog({
                 agentId={agentId}
                 formId="agent-capabilities-form"
                 kind="capabilities"
-                onSaved={() => setStep('account')}
+                onSaved={() => continueFromStep('capabilities', 'account')}
                 onSavingChange={setSetupPending}
               />
             </section>
@@ -379,8 +421,8 @@ export function AgentCreateDialog({
               <div>
                 <h2 className="m-0 text-lg font-semibold">Channel account</h2>
                 <p className="mt-1 mb-0 text-sm text-text-secondary">
-                  Choose an existing bot identity owned by this AI employee, or
-                  add one here. Credential values are write-only.
+                  This identity will belong to {name || 'this AI employee'}.
+                  Choose a provider and enter its connection details.
                 </p>
               </div>
               {ownedAccounts.length ? (
@@ -504,6 +546,10 @@ export function AgentCreateDialog({
                   </p>
                 ) : null}
               </div>
+              <p className="m-0 text-xs text-text-secondary">
+                Credential values are write-only. Invite the bot to the
+                destination conversation before discovery.
+              </p>
             </section>
           ) : null}
           {step === 'conversation' && agentId ? (
@@ -657,6 +703,12 @@ export function AgentCreateDialog({
           ) : null}
           {step === 'base' ? (
             <form id="agent-base-form" className="grid gap-4" onSubmit={submit}>
+              <div>
+                <h2 className="m-0 text-lg font-semibold">Employee</h2>
+                <p className="mt-1 mb-0 text-sm text-text-secondary">
+                  Give this employee a name, role and model.
+                </p>
+              </div>
               <div className="grid gap-3 md:grid-cols-[1.2fr_.8fr]">
                 <TextField
                   id="agent-name"
@@ -695,9 +747,10 @@ export function AgentCreateDialog({
                 }}
                 onCreateCustom={() => setRoleEditor({ mode: 'create' })}
               />
-              <p className="m-0 text-xs text-text-secondary">
-                Continue saves this AI employee now so you can configure sources
-                and capabilities. Returning here updates the same AI employee.
+              <p className="m-0 rounded-[7px] border border-border bg-surface-muted p-[13px] text-xs leading-[1.45] text-text-secondary">
+                <strong className="block text-text">Saved on Continue</strong>
+                The employee identity is saved before account and conversation
+                setup, matching Gantry’s current creation flow.
               </p>
             </form>
           ) : null}
@@ -708,18 +761,10 @@ export function AgentCreateDialog({
           />
         </div>
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface-muted px-5 py-3">
-          <span className="text-xs text-text-secondary">
-            Step{' '}
-            {[
-              'base',
-              'sources',
-              'capabilities',
-              'account',
-              'conversation',
-              'approvals',
-              'review',
-            ].indexOf(step) + 1}{' '}
-            of 7
+          <span className="text-xs leading-5 text-text-secondary">
+            Step {stepNumber} of 7
+            <br />
+            {agentId ? 'Close to save and resume later' : 'No employee saved yet'}
           </span>
           {step === 'base' ? (
             <Button
@@ -729,10 +774,7 @@ export function AgentCreateDialog({
             >
               {saveAgent.isPending
                 ? 'Saving…'
-                : agentId
-                  ? 'Save changes and continue'
-                  : 'Save AI employee and continue'}{' '}
-              <ArrowRight size={16} aria-hidden="true" />
+                : 'Continue & save'}
             </Button>
           ) : null}
           {step === 'sources' ? (
@@ -751,6 +793,13 @@ export function AgentCreateDialog({
               >
                 {setupPending ? 'Saving…' : 'Continue'}
               </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => skipStep('sources')}
+              >
+                Skip for now
+              </Button>
             </div>
           ) : null}
           {step === 'capabilities' ? (
@@ -768,6 +817,13 @@ export function AgentCreateDialog({
                 type="submit"
               >
                 {setupPending ? 'Saving…' : 'Continue'}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => skipStep('capabilities')}
+              >
+                Skip for now
               </Button>
             </div>
           ) : null}
