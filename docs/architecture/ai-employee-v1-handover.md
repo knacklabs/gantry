@@ -89,7 +89,8 @@ current fan-out; one worktree per story.
 - Teams transport is a stub (`apps/core/src/channels/teams/sdk-client.ts` returns
   `null`). TEAMS-1 is the first real Teams work.
 - Shipped identity schema is `users` + `user_aliases(provider, providerAccountId,
-  externalUserId)`; IDENT-2 is a migration from that, not from the documented tuple.
+  externalUserId)`; IDENT-2 extends its provider-value taxonomy for service aliases
+  without renaming those backend fields.
 - Provider Accounts and installs are Postgres projections of revisioned desired
   state (ADR 0025). Atomic offboard = one revision + identity/runtime/outbox rows.
 - Six persisted actor shapes across 103 writers. AUDIT-1 owns the matrix.
