@@ -1515,7 +1515,7 @@
         "Offboard emits a named identity event through the existing runtime-event/outbox path (ADR 0016) and retires connector accounts (ADR 0137)"
       ],
       "order": 69,
-      "status": "pending",
+      "status": "active",
       "epic": "ai-employee-v1",
       "skill": "backend",
       "depends_on": [],
@@ -2590,5 +2590,5 @@
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-09-04T12:34:06+00:00"
+  "updated_at": "2026-09-07T06:49:18+00:00"
 }

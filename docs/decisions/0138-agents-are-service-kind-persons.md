@@ -1,6 +1,6 @@
 ---
-status: proposed
-confirmed_by: ""
+status: accepted
+confirmed_by: "Ravi"
 date: 2026-08-26
 stories: [IDENT-2, AUDIT-1, IDENT-4]
 ---
