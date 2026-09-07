@@ -49,6 +49,7 @@ export function ChannelAccountsRoute() {
           <Link
             search={{
               tab: 'agents',
+              kind: 'all',
               q: '',
               status: 'all',
               page: 1,

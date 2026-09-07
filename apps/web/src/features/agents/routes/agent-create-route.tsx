@@ -56,6 +56,7 @@ export function AgentCreateRoute() {
           to: '/agents',
           search: {
             tab: 'agents',
+            kind: 'all',
             q: '',
             status: 'all',
             page: 1,

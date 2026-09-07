@@ -118,6 +118,7 @@ export function AgentDetailRoute() {
         to="/agents"
         search={{
           tab: 'agents',
+          kind: 'all',
           q: '',
           status: 'all',
           page: 1,

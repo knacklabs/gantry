@@ -77,6 +77,10 @@ import {
   handleBrowserChannelAccountRoutes,
   isBrowserChannelAccountsPath,
 } from './routes/browser-channel-accounts.js';
+import {
+  handleBrowserPeopleRoutes,
+  isBrowserPeoplePath,
+} from './routes/browser-people.js';
 import { handleBrowserModelProviderRoutes } from './routes/browser-model-providers.js';
 import {
   handleBrowserMcpServerRoutes,
@@ -168,6 +172,7 @@ function createControlRequestHandler(
         isBrowserNavigationSummaryPath(pathname) ||
         isBrowserAgentsPath(pathname) ||
         isBrowserChannelAccountsPath(pathname) ||
+        isBrowserPeoplePath(pathname) ||
         pathname.startsWith('/ui/api/model-providers') ||
         isBrowserMcpServerPath(pathname) ||
         isBrowserSkillsPath(pathname)
@@ -223,6 +228,16 @@ function createControlRequestHandler(
           req,
           res,
           ctx,
+          pathname,
+          getRuntimeSettingsForConfig(),
+        ))
+      )
+        return;
+      if (
+        isBrowserPeoplePath(pathname) &&
+        (await handleBrowserPeopleRoutes(
+          req,
+          res,
           pathname,
           getRuntimeSettingsForConfig(),
         ))

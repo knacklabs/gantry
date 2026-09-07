@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const agentListSearchSchema = z.object({
   tab: z.enum(['agents', 'roles']).catch('agents'),
+  kind: z.enum(['all', 'employees', 'people']).catch('all'),
   q: z.string().catch(''),
   status: z.enum(['all', 'active', 'disabled']).catch('all'),
   page: z.coerce.number().int().min(1).catch(1),
