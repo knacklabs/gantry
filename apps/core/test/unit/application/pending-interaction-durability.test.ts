@@ -7,6 +7,7 @@ import {
   findDurablePermissionInteractionByPromptMessage,
   findDurablePermissionInteractionByRequestId,
   recordDurableQuestionAnswerProgress,
+  rememberSettlementForClaim,
   recoverDurablePermissionDecision,
   isActiveRunLeaseForInteraction,
   releasePermissionInteractionCallback,
@@ -19,11 +20,21 @@ import {
 } from '@core/application/interactions/pending-interaction-durability.js';
 import { configurePendingInteractionPermissionCallbacks } from '@core/application/interactions/pending-interaction-permission-callback.js';
 import {
+  beginDurablePermissionInteraction,
   beginDurableQuestionInteraction,
   finishDurablePermissionInteraction,
   finishDurableQuestionInteraction,
   runDurableQuestionInteraction,
 } from '@core/application/interactions/durable-interaction-handler.js';
+import {
+  parsePermissionRememberContext,
+  type PermissionRememberContext,
+} from '@core/application/permissions/human-decision-learning.js';
+import {
+  HumanDecisionOutcome,
+  HumanDecisionScope,
+} from '@core/domain/human-decision.js';
+import { PermissionLane } from '@core/domain/permission-lane.js';
 
 function permissionRow(input: {
   id: string;
@@ -246,7 +257,10 @@ function permissionPromptRow(input: {
   };
 }
 
-function permissionClaimRepository(rows: any[]) {
+function permissionClaimRepository(
+  rows: any[],
+  options: { failMemberPayloadUpdate?: boolean } = {},
+) {
   const initialGroups = new Map<string, any[]>();
   for (const row of rows) {
     row.sourceAgentFolder ??= row.payload.sourceAgentFolder;
@@ -422,6 +436,22 @@ function permissionClaimRepository(rows: any[]) {
         ),
       ];
       if (parentIds.length > 1) return null;
+      const rememberContexts =
+        input.matchKind === 'batch'
+          ? members.map((member: any) =>
+              parsePermissionRememberContext(member.payload.rememberContext),
+            )
+          : [];
+      if (options.failMemberPayloadUpdate && rememberContexts.some(Boolean)) {
+        return null;
+      }
+      rememberContexts.forEach((context, index) => {
+        if (!context) return;
+        members[index]!.payload = {
+          ...members[index]!.payload,
+          rememberContext: { ...context, eligible: false },
+        };
+      });
       for (const oldPrompt of oldPrompts) {
         if (oldPrompt.settlementState === 'open') {
           oldPrompt.settlementState = 'superseded';
@@ -584,6 +614,206 @@ function permissionClaimRepository(rows: any[]) {
 describe('pending interaction durability', () => {
   afterEach(() => {
     configurePendingInteractionDurability(null);
+  });
+
+  it('round-trips the remember context through the durable member payload, turns it ineligible when the binding is a batch, and returns context and decoded resolution through the single settlement accessor by claim and by recovery', async () => {
+    const rememberContext: PermissionRememberContext = {
+      eligible: true,
+      laneInput: { permissionMode: 'auto' },
+      lane: PermissionLane.InteractiveAuto,
+      appId: 'default',
+      agentFolder: 'agent-folder',
+      canonicalTool: 'Bash',
+      personId: 'person-one',
+      effectHash: 'effect-one',
+      effectSchemaVersion: 3,
+      railVersion: 7,
+      workspaceRoot: '/workspace',
+      kindVariant: 'category',
+      candidates: {
+        deny: { ok: true, scopeKey: 'effect-one', pathOnly: false },
+        exact: { ok: true, scopeKey: 'effect-one', pathOnly: false },
+        kind: { ok: true, scopeKey: 'kind:read_only_command', pathOnly: false },
+        kindTool: { ok: true, scopeKey: 'kind:tool:Bash', pathOnly: false },
+      },
+    };
+    const createPendingInteraction = vi.fn(async (input: any) => ({
+      ...input,
+      runId: input.runId ?? null,
+      sourceAgentFolder: input.sourceAgentFolder,
+      requestId: input.requestId,
+      runLeaseToken: input.runLeaseToken ?? null,
+      runLeaseFencingVersion: input.runLeaseFencingVersion ?? null,
+      envelopeId: null,
+      memberIndex: null,
+      callbackRoute: input.callbackRoute ?? null,
+      approverRef: null,
+      resolution: null,
+      status: 'pending',
+      createdAt: '2026-09-07T00:00:00.000Z',
+      resolvedAt: null,
+    }));
+    configurePendingInteractionDurability({
+      repository: { createPendingInteraction } as never,
+    });
+    await beginDurablePermissionInteraction({
+      request: {
+        requestId: 'member-one',
+        sourceAgentFolder: 'agent-folder',
+        toolName: 'Bash',
+        toolInput: { command: 'ls' },
+      },
+      sourceAgentFolder: 'agent-folder',
+      payload: { requestId: 'member-one' },
+      rememberContext,
+    });
+    expect(
+      createPendingInteraction.mock.calls[0]![0].payload.rememberContext,
+    ).toEqual(rememberContext);
+
+    const rows = [
+      permissionRow({
+        id: 'member-a',
+        agent: 'agent-folder',
+        requestId: 'request-a',
+        batchId: 'batch-one',
+      }),
+      permissionRow({
+        id: 'member-b',
+        agent: 'agent-folder',
+        requestId: 'request-b',
+        batchId: 'batch-one',
+      }),
+    ];
+    for (const row of rows) row.payload.rememberContext = rememberContext;
+    const repository = permissionClaimRepository(rows);
+    configurePendingInteractionDurability({ repository: repository as never });
+    await expect(
+      bindPendingPermissionInteractionMessage({
+        request: {
+          ...rows[0]!.payload.request,
+          requestId: 'batch-one',
+          permissionBatch: { requestIds: ['request-a', 'request-b'], rows: [] },
+        },
+        decisionOptions: ['allow_once', 'cancel'],
+      }),
+    ).resolves.toBe(true);
+    expect(rows.map((row) => row.payload.rememberContext.eligible)).toEqual([
+      false,
+      false,
+    ]);
+    expect(repository.updatePendingInteractionPayload).not.toHaveBeenCalled();
+
+    const claimed = await claimPermissionInteractionCallback({
+      scope: {
+        appId: 'default',
+        sourceAgentFolder: 'agent-folder',
+        interactionId: 'batch-one',
+      },
+      mode: 'remember_allow_exact',
+      approverRef: 'person-one',
+      matchKind: 'batch',
+    });
+    expect(claimed.status).toBe('claimed');
+    if (claimed.status !== 'claimed') throw new Error('claim failed');
+    const expected = {
+      context: { ...rememberContext, eligible: false },
+      resolution: {
+        mode: 'allow_once',
+        remember: {
+          kind: 'remember',
+          outcome: HumanDecisionOutcome.Allow,
+          scope: HumanDecisionScope.Exact,
+        },
+      },
+    };
+    await expect(rememberSettlementForClaim(claimed.claim)).resolves.toEqual(
+      expected,
+    );
+    configurePendingInteractionDurability(null);
+    configurePendingInteractionDurability({ repository: repository as never });
+    await expect(rememberSettlementForClaim(claimed.claim)).resolves.toEqual(
+      expected,
+    );
+
+    const contextlessRows = [
+      permissionRow({
+        id: 'contextless-a',
+        agent: 'agent-folder',
+        requestId: 'contextless-request-a',
+        batchId: 'contextless-batch',
+      }),
+      permissionRow({
+        id: 'contextless-b',
+        agent: 'agent-folder',
+        requestId: 'contextless-request-b',
+        batchId: 'contextless-batch',
+      }),
+    ];
+    const contextlessRepository = permissionClaimRepository(contextlessRows);
+    configurePendingInteractionDurability({
+      repository: contextlessRepository as never,
+    });
+    await expect(
+      bindPendingPermissionInteractionMessage({
+        request: {
+          ...contextlessRows[0]!.payload.request,
+          requestId: 'contextless-batch',
+          permissionBatch: {
+            requestIds: ['contextless-request-a', 'contextless-request-b'],
+            rows: [],
+          },
+        },
+        decisionOptions: ['allow_once', 'cancel'],
+      }),
+    ).resolves.toBe(true);
+    expect(
+      contextlessRepository.updatePendingInteractionPayload,
+    ).not.toHaveBeenCalled();
+    expect(
+      contextlessRepository.listPendingInteractions,
+    ).not.toHaveBeenCalled();
+
+    const failedRows = [
+      permissionRow({
+        id: 'failed-a',
+        agent: 'agent-folder',
+        requestId: 'failed-request-a',
+      }),
+      permissionRow({
+        id: 'failed-b',
+        agent: 'agent-folder',
+        requestId: 'failed-request-b',
+      }),
+    ];
+    for (const row of failedRows) row.payload.rememberContext = rememberContext;
+    const failedRepository = permissionClaimRepository(failedRows, {
+      failMemberPayloadUpdate: true,
+    });
+    configurePendingInteractionDurability({
+      repository: failedRepository as never,
+    });
+    await expect(
+      bindPendingPermissionInteractionMessage({
+        request: {
+          ...failedRows[0]!.payload.request,
+          requestId: 'failed-batch',
+          permissionBatch: {
+            requestIds: ['failed-request-a', 'failed-request-b'],
+            rows: [],
+          },
+        },
+        decisionOptions: ['allow_once', 'cancel'],
+      }),
+    ).resolves.toBe(false);
+    expect(
+      failedRows.map((row) => row.payload.rememberContext.eligible),
+    ).toEqual([true, true]);
+    expect(
+      failedRepository.prompts.some(
+        (prompt: any) => prompt.interactionId === 'failed-batch',
+      ),
+    ).toBe(false);
   });
 
   it.each(['', '   '])(

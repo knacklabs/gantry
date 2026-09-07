@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-07T11:37:17+00:00", "story": "ASKFLOOR-1", "detail": "S-0082-83d1: Orchestrator ruling: the plan already covers this \u2014 personLabel is filled only when the host identity source exposes a display name, and today neither PermissionRunRestriction nor AgentInput does, so "}

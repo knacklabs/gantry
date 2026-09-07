@@ -1,0 +1,73 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "ASKFLOOR-1-T3c",
+  "verdict": "pass",
+  "questions_asked": 1,
+  "inspected_refs": [
+    "apps/core/src/runtime/ipc-interaction-processing.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+    "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts",
+    "apps/core/src/application/interactions/pending-interaction-permission-callback.ts",
+    "apps/core/src/application/interactions/pending-interaction-permission-recovery-orchestrator.ts",
+    "apps/core/src/adapters/storage/postgres/schema/worker-coordination.ts",
+    "apps/core/src/channels/telegram/channel-shared.ts",
+    "apps/core/src/channels/slack/permission-action-id.ts",
+    "apps/core/src/channels/discord/components.ts",
+    "apps/core/src/channels/teams/cards.ts",
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/src/runtime/permission-human-memory-stage.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "scripts/architecture-map.json",
+    "docs/decisions/0154-human-decision-memory-generic-scope.md",
+    "plans/exploration/askfloor-1-t3c-seam-map.md"
+  ],
+  "current_flow": "T3a stores and T3b consults remembered decisions, but no card tap writes one: every provider carries a scalar mode, the durable claim persists that scalar, recovery rebuilds a scalar decision, and the two human-resolution chokepoints apply the current request without learning.",
+  "criteria_map": {
+    "CODEC + CARRIERS. NEW `application/permissions/permission-remember-codec.ts` exports `PERMISSION_REMEMBER_CODES`, `decodePermissionDecisionCode(value: string) \u2192 { mode: PermissionApprovalDecisionMode; remember?: PermissionRememberResolution } | null` (scalars pass through; `remember_allow_*` \u2192 `allow_once` + `{ outcome: allow, scope }`; `remember_deny_exact` \u2192 `cancel` + `{ outcome: deny, scope: exact }`; anything else \u2192 `null`) and `encodePermissionRememberCode(resolution) \u2192 PermissionRememberCode | null` (FAIL-CLOSED: `null` for any resolution without a code \u2014 a deny with kind or place scope \u2014 never a throw); `PermissionRememberCode` and the two widened carrier fields live in `domain/types.ts` line-neutrally (ruling 1); `telegram/channel-shared.ts` and `slack/permission-action-id.ts` accept and emit the codes in the scalar-mode slot. Unit tests: codec round-trip for the four codes and three scalars, `null` for unknown; the provider-affordance parity suite round-trips all four codes and all three scalars through BOTH owned codecs, including Slack action-id registration and Telegram's 64-byte maximum with a 36-character id.": "AC1 CODEC: four closed remember codes in the scalar-mode slot, one decode/encode module, every provider codec accepts them (leaf 1 + provider parse cases).",
+    "CONTEXT + DURABLE PATH. NEW `application/permissions/human-decision-learning.ts` declares `PermissionRememberContext` and exports async `derivePermissionRememberContext(input) \u2192 Promise<PermissionRememberContext>` (ruling 3) and `parsePermissionRememberContext(value: unknown) \u2192 PermissionRememberContext | null` (complete validation: `eligible` boolean; `lane` in the closed lane set; `laneInput.permissionMode` in the closed mode set and `hostJobId` string or absent; `appId`, `agentFolder`, `canonicalTool` non-empty strings; `personId`/`personLabel` strings or absent; `effectHash` non-empty string; `effectSchemaVersion`, `railVersion` integers; `workspaceRoot` string or absent; `kindVariant` in the closed pair; each candidate a well-formed `HumanDecisionScopeKeyResult`; anything else \u2192 `null`); the `requestPermissionApproval` closure in `ipc-interaction-processing.ts` derives the context and awaits `updatePendingInteractionPayload` BEFORE delegating to the durable flow (ruling 3; the helper's `IpcDeps.requestPermissionApproval` signature at `ipc-permission-classifier-decision.ts:68` gains the optional typed second argument, and its two prompt exits pass it); the inline path derives it in `inline-permission-memory.ts` and persists it with the member; `bindPendingPermissionInteractionMessage` finalizes `eligible` from `matchKind` (ruling 3) and its exposed options accept the widened carrier; `claimPermissionInteractionCallback` persists the tapped value verbatim in `claim_mode`; `rememberSettlementForClaim(claim)` is the single accessor every settlement path uses (context + decoded resolution from the same claimed row); the Postgres mapper validates `claimMode` and every rendered option through the codec on read; recovery decodes the persisted code into the identical `{ mode, remember }`; `already_decided` never learns; the control API stays scalar-only (ruling 9). Tests: the context round-trips through the member payload, a batch binding turns it ineligible, and `rememberSettlementForClaim` returns context and resolution by claim and by recovery (unit, `pending-interaction-durability.test.ts`); claim persists a code and the mapper refuses an unknown `claim_mode` or rendered option (Postgres, `worker-coordination.postgres.integration.test.ts`); exact, category-kind and tool-kind candidates in a persisted context equal a fresh derivation including each typed refusal, `kindVariant` selects between the two kind candidates, a place code resolves `no_root`, the encoder returns `null` for a deny with kind or place scope, and a malformed context (each field class) parses to `null` and learns nothing while the scalar current-request result still settles (`human-decision-learning.test.ts`); the control API renders a remember code as its scalar base and rejects a code on its POST (NEW `test/unit/control/session-interaction-approvals.test.ts`).": "AC2 DURABLE PATH: rememberEligible on the binding, the code verbatim in claim_mode, recovery decodes the same intent, already_decided never learns (leaf 5).",
+    "LEARNING HELPER + SERVICE ENTRY. `human-decision-learning.ts` also exports `learnRememberedDecision({ context, resolution, service, warn }) \u2192 Promise<LearnResult>` with `LearnResult = { status: 'remembered'; id } | { status: 'not_eligible' } | { status: 'not_rememberable'; reason: HumanDecisionServiceRefusal } | { status: 'unlearned' }`: `not_eligible` unless `context.eligible`; selects the candidate per ruling 5 (a refused candidate \u2192 `not_rememberable` with its persisted typed reason) and calls `service.rememberDerived` with the ruling-5 DTO (person, label and write identity from the context, reason `remembered from a card tap`); a throwing port \u2192 one `warn` and `unlearned`; it never throws and never touches the current decision. `HumanDecisionMemoryService.rememberDerived(dto)` shares `remember`'s write path with the key supplied. Unit tests with a fake service: every `eligible` input, each code's candidate selection including category-kind versus tool-kind by `kindVariant`, each refused candidate relays its persisted reason, each service refusal relayed, port failure \u2192 `unlearned`; the service suite pins `rememberDerived` (same row as `remember` for the same key; identical refusals).": "AC3 LEARNING HELPER: eligibility = persisted stamp AND fresh interactive_auto AND person; T3a DTO with trustGrowthTool false; port failure -> unlearned (leaf 2).",
+    "WRITE-THEN-APPLY CALLERS. (a) IPC: NEW `runtime/permission-remember-settlement.ts` (the IPC module is at its 865-line ceiling) called from `ipc-interaction-processing.ts` just before `applyPermissionInteractionDecision` (`:269`): decodes the settled mode, reads the member's context, calls `learnRememberedDecision` with a `HumanDecisionMemoryService` over the coordinator's `decisionMemory` port; the application and event sequence (`:269-382`) are byte-identical for remembered and once-only taps. (b) Inline: `inline-permission-memory.ts` gains `inlineRememberSettlement(...)` called from the existing `afterDecision` hook (`inline-agent-loop-tools.ts:483-543`, \u2264 6 changed lines); it never throws into `runDurablePermissionInteraction`. (c) Recovery: `pending-interaction-permission-callback.ts` calls the optional `learn` dependency just before the recovered apply (`:491`); `pending-interaction-durability.ts` threads it; `runtime-store.ts` configures it (ruling 7). Tests: IPC suite (`ipc-interaction-handler.test.ts`) \u2014 the context is persisted before the durable flow is delegated to and its lane and effect hash equal the helper's; a crash after the provider claim but before the helper returns still recovers with a context; an eligible remembered Allow persists before application with unchanged events; a remembered No persists and the current call is denied; `ask`, `auto_strict`, group (blank person), batch and scheduled-job prompts persist nothing (one case each); a provider double-delivery is `already_decided` with zero writes; a persisted-eligible context whose `laneInput` re-derives a non-`interactive_auto` lane writes nothing. Inline suite \u2014 eligible Allow on a non-scheduled auto run persists once with `personId`/`personLabel` from the run's host identity (label undefined when the run has none); scheduled run persists nothing; port failure leaves the decision applied. Recovery suite \u2014 a recovered remember code learns once through the same helper; an unauthorized tapper is rejected before the claim with no write and no application; an authorized code on an ineligible card settles its scalar base once with no write; a crash before learning learns on recovery; a crash after learning ends with one active row through the refresh. Wiring \u2014 `test/unit/storage/runtime-store.test.ts` proves the production `learn` dependency reaches the callback path.": "AC4 CHOKEPOINTS: IPC settlement helper after claim + application; inline afterDecision via inline-permission-memory; per-lane no-write cases (leaves 3, 4).",
+    "S2. `askfloor-tap-budget-harness.ts` gains a person, a fake decision-memory port and a provider-neutral durable fixture (in-memory durability backend, claim with a code, learn, apply) so the first run traverses claim \u2192 learning \u2192 application; `askfloor-tap-budget.test.ts` adds S2 \u2014 `cd ~/Workdir/<repo> && ls && git log` under `interactive_auto` with a person: first run at most one prompt answered with `remember_allow_exact` \u2192 one claimed code and one active row; second identical run through the real coordinator \u2192 zero prompts.": "AC5 S2: harness gains person + memory port + scripted response; first run one tap, second run zero (leaf 6).",
+    "existing unit and Postgres suites pass; tsc and check:architecture green; `ipc-interaction-processing.ts` \u2264 865, `inline-agent-loop-tools.ts` \u2264 750, `domain/types.ts` \u2264 740; no leftovers (no wrapper, shim, alias, re-export, dead branch or \"legacy\" naming).": "AC6 gates: verify.py with the Postgres lane, tsc, check:architecture, ceilings held, no leftovers."
+  },
+  "gaps": [
+    "After a safety-rules update, what should happen to an old kind- or place-scoped memory (the exact ones already just stop applying, per your earlier choice)?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "ledgered owner round: Same as exact: stop applying (Recommended)"
+  ],
+  "decision": "keep",
+  "new_abstractions": [
+    "human_decision record kind on the existing table (two partial unique indexes, CHECK); NEW application/permissions/human-decision-scope.ts (outcome-aware scope keys reusing T2b destination helpers); NEW application/permissions/human-decision-memory-service.ts (remember | list | revoke | countExactAllowsByTool with injected id/clock); human_decision decision source + remember DTO + provenance codec in domain/types.ts."
+  ],
+  "citations": [
+    {
+      "finding": "The exact-command memory key includes the safety-rules version, so after a rules update an old exact Allow/No can never be found again (it silently stops applying and the card asks normally). Only kind- and place-scoped memories can show the line \"Asking again \u2014 the safety rules were updated since you last decided this\". Which do you want?",
+      "source": "docs/decisions/0154-human-decision-memory-generic-scope.md; plans/exploration/askfloor-1-t3a-seam-map.md; plans/exploration/askfloor-1-t3a-task-grill.md and answers"
+    }
+  ],
+  "summary": "T2a task grill: contract sound.",
+  "rounds": [
+    {
+      "question": "After a safety-rules update, what should happen to an old kind- or place-scoped memory (the exact ones already just stop applying, per your earlier choice)?",
+      "options": [
+        "Same as exact: stop applying (Recommended)",
+        "Force the re-ask card with the line"
+      ],
+      "chosen": "Same as exact: stop applying (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "6d93dccfcda54ff65c2b0082afbe6f8a7cf1f40b508b8b9624988c21043bd36f",
+  "grounding_basis": "stage-baseline",
+  "grounding_treeish": "689550bcc3f28115a713775ca35f8559dc396121",
+  "task_plan_sha256": "9f3e65e364c5ae95f8846e70769886821e1cbd4b62b8c57372cbc61281279406",
+  "recorded_at": "2026-09-07T17:02:50+00:00",
+  "commit": "2b743ad374359e14cffd997ed85d3093e8798a90",
+  "approved_task_plan_sha256": "9f3e65e364c5ae95f8846e70769886821e1cbd4b62b8c57372cbc61281279406",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-07T17:02:59+00:00"
+}

@@ -1,6 +1,8 @@
 import {
   type PermissionDecisionMemoryRepository,
   type PermissionDecisionMemoryRow,
+  type HumanDecisionOutcome,
+  type HumanDecisionScope,
 } from '../../domain/ports/permission-decision-memory.js';
 import {
   encodeHumanDecisionProvenance,
@@ -27,6 +29,33 @@ export type HumanDecisionMemoryListRow = PermissionDecisionMemoryRow & {
   shortId: string;
 };
 
+export interface HumanDecisionDerivedRememberRequest {
+  appId: string;
+  agentFolder: string;
+  actingPersonId: string;
+  actingPersonLabel?: string;
+  canonicalTool: string;
+  outcome: HumanDecisionOutcome;
+  scope: HumanDecisionScope;
+  scopeKey: string;
+  pathOnly: boolean;
+  effectHash?: string;
+  effectSchemaVersion: number;
+  railVersion: number;
+  reason: string;
+}
+
+export type HumanDecisionRememberResult =
+  | {
+      status: 'remembered';
+      id: string;
+      shortId: string;
+      scopeKey: string;
+      pathOnly: boolean;
+      stored: 'inserted' | 'refreshed';
+    }
+  | { status: 'not_rememberable'; reason: HumanDecisionServiceRefusal };
+
 export class HumanDecisionMemoryService {
   private readonly repository: PermissionDecisionMemoryRepository;
   private readonly newId: () => string;
@@ -46,17 +75,9 @@ export class HumanDecisionMemoryService {
     this.now = now;
   }
 
-  async remember(dto: HumanDecisionRememberRequest): Promise<
-    | {
-        status: 'remembered';
-        id: string;
-        shortId: string;
-        scopeKey: string;
-        pathOnly: boolean;
-        stored: 'inserted' | 'refreshed';
-      }
-    | { status: 'not_rememberable'; reason: HumanDecisionServiceRefusal }
-  > {
+  async remember(
+    dto: HumanDecisionRememberRequest,
+  ): Promise<HumanDecisionRememberResult> {
     if (!dto.actingPersonId.trim()) {
       return { status: 'not_rememberable', reason: 'unresolved_person' };
     }
@@ -75,31 +96,62 @@ export class HumanDecisionMemoryService {
     if (!derived.ok) {
       return { status: 'not_rememberable', reason: derived.reason };
     }
+    const canonicalTool =
+      gantryNativeCanonicalToolName(dto.request.toolName)?.canonical ??
+      dto.request.toolName;
+    return this.rememberDerived({
+      appId: dto.appId,
+      agentFolder: dto.agentFolder,
+      actingPersonId: dto.actingPersonId,
+      ...(dto.actingPersonLabel
+        ? { actingPersonLabel: dto.actingPersonLabel }
+        : {}),
+      canonicalTool,
+      outcome: dto.resolution.outcome,
+      scope: dto.resolution.scope,
+      scopeKey: derived.scopeKey,
+      pathOnly: derived.pathOnly,
+      ...(dto.effectHash ? { effectHash: dto.effectHash } : {}),
+      effectSchemaVersion: dto.effectSchemaVersion,
+      railVersion: dto.railVersion,
+      reason: dto.reason,
+    });
+  }
+
+  async rememberDerived(
+    dto: HumanDecisionDerivedRememberRequest,
+  ): Promise<HumanDecisionRememberResult> {
+    if (!dto.actingPersonId.trim()) {
+      return { status: 'not_rememberable', reason: 'unresolved_person' };
+    }
+    if (!dto.scopeKey.trim()) {
+      return { status: 'not_rememberable', reason: 'incomplete_effect' };
+    }
+    if (dto.outcome === 'deny' && dto.scope !== 'exact') {
+      return { status: 'not_rememberable', reason: 'deny_requires_exact' };
+    }
     const id = this.newId();
     if (!isHumanDecisionId(id)) {
       throw new TypeError('Human decision id must be a UUID v4');
     }
-    const canonicalTool =
-      gantryNativeCanonicalToolName(dto.request.toolName)?.canonical ??
-      dto.request.toolName;
     const stored = await this.repository.putHumanDecision({
       id,
       appId: dto.appId,
       agentFolder: dto.agentFolder,
-      outcome: dto.resolution.outcome,
-      scope: dto.resolution.scope,
-      scopeKey: derived.scopeKey,
+      outcome: dto.outcome,
+      scope: dto.scope,
+      scopeKey: dto.scopeKey,
       actingPersonId: dto.actingPersonId,
       actingPersonLabel: dto.actingPersonLabel,
-      canonicalTool,
+      canonicalTool: dto.canonicalTool,
       reason: dto.reason,
       effectSchemaVersion: dto.effectSchemaVersion,
       railVersion: dto.railVersion,
       provenance: encodeHumanDecisionProvenance({
         id,
         actingPersonId: dto.actingPersonId,
-        outcome: dto.resolution.outcome,
-        scope: dto.resolution.scope,
+        outcome: dto.outcome,
+        scope: dto.scope,
         railVersion: dto.railVersion,
       }),
       nowIso: this.now(),
@@ -120,8 +172,8 @@ export class HumanDecisionMemoryService {
       status: 'remembered',
       id: stored.id,
       shortId,
-      scopeKey: derived.scopeKey,
-      pathOnly: derived.pathOnly,
+      scopeKey: dto.scopeKey,
+      pathOnly: dto.pathOnly,
       stored: stored.status,
     };
   }

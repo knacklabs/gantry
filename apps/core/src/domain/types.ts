@@ -248,20 +248,20 @@ export interface PermissionApprovalCancellation {
   reason?: string;
 }
 
-export type PermissionApprovalDecisionMode =
-  | 'allow_once'
-  | 'allow_persistent_rule'
-  | 'cancel';
+// prettier-ignore
+export type PermissionApprovalDecisionMode = 'allow_once' | 'allow_persistent_rule' | 'cancel';
+// prettier-ignore
+export type PermissionRememberCode = 'remember_allow_exact' | 'remember_allow_kind' | 'remember_allow_place' | 'remember_deny_exact';
 
 // prettier-ignore
-export type PermissionDecisionSource =
-  | 'durable_rule' | 'birthright' | 'deterministic_policy'
+export type PermissionDecisionSource = 'durable_rule' | 'birthright' | 'deterministic_policy'
   | 'auto_classifier' | 'cached_classifier' | 'trusted_root'
   | 'human_once' | 'human_persistent' | 'human_decision';
 
 export interface PermissionRecoveryEnvelope {
   version: 1;
-  renderedDecisionOptions: PermissionApprovalDecisionMode[];
+  // prettier-ignore
+  renderedDecisionOptions: (PermissionApprovalDecisionMode | PermissionRememberCode)[];
   targetJid: string | null;
   approvalContextJid: string | null;
   threadId: string | null;
@@ -276,7 +276,7 @@ export interface PermissionCallbackScope {
 }
 
 export interface PermissionCallbackClaimIntent {
-  mode: PermissionApprovalDecisionMode;
+  mode: PermissionApprovalDecisionMode | PermissionRememberCode;
   approverRef: string;
   decidedAt: string;
 }

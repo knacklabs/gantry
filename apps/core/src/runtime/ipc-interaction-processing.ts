@@ -54,7 +54,6 @@ import {
 import { resolvePermissionIpcDecision } from './ipc-permission-classifier-decision.js';
 import { recordHumanPermissionPromotionSignal } from './permission-classifier.js';
 import { synthesizeHostPermissionSuggestions } from '../application/permissions/permission-suggestion-synthesis.js';
-import { attachJobPermissionRequestOrDeny } from '../application/interactions/job-permission-durability.js';
 import {
   permissionDecisionEventType,
   permissionDecisionName,
@@ -65,6 +64,7 @@ import {
   publishPermissionRuntimeEvent,
 } from './ipc-interaction-runtime-events.js';
 import { permissionRunRestriction } from './permission-decision-coordinator.js';
+import * as remember from './permission-remember-settlement.js';
 
 export { publishPendingInteractionRuntimeEvent };
 export {
@@ -206,36 +206,17 @@ export async function processPermissionInteractionIpc(input: {
     let attachedToJobPermissionNeed = false;
     const decisionDeps = {
       ...input.deps,
-      requestPermissionApproval: async (request: PermissionApprovalRequest) => {
-        if (!request.jobId)
-          return input.deps.requestPermissionApproval(request);
-        const outcome = await attachJobPermissionRequestOrDeny({
-          request: request as PermissionApprovalRequest & { jobId: string },
+      requestPermissionApproval:
+        remember.rememberingPermissionApprovalRequester({
+          deps: input.deps,
           sourceAgentFolder: input.sourceAgentFolder,
-          durability: input.deps.jobPermissionDurability,
-          logger: input.logger,
-        });
-        if (outcome.status === 'attached') {
-          attachedToJobPermissionNeed = true;
-          return {
-            kind: 'decision' as const,
-            decision: {
-              approved: false,
-              mode: 'cancel' as const,
-              decidedBy: 'job_permission_durability',
-            },
-          };
-        }
-        return {
-          kind: 'decision' as const,
-          decision: {
-            approved: false,
-            mode: 'cancel' as const,
-            decidedBy: 'job_permission_durability',
-            reason: outcome.reason,
+          personId: runRestriction?.memoryUserId,
+          hostJobId: runRestriction?.jobId,
+          onAttached: () => {
+            attachedToJobPermissionNeed = true;
           },
-        };
-      },
+          logger: input.logger,
+        }),
     };
     decision =
       (await replayPersistedPermissionDecisionForRequest({
@@ -266,6 +247,11 @@ export async function processPermissionInteractionIpc(input: {
       payload: decisionContext,
     });
     await assertActiveScheduledPermissionLease(input);
+    await remember.learnPermissionRememberSettlement({
+      claim: decision.permissionCallbackClaim,
+      repository: input.deps.getPermissionDecisionMemoryRepository?.(),
+      warn: (context, message) => input.logger.warn(context, message),
+    });
     authorityApplicationStarted = true;
     const applied = await applyPermissionInteractionDecision({
       request: input.request,

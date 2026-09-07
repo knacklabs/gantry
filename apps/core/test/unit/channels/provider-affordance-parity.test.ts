@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
+import { PERMISSION_REMEMBER_CODES } from '@core/application/permissions/permission-remember-codec.js';
 import {
   discordActionComponents,
   parsePermissionCustomId,
   permissionCustomId,
 } from '@core/channels/discord/components.js';
 import { normalizePermissionAction } from '@core/channels/permission-interaction.js';
-import { slackPermissionDecisionActionId } from '@core/channels/slack/permission-action-id.js';
+import {
+  SLACK_PERMISSION_DECISION_ACTION_IDS,
+  slackPermissionDecisionActionId,
+} from '@core/channels/slack/permission-action-id.js';
 import {
   buildTeamsApprovalAdaptiveCard,
   buildTeamsMessageCard,
@@ -175,5 +179,28 @@ describe('provider affordance parity', () => {
         (action) => readTeamsPermissionDecision(action.data)?.decision,
       ),
     ).toEqual(modes);
+  });
+
+  it('round-trips all four remember codes and all three scalar modes through the Telegram and Slack codecs including Slack action-id registration and the Telegram 64-byte maximum', () => {
+    const values = [
+      'allow_once',
+      'allow_persistent_rule',
+      'cancel',
+      ...PERMISSION_REMEMBER_CODES,
+    ] as const;
+    const callbackId = '12345678-1234-1234-1234-123456789012';
+
+    for (const value of values) {
+      const telegram = telegramPermissionCallbackData(value, callbackId);
+      expect(Buffer.byteLength(telegram)).toBeLessThanOrEqual(64);
+      expect(parseTelegramPermissionCallbackData(telegram)).toEqual({
+        mode: value,
+        callbackId,
+      });
+
+      const slack = slackPermissionDecisionActionId(value);
+      expect(SLACK_PERMISSION_DECISION_ACTION_IDS).toContain(slack);
+      expect(slack.slice('gantry_perm_decision_'.length)).toBe(value);
+    }
   });
 });

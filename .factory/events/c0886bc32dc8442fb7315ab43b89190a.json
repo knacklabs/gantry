@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-07T11:35:53+00:00", "story": "ASKFLOOR-1", "detail": "T3c requires personLabel from the same host-stamped identity source as personId in IPC and inline, but PermissionRunRestriction and AgentInput expose only memoryUserId; satisfying the label-present ca"}

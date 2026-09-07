@@ -100,6 +100,93 @@ function humanRow(
 }
 
 describe('human decision memory service', () => {
+  it('rememberDerived writes the same row as remember for the same key and relays the same refusals', async () => {
+    const repository = fakeRepository({
+      listHumanDecisions: vi.fn(async () => [humanRow(ID)]),
+    });
+    const service = new HumanDecisionMemoryService({
+      repository,
+      newId: () => ID,
+      now: () => NOW,
+    });
+
+    const remembered = await service.remember(rememberRequest());
+    const firstWrite = repository.putHumanDecision.mock.calls[0]![0];
+    repository.putHumanDecision.mockClear();
+    const derived = await service.rememberDerived({
+      appId: 'app-one',
+      agentFolder: 'main_agent',
+      actingPersonId: 'person-one',
+      actingPersonLabel: 'Alex',
+      canonicalTool: 'file',
+      outcome: HumanDecisionOutcome.Allow,
+      scope: HumanDecisionScope.Exact,
+      scopeKey: firstWrite.scopeKey!,
+      pathOnly: true,
+      effectHash: 'effect-one',
+      effectSchemaVersion: 3,
+      railVersion: 7,
+      reason: 'Allow this file write here.',
+    });
+
+    expect(derived).toEqual(remembered);
+    expect(repository.putHumanDecision).toHaveBeenCalledWith(firstWrite);
+    await expect(
+      service.rememberDerived({
+        appId: 'app-one',
+        agentFolder: 'main_agent',
+        actingPersonId: ' ',
+        canonicalTool: 'file',
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Exact,
+        scopeKey: 'key',
+        pathOnly: false,
+        effectSchemaVersion: 3,
+        railVersion: 7,
+        reason: 'remembered',
+      }),
+    ).resolves.toEqual({
+      status: 'not_rememberable',
+      reason: 'unresolved_person',
+    });
+    await expect(
+      service.rememberDerived({
+        appId: 'app-one',
+        agentFolder: 'main_agent',
+        actingPersonId: 'person-one',
+        canonicalTool: 'file',
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Exact,
+        scopeKey: ' ',
+        pathOnly: false,
+        effectSchemaVersion: 3,
+        railVersion: 7,
+        reason: 'remembered',
+      }),
+    ).resolves.toEqual({
+      status: 'not_rememberable',
+      reason: HumanDecisionNotRememberableReason.IncompleteEffect,
+    });
+    await expect(
+      service.rememberDerived({
+        appId: 'app-one',
+        agentFolder: 'main_agent',
+        actingPersonId: 'person-one',
+        canonicalTool: 'file',
+        outcome: HumanDecisionOutcome.Deny,
+        scope: HumanDecisionScope.Kind,
+        scopeKey: 'key',
+        pathOnly: false,
+        effectSchemaVersion: 3,
+        railVersion: 7,
+        reason: 'remembered',
+      }),
+    ).resolves.toEqual({
+      status: 'not_rememberable',
+      reason: HumanDecisionNotRememberableReason.DenyRequiresExact,
+    });
+  });
+
   it('remember refuses an unresolved person and every scalar mode resolution before any repository call, relays each scope-key refusal reason verbatim, throws on a malformed injected id, writes a v4 uuid row with principal set to the canonical tool and the encoded provenance, and returns the stored id and short id including the refreshed-duplicate case', async () => {
     const repository = fakeRepository();
     const service = new HumanDecisionMemoryService({

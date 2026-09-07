@@ -1022,6 +1022,131 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
     expect(pendingAfter.map((row) => row.id)).not.toContain('interaction-1');
   });
 
+  it('stores a raw remember code on the durable claim and refuses an unknown claim mode or rendered option on read', async () => {
+    const rememberContext = {
+      eligible: true,
+      laneInput: { permissionMode: 'auto' },
+      lane: 'interactive_auto',
+      appId: 'default',
+      agentFolder: 'scheduler_agent',
+      canonicalTool: 'Bash',
+      personId: 'person-one',
+      effectHash: 'effect-one',
+      effectSchemaVersion: 3,
+      railVersion: 7,
+      workspaceRoot: '/workspace',
+      kindVariant: 'category',
+      candidates: {
+        deny: { ok: true, scopeKey: 'effect-one', pathOnly: false },
+        exact: { ok: true, scopeKey: 'effect-one', pathOnly: false },
+        kind: { ok: true, scopeKey: 'kind:read_only_command', pathOnly: false },
+        kindTool: { ok: true, scopeKey: 'kind:tool:Bash', pathOnly: false },
+      },
+    };
+    const batchRequestIds = ['req-remember-batch-a', 'req-remember-batch-b'];
+    await createPermissionMember({
+      requestId: batchRequestIds[0]!,
+      payload: { rememberContext },
+    });
+    await createPermissionMember({
+      requestId: batchRequestIds[1]!,
+      payload: { contextlessMarker: true },
+    });
+    const batch = await bindPermissionPrompt({
+      interactionId: 'req-remember-batch',
+      requestIds: batchRequestIds,
+      mode: 'batch',
+    });
+    expect(batch?.members[0]?.payload.rememberContext).toMatchObject({
+      eligible: false,
+    });
+    expect(batch?.members[1]?.payload).toMatchObject({
+      contextlessMarker: true,
+    });
+    expect(batch?.members[1]?.payload).not.toHaveProperty('rememberContext');
+
+    const requestId = 'req-remember-code';
+    const promptId = 'prompt-remember-code';
+    const scope = {
+      appId: 'default',
+      sourceAgentFolder: 'scheduler_agent',
+      interactionId: requestId,
+    };
+    await createPermissionMember({ requestId });
+    await coordination.bindPendingPermissionPrompt({
+      id: promptId,
+      ...scope,
+      matchKind: 'individual',
+      members: [
+        {
+          idempotencyKey: permissionIdempotencyKey(
+            'scheduler_agent',
+            requestId,
+          ),
+          requestId,
+          index: 0,
+        },
+      ],
+      envelope: {
+        version: 1,
+        renderedDecisionOptions: ['remember_allow_exact'],
+        targetJid: 'tg:worker-coordination',
+        approvalContextJid: 'tg:worker-coordination',
+        threadId: null,
+        decisionPolicy: null,
+        renderedRequest: {
+          requestId,
+          sourceAgentFolder: 'scheduler_agent',
+          targetJid: 'tg:worker-coordination',
+          toolName: 'Bash',
+        },
+      },
+      providerAliases: [],
+    });
+    const claim = {
+      id: 'claim-remember-code',
+      scope,
+      intent: {
+        mode: 'remember_allow_exact',
+        approverRef: 'user:approver',
+        decidedAt: nowIso(),
+      },
+      match: {
+        kind: 'individual',
+        canonicalId: requestId,
+        providerAliases: [],
+      },
+    } satisfies PermissionCallbackClaim;
+    await expect(
+      coordination.claimPendingPermissionCallback({ claim }),
+    ).resolves.toMatchObject({
+      prompt: { claim: { intent: { mode: 'remember_allow_exact' } } },
+    });
+
+    for (const claimMode of ['', 'unknown']) {
+      await runtime.service.pool.query(
+        `UPDATE "${runtime.schemaName}".permission_prompts SET claim_mode = $1 WHERE id = $2`,
+        [claimMode, promptId],
+      );
+      await expect(
+        coordination.findPendingPermissionPrompt({
+          scope,
+          includeTerminalSettlement: true,
+        }),
+      ).rejects.toThrow('claim mode is malformed');
+    }
+    await runtime.service.pool.query(
+      `UPDATE "${runtime.schemaName}".permission_prompts SET claim_mode = $1, rendered_decision_options_json = $2::jsonb WHERE id = $3`,
+      ['remember_allow_exact', JSON.stringify(['unknown']), promptId],
+    );
+    await expect(
+      coordination.findPendingPermissionPrompt({
+        scope,
+        includeTerminalSettlement: true,
+      }),
+    ).rejects.toThrow('rendered option is malformed');
+  });
+
   it('reopens only cancelled questions and admits one concurrent re-ask', async () => {
     const cancelledKey =
       'test-default:question:scheduler_agent:req-question-reask';
