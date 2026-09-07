@@ -61,6 +61,7 @@ import {
   RoleEditorDialog,
   type RoleEditorTarget,
 } from '../components/role-editor-dialog';
+import { AgentCreateDialog } from './agent-create-route';
 
 export function AgentDetailRoute() {
   const { agentId } = useParams({ from: '/agents/$agentId' });
@@ -73,6 +74,7 @@ export function AgentDetailRoute() {
     agentConversationInstallsQuery(agentId),
   );
   const [statusOpen, setStatusOpen] = useState(false);
+  const [deploymentOpen, setDeploymentOpen] = useState(false);
   const status = useMutation({
     mutationFn: async (action: 'enable' | 'disable') => {
       const response = await browserFetch(
@@ -207,6 +209,7 @@ export function AgentDetailRoute() {
         <Content
           agent={agent}
           tab={search.tab}
+          onDeployRequest={() => setDeploymentOpen(true)}
           onStatusRequest={() => setStatusOpen(true)}
         />
       </section>
@@ -220,6 +223,13 @@ export function AgentDetailRoute() {
           status.mutate(action, { onSuccess: () => setStatusOpen(false) })
         }
       />
+      {deploymentOpen ? (
+        <AgentCreateDialog
+          existingAgent={agent}
+          startAt="account"
+          onClose={() => setDeploymentOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -269,20 +279,30 @@ function DetailTabs({
 function Content({
   agent,
   tab,
+  onDeployRequest,
   onStatusRequest,
 }: {
   agent: AgentDirectoryItem;
   tab: 'overview' | 'conversations' | 'instructions' | 'access' | 'settings';
+  onDeployRequest: () => void;
   onStatusRequest: () => void;
 }) {
-  if (tab === 'overview') return <Overview agent={agent} />;
-  if (tab === 'conversations') return <Conversations agent={agent} />;
+  if (tab === 'overview')
+    return <Overview agent={agent} onDeployRequest={onDeployRequest} />;
+  if (tab === 'conversations')
+    return <Conversations agent={agent} onDeployRequest={onDeployRequest} />;
   if (tab === 'instructions') return <Instructions agent={agent} />;
   if (tab === 'access') return <Access agent={agent} />;
   return <AgentSettings agent={agent} onStatusRequest={onStatusRequest} />;
 }
 
-function Conversations({ agent }: { agent: AgentDirectoryItem }) {
+function Conversations({
+  agent,
+  onDeployRequest,
+}: {
+  agent: AgentDirectoryItem;
+  onDeployRequest: () => void;
+}) {
   const accounts = useQuery(channelAccountsQuery());
   const conversations = useQuery(channelConversationsQuery());
   const installs = useQuery(agentConversationInstallsQuery(agent.id));
@@ -349,12 +369,9 @@ function Conversations({ agent }: { agent: AgentDirectoryItem }) {
             <p className="m-0 text-sm text-text-secondary">
               This AI employee is not installed in a conversation yet.
             </p>
-            <Link
-              className="inline-flex h-8 w-fit items-center justify-center rounded-md border border-text bg-text px-3 text-xs font-semibold text-surface no-underline hover:opacity-90"
-              to="/channel-accounts"
-            >
+            <Button type="button" onClick={onDeployRequest}>
               Connect a channel account
-            </Link>
+            </Button>
           </div>
         )}
       </InfoCard>
@@ -367,7 +384,13 @@ function Conversations({ agent }: { agent: AgentDirectoryItem }) {
   );
 }
 
-function Overview({ agent }: { agent: AgentDirectoryItem }) {
+function Overview({
+  agent,
+  onDeployRequest,
+}: {
+  agent: AgentDirectoryItem;
+  onDeployRequest: () => void;
+}) {
   const sources = useQuery(agentSourcesQuery(agent.id));
   const capabilities = useQuery(agentCapabilitiesQuery(agent.id));
   const accounts = useQuery(channelAccountsQuery());
@@ -412,14 +435,11 @@ function Overview({ agent }: { agent: AgentDirectoryItem }) {
                 : 'Connect the bot identity this AI employee will use before choosing where it works.'}
             </p>
           </div>
-          <Link
-            className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-text bg-text px-3 text-xs font-semibold text-surface no-underline hover:opacity-90"
-            to="/channel-accounts"
-          >
+          <Button className="shrink-0" type="button" onClick={onDeployRequest}>
             {ownedAccounts.length
-              ? 'Manage channel account'
+              ? 'Choose conversation'
               : 'Connect channel account'}
-          </Link>
+          </Button>
         </section>
       ) : null}
       <section className="grid overflow-hidden rounded-lg border border-border bg-surface sm:grid-cols-3">

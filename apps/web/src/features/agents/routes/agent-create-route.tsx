@@ -72,18 +72,30 @@ export function AgentCreateRoute() {
   );
 }
 
-export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
+type AgentCreateDialogProps = {
+  existingAgent?: AgentDirectoryItem;
+  onClose: () => void;
+  startAt?: 'base' | 'account';
+};
+
+export function AgentCreateDialog({
+  existingAgent,
+  onClose,
+  startAt = 'base',
+}: AgentCreateDialogProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [name, setName] = useState('');
-  const [modelAlias, setModelAlias] = useState<string | null>(null);
+  const [name, setName] = useState(existingAgent?.name ?? '');
+  const [modelAlias, setModelAlias] = useState<string | null>(
+    existingAgent?.modelAlias ?? null,
+  );
   const [selectedRole, setSelectedRole] = useState<BrowserRole>();
   const [baseErrors, setBaseErrors] = useState<{
     name?: string;
     role?: string;
   }>({});
   const [roleEditor, setRoleEditor] = useState<RoleEditorTarget>();
-  const [agentId, setAgentId] = useState<string>();
+  const [agentId, setAgentId] = useState<string | undefined>(existingAgent?.id);
   const [setupPending, setSetupPending] = useState(false);
   const [step, setStep] = useState<
     | 'base'
@@ -93,7 +105,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
     | 'conversation'
     | 'approvals'
     | 'review'
-  >('base');
+  >(startAt);
   const [channelDeferred, setChannelDeferred] = useState(false);
   const [providerAccountId, setProviderAccountId] = useState('');
   const [providerId, setProviderId] = useState('');
@@ -211,6 +223,7 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
           search: { tab: 'overview' },
         });
       }
+      if (existingAgent) onClose();
     },
   });
 
@@ -253,11 +266,14 @@ export function AgentCreateDialog({ onClose }: { onClose: () => void }) {
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="grid gap-1">
             <DialogTitle className="text-lg font-semibold">
-              Create AI employee
+              {existingAgent
+                ? `Deploy ${existingAgent.name}`
+                : 'Create AI employee'}
             </DialogTitle>
             <DialogDescription className="text-xs text-text-secondary">
-              Build the identity first, then optionally connect sources and
-              allow actions.
+              {existingAgent
+                ? 'Choose a channel account, conversation, and approvers for this saved AI employee.'
+                : 'Build the identity first, then optionally connect sources and allow actions.'}
             </DialogDescription>
           </div>
           <DialogClose asChild>
