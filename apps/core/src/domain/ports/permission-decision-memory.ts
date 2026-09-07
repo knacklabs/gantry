@@ -108,6 +108,11 @@ export type HumanDecisionMemoryPutResult = {
   status: 'inserted' | 'refreshed';
 };
 
+export interface HumanDecisionMemoryCandidate {
+  scope: HumanDecisionScope;
+  scopeKey: string;
+}
+
 export type HumanDecisionRevokeResult =
   | 'applied'
   | 'already_revoked'
@@ -180,6 +185,14 @@ export interface PermissionDecisionMemoryRepository {
     actingPersonId: string;
     includeRevoked?: boolean;
   }): Promise<PermissionDecisionMemoryRow[]>;
+
+  findHumanDecision(input: {
+    appId: string;
+    agentFolder: string;
+    actingPersonId: string;
+    candidates: HumanDecisionMemoryCandidate[];
+    railVersion: number;
+  }): Promise<PermissionDecisionMemoryRow | null>;
 
   revokeById(input: {
     appId: string;

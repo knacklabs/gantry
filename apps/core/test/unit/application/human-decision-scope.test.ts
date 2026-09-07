@@ -12,6 +12,7 @@ import {
   HumanDecisionOutcome,
   HumanDecisionScope,
 } from '@core/domain/ports/permission-decision-memory.js';
+import { RAIL_CATALOG_VERSION } from '@core/domain/permission-effect-key.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 
 const tempRoots: string[] = [];
@@ -90,7 +91,7 @@ describe('human decision scope keys', () => {
     const canonicalWorkspaceRoot = fs.realpathSync(workspaceRoot);
     expect(allowOne).toEqual({
       ok: true,
-      scopeKey: `exact:path:FileWrite:${path.join(canonicalWorkspaceRoot, 'notes/a.md')}`,
+      scopeKey: `exact:path:${RAIL_CATALOG_VERSION}:FileWrite:${path.join(canonicalWorkspaceRoot, 'notes/a.md')}`,
       pathOnly: true,
     });
     expect(allowChangedContent).toEqual(allowOne);
@@ -130,7 +131,7 @@ describe('human decision scope keys', () => {
       }),
     ).resolves.toEqual({
       ok: true,
-      scopeKey: `exact:path:FileEdit:${path.join(canonicalWorkspaceRoot, 'notes/a.md')}`,
+      scopeKey: `exact:path:${RAIL_CATALOG_VERSION}:FileEdit:${path.join(canonicalWorkspaceRoot, 'notes/a.md')}`,
       pathOnly: true,
     });
 
@@ -168,7 +169,7 @@ describe('human decision scope keys', () => {
 
     const virtualExpected = {
       ok: true,
-      scopeKey: 'exact:path:file:default/notes/a.md',
+      scopeKey: `exact:path:${RAIL_CATALOG_VERSION}:file:default/notes/a.md`,
       pathOnly: true,
     } as const;
     for (const toolName of ['file', 'mcp__gantry__file']) {
@@ -199,7 +200,7 @@ describe('human decision scope keys', () => {
       }),
     ).resolves.toEqual({
       ok: true,
-      scopeKey: 'exact:path:file:shared/final.md',
+      scopeKey: `exact:path:${RAIL_CATALOG_VERSION}:file:shared/final.md`,
       pathOnly: true,
     });
 
@@ -362,7 +363,7 @@ describe('human decision scope keys', () => {
       }),
     ).resolves.toEqual({
       ok: true,
-      scopeKey: 'place:/canonical/root',
+      scopeKey: 'place:web_read:/canonical/root',
       pathOnly: false,
     });
     await expect(
@@ -409,5 +410,70 @@ describe('human decision scope keys', () => {
         reason: HumanDecisionNotRememberableReason.IncompleteEffect,
       });
     }
+  });
+
+  it('derives version-bound path-exact keys for native and virtual writes and kind-carrying place keys for a trust-growth tool and for a category', async () => {
+    const workspaceRoot = makeRoot('versioned-keys');
+    fs.mkdirSync(path.join(workspaceRoot, 'notes'));
+    const canonicalWorkspaceRoot = fs.realpathSync(workspaceRoot);
+
+    await expect(
+      deriveHumanDecisionScopeKey({
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Exact,
+        request: request('FileWrite', {
+          path: 'notes/a.md',
+          content: 'hello',
+        }),
+        effectHash: 'native-hash',
+        workspaceRoot,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      scopeKey: `exact:path:${RAIL_CATALOG_VERSION}:FileWrite:${path.join(canonicalWorkspaceRoot, 'notes/a.md')}`,
+      pathOnly: true,
+    });
+    await expect(
+      deriveHumanDecisionScopeKey({
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Exact,
+        request: request('file', {
+          action: 'write',
+          path: 'notes/a.md',
+          content: 'hello',
+        }),
+        effectHash: 'virtual-hash',
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      scopeKey: `exact:path:${RAIL_CATALOG_VERSION}:file:default/notes/a.md`,
+      pathOnly: true,
+    });
+    await expect(
+      deriveHumanDecisionScopeKey({
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Place,
+        request: request('mcp__gantry__scheduler_delete_job', { jobId: '1' }),
+        canonicalRoot: '/canonical/root',
+        trustGrowthTool: true,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      scopeKey: 'place:tool:scheduler_delete_job:/canonical/root',
+      pathOnly: false,
+    });
+    await expect(
+      deriveHumanDecisionScopeKey({
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Place,
+        request: request('WebRead', { url: 'https://example.com' }),
+        canonicalRoot: '/canonical/root',
+        trustGrowthTool: false,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      scopeKey: 'place:web_read:/canonical/root',
+      pathOnly: false,
+    });
   });
 });

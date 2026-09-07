@@ -76,6 +76,7 @@ import type {
   InlineCoreToolHostDeps,
   InlineCoreToolSupport,
 } from './inline-agent-loop-tool-types.js';
+import { inlinePermissionMemoryInputs } from './inline-permission-memory.js';
 import { createInlineToolSuccessLedger } from './inline-tool-success-ledger.js';
 import type { RuntimeApp } from './runtime-app.js';
 
@@ -373,7 +374,7 @@ export function createInlineCoreTools(
         targetJid: run.chatJid,
         threadId: run.threadId,
         ...(!run.isScheduledJob && run.memoryUserId
-          ? { senderId: run.memoryUserId }
+          ? { senderId: run.memoryUserId, personId: run.memoryUserId }
           : {}),
         toolName: name,
         displayName: name,
@@ -392,6 +393,8 @@ export function createInlineCoreTools(
         accessPreset: deps.getAgentAccessPreset(laneInput.group.folder),
         fixedImageRestricted: run.hideAuthorityTools === true,
         reviewedRuleDecision: decision,
+        ...inlinePermissionMemoryInputs({ run, laneInput, request, deps }),
+        skipClassifierVerdictCache: true,
         tail: async () => {
           const promotion = promotionRepository
             ? { repository: promotionRepository }
@@ -597,6 +600,7 @@ export function wireInlineAgentLoopTools(input: {
   getPermissionPromotionRepository?: () =>
     | PermissionPromotionRepository
     | undefined;
+  getPermissionDecisionMemoryRepository?: InlineCoreToolHostDeps['getPermissionDecisionMemoryRepository'];
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   opsRepository?: Pick<
     RuntimeAgentSessionRepository,
@@ -659,6 +663,8 @@ export function wireInlineAgentLoopTools(input: {
     getAgentRepository: input.getAgentRepository ?? (() => undefined),
     getPermissionPromotionRepository:
       input.getPermissionPromotionRepository ?? (() => undefined),
+    getPermissionDecisionMemoryRepository:
+      input.getPermissionDecisionMemoryRepository,
     classifierConsult: input.classifierConsult,
     createTaskLifecycleBackend: (laneInput, authorityToolName) =>
       createInlineAgentTaskLifecycle({

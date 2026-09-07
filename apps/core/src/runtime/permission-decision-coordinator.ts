@@ -26,6 +26,10 @@ import {
 import { canonicalizeTrustedRoot } from '../shared/permission-trusted-paths.js';
 import { runnerShimFamilyBypassReason } from '../shared/family-rule-synthesis.js';
 import type { PermissionClassifierRiskLevel } from './permission-classifier-prompt.js';
+import {
+  consultRememberedAllow,
+  consultRememberedDeny,
+} from './permission-human-memory-stage.js';
 
 export type DeterministicPermissionRails = (
   input: PermissionDeterministicRailsInput,
@@ -71,6 +75,7 @@ export interface CoordinatePermissionDecisionInput {
     | (() => Promise<ToolPolicyDecision | undefined>);
   deterministicRails?: DeterministicPermissionRails;
   deterministicRailsInput?: Omit<PermissionDeterministicRailsInput, 'request'>;
+  workspaceRoot?: string;
   /** Versioned effect hash (Task B); undefined ⇒ input uncacheable, cache skipped. */
   effectHash?: string;
   /** Classifier-verdict cache (Task C); read only on a rail fall-through. */
@@ -103,7 +108,16 @@ export async function coordinatePermissionDecision(
   input: CoordinatePermissionDecisionInput,
 ): Promise<PermissionApprovalDecision> {
   // pre_coordination_route_analysis is completed by the IPC caller.
-  // TODO(T3b): exact_remembered_deny is a named no-op slot until T3b.
+  const workspaceRoot =
+    input.workspaceRoot ?? input.deterministicRailsInput?.workspaceRoot;
+  const rememberedDeny = await consultRememberedDeny({
+    request: input.request,
+    analysis: input.analysis,
+    effectHash: input.effectHash,
+    workspaceRoot,
+    decisionMemory: input.decisionMemory,
+  });
+  if (rememberedDeny) return rememberedDeny;
   if (input.hardDenyReason) {
     return denied(input.request, input.hardDenyReason, 'hard_deny');
   }
@@ -210,16 +224,28 @@ export async function coordinatePermissionDecision(
       return railDecision;
     }
   }
-  // TODO(T3b): remembered_allows is a named no-op slot until T3b.
+  const railAllowsOverride =
+    !railDecision ||
+    (railDecision.railOutcome === 'ask' &&
+      (railDecision.railSignal === RailSignal.OutOfTrustedRoot ||
+        (railDecision.railSignal === RailSignal.UnsupportedMetaExecutor &&
+          input.analysis?.readOnlyMetaExecutor === true)));
+  if (railAllowsOverride) {
+    const rememberedAllow = await consultRememberedAllow({
+      request: input.request,
+      analysis: input.analysis,
+      effectHash: input.effectHash,
+      workspaceRoot,
+      canonicalRoot: trustedRootLearning?.canonicalRoot,
+      decisionMemory: input.decisionMemory,
+    });
+    if (rememberedAllow) return rememberedAllow;
+  }
   // CACHE STAGE (cache-hit-only shortcut). Reachable only past hard-deny/
   // locked/fixed-image (PERM-1 precedence, checked above) and past the rails.
   const railAllowsCacheRead =
-    !railDecision ||
-    (input.analysis?.lane === PermissionLane.InteractiveAuto &&
-      railDecision.railOutcome === 'ask' &&
-      (railDecision.railSignal === RailSignal.OutOfTrustedRoot ||
-        (railDecision.railSignal === RailSignal.UnsupportedMetaExecutor &&
-          input.analysis.readOnlyMetaExecutor)));
+    railAllowsOverride &&
+    (!railDecision || input.analysis?.lane === PermissionLane.InteractiveAuto);
   if (
     railAllowsCacheRead &&
     (!input.analysis ||

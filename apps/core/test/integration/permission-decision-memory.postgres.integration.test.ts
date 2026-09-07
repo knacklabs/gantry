@@ -674,6 +674,114 @@ maybeDescribe('Postgres permission decision memory', () => {
     ]);
   });
 
+  it("finds a human decision by ordered candidate keys for one person, app and folder only: the first of two matching candidates wins, a revoked row, another person's row and a row from another rails version never match, and no row yields null", async () => {
+    const repository = runtime.repositories.permissionDecisionMemory;
+    const person = 'person-find-human-decision';
+    const put = async (
+      id: string,
+      scope: HumanDecisionMemoryPutInput['scope'],
+      scopeKey: string,
+      overrides: Partial<HumanDecisionMemoryPutInput> = {},
+    ) =>
+      repository.putHumanDecision({
+        id,
+        appId: APP,
+        agentFolder: FOLDER,
+        outcome: 'allow',
+        scope,
+        scopeKey,
+        actingPersonId: person,
+        canonicalTool: 'WebRead',
+        reason: 'remembered lookup',
+        effectSchemaVersion: 3,
+        railVersion: 2,
+        provenance: encodeHumanDecisionProvenance({
+          id,
+          actingPersonId: overrides.actingPersonId ?? person,
+          outcome: overrides.outcome ?? 'allow',
+          scope,
+          railVersion: overrides.railVersion ?? 2,
+        }),
+        nowIso: '2026-09-07T00:00:00.000Z',
+        ...overrides,
+      });
+
+    const exactId = '40000000-0000-4000-8000-000000000001';
+    const kindId = '40000000-0000-4000-8000-000000000002';
+    await put(exactId, 'exact', 'effect-find-exact');
+    await put(kindId, 'kind', 'kind:web_read');
+    await expect(
+      repository.findHumanDecision({
+        appId: APP,
+        agentFolder: FOLDER,
+        actingPersonId: person,
+        candidates: [
+          { scope: 'kind', scopeKey: 'kind:web_read' },
+          { scope: 'exact', scopeKey: 'effect-find-exact' },
+        ],
+        railVersion: 2,
+      }),
+    ).resolves.toMatchObject({ id: kindId });
+
+    for (const scope of [
+      { appId: APP, agentFolder: FOLDER, actingPersonId: 'another-person' },
+      { appId: 'another-app', agentFolder: FOLDER, actingPersonId: person },
+      { appId: APP, agentFolder: 'another-folder', actingPersonId: person },
+    ]) {
+      await expect(
+        repository.findHumanDecision({
+          ...scope,
+          candidates: [{ scope: 'exact', scopeKey: 'effect-find-exact' }],
+          railVersion: 2,
+        }),
+      ).resolves.toBeNull();
+    }
+
+    const revokedId = '40000000-0000-4000-8000-000000000003';
+    await put(revokedId, 'exact', 'effect-find-revoked');
+    await repository.revokeById({
+      appId: APP,
+      agentFolder: FOLDER,
+      actingPersonId: person,
+      recordId: revokedId,
+      nowIso: '2026-09-07T00:01:00.000Z',
+    });
+    await expect(
+      repository.findHumanDecision({
+        appId: APP,
+        agentFolder: FOLDER,
+        actingPersonId: person,
+        candidates: [{ scope: 'exact', scopeKey: 'effect-find-revoked' }],
+        railVersion: 2,
+      }),
+    ).resolves.toBeNull();
+
+    await put(
+      '40000000-0000-4000-8000-000000000004',
+      'exact',
+      'effect-find-old-rails',
+      { railVersion: 1 },
+    );
+    await expect(
+      repository.findHumanDecision({
+        appId: APP,
+        agentFolder: FOLDER,
+        actingPersonId: person,
+        candidates: [{ scope: 'exact', scopeKey: 'effect-find-old-rails' }],
+        railVersion: 2,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      repository.findHumanDecision({
+        appId: APP,
+        agentFolder: FOLDER,
+        actingPersonId: person,
+        candidates: [{ scope: 'exact', scopeKey: 'effect-not-found' }],
+        railVersion: 2,
+      }),
+    ).resolves.toBeNull();
+  });
+
   it('revoke hides the row via the active index', async () => {
     const repository = runtime.repositories.permissionDecisionMemory;
     await repository.put({
