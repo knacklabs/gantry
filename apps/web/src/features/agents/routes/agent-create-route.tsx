@@ -287,7 +287,7 @@ export function AgentCreateDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className={`w-[min(888px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-[9px] p-0 sm:max-w-none ${
+        className={`w-[min(940px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-[9px] p-0 sm:max-w-none ${
           step === 'base'
             ? 'max-h-[calc(100dvh-46px)]'
             : 'h-[calc(100dvh-46px)] max-h-[900px]'

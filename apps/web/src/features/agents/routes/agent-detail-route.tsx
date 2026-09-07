@@ -338,7 +338,7 @@ function Content({
 function Audit({ agent }: { agent: AgentDirectoryItem }) {
   const audit = useQuery(agentAuditQuery(agent.id));
   return (
-    <div className="p-4">
+    <div className="p-5">
       <InfoCard
         title="Audit record"
         description="Recorded runtime events for this AI employee. Payload values are deliberately not shown in the console."
@@ -403,7 +403,7 @@ function Approvals({ agent }: { agent: AgentDirectoryItem }) {
     ]),
   );
   return (
-    <div className="p-4">
+    <div className="p-5">
       <InfoCard
         title="Conversation approvers"
         description="Approval authority is scoped to each conversation. Directory recognition does not grant a person approval authority."
@@ -470,7 +470,7 @@ function Usage({ agent }: { agent: AgentDirectoryItem }) {
     { inputTokens: 0, outputTokens: 0, requestCount: 0 },
   );
   return (
-    <div className="grid gap-4 p-4">
+    <div className="grid gap-4 p-5">
       <div className="flex items-end justify-between gap-4">
         <div>
           <h2 className="m-0 text-base font-semibold">Usage</h2>
@@ -566,7 +566,7 @@ function Conversations({
     ]),
   );
   return (
-    <div className="grid gap-4 p-4">
+    <div className="grid gap-4 p-5">
       <InfoCard
         title="Conversations"
         description="Each installation assigns this AI employee to one provider conversation with its own memory scope and approvers."
@@ -670,7 +670,7 @@ function Overview({
   );
   const installed = installs.data?.installs ?? [];
   return (
-    <div className="grid gap-4 p-4">
+    <div className="grid gap-4 p-5">
       {!installed.length ? (
         <section className="flex flex-col justify-between gap-4 rounded-lg border border-border-strong bg-status-attention-soft p-4 sm:flex-row sm:items-center">
           <div>
