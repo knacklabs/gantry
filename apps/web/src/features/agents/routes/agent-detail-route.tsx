@@ -47,6 +47,12 @@ import {
   type BrowserRole,
 } from '../agents-queries';
 import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
+import {
+  agentConversationInstallsQuery,
+  channelAccountsQuery,
+  channelConversationsQuery,
+  channelProvidersQuery,
+} from '../../channel-accounts/channel-account-queries';
 import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentSetupManager } from '../components/agent-setup-manager';
 import { AgentSettings } from '../components/agent-settings';
@@ -62,6 +68,10 @@ export function AgentDetailRoute() {
   const navigate = useNavigate({ from: '/agents/$agentId' });
   const queryClient = useQueryClient();
   const detail = useQuery(agentDetailQuery(agentId));
+  const channelAccounts = useQuery(channelAccountsQuery());
+  const conversationInstalls = useQuery(
+    agentConversationInstallsQuery(agentId),
+  );
   const [statusOpen, setStatusOpen] = useState(false);
   const status = useMutation({
     mutationFn: async (action: 'enable' | 'disable') => {
@@ -109,6 +119,10 @@ export function AgentDetailRoute() {
     );
 
   const agent = detail.data.agent;
+  const ownedAccounts = (channelAccounts.data?.accounts ?? []).filter(
+    (account) => account.agentId === agent.id,
+  );
+  const installedCount = conversationInstalls.data?.installs.length ?? 0;
   const action = agent.status === 'active' ? 'disable' : 'enable';
   const label = action === 'disable' ? 'Disable' : 'Enable';
   return (
@@ -144,9 +158,10 @@ export function AgentDetailRoute() {
                 {agent.name}
               </h1>
               <p className="mt-1 mb-2 text-sm text-text-secondary">
-                {agent.roleName
-                  ? `${agent.roleName} role configuration.`
-                  : 'Reusable AI employee configuration.'}
+                {agent.roleName ?? 'No role selected'} · {installedCount}{' '}
+                conversation{installedCount === 1 ? '' : 's'} ·{' '}
+                {ownedAccounts.length} channel account
+                {ownedAccounts.length === 1 ? '' : 's'}
               </p>
               <div className="flex flex-wrap gap-2">
                 <StatusPill status={agent.status} />
@@ -163,6 +178,12 @@ export function AgentDetailRoute() {
             </div>
           </div>
           <div className="flex shrink-0 gap-2">
+            <Link
+              className="inline-flex h-8 items-center justify-center rounded-md border border-border-strong bg-surface px-3 text-xs font-semibold text-text no-underline shadow-panel hover:bg-surface-muted"
+              to="/channel-accounts"
+            >
+              Channel accounts
+            </Link>
             <AgentVersionHistory agent={agent} />
             <Button
               disabled={status.isPending}
@@ -252,87 +273,208 @@ function Content({
 function Overview({ agent }: { agent: AgentDirectoryItem }) {
   const sources = useQuery(agentSourcesQuery(agent.id));
   const capabilities = useQuery(agentCapabilitiesQuery(agent.id));
+  const accounts = useQuery(channelAccountsQuery());
+  const providers = useQuery(channelProvidersQuery());
+  const installs = useQuery(agentConversationInstallsQuery(agent.id));
+  const conversations = useQuery(channelConversationsQuery());
   const sourceCount = sources.data
     ? sources.data.sources.sources.skills.length +
       sources.data.sources.sources.mcpServers.length
     : null;
   const capabilityCount =
     capabilities.data?.capabilities.capabilities.length ?? null;
+  const ownedAccounts = (accounts.data?.accounts ?? []).filter(
+    (account) => account.agentId === agent.id,
+  );
+  const providerById = new Map(
+    (providers.data?.providers ?? []).map((provider) => [
+      provider.id,
+      provider.displayName,
+    ]),
+  );
+  const conversationById = new Map(
+    (conversations.data?.conversations ?? []).map((conversation) => [
+      conversation.id,
+      conversation,
+    ]),
+  );
+  const installed = installs.data?.installs ?? [];
   return (
-    <div className="grid gap-4 p-4 lg:grid-cols-[1.7fr_0.9fr]">
-      <InfoCard
-        title="Configuration overview"
-        description="The current reusable identity and its runtime-facing setup."
-      >
-        <dl className="grid gap-2 sm:grid-cols-2">
-          <Fact
-            label="Status"
-            value={agent.status === 'active' ? 'Active' : 'Disabled'}
-          />
-          <Fact
-            label="Role snapshot"
-            value={agent.roleName ?? 'No role selected'}
-          />
-          <Fact
-            label="Model"
-            value={agent.modelAlias ?? 'Deployment default'}
-          />
-          <Fact
-            label="Config version"
-            value={
-              agent.configVersion
-                ? `v${agent.configVersion}`
-                : 'No saved version'
-            }
-          />
-        </dl>
-        <div className="mt-3 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center rounded-md border border-border bg-surface-muted px-3 py-3 text-center text-xs">
-          <Assembly label="Role" value={agent.roleName ?? 'None'} />
-          <ArrowRight className="text-text-muted" size={15} />
-          <Assembly
-            label="Sources"
-            value={
-              sourceCount === null ? 'Loading' : `${sourceCount} connected`
-            }
-          />
-          <ArrowRight className="text-text-muted" size={15} />
-          <Assembly
-            label="Capabilities"
-            value={
-              capabilityCount === null
-                ? 'Loading'
-                : `${capabilityCount} allowed`
-            }
-          />
-        </div>
-      </InfoCard>
-      <div className="grid content-start gap-4">
+    <div className="grid gap-4 p-4">
+      {!installed.length ? (
+        <section className="flex flex-col justify-between gap-4 rounded-lg border border-border-strong bg-status-attention-soft p-4 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="m-0 text-sm font-semibold">
+              {ownedAccounts.length
+                ? 'Choose a conversation'
+                : 'Connect a channel account'}
+            </h2>
+            <p className="mt-1 mb-0 text-xs text-text-secondary">
+              {ownedAccounts.length
+                ? 'This AI employee has an account but is not installed in a conversation yet.'
+                : 'Connect the bot identity this AI employee will use before choosing where it works.'}
+            </p>
+          </div>
+          <Link
+            className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-text bg-text px-3 text-xs font-semibold text-surface no-underline hover:opacity-90"
+            to="/channel-accounts"
+          >
+            {ownedAccounts.length
+              ? 'Manage channel account'
+              : 'Connect channel account'}
+          </Link>
+        </section>
+      ) : null}
+      <section className="grid overflow-hidden rounded-lg border border-border bg-surface sm:grid-cols-3">
+        <Metric
+          label="Conversations"
+          value={String(installed.length)}
+          detail={`${agent.conversationCount} configured`}
+        />
+        <Metric
+          label="Channel accounts"
+          value={String(ownedAccounts.length)}
+          detail={`${ownedAccounts.filter((account) => account.status === 'active').length} enabled`}
+        />
+        <Metric
+          label="Configuration"
+          value={agent.configVersion ? `v${agent.configVersion}` : '—'}
+          detail={
+            agent.status === 'active'
+              ? 'Available for new work'
+              : 'Not available'
+          }
+          last
+        />
+      </section>
+      <div className="grid gap-4 lg:grid-cols-2">
         <InfoCard
-          title="Connections"
-          description="Conversation and scheduled-job ownership stay separate."
+          title="Seats and accounts"
+          description="One account is this employee’s bot identity; each install chooses where it works."
         >
-          <dl className="grid gap-2 text-sm">
-            <FactRow
-              label="Conversations"
+          {ownedAccounts.length ? (
+            <ul className="m-0 grid list-none divide-y divide-border p-0">
+              {ownedAccounts.map((account) => (
+                <li
+                  className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                  key={account.id}
+                >
+                  <div className="min-w-0">
+                    <strong className="block truncate text-sm">
+                      {account.label}
+                    </strong>
+                    <span className="block text-xs text-text-secondary">
+                      {providerById.get(account.providerId) ??
+                        account.providerId}{' '}
+                      ·{' '}
+                      {
+                        installed.filter(
+                          (install) => install.providerAccountId === account.id,
+                        ).length
+                      }{' '}
+                      conversation installs
+                    </span>
+                  </div>
+                  <Link
+                    className="shrink-0 text-xs font-semibold text-text underline underline-offset-2"
+                    params={{ accountId: account.id }}
+                    to="/channel-accounts/$accountId"
+                  >
+                    Manage
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="m-0 text-sm text-text-secondary">
+              No channel accounts connected.
+            </p>
+          )}
+        </InfoCard>
+        <InfoCard
+          title="Configuration and access"
+          description="Sources expose inventory; capabilities and runtime policy determine what may execute."
+        >
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <Fact label="Role" value={agent.roleName ?? 'No role selected'} />
+            <Fact
+              label="Model"
+              value={agent.modelAlias ?? 'Deployment default'}
+            />
+            <Fact
+              label="Sources"
               value={
-                agent.conversationCount
-                  ? `${agent.conversationCount} connected`
-                  : 'Not connected'
+                sourceCount === null ? 'Loading' : `${sourceCount} attached`
               }
             />
-            <FactRow
-              label="Scheduled jobs"
-              value="Not available in this view"
+            <Fact
+              label="Capabilities"
+              value={
+                capabilityCount === null
+                  ? 'Loading'
+                  : `${capabilityCount} selected`
+              }
             />
           </dl>
-        </InfoCard>
-        <InfoCard
-          title="Current setup"
-          description="Only concrete status signals appear here."
-        >
-          <StatusPill status={agent.status} />
+          <p className="mt-4 mb-0 text-xs text-text-secondary">
+            Approvers are assigned per conversation. This profile does not give
+            a human global approval authority.
+          </p>
         </InfoCard>
       </div>
+      {installed.length ? (
+        <InfoCard
+          title="Current conversation installs"
+          description="These are configuration records, not proof that a provider delivered a reply."
+        >
+          <ul className="m-0 grid list-none divide-y divide-border p-0">
+            {installed.map((install) => {
+              const conversation = conversationById.get(install.conversationId);
+              return (
+                <li
+                  className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                  key={install.id}
+                >
+                  <div>
+                    <strong className="block text-sm">
+                      {conversation?.title ?? install.displayName}
+                    </strong>
+                    <span className="block text-xs text-text-secondary">
+                      {conversation?.kind ?? 'Conversation'} ·{' '}
+                      {install.memoryScope} memory
+                    </span>
+                  </div>
+                  <StatusPill
+                    status={install.status === 'active' ? 'active' : 'disabled'}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </InfoCard>
+      ) : null}
+    </div>
+  );
+}
+
+function Metric({
+  detail,
+  label,
+  last = false,
+  value,
+}: {
+  detail: string;
+  label: string;
+  last?: boolean;
+  value: string;
+}) {
+  return (
+    <div
+      className={`border-border px-5 py-4 ${last ? '' : 'border-b sm:border-r sm:border-b-0'}`}
+    >
+      <span className="block text-xs text-text-secondary">{label}</span>
+      <strong className="mt-1 block text-2xl tracking-tight">{value}</strong>
+      <span className="mt-1 block text-xs text-text-muted">{detail}</span>
     </div>
   );
 }
@@ -805,24 +947,6 @@ function Fact({ label, value }: { label: string; value: string }) {
         {label}
       </dt>
       <dd className="mt-1 text-sm font-semibold text-text">{value}</dd>
-    </div>
-  );
-}
-function FactRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-3 border-b border-border pb-2 last:border-0 last:pb-0">
-      <dt>{label}</dt>
-      <dd className="text-right font-semibold">{value}</dd>
-    </div>
-  );
-}
-function Assembly({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <strong className="block text-xs">{value}</strong>
-      <span className="mt-1 block font-mono text-[9px] tracking-wide text-text-secondary uppercase">
-        {label}
-      </span>
     </div>
   );
 }
