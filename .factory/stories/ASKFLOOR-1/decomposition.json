@@ -763,16 +763,129 @@
       "title": "Remember settlement and learning writes",
       "objective": "The structured remember resolution flows through the closed codec set (normalization, settlement, prompt binding, callback reconstruction, recovery orchestrator, Postgres claim mapping, provider scalar encodings); both human-resolution chokepoints write the record only when the host-stamped rememberEligible lane re-derives true; forged/replayed/ineligible callbacks settle once-only; the end-to-end S2 fixture proves tap, persist, reuse.",
       "acceptance_criteria": [
-        "a remembered Allow/No on an eligible DM card persists once with the default or chosen scope and applies the current request; Just-this-once never persists",
-        "remember callbacks for ask, auto_strict, group or job prompts never persist (tests per lane); recovery/replay after restart preserves the structured intent",
-        "unresolved person: nothing persisted, once semantics, the plan's post-tap line",
-        "AF-AC8 S2 = 0 taps after at most one remembered Allow",
-        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+        "CODEC. NEW `application/permissions/permission-remember-codec.ts` exports `PERMISSION_REMEMBER_CODES` (the closed four), `decodePermissionDecisionCode(value: string) \u2192 { mode: PermissionApprovalDecisionMode; remember?: PermissionRememberResolution } | null` (scalar modes pass through with no `remember`; the four codes map to `allow_once` + `{ outcome: allow, scope: exact|kind|place }` or `cancel` + `{ outcome: deny, scope: exact }`; anything else \u2192 `null`) and `encodePermissionRememberCode(resolution) \u2192 PermissionRememberCode`; `PermissionRememberCode` is declared in `domain/human-decision.ts`. Every provider codec (`telegram/channel-shared.ts` pattern + parser, `slack/permission-action-id.ts`, `slack/permission-approval-delivery.ts` button value, `discord/components.ts`, `teams/cards.ts` + `teams/interaction-handlers.ts` normalisation) accepts the four codes in the slot that carries the scalar mode and routes the decoded result into its existing settlement call; the Telegram pattern's callback id budget is unchanged. Unit tests: codec round-trip for all four codes and the three scalars, `null` for unknown; one parse test per provider codec for a remember code and a scalar.",
+        "DURABLE PATH. `bindPendingPermissionInteractionMessage` (`pending-interaction-prompt-binding.ts:39-95`) persists `rememberEligible: boolean` on the binding record; `claimPermissionInteractionCallback` (`pending-interaction-permission-callback.ts:292-405`) persists the tapped code verbatim in `claim_mode` (no new column); `recoverDurablePermissionDecision` (`pending-interaction-permission-recovery-orchestrator.ts:102-209`) and the replay authority application (`pending-interaction-permission-callback.ts:470-549`) decode the persisted code through the codec so a recovered remembered tap yields the SAME once-only decision and the same remember intent; `already_decided` never learns again. Tests: binding persists the stamp; claim persists a code; recovery of a persisted remember code reconstructs the identical `{ mode, remember }`; a replayed callback on a settled claim is `already_decided` with no write.",
+        "LEARNING HELPER. NEW `application/permissions/human-decision-learning.ts` exports `learnRememberedDecision({ request, resolution: PermissionRememberResolution, rememberEligible: boolean, laneInput, effectHash, workspaceRoot, service: HumanDecisionMemoryService, warn }) \u2192 Promise<'remembered' | 'not_eligible' | 'not_rememberable' | 'unlearned'>`: returns `not_eligible` unless `rememberEligible` is true AND `deriveAutoLaneAnalysis(laneInput).lane === interactive_auto` AND `request.personId` is non-blank; builds the T3a `HumanDecisionRememberRequest` (outcome/scope from the resolution, `trustGrowthTool: false`, `railVersion: RAIL_CATALOG_VERSION`, `effectHash`, `workspaceRoot`, the person from `request.personId`) and calls `service.remember`; relays the service's `not_rememberable` reasons; a throwing port \u2192 one `warn` and `unlearned`. It never touches the current decision. Unit tests with a fake service: every guard, the DTO shape (keys match what `runtime/permission-human-memory-stage.ts` consults: same derivation inputs, `trustGrowthTool: false`), each service refusal relayed, port failure \u2192 `unlearned` without throwing.",
+        "CHOKEPOINTS. (a) IPC: NEW `runtime/permission-remember-settlement.ts` (the IPC module is at its 865-line ceiling) called from `ipc-interaction-processing.ts` AFTER the current decision is applied (`:269-340`) and after decision recording (`:341-358`), never before the claim boundary: it decodes the settled mode, reads the binding's `rememberEligible`, re-derives the lane from the host-stamped inputs the IPC path already has, and calls `learnRememberedDecision` with a `HumanDecisionMemoryService` built over the coordinator's `decisionMemory` port; the current-request application and event sequence (`:359-382`) are byte-identical for remembered and once-only taps. (b) Inline: `inline-permission-memory.ts` gains `inlineRememberSettlement(...)` that the inline `afterDecision` (`inline-agent-loop-tools.ts:483-543`, \u2264 5 changed lines) calls after the decision is applied; a helper failure never throws into `runDurablePermissionInteraction` (`durable-interaction-handler.ts:143-211`), so the claim settles and the current result stands. Tests: IPC suite \u2014 an eligible remembered Allow persists once and the current call is approved once-only with unchanged events; the same tap on an `ask`, `auto_strict`, group or scheduled-job prompt persists nothing (one case per lane); a remembered No persists and the current call is denied; a blank person persists nothing; inline suite \u2014 an eligible remembered Allow on a non-scheduled auto run persists once; a scheduled run persists nothing; a port failure leaves the decision applied.",
+        "S2. `test/unit/runtime/askfloor-tap-budget-harness.ts` gains a person and a decision-memory repository (a fake port) and a scripted prompt response; `askfloor-tap-budget.test.ts` adds S2 \u2014 `cd ~/Workdir/<repo> && ls && git log` under `interactive_auto` with a person: first run at most one prompt answered with `remember_allow_exact` \u2192 one row persisted; second identical run \u2192 zero prompts and the T3b consult returns the remembered Allow.",
+        "existing unit and Postgres suites pass; tsc and check:architecture green; `ipc-interaction-processing.ts` \u2264 865, `inline-agent-loop-tools.ts` \u2264 750, `domain/types.ts` \u2264 740; no leftovers (no wrapper, shim, alias, dead branch or \"legacy\" naming)."
       ],
       "depends_on": [
         "ASKFLOOR-1-T3b"
       ],
-      "user_facing": false
+      "user_facing": false,
+      "write_scope": [
+        "apps/core/src/application/permissions/permission-remember-codec.ts",
+        "apps/core/src/application/permissions/human-decision-learning.ts",
+        "apps/core/src/runtime/permission-remember-settlement.ts",
+        "apps/core/src/domain/human-decision.ts",
+        "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts",
+        "apps/core/src/application/interactions/pending-interaction-permission-callback.ts",
+        "apps/core/src/application/interactions/pending-interaction-permission-recovery-orchestrator.ts",
+        "apps/core/src/runtime/ipc-interaction-processing.ts",
+        "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+        "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+        "apps/core/src/channels/telegram/channel-shared.ts",
+        "apps/core/src/channels/slack/permission-action-id.ts",
+        "apps/core/src/channels/slack/permission-approval-delivery.ts",
+        "apps/core/src/channels/slack/channel-interactions.ts",
+        "apps/core/src/channels/discord/components.ts",
+        "apps/core/src/channels/discord/permission-callback.ts",
+        "apps/core/src/channels/teams/cards.ts",
+        "apps/core/src/channels/teams/interaction-handlers.ts",
+        "apps/core/test/unit/application/permission-remember-codec.test.ts",
+        "apps/core/test/unit/application/human-decision-learning.test.ts",
+        "apps/core/test/unit/runtime/ipc-interaction-processing.test.ts",
+        "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+        "apps/core/test/unit/application/pending-interaction-permission-recovery.test.ts",
+        "apps/core/test/unit/channels/telegram/channel-shared.test.ts",
+        "apps/core/test/unit/channels/slack/permission-action-id.test.ts",
+        "apps/core/test/unit/channels/discord/components.test.ts",
+        "apps/core/test/unit/channels/teams/interaction-handlers.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts"
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py",
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 32,
+        "max_changed_lines": 3200,
+        "reason": "Three NEW modules (codec, learning helper, IPC settlement helper), the codes in domain/human-decision.ts, three durable-path files, the IPC chokepoint (at its 865-line ceiling, so the helper carries the logic), the inline pair (inline file at 745/750), eight provider codec/handler files, and eleven test files including the S2 fixture: about 29 files; three of headroom for a test file the implementer must name in a signal; no generated files."
+      },
+      "required_tests": [
+        {
+          "id": "round-trips the four remember codes and the three scalar modes and returns null for anything else",
+          "path": "apps/core/test/unit/application/permission-remember-codec.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "learns a remembered decision only when the binding was eligible, the lane re-derives interactive_auto and a person is present, builds the request the consult stage can find with trustGrowthTool false, relays every service refusal, and returns unlearned without throwing when the port fails",
+          "path": "apps/core/test/unit/application/human-decision-learning.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "persists an eligible remembered Allow once with the current call approved once-only and unchanged events, persists a remembered No with the current call denied, and persists nothing for an ask, auto_strict, group or scheduled-job prompt or a blank person",
+          "path": "apps/core/test/unit/runtime/ipc-interaction-processing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "persists an eligible remembered Allow once on a non-scheduled auto run, persists nothing on a scheduled run, and leaves the decision applied when the memory port fails",
+          "path": "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "recovers a persisted remember code into the identical mode and remember intent, and treats a replayed callback on a settled claim as already decided with no write",
+          "path": "apps/core/test/unit/application/pending-interaction-permission-recovery.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "S2 taps at most once with a remembered exact Allow on the first run and zero times on the second identical run",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "reviewer_focus": [
+        "Constitution (load-bearing): constitution/03-modular-monolith-structure.md and pnp-coding-standards-modular-monolith.md \u2014 closed typed code set (no free strings past the codec), application owns the learning helper, runtime/adapters stay thin callers; line ceilings in scripts/architecture-map.json (ipc-interaction-processing.ts 865, inline-agent-loop-tools.ts 750, domain/types.ts 740 \u2014 untouched).",
+        "ONCE-ONLY + FORGERY (AC2, AC4 normative; 0124, 0138): the write happens only after the existing claim boundary and current-request application; a remember code on an ineligible card (ask, auto_strict, group, job, blank person) degrades to its scalar base and persists nothing; already_decided never learns; a port failure keeps the once-only result (0154 ruling 3).",
+        "KEY MATCH (AC3, AC5 normative): the write uses deriveHumanDecisionScopeKey with the same inputs the T3b consult uses and trustGrowthTool false, railVersion RAIL_CATALOG_VERSION, person = host-stamped request.personId \u2014 S2 proves the second run finds it.",
+        "NO LEFTOVERS (owner ruling 2026-09-06): no wrapper, shim, alias, retained symbol, dead branch or 'legacy' naming anywhere in the diff \u2014 a blocking finding.",
+        "Verification: python3 factory/scripts/verify.py with GANTRY_TEST_DATABASE_URL exported; the six leaves by exact title (no regex metacharacters in ids)."
+      ],
+      "plan_contracts": [
+        {
+          "id": "ASKFLOOR-1-T3c-AC1",
+          "statement": "CODEC. NEW `application/permissions/permission-remember-codec.ts` exports `PERMISSION_REMEMBER_CODES` (the closed four), `decodePermissionDecisionCode(value: string) \u2192 { mode: PermissionApprovalDecisionMode; remember?: PermissionRememberResolution } | null` (scalar modes pass through with no `remember`; the four codes map to `allow_once` + `{ outcome: allow, scope: exact|kind|place }` or `cancel` + `{ outcome: deny, scope: exact }`; anything else \u2192 `null`) and `encodePermissionRememberCode(resolution) \u2192 PermissionRememberCode`; `PermissionRememberCode` is declared in `domain/human-decision.ts`. Every provider codec (`telegram/channel-shared.ts` pattern + parser, `slack/permission-action-id.ts`, `slack/permission-approval-delivery.ts` button value, `discord/components.ts`, `teams/cards.ts` + `teams/interaction-handlers.ts` normalisation) accepts the four codes in the slot that carries the scalar mode and routes the decoded result into its existing settlement call; the Telegram pattern's callback id budget is unchanged. Unit tests: codec round-trip for all four codes and the three scalars, `null` for unknown; one parse test per provider codec for a remember code and a scalar.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T3c-AC2",
+          "statement": "DURABLE PATH. `bindPendingPermissionInteractionMessage` (`pending-interaction-prompt-binding.ts:39-95`) persists `rememberEligible: boolean` on the binding record; `claimPermissionInteractionCallback` (`pending-interaction-permission-callback.ts:292-405`) persists the tapped code verbatim in `claim_mode` (no new column); `recoverDurablePermissionDecision` (`pending-interaction-permission-recovery-orchestrator.ts:102-209`) and the replay authority application (`pending-interaction-permission-callback.ts:470-549`) decode the persisted code through the codec so a recovered remembered tap yields the SAME once-only decision and the same remember intent; `already_decided` never learns again. Tests: binding persists the stamp; claim persists a code; recovery of a persisted remember code reconstructs the identical `{ mode, remember }`; a replayed callback on a settled claim is `already_decided` with no write.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T3c-AC3",
+          "statement": "LEARNING HELPER. NEW `application/permissions/human-decision-learning.ts` exports `learnRememberedDecision({ request, resolution: PermissionRememberResolution, rememberEligible: boolean, laneInput, effectHash, workspaceRoot, service: HumanDecisionMemoryService, warn }) \u2192 Promise<'remembered' | 'not_eligible' | 'not_rememberable' | 'unlearned'>`: returns `not_eligible` unless `rememberEligible` is true AND `deriveAutoLaneAnalysis(laneInput).lane === interactive_auto` AND `request.personId` is non-blank; builds the T3a `HumanDecisionRememberRequest` (outcome/scope from the resolution, `trustGrowthTool: false`, `railVersion: RAIL_CATALOG_VERSION`, `effectHash`, `workspaceRoot`, the person from `request.personId`) and calls `service.remember`; relays the service's `not_rememberable` reasons; a throwing port \u2192 one `warn` and `unlearned`. It never touches the current decision. Unit tests with a fake service: every guard, the DTO shape (keys match what `runtime/permission-human-memory-stage.ts` consults: same derivation inputs, `trustGrowthTool: false`), each service refusal relayed, port failure \u2192 `unlearned` without throwing.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T3c-AC4",
+          "statement": "CHOKEPOINTS. (a) IPC: NEW `runtime/permission-remember-settlement.ts` (the IPC module is at its 865-line ceiling) called from `ipc-interaction-processing.ts` AFTER the current decision is applied (`:269-340`) and after decision recording (`:341-358`), never before the claim boundary: it decodes the settled mode, reads the binding's `rememberEligible`, re-derives the lane from the host-stamped inputs the IPC path already has, and calls `learnRememberedDecision` with a `HumanDecisionMemoryService` built over the coordinator's `decisionMemory` port; the current-request application and event sequence (`:359-382`) are byte-identical for remembered and once-only taps. (b) Inline: `inline-permission-memory.ts` gains `inlineRememberSettlement(...)` that the inline `afterDecision` (`inline-agent-loop-tools.ts:483-543`, \u2264 5 changed lines) calls after the decision is applied; a helper failure never throws into `runDurablePermissionInteraction` (`durable-interaction-handler.ts:143-211`), so the claim settles and the current result stands. Tests: IPC suite \u2014 an eligible remembered Allow persists once and the current call is approved once-only with unchanged events; the same tap on an `ask`, `auto_strict`, group or scheduled-job prompt persists nothing (one case per lane); a remembered No persists and the current call is denied; a blank person persists nothing; inline suite \u2014 an eligible remembered Allow on a non-scheduled auto run persists once; a scheduled run persists nothing; a port failure leaves the decision applied.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T3c-AC5",
+          "statement": "S2. `test/unit/runtime/askfloor-tap-budget-harness.ts` gains a person and a decision-memory repository (a fake port) and a scripted prompt response; `askfloor-tap-budget.test.ts` adds S2 \u2014 `cd ~/Workdir/<repo> && ls && git log` under `interactive_auto` with a person: first run at most one prompt answered with `remember_allow_exact` \u2192 one row persisted; second identical run \u2192 zero prompts and the T3b consult returns the remembered Allow.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T3c-AC6",
+          "statement": "existing unit and Postgres suites pass; tsc and check:architecture green; `ipc-interaction-processing.ts` \u2264 865, `inline-agent-loop-tools.ts` \u2264 750, `domain/types.ts` \u2264 740; no leftovers (no wrapper, shim, alias, dead branch or \"legacy\" naming).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md#acceptance-criteria"
+        }
+      ]
     },
     {
       "id": "ASKFLOOR-1-T4",
@@ -841,5 +954,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "7c8c1bfe24359b7d305afb341752c346f7fa8835"
+  "commit": "a3373820bb03e193148ee04d991159a3f9917437"
 }
