@@ -32,7 +32,7 @@ import {
 
 const SOURCE_LABELS: Record<BrowserSkill['source'], string> = {
   bundled: 'Bundled',
-  agent_created: 'Agent created',
+  agent_created: 'Created by an AI employee',
   admin_uploaded: 'Admin uploaded',
 };
 

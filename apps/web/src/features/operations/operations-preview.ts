@@ -47,7 +47,7 @@ export type DiagnosticPreview = {
 
 export const overviewMetrics = [
   { label: 'Conversations', value: '12', detail: '5 active today' },
-  { label: 'Agents', value: '4', detail: '3 deployed' },
+  { label: 'AI employees', value: '4', detail: '3 deployed' },
   { label: 'Runs · 24h', value: '142', detail: '2 streaming' },
   { label: 'Cost today', value: '$12.40', detail: 'of $50 budget' },
 ] as const;
@@ -62,9 +62,9 @@ export const setupBlockers = [
   },
   {
     id: 'ops-alerts-agent',
-    title: '#ops-alerts has no assigned agent',
+    title: '#ops-alerts has no assigned AI employee',
     detail:
-      'Messages can be discovered, but Gantry has no agent to handle them.',
+      'Messages can be discovered, but Gantry has no AI employee to handle them.',
     action: 'Open conversation',
   },
 ] as const;

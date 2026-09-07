@@ -131,7 +131,7 @@ export function McpServerDetail({
         setReconnectOpen(false);
         onStatusChanged(
           server,
-          'Source reconnected. Attach agents explicitly.',
+          'Source reconnected. Attach AI employees explicitly.',
         );
       }
     } finally {
