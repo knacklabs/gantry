@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "After a safety-rules update, what should happen to an old kind- or place-scoped memory (the exact ones already just stop applying, per your earlier choice)?",
+      "options": [
+        "Same as exact: stop applying (Recommended)",
+        "Force the re-ask card with the line"
+      ],
+      "chosen": "Same as exact: stop applying (Recommended)"
+    }
+  ],
+  "at": "2026-09-07T02:58:56.154068+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
