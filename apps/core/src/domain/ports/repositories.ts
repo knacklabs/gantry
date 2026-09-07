@@ -11,6 +11,7 @@ import type {
   CapabilitySecret,
   CapabilitySecretMetadata,
 } from '../capability-secrets/capability-secrets.js';
+import type { PrincipalRef } from '../identity/principal-ref.js';
 import type {
   ModelCredential,
   ModelCredentialFieldFingerprint,
@@ -572,7 +573,7 @@ export interface CapabilitySecretRepository {
     name: string;
     value: string;
     allowedCapabilityIds?: string[];
-    actor?: string;
+    actor?: PrincipalRef;
     now?: string;
   }): Promise<CapabilitySecretMetadata>;
   deleteSecret(input: { appId: AppId; name: string }): Promise<boolean>;
