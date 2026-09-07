@@ -33,6 +33,7 @@ import {
   personMergeFingerprint,
 } from '../../../../application/identity/person-identity-service.js';
 import type { RuntimeEventPublishInput } from '../../../../domain/events/events.js';
+import { serializePrincipalRef } from '../../../../domain/identity/principal-ref.js';
 import {
   assertAliasCanResolve,
   assertAliasOwnership,
@@ -408,7 +409,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         .set({
           verificationStatus: 'retired',
           retiredAt: timestamp,
-          retiredBy: input.actor,
+          retiredBy: serializePrincipalRef(input.actor),
           updatedAt: timestamp,
         })
         .where(
@@ -566,7 +567,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           idempotencyKey,
           sourcePersonId: input.sourcePersonId,
           targetPersonId: input.targetPersonId,
-          actor: input.actor,
+          actor: serializePrincipalRef(input.actor),
           conflictResolution,
           aliasesMoved: preview.aliasesToMove.length,
           memoryRowsMoved: moved.movedMemoryIds.length,
@@ -802,10 +803,14 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
             eq(pgSchema.usersPostgres.id, audit.sourcePersonId),
           ),
         );
+      const unmergeResult = JSON.stringify({
+        unmergedAt: timestamp,
+        unmergedBy: input.actor,
+      });
       await tx
         .update(pgSchema.personMergeAuditPostgres)
         .set({
-          resultJson: sql`${pgSchema.personMergeAuditPostgres.resultJson} || jsonb_build_object('unmergedAt', ${timestamp}::text, 'unmergedBy', ${input.actor}::text)`,
+          resultJson: sql`${pgSchema.personMergeAuditPostgres.resultJson} || ${unmergeResult}::jsonb`,
           // Free the idempotency key: a repeat merge with the same deterministic
           // key must run fresh, not replay this spent (unmerged) audit.
           idempotencyKey: sql`${pgSchema.personMergeAuditPostgres.idempotencyKey} || ':unmerged:' || ${audit.id}`,

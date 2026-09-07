@@ -1,5 +1,6 @@
 import { ApplicationError } from '../common/application-error.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
+import type { PrincipalRef } from '../../domain/identity/principal-ref.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
 
 export type AliasVerificationStatus = 'verified' | 'unverified' | 'retired';
@@ -101,14 +102,14 @@ export interface AddPersonAliasInput {
   displayName?: string | null;
   evidenceType: IdentityEvidenceType;
   evidence?: Record<string, unknown>;
-  actor: string;
+  actor: PrincipalRef;
 }
 
 export interface RetirePersonAliasInput {
   appId: string;
   personId: string;
   aliasId: string;
-  actor: string;
+  actor: PrincipalRef;
 }
 
 export interface PersonMergeConflict {
@@ -153,7 +154,7 @@ export interface PersonMergeInput {
   targetPersonId: string;
   sourcePersonId: string;
   idempotencyKey?: string;
-  actor: string;
+  actor: PrincipalRef;
   conflictResolution?: 'fail_on_conflict' | 'keep_target';
   expectedFingerprint?: string;
 }
@@ -163,7 +164,7 @@ export interface PersonUnmergeInput {
   targetPersonId: string;
   auditId: string;
   expectedFingerprint: string;
-  actor: string;
+  actor: PrincipalRef;
 }
 
 export interface PersonUnmergeResult {

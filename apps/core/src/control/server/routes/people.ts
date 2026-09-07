@@ -26,6 +26,7 @@ import {
   type IdentityResolveResult,
   PersonIdentityService,
 } from '../../../application/identity/person-identity-service.js';
+import { systemPrincipal } from '../../../domain/identity/principal-ref.js';
 import { normalizeProviderId } from '../../../channels/provider-registry.js';
 import { canAccessApp } from '../app-identity.js';
 import {
@@ -271,7 +272,7 @@ export async function handlePeopleRoutes(
           ...parsed.data,
           appId,
           personId: alias.personId,
-          actor: auth.kid,
+          actor: systemPrincipal(auth.kid),
         },
         (result) =>
           identityAliasLinkedEvent({
@@ -281,7 +282,7 @@ export async function handlePeopleRoutes(
             provider: result.provider,
             providerAccountId: result.providerAccountId,
             verificationStatus: result.verificationStatus,
-            actor: { kind: 'system', source: auth.kid },
+            actor: systemPrincipal(auth.kid),
           }),
       );
       sendJson(res, 201, { alias: created });
@@ -302,7 +303,7 @@ export async function handlePeopleRoutes(
           appId,
           personId: alias.personId,
           aliasId: alias.aliasId,
-          actor: auth.kid,
+          actor: systemPrincipal(auth.kid),
         },
         (result) =>
           identityAliasRetiredEvent({
@@ -312,7 +313,7 @@ export async function handlePeopleRoutes(
             provider: result.provider,
             providerAccountId: result.providerAccountId,
             verificationStatus: result.verificationStatus,
-            actor: { kind: 'system', source: auth.kid },
+            actor: systemPrincipal(auth.kid),
           }),
       );
       sendJson(res, 200, { alias: retired });
@@ -345,7 +346,7 @@ export async function handlePeopleRoutes(
         expectedFingerprint: (parsed.data as { fingerprint?: string })
           .fingerprint,
         conflictResolution: parsed.data.conflictResolution,
-        actor: auth.kid,
+        actor: systemPrincipal(auth.kid),
       };
       const result = merge.preview
         ? await service().previewMerge(input)
@@ -354,7 +355,7 @@ export async function handlePeopleRoutes(
               appId,
               sourcePersonId: merged.sourcePersonId,
               targetPersonId: merged.targetPersonId,
-              actor: { kind: 'system', source: auth.kid },
+              actor: systemPrincipal(auth.kid),
               aliasesMoved: merged.aliasesToMove.length,
               memoryRowsMoved: merged.memoryRowsToMove,
             }),
@@ -388,7 +389,7 @@ export async function handlePeopleRoutes(
             targetPersonId: unmerge.personId,
             auditId: parsed.data.auditId,
             expectedFingerprint: parsed.data.fingerprint,
-            actor: auth.kid,
+            actor: systemPrincipal(auth.kid),
           },
           (unmerged) =>
             identityUnmergedEvent({
@@ -396,7 +397,7 @@ export async function handlePeopleRoutes(
               auditId: unmerged.auditId,
               sourcePersonId: unmerged.sourcePersonId,
               targetPersonId: unmerged.targetPersonId,
-              actor: { kind: 'system', source: auth.kid },
+              actor: systemPrincipal(auth.kid),
               memoryRowsRestored: unmerged.memoryRowsRestored,
               unmergedAt: unmerged.unmergedAt,
             }),
