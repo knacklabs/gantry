@@ -858,7 +858,7 @@
         {
           "id": "stores a raw remember code on the durable claim and refuses an unknown claim mode or rendered option on read",
           "path": "apps/core/test/integration/worker-coordination.postgres.integration.test.ts",
-          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --outputFile={report}"
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.config.ts {path} -t {id} --outputFile={report}"
         },
         {
           "id": "round-trips all four remember codes and all three scalar modes through the Telegram and Slack codecs including Slack action-id registration and the Telegram 64-byte maximum",
@@ -886,7 +886,7 @@
         "ONCE-ONLY + FORGERY (AC2, AC4 normative; 0124, 0138): the write happens only after the existing claim boundary and BEFORE the current request is applied (story plan order: IPC just before applyPermissionInteractionDecision; inline inside the existing afterDecision hook; recovery just before the recovered apply) and NEVER throws (fail-open: warn + once-only result); idempotency is the T3a refresh (a duplicate write refreshes the one active row); eligibility and every candidate key come from the ONE host-derived rememberContext attached to the member payload (IPC: via updatePendingInteractionPayload after the decision helper; inline: at creation) and finalized by the prompt binding from the real matchKind, attached BEFORE the durable flow binds and claims, by the requestPermissionApproval closure ipc-interaction-processing.ts injects into the decision helper (that helper file belongs to other tasks and is untouched) \u2014 no KEY is derived at settlement, only the lane is re-derived from the context's persisted laneInput and must be interactive_auto; the context type lives in the application learning module, not in domain; the person label comes from the same host identity source as the person id, never from a callback (0154:14); domain/types.ts changes line-neutrally as a recorded T3c shared-file exception (the owner T3a is shipped); the typed hand-off in ipc-permission-classifier-decision.ts (the IpcDeps.requestPermissionApproval signature at :68 plus both prompt exits :561 and :599) is a sanctioned narrow edit; T3c's forgery guarantee is the shared claim/recovery seam only (per-provider is T5a's); T3c derives NO place candidate (remember_allow_place resolves no_root until T5a); every settlement path reads ONE accessor rememberSettlementForClaim; an unauthorized tapper is rejected before the claim exactly as today; a remember code on an ineligible card (ask, auto_strict, group, job, blank person) degrades to its scalar base and persists nothing; already_decided never learns; a port failure keeps the once-only result (0154 ruling 3).",
         "KEY MATCH (AC3, AC5 normative): the write uses deriveHumanDecisionScopeKey with the same inputs the T3b consult uses and trustGrowthTool false, railVersion RAIL_CATALOG_VERSION, effectSchemaVersion EFFECT_SCHEMA_VERSION, person = host-stamped request.personId; place writes need the canonical root the caller supplies (T5a) and otherwise refuse no_root. OWNERSHIP: no file under channels/ other than telegram/channel-shared.ts and slack/permission-action-id.ts (every provider handler and renderer is T5a's); domain/types.ts changes line-neutrally (the code union on one line, two carrier fields widened in place, no move, no re-export) \u2014 S2 proves the second run finds it.",
         "NO LEFTOVERS (owner ruling 2026-09-06): no wrapper, shim, alias, retained symbol, dead branch or 'legacy' naming anywhere in the diff \u2014 a blocking finding.",
-        "Verification: python3 factory/scripts/verify.py with GANTRY_TEST_DATABASE_URL exported; npm run test:integration:postgres; the twelve leaves by exact title (no regex metacharacters in ids)."
+        "Verification: python3 factory/scripts/verify.py with GANTRY_TEST_DATABASE_URL exported; npm run test:integration:postgres; the worker-coordination leaf runs through vitest.integration.config.ts with GANTRY_TEST_DATABASE_URL exported (the default Postgres lane deliberately excludes that suite); the twelve leaves by exact title (no regex metacharacters in ids)."
       ],
       "plan_contracts": [
         {
@@ -988,5 +988,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "726785f6ab92b63278d98749a30b28b81ae9f8af"
+  "commit": "e1e798408e06842b18f3e8c9b18a2a907417e588"
 }
