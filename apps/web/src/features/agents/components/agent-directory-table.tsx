@@ -180,6 +180,7 @@ export function AgentDirectoryTable({
 
 function DirectoryStatus({ status }: { status: AgentDirectoryItem['status'] }) {
   const active = status === 'active';
+  const offboarded = status === 'offboarded';
   return (
     <Badge
       className="h-[var(--table-status-height)] px-2 font-mono text-[length:var(--table-status-font-size)]"
@@ -188,7 +189,7 @@ function DirectoryStatus({ status }: { status: AgentDirectoryItem['status'] }) {
       {active ? (
         <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
       ) : null}
-      {active ? 'Active' : 'Disabled'}
+      {active ? 'Active' : offboarded ? 'Offboarded' : 'Disabled'}
     </Badge>
   );
 }

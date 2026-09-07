@@ -18,6 +18,7 @@ export function AgentSettings({
   onStatusRequest: () => void;
 }) {
   const queryClient = useQueryClient();
+  const offboarded = agent.status === 'offboarded';
   const [name, setName] = useState(agent.name);
   const [modelAlias, setModelAlias] = useState<string | null>(agent.modelAlias);
   useEffect(() => setName(agent.name), [agent.name]);
@@ -56,20 +57,28 @@ export function AgentSettings({
       <section className="rounded-lg border border-border bg-surface p-4">
         <h2 className="m-0 text-base font-semibold">General settings</h2>
         <p className="mt-1 mb-4 text-sm text-text-secondary">
-          Changes to the name are saved directly to this AI employee.
+          {offboarded
+            ? 'Offboarded AI employees are retained for audit and cannot be changed.'
+            : 'Changes to the name are saved directly to this AI employee.'}
         </p>
         <form className="grid max-w-xl gap-3" onSubmit={submit}>
           <TextField
+            disabled={offboarded}
             error={rename.isError ? rename.error.message : undefined}
             id="agent-name"
             label="AI employee name"
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-          <AgentModelSelect value={modelAlias} onValueChange={setModelAlias} />
+          <AgentModelSelect
+            disabled={offboarded}
+            value={modelAlias}
+            onValueChange={setModelAlias}
+          />
           <div>
             <Button
               disabled={
+                offboarded ||
                 !name.trim() ||
                 (name.trim() === agent.name &&
                   modelAlias === agent.modelAlias) ||
@@ -85,21 +94,25 @@ export function AgentSettings({
       <aside className="rounded-lg border border-border bg-surface p-4">
         <h2 className="m-0 text-base font-semibold">Availability</h2>
         <p className="mt-1 mb-4 text-sm text-text-secondary">
-          {agent.status === 'active'
-            ? 'Disable this AI employee to reject new sessions and delegation.'
-            : 'Enable this AI employee to accept new sessions and delegation.'}
+          {offboarded
+            ? 'This AI employee is permanently unavailable. Its secrets were retained, while accounts and conversation installs were removed.'
+            : agent.status === 'active'
+              ? 'Disable this AI employee to reject new sessions and delegation.'
+              : 'Enable this AI employee to accept new sessions and delegation.'}
         </p>
         <p className="mb-4 text-sm font-semibold capitalize">
           Current status: {agent.status}
         </p>
-        <Button
-          variant={agent.status === 'active' ? 'destructive' : 'default'}
-          onClick={onStatusRequest}
-        >
-          {agent.status === 'active'
-            ? 'Disable AI employee'
-            : 'Enable AI employee'}
-        </Button>
+        {!offboarded ? (
+          <Button
+            variant={agent.status === 'active' ? 'destructive' : 'default'}
+            onClick={onStatusRequest}
+          >
+            {agent.status === 'active'
+              ? 'Disable AI employee'
+              : 'Enable AI employee'}
+          </Button>
+        ) : null}
         <div className="mt-4 rounded-md border border-status-attention/40 bg-status-attention-soft p-3 text-xs text-text-secondary">
           History and saved configuration are retained when availability
           changes.

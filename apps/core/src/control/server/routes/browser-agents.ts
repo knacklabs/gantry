@@ -496,6 +496,16 @@ export async function handleBrowserAgentRoutes(
       );
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      if (agent.status === 'offboarded')
+        return (
+          sendError(
+            res,
+            409,
+            'CONFLICT',
+            'Offboarded AI employees cannot be changed.',
+          ),
+          true
+        );
       await assertAvailableAgentName(storage, appId, body.name, agent.id);
       const now = nowIso();
       let updated = { ...agent, name: body.name.trim(), updatedAt: now };
@@ -588,6 +598,16 @@ export async function handleBrowserAgentRoutes(
       );
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      if (statusMatch[2] === 'enable' && agent.status === 'offboarded')
+        return (
+          sendError(
+            res,
+            409,
+            'CONFLICT',
+            'Offboarded AI employees cannot be enabled.',
+          ),
+          true
+        );
       const updated =
         statusMatch[2] === 'disable'
           ? await storage.repositories.agents.disableAgent({
