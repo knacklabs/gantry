@@ -361,6 +361,64 @@ maybeDescribe('Postgres domain repositories', () => {
     ).rejects.toThrow(/retired/);
   });
 
+  it('retires the previous service alias when a provider account identity changes', async () => {
+    const serviceProviderAccountId =
+      'channel-providerAccount:test:service-alias-update' as ProviderAccountId;
+    await repositories.providerAccounts.saveProviderAccount({
+      id: serviceProviderAccountId,
+      appId,
+      agentId,
+      providerId,
+      externalIdentityRef: {
+        kind: 'provider_account',
+        value: 'U-service-old',
+      },
+      label: 'Rotated Slack identity',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await repositories.providerAccounts.updateProviderAccount({
+      appId,
+      id: serviceProviderAccountId,
+      patch: {
+        externalIdentityRef: {
+          kind: 'provider_account',
+          value: 'U-service-new',
+        },
+      },
+      updatedAt: '2026-04-27T00:00:02.000Z',
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: serviceProviderAccountId,
+        externalUserId: 'U-service-old',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).rejects.toThrow(/retired/);
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: serviceProviderAccountId,
+        externalUserId: 'U-service-new',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      isServicePerson: true,
+      memoryHydrationEligible: false,
+    });
+  });
+
   it('allows duplicate display names without conflating people', async () => {
     const [first, second] = await Promise.all([
       people.resolveIdentity({
