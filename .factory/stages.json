@@ -24,7 +24,7 @@
     {
       "id": "ASKFLOOR-1-T3b",
       "title": "Memory consult in the coordinator and the inline runtime",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-09-07T03:53:12+00:00",
       "base_sha": "893436d4b3c5445d7549d14943f88e27256709af",
       "dirty_at_start": {
@@ -50,7 +50,8 @@
         "product_tree_digest": "4e13ebdc57794af808dd5650b15ee3857a612e3fb39e30d408e5eacc251440c8",
         "recorded_at": "2026-09-07T04:40:33+00:00",
         "generated_by": "autoreview"
-      }
+      },
+      "completed_at": "2026-09-07T06:41:12+00:00"
     },
     {
       "id": "ASKFLOOR-1-T3c",
