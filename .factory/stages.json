@@ -34,31 +34,40 @@
     {
       "id": "ASKFLOOR-1-T3c",
       "title": "Remember settlement and learning writes",
-      "status": "done",
-      "started_at": "2026-09-07T11:24:17+00:00",
+      "status": "active",
+      "started_at": "2026-09-07T15:25:05+00:00",
       "base_sha": "689550bcc3f28115a713775ca35f8559dc396121",
       "dirty_at_start": {
+        ".factory/events/f4377b5df51e4926b22626c90baf1ffa.json": {
+          "digest": "f29355f2accafb7b922ffc520cd1f8f24328a5fbd250614773407d7a9a8a3c0b",
+          "git": "? .factory/events/f4377b5df51e4926b22626c90baf1ffa.json\u0000\u0000\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "ffa00b62e6d5cf7bf7bfc7c235d794e6ac551c7714c99c503d9f0b90036df4af",
+          "git": "1 .M N... 100644 100644 100644 8b7700d63394f1f7e44b23cdb3b73933be572b3f 8b7700d63394f1f7e44b23cdb3b73933be572b3f .factory/stages.json\u0000\u0000100644 8b7700d63394f1f7e44b23cdb3b73933be572b3f 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/decomposition.json": {
+          "digest": "6d78af9ab2fa5e3ac9999eec82b94e5d188ee4fb0d5a0d5bc22f71a54905e016",
+          "git": "1 .M N... 100644 100644 100644 8da9f4001530a5367343c0c529fe03cb087aba4c 8da9f4001530a5367343c0c529fe03cb087aba4c .factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000100644 8da9f4001530a5367343c0c529fe03cb087aba4c 0\t.factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000H .factory/stories/ASKFLOOR-1/decomposition.json\u0000"
+        },
         ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json": {
-          "digest": "dc120c2cdb570c87e9b916153768b781a89a9355cc424cd7e09e1d99706dfbf0",
-          "git": "1 .M N... 100644 100644 100644 79687b7245b68bdcd29b52cfd4610e30f73321b5 79687b7245b68bdcd29b52cfd4610e30f73321b5 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json\u0000\u0000100644 79687b7245b68bdcd29b52cfd4610e30f73321b5 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json\u0000"
+          "digest": "a379eca4c305ab1f7203df233bbd0f7ecd5cd32c9a9353dfd29ef0129e1ee239",
+          "git": "1 .M N... 100644 100644 100644 f5ca9146c43a090e325c5d7559ed5c47c5be4a7a f5ca9146c43a090e325c5d7559ed5c47c5be4a7a .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json\u0000\u0000100644 f5ca9146c43a090e325c5d7559ed5c47c5be4a7a 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/stages.json": {
+          "digest": "ffa00b62e6d5cf7bf7bfc7c235d794e6ac551c7714c99c503d9f0b90036df4af",
+          "git": "1 .M N... 100644 100644 100644 8b7700d63394f1f7e44b23cdb3b73933be572b3f 8b7700d63394f1f7e44b23cdb3b73933be572b3f .factory/stories/ASKFLOOR-1/stages.json\u0000\u0000100644 8b7700d63394f1f7e44b23cdb3b73933be572b3f 0\t.factory/stories/ASKFLOOR-1/stages.json\u0000\u0000H .factory/stories/ASKFLOOR-1/stages.json\u0000"
+        },
+        ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md": {
+          "digest": "93be330359993f5dcf1d838f9ca43eca3f101ccfb6ef8aec564045df018b348b",
+          "git": "1 .M N... 100644 100644 100644 768594b605f3296862d2fef400ef3fb0b352bce3 768594b605f3296862d2fef400ef3fb0b352bce3 .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md\u0000\u0000100644 768594b605f3296862d2fef400ef3fb0b352bce3 0\t.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md\u0000\u0000H .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md\u0000"
+        },
+        "plans/exploration/askfloor-1-t3c-taskplan.md": {
+          "digest": "93be330359993f5dcf1d838f9ca43eca3f101ccfb6ef8aec564045df018b348b",
+          "git": "1 .M N... 100644 100644 100644 768594b605f3296862d2fef400ef3fb0b352bce3 768594b605f3296862d2fef400ef3fb0b352bce3 plans/exploration/askfloor-1-t3c-taskplan.md\u0000\u0000100644 768594b605f3296862d2fef400ef3fb0b352bce3 0\tplans/exploration/askfloor-1-t3c-taskplan.md\u0000\u0000H plans/exploration/askfloor-1-t3c-taskplan.md\u0000"
         }
       },
-      "task_sha256": "a11a626c4252e4aa5647a9f2381e9e9b745448948bf05d8a5938f4f4c5bcca37",
-      "local_review_stamp": {
-        "stage_id": "ASKFLOOR-1-T3c",
-        "task_sha256": "a11a626c4252e4aa5647a9f2381e9e9b745448948bf05d8a5938f4f4c5bcca37",
-        "brief_sha256": "5586ad710ee491b007aed8a47a7d705f74382c205f1f7c641953a50ac6d3ad3b",
-        "base_sha": "689550bcc3f28115a713775ca35f8559dc396121",
-        "product_tree_digest": "8e317f4579d947b5a773b472554781aa975b86dac002d30df03f8fa9dfd9d84d",
-        "recorded_at": "2026-09-07T14:53:40+00:00",
-        "generated_by": "autoreview"
-      },
-      "completed_at": "2026-09-07T15:08:08+00:00",
-      "contract_changed": {
-        "at": "2026-09-07T15:08:08+00:00",
-        "from": "c58c05bec0a81bebc0d9ded14ce5e7b62f9a09ac2ed7e23bc661e1f45d29b602",
-        "to": "a11a626c4252e4aa5647a9f2381e9e9b745448948bf05d8a5938f4f4c5bcca37"
-      }
+      "task_sha256": "d23f9c1994ad7e6039911d00dd277e82b9a92cecec6f28db8e852fc97b07cd96"
     },
     {
       "id": "ASKFLOOR-1-T4",
