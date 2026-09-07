@@ -39,10 +39,12 @@ import {
   DialogTitle,
 } from '../../../ui/primitives/dialog';
 import {
+  agentAuditQuery,
   agentCapabilitiesQuery,
   agentDetailQuery,
   agentQueryKeys,
   agentSourcesQuery,
+  agentUsageQuery,
   type AgentDirectoryItem,
   type BrowserRole,
 } from '../agents-queries';
@@ -52,6 +54,7 @@ import {
   channelAccountsQuery,
   channelConversationsQuery,
   channelProvidersQuery,
+  conversationApproversQuery,
 } from '../../channel-accounts/channel-account-queries';
 import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentSetupManager } from '../components/agent-setup-manager';
@@ -244,15 +247,28 @@ function DetailTabs({
       | 'conversations'
       | 'instructions'
       | 'access'
+      | 'audit'
+      | 'approvals'
+      | 'usage'
       | 'settings',
   ) => void;
-  value: 'overview' | 'conversations' | 'instructions' | 'access' | 'settings';
+  value:
+    | 'overview'
+    | 'conversations'
+    | 'instructions'
+    | 'access'
+    | 'audit'
+    | 'approvals'
+    | 'usage'
+    | 'settings';
 }) {
   const tabs = [
     'overview',
     'conversations',
-    'instructions',
     'access',
+    'audit',
+    'approvals',
+    'usage',
     'settings',
   ] as const;
   return (
@@ -283,7 +299,15 @@ function Content({
   onStatusRequest,
 }: {
   agent: AgentDirectoryItem;
-  tab: 'overview' | 'conversations' | 'instructions' | 'access' | 'settings';
+  tab:
+    | 'overview'
+    | 'conversations'
+    | 'instructions'
+    | 'access'
+    | 'audit'
+    | 'approvals'
+    | 'usage'
+    | 'settings';
   onDeployRequest: () => void;
   onStatusRequest: () => void;
 }) {
@@ -291,9 +315,227 @@ function Content({
     return <Overview agent={agent} onDeployRequest={onDeployRequest} />;
   if (tab === 'conversations')
     return <Conversations agent={agent} onDeployRequest={onDeployRequest} />;
-  if (tab === 'instructions') return <Instructions agent={agent} />;
   if (tab === 'access') return <Access agent={agent} />;
-  return <AgentSettings agent={agent} onStatusRequest={onStatusRequest} />;
+  if (tab === 'audit') return <Audit agent={agent} />;
+  if (tab === 'approvals') return <Approvals agent={agent} />;
+  if (tab === 'usage') return <Usage agent={agent} />;
+  return (
+    <>
+      <Instructions agent={agent} />
+      <AgentSettings agent={agent} onStatusRequest={onStatusRequest} />
+    </>
+  );
+}
+
+function Audit({ agent }: { agent: AgentDirectoryItem }) {
+  const audit = useQuery(agentAuditQuery(agent.id));
+  return (
+    <div className="p-4">
+      <InfoCard
+        title="Audit record"
+        description="Recorded runtime events for this AI employee. Payload values are deliberately not shown in the console."
+      >
+        {audit.isLoading ? (
+          <p className="m-0 text-sm text-text-secondary">
+            Loading audit events…
+          </p>
+        ) : audit.isError ? (
+          <p className="m-0 text-sm text-danger">{audit.error.message}</p>
+        ) : audit.data?.events.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-sm">
+              <thead className="border-y border-border bg-surface-muted font-mono text-[10px] font-semibold tracking-[0.08em] text-text-muted uppercase">
+                <tr>
+                  <th className="px-3 py-2">Time</th>
+                  <th className="px-3 py-2">Action</th>
+                  <th className="px-3 py-2">Actor</th>
+                  <th className="px-3 py-2">Conversation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {audit.data.events.map((event) => (
+                  <tr
+                    className="border-b border-border last:border-b-0"
+                    key={event.eventId}
+                  >
+                    <td className="px-3 py-2 text-text-secondary">
+                      {formatDate(event.createdAt)}
+                    </td>
+                    <td className="px-3 py-2 font-semibold">
+                      {event.eventType}
+                    </td>
+                    <td className="px-3 py-2 text-text-secondary">
+                      {principalLabel(event.actor)}
+                    </td>
+                    <td className="px-3 py-2 text-text-secondary">
+                      {event.conversationId ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="m-0 text-sm text-text-secondary">
+            No runtime events have been recorded for this AI employee.
+          </p>
+        )}
+      </InfoCard>
+    </div>
+  );
+}
+
+function Approvals({ agent }: { agent: AgentDirectoryItem }) {
+  const installs = useQuery(agentConversationInstallsQuery(agent.id));
+  const conversations = useQuery(channelConversationsQuery());
+  const conversationById = new Map(
+    (conversations.data?.conversations ?? []).map((conversation) => [
+      conversation.id,
+      conversation,
+    ]),
+  );
+  return (
+    <div className="p-4">
+      <InfoCard
+        title="Conversation approvers"
+        description="Approval authority is scoped to each conversation. Directory recognition does not grant a person approval authority."
+      >
+        {installs.isLoading ? (
+          <p className="m-0 text-sm text-text-secondary">
+            Loading conversations…
+          </p>
+        ) : installs.data?.installs.length ? (
+          <ul className="m-0 grid list-none divide-y divide-border p-0">
+            {installs.data.installs.map((install) => (
+              <ApproverRow
+                conversationId={install.conversationId}
+                key={install.id}
+                name={
+                  conversationById.get(install.conversationId)?.title ??
+                  install.displayName
+                }
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="m-0 text-sm text-text-secondary">
+            Install this AI employee in a conversation before assigning
+            approvers.
+          </p>
+        )}
+      </InfoCard>
+    </div>
+  );
+}
+
+function ApproverRow({
+  conversationId,
+  name,
+}: {
+  conversationId: string;
+  name: string;
+}) {
+  const approvers = useQuery(conversationApproversQuery(conversationId));
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+      <strong className="text-sm">{name}</strong>
+      <span className="text-xs text-text-secondary">
+        {approvers.isLoading
+          ? 'Loading approvers…'
+          : approvers.isError
+            ? 'Approvers unavailable'
+            : `${approvers.data?.approvers.length ?? 0} assigned`}
+      </span>
+    </li>
+  );
+}
+
+function Usage({ agent }: { agent: AgentDirectoryItem }) {
+  const [range, setRange] = useState<'seven_days' | 'today'>('seven_days');
+  const usage = useQuery(agentUsageQuery(agent.id, range));
+  const totals = (usage.data?.usage ?? []).reduce(
+    (total, row) => ({
+      inputTokens: total.inputTokens + row.inputTokens,
+      outputTokens: total.outputTokens + row.outputTokens,
+      requestCount: total.requestCount + row.requestCount,
+    }),
+    { inputTokens: 0, outputTokens: 0, requestCount: 0 },
+  );
+  return (
+    <div className="grid gap-4 p-4">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="m-0 text-base font-semibold">Usage</h2>
+          <p className="mt-1 mb-0 text-sm text-text-secondary">
+            Agent-scoped model usage recorded by Gantry.
+          </p>
+        </div>
+        <label className="grid gap-1 text-xs font-semibold text-text">
+          Range
+          <select
+            className="h-8 rounded-md border border-border bg-surface px-2 text-xs font-medium"
+            value={range}
+            onChange={(event) =>
+              setRange(event.target.value as 'seven_days' | 'today')
+            }
+          >
+            <option value="seven_days">Last 7 days</option>
+            <option value="today">Today</option>
+          </select>
+        </label>
+      </div>
+      <section className="grid overflow-hidden rounded-lg border border-border bg-surface sm:grid-cols-3">
+        <Metric
+          detail="Recorded"
+          label="Input tokens"
+          value={totals.inputTokens.toLocaleString()}
+        />
+        <Metric
+          detail="Recorded"
+          label="Output tokens"
+          value={totals.outputTokens.toLocaleString()}
+        />
+        <Metric
+          detail="Recorded"
+          label="Requests"
+          last
+          value={String(totals.requestCount)}
+        />
+      </section>
+      <InfoCard
+        title="Daily usage"
+        description="Only usage events attributed to this AI employee appear here."
+      >
+        {usage.isLoading ? (
+          <p className="m-0 text-sm text-text-secondary">Loading usage…</p>
+        ) : usage.isError ? (
+          <p className="m-0 text-sm text-danger">{usage.error.message}</p>
+        ) : usage.data?.usage.length ? (
+          <ul className="m-0 grid list-none divide-y divide-border p-0">
+            {usage.data.usage.map((row) => (
+              <li
+                className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                key={row.day}
+              >
+                <span className="text-sm font-semibold">
+                  {row.day ?? 'Recorded'}
+                </span>
+                <span className="text-xs text-text-secondary">
+                  {row.requestCount} requests ·{' '}
+                  {row.inputTokens.toLocaleString()} in ·{' '}
+                  {row.outputTokens.toLocaleString()} out
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="m-0 text-sm text-text-secondary">
+            No usage has been recorded in this range.
+          </p>
+        )}
+      </InfoCard>
+    </div>
+  );
 }
 
 function Conversations({
@@ -1116,4 +1358,14 @@ function formatDate(value: string) {
         day: 'numeric',
         year: 'numeric',
       }).format(date);
+}
+
+function principalLabel(
+  actor:
+    | { kind: 'human'; personId: string; aliasId?: string }
+    | { kind: 'service'; personId: string; aliasId?: string }
+    | { kind: 'system'; source: string },
+) {
+  if (actor.kind === 'system') return `System · ${actor.source}`;
+  return `${actor.kind === 'human' ? 'Person' : 'Service'} · ${actor.personId}`;
 }

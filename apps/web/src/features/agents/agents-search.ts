@@ -18,6 +18,15 @@ export const agentListSearchSchema = z.object({
 
 export const agentDetailSearchSchema = z.object({
   tab: z
-    .enum(['overview', 'conversations', 'instructions', 'access', 'settings'])
+    .enum([
+      'overview',
+      'conversations',
+      'instructions',
+      'access',
+      'audit',
+      'approvals',
+      'usage',
+      'settings',
+    ])
     .catch('overview'),
 });

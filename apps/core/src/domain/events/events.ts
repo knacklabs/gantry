@@ -107,6 +107,7 @@ export interface RuntimeEventPublishInput {
 export interface RuntimeEventFilter {
   appId: AppId;
   afterEventId?: RuntimeEventId;
+  agentId?: AgentId;
   sessionId?: AgentSessionId;
   runId?: AgentRunId;
   jobId?: JobId;

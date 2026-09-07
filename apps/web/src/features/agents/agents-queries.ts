@@ -151,6 +151,77 @@ export function agentCapabilitiesQuery(agentId: string) {
   });
 }
 
+export function agentAuditQuery(agentId: string) {
+  return queryOptions({
+    queryKey: [...agentQueryKeys.all, 'audit', agentId] as const,
+    enabled: Boolean(agentId),
+    queryFn: async (): Promise<{
+      events: Array<{
+        eventId: number;
+        eventType: string;
+        actor:
+          | { kind: 'human'; personId: string; aliasId?: string }
+          | { kind: 'service'; personId: string; aliasId?: string }
+          | { kind: 'system'; source: string };
+        conversationId: string | null;
+        createdAt: string;
+      }>;
+    }> => {
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}/audit`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok)
+        throw new Error('AI employee audit could not be loaded.');
+      return response.json() as Promise<{
+        events: Array<{
+          eventId: number;
+          eventType: string;
+          actor:
+            | { kind: 'human'; personId: string; aliasId?: string }
+            | { kind: 'service'; personId: string; aliasId?: string }
+            | { kind: 'system'; source: string };
+          conversationId: string | null;
+          createdAt: string;
+        }>;
+      }>;
+    },
+  });
+}
+
+export function agentUsageQuery(
+  agentId: string,
+  range: 'seven_days' | 'today',
+) {
+  return queryOptions({
+    queryKey: [...agentQueryKeys.all, 'usage', agentId, range] as const,
+    enabled: Boolean(agentId),
+    queryFn: async (): Promise<{
+      usage: Array<{
+        day?: string;
+        requestCount: number;
+        inputTokens: number;
+        outputTokens: number;
+      }>;
+    }> => {
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}/usage?range=${range === 'today' ? 'today' : 'seven_days'}`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok)
+        throw new Error('AI employee usage could not be loaded.');
+      return response.json() as Promise<{
+        usage: Array<{
+          day?: string;
+          requestCount: number;
+          inputTokens: number;
+          outputTokens: number;
+        }>;
+      }>;
+    },
+  });
+}
+
 export function agentCatalogQuery(
   agentId: string,
   endpoint: 'sources' | 'capabilities',

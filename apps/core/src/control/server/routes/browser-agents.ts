@@ -50,6 +50,8 @@ const AGENT_STATUS_PATH = /^\/ui\/api\/agents\/([^/]+)\/(enable|disable)$/;
 const AGENT_SOURCES_PATH = /^\/ui\/api\/agents\/([^/]+)\/sources$/;
 const AGENT_CAPABILITIES_PATH = /^\/ui\/api\/agents\/([^/]+)\/capabilities$/;
 const AGENT_VERSIONS_PATH = /^\/ui\/api\/agents\/([^/]+)\/versions$/;
+const AGENT_AUDIT_PATH = /^\/ui\/api\/agents\/([^/]+)\/audit$/;
+const AGENT_USAGE_PATH = /^\/ui\/api\/agents\/([^/]+)\/usage$/;
 const ROLE_PATH = /^\/ui\/api\/roles\/([^/]+)$/;
 const AGENT_MODELS_PATH = '/ui/api/agent-models';
 
@@ -205,6 +207,54 @@ export async function handleBrowserAgentRoutes(
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
       sendJson(res, 200, { agent: await agentView(storage, agent) });
+      return true;
+    }
+    const auditMatch = pathname.match(AGENT_AUDIT_PATH);
+    if (auditMatch) {
+      const agentId = decodeURIComponent(auditMatch[1]!) as AgentId;
+      const agent = await storage.repositories.agents.getAgent(agentId);
+      if (!agent || agent.appId !== appId)
+        return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      const events = await storage.repositories.runtimeEvents.listRuntimeEvents(
+        {
+          appId,
+          agentId,
+          limit: 100,
+        },
+      );
+      sendJson(res, 200, {
+        events: events.map((event) => ({
+          eventId: event.eventId,
+          eventType: event.eventType,
+          actor: event.actor,
+          conversationId: event.conversationId ?? null,
+          createdAt: event.createdAt,
+        })),
+      });
+      return true;
+    }
+    const usageMatch = pathname.match(AGENT_USAGE_PATH);
+    if (usageMatch) {
+      const agentId = decodeURIComponent(usageMatch[1]!) as AgentId;
+      const agent = await storage.repositories.agents.getAgent(agentId);
+      if (!agent || agent.appId !== appId)
+        return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      const now = new Date();
+      const from = new Date(now);
+      if (url.searchParams.get('range') === 'today') {
+        from.setUTCHours(0, 0, 0, 0);
+      } else {
+        from.setUTCDate(from.getUTCDate() - 6);
+        from.setUTCHours(0, 0, 0, 0);
+      }
+      const usage = await storage.repositories.runtimeEvents.queryUsage({
+        appId,
+        agentId,
+        from: from.toISOString(),
+        to: now.toISOString(),
+        groupBy: 'day',
+      });
+      sendJson(res, 200, { usage });
       return true;
     }
     const sourcesMatch = pathname.match(AGENT_SOURCES_PATH);

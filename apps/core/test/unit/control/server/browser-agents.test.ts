@@ -65,6 +65,11 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(agentRouteSource).toContain('const AGENT_SOURCES_PATH');
   expect(agentRouteSource).toContain('const AGENT_CAPABILITIES_PATH');
   expect(agentRouteSource).toContain('const AGENT_VERSIONS_PATH');
+  expect(agentRouteSource).toContain('const AGENT_AUDIT_PATH');
+  expect(agentRouteSource).toContain('const AGENT_USAGE_PATH');
+  expect(agentRouteSource).toMatch(/agentId,\s+limit: 100,/);
+  expect(agentRouteSource).toContain("groupBy: 'day'");
+  expect(agentRouteSource).not.toContain('payload: event.payload');
   expect(agentRouteSource).toContain('replaceSources({');
   expect(agentRouteSource).toContain('replaceCapabilities(');
   expect(agentRouteSource).toContain('getSources({');

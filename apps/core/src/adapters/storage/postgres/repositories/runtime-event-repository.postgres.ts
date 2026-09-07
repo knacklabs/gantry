@@ -327,6 +327,11 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         gt(pgSchema.runtimeEventsPostgres.eventId, filter.afterEventId),
       );
     }
+    if (filter.agentId !== undefined) {
+      conditions.push(
+        eq(pgSchema.runtimeEventsPostgres.agentId, filter.agentId),
+      );
+    }
     if (filter.sessionId !== undefined) {
       conditions.push(
         eq(pgSchema.runtimeEventsPostgres.sessionId, filter.sessionId),
