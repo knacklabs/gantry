@@ -1037,6 +1037,13 @@
       "when": 1788781641101,
       "tag": "20260907114721_agent_offboarding_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1788783365679,
+      "tag": "20260907121605_runtime_event_principal_refs",
+      "breakpoints": true
     }
   ]
 }
