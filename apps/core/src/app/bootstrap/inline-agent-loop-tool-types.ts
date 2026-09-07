@@ -2,6 +2,7 @@ import type { CoreSendMessageDeps } from '../../application/core-tools/send-mess
 import type { CoreTaskLifecycleBackend } from '../../application/core-tools/task-lifecycle.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type { PermissionPromotionRepository } from '../../domain/ports/permission-promotion.js';
+import type { PermissionDecisionMemoryRepository } from '../../domain/ports/permission-decision-memory.js';
 import type {
   AgentRepository,
   McpServerRepository,
@@ -46,6 +47,9 @@ export interface InlineCoreToolHostDeps extends CoreSendMessageDeps {
   getMcpServerRepository(): McpServerRepository | undefined;
   getAgentRepository(): AgentRepository | undefined;
   getPermissionPromotionRepository(): PermissionPromotionRepository | undefined;
+  getPermissionDecisionMemoryRepository?: () =>
+    | PermissionDecisionMemoryRepository
+    | undefined;
   createTaskLifecycleBackend(
     laneInput: InlineAgentLoopLaneInput,
     authorityToolName?: 'AgentDelegation',

@@ -1,0 +1,57 @@
+{
+  "commit": "4dc6538901280a6f0e19819966fabc2dfd1856c7",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "ASKFLOOR-1-T3b automated proof: the six required leaves (one through the Postgres config against gantry_test with GANTRY_TEST_DATABASE_URL exported, five unit) ran through the exact-leaf JUnit gate on the host and pass; npx tsc --noEmit and npm run check:architecture pass; python3 factory/scripts/verify.py passed WITH GANTRY_TEST_DATABASE_URL exported (format, architecture, typecheck, full unit suite, the serial general integration lane); the implementer reports 101 focused unit tests green in the sandbox (the Postgres leaf cannot run there, EPERM 127.0.0.1:5432 \u2014 host-run). inline-agent-loop-tools.ts is 745/750 lines.",
+    "blocking_findings": [],
+    "commands_run": [
+      "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts -t \"finds a human decision by ordered candidate keys for one person, app and folder only: the first of two matching candidates wins, a revoked row, another person's row and a row from another rails version never match, and no row yields null\" --outputFile=.tmp-junit/leaf-0.xml",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/permission-human-memory-stage.test.ts -t \"consults remembered decisions only under interactive_auto with a person, a memory port and an effect hash, derives every candidate key through the T3a scope module, returns the remembered No before anything else and the remembered Allow in exact then trust-growth kind then category kind then trust-growth place then category place order with the exact reason lines and human_decision provenance, matches a kind tool row for that tool and misses it for another tool, matches a place row only for the same kind under the root, and fails closed on a port error\" --outputFile=.tmp-junit/leaf-1.xml",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/permission-decision-coordinator.test.ts -t \"keeps the pinned stage order and runs the remembered No before hard restrictions and the remembered Allow after the rails and the trusted-root stage but before the classifier cache, never consulting the port under ask, auto_strict or a job lane, without a person, or under a non-overridable rail ask, resolves the workspace root from the rails input when the top-level one is absent, and maps decidedBy human_decision to repeatable human_decision provenance\" --outputFile=.tmp-junit/leaf-2.xml",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/bootstrap/inline-permission-memory.test.ts -t \"derives the inline consult inputs through the shared lane derivation: interactive_auto with the run person and the effect hash for a non-scheduled auto run, an autonomous lane without a person for a scheduled run, and no memory port when the host does not provide one\" --outputFile=.tmp-junit/leaf-3.xml",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts -t \"short-circuits the inline classifier with a seeded remembered Allow for the run person and never reads the classifier verdict cache, while a scheduled run and a run without memoryUserId keep today's consult, with the new decision-memory dep wired\" --outputFile=.tmp-junit/leaf-4.xml",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/human-decision-scope.test.ts -t \"derives version-bound path-exact keys for native and virtual writes and kind-carrying place keys for a trust-growth tool and for a category\" --outputFile=.tmp-junit/leaf-5.xml",
+      "npx tsc --noEmit",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py (GANTRY_TEST_DATABASE_URL exported)",
+      "npm run test:integration:postgres"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+      "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+      "apps/core/test/unit/application/human-decision-scope.test.ts",
+      "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+      "apps/core/test/unit/bootstrap/inline-permission-memory.test.ts",
+      "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+      "apps/core/test/unit/runtime/permission-human-memory-stage.test.ts"
+    ],
+    "pass_fail_summary": "6/6 required leaves pass on the host; tsc, check:architecture, verify.py (Postgres lane) green",
+    "remaining_gaps": [],
+    "reviewed_scope": [
+      "apps/core/src/domain/ports/permission-decision-memory.ts",
+      "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+      "apps/core/src/domain/permission-decision.ts",
+      "apps/core/src/runtime/permission-human-memory-stage.ts",
+      "apps/core/src/runtime/permission-decision-coordinator.ts",
+      "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+      "apps/core/src/app/bootstrap/inline-agent-loop-tool-types.ts",
+      "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+      "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+      "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+      "apps/core/test/unit/runtime/permission-human-memory-stage.test.ts",
+      "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+      "apps/core/test/unit/bootstrap/inline-permission-memory.test.ts",
+      "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+      "apps/core/src/application/permissions/human-decision-scope.ts",
+      "apps/core/test/unit/application/human-decision-scope.test.ts",
+      "docs/architecture/permission-decision-memory.md"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-09-07T04:39:27+00:00",
+    "commit": "4dc6538901280a6f0e19819966fabc2dfd1856c7"
+  },
+  "updated_at": "2026-09-07T04:39:27+00:00"
+}

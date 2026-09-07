@@ -18,6 +18,7 @@ import {
   HumanDecisionOutcome,
   HumanDecisionRequiresTypedAccessError,
   HumanDecisionScope,
+  type HumanDecisionMemoryCandidate,
   type HumanDecisionMemoryPutInput,
   type HumanDecisionMemoryPutResult,
   type HumanDecisionRevokeResult,
@@ -231,6 +232,46 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
       )
       .orderBy(desc(table.createdAt));
     return rows.map(mapRow);
+  }
+
+  async findHumanDecision(input: {
+    appId: string;
+    agentFolder: string;
+    actingPersonId: string;
+    candidates: HumanDecisionMemoryCandidate[];
+    railVersion: number;
+  }): Promise<PermissionDecisionMemoryRow | null> {
+    if (input.candidates.length === 0) return null;
+    const rows = await this.db
+      .select()
+      .from(table)
+      .where(
+        and(
+          eq(table.appId, input.appId),
+          eq(table.agentFolder, input.agentFolder),
+          eq(table.kind, HUMAN_DECISION_MEMORY_KIND),
+          eq(table.actingPersonId, input.actingPersonId),
+          eq(table.railVersion, input.railVersion),
+          isNull(table.revokedAt),
+          or(
+            ...input.candidates.map((candidate) =>
+              and(
+                eq(table.scope, candidate.scope),
+                eq(table.scopeKey, candidate.scopeKey),
+              ),
+            ),
+          ),
+        ),
+      );
+    for (const candidate of input.candidates) {
+      const row = rows.find(
+        (entry) =>
+          entry.scope === candidate.scope &&
+          entry.scopeKey === candidate.scopeKey,
+      );
+      if (row) return mapRow(row);
+    }
+    return null;
   }
 
   async revokeById(input: {

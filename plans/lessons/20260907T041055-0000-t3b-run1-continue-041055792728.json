@@ -1,0 +1,14 @@
+{
+  "topic": "t3b-run1-continue",
+  "lesson": "Run 1 of ASKFLOOR-1-T3b died mid-turn (companion failure) after writing most of the implementation; the working tree ALREADY holds it uncommitted: modified port, Postgres repository, provenance map, coordinator, inline tool types, inline tools file, scope helper, the Postgres/service/scope tests and the architecture doc, plus NEW runtime/permission-human-memory-stage.ts, app/bootstrap/inline-permission-memory.ts and test/unit/runtime/permission-human-memory-stage.test.ts. CONTINUE from that tree \u2014 never reset, never re-create files that exist; read them first. Run 1's last note: the core types and source wiring compile; the six contract-named leaves were being added (stage leaf first). Finish: the six leaves by their exact titles (ids are matched verbatim by the gate), the inline suite cases, the inline-permission-memory unit suite, tsc, check:architecture, prettier, and keep inline-agent-loop-tools.ts under 750 lines. Postgres leaves cannot run in the sandbox (EPERM 127.0.0.1:5432); the host runs them \u2014 do not raise a blocked signal for that.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/runtime/permission-human-memory-stage.ts",
+    "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-07T04:10:55+00:00"
+}
