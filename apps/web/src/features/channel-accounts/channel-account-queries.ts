@@ -1,6 +1,6 @@
 import { queryOptions } from '@tanstack/react-query';
 
-import { browserFetch } from '../../lib/auth/browser-auth';
+import { browserCsrfHeader, browserFetch } from '../../lib/auth/browser-auth';
 
 export const channelAccountQueryKeys = {
   all: ['channel-accounts'] as const,
@@ -116,4 +116,99 @@ export function agentConversationInstallsQuery(agentId: string) {
       }>;
     },
   });
+}
+
+export function conversationApproversQuery(conversationId: string) {
+  return queryOptions({
+    queryKey: [
+      ...channelAccountQueryKeys.all,
+      'approvers',
+      conversationId,
+    ] as const,
+    enabled: Boolean(conversationId),
+    queryFn: async (): Promise<{ approvers: string[] }> => {
+      const response = await browserFetch(
+        `/ui/api/conversations/${encodeURIComponent(conversationId)}/approvers`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok)
+        throw new Error('Conversation approvers could not be loaded.');
+      return response.json() as Promise<{ approvers: string[] }>;
+    },
+  });
+}
+
+export async function createChannelAccount(input: {
+  agentId: string;
+  providerId: string;
+  label: string;
+  credentials: Record<string, string>;
+}): Promise<{ account: ChannelAccount }> {
+  const response = await browserFetch('/ui/api/channel-accounts', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error('Channel account could not be saved.');
+  return response.json() as Promise<{ account: ChannelAccount }>;
+}
+
+export async function discoverChannelConversations(accountId: string): Promise<{
+  conversations: ChannelConversation[];
+}> {
+  const response = await browserFetch(
+    `/ui/api/channel-accounts/${encodeURIComponent(accountId)}/discover-conversations`,
+    {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: browserCsrfHeader(),
+    },
+  );
+  if (!response.ok)
+    throw new Error(
+      'Gantry could not discover conversations for this account.',
+    );
+  return response.json() as Promise<{ conversations: ChannelConversation[] }>;
+}
+
+export async function installAgentConversation(input: {
+  agentId: string;
+  conversationId: string;
+  providerAccountId: string;
+  memoryScope: 'conversation' | 'agent' | 'app';
+}) {
+  const response = await browserFetch(
+    `/ui/api/agents/${encodeURIComponent(input.agentId)}/conversation-installs/${encodeURIComponent(input.conversationId)}`,
+    {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
+      body: JSON.stringify({
+        providerAccountId: input.providerAccountId,
+        memoryScope: input.memoryScope,
+      }),
+    },
+  );
+  if (!response.ok)
+    throw new Error('Conversation installation could not be saved.');
+  return response.json();
+}
+
+export async function replaceConversationApprovers(
+  conversationId: string,
+  userIds: string[],
+) {
+  const response = await browserFetch(
+    `/ui/api/conversations/${encodeURIComponent(conversationId)}/approvers`,
+    {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
+      body: JSON.stringify({ userIds }),
+    },
+  );
+  if (!response.ok)
+    throw new Error('Gantry could not verify those conversation members.');
+  return response.json() as Promise<{ approvers: string[] }>;
 }

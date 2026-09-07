@@ -3,17 +3,28 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { CapabilitySecretService } from '../../../application/capability-secrets/capability-secret-service.js';
-import { ProviderAccountControlService } from '../../../application/provider-conversations/provider-conversation-control-use-cases.js';
+import { ConversationAdministrationService } from '../../../application/provider-conversations/conversation-administration-service.js';
+import {
+  ConversationInstallControlService,
+  DiscoverProviderConversationsService,
+  ProviderAccountControlService,
+} from '../../../application/provider-conversations/provider-conversation-control-use-cases.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
+import { isRecentlyReauthenticated } from '../../../application/auth/auth-foundations.js';
+import { createRepositoryRuntimeSecretProvider } from '../../../adapters/credentials/repository-runtime-secret-provider.js';
+import { RuntimeSecretConversationMembershipValidator } from '../../../channels/conversation-membership-validation.js';
 import { BuiltInControlChannelProviderCatalog } from '../../../channels/control-provider-catalog.js';
+import { RuntimeSecretConversationDiscovery } from '../../../channels/control-provider-catalog.js';
 import type { AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
+import type { ConversationId } from '../../../domain/conversation/conversation.js';
 import { gantryRuntimeSecretRef } from '../../../domain/ports/runtime-secret-provider.js';
 import { runtimeSecretNameForProviderAccount } from '../../../domain/provider/provider-runtime-secret-keys.js';
-import type { ProviderId } from '../../../domain/provider/provider.js';
+import type {
+  ProviderAccountId,
+  ProviderId,
+} from '../../../domain/provider/provider.js';
 import { nowIso } from '../app-identity.js';
-import { isRecentlyReauthenticated } from '../../../application/auth/auth-foundations.js';
-import { systemPrincipal } from '../../../domain/identity/principal-ref.js';
 import { browserRoleAllowsScope } from '../browser-scope-policy.js';
 import type { ControlRouteContext } from '../handler-context.js';
 import {
@@ -40,6 +51,12 @@ const CHANNEL_ACCOUNTS_PATH = '/ui/api/channel-accounts';
 const CONVERSATIONS_PATH = '/ui/api/conversations';
 const AGENT_INSTALLS_PATH =
   /^\/ui\/api\/agents\/([^/]+)\/conversation-installs$/;
+const ACCOUNT_DISCOVERY_PATH =
+  /^\/ui\/api\/channel-accounts\/([^/]+)\/discover-conversations$/;
+const AGENT_INSTALL_PATH =
+  /^\/ui\/api\/agents\/([^/]+)\/conversation-installs\/([^/]+)$/;
+const CONVERSATION_APPROVERS_PATH =
+  /^\/ui\/api\/conversations\/([^/]+)\/approvers$/;
 
 type AccountCreationBody = {
   agentId: string;
@@ -48,12 +65,20 @@ type AccountCreationBody = {
   credentials: Record<string, string>;
 };
 
+type ConversationInstallBody = {
+  providerAccountId: string;
+  memoryScope: 'conversation' | 'agent' | 'app';
+};
+
 export function isBrowserChannelAccountsPath(pathname: string): boolean {
   return (
     pathname === CHANNEL_PROVIDERS_PATH ||
     pathname === CHANNEL_ACCOUNTS_PATH ||
     pathname === CONVERSATIONS_PATH ||
-    AGENT_INSTALLS_PATH.test(pathname)
+    AGENT_INSTALLS_PATH.test(pathname) ||
+    ACCOUNT_DISCOVERY_PATH.test(pathname) ||
+    AGENT_INSTALL_PATH.test(pathname) ||
+    CONVERSATION_APPROVERS_PATH.test(pathname)
   );
 }
 
@@ -66,7 +91,18 @@ export async function handleBrowserChannelAccountRoutes(
 ): Promise<boolean> {
   if (!isBrowserChannelAccountsPath(pathname)) return false;
   const canCreate = pathname === CHANNEL_ACCOUNTS_PATH && req.method === 'POST';
-  if (req.method !== 'GET' && !canCreate) {
+  const canDiscover =
+    ACCOUNT_DISCOVERY_PATH.test(pathname) && req.method === 'POST';
+  const canInstall = AGENT_INSTALL_PATH.test(pathname) && req.method === 'PUT';
+  const canReplaceApprovers =
+    CONVERSATION_APPROVERS_PATH.test(pathname) && req.method === 'PUT';
+  if (
+    req.method !== 'GET' &&
+    !canCreate &&
+    !canDiscover &&
+    !canInstall &&
+    !canReplaceApprovers
+  ) {
     res.setHeader(
       'Allow',
       pathname === CHANNEL_ACCOUNTS_PATH ? 'GET, POST' : 'GET',
@@ -77,6 +113,27 @@ export async function handleBrowserChannelAccountRoutes(
   if (canCreate) {
     return await createBrowserChannelAccount(req, res, ctx, settings);
   }
+  if (canDiscover) {
+    return await discoverBrowserConversations(
+      req,
+      res,
+      ctx,
+      pathname,
+      settings,
+    );
+  }
+  if (canInstall) {
+    return await installBrowserConversation(req, res, ctx, pathname, settings);
+  }
+  if (canReplaceApprovers) {
+    return await replaceBrowserConversationApprovers(
+      req,
+      res,
+      ctx,
+      pathname,
+      settings,
+    );
+  }
   const session = await activeSession(req, settings.authentication.mode);
   if (!session) {
     sendError(res, 401, 'UNAUTHORIZED', 'Sign in is required.');
@@ -84,7 +141,8 @@ export async function handleBrowserChannelAccountRoutes(
   }
   const appId = session.appId as AppId;
   const role = session.role as ConsoleRole;
-  const needsAgentAdministration = AGENT_INSTALLS_PATH.test(pathname);
+  const needsAgentAdministration =
+    AGENT_INSTALLS_PATH.test(pathname) || AGENT_INSTALL_PATH.test(pathname);
   const requiredScope = needsAgentAdministration
     ? 'agents:admin'
     : pathname === CONVERSATIONS_PATH
@@ -152,6 +210,22 @@ export async function handleBrowserChannelAccountRoutes(
         updatedAt: conversation.updatedAt,
       })),
     });
+    return true;
+  }
+  const approversMatch = pathname.match(CONVERSATION_APPROVERS_PATH);
+  if (approversMatch) {
+    const conversationId = decodeURIComponent(
+      approversMatch[1]!,
+    ) as ConversationId;
+    try {
+      const summary = await new ConversationAdministrationService({
+        providerAccounts: storage.repositories.providerAccounts,
+        conversations: storage.repositories.conversations,
+      }).getAdminSummary({ appId, conversationId });
+      sendJson(res, 200, { approvers: summary.controlAllowlist });
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
     return true;
   }
   const match = pathname.match(AGENT_INSTALLS_PATH);
@@ -317,6 +391,244 @@ async function createBrowserChannelAccount(
     if (!sendApplicationError(res, error)) throw error;
   }
   return true;
+}
+
+async function discoverBrowserConversations(
+  req: IncomingMessage,
+  res: ServerResponse,
+  _ctx: ControlRouteContext,
+  pathname: string,
+  settings: BrowserChannelAccountSettings,
+): Promise<boolean> {
+  const session = await requireChannelAccountAdministrator(req, res, settings);
+  if (!session) return true;
+  const match = pathname.match(ACCOUNT_DISCOVERY_PATH);
+  if (!match) return true;
+  const appId = session.appId as AppId;
+  const storage = getRuntimeStorage();
+  const providerAccountId = decodeURIComponent(match[1]!) as ProviderAccountId;
+  try {
+    const discovery = new DiscoverProviderConversationsService({
+      providerAccounts: storage.repositories.providerAccounts,
+      conversations: storage.repositories.conversations,
+      discovery: new RuntimeSecretConversationDiscovery(
+        createRepositoryRuntimeSecretProvider({
+          appId,
+          repository: storage.repositories.capabilitySecrets,
+        }),
+      ),
+      ids: { generate: randomUUID },
+      clock: { now: nowIso },
+    });
+    const conversations = await discovery.execute({ appId, providerAccountId });
+    sendJson(res, 200, {
+      conversations: conversations.map((conversation) => ({
+        id: conversation.id,
+        providerAccountId: conversation.providerAccountId,
+        kind: conversation.kind,
+        title: conversation.title ?? null,
+        status: conversation.status,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+      })),
+    });
+  } catch (error) {
+    if (!sendApplicationError(res, error)) throw error;
+  }
+  return true;
+}
+
+async function installBrowserConversation(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: ControlRouteContext,
+  pathname: string,
+  settings: BrowserChannelAccountSettings,
+): Promise<boolean> {
+  const session = await requireChannelAccountAdministrator(req, res, settings);
+  if (!session) return true;
+  const match = pathname.match(AGENT_INSTALL_PATH);
+  if (!match) return true;
+  const body = await readConversationInstallBody(req, res);
+  if (!body) return true;
+  const appId = session.appId as AppId;
+  const storage = getRuntimeStorage();
+  const agentId = decodeURIComponent(match[1]!) as AgentId;
+  const conversationId = decodeURIComponent(match[2]!) as ConversationId;
+  try {
+    const install = await new ConversationInstallControlService({
+      agents: storage.repositories.agents,
+      providerAccounts: storage.repositories.providerAccounts,
+      conversations: storage.repositories.conversations,
+      ids: { generate: randomUUID },
+      clock: { now: nowIso },
+    }).enable({
+      appId,
+      agentId,
+      conversationId,
+      patch: {
+        providerAccountId: body.providerAccountId as ProviderAccountId,
+        memoryScope: body.memoryScope,
+      },
+    });
+    await ctx.syncSettingsFromProjection(appId);
+    sendJson(res, 201, {
+      install: {
+        id: install.id,
+        agentId: install.agentId,
+        providerAccountId: install.providerAccountId,
+        conversationId: install.conversationId,
+        displayName: install.displayName,
+        status: install.status,
+        memoryScope: install.memoryScope,
+        createdAt: install.createdAt,
+        updatedAt: install.updatedAt,
+      },
+    });
+  } catch (error) {
+    if (!sendApplicationError(res, error)) throw error;
+  }
+  return true;
+}
+
+async function replaceBrowserConversationApprovers(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: ControlRouteContext,
+  pathname: string,
+  settings: BrowserChannelAccountSettings,
+): Promise<boolean> {
+  const session = await requireChannelAccountAdministrator(req, res, settings);
+  if (!session) return true;
+  const match = pathname.match(CONVERSATION_APPROVERS_PATH);
+  if (!match) return true;
+  const userIds = await readApproverIds(req, res);
+  if (!userIds) return true;
+  const appId = session.appId as AppId;
+  const storage = getRuntimeStorage();
+  const conversationId = decodeURIComponent(match[1]!) as ConversationId;
+  try {
+    const result = await new ConversationAdministrationService(
+      {
+        providerAccounts: storage.repositories.providerAccounts,
+        conversations: storage.repositories.conversations,
+      },
+      new RuntimeSecretConversationMembershipValidator(
+        createRepositoryRuntimeSecretProvider({
+          appId,
+          repository: storage.repositories.capabilitySecrets,
+        }),
+      ),
+    ).replaceControlAllowlist({
+      appId,
+      conversationId,
+      userIds,
+      updatedAt: nowIso(),
+    });
+    await ctx.syncSettingsFromProjection(appId);
+    sendJson(res, 200, { approvers: result });
+  } catch (error) {
+    if (!sendApplicationError(res, error)) throw error;
+  }
+  return true;
+}
+
+async function requireChannelAccountAdministrator(
+  req: IncomingMessage,
+  res: ServerResponse,
+  settings: BrowserChannelAccountSettings,
+) {
+  const authentication = settings.authentication;
+  const session = await requireBrowserMutationSession({
+    req,
+    res,
+    mode: authentication.mode,
+    originIsValid: isCanonicalBrowserOrigin(
+      req,
+      authentication.canonicalOrigin,
+    ),
+  });
+  if (!session) return null;
+  if (!browserRoleAllowsScope(session.role as ConsoleRole, 'providers:admin')) {
+    sendError(res, 403, 'FORBIDDEN', 'Administrator access is required.');
+    return null;
+  }
+  if (
+    authentication.mode === 'hosted' &&
+    !isRecentlyReauthenticated(session.reauthenticatedAt)
+  ) {
+    sendError(
+      res,
+      401,
+      'REAUTHENTICATION_REQUIRED',
+      'Sign in again to continue.',
+    );
+    return null;
+  }
+  return session;
+}
+
+async function readConversationInstallBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<ConversationInstallBody | null> {
+  let value: unknown;
+  try {
+    value = await readJson(req);
+  } catch {
+    sendError(res, 400, 'INVALID_REQUEST', 'Request body must be valid JSON.');
+    return null;
+  }
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some(
+      (key) => !['providerAccountId', 'memoryScope'].includes(key),
+    ) ||
+    typeof value.providerAccountId !== 'string' ||
+    !value.providerAccountId.trim() ||
+    !['conversation', 'agent', 'app'].includes(String(value.memoryScope))
+  ) {
+    sendError(
+      res,
+      400,
+      'INVALID_REQUEST',
+      'Conversation installation details are incomplete.',
+    );
+    return null;
+  }
+  return {
+    providerAccountId: value.providerAccountId.trim(),
+    memoryScope: value.memoryScope as ConversationInstallBody['memoryScope'],
+  };
+}
+
+async function readApproverIds(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<string[] | null> {
+  let value: unknown;
+  try {
+    value = await readJson(req);
+  } catch {
+    sendError(res, 400, 'INVALID_REQUEST', 'Request body must be valid JSON.');
+    return null;
+  }
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((key) => key !== 'userIds') ||
+    !Array.isArray(value.userIds) ||
+    value.userIds.length === 0 ||
+    value.userIds.some((userId) => typeof userId !== 'string' || !userId.trim())
+  ) {
+    sendError(
+      res,
+      400,
+      'INVALID_REQUEST',
+      'Enter at least one provider member ID.',
+    );
+    return null;
+  }
+  return [...new Set(value.userIds.map((userId) => userId.trim()))];
 }
 
 async function readAccountCreationBody(
