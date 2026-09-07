@@ -34,7 +34,7 @@
     {
       "id": "ASKFLOOR-1-T3c",
       "title": "Remember settlement and learning writes",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-09-07T15:25:05+00:00",
       "base_sha": "689550bcc3f28115a713775ca35f8559dc396121",
       "dirty_at_start": {
@@ -76,7 +76,8 @@
         "product_tree_digest": "94f1faab8c4a2c9aa9af95c5b45077c0953f7f334d53d449adf54b201635899f",
         "recorded_at": "2026-09-07T16:37:20+00:00",
         "generated_by": "autoreview"
-      }
+      },
+      "completed_at": "2026-09-07T16:51:59+00:00"
     },
     {
       "id": "ASKFLOOR-1-T4",
