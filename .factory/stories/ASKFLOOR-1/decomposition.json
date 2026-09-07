@@ -927,17 +927,147 @@
     {
       "id": "ASKFLOOR-1-T4",
       "title": "Live job projection of learned decisions (0153)",
-      "objective": "Scheduled and inline job permission requests consult the owner's active allow-outcome human_decision records as one deterministic declared-grant input, live and revocable, person-scoped via execution_context.personId in both job paths (unresolved identity projects nothing); the matched record id is stamped into the permission audit context in both lanes; classifier still never runs for jobs; inline-scheduled tests rewritten to the projection.",
+      "objective": "Scheduled and inline job permission requests consult the job owner's active allow-outcome human_decision rows through one application projection helper as a declared-grant input with a declared rule's precedence; the owner is execution_context.personId resolved host-side (null projects nothing); the matched record id is audited as humanDecisionRecordId beside jobId in both lanes; the classifier never runs for jobs; jobs never write memory; inline-scheduled tests assert the projection.",
       "acceptance_criteria": [
-        "exact/kind/place match allows a job request with human_decision provenance; near-miss, rails-bump, revoked, deny-outcome or other-person records still card (projection matrix)",
-        "both job lanes record the matched record id beside jobId; jobs never write the memory",
-        "inline-scheduled expectations assert the projection, not classifier consultation",
-        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+        "PROJECTION HELPER. NEW `application/permissions/human-decision-job-projection.ts` exports `projectHumanDecisionMatch({ ownerPersonId: string | null, request, facts: { effectHash, workspaceRoot, canonicalRoot? }, railVersion: RAIL_CATALOG_VERSION, memory: PermissionDecisionMemoryRepository, warn }) \u2192 Promise<ProjectedHumanDecisionMatch | null>` with `ProjectedHumanDecisionMatch = { recordId: string; scope: HumanDecisionScope }` (the coordinator builds the decision and sets `humanDecisionRecordId`): `null` when the owner is null/blank, when candidate derivation refuses, when no root is validated (place classes only), when `findHumanDecision` returns null, or when the row's outcome is not `allow`; never throws (a repository failure \u2192 one `warn`, `null` \u2014 fail closed); never writes; it does NOT re-filter person/version/revocation (repository-owned, `permission-decision-memory-repository.postgres.ts:249-257`). Unit tests with a fake repository (helper-owned proofs only, grill r3 #3): the candidates passed equal, in order, the five the interactive stage derives for the same facts (tool-kind with `trustGrowthTool: true`, category-kind with `false`); a returned row yields `{ recordId, scope }`; a deny-outcome row \u2192 `null`; blank owner and place-without-root \u2192 `null` with no repository call; derivation refusal \u2192 `null`; a throwing repository \u2192 `null` + one warn.",
+        "COORDINATOR + IPC LANE. `permission-decision-coordinator.ts` accepts the NEW typed input `humanDecisionProjection` of ruling 1 (`{ ownerPersonId, memory: PermissionDecisionMemoryRepository, guard, warn }`) and, for a job request only, after deterministic rails and the validated-root stage (the T3b consult position, `:227-243`), invokes `guard(railDecision)` first (a returned decision stands and no lookup happens; `undefined` proceeds), then calls `projectHumanDecisionMatch` with the same facts the interactive consult builds; a returned match resolves an overridable ASK to `decisionForMode(request, 'allow_once', 'human_decision', 'machine')` stamped with `humanDecisionRecordId`; a non-overridable rail is never overridden; a null owner never consults the port; the interactive consult stage is untouched. NEW `runtime/ipc-permission-job-projection.ts` resolves the owner via `deps.opsRepository.getJobById(hostJobId)` (ruling 3) and supplies the repository and `warn`; the guard callback is built inside `ipc-permission-classifier-decision.ts` over the private `applyIpcPermissionRouteGuard`; `resolvePermissionIpcDecision` (`ipc-permission-classifier-decision.ts:75-188`) passes the input to the coordinator; `reviewedRuleDecision` and `applyIpcPermissionRouteGuard` are unchanged; the classifier never runs for a job (0121 pin). The IPC post-apply audit call (`ipc-interaction-processing.ts:327-332`) forwards `humanDecisionRecordId` beside `jobId`. Ceilings hold. Tests: coordinator suite (existing `test/unit/runtime/permission-decision-coordinator.test.ts`) \u2014 one case per precedence-table row against a hard rail, an escaping target never matching a place row, an overridable ASK resolved by exact/kind/place to `allow_once` with `human_decision` provenance and `humanDecisionRecordId` set, a non-overridable rail not overridden, a null owner never consulting the repository, a guard-returned decision standing with zero lookups; `test/unit/runtime/ipc-permission-classifier-decision.test.ts` \u2014 owner from `getJobById`, a forged request `personId` ignored, missing job / blank owner / throwing repository \u21d2 no projection + one warn, classifier never called, and a host job with an owner, a would-match repository and an ABSENT route \u21d2 denial with sanitised risk fields and zero repository calls (proves the delegation the coordinator's fake guard cannot); `test/unit/runtime/ipc-interaction-handler.test.ts` \u2014 the production audit call forwards `humanDecisionRecordId` + `jobId`.",
+        "INLINE SCHEDULED LANE (grill r1 #7). ONE seam: `inline-permission-memory.ts` gains `inlineScheduledProjection(...)` that builds the same typed `humanDecisionProjection` coordinator input (owner from `AgentInput.jobOwnerPersonId`, the composed repository, a no-op guard, `warn`) and the inline coordinator call (`inline-agent-loop-tools.ts:395`) passes it (\u2264 5 changed lines in the inline file); the tail (`:412-448`) EXCLUDES scheduled runs from classifier consultation \u2014 a scheduled request with no projection takes the deterministic miss/cancellation even when the classifier would have returned low (an intended behaviour change: 0121); the audit closure (ruling 2) is called after the final coordinator result (`:567`) only when the result carries `humanDecisionRecordId`. The interactive auto lane is untouched. Tests (`test/unit/bootstrap/inline-agent-loop-tools.test.ts`): rewrite the scheduled portion of the remembered-inline Allow test (`:1086-1186`) to assert projection, no classifier call, and the audit write; a no-projection scheduled request cancels even when the classifier stub returns low; keep the independent classifier-audit regression (`:1189-1211`) for interactive auto; a scheduled run with a blank owner projects nothing and never calls the repository. `test/unit/bootstrap/runtime-services.test.ts`: the production wiring supplies the inline `recordDecision` closure and the repository (inline tests inject deps directly through `wireInlineAgentLoopTools`, `:65-120`, so they cannot prove production wiring \u2014 grill r2 #4).",
+        "OWNER THREADING. `runtime/agent-spawn-types.ts:58` gains `jobOwnerPersonId?: string | null`; `runActiveJobAgent` (`jobs/execution-phases-run.ts:288-305`) sets it in `baseInput` from `currentJob.execution_context?.personId ?? null`; `memoryUserId` (`:102`) unchanged. Tests (`test/unit/jobs/execution.test.ts`): the existing `runAgent` expectation asserts the canonical owner on the scheduled `AgentInput` and, separately, that `memoryUserId` is unchanged; a group-created job (null person) yields a null owner; `job-acting-identity.test.ts` unchanged and green.",
+        "AUDIT. `test/unit/application/permission-management-service.test.ts` gains a NEW leaf (beside the skill-action audit at `:241-277`): `auditMetadata.humanDecisionRecordId` on a permission decision is retained in saved `actorContext` beside `jobId`.",
+        "POSTGRES. `test/integration/permission-decision-memory.postgres.integration.test.ts` (`:714-750`) gains a database-backed projection-matrix case through the helper: a row written by the T3a service for person A projects for A's job and not for B's, not after revocation, and not from another rail version (repository-owned filters, proved here); no new memory writer.",
+        "`docs/architecture/permission-decision-memory.md:26-32` is updated: autonomous job lanes consult human-decision memory ONLY through the projection (read-only, owner-scoped, post-rails, guarded), never through the interactive stage. Existing unit and Postgres suites pass; tsc and check:architecture green; `inline-agent-loop-tools.ts` \u2264 750, `permission-management-service.ts` \u2264 745, `domain/types.ts` \u2264 740 (line-neutral), `jobs/execution-phases-run.ts` \u2264 700 (line-neutral: one field on the existing `baseInput` literal), `runtime-services.ts` \u2264 1186, every other touched file \u2264 its architecture-map ceiling (extract into the NEW modules where needed); no wrapper, shim, alias, dead branch or \"legacy\" naming."
       ],
       "depends_on": [
         "ASKFLOOR-1-T3c"
       ],
-      "user_facing": false
+      "user_facing": false,
+      "write_scope": [
+        "apps/core/src/application/permissions/human-decision-job-projection.ts",
+        "apps/core/src/runtime/ipc-permission-job-projection.ts",
+        "apps/core/src/runtime/permission-decision-coordinator.ts",
+        "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+        "apps/core/src/runtime/ipc-interaction-processing.ts",
+        "apps/core/src/runtime/agent-spawn-types.ts",
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+        "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+        "apps/core/src/app/bootstrap/inline-agent-loop-tool-types.ts",
+        "apps/core/src/app/bootstrap/runtime-services.ts",
+        "apps/core/src/jobs/execution-phases-run.ts",
+        "docs/architecture/permission-decision-memory.md",
+        "apps/core/test/unit/application/human-decision-job-projection.test.ts",
+        "apps/core/test/unit/bootstrap/runtime-services.test.ts",
+        "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+        "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+        "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+        "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+        "apps/core/test/unit/jobs/execution.test.ts",
+        "apps/core/test/unit/application/permission-management-service.test.ts",
+        "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts"
+      ],
+      "reviewer_focus": [
+        "Constitution (load-bearing): constitution/03-modular-monolith-structure.md \u2014 ONE application helper owns the projection matrix; runtime and bootstrap stay thin callers; ceilings hold (inline-agent-loop-tools.ts 750, permission-management-service.ts 745, domain/types.ts 740).",
+        "PRECEDENCE (AC2 normative; 0153, ruling 1): the projection is consulted by the coordinator at the T3b consult position (after deterministic rails and the validated-root stage) through the typed humanDecisionProjection input {ownerPersonId, memory: PermissionDecisionMemoryRepository, guard, warn}, for job requests with a host-resolved owner only, after the guard (IPC: applyIpcPermissionRouteGuard; inline: no-op) has passed; order exact, tool-kind, category-kind, tool-place, category-place; an overridable ASK resolves to allow_once with human_decision provenance built by decisionForMode; NO class overrides a non-overridable rail (T3b's predicate reused); place classes derive only from the validated canonicalRoot; facts are {effectHash, workspaceRoot, canonicalRoot?} and the five candidates are derived exactly as permission-human-memory-stage.ts derives them; the helper returns a match {recordId, scope} without re-filtering person/version/revocation and the coordinator builds the decision via decisionForMode; the guard returns a decision to short-circuit or undefined to proceed and the IPC guard is built inside ipc-permission-classifier-decision.ts over the private applyIpcPermissionRouteGuard; never a pre-rail short-circuit; reviewedRuleDecision and applyIpcPermissionRouteGuard untouched; the interactive consult stage untouched.",
+        "OWNER + AUDIT (AC2-AC5 normative; 0118, 0153): the owner is execution_context.personId of the job row \u2014 IPC via deps.opsRepository.getJobById(hostJobId) (missing job, blank person or repository failure = no projection + one warn; a worker request personId is ignored for jobs), scheduled/inline via AgentInput.jobOwnerPersonId set in runActiveJobAgent's baseInput; memoryUserId is never repurposed; a null/blank owner never consults the port; the matched id rides humanDecisionRecordId on PermissionApprovalDecision (domain/types.ts line-neutral) and is forwarded by the existing IPC post-apply audit call and by ONE narrow inline recordDecision closure from runtime-services.ts called only after a projection won.",
+        "MATRIX + KEYS (AC1 normative): candidates come from deriveHumanDecisionScopeKey with the same inputs the interactive lane uses; only outcome allow projects; a port failure is one warn and null (fail closed); jobs never write memory; the classifier never runs for a job (0121).",
+        "NO LEFTOVERS (owner ruling 2026-09-06): no wrapper, shim, alias, retained symbol, dead branch or 'legacy' naming anywhere in the diff \u2014 a blocking finding.",
+        "Verification: python3 factory/scripts/verify.py with GANTRY_TEST_DATABASE_URL exported; npm run test:integration:postgres."
+      ],
+      "plan_contracts": [
+        {
+          "id": "ASKFLOOR-1-T4-AC1",
+          "statement": "PROJECTION HELPER. NEW `application/permissions/human-decision-job-projection.ts` exports `projectHumanDecisionMatch({ ownerPersonId: string | null, request, facts: { effectHash, workspaceRoot, canonicalRoot? }, railVersion: RAIL_CATALOG_VERSION, memory: PermissionDecisionMemoryRepository, warn }) \u2192 Promise<ProjectedHumanDecisionMatch | null>` with `ProjectedHumanDecisionMatch = { recordId: string; scope: HumanDecisionScope }` (the coordinator builds the decision and sets `humanDecisionRecordId`): `null` when the owner is null/blank, when candidate derivation refuses, when no root is validated (place classes only), when `findHumanDecision` returns null, or when the row's outcome is not `allow`; never throws (a repository failure \u2192 one `warn`, `null` \u2014 fail closed); never writes; it does NOT re-filter person/version/revocation (repository-owned, `permission-decision-memory-repository.postgres.ts:249-257`). Unit tests with a fake repository (helper-owned proofs only, grill r3 #3): the candidates passed equal, in order, the five the interactive stage derives for the same facts (tool-kind with `trustGrowthTool: true`, category-kind with `false`); a returned row yields `{ recordId, scope }`; a deny-outcome row \u2192 `null`; blank owner and place-without-root \u2192 `null` with no repository call; derivation refusal \u2192 `null`; a throwing repository \u2192 `null` + one warn.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T4.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T4-AC2",
+          "statement": "COORDINATOR + IPC LANE. `permission-decision-coordinator.ts` accepts the NEW typed input `humanDecisionProjection` of ruling 1 (`{ ownerPersonId, memory: PermissionDecisionMemoryRepository, guard, warn }`) and, for a job request only, after deterministic rails and the validated-root stage (the T3b consult position, `:227-243`), invokes `guard(railDecision)` first (a returned decision stands and no lookup happens; `undefined` proceeds), then calls `projectHumanDecisionMatch` with the same facts the interactive consult builds; a returned match resolves an overridable ASK to `decisionForMode(request, 'allow_once', 'human_decision', 'machine')` stamped with `humanDecisionRecordId`; a non-overridable rail is never overridden; a null owner never consults the port; the interactive consult stage is untouched. NEW `runtime/ipc-permission-job-projection.ts` resolves the owner via `deps.opsRepository.getJobById(hostJobId)` (ruling 3) and supplies the repository and `warn`; the guard callback is built inside `ipc-permission-classifier-decision.ts` over the private `applyIpcPermissionRouteGuard`; `resolvePermissionIpcDecision` (`ipc-permission-classifier-decision.ts:75-188`) passes the input to the coordinator; `reviewedRuleDecision` and `applyIpcPermissionRouteGuard` are unchanged; the classifier never runs for a job (0121 pin). The IPC post-apply audit call (`ipc-interaction-processing.ts:327-332`) forwards `humanDecisionRecordId` beside `jobId`. Ceilings hold. Tests: coordinator suite (existing `test/unit/runtime/permission-decision-coordinator.test.ts`) \u2014 one case per precedence-table row against a hard rail, an escaping target never matching a place row, an overridable ASK resolved by exact/kind/place to `allow_once` with `human_decision` provenance and `humanDecisionRecordId` set, a non-overridable rail not overridden, a null owner never consulting the repository, a guard-returned decision standing with zero lookups; `test/unit/runtime/ipc-permission-classifier-decision.test.ts` \u2014 owner from `getJobById`, a forged request `personId` ignored, missing job / blank owner / throwing repository \u21d2 no projection + one warn, classifier never called, and a host job with an owner, a would-match repository and an ABSENT route \u21d2 denial with sanitised risk fields and zero repository calls (proves the delegation the coordinator's fake guard cannot); `test/unit/runtime/ipc-interaction-handler.test.ts` \u2014 the production audit call forwards `humanDecisionRecordId` + `jobId`.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T4.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T4-AC3",
+          "statement": "INLINE SCHEDULED LANE (grill r1 #7). ONE seam: `inline-permission-memory.ts` gains `inlineScheduledProjection(...)` that builds the same typed `humanDecisionProjection` coordinator input (owner from `AgentInput.jobOwnerPersonId`, the composed repository, a no-op guard, `warn`) and the inline coordinator call (`inline-agent-loop-tools.ts:395`) passes it (\u2264 5 changed lines in the inline file); the tail (`:412-448`) EXCLUDES scheduled runs from classifier consultation \u2014 a scheduled request with no projection takes the deterministic miss/cancellation even when the classifier would have returned low (an intended behaviour change: 0121); the audit closure (ruling 2) is called after the final coordinator result (`:567`) only when the result carries `humanDecisionRecordId`. The interactive auto lane is untouched. Tests (`test/unit/bootstrap/inline-agent-loop-tools.test.ts`): rewrite the scheduled portion of the remembered-inline Allow test (`:1086-1186`) to assert projection, no classifier call, and the audit write; a no-projection scheduled request cancels even when the classifier stub returns low; keep the independent classifier-audit regression (`:1189-1211`) for interactive auto; a scheduled run with a blank owner projects nothing and never calls the repository. `test/unit/bootstrap/runtime-services.test.ts`: the production wiring supplies the inline `recordDecision` closure and the repository (inline tests inject deps directly through `wireInlineAgentLoopTools`, `:65-120`, so they cannot prove production wiring \u2014 grill r2 #4).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T4.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T4-AC4",
+          "statement": "OWNER THREADING. `runtime/agent-spawn-types.ts:58` gains `jobOwnerPersonId?: string | null`; `runActiveJobAgent` (`jobs/execution-phases-run.ts:288-305`) sets it in `baseInput` from `currentJob.execution_context?.personId ?? null`; `memoryUserId` (`:102`) unchanged. Tests (`test/unit/jobs/execution.test.ts`): the existing `runAgent` expectation asserts the canonical owner on the scheduled `AgentInput` and, separately, that `memoryUserId` is unchanged; a group-created job (null person) yields a null owner; `job-acting-identity.test.ts` unchanged and green.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T4.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T4-AC5",
+          "statement": "AUDIT. `test/unit/application/permission-management-service.test.ts` gains a NEW leaf (beside the skill-action audit at `:241-277`): `auditMetadata.humanDecisionRecordId` on a permission decision is retained in saved `actorContext` beside `jobId`.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T4.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T4-AC6",
+          "statement": "POSTGRES. `test/integration/permission-decision-memory.postgres.integration.test.ts` (`:714-750`) gains a database-backed projection-matrix case through the helper: a row written by the T3a service for person A projects for A's job and not for B's, not after revocation, and not from another rail version (repository-owned filters, proved here); no new memory writer.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T4.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T4-AC7",
+          "statement": "`docs/architecture/permission-decision-memory.md:26-32` is updated: autonomous job lanes consult human-decision memory ONLY through the projection (read-only, owner-scoped, post-rails, guarded), never through the interactive stage. Existing unit and Postgres suites pass; tsc and check:architecture green; `inline-agent-loop-tools.ts` \u2264 750, `permission-management-service.ts` \u2264 745, `domain/types.ts` \u2264 740 (line-neutral), `jobs/execution-phases-run.ts` \u2264 700 (line-neutral: one field on the existing `baseInput` literal), `runtime-services.ts` \u2264 1186, every other touched file \u2264 its architecture-map ceiling (extract into the NEW modules where needed); no wrapper, shim, alias, dead branch or \"legacy\" naming.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T4.md#acceptance-criteria"
+        }
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py",
+        "npx tsc --noEmit",
+        "npm run check:architecture",
+        "npm run test:integration:postgres"
+      ],
+      "review_budget": {
+        "max_changed_files": 24,
+        "max_changed_lines": 2400,
+        "reason": "22-file exact scope (architecture doc + runtime-services wiring leaf added in grill r2). One NEW application helper, one NEW small runtime module for the IPC owner resolution, the coordinator's typed projection input at the T3b consult position, the IPC post-apply audit forwarding, the line-neutral decision carrier, the inline seam through inline-permission-memory.ts plus the classifier exclusion, the inline audit closure from runtime-services.ts, owner threading in agent-spawn-types.ts and execution-phases-run.ts, one NEW unit suite and seven existing suites."
+      },
+      "required_tests": [
+        {
+          "id": "passes the five candidates in the interactive order returns the record id and scope for an allow row and null for a deny row a blank owner a place without root a derivation refusal and a throwing repository with one warn",
+          "path": "apps/core/test/unit/application/human-decision-job-projection.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "projects a job owner's remembered Allow after rails in exact tool-kind category-kind tool-place category-place order resolving an overridable ask to allow_once with human_decision provenance and humanDecisionRecordId never overriding a non-overridable rail never matching a place row for an escaping target letting a guard-returned decision stand with zero lookups and never consulting the repository for a null owner",
+          "path": "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "resolves the job owner through getJobById ignores a worker-supplied personId projects nothing with one warn for a missing job blank owner or throwing repository denies an absent route with sanitised risk and zero repository calls even when a record would match and never runs the classifier for a job",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "forwards humanDecisionRecordId beside jobId from the production post-apply audit call",
+          "path": "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "consults the projection for a scheduled run with the job owner never calls the classifier cancels a no-projection scheduled request even when the classifier would return low audits the matched record id after the projection wins and projects nothing for a blank owner while the interactive auto lane is unchanged",
+          "path": "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "wires the inline record-decision closure and the decision-memory repository into the scheduled projection input",
+          "path": "apps/core/test/unit/bootstrap/runtime-services.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "binds the canonical job owner from execution_context.personId into the scheduled AgentInput and a null owner for a group-created job without changing memoryUserId",
+          "path": "apps/core/test/unit/jobs/execution.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "retains humanDecisionRecordId beside jobId in the saved actor context of a permission decision",
+          "path": "apps/core/test/unit/application/permission-management-service.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "projects a row written for person A for A's job and not for B's job not after revocation and not from another rail version without writing memory",
+          "path": "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ]
     },
     {
       "id": "ASKFLOOR-1-T5a",
@@ -991,5 +1121,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "81ba9bb563daf56f163b9fc3aa166d170ce716d5"
+  "commit": "12a9b6ca4ca01ef17ad6745fb520e41298242238"
 }
