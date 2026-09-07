@@ -240,7 +240,7 @@ describe('McpServerService', () => {
       expect.objectContaining({
         eventType: 'connect',
         serverId: server.id,
-        actorId: 'admin',
+        actorId: { kind: 'system', source: 'admin' },
       }),
     );
   });
@@ -698,7 +698,7 @@ describe('McpServerService', () => {
       expect.arrayContaining([
         expect.objectContaining({
           eventType: 'reconnect',
-          actorId: 'test-admin',
+          actorId: { kind: 'system', source: 'test-admin' },
         }),
         expect.objectContaining({ eventType: 'unbind' }),
       ]),

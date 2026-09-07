@@ -138,7 +138,7 @@ export async function publishInvalidMcpToolRequestAudit(input: {
     appId: input.appId,
     agentId: input.agentId,
     eventType: 'tool_activity',
-    actorId: 'mcp-tool-handler',
+    actorId: { kind: 'system', source: 'mcp-tool-handler' },
     reason,
     metadata: payload,
     createdAt: nowIso() as never,

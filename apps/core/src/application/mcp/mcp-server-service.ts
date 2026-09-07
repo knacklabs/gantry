@@ -142,7 +142,9 @@ export class McpServerService {
       appId: input.appId,
       serverId,
       eventType: 'connect',
-      actorId: input.createdBy,
+      actorId: input.createdBy
+        ? { kind: 'system', source: input.createdBy }
+        : undefined,
       reason: input.requestedReason,
       metadata: { createdSource: definition.createdSource },
     });
@@ -195,7 +197,9 @@ export class McpServerService {
       appId: input.appId,
       serverId: server.id,
       eventType: 'disable',
-      actorId: input.disabledBy,
+      actorId: input.disabledBy
+        ? { kind: 'system', source: input.disabledBy }
+        : undefined,
       reason: input.reason,
     });
     return transitioned;
@@ -270,7 +274,9 @@ export class McpServerService {
           serverId: server.id,
           bindingId: binding.id,
           eventType: 'unbind',
-          actorId: input.reconnectedBy,
+          actorId: input.reconnectedBy
+            ? { kind: 'system', source: input.reconnectedBy }
+            : undefined,
           reason: 'MCP source reconnected; explicit reattachment is required.',
         }),
       ),
@@ -279,7 +285,9 @@ export class McpServerService {
       appId: input.appId,
       serverId: server.id,
       eventType: 'reconnect',
-      actorId: input.reconnectedBy,
+      actorId: input.reconnectedBy
+        ? { kind: 'system', source: input.reconnectedBy }
+        : undefined,
       reason: input.reason,
       metadata: { disabledBindingCount: disabledBindings.length },
     });
@@ -303,7 +311,9 @@ export class McpServerService {
       appId: input.appId,
       serverId: server.id,
       eventType: 'test',
-      actorId: input.testedBy,
+      actorId: input.testedBy
+        ? { kind: 'system', source: input.testedBy }
+        : undefined,
       metadata: { transport: server.transport },
     });
     return {

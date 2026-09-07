@@ -1044,6 +1044,13 @@
       "when": 1788783365679,
       "tag": "20260907121605_runtime_event_principal_refs",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1788783541737,
+      "tag": "20260907121901_mcp_audit_principal_refs",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import type {
 import type { PermissionPolicyId } from '../permissions/permissions.js';
 import type { BrandedId } from '../../shared/ids/branded-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
+import type { PrincipalRef } from '../identity/principal-ref.js';
 
 export type McpServerId = BrandedId<'McpServerId'>;
 export type AgentMcpServerBindingId = BrandedId<'AgentMcpServerBindingId'>;
@@ -152,7 +153,7 @@ export interface McpServerAuditEvent {
   serverId?: McpServerId;
   bindingId?: AgentMcpServerBindingId;
   eventType: McpServerAuditEventType;
-  actorId?: string;
+  actorId?: PrincipalRef;
   reason?: string;
   metadata: Record<string, unknown>;
   createdAt: IsoTimestamp;

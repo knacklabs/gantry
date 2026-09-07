@@ -286,7 +286,7 @@ export function createInlineCoreTools(
       serverId: capability?.serverId as never,
       bindingId: capability?.bindingId as never,
       eventType: 'tool_activity',
-      actorId: 'inline-agent',
+      actorId: { kind: 'system', source: 'inline-agent' },
       metadata: payload,
       createdAt: new Date().toISOString() as never,
     });
