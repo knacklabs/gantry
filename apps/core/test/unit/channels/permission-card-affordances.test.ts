@@ -78,6 +78,19 @@ describe('permission card affordances', () => {
       "I'll keep saying no to this exact action. Change it with /permissions.",
     );
 
+    const read = await buildPermissionCardAffordances({
+      request: request({
+        toolName: 'FileRead',
+        toolInput: { file_path: '/workspace/project/report.md' },
+      }),
+      rememberContext: context(),
+      highRisk: false,
+    });
+    expect(read.preTapLines[0]).toBe('Allow will remember: this exact action');
+    expect(formatPermissionCardReceipt(read, 'remember_allow_exact')).toBe(
+      'Remembered: this exact action. Change it any time with /permissions.',
+    );
+
     const write = await buildPermissionCardAffordances({
       request: request({
         toolName: 'FileWrite',

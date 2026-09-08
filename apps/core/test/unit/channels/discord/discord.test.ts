@@ -4414,10 +4414,16 @@ describe('DiscordChannel', () => {
     );
 
     let socket!: FakeWebSocket;
-    const onMessageAction = vi.fn(async () => ({
-      state: 'applied' as const,
-      receipt: 'Forgot.',
-    }));
+    let resolveForget!: (outcome: {
+      state: 'applied';
+      receipt: string;
+    }) => void;
+    const onMessageAction = vi.fn(
+      () =>
+        new Promise<{ state: 'applied'; receipt: string }>((resolve) => {
+          resolveForget = resolve;
+        }),
+    );
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async (input) =>
@@ -4478,12 +4484,25 @@ describe('DiscordChannel', () => {
         body: JSON.stringify({
           type: 4,
           data: {
-            content: 'Forgot.',
+            content: 'Processing.',
             flags: 64,
             allowed_mentions: { parse: [] },
           },
         }),
       }),
+    );
+    resolveForget({ state: 'applied', receipt: 'Forgot.' });
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://discord.com/api/v10/webhooks/app-id/forget-token/messages/@original',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({
+            content: 'Forgot.',
+            allowed_mentions: { parse: [] },
+          }),
+        }),
+      ),
     );
     await channel.disconnect();
   });

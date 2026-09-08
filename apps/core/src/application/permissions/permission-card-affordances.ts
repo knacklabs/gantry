@@ -15,6 +15,11 @@ import {
 import { isFamilyRunCommandRule } from '../../shared/family-rule-synthesis.js';
 import { USER_FACING_TOOL_LABELS } from '../../shared/permission-tool-labels.js';
 import { sanitizeOutboundLlmText } from '../../shared/sensitive-material.js';
+import {
+  GantryToolRiskVerdict,
+  gantryNativeCanonicalToolName,
+  gantryToolRisk,
+} from './gantry-tool-risk.js';
 import type { PermissionRememberContext } from './human-decision-learning.js';
 
 export interface BuildPermissionCardAffordancesInput {
@@ -245,6 +250,29 @@ function familyAlternative(
 function permissionWritePath(
   request: PermissionApprovalRequest,
 ): string | undefined {
+  if (!isPermissionWrite(request)) return undefined;
+  return permissionPath(request);
+}
+
+function isPermissionWrite(request: PermissionApprovalRequest): boolean {
+  const publicToolName = publicGantryToolNameForSdkTool(request.toolName);
+  if (publicToolName === 'FileWrite' || publicToolName === 'FileEdit') {
+    return true;
+  }
+  const action = request.toolInput?.action;
+  return (
+    gantryNativeCanonicalToolName(request.toolName)?.canonical === 'file' &&
+    (action === 'write' || action === 'promote_scratch') &&
+    gantryToolRisk({
+      toolName: request.toolName,
+      toolInput: request.classifierToolInput ?? request.toolInput,
+    }).verdict !== GantryToolRiskVerdict.Ambiguous
+  );
+}
+
+function permissionPath(
+  request: PermissionApprovalRequest,
+): string | undefined {
   const input = request.toolInput;
   const path = input?.file_path ?? input?.path ?? input?.targetPath;
   return typeof path === 'string' && path.trim()
@@ -253,7 +281,7 @@ function permissionWritePath(
 }
 
 function protectedPath(request: PermissionApprovalRequest): string | undefined {
-  const path = request.blockedPath?.trim() || permissionWritePath(request);
+  const path = request.blockedPath?.trim() || permissionPath(request);
   return path ? sanitizePermissionCardText(path, 250, 100) : undefined;
 }
 

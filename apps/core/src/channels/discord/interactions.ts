@@ -286,8 +286,11 @@ export class DiscordInteractionHandler {
       const userId = interaction.member?.user?.id || interaction.user?.id;
       const directAction = parseDiscordDirectMessageAction(customId);
       if (directAction) {
-        if (directAction.kind === 'live_turn_stop')
+        if (directAction.kind === 'live_turn_stop') {
           await this.ackInteraction(interaction, 'Checking stop request.');
+        } else {
+          await this.ackInteraction(interaction, 'Processing.');
+        }
         const context = await this.input.resolveInteractionConversationContext(
           interaction.channel_id,
         );
@@ -299,7 +302,8 @@ export class DiscordInteractionHandler {
           userId,
         });
         if (directAction.kind === 'memory_forget')
-          await this.ackInteraction(
+          await updateDiscordInteractionResponse(
+            this.input.applicationId,
             interaction,
             outcome?.receipt ?? 'Not available yet.',
           );
