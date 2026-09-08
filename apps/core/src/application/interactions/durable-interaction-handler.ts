@@ -53,7 +53,10 @@ export async function beginDurablePermissionInteraction(input: {
     payload: {
       ...input.payload,
       ...(input.rememberContext
-        ? { rememberContext: input.rememberContext }
+        ? {
+            rememberContext: input.rememberContext,
+            cardAffordances: input.request.cardAffordances,
+          }
         : {}),
     },
     callbackRoute: input.callbackRoute,

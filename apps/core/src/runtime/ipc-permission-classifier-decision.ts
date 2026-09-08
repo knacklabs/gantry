@@ -232,7 +232,9 @@ interface PermissionIpcDecisionTailInput {
   route?: ConversationRoute;
   settings?: PermissionRuntimeSettings;
   permissionMode: PermissionMode;
-  context: PermissionDecisionTailContext & { readonly analysis: AutoLaneAnalysis };
+  context: PermissionDecisionTailContext & {
+    readonly analysis: AutoLaneAnalysis;
+  };
 }
 
 interface IpcClassifierConsultResult {

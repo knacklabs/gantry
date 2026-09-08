@@ -53,4 +53,3 @@ export function formatPermissionCardReceipt(
 ): string | undefined {
   return affordances.postTapLines[code];
 }
-

@@ -10,6 +10,7 @@ import type {
   PermissionCallbackClaimReference,
   PermissionCallbackScope,
   PermissionRecoveryEnvelope,
+  PermissionRememberCode,
 } from '../../domain/types.js';
 import {
   parsePermissionRememberContext,
@@ -463,10 +464,49 @@ export async function rememberSettlementForClaim(
   const context = parsePermissionRememberContext(
     group.members[0]?.payload.rememberContext,
   );
-  const resolution = decodePermissionDecisionCode(
-    group.prompt.claim.intent.mode,
-  );
-  return context && resolution ? { context, resolution } : null;
+  const request = group.members[0]
+    ? permissionRequestFromPayload(group.members[0].payload)
+    : null;
+  const resolution = request
+    ? effectivePermissionDecisionCode(request, group.prompt.claim.intent.mode)
+    : null;
+  return context && resolution
+    ? {
+        context,
+        resolution: {
+          mode: resolution.mode,
+          ...(resolution.remember ? { remember: resolution.remember } : {}),
+        },
+      }
+    : null;
+}
+
+export function effectivePermissionDecisionCode(
+  request: PermissionApprovalRequest,
+  code: string,
+):
+  | (DecodedPermissionDecisionCode & {
+      effectiveRememberCode?: PermissionRememberCode;
+    })
+  | null {
+  const decoded = decodePermissionDecisionCode(code);
+  if (!decoded) return null;
+  const rememberCode = decoded.remember
+    ? (code as PermissionRememberCode)
+    : null;
+  return rememberCode && request.cardAffordances?.offered.includes(rememberCode)
+    ? { ...decoded, effectiveRememberCode: rememberCode }
+    : { mode: decoded.mode };
+}
+
+function effectivePermissionClaimReference(
+  claim: PermissionCallbackClaim,
+  effectiveRememberCode?: PermissionRememberCode,
+): PermissionCallbackClaimReference {
+  return {
+    ...permissionClaimReference(claim),
+    ...(effectiveRememberCode ? { effectiveRememberCode } : {}),
+  };
 }
 
 export async function resolveDurablePermissionInteractionByRequestId(input: {
@@ -622,7 +662,10 @@ function recoveredPermissionDecision(input: {
   claim: PermissionCallbackClaim;
   reason?: string | null;
 }): PermissionApprovalDecision {
-  const decoded = decodePermissionDecisionCode(input.claim.intent.mode);
+  const decoded = effectivePermissionDecisionCode(
+    input.request,
+    input.claim.intent.mode,
+  );
   if (!decoded) throw new Error('Persisted permission decision is malformed');
   const decision = decisionForMode(
     input.request,
@@ -631,6 +674,9 @@ function recoveredPermissionDecision(input: {
   );
   return {
     ...decision,
-    permissionCallbackClaim: permissionClaimReference(input.claim),
+    permissionCallbackClaim: effectivePermissionClaimReference(
+      input.claim,
+      decoded.effectiveRememberCode,
+    ),
   };
 }

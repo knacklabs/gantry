@@ -1,17 +1,7 @@
 // prettier-ignore
 import { dispatchDiscordSchedulerInteraction } from './scheduler-interactions.js';
-import {
-  MessageDeliveryResult,
-  MessageSendOptions,
-  PermissionApprovalCancellation,
-  PermissionApprovalDecision,
-  PermissionApprovalDecisionMode,
-  PermissionApprovalRequest,
-  PermissionApprovalResult,
-  RichInteractionRequest,
-  UserQuestionCancellation,
-  UserQuestionRequest,
-} from '../../domain/types.js';
+// prettier-ignore
+import { MessageDeliveryResult, MessageSendOptions, PermissionApprovalCancellation, PermissionApprovalDecision, PermissionApprovalDecisionMode, PermissionApprovalRequest, PermissionApprovalResult, RichInteractionRequest, UserQuestionCancellation, UserQuestionRequest } from '../../domain/types.js';
 import {
   claimPermissionInteractionCallback,
   DurableInteractionPersistenceError,
@@ -35,7 +25,7 @@ import {
 import { type ChannelOpts } from '../channel-provider.js';
 import {
   buttonRows,
-  LIVE_STOP_CUSTOM_ID_PREFIX,
+  parseDiscordDirectMessageAction,
   parseQuestionCustomId,
   PERMISSION_CUSTOM_ID_PREFIX,
   permissionCustomId,
@@ -83,7 +73,6 @@ export class DiscordInteractionHandler {
   private pendingPermissions = new Map<string, PendingPermission>();
   private pendingQuestions = new Map<string, PendingDiscordQuestion>();
   private readonly richForms = new Map<string, RichInteractionRequest>();
-
   constructor(
     private readonly input: {
       botToken: string;
@@ -103,6 +92,7 @@ export class DiscordInteractionHandler {
       ) => Promise<DiscordConversationContext>;
     },
   ) {}
+
   dropPendingInteraction(
     kind: 'permission' | 'question',
     request: PermissionApprovalRequest | UserQuestionRequest,
@@ -177,7 +167,7 @@ export class DiscordInteractionHandler {
         : []),
       ...modes.map((mode) => ({
         label: permissionButtonLabel(mode, request),
-        style: mode === 'cancel' ? 4 : 1,
+        style: mode === 'cancel' || mode === 'remember_deny_exact' ? 4 : 1,
         custom_id: permissionCustomId(callback.providerAlias, mode),
       })),
     ];
@@ -294,19 +284,25 @@ export class DiscordInteractionHandler {
     if (interaction.type === 3) {
       const customId = interaction.data?.custom_id || '';
       const userId = interaction.member?.user?.id || interaction.user?.id;
-      if (customId.startsWith(LIVE_STOP_CUSTOM_ID_PREFIX)) {
-        await this.ackInteraction(interaction, 'Checking stop request.');
+      const directAction = parseDiscordDirectMessageAction(customId);
+      if (directAction) {
+        if (directAction.kind === 'live_turn_stop')
+          await this.ackInteraction(interaction, 'Checking stop request.');
         const context = await this.input.resolveInteractionConversationContext(
           interaction.channel_id,
         );
-        await this.input.opts.onMessageAction?.({
-          kind: 'live_turn_stop',
+        const outcome = await this.input.opts.onMessageAction?.({
+          ...directAction,
           conversationJid: context.conversationJid,
           providerAccountId: this.input.opts.providerAccountId,
           ...(context.threadId ? { threadId: context.threadId } : {}),
           userId,
-          actionToken: customId.slice(LIVE_STOP_CUSTOM_ID_PREFIX.length),
         });
+        if (directAction.kind === 'memory_forget')
+          await this.ackInteraction(
+            interaction,
+            outcome?.receipt ?? 'Not available yet.',
+          );
         return;
       }
       if (customId.startsWith('jp:')) {

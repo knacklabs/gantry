@@ -129,6 +129,8 @@ export function formatPermissionBatchPromptText(
         `🔐 ${batch.title}`,
         '',
         ...batch.rows,
+        '',
+        BATCH_PERMISSION_MEMORY_LINE,
         ...(timeoutMs > 0 || waitsForDecision
           ? [
               '',
@@ -155,11 +157,14 @@ export function buildPermissionBatchPromptParts(
     ? {
         title: batch.title,
         bodyLines: batch.rows,
-        contextLines: [],
+        contextLines: [BATCH_PERMISSION_MEMORY_LINE],
         replyInMinutes: batch.replyInMinutes,
       }
     : undefined;
 }
+
+const BATCH_PERMISSION_MEMORY_LINE =
+  'Allow all and Deny all are once-only. Tap Review each to decide one at a time — those cards can remember.';
 
 export type PermissionBatchFlushReason =
   | 'window_elapsed'

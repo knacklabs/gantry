@@ -6,6 +6,7 @@ export type MessageActionAffordanceKind =
   | 'scheduler_retry_ask'
   | 'live_turn_stop'
   | 'job_permission_decision'
+  | 'memory_forget'
   | 'memory_review_decision'
   | 'observer_feedback'
   | 'brain_dream_review_decision';
@@ -40,6 +41,7 @@ export type MessageActionAffordance =
       label: string;
       actionToken: string;
     }
+  | { kind: 'memory_forget'; label: string; recordId: string }
   | {
       kind: 'memory_review_decision';
       label: string;
@@ -107,6 +109,14 @@ export type MessageActionCallbackInput =
       actionToken: string;
     }
   | {
+      kind: 'memory_forget';
+      conversationJid: string;
+      providerAccountId?: string;
+      threadId?: string;
+      userId?: string;
+      recordId: string;
+    }
+  | {
       kind: 'memory_review_decision';
       conversationJid: string;
       providerAccountId?: string;
@@ -153,6 +163,11 @@ export type BrainDreamReviewMessageActionInput = Extract<
   { kind: 'brain_dream_review_decision' }
 >;
 
+export type MemoryForgetMessageActionInput = Extract<
+  MessageActionCallbackInput,
+  { kind: 'memory_forget' }
+>;
+
 /**
  * Result a message-action handler returns to the provider adapter so it can
  * render a receipt and decide whether to clear/replace the action buttons.
@@ -181,6 +196,10 @@ export type OnObserverFeedbackMessageAction = (
 
 export type OnBrainDreamReviewMessageAction = (
   input: BrainDreamReviewMessageActionInput,
+) => Promise<MessageActionOutcome | void>;
+
+export type OnMemoryForgetMessageAction = (
+  input: MemoryForgetMessageActionInput,
 ) => Promise<MessageActionOutcome | void>;
 
 export type OnMessageAction = (

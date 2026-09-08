@@ -209,6 +209,7 @@ export class HumanDecisionMemoryService {
     appId: string;
     agentFolder: string;
     actingPersonId: string;
+    railVersion: number;
   }) {
     return this.repository.countExactAllowsByTool(input);
   }

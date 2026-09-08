@@ -3,7 +3,11 @@ import {
   recoverDurablePermissionDecision,
   releasePermissionInteractionCallback,
 } from '../../application/interactions/pending-interaction-durability.js';
-import type { PermissionApprovalRequest } from '../../domain/types.js';
+import { effectivePermissionDecisionCode } from '../../application/interactions/pending-interaction-permission-callback.js';
+import type {
+  PermissionApprovalDecisionMode,
+  PermissionApprovalRequest,
+} from '../../domain/types.js';
 import {
   decisionForMode,
   permissionDecisionOptions,
@@ -79,9 +83,16 @@ export async function handleDiscordPermissionCallback(input: {
   });
   if (claimed.status === 'already_decided') return;
   if (claimed.status === 'retryable') return;
+  const decoded = effectivePermissionDecisionCode(pending.request, parsed.mode);
+  if (!decoded) return;
   const decision = {
-    ...decisionForMode(pending.request, parsed.mode, userId),
-    permissionCallbackClaim: claimed.claim,
+    ...decisionForMode(pending.request, decoded.mode, userId),
+    permissionCallbackClaim: {
+      ...claimed.claim,
+      ...(decoded.effectiveRememberCode
+        ? { effectiveRememberCode: decoded.effectiveRememberCode }
+        : {}),
+    },
   };
   if (
     !(await settle(
@@ -131,7 +142,7 @@ async function recoverDurablePermission(input: {
       providerAlias: input.parsed.providerAlias,
     },
     surfaceJid: context.conversationJid,
-    incomingMode: input.parsed.mode,
+    incomingMode: input.parsed.mode as PermissionApprovalDecisionMode,
     incomingApprover: input.userId,
     authorize: (durable) =>
       input.isApproverAllowed(

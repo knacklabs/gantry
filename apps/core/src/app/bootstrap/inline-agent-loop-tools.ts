@@ -398,7 +398,7 @@ export function createInlineCoreTools(
         // prettier-ignore
         humanDecisionProjection: remember.inlineScheduledProjection({ run, deps }),
         skipClassifierVerdictCache: true,
-        tail: async () => {
+        tail: async (permissionTailContext) => {
           const promotion = promotionRepository
             ? { repository: promotionRepository }
             : undefined;
@@ -487,7 +487,7 @@ export function createInlineCoreTools(
             request,
             sourceAgentFolder: laneInput.group.folder,
             // prettier-ignore
-            rememberContext: await remember.inlinePermissionRememberContext({ run, laneInput, request, deps }),
+            rememberContext: await remember.inlinePermissionRememberContext({ run, laneInput, request, deps, canonicalRoot: permissionTailContext?.canonicalRoot }),
             beforePrompt: async () => {
               laneInput.jobActivity.beginPermissionRequest(
                 request.requestId,

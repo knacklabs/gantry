@@ -56,6 +56,12 @@ export function readTeamsMessageAction(value: unknown):
       threadId?: string;
     }
   | {
+      kind: 'memory_forget';
+      recordId: string;
+      targetJid: string;
+      threadId?: string;
+    }
+  | {
       kind: 'memory_review_decision';
       reviewId: string;
       decision: MemoryReviewActionDecision;
@@ -98,6 +104,19 @@ export function readTeamsMessageAction(value: unknown):
     return {
       kind: 'job_permission_decision',
       actionToken: payload.actionToken,
+      targetJid: payload.targetJid,
+      ...(typeof payload.threadId === 'string'
+        ? { threadId: payload.threadId }
+        : {}),
+    };
+  }
+  if (payload.kind === 'memory_forget') {
+    if (typeof payload.recordId !== 'string' || !payload.recordId.trim()) {
+      return null;
+    }
+    return {
+      kind: 'memory_forget',
+      recordId: payload.recordId,
       targetJid: payload.targetJid,
       ...(typeof payload.threadId === 'string'
         ? { threadId: payload.threadId }
@@ -262,6 +281,25 @@ export async function handleTeamsMessageAction(input: {
       teamsConversationIdFromJid(input.jid),
       'This action belongs to a different chat.',
     );
+    return true;
+  }
+  if (payload.kind === 'memory_forget') {
+    const outcome = await input.onMessageAction?.({
+      kind: 'memory_forget',
+      conversationJid: input.jid,
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
+        : {}),
+      userId: input.userId,
+      recordId: payload.recordId,
+      ...(payload.threadId ? { threadId: payload.threadId } : {}),
+    });
+    if (outcome) {
+      await input.sendDenied(
+        teamsConversationIdFromJid(input.jid),
+        outcome.receipt,
+      );
+    }
     return true;
   }
   if (payload.kind === 'memory_review_decision') {

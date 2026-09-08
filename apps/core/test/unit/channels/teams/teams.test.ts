@@ -1808,6 +1808,129 @@ describe('TeamsChannel adapter scaffold', () => {
     });
   });
 
+  it('passes a tapped remember code verbatim into the durable claim renders ten Forget buttons as per-row ActionSets and settles a memory_forget tap on Teams', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined;
+    const onMessageAction = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Forgot.',
+    }));
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: globalThis.crypto.randomUUID(),
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      {
+        ...makeOpts(),
+        onMessageAction,
+        isControlApproverAllowed: vi.fn(async () => true),
+      },
+      sdkClient,
+    );
+    await channel.connect();
+    const cardAffordances = {
+      eligible: true,
+      offered: ['remember_allow_exact' as const],
+      destructive: false,
+      protected: false,
+      preTapLines: [
+        'Allow will remember: this exact action',
+        'No will remember: this exact action.',
+      ],
+      postTapLines: {
+        remember_allow_exact:
+          'Remembered: this exact action. Change it any time with /permissions.',
+      },
+    };
+    const request: PermissionApprovalRequest = {
+      requestId: 'perm-teams-remember',
+      sourceAgentFolder: 'teams_engineering',
+      targetJid: 'teams:19:abc@thread.v2',
+      toolName: 'Bash',
+      cardAffordances,
+    };
+    const repository = configureTeamsPermissionRequest(request);
+    const approval = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', request)
+      .then(requirePermissionDecision);
+    await vi.waitFor(() =>
+      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
+    );
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        action: 'permission_decision',
+        callback: latestTeamsPermissionCallback(sdkClient),
+        decision: 'remember_allow_exact',
+      },
+    });
+
+    await expect(approval).resolves.toMatchObject({ approved: true });
+    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledWith({
+      claim: expect.objectContaining({
+        intent: expect.objectContaining({ mode: 'remember_allow_exact' }),
+      }),
+    });
+
+    await channel.sendMessage('teams:19:abc@thread.v2', 'Permissions', {
+      threadId: 'root-message',
+      actionAffordances: Array.from({ length: 10 }, (_, index) => ({
+        kind: 'memory_forget' as const,
+        label: `Forget ${String(index).padStart(6, '0')}`,
+        recordId: `record-${index}`,
+      })),
+    });
+    const forgetCard = sdkClient.sendAdaptiveCard.mock.calls.at(-1)?.[0]
+      .card as { body: Array<{ type?: string; actions?: unknown[] }> };
+    const actionSets = forgetCard.body.filter(
+      (element) => element.type === 'ActionSet',
+    );
+    expect(actionSets).toHaveLength(10);
+    expect(actionSets.every((element) => element.actions?.length === 1)).toBe(
+      true,
+    );
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      replyToId: 'permissions-card',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        data: {
+          action: 'message_action',
+          kind: 'memory_forget',
+          recordId: 'record-0',
+          targetJid: 'teams:19:abc@thread.v2',
+          threadId: 'root-message',
+        },
+      },
+    });
+    expect(onMessageAction).toHaveBeenCalledWith({
+      kind: 'memory_forget',
+      conversationJid: 'teams:19:abc@thread.v2',
+      providerAccountId: 'teams_default',
+      threadId: 'root-message',
+      userId: 'teams-user-1',
+      recordId: 'record-0',
+    });
+    expect(sdkClient.sendMessage).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+      text: 'Forgot.',
+    });
+  });
+
   async function connectTeamsForReviewAction(onMessageAction: any) {
     let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
       undefined;

@@ -5585,6 +5585,166 @@ describe('TelegramChannel', () => {
   });
 
   describe('permission approvals', () => {
+    it("passes an offered remember code verbatim into the durable claim settles it with its remembered receipt settles an unoffered code once-only with today's receipt and renders and settles a memory_forget tap on Telegram", async () => {
+      const runRemember = async (offered: boolean) => {
+        const requestId = `telegram-remember-${offered ? 'offered' : 'unoffered'}`;
+        const cardAffordances = {
+          eligible: true,
+          offered: offered ? (['remember_allow_exact'] as const) : [],
+          destructive: false,
+          protected: false,
+          preTapLines: [
+            'Allow will remember: this exact action',
+            'No will remember: this exact action.',
+          ],
+          postTapLines: {
+            remember_allow_exact:
+              'Remembered: this exact action. Change it any time with /permissions.',
+          },
+        };
+        const request = {
+          requestId,
+          sourceAgentFolder: 'whatsapp_main',
+          targetJid: 'tg:100200300',
+          toolName: 'Bash',
+          toolInput: { command: 'git log' },
+          cardAffordances,
+        };
+        const interactions = [
+          {
+            id: `pending-${requestId}`,
+            appId: 'default',
+            runId: null,
+            kind: 'permission' as const,
+            status: 'pending' as const,
+            payload: { request } as Record<string, unknown>,
+            idempotencyKey: `default:permission:whatsapp_main:${requestId}`,
+          },
+        ];
+        const claims = permissionClaimRepository(interactions);
+        configurePendingInteractionDurability({
+          repository: {
+            ...claims,
+            listPendingInteractions: vi.fn(async () => interactions),
+            updatePendingInteractionPayload: vi.fn((input) =>
+              updatePendingInteractionPayload(interactions, input),
+            ),
+          } as never,
+        });
+        const channel = new TelegramChannel(
+          'test-token',
+          createTestOpts({
+            isControlApproverAllowed: vi.fn(async () => true),
+          }),
+        );
+        await channel.connect();
+        const decision = channel
+          .requestPermissionApproval('tg:100200300', request)
+          .then(requirePermissionDecision);
+        await flushPromises();
+        const callback = latestPermissionCallback('Allow');
+        currentBot().api.deleteMessage.mockRejectedValueOnce(
+          new Error('show receipt'),
+        );
+
+        await triggerCallbackQuery({
+          callbackQuery: { data: callback },
+          chat: { id: 100200300 },
+          from: { id: 222, first_name: 'Admin' },
+          answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+        });
+
+        return {
+          claims,
+          decision: await decision,
+          receipt: currentBot().api.editMessageText.mock.calls.at(-1)?.[2],
+        };
+      };
+
+      const offered = await runRemember(true);
+      expect(
+        offered.claims.claimPendingPermissionCallback,
+      ).toHaveBeenCalledWith({
+        claim: expect.objectContaining({
+          intent: expect.objectContaining({
+            mode: 'remember_allow_exact',
+          }),
+        }),
+      });
+      expect(offered.decision.permissionCallbackClaim).toMatchObject({
+        effectiveRememberCode: 'remember_allow_exact',
+      });
+      expect(offered.receipt).toBe(
+        'Remembered: this exact action. Change it any time with /permissions.',
+      );
+
+      const unoffered = await runRemember(false);
+      expect(
+        unoffered.claims.claimPendingPermissionCallback,
+      ).toHaveBeenCalledWith({
+        claim: expect.objectContaining({
+          intent: expect.objectContaining({
+            mode: 'remember_allow_exact',
+          }),
+        }),
+      });
+      expect(unoffered.decision).toMatchObject({
+        approved: true,
+        mode: 'allow_once',
+      });
+      expect(unoffered.decision.permissionCallbackClaim).not.toHaveProperty(
+        'effectiveRememberCode',
+      );
+      expect(unoffered.receipt).toBe(
+        'Approved for this run only: Command (git log).',
+      );
+
+      const onMessageAction = vi.fn(async () => ({
+        state: 'applied' as const,
+        receipt: 'Forgot.',
+      }));
+      const channel = new TelegramChannel(
+        'test-token',
+        createTestOpts({ onMessageAction } as any),
+      );
+      await channel.connect();
+      await channel.sendMessage('tg:100200300', 'Permissions', {
+        actionAffordances: [
+          {
+            kind: 'memory_forget',
+            label: 'Forget a1b2c3',
+            recordId: '30000000-0000-4000-8000-000000000001',
+          },
+        ],
+      });
+      const forgetButton =
+        currentBot().api.sendMessage.mock.calls.at(-1)?.[2]?.reply_markup
+          .inline_keyboard[0][0];
+      expect(forgetButton).toMatchObject({ text: 'Forget a1b2c3' });
+      const answerCallbackQuery = vi.fn().mockResolvedValue(undefined);
+      await triggerCallbackQuery({
+        callbackQuery: {
+          data: forgetButton.callback_data,
+          message: { chat: { id: 100200300 }, message_thread_id: 42 },
+        },
+        chat: { id: 100200300 },
+        from: { id: 111 },
+        answerCallbackQuery,
+      });
+      expect(onMessageAction).toHaveBeenCalledWith({
+        kind: 'memory_forget',
+        conversationJid: 'tg:100200300',
+        providerAccountId: 'telegram_default',
+        threadId: '42',
+        userId: '111',
+        recordId: '30000000-0000-4000-8000-000000000001',
+      });
+      expect(answerCallbackQuery).toHaveBeenCalledWith({
+        text: 'Forgot.',
+        show_alert: true,
+      });
+    });
+
     it('CAPFIX-1-2 card keeps ability copy plain and the technical delta expandable', async () => {
       const channel = new TelegramChannel(
         'test-token',

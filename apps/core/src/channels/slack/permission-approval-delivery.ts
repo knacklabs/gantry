@@ -68,7 +68,7 @@ export function prepareSlackPermissionCardSend(input: {
           type: 'plain_text',
           text: permissionButtonLabel(mode, view.request),
         },
-        ...(mode === 'cancel'
+        ...(mode === 'cancel' || mode === 'remember_deny_exact'
           ? { style: 'danger' as const }
           : { style: 'primary' as const }),
         value: JSON.stringify({ callback, decision: mode }),
@@ -187,7 +187,7 @@ export async function requestSlackPermissionApproval(input: {
           type: 'plain_text',
           text: permissionButtonLabel(mode, input.request),
         },
-        ...(mode === 'cancel'
+        ...(mode === 'cancel' || mode === 'remember_deny_exact'
           ? { style: 'danger' as const }
           : { style: 'primary' as const }),
         value: JSON.stringify({

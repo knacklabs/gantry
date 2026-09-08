@@ -1,11 +1,13 @@
 import type {
   MessageSendOptions,
   PermissionApprovalDecisionMode,
+  PermissionRememberCode,
   ProgressUpdateOptions,
   UserQuestionRequest,
 } from '../../domain/types.js';
 
 export const LIVE_STOP_CUSTOM_ID_PREFIX = 'gantry:live_stop:';
+export const MEMORY_FORGET_CUSTOM_ID_PREFIX = 'gantry:memory_forget:';
 export const SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX = 'gantry:scheduler_run_now:';
 export const SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX =
   'gantry:scheduler_pause_job:';
@@ -44,6 +46,20 @@ export function discordActionComponents(
     });
   }
   for (const action of options?.actionAffordances ?? []) {
+    if (action.kind === 'memory_forget') {
+      const customId = `${MEMORY_FORGET_CUSTOM_ID_PREFIX}${action.recordId}`;
+      if (
+        action.recordId.trim() &&
+        customId.length <= DISCORD_CUSTOM_ID_MAX_LENGTH
+      ) {
+        buttons.push({
+          style: 4,
+          label: truncateDiscordButtonLabel(action.label),
+          custom_id: customId,
+        });
+      }
+      continue;
+    }
     if (action.kind === 'job_permission_decision') {
       if (action.actionToken.length <= DISCORD_CUSTOM_ID_MAX_LENGTH) {
         buttons.push({
@@ -81,6 +97,25 @@ export function discordActionComponents(
   // Discord accepts at most five action rows with five components each. The
   // current scheduler kind set is far below this defensive provider cap.
   return buttons.length ? buttonRows(buttons.slice(0, 25)) : undefined;
+}
+
+export function parseDiscordDirectMessageAction(
+  customId: string,
+):
+  | { kind: 'live_turn_stop'; actionToken: string }
+  | { kind: 'memory_forget'; recordId: string }
+  | null {
+  if (customId.startsWith(LIVE_STOP_CUSTOM_ID_PREFIX)) {
+    return {
+      kind: 'live_turn_stop',
+      actionToken: customId.slice(LIVE_STOP_CUSTOM_ID_PREFIX.length),
+    };
+  }
+  if (customId.startsWith(MEMORY_FORGET_CUSTOM_ID_PREFIX)) {
+    const recordId = customId.slice(MEMORY_FORGET_CUSTOM_ID_PREFIX.length);
+    return recordId.trim() ? { kind: 'memory_forget', recordId } : null;
+  }
+  return null;
 }
 
 export function buttonRows(
@@ -128,19 +163,32 @@ export function questionComponents(
 
 export function permissionCustomId(
   providerAlias: string,
-  mode: PermissionApprovalDecisionMode,
+  mode: PermissionApprovalDecisionMode | PermissionRememberCode,
 ): string {
   return `${PERMISSION_CUSTOM_ID_PREFIX}${providerAlias}:${mode}`;
 }
 
-export function parsePermissionCustomId(
-  customId: string,
-): { providerAlias: string; mode: PermissionApprovalDecisionMode } | null {
+export function parsePermissionCustomId(customId: string): {
+  providerAlias: string;
+  mode: PermissionApprovalDecisionMode | PermissionRememberCode;
+} | null {
   const raw = customId.slice(PERMISSION_CUSTOM_ID_PREFIX.length);
   const separator = raw.lastIndexOf(':');
   if (separator <= 0) return null;
-  const mode = raw.slice(separator + 1) as PermissionApprovalDecisionMode;
-  if (!['allow_once', 'allow_persistent_rule', 'cancel'].includes(mode)) {
+  const mode = raw.slice(separator + 1) as
+    | PermissionApprovalDecisionMode
+    | PermissionRememberCode;
+  if (
+    ![
+      'allow_once',
+      'allow_persistent_rule',
+      'cancel',
+      'remember_allow_exact',
+      'remember_allow_kind',
+      'remember_allow_place',
+      'remember_deny_exact',
+    ].includes(mode)
+  ) {
     return null;
   }
   return {

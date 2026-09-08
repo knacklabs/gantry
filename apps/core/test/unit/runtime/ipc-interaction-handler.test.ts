@@ -12,6 +12,7 @@ import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { computePermissionEffectHash } from '@core/domain/permission-effect-key.js';
+import { PermissionLane } from '@core/domain/permission-lane.js';
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 import { buildPermissionResponseSignaturePayload } from '@core/shared/ipc-signing.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
@@ -53,6 +54,10 @@ import {
   inMemoryDecisionMemory,
   inMemoryPermissionDurability,
 } from './askfloor-tap-budget-harness.js';
+import {
+  learnPermissionRememberSettlement,
+  rememberingPermissionApprovalRequester,
+} from '@core/runtime/permission-remember-settlement.js';
 
 function fileMode(filePath: string): number {
   return fs.statSync(filePath).mode & 0o777;
@@ -633,6 +638,129 @@ describe('ipc-interaction-handler', () => {
         requestId: crashed.request.requestId,
       }),
     ).resolves.toMatchObject({ mode: 'allow_once' });
+  });
+
+  it('persists host-derived card affordances beside the remember context on both prompt paths and degrades a tapped code the model did not offer to its scalar base without learning', async () => {
+    const durability = inMemoryPermissionDurability();
+    const rows = [];
+    const decisionMemory = inMemoryDecisionMemory(rows);
+    const putHumanDecision = vi.spyOn(decisionMemory, 'putHumanDecision');
+    configurePendingInteractionDurability({
+      repository: durability.repository as never,
+    });
+    const request = {
+      requestId: 'ipc-card-affordances',
+      appId: 'default',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'tg:permission',
+      toolName: 'RunCommand',
+      toolInput: { command: 'git log' },
+    };
+    await (
+      durability.repository as {
+        createPendingInteraction(input: Record<string, unknown>): Promise<void>;
+      }
+    ).createPendingInteraction({
+      id: 'ipc-card-affordances-member',
+      appId: 'default',
+      runId: null,
+      sourceAgentFolder: 'main_agent',
+      requestId: request.requestId,
+      runLeaseToken: null,
+      runLeaseFencingVersion: null,
+      kind: 'permission',
+      payload: { request },
+      callbackRoute: null,
+      idempotencyKey: pendingInteractionIdempotencyKey({
+        kind: 'permission',
+        sourceAgentFolder: 'main_agent',
+        requestId: request.requestId,
+        appId: 'default',
+      }),
+      expiresAt: '2026-09-09T00:00:00.000Z',
+    });
+    let persistedAffordances: unknown;
+    const ask = rememberingPermissionApprovalRequester({
+      deps: {
+        getPermissionDecisionMemoryRepository: () => decisionMemory,
+        requestPermissionApproval: async (currentRequest) => {
+          persistedAffordances = durability.member()?.payload.cardAffordances;
+          expect(durability.member()?.payload.rememberContext).toMatchObject({
+            eligible: true,
+            personId: 'person-one',
+          });
+          expect(durability.member()?.payload.request).toMatchObject({
+            cardAffordances: persistedAffordances,
+          });
+          expect(currentRequest.cardAffordances).toEqual(persistedAffordances);
+          expect(currentRequest.cardAffordances?.offered).not.toContain(
+            'remember_allow_kind',
+          );
+          await bindPendingPermissionInteractionMessage({
+            request: currentRequest,
+            decisionOptions: ['remember_allow_kind'],
+          });
+          const claimed = await claimPermissionInteractionCallback({
+            scope: {
+              appId: 'default',
+              sourceAgentFolder: 'main_agent',
+              interactionId: currentRequest.requestId,
+            },
+            mode: 'remember_allow_kind',
+            approverRef: 'person-one',
+            matchKind: 'individual',
+          });
+          if (claimed.status !== 'claimed') throw new Error('claim failed');
+          const replay = await replayPersistedPermissionDecisionForRequest({
+            appId: 'default',
+            sourceAgentFolder: 'main_agent',
+            requestId: currentRequest.requestId,
+          });
+          if (!replay) throw new Error('recovery failed');
+          return permissionDecisionResult(replay);
+        },
+      } as never,
+      sourceAgentFolder: 'main_agent',
+      personId: 'person-one',
+      onAttached: vi.fn(),
+      logger: { warn: vi.fn() },
+    });
+
+    const result = await ask(request, {
+      analysis: {
+        lane: PermissionLane.InteractiveAuto,
+        readOnlyMetaExecutor: false,
+      },
+      effectHash: 'effect-one',
+      workspaceRoot: resolveWorkspaceFolderPath('main_agent'),
+      canonicalRoot: resolveWorkspaceFolderPath('main_agent'),
+    });
+    if (result.kind !== 'decision') throw new Error('decision expected');
+    const decision = result.decision;
+    expect(persistedAffordances).toBeDefined();
+    expect(decision).toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      permissionCallbackClaim: {
+        id: expect.any(String),
+        scope: {
+          appId: 'default',
+          sourceAgentFolder: 'main_agent',
+          interactionId: request.requestId,
+        },
+      },
+    });
+    expect(decision.permissionCallbackClaim).not.toHaveProperty(
+      'effectiveRememberCode',
+    );
+    await expect(
+      learnPermissionRememberSettlement({
+        claim: decision.permissionCallbackClaim,
+        repository: decisionMemory,
+        warn: vi.fn(),
+      }),
+    ).resolves.toBeNull();
+    expect(putHumanDecision).not.toHaveBeenCalled();
   });
 
   it('delegates user questions through the domain handler', async () => {

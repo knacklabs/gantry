@@ -1,9 +1,13 @@
-import { normalizePermissionAction } from '../permission-interaction.js';
+import { decodePermissionDecisionCode } from '../../application/permissions/permission-remember-codec.js';
+import type {
+  PermissionApprovalDecisionMode,
+  PermissionRememberCode,
+} from '../../domain/types.js';
 import type { TeamsPermissionCallback } from './types.js';
 
 export function readTeamsPermissionDecision(value: unknown): {
   callback: TeamsPermissionCallback;
-  decision: string;
+  decision: PermissionApprovalDecisionMode | PermissionRememberCode;
 } | null {
   if (!value || typeof value !== 'object') return null;
   const payload = value as {
@@ -23,13 +27,15 @@ export function readTeamsPermissionDecision(value: unknown): {
   if (!callback) return null;
   if (
     typeof candidate.decision !== 'string' ||
-    !normalizePermissionAction(candidate.decision)
+    !decodePermissionDecisionCode(candidate.decision)
   ) {
     return null;
   }
   return {
     callback,
-    decision: candidate.decision,
+    decision: candidate.decision as
+      | PermissionApprovalDecisionMode
+      | PermissionRememberCode,
   };
 }
 

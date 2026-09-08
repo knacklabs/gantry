@@ -96,6 +96,17 @@ function slackActionValue(
       ? value
       : undefined;
   }
+  if (action.kind === 'memory_forget') {
+    const value = JSON.stringify({
+      kind: action.kind,
+      recordId: action.recordId,
+      ...(providerAccountId ? { providerAccountId } : {}),
+    });
+    return action.recordId.trim() &&
+      Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
+      ? value
+      : undefined;
+  }
   const value = SCHEDULER_ACTION_KINDS.has(action.kind)
     ? JSON.stringify({
         kind: action.kind,

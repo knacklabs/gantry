@@ -10,6 +10,7 @@ import {
 } from '@core/channels/discord/components.js';
 import { prepareDiscordPermissionCardSend } from '@core/channels/discord/prepared-permission-card.js';
 import { normalizePermissionAction } from '@core/channels/permission-interaction.js';
+import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import { prepareSlackPermissionCardSend } from '@core/channels/slack/permission-approval-delivery.js';
 import {
   SLACK_PERMISSION_DECISION_ACTION_IDS,
@@ -134,6 +135,60 @@ async function renderPermissionCards(
       matchKind: 'individual',
     }),
   };
+}
+
+function renderedPermissionLabels(cards: Record<string, unknown>) {
+  const telegram = cards.telegram as [
+    string,
+    string,
+    {
+      reply_markup: {
+        inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+      };
+    },
+  ];
+  const slack = cards.slack as {
+    blocks: Array<{
+      elements?: Array<{ action_id: string; text: { text: string } }>;
+    }>;
+  };
+  const discord = cards.discord as {
+    components: Array<{
+      components: Array<{ custom_id: string; label: string }>;
+    }>;
+  };
+  const teams = cards.teams as ReturnType<
+    typeof buildTeamsApprovalAdaptiveCard
+  >;
+  return {
+    telegram: telegram[2].reply_markup.inline_keyboard
+      .flat()
+      .map((button) => button.text),
+    slack: slack.blocks
+      .flatMap((block) => block.elements ?? [])
+      .filter((button) => button.action_id?.startsWith('gantry_perm_decision_'))
+      .map((button) => button.text.text),
+    discord: discord.components
+      .flatMap((row) => row.components)
+      .filter((button) => button.custom_id.startsWith('gantry:perm:'))
+      .map((button) => button.label),
+    teams: teams.actions.map((action) => action.title),
+  };
+}
+
+function renderedPermissionTexts(cards: Record<string, unknown>): string[] {
+  const telegram = cards.telegram as [string, string];
+  const slack = cards.slack as { text: string };
+  const discord = cards.discord as { content: string };
+  const teams = cards.teams as ReturnType<
+    typeof buildTeamsApprovalAdaptiveCard
+  >;
+  return [
+    telegram[1],
+    slack.text,
+    discord.content,
+    teams.body.map((block) => block.text ?? '').join('\n'),
+  ];
 }
 
 describe('provider affordance parity', () => {
@@ -1395,6 +1450,132 @@ describe('provider affordance parity', () => {
       const slack = slackPermissionDecisionActionId(value);
       expect(SLACK_PERMISSION_DECISION_ACTION_IDS).toContain(slack);
       expect(slack.slice('gantry_perm_decision_'.length)).toBe(value);
+    }
+  });
+
+  it('renders eligible destructive protected batch and every ineligible-lane card identically on all four providers and round-trips the four remember codes through every provider codec', async () => {
+    const eligibleAffordances = {
+      eligible: true,
+      offered: [
+        'remember_allow_exact' as const,
+        'remember_allow_place' as const,
+        'remember_deny_exact' as const,
+      ],
+      alternative: {
+        code: 'remember_allow_place' as const,
+        label: 'Allow only in this folder',
+        line: 'Allow only in this folder will remember: only in /workspace.',
+      },
+      destructive: false,
+      protected: false,
+      preTapLines: [
+        'Allow will remember: this exact action',
+        'Allow only in this folder will remember: only in /workspace.',
+        'No will remember: this exact action.',
+      ],
+      postTapLines: {},
+    };
+    const fixtures: Array<{
+      request: PermissionApprovalRequest;
+      labels: string[];
+      line?: string;
+    }> = [
+      {
+        request: ineligibleRequest('eligible', {
+          cardAffordances: eligibleAffordances,
+        }),
+        labels: ['Allow', 'Allow only in this folder', 'Just this once', 'No'],
+        line: 'Allow will remember: this exact action',
+      },
+      {
+        request: ineligibleRequest('destructive', {
+          cardAffordances: {
+            ...eligibleAffordances,
+            offered: ['remember_allow_exact', 'remember_deny_exact'] as const,
+            alternative: undefined,
+            destructive: true,
+            preTapLines: [
+              'Allow will remember: this exact command only — nothing broader. No will remember: this exact command.',
+            ],
+          },
+        }),
+        labels: ['Allow', 'Just this once', 'No'],
+        line: 'Allow will remember: this exact command only — nothing broader.',
+      },
+      {
+        request: ineligibleRequest('protected', {
+          cardAffordances: {
+            ...eligibleAffordances,
+            offered: ['remember_deny_exact'] as const,
+            alternative: undefined,
+            protected: true,
+            preTapLines: ['/workspace/.env is protected, so I always ask.'],
+          },
+        }),
+        labels: ['Allow once', 'No'],
+        line: '/workspace/.env is protected, so I always ask.',
+      },
+      {
+        request: createPermissionBatchRequest(
+          [ineligibleRequest('batch-a'), ineligibleRequest('batch-b')],
+          ['1. Read file', '2. Run command'],
+        ),
+        labels: ['Allow all', 'Review each', 'Deny all'],
+        line: 'Allow all and Deny all are once-only. Tap Review each to decide one at a time — those cards can remember.',
+      },
+      ...[
+        ineligibleRequest('ask'),
+        ineligibleRequest('auto-strict'),
+        ineligibleRequest('job', { jobId: 'job-1' }),
+        ineligibleRequest('group', { decisionPolicy: 'same_channel' }),
+      ].map((request) => ({
+        request,
+        labels: ['Allow once', 'Allow for future', 'Cancel'],
+      })),
+    ];
+
+    for (const [index, fixture] of fixtures.entries()) {
+      const cards = await renderPermissionCards(
+        fixture.request,
+        `callback-parity-${index}`,
+      );
+      expect(Object.values(renderedPermissionLabels(cards))).toEqual(
+        Array.from({ length: 4 }, () => fixture.labels),
+      );
+      if (fixture.line) {
+        for (const text of renderedPermissionTexts(cards)) {
+          expect(text).toContain(fixture.line);
+        }
+      }
+    }
+
+    for (const code of PERMISSION_REMEMBER_CODES) {
+      const slack = slackPermissionDecisionActionId(code);
+      expect(SLACK_PERMISSION_DECISION_ACTION_IDS).toContain(slack);
+      expect(slack.slice('gantry_perm_decision_'.length)).toBe(code);
+      expect(
+        parseTelegramPermissionCallbackData(
+          telegramPermissionCallbackData(code, 'callback'),
+        )?.mode,
+      ).toBe(code);
+      expect(
+        parsePermissionCustomId(permissionCustomId('callback', code))?.mode,
+      ).toBe(code);
+      expect(
+        readTeamsPermissionDecision({
+          action: 'permission_decision',
+          callback: {
+            providerAlias: 'callback',
+            scope: {
+              appId: 'default',
+              sourceAgentFolder: 'main_agent',
+              interactionId: 'request',
+            },
+            matchKind: 'individual',
+          },
+          decision: code,
+        })?.decision,
+      ).toBe(code);
     }
   });
 });

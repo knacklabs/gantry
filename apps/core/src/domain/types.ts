@@ -10,6 +10,7 @@ import type { ObserverDigestMessageView } from './observer-digest-view.js';
 import type { BrainReviewCardView } from './brain-review-card.js';
 import type { PermissionApprovalResult } from './permission-approval-result.js';
 import type { RailProvenance } from './permission-lane.js';
+import type { PermissionCardAffordances } from './permission-card-affordances.js';
 export type { PermissionApprovalResult } from './permission-approval-result.js';
 export type {
   MessageActionAffordanceKind,
@@ -20,11 +21,13 @@ export type {
   MemoryReviewMessageActionInput,
   ObserverFeedbackMessageActionInput,
   BrainDreamReviewMessageActionInput,
+  MemoryForgetMessageActionInput,
   MessageActionOutcome,
   OnMessageAction,
   OnMemoryReviewMessageAction,
   OnObserverFeedbackMessageAction,
   OnBrainDreamReviewMessageAction,
+  OnMemoryForgetMessageAction,
 } from './message-actions.js';
 export type {
   ReviewMessageView,
@@ -169,13 +172,8 @@ export interface NewMessageAttachment {
 
 // --- Channel capability ports ---
 export type PermissionRiskLevel = 'low' | 'medium' | 'high' | 'critical';
-export type PermissionRiskCategory =
-  | 'destructive'
-  | 'privileged'
-  | 'secret'
-  | 'network'
-  | 'filesystem'
-  | 'benign';
+// prettier-ignore
+export type PermissionRiskCategory = 'destructive' | 'privileged' | 'secret' | 'network' | 'filesystem' | 'benign';
 export interface PermissionApprovalRequest {
   requestId: string;
   appId?: string;
@@ -228,6 +226,7 @@ export interface PermissionApprovalRequest {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   suggestions?: PermissionApprovalUpdate[];
   decisionOptions?: PermissionApprovalDecisionMode[];
+  cardAffordances?: PermissionCardAffordances;
   /** Learned-root ask-once (PERM-2 Task G): the persistent-rule option means
    *  "remember this folder", so it approves without a tool-rule suggestion. */
   trustedRootLearn?: boolean;
@@ -252,11 +251,8 @@ export interface PermissionApprovalCancellation {
 export type PermissionApprovalDecisionMode = 'allow_once' | 'allow_persistent_rule' | 'cancel';
 // prettier-ignore
 export type PermissionRememberCode = 'remember_allow_exact' | 'remember_allow_kind' | 'remember_allow_place' | 'remember_deny_exact';
-
 // prettier-ignore
-export type PermissionDecisionSource = 'durable_rule' | 'birthright' | 'deterministic_policy'
-  | 'auto_classifier' | 'cached_classifier' | 'trusted_root'
-  | 'human_once' | 'human_persistent' | 'human_decision';
+export type PermissionDecisionSource = 'durable_rule' | 'birthright' | 'deterministic_policy' | 'auto_classifier' | 'cached_classifier' | 'trusted_root' | 'human_once' | 'human_persistent' | 'human_decision';
 
 export interface PermissionRecoveryEnvelope {
   version: 1;
@@ -284,6 +280,7 @@ export interface PermissionCallbackClaimIntent {
 export interface PermissionCallbackClaimReference {
   id: string;
   scope: PermissionCallbackScope;
+  effectiveRememberCode?: PermissionRememberCode;
 }
 
 export interface PermissionCallbackClaim extends PermissionCallbackClaimReference {

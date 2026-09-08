@@ -58,30 +58,14 @@ export interface TeamsAdaptiveCardAction {
         };
         decision: string;
       }
-    | {
-        action: 'message_action';
-        kind: 'live_turn_stop';
-        actionToken: string;
-        targetJid: string;
-        threadId?: string;
-      }
-    | {
-        action: 'message_action';
-        kind: 'job_permission_decision';
-        actionToken: string;
-        targetJid: string;
-        threadId?: string;
-      }
-    | {
-        action: 'message_action';
-        kind:
-          | 'scheduler_run_now'
-          | 'scheduler_pause_job'
-          | 'scheduler_retry_ask';
-        jobId: string;
-        targetJid: string;
-        threadId?: string;
-      }
+    // prettier-ignore
+    | { action: 'message_action'; kind: 'live_turn_stop'; actionToken: string; targetJid: string; threadId?: string }
+    // prettier-ignore
+    | { action: 'message_action'; kind: 'job_permission_decision'; actionToken: string; targetJid: string; threadId?: string }
+    // prettier-ignore
+    | { action: 'message_action'; kind: 'memory_forget'; recordId: string; targetJid: string; threadId?: string }
+    // prettier-ignore
+    | { action: 'message_action'; kind: 'scheduler_run_now' | 'scheduler_pause_job' | 'scheduler_retry_ask'; jobId: string; targetJid: string; threadId?: string }
     | {
         action: 'message_action';
         kind: 'memory_review_decision';
@@ -201,7 +185,7 @@ export function buildTeamsApprovalAdaptiveCard(
       type: 'Action.Execute',
       title: permissionButtonLabel(mode, request),
       verb:
-        mode === 'cancel'
+        mode === 'cancel' || mode === 'remember_deny_exact'
           ? 'gantry.permission.cancel'
           : 'gantry.permission.allow',
       data: {
@@ -322,15 +306,25 @@ export function buildTeamsMessageCard(options: {
           },
         };
       }
-      if (action.kind === 'job_permission_decision') {
+      if (
+        action.kind === 'job_permission_decision' ||
+        action.kind === 'memory_forget'
+      ) {
         return {
           type: 'Action.Execute',
           title: action.label.trim(),
-          verb: 'gantry.job.permission',
+          verb:
+            action.kind === 'job_permission_decision'
+              ? 'gantry.job.permission'
+              : 'gantry.memory.forget',
           data: {
             action: 'message_action',
-            kind: 'job_permission_decision',
-            actionToken: action.actionToken,
+            ...(action.kind === 'job_permission_decision'
+              ? {
+                  kind: action.kind,
+                  actionToken: action.actionToken,
+                }
+              : { kind: action.kind, recordId: action.recordId }),
             targetJid: options.targetJid,
             ...threadFragment,
           },
@@ -368,10 +362,23 @@ export function buildTeamsMessageCard(options: {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     type: 'AdaptiveCard',
     version: '1.5',
-    body: options.actionOnly
-      ? []
-      : [{ type: 'TextBlock', text: options.text, wrap: true }],
-    actions,
+    body: [
+      ...(options.actionOnly
+        ? []
+        : [{ type: 'TextBlock', text: options.text, wrap: true }]),
+      ...actions
+        .filter(
+          (action) =>
+            action.data.action === 'message_action' &&
+            action.data.kind === 'memory_forget',
+        )
+        .map((action) => ({ type: 'ActionSet', actions: [action] })),
+    ],
+    actions: actions.filter(
+      (action) =>
+        action.data.action !== 'message_action' ||
+        action.data.kind !== 'memory_forget',
+    ),
   };
 }
 

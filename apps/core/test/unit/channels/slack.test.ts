@@ -6508,6 +6508,148 @@ describe('Slack channel', () => {
     expect(serializedBlocks).not.toContain('Open');
   });
 
+  it("passes an offered remember code verbatim into the durable claim settles it with its remembered receipt settles an unoffered code once-only with today's receipt and renders and settles a memory_forget tap on Slack", async () => {
+    const runRemember = async (offered: boolean) => {
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOptsWithApproverHook(['U_APPROVER']) as any,
+      );
+      await channel.connect();
+      const request: PermissionApprovalRequest = {
+        requestId: `slack-remember-${offered ? 'offered' : 'unoffered'}`,
+        sourceAgentFolder: 'slack_main',
+        targetJid: 'sl:C123',
+        toolName: 'Bash',
+        toolInput: { command: 'git log' },
+        cardAffordances: {
+          eligible: true,
+          offered: offered ? ['remember_allow_exact'] : [],
+          destructive: false,
+          protected: false,
+          preTapLines: [
+            'Allow will remember: this exact action',
+            'No will remember: this exact action.',
+          ],
+          postTapLines: {
+            remember_allow_exact:
+              'Remembered: this exact action. Change it any time with /permissions.',
+          },
+        },
+      };
+      const repository = configureSlackPermissionRequest(request);
+      const approval = channel
+        .requestPermissionApproval('sl:C123', request)
+        .then(requirePermissionDecision);
+      await flushSlackPromptRegistration();
+      const respond = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('show receipt'))
+        .mockResolvedValueOnce({});
+      const actionId = 'gantry_perm_decision_remember_allow_exact';
+      await appRef.current.actionHandlers.get(actionId)?.({
+        ack: vi.fn().mockResolvedValue(undefined),
+        respond,
+        body: {
+          channel: { id: 'C123' },
+          response_url: 'https://hooks.slack.test/actions/remember',
+          user: { id: 'U_APPROVER', name: 'Approver' },
+        },
+        action: {
+          value: JSON.stringify(latestSlackPermissionActionValue(actionId)),
+        },
+      });
+      return {
+        repository,
+        decision: await approval,
+        receipt: respond.mock.calls.at(-1)?.[0]?.text,
+      };
+    };
+
+    const offered = await runRemember(true);
+    expect(
+      offered.repository.claimPendingPermissionCallback,
+    ).toHaveBeenCalledWith({
+      claim: expect.objectContaining({
+        intent: expect.objectContaining({ mode: 'remember_allow_exact' }),
+      }),
+    });
+    expect(offered.decision.permissionCallbackClaim).toMatchObject({
+      effectiveRememberCode: 'remember_allow_exact',
+    });
+    expect(offered.receipt).toBe(
+      'Remembered: this exact action. Change it any time with /permissions.',
+    );
+
+    const unoffered = await runRemember(false);
+    expect(
+      unoffered.repository.claimPendingPermissionCallback,
+    ).toHaveBeenCalledWith({
+      claim: expect.objectContaining({
+        intent: expect.objectContaining({ mode: 'remember_allow_exact' }),
+      }),
+    });
+    expect(unoffered.decision).toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+    });
+    expect(unoffered.decision.permissionCallbackClaim).not.toHaveProperty(
+      'effectiveRememberCode',
+    );
+    expect(unoffered.receipt).toBe(
+      'Approved for this run only: Command (git log).',
+    );
+
+    const onMessageAction = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Forgot.',
+    }));
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOptsWithApproverHook(['U_APPROVER']),
+      onMessageAction,
+    } as any);
+    await channel.connect();
+    await channel.sendMessage('sl:C1234567890', 'Permissions', {
+      actionAffordances: [
+        {
+          kind: 'memory_forget',
+          label: 'Forget a1b2c3',
+          recordId: '30000000-0000-4000-8000-000000000001',
+        },
+      ],
+    });
+    const message =
+      appRef.current.client.chat.postMessage.mock.calls.at(-1)?.[0];
+    const forgetButton = message.blocks
+      .flatMap((block: any) => block.elements ?? [])
+      .find((button: any) => button.text?.text === 'Forget a1b2c3');
+    expect(forgetButton).toBeDefined();
+    const ack = vi.fn().mockResolvedValue(undefined);
+    await slackActionHandler(forgetButton.action_id)?.({
+      ack,
+      action: { value: forgetButton.value },
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER' },
+        message: { thread_ts: '1710000000.000111' },
+      },
+    });
+    expect(ack).toHaveBeenCalledOnce();
+    expect(onMessageAction).toHaveBeenCalledWith({
+      kind: 'memory_forget',
+      conversationJid: 'sl:C1234567890',
+      providerAccountId: 'slack_default',
+      threadId: '1710000000.000111',
+      userId: 'U_APPROVER',
+      recordId: '30000000-0000-4000-8000-000000000001',
+    });
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+      text: 'Forgot.',
+    });
+  });
+
   it('includes Bash command summary in Slack permission prompts', async () => {
     defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
