@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0156-2e89",
+  "profile": "degraded",
+  "reason": "Codex refuses gpt-5.6-sol for this account (400 on ASKFLOOR-1-T5a runs 10-11); pin the implementer to gpt-5.6-terra in the story worktree harness.yaml so reviews and later tasks can launch",
+  "started_at": "2026-09-08T15:24:09+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
