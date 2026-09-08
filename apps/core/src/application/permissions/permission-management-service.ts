@@ -1,5 +1,9 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
+import {
+  systemPrincipal,
+  type PrincipalRef,
+} from '../../domain/identity/principal-ref.js';
 import type { McpBindingAuthorityPrecondition } from '../../domain/mcp/mcp-servers.js';
 import type {
   McpServerRepository,
@@ -85,7 +89,7 @@ export interface PersistentPermissionGrantInput {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   ipcDir?: string;
   runHandle?: string;
-  actor?: string;
+  actor?: PrincipalRef;
   requestId?: string;
   conversationId?: string;
   threadId?: string;
@@ -105,7 +109,7 @@ export interface PersistentPermissionRevokeInput {
   permissionRepository?: PermissionRepository;
   ipcDir?: string;
   runHandle?: string;
-  actor?: string;
+  actor?: PrincipalRef;
   requestId?: string;
   conversationId?: string;
   threadId?: string;
@@ -129,6 +133,7 @@ export interface RecordPermissionDecisionInput {
   jobId?: string;
   toolId?: string;
   auditMetadata?: Record<string, unknown>;
+  actor?: PrincipalRef;
 }
 
 export class PermissionManagementService {
@@ -514,7 +519,7 @@ export class PermissionManagementService {
       },
       actionPreview: input.toolName,
       toolId: input.toolId as never,
-      approverRef: input.decision.decidedBy,
+      approverRef: input.actor ?? systemPrincipal('permission'),
       expiresAt: permissionDecisionExpiresAt(input.decision, now),
       createdAt: now,
     };

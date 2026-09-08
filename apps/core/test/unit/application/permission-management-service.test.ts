@@ -189,6 +189,58 @@ function proposalServer(overrides: Record<string, unknown> = {}) {
 }
 
 describe('PermissionManagementService', () => {
+  it('persists a structured permission actor instead of a callback identifier', async () => {
+    const { repository, saveDecision } = permissionRepository();
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+
+    await service.recordDecision({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      requestId: 'permission-human-approval',
+      toolName: 'RunCommand',
+      decision: {
+        approved: true,
+        decidedBy: 'U0123ABC',
+        decisionClassification: 'human',
+      },
+      permissionRepository: repository,
+      actor: { kind: 'human', personId: 'person:approver', aliasId: 'alias:1' },
+    });
+
+    expect(saveDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approverRef: {
+          kind: 'human',
+          personId: 'person:approver',
+          aliasId: 'alias:1',
+        },
+      }),
+    );
+  });
+
+  it('stamps an omitted non-human permission actor as the permission system', async () => {
+    const { repository, saveDecision } = permissionRepository();
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+
+    await service.recordDecision({
+      appId: 'app:test' as never,
+      requestId: 'permission-system-denial',
+      toolName: 'RunCommand',
+      decision: { approved: false, decidedBy: 'runtime' },
+      permissionRepository: repository,
+    });
+
+    expect(saveDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approverRef: { kind: 'system', source: 'permission' },
+      }),
+    );
+  });
+
   it('locks every proposed MCP source in one approval transaction', async () => {
     const first = proposedMcpCapability();
     const second: SemanticCapabilityDefinition = {

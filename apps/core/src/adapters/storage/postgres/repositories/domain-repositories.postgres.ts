@@ -40,6 +40,10 @@ import type {
   PermissionPolicy,
   PermissionRule,
 } from '../../../../domain/permissions/permissions.js';
+import {
+  parsePrincipalRef,
+  serializePrincipalRef,
+} from '../../../../domain/identity/principal-ref.js';
 import type {
   AgentConfigRepository,
   AgentRepository,
@@ -1981,7 +1985,9 @@ export class PostgresPermissionRepository implements PermissionRepository {
         reason: decision.reason,
         actorContextJson: encodeJsonOrNull(decision.actorContext),
         actionPreview: decision.actionPreview ?? null,
-        approverRef: decision.approverRef ?? null,
+        approverRef: decision.approverRef
+          ? serializePrincipalRef(decision.approverRef)
+          : null,
         expiresAt: decision.expiresAt ?? null,
         createdAt: decision.createdAt,
       })
@@ -1996,7 +2002,9 @@ export class PostgresPermissionRepository implements PermissionRepository {
           reason: decision.reason,
           actorContextJson: encodeJsonOrNull(decision.actorContext),
           actionPreview: decision.actionPreview ?? null,
-          approverRef: decision.approverRef ?? null,
+          approverRef: decision.approverRef
+            ? serializePrincipalRef(decision.approverRef)
+            : null,
           expiresAt: decision.expiresAt ?? null,
         },
       });
@@ -2024,7 +2032,9 @@ export class PostgresPermissionRepository implements PermissionRepository {
         ? parseJson<JsonRecord>(row.actorContextJson, {})
         : undefined,
       actionPreview: row.actionPreview ?? undefined,
-      approverRef: row.approverRef ?? undefined,
+      approverRef: row.approverRef
+        ? parsePrincipalRef(row.approverRef)
+        : undefined,
       expiresAt: row.expiresAt ?? undefined,
       createdAt: row.createdAt,
     } as PermissionDecision;
