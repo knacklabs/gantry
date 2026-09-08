@@ -60,6 +60,7 @@ export {
   applyConversationInstallToSettings,
   hasConversationInstallInSettings,
 } from './conversation-install-settings.js';
+export { removeAgentFromRuntimeSettings } from './agent-settings-removal.js';
 
 /**
  * Keeps adapter callers on the runtime-settings façade while avoiding a

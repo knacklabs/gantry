@@ -16,6 +16,7 @@ import {
   addControlSenderForAgent,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
+  removeAgentFromRuntimeSettings,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
@@ -27,6 +28,7 @@ import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
 
 export { formatAgentHarnessLine } from './group-engine.js';
+export { removeAgentFromRuntimeSettings as removeAgentFromDesiredSettings };
 
 export function usage(): string {
   const channels = getProviderIds().join('|');
@@ -207,7 +209,7 @@ export async function pruneDesiredStateAgent(input: {
         keptForDelegates: delegateReferences,
       };
     }
-    const providerAccountsPruned = removeAgentFromDesiredSettings(
+    const providerAccountsPruned = removeAgentFromRuntimeSettings(
       settings,
       input.folder,
     );
@@ -236,56 +238,6 @@ export async function pruneDesiredStateAgent(input: {
       error: err instanceof Error ? err.message : String(err),
     };
   }
-}
-
-/** Remove one agent and its dependent desired-state wiring from a settings copy. */
-export function removeAgentFromDesiredSettings(
-  settings: ReturnType<typeof loadRuntimeSettings>,
-  folder: string,
-): number {
-  delete settings.agents[folder];
-  let providerAccountsPruned = 0;
-  for (const [accountId, account] of Object.entries(
-    settings.providerAccounts,
-  )) {
-    if (account.agentId !== folder) continue;
-    for (const [conversationId, conversation] of Object.entries(
-      settings.conversations,
-    )) {
-      for (const [installKey, install] of Object.entries(
-        conversation.installedAgents,
-      )) {
-        if (
-          install.providerAccountId !== accountId &&
-          install.agentId !== folder
-        ) {
-          continue;
-        }
-        delete conversation.installedAgents[installKey];
-      }
-      const survivingInstalls = Object.values(conversation.installedAgents);
-      if (survivingInstalls.length === 0) {
-        delete settings.conversations[conversationId];
-        continue;
-      }
-      if (conversation.providerAccount === accountId) {
-        const replacement = survivingInstalls.find(
-          (install) =>
-            install.providerAccountId &&
-            install.providerAccountId !== accountId,
-        )?.providerAccountId;
-        if (!replacement) {
-          throw new Error(
-            `cannot remove ${folder}: conversation ${conversationId} still hosts ${survivingInstalls.length} agent(s) but has no other provider account to own it`,
-          );
-        }
-        conversation.providerAccount = replacement;
-      }
-    }
-    delete settings.providerAccounts[accountId];
-    providerAccountsPruned += 1;
-  }
-  return providerAccountsPruned;
 }
 
 /**
