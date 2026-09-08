@@ -1163,7 +1163,7 @@
         "Constitution (load-bearing): constitution/03-modular-monolith-structure.md - ONE formatter module owns every label and line; providers and the three central functions are thin consumers; ceilings hold (700 default; slack channel-interactions 712; telegram callback-handlers 900).",
         "RENDER AUTHORITY (AC2 normative; 0124, 0138): the card affordances are derived host-side at prompt construction on BOTH paths from the T3c rememberContext plus the validated place root and countExactAllowsByTool, persisted beside the context on the member payload, and are the ONLY render input; a tapped code the persisted model did not offer degrades to its scalar base and learns nothing; provider callback text is never an authority.",
         "COPY (AC1, AC5, AC6 normative; owner rulings 2026-09-02/04/08): exact labels, order and lines as the contract states; one alternative per card with family > trust growth > folder precedence; destructive = no alternative; protected = Allow once / No only; batch once-only line in BOTH renderers; ineligible lanes byte-for-byte with snapshot tests; scope nouns plain; trust-growth label uses the human tool label; Forget <shortId>.",
-        "FORGET (AC4 normative; 0118): memory_forget rides the message-action router with the authenticated provider person and revokeById; replies exactly as the contract; Teams per-row ActionSets.",
+        "FORGET TRANSPORT (AC5 normative; 0118): memory_forget {recordId, label} in the union with label render-only; each provider renders and decodes the tap into the typed action with the authenticated conversation identity; the router exposes onMemoryForget and answers 'Not available yet.' when unbound; the host handler, revokeById and the three replies are T5b's \u2014 a revoke call in this diff is a blocking finding; Teams per-row ActionSets.",
         "NO LEFTOVERS (owner ruling 2026-09-06): no wrapper, shim, alias, retained symbol, dead branch or compatibility naming anywhere in the diff - a blocking finding.",
         "Verification: python3 factory/scripts/verify.py with GANTRY_TEST_DATABASE_URL exported; user_facing: functional check before pr-ready."
       ],
@@ -1234,7 +1234,7 @@
         {
           "id": "resets the card affordances to the scalar batch shape inside the bind transaction alongside the remember context",
           "path": "apps/core/test/integration/worker-coordination.postgres.integration.test.ts",
-          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --outputFile={report}"
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.config.ts {path} -t {id} --outputFile={report}"
         },
         {
           "id": "counts only current-rail-version active exact Allows per tool so three older-version rows do not unlock trust growth",
@@ -1329,5 +1329,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "7be1a370d0b62d286d47bde8900d2bc18abb7ab2"
+  "commit": "8051922b5b9c9d883cce39daf42bf62955e25f12"
 }
