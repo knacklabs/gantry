@@ -41,7 +41,7 @@ describe('runtime secret ref prompt', () => {
       runtimeHome: '/tmp/gantry-secret-ref-test',
       name: 'SLACK_BOT_TOKEN',
       value: 'xoxb-token',
-      actor: 'test',
+      actor: { kind: 'system', source: 'test' },
     });
 
     expect(plan?.ref).toBe('gantry-secret:SLACK_BOT_TOKEN');
@@ -83,13 +83,13 @@ describe('runtime secret ref prompt', () => {
       runtimeHome,
       name: 'SLACK_BOT_TOKEN',
       value: 'xoxb-token',
-      actor: 'test',
+      actor: { kind: 'system', source: 'test' },
     });
     const awsPlan = await planRuntimeSecretInput({
       runtimeHome,
       name: 'SLACK_APP_TOKEN',
       value: 'xapp-token',
-      actor: 'test',
+      actor: { kind: 'system', source: 'test' },
     });
 
     expect(envPlan?.ref).toBe('env:SLACK_TOKEN_FROM_ENV');
@@ -127,7 +127,7 @@ describe('runtime secret ref prompt', () => {
       runtimeHome,
       name: 'SLACK_BOT_TOKEN',
       value: 'xoxb-token',
-      actor: 'test',
+      actor: { kind: 'system', source: 'test' },
     });
 
     expect(select).toHaveBeenCalledWith(
