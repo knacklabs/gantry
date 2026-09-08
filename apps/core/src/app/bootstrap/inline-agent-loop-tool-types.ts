@@ -51,8 +51,6 @@ export interface InlineCoreToolHostDeps extends CoreSendMessageDeps {
   getPermissionDecisionMemoryRepository?: () =>
     | PermissionDecisionMemoryRepository
     | undefined;
-  /** Channel-layer human tool label for the trust-growth card button (T5a). */
-  permissionToolLabel?: (toolName: string | undefined) => string | undefined;
   recordDecision(
     input: Omit<RecordPermissionDecisionInput, 'permissionRepository'>,
   ): Promise<void>;

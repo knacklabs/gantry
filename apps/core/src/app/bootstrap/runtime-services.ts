@@ -138,8 +138,11 @@ type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 type LiveTurnCommandWakeupSourceFactory = () => LiveTurnCommandWakeupSource | undefined;
 // prettier-ignore
 type RuntimeDependencyRepositoryFactory = () => RuntimeDependencyRepository | undefined;
-// prettier-ignore
-type RuntimeStorageDep = 'getAsyncTaskRepository' | 'getFileArtifactStore' | 'getPermissionPromotionRepository' | 'getPermissionDecisionMemoryRepository' | 'permissionToolLabel';
+type RuntimeStorageDep =
+  | 'getAsyncTaskRepository'
+  | 'getFileArtifactStore'
+  | 'getPermissionPromotionRepository'
+  | 'getPermissionDecisionMemoryRepository';
 interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   startSchedulerLoop: typeof startSchedulerLoop;
   startIpcWatcher: typeof startIpcWatcher;
@@ -491,9 +494,8 @@ export async function startRuntimeServices(
       getPermissionRepository: resolved.getPermissionRepository,
       getPermissionPromotionRepository:
         resolved.getPermissionPromotionRepository,
-      // prettier-ignore
-      getPermissionDecisionMemoryRepository: resolved.getPermissionDecisionMemoryRepository,
-      permissionToolLabel: resolved.permissionToolLabel,
+      getPermissionDecisionMemoryRepository:
+        resolved.getPermissionDecisionMemoryRepository,
       publishRuntimeEvent: resolved.publishRuntimeEvent,
       getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
       getPermissionMessageRepository: () => resolved.opsRepository,

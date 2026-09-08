@@ -248,22 +248,21 @@ describe('permission card affordances', () => {
     ]);
   });
 
-  it('offers the trust-growth alternative from the supplied human tool label when the request has no displayName', async () => {
+  it('offers the trust-growth alternative from the human tool label when the request has no displayName and withholds it when no label exists', async () => {
     const card = await buildPermissionCardAffordances({
-      request: request({ toolName: 'mcp__gantry__sheets_write' }),
+      request: request({ toolName: 'FileWrite' }),
       rememberContext: context(),
       canonicalRoot: undefined,
-      toolLabel: 'Sheets',
       highRisk: true,
       countExactAllowsByTool: async () => 3,
     });
     expect(card.alternative).toMatchObject({
       code: 'remember_allow_kind',
-      label: 'Allow all Sheets actions',
-      line: 'Allow all Sheets actions will remember: every Sheets action, anywhere.',
+      label: 'Allow all file writing actions',
+      line: 'Allow all file writing actions will remember: every file writing action, anywhere.',
     });
     const noLabel = await buildPermissionCardAffordances({
-      request: request({ toolName: 'mcp__gantry__sheets_write' }),
+      request: request({ toolName: 'UnknownTool' }),
       rememberContext: context(),
       highRisk: true,
       countExactAllowsByTool: async () => 3,
