@@ -9,7 +9,7 @@ import {
   amendmentPromptParts,
   amendmentReceiptText,
 } from './capability-amendment-card.js';
-import { USER_FACING_TOOL_LABELS } from './permission-tool-labels.js';
+import { USER_FACING_TOOL_LABELS } from '../shared/permission-tool-labels.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
