@@ -27,7 +27,12 @@ Interactive-auto requests with a resolved person consult an exact remembered
 No before hard restrictions. Remembered Allows are consulted after the
 non-overridable rails and trusted-root stage, in exact, tool kind, category
 kind, tool place, then category place order, before the classifier cache.
-Ask, auto-strict, and autonomous lanes do not consult human-decision memory.
+Ask and auto-strict lanes do not consult human-decision memory. Autonomous job
+lanes never use the interactive stage: after rails and validated-root handling,
+they consult only the read-only, owner-scoped projection, guarded by the IPC
+route/risk check where applicable. A projection miss continues through the
+classifier, and only a classifier ask reaches the existing card path. Jobs
+never write human-decision memory.
 Every lookup filters to the current rails version; rows written under another
 rails version are inert.
 

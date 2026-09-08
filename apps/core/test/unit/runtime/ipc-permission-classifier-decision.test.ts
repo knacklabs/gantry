@@ -17,6 +17,7 @@ import * as permissionClassifier from '@core/runtime/permission-classifier.js';
 import type { PermissionMode } from '@core/shared/permission-mode.js';
 import * as autoLaneAnalysis from '@core/application/permissions/auto-lane-analysis.js';
 import * as permissionCoordinator from '@core/runtime/permission-decision-coordinator.js';
+import { logger } from '@core/infrastructure/logging/logger.js';
 
 async function resolveWithClassifierRisk(input: {
   toolName: string;
@@ -290,31 +291,73 @@ describe('IPC permission classifier decision', () => {
   });
 
   it.each(['low', 'medium'] as const)(
-    'honours a classifier allow over an out_of_trusted_root rail signal only in interactive auto: %s',
+    'keeps an interactive-auto classifier allow over a soft out_of_trusted_root rail: %s',
     async (riskLevel) => {
-      for (const trustedRoots of [[], ['/definitely/elsewhere']]) {
-        const result = await resolveWithClassifierRisk({
-          toolName: 'RunCommand',
-          toolInput: { command: 'git status' },
-          riskLevel,
-          riskCategory: 'filesystem',
-          trustedRoots,
-        });
-        expect(result.requestPermissionApproval).not.toHaveBeenCalled();
-        expect(result.decision).toMatchObject({
-          approved: true,
-          decidedBy: 'auto_classifier',
-          source: 'auto_classifier',
-          railProvenance: {
-            signal: 'out_of_trusted_root',
-            reason: expect.stringContaining('outside'),
-          },
-        });
-      }
+      const result = await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        toolInput: { command: 'git status' },
+        riskLevel,
+        riskCategory: 'filesystem',
+        trustedRoots: [],
+      });
+      expect(result.requestPermissionApproval).not.toHaveBeenCalled();
+      expect(result.decision).toMatchObject({
+        approved: true,
+        decidedBy: 'auto_classifier',
+        railProvenance: { signal: 'out_of_trusted_root' },
+      });
     },
   );
 
-  it('keeps the rail veto for out_of_trusted_root in auto_strict, ask and job lanes', async () => {
+  it('never authorizes an interactive-auto hard-floor out_of_trusted_root or read-only unsupported_meta_executor ask through a live or cached classifier allow', async () => {
+    const workspaceRoot = resolveWorkspaceFolderPath('main_agent');
+    for (const railCase of [
+      {
+        toolInput: { command: 'git status' },
+        trustedRoots: ['/definitely/elsewhere'],
+      },
+      {
+        toolInput: { command: "find . -name '*.ts'" },
+        trustedRoots: [workspaceRoot],
+      },
+    ]) {
+      const live = await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        riskLevel: 'low',
+        riskCategory: 'benign',
+        ...railCase,
+      });
+      expect(live.classifierConsult).toHaveBeenCalledOnce();
+      expect(live.requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(live.decision).not.toMatchObject({
+        approved: true,
+        decidedBy: 'auto_classifier',
+      });
+
+      const getClassifierVerdict = vi.fn(async () => ({
+        decision: 'allow' as const,
+        reason: 'Cached allow cannot bypass a hard floor.',
+        risk_level: 'low' as const,
+        risk_category: 'benign' as const,
+      }));
+      const cached = await resolveWithClassifierRisk({
+        toolName: 'RunCommand',
+        riskLevel: 'low',
+        riskCategory: 'benign',
+        decisionMemory: { getClassifierVerdict } as never,
+        ...railCase,
+      });
+      expect(getClassifierVerdict).toHaveBeenCalledOnce();
+      expect(cached.classifierConsult).not.toHaveBeenCalled();
+      expect(cached.requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(cached.decision).not.toMatchObject({
+        approved: true,
+        decidedBy: 'auto_classifier',
+      });
+    }
+  });
+
+  it('keeps the rail veto for out_of_trusted_root in interactive auto, auto_strict, ask and job lanes', async () => {
     for (const lane of [
       { permissionMode: 'auto_strict' as const },
       { permissionMode: 'auto_strict' as const, trustedRoots: [] },
@@ -331,26 +374,25 @@ describe('IPC permission classifier decision', () => {
         decidedBy: 'owner',
       });
       expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
-      expect(result.classifierConsult).not.toHaveBeenCalled();
+      if (lane.hostJobId) {
+        expect(result.classifierConsult).toHaveBeenCalledOnce();
+      } else {
+        expect(result.classifierConsult).not.toHaveBeenCalled();
+      }
     }
   });
 
-  it('honours a classifier allow for an unsupported_meta_executor refusal of a read-only find only in interactive auto and keeps the veto in auto_strict, ask and job lanes', async () => {
+  it('keeps the hard-floor read-only find ask in interactive auto, auto_strict, ask and job lanes', async () => {
     const trustedRoots = [resolveWorkspaceFolderPath('main_agent')];
     const interactiveAuto = await resolveCommandInLane({
       command: "find . -name '*.ts'",
       permissionMode: 'auto',
       trustedRoots,
     });
-    expect(interactiveAuto.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(interactiveAuto.requestPermissionApproval).toHaveBeenCalledOnce();
     expect(interactiveAuto.decision).toMatchObject({
-      approved: true,
-      decidedBy: 'auto_classifier',
-      source: 'auto_classifier',
-      railProvenance: {
-        signal: 'unsupported_meta_executor',
-        reason: expect.stringContaining('meta-executor find'),
-      },
+      approved: false,
+      decidedBy: 'owner',
     });
 
     for (const lane of [
@@ -371,7 +413,7 @@ describe('IPC permission classifier decision', () => {
     }
   });
 
-  it('leaves ask, auto_strict and job-lane outcomes unchanged for 2>/dev/null except where the non-path stopped being a path', async () => {
+  it('leaves ask and auto_strict outcomes unchanged for 2>/dev/null while a job reaches the classifier', async () => {
     const trustedRoots = [resolveWorkspaceFolderPath('main_agent')];
     const ask = await resolveCommandInLane({
       command: 'git status 2>/dev/null',
@@ -399,8 +441,11 @@ describe('IPC permission classifier decision', () => {
       trustedRoots,
       hostJobId: 'job-stderr',
     });
-    expect(job.decision).toMatchObject({ approved: false, decidedBy: 'owner' });
-    expect(job.classifierConsult).not.toHaveBeenCalled();
+    expect(job.decision).toMatchObject({
+      approved: true,
+      decidedBy: 'auto_classifier',
+    });
+    expect(job.classifierConsult).toHaveBeenCalledOnce();
   });
 
   it('keeps the veto for a safe-looking find when the base rail ASK is missing, redacted or truncated input', async () => {
@@ -459,7 +504,7 @@ describe('IPC permission classifier decision', () => {
     }
   });
 
-  it('keeps jobId requests off the classifier and denies terminally without a deliverable route', async () => {
+  it('denies a host job before classifier consultation when no deliverable route exists and ignores a worker-forged jobId', async () => {
     const responseKeyId = 'autodet-job-response-key';
     const classifierConsult = vi.fn(async () => ({
       risk_level: 'low' as const,
@@ -734,6 +779,311 @@ describe('IPC permission classifier decision', () => {
       risk_level: 'medium',
       risk_category: 'network',
     });
+  });
+
+  it('resolves the job owner through getJobById ignores a worker-supplied personId falls through to the classifier with one warn for a missing job blank owner or throwing repository allows a projected match with zero classifier calls honours a classifier allow on a job with auto_classifier provenance routes a classifier ask to the existing card path never authorizes through a live or cached classifier Allow when hardFloor is set with any typed signal applies the interactive cache and cache-write rules to jobs and denies an absent route with sanitised risk and zero repository calls', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    let sequence = 0;
+    const runJob = async (options: {
+      owner?: string | null;
+      getJobById?: ReturnType<typeof vi.fn>;
+      findHumanDecision?: ReturnType<typeof vi.fn>;
+      getClassifierVerdict?: ReturnType<typeof vi.fn>;
+      putClassifierVerdict?: ReturnType<typeof vi.fn>;
+      classifierRisk?: PermissionRiskLevel;
+      route?: boolean;
+      toolName?: string;
+      toolInput?: Record<string, unknown>;
+      trustedRoots?: string[];
+    }) => {
+      sequence += 1;
+      const responseKeyId = `job-projection-${sequence}`;
+      const hostJobId = `host-job-${sequence}`;
+      const getJobById =
+        options.getJobById ??
+        vi.fn(async () =>
+          options.owner === null
+            ? null
+            : {
+                id: hostJobId,
+                execution_context: { personId: options.owner ?? 'person-a' },
+              },
+        );
+      const findHumanDecision =
+        options.findHumanDecision ?? vi.fn(async () => null);
+      const getClassifierVerdict =
+        options.getClassifierVerdict ?? vi.fn(async () => null);
+      const putClassifierVerdict =
+        options.putClassifierVerdict ?? vi.fn(async () => undefined);
+      const classifierConsult = vi.fn(async () => ({
+        risk_level: options.classifierRisk ?? ('low' as const),
+        risk_category: 'benign' as const,
+        reason: 'Job classifier result.',
+        latencyMs: 1,
+      }));
+      const requestPermissionApproval = vi.fn(async () =>
+        permissionDecisionResult({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+        }),
+      );
+      registerWorkerPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId,
+        hideAuthorityTools: false,
+        runKind: 'scheduled',
+        jobId: hostJobId,
+        runId: `run-${sequence}`,
+      });
+      try {
+        const decision = await resolvePermissionIpcDecision({
+          request: {
+            requestId: `job-projection-request-${sequence}`,
+            responseKeyId,
+            sourceAgentFolder: 'main_agent',
+            targetJid: 'tg:job-projection',
+            jobId: 'worker-forged-job',
+            personId: 'worker-forged-person',
+            toolName: options.toolName ?? 'mcp__crm__read_record',
+            toolInput: options.toolInput ?? { id: 'record-1' },
+            unattended: true,
+          },
+          sourceAgentFolder: 'main_agent',
+          deps: {
+            opsRepository: { getJobById },
+            conversationRoutes: () =>
+              options.route === false
+                ? {}
+                : ({
+                    'tg:job-projection': {
+                      name: 'job projection',
+                      folder: 'main_agent',
+                      trigger: '@gantry',
+                      added_at: '2026-09-08',
+                      agentConfig: { permissionMode: 'auto' },
+                    },
+                  } as never),
+            requestPermissionApproval,
+            classifierConsult,
+            publishRuntimeEvent: vi.fn(async () => undefined),
+            getPermissionDecisionMemoryRepository: () =>
+              ({
+                findHumanDecision,
+                getClassifierVerdict,
+                putClassifierVerdict,
+              }) as never,
+            getPermissionRuntimeSettings: () => ({
+              agents: { main_agent: { permissionMode: 'auto' as const } },
+              permissions: {
+                autoMode: {},
+                trustedRoots: options.trustedRoots ?? [
+                  resolveWorkspaceFolderPath('main_agent'),
+                ],
+              },
+              memory: { llm: { models: { extractor: 'sonnet' } } },
+            }),
+          } as never,
+        });
+        return {
+          classifierConsult,
+          decision,
+          findHumanDecision,
+          getClassifierVerdict,
+          getJobById,
+          putClassifierVerdict,
+          requestPermissionApproval,
+        };
+      } finally {
+        unregisterPermissionRunRestriction({
+          sourceAgentFolder: 'main_agent',
+          responseKeyId,
+        });
+      }
+    };
+
+    try {
+      const projectedFind = vi.fn(async (input) => ({
+        id: 'human-job-match',
+        appId: 'default',
+        agentFolder: 'main_agent',
+        kind: 'human_decision',
+        lookupIdentity: input.candidates[0].scopeKey,
+        decision: 'allow',
+        outcome: 'allow',
+        scope: input.candidates[0].scope,
+        scopeKey: input.candidates[0].scopeKey,
+        actingPersonId: 'person-a',
+        reason: 'remembered',
+        effectSchemaVersion: 3,
+        railVersion: 2,
+        provenance: 'human_decision:test',
+        createdAt: '2026-09-08T00:00:00.000Z',
+      }));
+      const projected = await runJob({ findHumanDecision: projectedFind });
+      expect(projected.getJobById).toHaveBeenCalledWith('host-job-1');
+      expect(projectedFind).toHaveBeenCalledWith(
+        expect.objectContaining({ actingPersonId: 'person-a' }),
+      );
+      expect(projected.decision).toMatchObject({
+        approved: true,
+        decidedBy: 'human_decision',
+        humanDecisionRecordId: 'human-job-match',
+      });
+      expect(projected.classifierConsult).not.toHaveBeenCalled();
+
+      for (const ownerCase of [
+        {
+          getJobById: vi.fn(async () => null),
+          findHumanDecision: vi.fn(async () => null),
+        },
+        {
+          owner: ' ',
+          findHumanDecision: vi.fn(async () => null),
+        },
+        {
+          getJobById: vi.fn(async () => {
+            throw new Error('job repository unavailable');
+          }),
+          findHumanDecision: vi.fn(async () => null),
+        },
+      ]) {
+        warn.mockClear();
+        const result = await runJob(ownerCase);
+        expect(result.findHumanDecision).not.toHaveBeenCalled();
+        expect(result.classifierConsult).toHaveBeenCalledOnce();
+        expect(result.decision).toMatchObject({
+          approved: true,
+          decidedBy: 'auto_classifier',
+        });
+        expect(warn).toHaveBeenCalledOnce();
+      }
+
+      warn.mockClear();
+      const throwingFind = vi.fn(async () => {
+        throw new Error('memory unavailable');
+      });
+      const throwing = await runJob({ findHumanDecision: throwingFind });
+      expect(throwingFind).toHaveBeenCalledOnce();
+      expect(throwing.classifierConsult).toHaveBeenCalledOnce();
+      expect(throwing.decision).toMatchObject({
+        approved: true,
+        decidedBy: 'auto_classifier',
+      });
+      expect(warn).toHaveBeenCalledOnce();
+
+      const classifierAllow = await runJob({});
+      expect(classifierAllow.decision).toMatchObject({
+        approved: true,
+        decidedBy: 'auto_classifier',
+        source: 'auto_classifier',
+      });
+      expect(classifierAllow.classifierConsult).toHaveBeenCalledOnce();
+
+      const classifierAsk = await runJob({ classifierRisk: 'high' });
+      expect(classifierAsk.classifierConsult).toHaveBeenCalledOnce();
+      expect(classifierAsk.requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(classifierAsk.decision).toMatchObject({
+        approved: false,
+        decidedBy: 'owner',
+      });
+
+      const cachedAllow = vi.fn(async () => ({
+        decision: 'allow' as const,
+        reason: 'Cached job allow.',
+        risk_level: 'low' as const,
+        risk_category: 'benign' as const,
+      }));
+      const cached = await runJob({ getClassifierVerdict: cachedAllow });
+      expect(cached.decision).toMatchObject({
+        approved: true,
+        decidedBy: 'cached_classifier_verdict',
+      });
+      expect(cached.classifierConsult).not.toHaveBeenCalled();
+
+      const cacheMiss = await runJob({});
+      expect(cacheMiss.getClassifierVerdict).toHaveBeenCalledOnce();
+      expect(cacheMiss.putClassifierVerdict).toHaveBeenCalledOnce();
+
+      const workspaceRoot = resolveWorkspaceFolderPath('main_agent');
+      fs.mkdirSync(workspaceRoot, { recursive: true });
+      fs.writeFileSync(`${workspaceRoot}/job-projection-edit.txt`, 'before');
+      for (const [toolName, toolInput] of [
+        ['FileWrite', { path: 'job-projection-write.txt', content: 'after' }],
+        [
+          'FileEdit',
+          {
+            path: 'job-projection-edit.txt',
+            old_string: 'before',
+            new_string: 'after',
+          },
+        ],
+        ['mcp__gantry__async_run_command', { command: 'echo hello' }],
+      ] as const) {
+        const excluded = await runJob({ toolName, toolInput });
+        expect(excluded.putClassifierVerdict, toolName).not.toHaveBeenCalled();
+      }
+
+      for (const railCase of [
+        {
+          toolInput: { command: 'git status' },
+          trustedRoots: ['/definitely/elsewhere'],
+        },
+        {
+          toolInput: { command: "find . -name '*.ts'" },
+          trustedRoots: [workspaceRoot],
+        },
+      ]) {
+        const live = await runJob({
+          toolName: 'RunCommand',
+          classifierRisk: 'low',
+          ...railCase,
+        });
+        expect(live.classifierConsult).toHaveBeenCalledOnce();
+        expect(live.requestPermissionApproval).toHaveBeenCalledOnce();
+        expect(live.decision).not.toMatchObject({
+          approved: true,
+          decidedBy: 'auto_classifier',
+        });
+
+        const cachedRail = await runJob({
+          toolName: 'RunCommand',
+          getClassifierVerdict: vi.fn(async () => ({
+            decision: 'allow' as const,
+            reason: 'Cached allow cannot bypass a hard floor.',
+            risk_level: 'low' as const,
+            risk_category: 'benign' as const,
+          })),
+          ...railCase,
+        });
+        expect(cachedRail.getClassifierVerdict).toHaveBeenCalledOnce();
+        expect(cachedRail.classifierConsult).not.toHaveBeenCalled();
+        expect(cachedRail.requestPermissionApproval).toHaveBeenCalledOnce();
+        expect(cachedRail.decision).not.toMatchObject({
+          approved: true,
+          decidedBy: 'auto_classifier',
+        });
+      }
+
+      const absentRouteFind = vi.fn(async () => ({ id: 'must-not-project' }));
+      const absentRoute = await runJob({
+        route: false,
+        findHumanDecision: absentRouteFind,
+      });
+      expect(absentRoute.decision).toMatchObject({
+        approved: false,
+        decidedBy: 'runtime',
+        reason: expect.stringContaining('no deliverable approver route'),
+      });
+      expect(absentRoute.decision).not.toMatchObject({
+        risk_level: 'low',
+        risk_category: 'benign',
+      });
+      expect(absentRouteFind).not.toHaveBeenCalled();
+      expect(absentRoute.classifierConsult).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('labels a classifier-allowed single-file delete as destructive without vetoing it', async () => {

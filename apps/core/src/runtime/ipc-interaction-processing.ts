@@ -351,6 +351,9 @@ export async function processPermissionInteractionIpc(input: {
         threadId: input.request.threadId,
         runId: input.request.runId,
         jobId: input.request.jobId,
+        auditMetadata: decision.humanDecisionRecordId
+          ? { humanDecisionRecordId: decision.humanDecisionRecordId }
+          : undefined,
       });
     }
     if (decision.approved) {

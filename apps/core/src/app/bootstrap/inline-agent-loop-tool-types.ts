@@ -1,5 +1,6 @@
 import type { CoreSendMessageDeps } from '../../application/core-tools/send-message.js';
 import type { CoreTaskLifecycleBackend } from '../../application/core-tools/task-lifecycle.js';
+import type { RecordPermissionDecisionInput } from '../../application/permissions/permission-management-service.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type { PermissionPromotionRepository } from '../../domain/ports/permission-promotion.js';
 import type { PermissionDecisionMemoryRepository } from '../../domain/ports/permission-decision-memory.js';
@@ -50,6 +51,9 @@ export interface InlineCoreToolHostDeps extends CoreSendMessageDeps {
   getPermissionDecisionMemoryRepository?: () =>
     | PermissionDecisionMemoryRepository
     | undefined;
+  recordDecision(
+    input: Omit<RecordPermissionDecisionInput, 'permissionRepository'>,
+  ): Promise<void>;
   createTaskLifecycleBackend(
     laneInput: InlineAgentLoopLaneInput,
     authorityToolName?: 'AgentDelegation',

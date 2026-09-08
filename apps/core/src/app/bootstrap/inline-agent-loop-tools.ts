@@ -353,6 +353,8 @@ export function createInlineCoreTools(
         reviewedRuleDecision: decision,
         // prettier-ignore
         ...remember.inlinePermissionMemoryInputs({ run, laneInput, request, deps }),
+        // prettier-ignore
+        humanDecisionProjection: remember.inlineScheduledProjection({ run, deps }),
         skipClassifierVerdictCache: true,
         tail: async () => {
           const promotion = promotionRepository
@@ -522,6 +524,8 @@ export function createInlineCoreTools(
               };
         },
       });
+      // prettier-ignore
+      await remember.auditInlineScheduledProjection(request, coordinatedDecision, deps);
       return coordinatedDecision.approved
         ? { allowed: true }
         : {
@@ -559,23 +563,18 @@ export function wireInlineAgentLoopTools(input: {
   getAgentRepository?: () => AgentRepository | undefined;
   getFileArtifactStore?: CoreSendMessageDeps['getFileArtifactStore'];
   getMcpServerRepository?: () => McpServerRepository | undefined;
-  getPermissionPromotionRepository?: () =>
-    | PermissionPromotionRepository
-    | undefined;
+  // prettier-ignore
+  getPermissionPromotionRepository?: () => PermissionPromotionRepository | undefined;
   getPermissionDecisionMemoryRepository?: InlineCoreToolHostDeps['getPermissionDecisionMemoryRepository'];
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
-  opsRepository?: Pick<
-    RuntimeAgentSessionRepository,
-    'getAgentTurnContext' | 'createSessionAgentRun' | 'completeSessionAgentRun'
-  >;
+  // prettier-ignore
+  opsRepository?: Pick<RuntimeAgentSessionRepository, 'getAgentTurnContext' | 'createSessionAgentRun' | 'completeSessionAgentRun'>;
   getSkillRepository?: () => RunAgentOptions['skillRepository'];
   getSkillArtifactStore?: () => RunAgentOptions['skillArtifactStore'];
-  getCapabilitySecretRepository?: () =>
-    | RunAgentOptions['capabilitySecretRepository']
-    | undefined;
-  getMcpDnsValidationCache?: () =>
-    | RunAgentOptions['mcpDnsValidationCache']
-    | undefined;
+  // prettier-ignore
+  getCapabilitySecretRepository?: () => RunAgentOptions['capabilitySecretRepository'] | undefined;
+  // prettier-ignore
+  getMcpDnsValidationCache?: () => RunAgentOptions['mcpDnsValidationCache'] | undefined;
   mcpHostnameLookup?: RunAgentOptions['mcpHostnameLookup'];
   executionAdapter?: RunAgentOptions['executionAdapter'];
   executionAdapters?: RunAgentOptions['executionAdapters'];
@@ -583,6 +582,7 @@ export function wireInlineAgentLoopTools(input: {
     event: RuntimeEventPublishInput,
   ) => Promise<unknown> | unknown;
   classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];
+  recordDecision: InlineCoreToolHostDeps['recordDecision'];
   warn(context: Record<string, unknown>, message: string): void;
 }): {
   requestPermissionApproval: ChannelWiring['requestPermissionApproval'];
@@ -607,6 +607,7 @@ export function wireInlineAgentLoopTools(input: {
       : Promise.reject(reject('question'));
   inlineCoreToolHostDeps = {
     warn: input.warn,
+    recordDecision: input.recordDecision,
     sendMessage: (jid, text, messageOptions) =>
       input.channelWiring.sendMessage(jid, text, {
         durability: 'required',

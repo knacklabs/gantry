@@ -2,12 +2,16 @@ import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { permissionDecisionMemoryPostgres } from '@core/adapters/storage/postgres/schema/schema.js';
+import { HumanDecisionMemoryService } from '@core/application/permissions/human-decision-memory-service.js';
+import { projectHumanDecisionMatch } from '@core/application/permissions/human-decision-job-projection.js';
 import {
   AllowOnceNeverPersistedError,
   HumanDecisionRequiresTypedAccessError,
   type HumanDecisionMemoryPutInput,
 } from '@core/domain/ports/permission-decision-memory.js';
 import { encodeHumanDecisionProvenance } from '@core/domain/human-decision.js';
+import { RAIL_CATALOG_VERSION } from '@core/domain/permission-effect-key.js';
+import type { PermissionApprovalRequest } from '@core/domain/types.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -780,6 +784,87 @@ maybeDescribe('Postgres permission decision memory', () => {
         railVersion: 2,
       }),
     ).resolves.toBeNull();
+  });
+
+  it("projects a row written for person A for A's job and not for B's job not after revocation and not from another rail version without writing memory", async () => {
+    const repository = runtime.repositories.permissionDecisionMemory;
+    const personA = 'person-job-projection-a';
+    const recordId = '50000000-0000-4000-8000-000000000001';
+    const request: PermissionApprovalRequest = {
+      requestId: 'job-projection-request',
+      appId: APP,
+      sourceAgentFolder: FOLDER,
+      toolName: 'WebRead',
+      toolInput: { url: 'https://example.com/report' },
+    };
+    const effectHash = 'effect-job-projection';
+    const putHumanDecision = vi.spyOn(repository, 'putHumanDecision');
+    const service = new HumanDecisionMemoryService({
+      repository,
+      newId: () => recordId,
+      now: () => '2026-09-08T00:00:00.000Z',
+    });
+
+    await expect(
+      service.remember({
+        appId: APP,
+        agentFolder: FOLDER,
+        actingPersonId: personA,
+        resolution: { kind: 'remember', outcome: 'allow', scope: 'exact' },
+        request,
+        effectHash,
+        workspaceRoot: '/workspace',
+        railVersion: RAIL_CATALOG_VERSION,
+        effectSchemaVersion: 3,
+        reason: 'remembered for the owner',
+      }),
+    ).resolves.toMatchObject({ status: 'remembered', id: recordId });
+    putHumanDecision.mockClear();
+
+    const project = (ownerPersonId: string) =>
+      projectHumanDecisionMatch({
+        ownerPersonId,
+        request,
+        facts: { effectHash, workspaceRoot: '/workspace' },
+        railVersion: RAIL_CATALOG_VERSION,
+        memory: repository,
+        warn: vi.fn(),
+      });
+    await expect(project(personA)).resolves.toEqual({
+      recordId,
+      scope: 'exact',
+    });
+    await expect(project('person-job-projection-b')).resolves.toBeNull();
+    expect(putHumanDecision).not.toHaveBeenCalled();
+
+    await service.revoke({
+      appId: APP,
+      agentFolder: FOLDER,
+      actingPersonId: personA,
+      recordId,
+    });
+    await expect(project(personA)).resolves.toBeNull();
+
+    const oldRailRecordId = '50000000-0000-4000-8000-000000000002';
+    await new HumanDecisionMemoryService({
+      repository,
+      newId: () => oldRailRecordId,
+      now: () => '2026-09-08T00:02:00.000Z',
+    }).remember({
+      appId: APP,
+      agentFolder: FOLDER,
+      actingPersonId: personA,
+      resolution: { kind: 'remember', outcome: 'allow', scope: 'exact' },
+      request,
+      effectHash,
+      workspaceRoot: '/workspace',
+      railVersion: RAIL_CATALOG_VERSION + 1,
+      effectSchemaVersion: 3,
+      reason: 'remembered under another rail version',
+    });
+    putHumanDecision.mockClear();
+    await expect(project(personA)).resolves.toBeNull();
+    expect(putHumanDecision).not.toHaveBeenCalled();
   });
 
   it('revoke hides the row via the active index', async () => {

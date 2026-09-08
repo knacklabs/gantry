@@ -351,6 +351,38 @@ describe('PermissionManagementService', () => {
     ).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
+  it('retains humanDecisionRecordId beside jobId in the saved actor context of a permission decision', async () => {
+    const { repository, saveDecision } = permissionRepository();
+    const service = new PermissionManagementService({
+      now: () => '2026-09-08T00:00:00.000Z',
+    });
+
+    await service.recordDecision({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      requestId: 'permission-job-projection',
+      toolName: 'RunCommand',
+      decision: {
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'human_decision',
+        humanDecisionRecordId: 'human-decision-1',
+      },
+      permissionRepository: repository,
+      jobId: 'job:projection',
+      auditMetadata: { humanDecisionRecordId: 'human-decision-1' },
+    });
+
+    expect(saveDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorContext: expect.objectContaining({
+          jobId: 'job:projection',
+          humanDecisionRecordId: 'human-decision-1',
+        }),
+      }),
+    );
+  });
+
   it('activates reviewed MCP sources before mirroring persistent MCP capability settings', async () => {
     const service = new PermissionManagementService({
       now: () => '2026-05-15T12:00:00.000Z',

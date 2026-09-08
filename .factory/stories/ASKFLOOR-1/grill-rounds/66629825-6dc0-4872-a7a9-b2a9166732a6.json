@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Given 0121 was your own ruling against classifier flip-flops on jobs, which way for T4?",
+      "options": [
+        "Keep 0121; ship T4 as planned (Recommended)",
+        "Reverse 0121: classifier judges jobs"
+      ],
+      "chosen": "Reverse 0121: classifier judges jobs"
+    }
+  ],
+  "at": "2026-09-08T01:38:13.019078+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

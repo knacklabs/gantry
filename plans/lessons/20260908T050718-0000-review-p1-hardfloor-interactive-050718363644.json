@@ -1,0 +1,12 @@
+{
+  "topic": "review-p1-hardfloor-interactive",
+  "lesson": "Stage autoreview P1 (must fix in this run, then re-run the IPC and coordinator suites and the full unit suite): apps/core/src/runtime/ipc-permission-classifier-decision.ts around :436 \u2014 the railAsk.hardFloor !== true check was added only to the JOB branch of the relaxesRailVeto disjunction; the interactive-auto branch still treats OutOfTrustedRoot / eligible UnsupportedMetaExecutor as relaxable when hardFloor is true, so a classifier allow can authorize across a hard rail in interactive auto. Fix: require railAsk.hardFloor !== true for BOTH lane branches (hoist the guard in front of the disjunction so no branch can relax a hard-floor ASK). Pin it in apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts: an interactive-auto request whose ASK has hardFloor: true with each typed signal, under a live classifier allow AND a cached allow, is NOT authorized (no auto_classifier decision; the existing prompt/card path) \u2014 mirror the job-lane hard-floor cases that already exist. This is the same bug family as lesson 106: a new invariant added to one branch of a shared predicate must be applied to every branch.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T05:07:18+00:00"
+}

@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-08T04:18:15+00:00", "story": "ASKFLOOR-1", "detail": "Host verify requires updating apps/core/test/unit/runtime/askfloor-tap-budget.test.ts for the autonomous ladder, but that file is outside ASKFLOOR-1-T4's exclusive write scope."}

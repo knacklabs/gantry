@@ -59,7 +59,7 @@ describe('ASKFLOOR tap budget', () => {
     });
   });
 
-  it('S3: 2>/dev/null and read-only find cost 0 taps in interactive auto', async () => {
+  it('S3: 2>/dev/null costs 0 taps and hard-floor find costs 1 tap in interactive auto', async () => {
     const classifierVerdict = {
       risk_level: 'low' as const,
       risk_category: 'benign' as const,
@@ -87,10 +87,10 @@ describe('ASKFLOOR tap budget', () => {
       railProvenance: null,
     });
     expect(readOnlyFind).toMatchObject({
-      taps: 0,
-      decidedBy: 'auto_classifier',
-      source: 'auto_classifier',
-      railProvenance: { signal: 'unsupported_meta_executor' },
+      taps: 1,
+      decidedBy: 'owner',
+      source: 'user',
+      railProvenance: null,
     });
   });
 
@@ -213,7 +213,6 @@ describe('ASKFLOOR tap budget', () => {
     for (const lane of [
       { permissionMode: 'auto_strict' as const },
       { permissionMode: 'ask' as const },
-      { permissionMode: 'auto' as const, hostJobId: 'job-tb' },
     ]) {
       for (const request of requests) {
         await expect(
@@ -232,6 +231,32 @@ describe('ASKFLOOR tap budget', () => {
           railProvenance: null,
         });
       }
+    }
+    for (const request of requests) {
+      const classifierEligible = request.toolName !== 'FileWrite';
+      const classifierConsult = vi.fn(async () => ({
+        ...LOW_CLASSIFIER_VERDICT,
+        latencyMs: 1,
+      }));
+      await expect(
+        replayPermissionRequest({
+          permissionMode: 'auto',
+          hostJobId: 'job-tb',
+          ...request,
+          workspaceRoot: TAP_BUDGET_WORKSPACE_ROOT,
+          trustedRoots: [TAP_BUDGET_WORKSPACE_ROOT],
+          classifierVerdict: LOW_CLASSIFIER_VERDICT,
+          classifierConsult,
+        }),
+      ).resolves.toEqual({
+        taps: classifierEligible ? 0 : 1,
+        decidedBy: classifierEligible ? 'auto_classifier' : 'owner',
+        source: classifierEligible ? 'auto_classifier' : 'user',
+        railProvenance: null,
+      });
+      expect(classifierConsult).toHaveBeenCalledTimes(
+        classifierEligible ? 1 : 0,
+      );
     }
   });
 });

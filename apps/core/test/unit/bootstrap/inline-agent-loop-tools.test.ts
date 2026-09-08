@@ -115,6 +115,7 @@ function wire(overrides: Record<string, unknown> = {}) {
     }),
     getAsyncTaskRepository: () => repository,
     publishRuntimeEvent,
+    recordDecision: vi.fn(async () => undefined),
     warn: vi.fn(),
     ...overrides,
   } as never);
@@ -1107,12 +1108,12 @@ describe('inline core tool bootstrap', () => {
     );
   });
 
-  it("short-circuits the inline classifier with a seeded remembered Allow for the run person and never reads the classifier verdict cache, while a scheduled run and a run without memoryUserId keep today's consult, with the new decision-memory dep wired", async () => {
+  it('consults the projection for a scheduled run with the job owner before the classifier returns a projected match with zero classifier calls lets a no-projection scheduled request reach the classifier and run on its low allow audits the matched record id after the projection wins and projects nothing for a blank owner while the interactive auto lane is unchanged', async () => {
     const findHumanDecision: PermissionDecisionMemoryRepository['findHumanDecision'] =
-      vi.fn(async ({ candidates }) => {
+      vi.fn(async ({ actingPersonId, candidates }) => {
         const candidate = candidates[0]!;
         return {
-          id: 'remembered-inline-allow',
+          id: `remembered-inline-allow-${actingPersonId}`,
           appId: 'default',
           agentFolder: 'main_agent',
           kind: 'human_decision',
@@ -1121,7 +1122,7 @@ describe('inline core tool bootstrap', () => {
           outcome: HumanDecisionOutcome.Allow,
           scope: candidate.scope,
           scopeKey: candidate.scopeKey,
-          actingPersonId: 'approver-1',
+          actingPersonId,
           reason: 'remembered inline allow',
           effectSchemaVersion: 3,
           railVersion: 2,
@@ -1156,10 +1157,12 @@ describe('inline core tool bootstrap', () => {
       reason: 'Read-only lookup.',
       latencyMs: 1,
     }));
+    const recordDecision = vi.fn(async () => undefined);
     wire({
       classifierConsult,
       getPermissionDecisionMemoryRepository,
       getPermissionRuntimeSettings: settings,
+      recordDecision,
     });
     const interactive = laneInput();
     interactive.input.permissionMode = 'auto';
@@ -1178,35 +1181,88 @@ describe('inline core tool bootstrap', () => {
     );
     expect(classifierConsult).not.toHaveBeenCalled();
     expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(recordDecision).not.toHaveBeenCalled();
 
     findHumanDecision.mockClear();
-    for (const run of [
-      { memoryUserId: 'approver-1', isScheduledJob: true, jobId: 'job-1' },
-      {},
-    ]) {
-      const currentClassifierConsult = vi.fn(async () => ({
-        risk_level: 'low' as const,
-        reason: 'Read-only lookup.',
-        latencyMs: 1,
-      }));
-      wire({
-        classifierConsult: currentClassifierConsult,
-        getPermissionDecisionMemoryRepository,
-        getPermissionRuntimeSettings: settings,
-      });
-      const input = laneInput();
-      input.input.permissionMode = 'auto';
-      Object.assign(input.input, run);
+    const scheduled = laneInput();
+    scheduled.input.permissionMode = 'auto';
+    scheduled.input.isScheduledJob = true;
+    scheduled.input.jobId = 'job-1';
+    scheduled.input.jobOwnerPersonId = 'person-owner';
+    await expect(
+      createInlineCoreTools(scheduled, promptPolicy).authorizeThirdPartyMcpTool(
+        'mcp__crm__read',
+        { id: 'crm-1' },
+      ),
+    ).resolves.toEqual({ allowed: true });
+    expect(findHumanDecision).toHaveBeenCalledOnce();
+    expect(findHumanDecision).toHaveBeenCalledWith(
+      expect.objectContaining({ actingPersonId: 'person-owner' }),
+    );
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(recordDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-1',
+        auditMetadata: {
+          humanDecisionRecordId: 'remembered-inline-allow-person-owner',
+        },
+      }),
+    );
 
-      await expect(
-        createInlineCoreTools(input, promptPolicy).authorizeThirdPartyMcpTool(
-          'mcp__crm__read',
-          { id: 'crm-1' },
-        ),
-      ).resolves.toEqual({ allowed: true });
-      expect(currentClassifierConsult).toHaveBeenCalledOnce();
-    }
-    expect(findHumanDecision).not.toHaveBeenCalled();
+    const missFindHumanDecision = vi.fn(async () => null);
+    const missClassifierConsult = vi.fn(async () => ({
+      risk_level: 'low' as const,
+      reason: 'Read-only lookup.',
+      latencyMs: 1,
+    }));
+    const missRecordDecision = vi.fn(async () => undefined);
+    wire({
+      classifierConsult: missClassifierConsult,
+      getPermissionDecisionMemoryRepository: () =>
+        ({ findHumanDecision: missFindHumanDecision }) as never,
+      getPermissionRuntimeSettings: settings,
+      recordDecision: missRecordDecision,
+    });
+    const miss = laneInput();
+    miss.input.permissionMode = 'auto';
+    miss.input.isScheduledJob = true;
+    miss.input.jobId = 'job-miss';
+    miss.input.jobOwnerPersonId = 'person-owner';
+    await expect(
+      createInlineCoreTools(miss, promptPolicy).authorizeThirdPartyMcpTool(
+        'mcp__crm__read',
+        { id: 'crm-1' },
+      ),
+    ).resolves.toEqual({ allowed: true });
+    expect(missFindHumanDecision).toHaveBeenCalledOnce();
+    expect(missClassifierConsult).toHaveBeenCalledOnce();
+    expect(missRecordDecision).not.toHaveBeenCalled();
+
+    const blankOwnerFind = vi.fn();
+    const blankOwnerClassifier = vi.fn(async () => ({
+      risk_level: 'low' as const,
+      reason: 'Read-only lookup.',
+      latencyMs: 1,
+    }));
+    wire({
+      classifierConsult: blankOwnerClassifier,
+      getPermissionDecisionMemoryRepository: () =>
+        ({ findHumanDecision: blankOwnerFind }) as never,
+      getPermissionRuntimeSettings: settings,
+    });
+    const blankOwner = laneInput();
+    blankOwner.input.permissionMode = 'auto';
+    blankOwner.input.isScheduledJob = true;
+    blankOwner.input.jobId = 'job-blank-owner';
+    blankOwner.input.jobOwnerPersonId = ' ';
+    await expect(
+      createInlineCoreTools(
+        blankOwner,
+        promptPolicy,
+      ).authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' }),
+    ).resolves.toEqual({ allowed: true });
+    expect(blankOwnerFind).not.toHaveBeenCalled();
+    expect(blankOwnerClassifier).toHaveBeenCalledOnce();
     expect(getClassifierVerdict).not.toHaveBeenCalled();
   });
 
@@ -1387,7 +1443,7 @@ describe('inline core tool bootstrap', () => {
     );
   });
 
-  it('denies an unattended classifier ask without prompting', async () => {
+  it('lets a no-projection scheduled request reach the classifier and routes its ask to the existing card path', async () => {
     const classifierConsult = vi.fn(async () => ({
       risk_level: 'high' as const,
       reason: 'The requested scope needs human approval.',
@@ -1439,7 +1495,7 @@ describe('inline core tool bootstrap', () => {
     ['group non-approver', 'channel', 'member-1', false, false],
     ['scheduled DM job', 'dm', 'conversation:dm', false, true],
   ] as const)(
-    'consults for %s without requester gating',
+    'lets a no-projection request reach the classifier and run on its low allow for %s',
     async (_label, conversationKind, senderId, isApprover, isScheduledJob) => {
       const classifierConsult = vi.fn(async () => ({
         risk_level: 'low' as const,

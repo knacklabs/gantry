@@ -235,7 +235,6 @@ async function prepareActiveJobAgent(
     context.error = SETUP_REQUIRED_PAUSE_REASON;
   }
 }
-
 async function invokeActiveJobAgent(
   context: ActiveJobRunContext,
 ): Promise<void> {
@@ -294,6 +293,7 @@ async function invokeActiveJobAgent(
       agentId: preparation.executionAgentId,
       persona: execution.group.agentConfig?.persona,
       memoryUserId: context.memoryUserId,
+      jobOwnerPersonId: currentJob.execution_context?.personId ?? null,
       memoryDefaultScope: context.memoryDefaultScope!,
       isScheduledJob: true,
       // scheduler_retry_ask: this one run asks interactively (job unchanged).

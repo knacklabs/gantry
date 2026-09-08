@@ -1,0 +1,244 @@
+{
+  "generated_by": "autoreview",
+  "score": 10,
+  "summary": "quality lens over ASKFLOOR-1-T4 (24 product path(s), 5ad1c6d..865c92f, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT ASKFLOOR-1-T4-AC1: implemented \u2014 apps/core/src/application/permissions/human-decision-job-projection.ts:18 exports the read-only, fail-closed projection helper and ordered candidate matrix.\nVERDICT ASKFLOOR-1-T4-AC2: implemented \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:242 performs guarded job projection after rails, while the IPC lane preserves the classifier/card ladder.\nVERDICT ASKFLOOR-1-T4-AC3: implemented \u2014 apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:395 wires scheduled projection before classifier fallback and audits matched decisions.\nVERDICT ASKFLOOR-1-T4-AC4: implemented \u2014 apps/core/src/jobs/execution-phases-run.ts:293 threads the canonical job owner independently of memoryUserId.\nVERDICT ASKFLOOR-1-T4-AC5: implemented \u2014 apps/core/test/unit/application/permission-management-service.test.ts:299 proves humanDecisionRecordId and jobId persist together.\nVERDICT ASKFLOOR-1-T4-AC6: implemented \u2014 apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts:786 provides the database-backed owner, revocation, and rail-version projection matrix.\nVERDICT ASKFLOOR-1-T4-AC7: implemented \u2014 docs/architecture/permission-decision-memory.md:30 documents the rails \u2192 projection \u2192 classifier \u2192 card ordering and read-only owner scope.\nNo blocking compatibility wrappers, aliases, dead branches, or prohibited leftover naming appear in the supplied diff. The recorded verification evidence also reports formatting, architecture, typechecking, unit, and integration checks passing.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/app/bootstrap/inline-agent-loop-tool-types.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+    "apps/core/src/app/bootstrap/runtime-services.ts",
+    "apps/core/src/application/permissions/human-decision-job-projection.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/src/runtime/agent-spawn-types.ts",
+    "apps/core/src/runtime/ipc-interaction-processing.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/ipc-permission-job-projection.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+    "apps/core/test/unit/application/human-decision-job-projection.test.ts",
+    "apps/core/test/unit/application/jobperm-ask-and-wait.test.ts",
+    "apps/core/test/unit/application/permission-management-service.test.ts",
+    "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+    "apps/core/test/unit/bootstrap/runtime-services.test.ts",
+    "apps/core/test/unit/jobs/execution.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+    "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+    "docs/architecture/permission-decision-memory.md"
+  ],
+  "skills_used": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/permissions/human-decision-job-projection.ts:18 exports the read-only, fail-closed projection helper and ordered candidate matrix."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC2",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:242 performs guarded job projection after rails, while the IPC lane preserves the classifier/card ladder."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC3",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:395 wires scheduled projection before classifier fallback and audits matched decisions."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC4",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/jobs/execution-phases-run.ts:293 threads the canonical job owner independently of memoryUserId."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC5",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/application/permission-management-service.test.ts:299 proves humanDecisionRecordId and jobId persist together."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC6",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts:786 provides the database-backed owner, revocation, and rail-version projection matrix."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC7",
+      "verdict": "implemented",
+      "evidence": "docs/architecture/permission-decision-memory.md:30 documents the rails \u2192 projection \u2192 classifier \u2192 card ordering and read-only owner scope."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "af7bd09df6acda310c673985850f2017338c023415ad5cd6f03a7aa226bce2e6",
+  "brief_sha256": "213221a35972af5562180bfa23c08196181696ec55b76673c1f60b13ebd740f6",
+  "branch_diff_digest": "c3da04e3fccd3fdcabb5a0eee2d90148c1ff2cc0bb03d6961c4765fc29b9e905",
+  "residual_risks": [],
+  "recorded_at": "2026-09-08T06:22:13+00:00",
+  "commit": "865c92f596869f1dca61dbde7464f2d88827f5ec"
+}

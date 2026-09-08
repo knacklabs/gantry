@@ -30,6 +30,7 @@ import {
   consultRememberedAllow,
   consultRememberedDeny,
 } from './permission-human-memory-stage.js';
+import { projectHumanDecisionMatch } from '../application/permissions/human-decision-job-projection.js';
 
 export type DeterministicPermissionRails = (
   input: PermissionDeterministicRailsInput,
@@ -65,6 +66,15 @@ export interface PermissionDecisionTailContext {
   readonly cachedClassifierVerdict?: Readonly<ClassifierVerdict>;
 }
 
+export interface HumanDecisionProjectionInput {
+  ownerPersonId: string | null;
+  memory: PermissionDecisionMemoryRepository;
+  guard: (
+    railDecision: PermissionDeterministicRailDecision | undefined,
+  ) => PermissionApprovalDecision | undefined;
+  warn(message: string, context?: Record<string, unknown>): void;
+}
+
 export interface CoordinatePermissionDecisionInput {
   request: PermissionApprovalRequest;
   hardDenyReason?: string;
@@ -80,10 +90,11 @@ export interface CoordinatePermissionDecisionInput {
   effectHash?: string;
   /** Classifier-verdict cache (Task C); read only on a rail fall-through. */
   decisionMemory?: PermissionDecisionMemoryRepository;
-  /** Host-verified autonomous runs never read classifier verdicts. */
+  /** Set when the current tool or lane must not read classifier verdicts. */
   skipClassifierVerdictCache?: boolean;
   /** Completed by the IPC-only pre-coordination route-analysis stage. */
   analysis?: AutoLaneAnalysis;
+  humanDecisionProjection?: HumanDecisionProjectionInput;
   tail: (
     context?: PermissionDecisionTailContext,
   ) => Promise<PermissionApprovalDecision>;
@@ -231,6 +242,38 @@ export async function coordinatePermissionDecision(
         (railDecision.railSignal === RailSignal.UnsupportedMetaExecutor &&
           input.analysis?.readOnlyMetaExecutor === true)));
   if (railAllowsOverride) {
+    if (
+      railDecision?.hardFloor !== true &&
+      input.analysis?.lane === PermissionLane.Autonomous &&
+      input.humanDecisionProjection &&
+      workspaceRoot
+    ) {
+      const guarded = input.humanDecisionProjection.guard(railDecision);
+      if (guarded) return guarded;
+      const match = await projectHumanDecisionMatch({
+        ownerPersonId: input.humanDecisionProjection.ownerPersonId,
+        request: input.request,
+        facts: {
+          effectHash: input.effectHash,
+          workspaceRoot,
+          canonicalRoot: trustedRootLearning?.canonicalRoot,
+        },
+        railVersion: RAIL_CATALOG_VERSION,
+        memory: input.humanDecisionProjection.memory,
+        warn: input.humanDecisionProjection.warn,
+      });
+      if (match) {
+        return {
+          ...decisionForMode(
+            input.request,
+            'allow_once',
+            'human_decision',
+            'machine',
+          ),
+          humanDecisionRecordId: match.recordId,
+        };
+      }
+    }
     const rememberedAllow = await consultRememberedAllow({
       request: input.request,
       analysis: input.analysis,
@@ -245,12 +288,15 @@ export async function coordinatePermissionDecision(
   // locked/fixed-image (PERM-1 precedence, checked above) and past the rails.
   const railAllowsCacheRead =
     railAllowsOverride &&
-    (!railDecision || input.analysis?.lane === PermissionLane.InteractiveAuto);
+    (!railDecision ||
+      input.analysis?.lane === PermissionLane.InteractiveAuto ||
+      input.analysis?.lane === PermissionLane.Autonomous);
   if (
     railAllowsCacheRead &&
     (!input.analysis ||
       input.analysis.lane === PermissionLane.InteractiveAuto ||
-      input.analysis.lane === PermissionLane.AutoStrict) &&
+      input.analysis.lane === PermissionLane.AutoStrict ||
+      input.analysis.lane === PermissionLane.Autonomous) &&
     !input.skipClassifierVerdictCache &&
     input.effectHash &&
     input.decisionMemory
