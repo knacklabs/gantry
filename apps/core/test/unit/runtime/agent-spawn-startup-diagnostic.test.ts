@@ -83,7 +83,7 @@ describe('agent-spawn startup diagnostics', () => {
       runId: 'run-one',
       jobId: 'job-one',
       eventType: 'run.startup_diagnostic',
-      actor: 'runtime',
+      actor: { kind: 'system', source: 'runtime' },
       responseMode: 'none',
       payload: {
         provider: 'host',

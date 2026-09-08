@@ -44,7 +44,7 @@ describe('publishBrowserJobActivityEvent', () => {
         responseMode: 'webhook',
         webhookId: 'webhook-1',
         eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-        actor: 'browser',
+        actor: { kind: 'system', source: 'browser' },
         correlationId: 'browser-call-1',
         jobId: 'job-1',
         runId: 'run-1',

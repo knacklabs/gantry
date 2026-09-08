@@ -152,7 +152,7 @@ it('authentication repository > records CLI recovery audit in the approval trans
     repository.approveAccessReference({
       accessReferenceHash: 'hash-only-reference',
       role: 'administrator',
-      actor: 'cli:auth-access',
+      actor: { kind: 'system', source: 'cli:auth-access' },
       now: '2026-08-20T00:00:00.000Z',
     }),
   ).resolves.toEqual(grant);
