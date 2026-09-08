@@ -1,0 +1,12 @@
+{
+  "topic": "review-p2-r6",
+  "lesson": "Stage autoreview (branch mode against the merge-base, whole T5a diff) found THREE P2s; fix exactly these with one pinned test each, then run npx tsc --noEmit, npm run check:architecture and the touched suites (permission-card-affordances, teams/teams.test.ts, provider-affordance-parity). (1) apps/core/src/application/permissions/permission-card-affordances.ts:69 \u2014 for every provisionally eligible context the builder unconditionally offers remember_allow_exact and remember_deny_exact, but only the protected-destination refusal is handled; for any other refused exact/deny candidate the card offers Allow/No as remembering actions, the offered-set check accepts the tap, and the receipt says \"Remembered\" even though learnRememberedDecision cannot persist a refused candidate. Gate remember_allow_exact on candidates.exact.ok and remember_deny_exact on candidates.deny.ok (or fall back to the scalar, non-remembering card when neither is usable) and keep the pre-tap lines consistent with what is offered. Pin: a context whose exact candidate is refused for a non-protected reason offers no remember_allow_exact (scalar allow_once instead) and no \"Allow will remember\" line; a refused deny candidate offers no remember_deny_exact. (2) permission-card-affordances.ts:183 \u2014 after a trust-growth count failure the catch warns but falls through to the folder-alternative block, so an unavailable repository still yields a remembering alternative; the contract says a repository failure suppresses THE alternative with one warn \u2014 return undefined from the failure path. Pin: throwing countExactAllowsByTool with a valid root and valid kind/place candidates \u2192 no alternative, one warn. (3) apps/core/test/unit/channels/teams/teams.test.ts:1811 \u2014 the Teams settlement leaf only proves an offered code reaches the claim; add the same assertions the other providers have: an UNOFFERED code settles as its scalar base with no effective remember code and today's once-only receipt, and an offered code settles with its remembered receipt (keep the existing leaf title). The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/permissions/permission-card-affordances.ts",
+    "apps/core/test/unit/channels/teams/teams.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T18:16:16+00:00"
+}

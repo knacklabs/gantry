@@ -2,6 +2,7 @@ import { permissionHumanToolLabel } from '../application/permissions/permission-
 import {
   formatPermissionCardPreTapLines,
   formatPermissionCardReceipt,
+  hasEligiblePermissionCardAffordances,
   permissionCardButtonLabel,
 } from './permission-card-affordances.js';
 import {
@@ -74,7 +75,7 @@ export function permissionButtonLabel(
   mode: PermissionApprovalDecisionMode | PermissionRememberCode,
   _request: PermissionApprovalRequest,
 ): string {
-  const cardLabel = _request.cardAffordances
+  const cardLabel = hasEligiblePermissionCardAffordances(_request)
     ? permissionCardButtonLabel(mode, _request.cardAffordances)
     : undefined;
   if (cardLabel) return cardLabel;
@@ -145,13 +146,12 @@ export function formatPermissionReceiptText(
   const amendmentReceipt = amendmentReceiptText(request, decision);
   if (amendmentReceipt) return amendmentReceipt;
   const rememberedReceipt =
-    request?.cardAffordances &&
-    decision.permissionCallbackClaim?.effectiveRememberCode
-      ? formatPermissionCardReceipt(
-          request.cardAffordances,
-          decision.permissionCallbackClaim.effectiveRememberCode,
-        )
-      : undefined;
+    hasEligiblePermissionCardAffordances(request) &&
+    decision.permissionCallbackClaim?.effectiveRememberCode &&
+    formatPermissionCardReceipt(
+      request.cardAffordances,
+      decision.permissionCallbackClaim.effectiveRememberCode,
+    );
   if (rememberedReceipt) return limitPermissionMessage(rememberedReceipt);
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
@@ -369,13 +369,13 @@ function formatPermissionContextLines(
   const context = request.jobId
     ? `scheduled job${request.jobName ? `: ${sanitizePermissionText(request.jobName, 120, 40)}` : ''}`
     : 'agent chat';
+  const cardContextLines = hasEligiblePermissionCardAffordances(request)
+    ? formatPermissionCardPreTapLines(request.cardAffordances)
+    : familyScopeCoverageLines(request);
   const lines = [
     `Agent: ${formatPermissionAgentDisplayName(request.sourceAgentFolder)}`,
     `Context: ${context}`,
-    ...(request.cardAffordances ? [] : familyScopeCoverageLines(request)),
-    ...(request.cardAffordances
-      ? formatPermissionCardPreTapLines(request.cardAffordances)
-      : []),
+    ...cardContextLines,
   ];
   if (typeof request.threadId === 'string' && request.threadId.trim() !== '') {
     lines.push('Approval applies to the parent conversation.');
@@ -392,7 +392,7 @@ function formatPermissionContextLines(
     }
   }
   if (
-    !request.cardAffordances &&
+    !hasEligiblePermissionCardAffordances(request) &&
     request.promotionHintCount &&
     request.firstAskedAt
   ) {

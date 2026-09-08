@@ -44,9 +44,17 @@ export function permissionDecisionOptions(
   request: PermissionApprovalRequest,
   matchKind?: 'individual' | 'batch',
 ): (PermissionApprovalDecisionMode | PermissionRememberCode)[] {
-  return request.cardAffordances?.eligible
+  return hasEligiblePermissionCardAffordances(request)
     ? permissionCardDecisionOptions(request.cardAffordances)
     : scalarPermissionDecisionOptions(request, matchKind);
+}
+
+export function hasEligiblePermissionCardAffordances(
+  request: PermissionApprovalRequest | undefined,
+): request is PermissionApprovalRequest & {
+  cardAffordances: PermissionCardAffordances & { eligible: true };
+} {
+  return request?.cardAffordances?.eligible === true;
 }
 
 export function permissionCardButtonLabel(

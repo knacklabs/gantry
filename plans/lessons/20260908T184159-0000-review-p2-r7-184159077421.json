@@ -1,0 +1,12 @@
+{
+  "topic": "review-p2-r7",
+  "lesson": "Stage autoreview round 7 accepted ONE P2; fix exactly this with one pinned test, then run npx tsc --noEmit, npm run check:architecture and the touched suites (channels/permission-interaction, channels/permission-card-affordances, provider-affordance-parity). apps/core/src/channels/permission-interaction.ts:77,148,375-377,395 \u2014 every formatter path branches on the mere PRESENCE of request.cardAffordances, but buildPermissionCardAffordances now returns scalarPermissionCardAffordances() ({ eligible: false }) for ineligible contexts and that object is persisted on the request during batch binding. For such a request allow_once is labelled \"Just this once\" instead of the batch label (\"Allow all\") or \"Allow once\", and the family-coverage/context lines are suppressed while the pre-tap lines render empty. permissionDecisionOptions (permission-card-affordances.ts:46-49) already gates on cardAffordances.eligible \u2014 make the label, tail-line, pre-tap-line and coverage-line paths use the same eligibility gate (one small helper in channels/permission-card-affordances.ts is fine; no wrapper elsewhere). Pin: a request carrying { eligible: false } affordances labels allow_once exactly as a request without affordances (batch \u2192 \"Allow all\", scalar \u2192 \"Allow once\") and renders the same context/coverage lines. Do NOT touch the trust-growth verdict check in runtime/permission-remember-settlement.ts (gantryToolRisk exposes verdict only; that finding was rejected) and do NOT change the Teams memory_forget transport (deferred to T5b). The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/channels/permission-interaction.ts",
+    "apps/core/src/channels/permission-card-affordances.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T18:41:59+00:00"
+}
