@@ -4,6 +4,7 @@ import { evaluateToolAccessRequirements } from '../application/jobs/job-tool-acc
 import * as jobToolPolicy from '../application/jobs/job-tool-policy.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { isSystemPrincipal } from '../domain/identity/principal-ref.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import { logger, updateLogContext } from '../infrastructure/logging/logger.js';
 import type { AgentOutput } from '../runtime/agent-spawn.js';
@@ -438,9 +439,8 @@ async function settleActiveJobAgentOutput(
       eventTypes: [RUNTIME_EVENT_TYPES.TOOL_ACTIVITY],
     });
     await forwardRunnerRuntimeEvents({
-      events: browserActivityEvents.filter(
-        (event) =>
-          event.actor.kind === 'system' && event.actor.source === 'browser',
+      events: browserActivityEvents.filter((event) =>
+        isSystemPrincipal(event.actor, 'browser'),
       ),
       diagnostics: context.diagnostics!,
     });

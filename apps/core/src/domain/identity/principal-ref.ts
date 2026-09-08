@@ -26,6 +26,13 @@ export function systemPrincipal(source: string): PrincipalRef {
   return { kind: 'system', source: normalized };
 }
 
+export function isSystemPrincipal(
+  principal: PrincipalRef,
+  source: string,
+): boolean {
+  return principal.kind === 'system' && principal.source === source;
+}
+
 export function isPrincipalRef(value: unknown): value is PrincipalRef {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const principal = value as Record<string, unknown>;

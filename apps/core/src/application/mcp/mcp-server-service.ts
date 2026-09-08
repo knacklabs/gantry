@@ -1,5 +1,6 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
+import { systemPrincipal } from '../../domain/identity/principal-ref.js';
 import type {
   AgentMcpServerBinding,
   MaterializedMcpServer,
@@ -43,6 +44,10 @@ import { nowIso } from '../../shared/time/datetime.js';
 import { bindAgentsToMcpServer } from './mcp-server-bulk-binding.js';
 
 export type { MaterializedMcpCapability } from './mcp-server-materialization.js';
+
+function auditActor(actor?: string) {
+  return actor ? systemPrincipal(actor) : undefined;
+}
 
 export class McpServerService {
   constructor(
@@ -142,9 +147,7 @@ export class McpServerService {
       appId: input.appId,
       serverId,
       eventType: 'connect',
-      actorId: input.createdBy
-        ? { kind: 'system', source: input.createdBy }
-        : undefined,
+      actorId: auditActor(input.createdBy),
       reason: input.requestedReason,
       metadata: { createdSource: definition.createdSource },
     });
@@ -197,9 +200,7 @@ export class McpServerService {
       appId: input.appId,
       serverId: server.id,
       eventType: 'disable',
-      actorId: input.disabledBy
-        ? { kind: 'system', source: input.disabledBy }
-        : undefined,
+      actorId: auditActor(input.disabledBy),
       reason: input.reason,
     });
     return transitioned;
@@ -274,9 +275,7 @@ export class McpServerService {
           serverId: server.id,
           bindingId: binding.id,
           eventType: 'unbind',
-          actorId: input.reconnectedBy
-            ? { kind: 'system', source: input.reconnectedBy }
-            : undefined,
+          actorId: auditActor(input.reconnectedBy),
           reason: 'MCP source reconnected; explicit reattachment is required.',
         }),
       ),
@@ -285,9 +284,7 @@ export class McpServerService {
       appId: input.appId,
       serverId: server.id,
       eventType: 'reconnect',
-      actorId: input.reconnectedBy
-        ? { kind: 'system', source: input.reconnectedBy }
-        : undefined,
+      actorId: auditActor(input.reconnectedBy),
       reason: input.reason,
       metadata: { disabledBindingCount: disabledBindings.length },
     });
@@ -311,9 +308,7 @@ export class McpServerService {
       appId: input.appId,
       serverId: server.id,
       eventType: 'test',
-      actorId: input.testedBy
-        ? { kind: 'system', source: input.testedBy }
-        : undefined,
+      actorId: auditActor(input.testedBy),
       metadata: { transport: server.transport },
     });
     return {
