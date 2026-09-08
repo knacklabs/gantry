@@ -1027,57 +1027,8 @@
     {
       "idx": 149,
       "version": "7",
-      "when": 1788764111669,
-      "tag": "20260907065511_agent_service_person_identity",
-      "breakpoints": true
-    },
-    {
-      "idx": 150,
-      "version": "7",
-      "when": 1788781641101,
-      "tag": "20260907114721_agent_offboarding_audit",
-      "breakpoints": true
-    },
-    {
-      "idx": 151,
-      "version": "7",
-      "when": 1788783365679,
-      "tag": "20260907121605_runtime_event_principal_refs",
-      "breakpoints": true
-    },
-    {
-      "idx": 152,
-      "version": "7",
-      "when": 1788783541737,
-      "tag": "20260907121901_mcp_audit_principal_refs",
-      "breakpoints": true
-    },
-    {
-      "idx": 153,
-      "version": "7",
-      "when": 1788806732003,
-      "tag": "20260907184532_conversation_approver_identity",
-      "breakpoints": true
-    },
-    {
-      "idx": 154,
-      "version": "7",
-      "when": 1788844389997,
-      "tag": "20260908051309_permission_principal_refs",
-      "breakpoints": true
-    },
-    {
-      "idx": 155,
-      "version": "7",
-      "when": 1788845228318,
-      "tag": "20260908052708_person_merge_principal_refs",
-      "breakpoints": true
-    },
-    {
-      "idx": 156,
-      "version": "7",
-      "when": 1788845635247,
-      "tag": "20260908053355_memory_evidence_principal_refs",
+      "when": 1788854689129,
+      "tag": "20260908080449_ident_2_agent_identity",
       "breakpoints": true
     }
   ]
