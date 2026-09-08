@@ -20,6 +20,7 @@ import type { AutoLaneAnalysis } from '../../application/permissions/auto-lane-a
 import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
 import type { HumanDecisionProjectionInput } from '../../runtime/permission-decision-coordinator.js';
 import { learnPermissionRememberSettlement } from '../../runtime/permission-remember-settlement.js';
+import { buildPermissionRememberPromptModel } from '../../runtime/permission-remember-settlement.js';
 import type { InlineCoreToolHostDeps } from './inline-agent-loop-tool-types.js';
 
 export interface InlinePermissionMemoryInputs {
@@ -106,12 +107,16 @@ export async function inlinePermissionRememberContext(input: {
   run: InlineAgentLoopLaneInput['input'];
   laneInput: InlineAgentLoopLaneInput;
   request: PermissionApprovalRequest;
-  deps: Pick<InlineCoreToolHostDeps, 'getPermissionDecisionMemoryRepository'>;
+  canonicalRoot?: string;
+  deps: Pick<
+    InlineCoreToolHostDeps,
+    'getPermissionDecisionMemoryRepository' | 'permissionToolLabel' | 'warn'
+  >;
 }): Promise<PermissionRememberContext> {
   const facts = inlinePermissionMemoryInputs(input);
-  return derivePermissionRememberContext({
+  const context = await derivePermissionRememberContext({
     request: input.request,
-    facts,
+    facts: { ...facts, canonicalRoot: input.canonicalRoot },
     laneInput: {
       permissionMode: input.run.permissionMode,
       ...(input.run.isScheduledJob === true
@@ -128,6 +133,17 @@ export async function inlinePermissionRememberContext(input: {
     railVersion: RAIL_CATALOG_VERSION,
     kindVariant: 'category',
   });
+  if (!context.eligible) return context;
+  const model = await buildPermissionRememberPromptModel({
+    request: input.request,
+    context,
+    canonicalRoot: input.canonicalRoot,
+    repository: facts.decisionMemory,
+    toolLabel: input.deps.permissionToolLabel?.(input.request.toolName),
+    warn: input.deps.warn,
+  });
+  input.request.cardAffordances = model.cardAffordances;
+  return model.rememberContext;
 }
 
 export function inlineRememberSettlement(

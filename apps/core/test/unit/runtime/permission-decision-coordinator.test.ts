@@ -613,8 +613,17 @@ describe('coordinatePermissionDecision', () => {
       decisionMemory: { findHumanDecision: nonOverridableFind } as never,
       tail: railTail,
     });
-    expect(nonOverridableFind).toHaveBeenCalledOnce();
-    expect(nonOverridableFind).toHaveBeenCalledWith(
+    expect(nonOverridableFind).toHaveBeenCalledTimes(2);
+    expect(nonOverridableFind).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        candidates: [
+          { scope: HumanDecisionScope.Exact, scopeKey: 'non-overridable' },
+        ],
+      }),
+    );
+    expect(nonOverridableFind).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         candidates: [
           { scope: HumanDecisionScope.Exact, scopeKey: 'non-overridable' },
@@ -1042,6 +1051,30 @@ describe('coordinatePermissionDecision', () => {
       approved: true,
       decidedBy: 'trusted_root_grant',
     });
+  });
+
+  it('passes the validated canonical root to the learning tail when the caller supplied no lane analysis', async () => {
+    const list = vi.fn(async () => []);
+    const put = vi.fn(async () => {});
+    const tail = vi.fn(async () => ({
+      approved: false,
+      mode: 'cancel' as const,
+    }));
+    await coordinatePermissionDecision({
+      request: {
+        ...request,
+        toolName: 'RunCommand',
+        toolInput: { command: 'git status' },
+      },
+      decisionMemory: { list, put } as never,
+      deterministicRailsInput: shellIn('/perm2test/project'),
+      tail,
+    });
+    expect(tail).toHaveBeenCalledOnce();
+    expect(tail.mock.calls[0][0]).toMatchObject({
+      canonicalRoot: '/perm2test/project',
+    });
+    expect(tail.mock.calls[0][0]?.analysis).toBeUndefined();
   });
 
   it('auto-allows a reviewed family op inside a granted trusted root WITHOUT prompting', async () => {
