@@ -1135,6 +1135,7 @@
         "apps/core/src/channels/teams/cards.ts",
         "apps/core/src/channels/teams/permission-submit.ts",
         "apps/core/src/channels/teams/interaction-handlers.ts",
+        "apps/core/src/channels/teams/message-actions.ts",
         "docs/decisions/0154-human-decision-memory-generic-scope.md",
         "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
         "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
@@ -1326,5 +1327,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "6e427a36a4162d629b7c5b361c96a98f622f1368"
+  "commit": "1250873fe364ae469a6cc292c63ae7971bb0d4e1"
 }
