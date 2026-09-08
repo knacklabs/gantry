@@ -102,7 +102,7 @@ phases:
     notes: "Per-task task graph; records the user_facing flag the ship gate reads."
   implementation:
     owner: "codex:/codex:rescue"
-    model: "gpt-5.6-sol"
+    model: "gpt-5.6-terra"
     # Floor, not a ceiling; this project runs its implementers at xhigh. Raise
     # a single run with `./forge delegate <id> --effort high` when a pin lower
     # than that is ever chosen for migrations, cross-domain or security work.
