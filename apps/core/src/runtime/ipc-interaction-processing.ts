@@ -8,6 +8,10 @@ import type {
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
 import { executionAdmissionForAgent } from '../application/agents/agent-execution-admission.js';
+import {
+  systemPrincipal,
+  type PrincipalRef,
+} from '../domain/identity/principal-ref.js';
 import { decisionForMode } from '../domain/permission-decision.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import type { PausedJobCapabilityRecheckResult } from '../application/jobs/job-permission-recovery.js';
@@ -250,6 +254,22 @@ export async function processPermissionInteractionIpc(input: {
         reason: executionFailure,
       };
     }
+    let decisionActor = await permissionDecisionActor({
+      request: input.request,
+      sourceAgentFolder: input.sourceAgentFolder,
+      deps: input.deps,
+      decision,
+    });
+    if (!decisionActor && isHumanPermissionDecision(decision)) {
+      decision = {
+        ...decisionForMode(input.request, 'cancel', 'system'),
+        permissionCallbackClaim: decision.permissionCallbackClaim,
+        reason:
+          'Permission approver identity could not be resolved. No action was taken.',
+      };
+      decisionActor = systemPrincipal('permission:unresolved-approver');
+    }
+    decisionActor ??= systemPrincipal(decision.decidedBy ?? 'permission');
     const claimedDecision = decision;
     await assertActiveScheduledPermissionLease(input);
     const decisionContext = permissionTelemetryContext(input.request, {
@@ -274,6 +294,7 @@ export async function processPermissionInteractionIpc(input: {
       request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
       decision,
+      actor: decisionActor,
       appId: input.request.appId,
       runId: input.request.runId,
       runLeaseToken: input.request.runLeaseToken,
@@ -352,6 +373,7 @@ export async function processPermissionInteractionIpc(input: {
         requestId: input.request.requestId,
         toolName: input.request.toolName,
         decision,
+        actor: decisionActor,
         permissionRepository: input.deps.getPermissionRepository?.(),
         conversationId: input.request.targetJid,
         threadId: input.request.threadId,
@@ -521,6 +543,43 @@ export async function processPermissionInteractionIpc(input: {
       input.claimedPath,
     );
   }
+}
+
+function isHumanPermissionDecision(
+  decision: PermissionApprovalDecision,
+): boolean {
+  return (
+    decision.source === 'human_once' ||
+    decision.source === 'human_persistent' ||
+    decision.source === 'human_decision'
+  );
+}
+
+async function permissionDecisionActor(input: {
+  request: ParsedPermissionIpcRequest;
+  sourceAgentFolder: string;
+  deps: IpcDeps;
+  decision: PermissionApprovalDecision;
+}): Promise<PrincipalRef | null> {
+  if (!isHumanPermissionDecision(input.decision)) {
+    return systemPrincipal(input.decision.decidedBy ?? 'permission');
+  }
+  const resolveApprover = input.deps.resolveControlApproverPrincipal;
+  if (!resolveApprover) {
+    return systemPrincipal(input.decision.decidedBy ?? 'permission');
+  }
+  const userId = input.decision.decidedBy?.trim();
+  const conversationJid = input.request.targetJid?.trim();
+  if (!userId || !conversationJid) return null;
+  return resolveApprover({
+    conversationJid,
+    providerAccountId: input.request.providerAccountId,
+    agentId: input.request.agentId,
+    threadId: input.request.threadId,
+    userId,
+    sourceAgentFolder: input.sourceAgentFolder,
+    decisionPolicy: input.request.decisionPolicy,
+  });
 }
 
 async function releasePermissionDecisionClaim(

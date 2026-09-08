@@ -192,6 +192,31 @@ describe('PostgresConversationRepository', () => {
       }),
     ]);
   });
+
+  it('resolves an active approver alias to its human principal', async () => {
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(async () => [
+                { personId: 'person-one', aliasId: 'alias-one' },
+              ]),
+            })),
+          })),
+        })),
+      })),
+    };
+    const repository = new PostgresConversationRepository(db as never);
+
+    await expect(
+      repository.resolveConversationApproverPrincipal({
+        appId: 'app-one' as never,
+        conversationId: 'conversation:one' as never,
+        externalUserId: 'U0123ABC',
+      }),
+    ).resolves.toEqual({ personId: 'person-one', aliasId: 'alias-one' });
+  });
 });
 
 describe('PostgresMessageRepository', () => {

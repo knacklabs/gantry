@@ -1,5 +1,6 @@
 import type { AppId } from '../../domain/app/app.js';
 import type { AgentId } from '../../domain/agent/agent.js';
+import type { PrincipalRef } from '../../domain/identity/principal-ref.js';
 import type {
   ProviderAccount,
   ProviderAccountId,
@@ -154,6 +155,34 @@ export class ConversationAdministrationService {
       userIds: [userId],
     });
     return validation.validUserIds.includes(userId);
+  }
+
+  async resolveControlApproverPrincipal(input: {
+    appId: AppId;
+    providerId: ProviderId;
+    providerAccountId: ProviderAccountId;
+    agentId: AgentId;
+    conversationJid: string;
+    threadId?: string;
+    userId: string;
+  }): Promise<PrincipalRef | null> {
+    if (!(await this.isControlApproverAllowed(input))) return null;
+    const conversation = await this.findConversationForJid(input);
+    if (!conversation) return null;
+    const identity =
+      await this.repositories.conversations.resolveConversationApproverPrincipal(
+        {
+          appId: input.appId,
+          conversationId: conversation.id,
+          externalUserId: input.userId.trim(),
+        },
+      );
+    if (!identity) return null;
+    return {
+      kind: 'human',
+      personId: identity.personId,
+      ...(identity.aliasId ? { aliasId: identity.aliasId } : {}),
+    };
   }
 
   private async resolveControlApproverUserIds(

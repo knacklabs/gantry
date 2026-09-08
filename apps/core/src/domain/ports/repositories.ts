@@ -277,6 +277,11 @@ export interface ConversationRepository {
   listConversationApprovers(
     conversationId: ConversationId,
   ): Promise<ConversationApprover[]>;
+  resolveConversationApproverPrincipal(input: {
+    appId: AppId;
+    conversationId: ConversationId;
+    externalUserId: string;
+  }): Promise<{ personId: string; aliasId?: string } | null>;
   listConversationApproversForConversations(
     conversationIds: readonly ConversationId[],
   ): Promise<ConversationApprover[]>;

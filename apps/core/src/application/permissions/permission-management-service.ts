@@ -366,7 +366,6 @@ export class PermissionManagementService {
       decision: {
         approved: true,
         mode: 'allow_persistent_rule',
-        decidedBy: input.actor,
         reason: input.reason ?? 'Persistent permission rule applied',
         decisionClassification: 'user_permanent',
       },
@@ -376,6 +375,7 @@ export class PermissionManagementService {
       runId: input.runId,
       jobId: input.jobId,
       toolId: grantedToolIds[0],
+      actor: input.actor,
       auditMetadata: persistentPermissionGrantAuditMetadata({
         rules: allowedRules,
         semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
@@ -477,7 +477,6 @@ export class PermissionManagementService {
       toolName: `revoke ${durableAccessRuleAuditPreview(target.rule)}`,
       decision: {
         approved: false,
-        decidedBy: input.actor,
         reason: input.reason ?? 'Persistent permission rule revoked',
         decisionClassification: 'user_reject',
       },
@@ -487,6 +486,7 @@ export class PermissionManagementService {
       runId: input.runId,
       jobId: input.jobId,
       toolId: target.binding.toolId,
+      actor: input.actor,
     });
     return { revokedRule: target.rule, toolId: target.binding.toolId };
   }

@@ -38,6 +38,7 @@ import type {
   IdentityResolveResult,
 } from '../../application/identity/person-identity-service.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { PrincipalRef } from '../../domain/identity/principal-ref.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type {
   AgentTodoCardStatus,
@@ -332,6 +333,15 @@ export interface ChannelWiring {
     sourceAgentFolder: string;
     decisionPolicy?: 'same_channel';
   }) => Promise<boolean>;
+  resolveControlApproverPrincipal: (input: {
+    conversationJid: string;
+    providerAccountId?: string;
+    agentId?: string;
+    threadId?: string;
+    userId: string;
+    sourceAgentFolder: string;
+    decisionPolicy?: 'same_channel';
+  }) => Promise<PrincipalRef | null>;
   disconnectChannels: () => Promise<void>;
 }
 

@@ -49,6 +49,7 @@ import type { PermissionMode } from '../shared/permission-mode.js';
 import type { PermissionPromotionRepository } from '../domain/ports/permission-promotion.js';
 import type { PermissionDecisionMemoryRepository } from '../domain/ports/permission-decision-memory.js';
 import type { AttachmentOpenResult } from '../application/attachments/attachment-resolver.js';
+import type { PrincipalRef } from '../domain/identity/principal-ref.js';
 
 export interface IpcDeps {
   jobPermissionDurability?: {
@@ -91,6 +92,15 @@ export interface IpcDeps {
     sourceAgentFolder: string;
     decisionPolicy?: 'same_channel';
   }) => Promise<boolean>;
+  resolveControlApproverPrincipal?: (input: {
+    conversationJid: string;
+    providerAccountId?: string;
+    agentId?: string;
+    threadId?: string;
+    userId: string;
+    sourceAgentFolder: string;
+    decisionPolicy?: 'same_channel';
+  }) => Promise<PrincipalRef | null>;
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;

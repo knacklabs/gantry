@@ -201,6 +201,59 @@ export function createChannelWiring(
         },
       });
     });
+  const resolveControlApproverPrincipal = (input: {
+    providerId: string;
+    providerAccountId?: string;
+    conversationJid: string;
+    threadId?: string;
+    userId: string;
+    sourceAgentFolder: string;
+    agentId?: string;
+    decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+  }) =>
+    Promise.resolve(
+      resolveInputControlApproverContext({
+        routes: app.getConversationRoutes(),
+        ...input,
+      }),
+    ).then(async (context) => {
+      if (
+        !context ||
+        (input.decisionPolicy && input.decisionPolicy !== 'same_channel')
+      ) {
+        return null;
+      }
+      try {
+        const repos = getRuntimeStorage().repositories;
+        return await new ConversationAdministrationService(
+          {
+            providerAccounts: repos.providerAccounts,
+            conversations: repos.conversations,
+          },
+          new RuntimeSecretConversationMembershipValidator(
+            resolved.runtimeSecrets,
+          ),
+        ).resolveControlApproverPrincipal({
+          appId: resolved.appId,
+          providerId: input.providerId as never,
+          providerAccountId: context.providerAccountId as never,
+          agentId: context.agentId as never,
+          conversationJid: input.conversationJid,
+          threadId: input.threadId,
+          userId: input.userId,
+        });
+      } catch (err) {
+        resolved.logger.warn(
+          {
+            err,
+            providerId: input.providerId,
+            sourceAgentFolder: input.sourceAgentFolder,
+          },
+          'Conversation approver identity lookup failed',
+        );
+        return null;
+      }
+    });
   const requestPermissionApproval = createPermissionApprovalRequester({
     findBoundChannel: (jid, providerAccountId, request) =>
       findBoundChannelForRequest(jid, providerAccountId, request),
@@ -785,6 +838,17 @@ export function createChannelWiring(
       return context
         ? isControlApproverAllowed({ ...input, ...context, providerId })
         : Promise.resolve(false);
+    },
+    resolveControlApproverPrincipal: (input) => {
+      const providerId = providerIdForJid(input.conversationJid, '');
+      if (!providerId) return Promise.resolve(null);
+      const context = resolveControlApproverContext({
+        ...input,
+        routes: app.getConversationRoutes(),
+      });
+      return context
+        ? resolveControlApproverPrincipal({ ...input, ...context, providerId })
+        : Promise.resolve(null);
     },
   };
 }

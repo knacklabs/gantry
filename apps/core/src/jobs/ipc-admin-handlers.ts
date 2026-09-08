@@ -377,7 +377,7 @@ const adminPermissionRevokeHandler: TaskHandler = async (context) => {
       ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined,
       runHandle: data.runHandle,
       requestId: data.taskId ? `admin-permission-revoke:${data.taskId}` : undefined,
-      actor: `agent:${sourceAgentFolder}`,
+      actor: { kind: 'system', source: `agent:${sourceAgentFolder}` },
       conversationId: requestedTargetJid,
       threadId: data.authThreadId,
       reason,
@@ -564,8 +564,45 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
           : {}),
       });
       if (approvalResult.kind === 'delivery_failure') throw new Error(`Couldn't deliver the approval prompt: ${approvalResult.userMessage}`); const decision = approvalResult.decision;
-      const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved'; let persistedRules: string[] = [], liveRules: string[] = []; if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
-        persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], toolInput: input.review.toolInput, semanticCapabilityDefinitions, actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, jobId: input.jobId, reason: decision.reason });
+      const reason = decision.approved
+        ? 'missing approving principal'
+        : decision.reason || 'not approved';
+      let persistedRules: string[] = [];
+      let liveRules: string[] = [];
+      if (
+        input.review.toolName === 'request_permission' &&
+        isPermanentPermissionDecision(decision)
+      ) {
+        const actor =
+          (await input.deps.resolveControlApproverPrincipal?.({
+            conversationJid: input.targetJid,
+            providerAccountId: input.providerAccountId,
+            agentId: input.agentId,
+            threadId: input.threadId,
+            userId: decision.decidedBy!,
+            sourceAgentFolder: input.sourceAgentFolder,
+            decisionPolicy: 'same_channel',
+          })) ?? null;
+        if (!actor) {
+          throw new Error('Approving identity could not be resolved.');
+        }
+        persistedRules = await persistRequestPermissionRules({
+          deps: input.deps,
+          appId: input.appId,
+          agentId: input.agentId,
+          sourceAgentFolder: input.sourceAgentFolder,
+          ipcDir: input.ipcDir,
+          runHandle: input.runHandle,
+          requestId,
+          updates: decision.updatedPermissions ?? [],
+          toolInput: input.review.toolInput,
+          semanticCapabilityDefinitions,
+          actor,
+          conversationId: input.targetJid,
+          threadId: input.threadId,
+          jobId: input.jobId,
+          reason: decision.reason,
+        });
       }
       const recovery = persistedRules.length > 0 ? await recheckPausedSetupJobsAfterRequestAccessGrant({ deps: input.deps, appId: input.appId, sourceAgentFolder: input.sourceAgentFolder, targetJid: input.targetJid, jobId: input.jobId, recoveringPermissionRequestId: requestId, logWarn: (context, message) => logger.warn(context, message) }) : undefined;
       const mcpProposalRequest = isMcpCapabilityProposalRequest({

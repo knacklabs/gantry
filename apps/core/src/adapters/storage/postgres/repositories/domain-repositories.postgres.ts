@@ -1088,6 +1088,80 @@ export class PostgresConversationRepository implements ConversationRepository {
       (approver) => approver.externalUserId !== AUTHORITATIVE_EMPTY_APPROVER,
     );
   }
+  async resolveConversationApproverPrincipal(input: {
+    appId: AppId;
+    conversationId: Conversation['id'];
+    externalUserId: string;
+  }): Promise<{ personId: string; aliasId?: string } | null> {
+    const approverRows = await this.db
+      .select({
+        personId: pgSchema.conversationApproversPostgres.personId,
+        aliasId: pgSchema.conversationApproversPostgres.aliasId,
+      })
+      .from(pgSchema.conversationApproversPostgres)
+      .innerJoin(
+        pgSchema.usersPostgres,
+        eq(
+          pgSchema.conversationApproversPostgres.personId,
+          pgSchema.usersPostgres.id,
+        ),
+      )
+      .where(
+        and(
+          eq(pgSchema.conversationApproversPostgres.appId, input.appId),
+          eq(
+            pgSchema.conversationApproversPostgres.conversationId,
+            input.conversationId,
+          ),
+          eq(
+            pgSchema.conversationApproversPostgres.externalUserId,
+            input.externalUserId,
+          ),
+          eq(pgSchema.usersPostgres.appId, input.appId),
+          eq(pgSchema.usersPostgres.kind, 'human'),
+          eq(pgSchema.usersPostgres.status, 'active'),
+        ),
+      )
+      .limit(1);
+    const approver = approverRows[0];
+    if (approver?.personId) {
+      return {
+        personId: approver.personId,
+        ...(approver.aliasId ? { aliasId: approver.aliasId } : {}),
+      };
+    }
+
+    const participantRows = await this.db
+      .select({ personId: pgSchema.conversationParticipantsPostgres.userId })
+      .from(pgSchema.conversationParticipantsPostgres)
+      .innerJoin(
+        pgSchema.usersPostgres,
+        eq(
+          pgSchema.conversationParticipantsPostgres.userId,
+          pgSchema.usersPostgres.id,
+        ),
+      )
+      .where(
+        and(
+          eq(pgSchema.conversationParticipantsPostgres.appId, input.appId),
+          eq(
+            pgSchema.conversationParticipantsPostgres.conversationId,
+            input.conversationId,
+          ),
+          eq(
+            pgSchema.conversationParticipantsPostgres.externalUserId,
+            input.externalUserId,
+          ),
+          eq(pgSchema.usersPostgres.appId, input.appId),
+          eq(pgSchema.conversationParticipantsPostgres.status, 'active'),
+          eq(pgSchema.usersPostgres.kind, 'human'),
+          eq(pgSchema.usersPostgres.status, 'active'),
+        ),
+      )
+      .limit(1);
+    const participant = participantRows[0];
+    return participant?.personId ? { personId: participant.personId } : null;
+  }
   async listConversationApproversForConversations(
     conversationIds: readonly Conversation['id'][],
   ): Promise<ConversationApprover[]> {

@@ -513,6 +513,8 @@ export async function startRuntimeServices(
       cancelPermissionApproval: channelWiring.cancelPermissionApproval,
       cancelUserQuestion: channelWiring.cancelUserQuestion,
       isControlApproverAllowed: channelWiring.isControlApproverAllowed,
+      resolveControlApproverPrincipal:
+        channelWiring.resolveControlApproverPrincipal,
       requestUserAnswer: inlineInteractions.requestUserAnswer,
       renderAgentTodo: (jid, render, options) =>
         liveTurnsEnabled && liveExecution
