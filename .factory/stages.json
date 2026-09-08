@@ -40,7 +40,7 @@
     {
       "id": "ASKFLOOR-1-T4",
       "title": "Live job projection of learned decisions (0153)",
-      "status": "active",
+      "status": "done",
       "started_at": "2026-09-08T02:36:45+00:00",
       "base_sha": "5ad1c6db41c95db5071da26ea2a85a784a1cde42",
       "dirty_at_start": {
@@ -49,7 +49,22 @@
           "git": "1 .M N... 100644 100644 100644 6ebd7203eb1c3a409bdde795c5558ad161e1ffb2 6ebd7203eb1c3a409bdde795c5558ad161e1ffb2 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T4.json\u0000\u0000100644 6ebd7203eb1c3a409bdde795c5558ad161e1ffb2 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T4.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T4.json\u0000"
         }
       },
-      "task_sha256": "ebcb07624b9f94c10b439ce70c1c6c7712e76cf213c5dc8c0e82b3b521e69dd0"
+      "task_sha256": "f81f864ddd9c45e9870d3afbc44c2e59da9772bbb2f74fd443d7f5445c61af97",
+      "local_review_stamp": {
+        "stage_id": "ASKFLOOR-1-T4",
+        "task_sha256": "f81f864ddd9c45e9870d3afbc44c2e59da9772bbb2f74fd443d7f5445c61af97",
+        "brief_sha256": "c02bc9996e022b888f84e4f7a17d0b124cbcb2e42ab7377eeb1c67ab99e653af",
+        "base_sha": "5ad1c6db41c95db5071da26ea2a85a784a1cde42",
+        "product_tree_digest": "f920fdec80142ced8d0171fae6976d3a7b1136cc6e7daa1f0e13d11b4e729c37",
+        "recorded_at": "2026-09-08T05:57:09+00:00",
+        "generated_by": "autoreview"
+      },
+      "completed_at": "2026-09-08T06:12:42+00:00",
+      "contract_changed": {
+        "at": "2026-09-08T06:12:42+00:00",
+        "from": "ebcb07624b9f94c10b439ce70c1c6c7712e76cf213c5dc8c0e82b3b521e69dd0",
+        "to": "f81f864ddd9c45e9870d3afbc44c2e59da9772bbb2f74fd443d7f5445c61af97"
+      }
     },
     {
       "id": "ASKFLOOR-1-T5a",
