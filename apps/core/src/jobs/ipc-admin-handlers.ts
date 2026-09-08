@@ -65,7 +65,6 @@ import {
 // prettier-ignore
 import { formatApprovalRequestedMessage, formatNotApprovedMessage } from '../shared/user-visible-messages.js';
 import { jobLocalCliCapabilityConflict } from './ipc-request-permission-local-cli.js';
-import { maybeEnqueueApprovedDependencyBake } from './toolchain-bake-bootstrap.js';
 import {
   configureSkillInstallHandlers,
   requestSkillInstallHandler,
@@ -96,6 +95,7 @@ import {
 } from './request-access-job-recovery.js';
 import { requestOnlyCapabilityPendingKey } from './request-only-capability-dedupe.js';
 import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
+import { maybeEnqueueDependencyBakeOnApproval } from './request-only-capability-bake.js';
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
 const {
   asyncMcpCallToolHandler,
@@ -690,51 +690,6 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
     .finally(() => {
       if (input.pendingKey) pendingRequestOnlyCapabilityReviews.delete(input.pendingKey);
     });
-}
-/**
- * In fleet mode, an approved npm `request_skill_dependency_install` enqueues a
- * sandboxed toolchain bake instead of installing locally (ADR
- * capability-artifacts). Returns the user-facing approval message when a bake
- * was enqueued/deduplicated, or null to fall through to the default approval
- * message (workstation mode, non-npm ecosystems, or when no packages are given).
- */
-async function maybeEnqueueDependencyBakeOnApproval(input: {
-  review: RequestOnlyCapabilityReview;
-  appId: import('../domain/app/app.js').AppId;
-  agentId: import('../domain/agent/agent.js').AgentId;
-  conversationId: string;
-}): Promise<string | null> {
-  if (input.review.toolName !== 'request_skill_dependency_install') return null;
-  const ecosystem = toTrimmedString(input.review.toolInput.ecosystem, {
-    maxLen: 64,
-  });
-  if (ecosystem !== 'npm') return null;
-  const packages = sanitizedStringList(
-    Array.isArray(input.review.toolInput.packages)
-      ? input.review.toolInput.packages
-      : [],
-  );
-  if (packages.length === 0) return null;
-  try {
-    const result = await maybeEnqueueApprovedDependencyBake({
-      appId: input.appId,
-      packages,
-      requestedByAgentId: input.agentId,
-      approvedByConversationId: input.conversationId,
-      approvedAt: nowIso(),
-    });
-    if (!result) return null;
-    const names = packages.join(', ');
-    return result.deduplicated
-      ? `Approved ${input.review.displayName}. A toolchain bake for ${names} is already in progress for this fleet; it will be available on workers once activated.`
-      : `Approved ${input.review.displayName}. Queued a sandboxed toolchain bake for ${names}; it will be available on workers once baked and activated.`;
-  } catch (err) {
-    logger.warn(
-      { err, appId: input.appId },
-      'Failed to enqueue approved toolchain bake',
-    );
-    return `Approved ${input.review.displayName}, but I could not queue the setup. I left it unavailable; try again after the setup issue is fixed.`;
-  }
 }
 function hasAgentSuppliedCapabilityDefinition(
   payload: Record<string, unknown>,
