@@ -5,7 +5,7 @@ import * as p from '@clack/prompts';
 
 import type { ConversationRoute } from '../domain/types.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
-import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
+import { providerFromGroupJid } from './provider-utils.js';
 import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import {
@@ -33,13 +33,12 @@ import { runList } from './group-list.js';
 import { runProfile } from './agent-profile.js';
 import { verifyTelegramChatAccess } from './telegram.js';
 import { EnvRuntimeSecretProvider } from '../adapters/credentials/env-runtime-secret-provider.js';
+import { initializeRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import { getProviderRuntimeSecret } from '../channels/provider-runtime-secrets.js';
 import {
   parseGroupAddArgs,
-  parseGroupOffboardArgs,
   parseGroupPolicyArgs,
   parseGroupPolicyDefaultArgs,
-  parseGroupPolicyShowArgs,
   parseGroupRemoveArgs,
   parseGroupTriggerArgs,
 } from './group-args.js';
@@ -61,7 +60,8 @@ import {
   seedTelegramControlApproverForAgent,
   usage,
 } from './group-helpers.js';
-import { printPolicyChannel } from './group-policy-format.js';
+import { runOffboard } from './group-offboard.js';
+import { runPolicyShow } from './group-policy-show.js';
 import {
   buildAgentToolAccessView,
   buildRequestableAdminToolAccess,
@@ -569,90 +569,6 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
   }
 }
 
-async function runOffboard(
-  runtimeHome: string,
-  args: string[],
-): Promise<number> {
-  const parsed = parseGroupOffboardArgs(args);
-  if ('error' in parsed) {
-    p.log.error(parsed.error);
-    return 1;
-  }
-  if (!parsed.assumeYes) {
-    p.log.error('Refusing destructive offboarding without --yes.');
-    p.log.info('Next action: rerun with `--yes`.');
-    return 1;
-  }
-
-  try {
-    const settings = await loadDesiredRuntimeSettingsForWrite({ runtimeHome });
-    const selector = parsed.selector!.trim();
-    const folder = Object.keys(settings.agents).find(
-      (candidate) =>
-        candidate === selector || agentIdForFolder(candidate) === selector,
-    );
-    if (!folder) {
-      p.log.error(`No AI employee found for "${selector}".`);
-      return 1;
-    }
-    if (folder === 'main_agent') {
-      p.log.error('The default AI employee cannot be offboarded.');
-      return 1;
-    }
-
-    const nextSettings = structuredClone(settings);
-    removeAgentFromDesiredSettings(nextSettings, folder);
-    const { closeRuntimeStorage, getRuntimeStorage, initializeRuntimeStorage } =
-      await import('../adapters/storage/postgres/runtime-store.js');
-    const { PostgresAgentOffboardingRepository } =
-      await import('../adapters/storage/postgres/repositories/agent-offboarding-repository.postgres.js');
-    const { offboardAgent } =
-      await import('../application/agents/offboard-agent.js');
-    await initializeRuntimeStorage({ runtimeSettings: settings });
-    let result;
-    try {
-      const storage = getRuntimeStorage();
-      const revision =
-        await storage.repositories.settingsRevisions.getLatestSettingsRevision(
-          'default' as never,
-        );
-      result = await offboardAgent({
-        repository: new PostgresAgentOffboardingRepository(storage.service.db),
-        appId: 'default',
-        agentId: agentIdForFolder(folder),
-        defaultAgentId: agentIdForFolder('main_agent'),
-        expectedSettingsRevision: revision?.revision ?? 0,
-        settingsDocument:
-          await settingsToRevisionDocumentForWrite(nextSettings),
-        createdBy: 'cli:agent-offboard',
-        actor: { kind: 'system', source: 'cli:agent-offboard' },
-        now: nowIso(),
-        minReaderVersion: await currentSettingsReaderVersion(),
-      });
-    } finally {
-      await closeRuntimeStorage();
-    }
-    if (result.status === 'already_offboarded') {
-      p.log.info('This AI employee is already offboarded.');
-      return 0;
-    }
-    try {
-      saveRuntimeSettings(runtimeHome, nextSettings);
-    } catch (err) {
-      p.log.warn(
-        `AI employee offboarded, but settings.yaml will be restored from the committed revision: ${errorMessage(err)}.`,
-      );
-    }
-    p.log.success(
-      `AI employee ${result.agentName} is offboarded. Provider accounts disabled, conversation installs removed, and scheduled jobs cancelled. Secrets were retained.`,
-    );
-    return 0;
-  } catch (err) {
-    p.log.error(`Could not offboard AI employee: ${errorMessage(err)}`);
-    return 1;
-  }
-}
-
 async function runTrigger(
   runtimeHome: string,
   args: string[],
@@ -899,36 +815,6 @@ async function runPolicyDefault(
   }
 }
 
-async function runPolicyShow(
-  runtimeHome: string,
-  args: string[],
-): Promise<number> {
-  const parsed = parseGroupPolicyShowArgs(args);
-  if ('error' in parsed) {
-    p.log.error(parsed.error);
-    return 1;
-  }
-
-  try {
-    const settings = loadRuntimeSettings(runtimeHome);
-    if (parsed.channel) {
-      printPolicyChannel(parsed.channel, settings);
-      return 0;
-    }
-    const channels = getProviderIds();
-    for (let i = 0; i < channels.length; i += 1) {
-      printPolicyChannel(channels[i]!, settings);
-      if (i < channels.length - 1) {
-        console.log('');
-      }
-    }
-    return 0;
-  } catch (err) {
-    p.log.error(`Could not read sender policies: ${errorMessage(err)}`);
-    return 1;
-  }
-}
-
 export async function runAgentCommand(
   runtimeHome: string,
   args: string[],
@@ -947,7 +833,17 @@ export async function runAgentCommand(
     case 'add':
       return runAdd(runtimeHome, rest);
     case 'offboard':
-      return runOffboard(runtimeHome, rest);
+      return runOffboard({
+        runtimeHome,
+        args: rest,
+        loadSettings: () => loadDesiredRuntimeSettingsForWrite({ runtimeHome }),
+        removeAgent: removeAgentFromDesiredSettings,
+        settingsToRevisionDocument: settingsToRevisionDocumentForWrite,
+        currentSettingsReaderVersion,
+        saveSettings: saveRuntimeSettings,
+        initializeStorage: (settings) =>
+          initializeRuntimeStorage({ runtimeSettings: settings }),
+      });
     case 'name':
       return runName(runtimeHome, rest);
     case 'remove':
@@ -959,7 +855,11 @@ export async function runAgentCommand(
     case 'policy-default':
       return runPolicyDefault(runtimeHome, rest);
     case 'policy-show':
-      return runPolicyShow(runtimeHome, rest);
+      return runPolicyShow({
+        runtimeHome,
+        args: rest,
+        loadSettings: loadRuntimeSettings,
+      });
     case 'access':
       return runAccess(runtimeHome, rest);
     case 'harness':

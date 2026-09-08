@@ -43,6 +43,7 @@ vi.mock('@core/cli/group-helpers.js', () => ({
   normalizeGroupAddSelector: vi.fn(),
   pruneAgentSenderPolicyOverride: vi.fn(async () => ({ pruned: false })),
   pruneDesiredStateAgent: state.pruneDesiredStateAgent,
+  removeAgentFromDesiredSettings: vi.fn(),
   resolveRoutelessAgentFolder: vi.fn(
     (input: {
       settings: { agents?: Record<string, unknown> };
@@ -61,12 +62,14 @@ vi.mock('@core/cli/group-helpers.js', () => ({
 }));
 
 vi.mock('@core/config/settings/runtime-settings.js', () => ({
+  currentSettingsReaderVersion: vi.fn(async () => 1),
   loadDesiredRuntimeSettingsForWrite: vi.fn(async () => state.settings),
   loadRuntimeSettings: vi.fn(() => state.settings),
   readRuntimeMemorySettingsSnapshot: vi.fn(() => ({})),
   readRuntimeStorageSettingsSnapshot: vi.fn(() => ({})),
   removeAgentFromDesiredSettings: vi.fn(),
   saveRuntimeSettings: vi.fn(),
+  settingsToRevisionDocumentForWrite: vi.fn(async () => ({})),
 }));
 
 import { runAgentCommand } from '@core/cli/group.js';

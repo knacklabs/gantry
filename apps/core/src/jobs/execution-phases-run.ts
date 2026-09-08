@@ -4,7 +4,6 @@ import { evaluateToolAccessRequirements } from '../application/jobs/job-tool-acc
 import * as jobToolPolicy from '../application/jobs/job-tool-policy.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
-import { isSystemPrincipal } from '../domain/identity/principal-ref.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import { logger, updateLogContext } from '../infrastructure/logging/logger.js';
 import type { AgentOutput } from '../runtime/agent-spawn.js';
@@ -28,7 +27,7 @@ import { normalizeCleanupAfterMs } from './cleanup.js';
 import { collectCompactBoundaryMemory, collectJobCompletionMemory } from './compact-memory.js';
 import { createJobExecutionDeletionGuard } from './execution-deletion-guard.js';
 // prettier-ignore
-import { createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload } from './execution-diagnostics.js';
+import { browserRuntimeActivityEvents, createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload } from './execution-diagnostics.js';
 import {
   buildExecutionTurnContextInput,
   resolveExecutionMemoryContext,
@@ -439,9 +438,7 @@ async function settleActiveJobAgentOutput(
       eventTypes: [RUNTIME_EVENT_TYPES.TOOL_ACTIVITY],
     });
     await forwardRunnerRuntimeEvents({
-      events: browserActivityEvents.filter((event) =>
-        isSystemPrincipal(event.actor, 'browser'),
-      ),
+      events: browserRuntimeActivityEvents(browserActivityEvents),
       diagnostics: context.diagnostics!,
     });
     await context.updateRunProviderMetadata!({ force: true });
