@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -235,14 +235,53 @@ maybeDescribe('Postgres domain repositories', () => {
     expect(initialRevision.status).toBe('appended');
     if (initialRevision.status !== 'appended')
       throw new Error('Expected revision');
+    const competingRevision =
+      await repositories.settingsRevisions.appendSettingsRevision({
+        appId,
+        settingsDocument: { agents: { competing: { name: 'Other' } } },
+        minReaderVersion: 1,
+        createdBy: 'test',
+      });
+    expect(competingRevision.status).toBe('appended');
+    if (competingRevision.status !== 'appended')
+      throw new Error('Expected competing revision');
 
-    const result = await new PostgresAgentOffboardingRepository(
-      service.db,
-    ).offboard({
+    const offboarding = new PostgresAgentOffboardingRepository(service.db);
+    await expect(
+      offboarding.offboard({
+        appId,
+        agentId: offboardAgentId,
+        defaultAgentId: agentId,
+        expectedSettingsRevision: initialRevision.revision.revision,
+        settingsDocument: {
+          agents: {},
+          provider_accounts: {},
+          conversations: {},
+        },
+        createdBy: 'cli:agent-offboard',
+        actor: { kind: 'system', source: 'cli:agent-offboard' },
+        now: '2026-04-28T00:00:00.000Z',
+        minReaderVersion: 1,
+      }),
+    ).rejects.toThrow('Desired state changed; retry offboarding.');
+    await expect(
+      repositories.agents.getAgent(offboardAgentId),
+    ).resolves.toMatchObject({ status: 'active' });
+    await expect(
+      repositories.providerAccounts.getProviderAccount(offboardAccountId),
+    ).resolves.toMatchObject({ status: 'active' });
+    await expect(
+      repositories.providerAccounts.listConversationInstalls(
+        appId,
+        offboardAgentId,
+      ),
+    ).resolves.toHaveLength(1);
+
+    const result = await offboarding.offboard({
       appId,
       agentId: offboardAgentId,
       defaultAgentId: agentId,
-      expectedSettingsRevision: initialRevision.revision.revision,
+      expectedSettingsRevision: competingRevision.revision.revision,
       settingsDocument: {
         agents: {},
         provider_accounts: {},
@@ -258,7 +297,7 @@ maybeDescribe('Postgres domain repositories', () => {
       providerAccountsDisabled: 1,
       conversationInstallsRemoved: 1,
       jobsCancelled: 0,
-      settingsRevision: initialRevision.revision.revision + 1,
+      settingsRevision: competingRevision.revision.revision + 1,
     });
     await expect(
       repositories.agents.getAgent(offboardAgentId),
@@ -277,6 +316,25 @@ maybeDescribe('Postgres domain repositories', () => {
         offboardAgentId,
       ),
     ).resolves.toEqual([]);
+    await expect(
+      service.db
+        .select({ retiredBy: pgSchema.userAliasesPostgres.retiredBy })
+        .from(pgSchema.userAliasesPostgres)
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, appId),
+            eq(
+              pgSchema.userAliasesPostgres.providerAccountId,
+              offboardAccountId,
+            ),
+          ),
+        ),
+    ).resolves.toContainEqual({
+      retiredBy: JSON.stringify({
+        kind: 'system',
+        source: 'cli:agent-offboard',
+      }),
+    });
     await expect(
       people.resolveIdentity({
         appId,

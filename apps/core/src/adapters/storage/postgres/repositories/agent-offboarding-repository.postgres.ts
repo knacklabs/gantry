@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 
 import type { AgentId } from '../../../../domain/agent/agent.js';
 import {
@@ -60,6 +60,17 @@ export class PostgresAgentOffboardingRepository {
       if (agent.status === 'offboarded')
         return { status: 'already_offboarded' };
 
+      const [currentRevision] = await tx
+        .select({ revision: pgSchema.settingsRevisionsPostgres.revision })
+        .from(pgSchema.settingsRevisionsPostgres)
+        .where(eq(pgSchema.settingsRevisionsPostgres.appId, input.appId))
+        .orderBy(desc(pgSchema.settingsRevisionsPostgres.revision))
+        .for('update')
+        .limit(1);
+      if ((currentRevision?.revision ?? 0) !== input.expectedSettingsRevision) {
+        throw new Error('Desired state changed; retry offboarding.');
+      }
+
       const [person] = await tx
         .select({ id: pgSchema.usersPostgres.id })
         .from(pgSchema.usersPostgres)
@@ -105,7 +116,7 @@ export class PostgresAgentOffboardingRepository {
         .update(pgSchema.userAliasesPostgres)
         .set({
           retiredAt: input.now,
-          retiredBy: input.createdBy,
+          retiredBy: serializePrincipalRef(input.actor),
           updatedAt: input.now,
         })
         .where(
