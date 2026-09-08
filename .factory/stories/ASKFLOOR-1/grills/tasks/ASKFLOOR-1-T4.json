@@ -1,0 +1,102 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "ASKFLOOR-1-T4",
+  "verdict": "pass",
+  "questions_asked": 3,
+  "inspected_refs": [
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/runtime/permission-human-memory-stage.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/src/runtime/agent-spawn-types.ts",
+    "apps/core/src/application/permissions/human-decision-scope.ts",
+    "apps/core/src/domain/ports/permission-decision-memory.ts",
+    "apps/core/src/application/permissions/permission-management-service.ts",
+    "docs/architecture/permission-decision-memory.md",
+    "docs/decisions/0153-learned-decisions-project-into-job-grants.md",
+    "docs/decisions/0156-jobs-use-the-chat-permission-ladder.md",
+    "plans/exploration/askfloor-1-t4-seam-map.md"
+  ],
+  "current_flow": "A job's IPC request is decided by host policy plus deterministic rails with the classifier excluded (0121); the inline scheduled tail calls the classifier; neither lane carries the job owner or consults remembered decisions; T4 adds the owner-scoped projection at the coordinator's post-rails consult position (rails -> guard -> projection -> classifier -> card, per 0156) with the matched record audited in both lanes.",
+  "criteria_map": {
+    "PROJECTION HELPER. NEW `application/permissions/human-decision-job-projection.ts` exports `projectHumanDecisionMatch({ ownerPersonId: string | null, request, facts: { effectHash, workspaceRoot, canonicalRoot? }, railVersion: RAIL_CATALOG_VERSION, memory: PermissionDecisionMemoryRepository, warn }) \u2192 Promise<ProjectedHumanDecisionMatch | null>` with `ProjectedHumanDecisionMatch = { recordId: string; scope: HumanDecisionScope }` (the coordinator builds the decision and sets `humanDecisionRecordId`): `null` when the owner is null/blank, when candidate derivation refuses, when no root is validated (place classes only), when `findHumanDecision` returns null, or when the row's outcome is not `allow`; never throws (a repository failure \u2192 one `warn`, `null` \u2014 fail closed); never writes; it does NOT re-filter person/version/revocation (repository-owned, `permission-decision-memory-repository.postgres.ts:249-257`). Unit tests with a fake repository (helper-owned proofs only, grill r3 #3): the candidates passed equal, in order, the five the interactive stage derives for the same facts (tool-kind with `trustGrowthTool: true`, category-kind with `false`); a returned row yields `{ recordId, scope }`; a deny-outcome row \u2192 `null`; blank owner and place-without-root \u2192 `null` with no repository call; derivation refusal \u2192 `null`; a throwing repository \u2192 `null` + one warn.": "AC1 helper: five candidates in the interactive order, match {recordId, scope}, deny/blank/no-root/refusal/throw -> null (leaf 1).",
+    "COORDINATOR + IPC LANE. `permission-decision-coordinator.ts` accepts the NEW typed input `humanDecisionProjection` of ruling 1 (`{ ownerPersonId, memory: PermissionDecisionMemoryRepository, guard, warn }`) and, for a job request only, after deterministic rails and the validated-root stage (the T3b consult position, `:227-243`), invokes `guard(railDecision)` first (a returned decision stands and no lookup happens; `undefined` proceeds), then calls `projectHumanDecisionMatch` with the same facts the interactive consult builds; a returned match resolves an overridable ASK to `decisionForMode(request, 'allow_once', 'human_decision', 'machine')` stamped with `humanDecisionRecordId`; a non-overridable rail is never overridden; a null owner never consults the port; the interactive consult stage is untouched. NEW `runtime/ipc-permission-job-projection.ts` resolves the owner via `deps.opsRepository.getJobById(hostJobId)` (ruling 3) and supplies the repository and `warn`; the guard callback is built inside `ipc-permission-classifier-decision.ts` over the private `applyIpcPermissionRouteGuard`; `resolvePermissionIpcDecision` (`ipc-permission-classifier-decision.ts:75-188`) passes the input to the coordinator; `reviewedRuleDecision` and `applyIpcPermissionRouteGuard` are unchanged. CLASSIFIER ON JOBS (0156; grill r5 #1-#3): the job exclusions live in lane-eligibility predicates, not in a short-circuit, and T4 changes exactly these: (i) remove `hostJobId` from `skipClassifierVerdictCache` (`ipc-permission-classifier-decision.ts:183-187`); (ii) add the TRUSTED `input.hostJobId` (never the worker's `request.jobId`) to classifier eligibility (`:339-343`); (iii) reuse `consultPermissionClassifierBeforePrompt` (`:361-397`) unchanged so the T1/T2 first-ask floor stays authoritative; (iv) extend ONLY the existing overridable-rail predicate to jobs (`:409-431`) AND add an explicit `railAsk.hardFloor !== true` guard to it (the predicate does not check it today, so an ASK carrying `hardFloor` plus a relaxable signal could otherwise gain `railProvenance` and reach the classifier-Allow branch at `:530-542` \u2014 grill r6 #1); the two typed signals / read-only-meta predicate and `railProvenance` are retained; (v) apply interactive-auto's FileWrite/FileEdit/Gantry-native cache-write exclusions to jobs (`:504-518`); (vi) PRESERVE the missing-route guard (`:275-300`, returns `undefined` for a valid route at `:302`) and the `!input.hostJobId` fallthrough (`:544-564`) that lets a classifier ASK reach the existing card path (`:565-622`). The classifier's result vocabulary is closed \u2014 `allow` (`:530-542`) runs the call with `auto_classifier` provenance; anything else proceeds to the prompt/card path as today; the deterministic terminal denial remains only for a missing route or a hard rail. Pins rewritten by name in `test/unit/runtime/ipc-permission-classifier-decision.test.ts`: `:293`, `:317-335` (job row + zero classifier calls), `:338-371` (the job meta-executor leaf, `hostJobId: 'job-find'`: retitled to the authoritative FIRST-ASK-FLOOR case it actually proves, plus a SEPARATE new job leaf proving a classifier Allow for eligible read-only meta-execution yields `auto_classifier` + `railProvenance` \u2014 grill r6 #2), `:374-404` (explicit job zero-classifier), `:462` (retitle narrowly; its missing-route zero-call assertions at `:550-553` stay correct); NEW job proofs: first-ask behaviour, cache hit/miss/write exclusions, the two overridable rails with `railProvenance`, `hardFloor: true` combined with EACH typed signal under both a live and a cached classifier Allow \u21d2 no `auto_classifier` authorization and the existing card path, classifier allow, classifier ask \u2192 card. The IPC post-apply audit call (`ipc-interaction-processing.ts:327-332`) forwards `humanDecisionRecordId` beside `jobId`. Ceilings hold. Tests: coordinator suite (existing `test/unit/runtime/permission-decision-coordinator.test.ts`) \u2014 one case per precedence-table row against a hard rail, an escaping target never matching a place row, an overridable ASK resolved by exact/kind/place to `allow_once` with `human_decision` provenance and `humanDecisionRecordId` set, a non-overridable rail not overridden, a null owner never consulting the repository, a guard-returned decision standing with zero lookups; `test/unit/runtime/ipc-permission-classifier-decision.test.ts` \u2014 owner from `getJobById`, a forged request `personId` ignored, missing job / blank owner / throwing repository \u21d2 no projection + one warn and the classifier is then consulted, a projected match \u21d2 allow with zero classifier calls, a classifier allow on a job honoured with `auto_classifier` provenance, a classifier ask on a job \u21d2 the existing card path, a hard-floor rail \u21d2 zero classifier consultation, and a host job with an owner, a would-match repository and an ABSENT route \u21d2 denial with sanitised risk fields and zero repository calls (proves the delegation the coordinator's fake guard cannot); `test/unit/runtime/ipc-interaction-handler.test.ts` \u2014 the production audit call forwards `humanDecisionRecordId` + `jobId`.": "AC2 coordinator + IPC: typed projection input at the consult position, guard before lookup, decisionForMode with humanDecisionRecordId, owner via getJobById, six lane-eligibility edits with the hardFloor guard, pins rewritten (leaves 2-4).",
+    "INLINE SCHEDULED LANE (grill r1 #7, 0156). ONE seam: `inline-permission-memory.ts` gains `inlineScheduledProjection(...)` that builds the same typed `humanDecisionProjection` coordinator input (owner from `AgentInput.jobOwnerPersonId`, the composed repository, a no-op guard, `warn`) and the inline coordinator call (`inline-agent-loop-tools.ts:390-398`) passes it (\u2264 5 changed lines in the inline file); the tail (`:399-442`) KEEPS classifier consultation for scheduled runs, now reached only after a projection miss (the coordinator call at `:390-398` precedes it, so no reordering is needed) \u2014 a projected match returns before the classifier; the scheduled non-allow handling at `:450-460` (cancellation \u2192 card) is unchanged; the audit closure (ruling 2) is called after the final coordinator result (`:567`) only when the result carries `humanDecisionRecordId`. The interactive auto lane is untouched. Tests (`test/unit/bootstrap/inline-agent-loop-tools.test.ts`): SPLIT the leaf at `:1086` (its title still promises a scheduled run keeps today's consult; its scheduled row at `:1160-1184` expects one classifier call) into two retitled leaves \u2014 a scheduled-owner projection-hit leaf asserting zero classifier calls plus the audit write, and a blank-owner leaf asserting zero repository calls and classifier fallthrough (grill r6 #3); the projection-miss classifier proofs at `:1366-1407` and `:1416-1465` stay and are re-titled to the ladder order (a no-projection scheduled request reaches the classifier and its allow runs the call); keep the independent classifier-audit regression (`:1189-1211`) for interactive auto; a scheduled run with a blank owner projects nothing and never calls the repository. `test/unit/bootstrap/runtime-services.test.ts`: the production wiring supplies the inline `recordDecision` closure and the repository (inline tests inject deps directly through `wireInlineAgentLoopTools`, `:65-120`, so they cannot prove production wiring \u2014 grill r2 #4).": "AC3 inline: projection input built in inline-permission-memory, classifier after projection, split leaves, runtime-services wiring (leaves 5-6).",
+    "OWNER THREADING. `runtime/agent-spawn-types.ts:58` gains `jobOwnerPersonId?: string | null`; `runActiveJobAgent` (`jobs/execution-phases-run.ts:288-305`) sets it in `baseInput` from `currentJob.execution_context?.personId ?? null`; `memoryUserId` (`:102`) unchanged. Tests (`test/unit/jobs/execution.test.ts`): the existing `runAgent` expectation asserts the canonical owner on the scheduled `AgentInput` and, separately, that `memoryUserId` is unchanged; a group-created job (null person) yields a null owner; `job-acting-identity.test.ts` unchanged and green.": "AC4 owner threading: AgentInput.jobOwnerPersonId from execution_context.personId in runActiveJobAgent baseInput (leaf 7).",
+    "AUDIT. `test/unit/application/permission-management-service.test.ts` gains a NEW leaf (beside the skill-action audit at `:241-277`): `auditMetadata.humanDecisionRecordId` on a permission decision is retained in saved `actorContext` beside `jobId`.": "AC5 audit: humanDecisionRecordId retained beside jobId (leaf 8).",
+    "POSTGRES. `test/integration/permission-decision-memory.postgres.integration.test.ts` (`:714-750`) gains a database-backed projection-matrix case through the helper: a row written by the T3a service for person A projects for A's job and not for B's, not after revocation, and not from another rail version (repository-owned filters, proved here); no new memory writer.": "AC6 Postgres: person/revocation/rail-version filters proved through the helper (leaf 9).",
+    "`docs/architecture/permission-decision-memory.md:26-32` is updated: autonomous job lanes consult human-decision memory ONLY through the projection (read-only, owner-scoped, post-rails, guarded), never through the interactive stage, and then the classifier (0156 ladder order: rails \u2192 projection \u2192 classifier \u2192 card); the autonomous-exclusion sentence at `:30` is replaced. Existing unit and Postgres suites pass; tsc and check:architecture green; `inline-agent-loop-tools.ts` \u2264 750, `permission-management-service.ts` \u2264 745, `domain/types.ts` \u2264 740 (line-neutral), `jobs/execution-phases-run.ts` \u2264 700 (line-neutral: one field on the existing `baseInput` literal), `runtime-services.ts` \u2264 1186, every other touched file \u2264 its architecture-map ceiling (extract into the NEW modules where needed); no wrapper, shim, alias, dead branch or \"legacy\" naming.": "AC7 gates: architecture doc ladder text, verify.py with the Postgres lane, tsc, check:architecture, ceilings line-neutral, no leftovers."
+  },
+  "gaps": [
+    "T4 makes jobs stop asking the classifier (decision 0121). Today a scheduled job's borderline tool call can still get a quiet 'low risk' allow from the classifier. After T4, a job call runs only if you remembered an Allow for it, or a declared rule covers it; otherwise it takes the deterministic path (cancel or card). Keep that strict behaviour?",
+    "A remembered Allow projected into a job is re-checked against the safety rails (same as your remembered Allows in chat). It can clear an overridable ask but never a hard rail. Confirm?",
+    "Given 0121 was your own ruling against classifier flip-flops on jobs, which way for T4?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "owner round 1 (superseded by round 3): Ravi first chose to keep the classifier's low-allow for jobs; folded as decision 0156 (jobs walk the chat ladder).",
+    "owner round 2: projected Allows are re-checked against rails (hard rails and the route guard still apply) \u2014 plan ruling 1, AC2 guard + hardFloor leaves.",
+    "owner round 3: reverse 0121 \u2014 decision 0156 accepted --by Ravi; plan v6-v8 reinstate the classifier on both job lanes after the projection (AC2 six lane-eligibility edits, AC3)."
+  ],
+  "decision": "keep",
+  "new_abstractions": [
+    "NEW application/permissions/human-decision-job-projection.ts (match helper); NEW runtime/ipc-permission-job-projection.ts (owner resolution); typed coordinator input humanDecisionProjection; AgentInput.jobOwnerPersonId; PermissionApprovalDecision.humanDecisionRecordId (line-neutral)"
+  ],
+  "citations": [
+    {
+      "finding": "The coordinator has two declared-grant precedences; a projected record takes the rail-rechecked one at the T3b consult position (r1 #1, #2).",
+      "source": "apps/core/src/runtime/permission-decision-coordinator.ts:138-243"
+    },
+    {
+      "finding": "The IPC route/risk guard lives in the tail; a guard callback runs before the projection lookup (r2 #1, r3 #2).",
+      "source": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:261-302"
+    },
+    {
+      "finding": "The overridable-rail predicate does not check hardFloor; T4 adds the explicit guard (r6 #1).",
+      "source": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:409-431"
+    },
+    {
+      "finding": "0156 supersedes 0121: jobs walk rails -> projection -> classifier -> card (owner round 3).",
+      "source": "docs/decisions/0156-jobs-use-the-chat-permission-ladder.md"
+    }
+  ],
+  "summary": "T4 task grill: 7 sol@xhigh rounds (r4 CLEAN on v5; owner ruling 0156 reopened the design; r5-r6 folded; r7 confirms). Contract sound.",
+  "rounds": [
+    {
+      "question": "T4 makes jobs stop asking the classifier (decision 0121). Today a scheduled job's borderline tool call can still get a quiet 'low risk' allow from the classifier. After T4, a job call runs only if you remembered an Allow for it, or a declared rule covers it; otherwise it takes the deterministic path (cancel or card). Keep that strict behaviour?",
+      "options": [
+        "Strict, as planned (Recommended)",
+        "Keep classifier low-allow for jobs"
+      ],
+      "chosen": "Keep classifier low-allow for jobs",
+      "frontier_empty": false
+    },
+    {
+      "question": "A remembered Allow projected into a job is re-checked against the safety rails (same as your remembered Allows in chat). It can clear an overridable ask but never a hard rail. Confirm?",
+      "options": [
+        "Re-check against rails (Recommended)",
+        "Treat like a declared rule that skips rails"
+      ],
+      "chosen": "Re-check against rails (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "Given 0121 was your own ruling against classifier flip-flops on jobs, which way for T4?",
+      "options": [
+        "Keep 0121; ship T4 as planned (Recommended)",
+        "Reverse 0121: classifier judges jobs"
+      ],
+      "chosen": "Reverse 0121: classifier judges jobs",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "8de71df637efedfe53f0e2ac01833125dce1ae1a74aa555bf724570c733ef08c",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "task_plan_sha256": "e4f2c569cb51b9afdaa53b72b125a44ea29d2ca0993ec5abc41d81f00c05ac6e",
+  "recorded_at": "2026-09-08T02:34:17+00:00",
+  "commit": "d2f68bae8d4d8876459e2a904ce9658947cd4184"
+}
