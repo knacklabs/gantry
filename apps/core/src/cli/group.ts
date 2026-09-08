@@ -10,14 +10,14 @@ import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import {
   capabilityToToolRule,
+  currentSettingsReaderVersion,
   ensureConfiguredConversationBinding,
   loadDesiredRuntimeSettingsForWrite,
   loadRuntimeSettings,
   saveRuntimeSettings,
+  settingsToRevisionDocumentForWrite,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
-import { settingsToRevisionDocument } from '../config/settings/settings-revision-document.js';
-import { CURRENT_SETTINGS_READER_VERSION } from '../config/settings/settings-fleet-import.js';
 import {
   defaultTriggerForAgentName,
   displayAgentName,
@@ -622,11 +622,12 @@ async function runOffboard(
         agentId: agentIdForFolder(folder),
         defaultAgentId: agentIdForFolder('main_agent'),
         expectedSettingsRevision: revision?.revision ?? 0,
-        settingsDocument: settingsToRevisionDocument(nextSettings),
+        settingsDocument:
+          await settingsToRevisionDocumentForWrite(nextSettings),
         createdBy: 'cli:agent-offboard',
         actor: { kind: 'system', source: 'cli:agent-offboard' },
         now: nowIso(),
-        minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+        minReaderVersion: await currentSettingsReaderVersion(),
       });
     } finally {
       await closeRuntimeStorage();
