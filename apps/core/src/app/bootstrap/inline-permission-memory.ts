@@ -18,6 +18,7 @@ import type {
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import type { AutoLaneAnalysis } from '../../application/permissions/auto-lane-analysis-types.js';
 import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
+import type { HumanDecisionProjectionInput } from '../../runtime/permission-decision-coordinator.js';
 import { learnPermissionRememberSettlement } from '../../runtime/permission-remember-settlement.js';
 import type { InlineCoreToolHostDeps } from './inline-agent-loop-tool-types.js';
 
@@ -57,6 +58,48 @@ export function inlinePermissionMemoryInputs(input: {
     ...(decisionMemory ? { decisionMemory } : {}),
     ...(personId ? { personId } : {}),
   };
+}
+
+export function inlineScheduledProjection(input: {
+  run: InlineAgentLoopLaneInput['input'];
+  deps: Pick<
+    InlineCoreToolHostDeps,
+    'getPermissionDecisionMemoryRepository' | 'warn'
+  >;
+}): HumanDecisionProjectionInput | undefined {
+  if (input.run.isScheduledJob !== true) return undefined;
+  const memory = input.deps.getPermissionDecisionMemoryRepository?.();
+  return memory
+    ? {
+        ownerPersonId: input.run.jobOwnerPersonId ?? null,
+        memory,
+        guard: () => undefined,
+        warn: (message, context) => input.deps.warn(context ?? {}, message),
+      }
+    : undefined;
+}
+
+export function auditInlineScheduledProjection(
+  request: PermissionApprovalRequest,
+  decision: PermissionApprovalDecision,
+  deps: Pick<InlineCoreToolHostDeps, 'recordDecision'>,
+): Promise<void> {
+  return decision.humanDecisionRecordId
+    ? deps.recordDecision({
+        appId: (request.appId ?? 'default') as never,
+        agentId: request.agentId as never,
+        requestId: request.requestId,
+        toolName: request.toolName,
+        decision,
+        conversationId: request.targetJid,
+        threadId: request.threadId,
+        runId: request.runId,
+        jobId: request.jobId,
+        auditMetadata: {
+          humanDecisionRecordId: decision.humanDecisionRecordId,
+        },
+      })
+    : Promise.resolve();
 }
 
 export async function inlinePermissionRememberContext(input: {

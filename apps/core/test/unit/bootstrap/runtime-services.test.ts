@@ -44,7 +44,7 @@ vi.mock(
       wireInlineAgentLoopTools: (
         ...args: Parameters<typeof actual.wireInlineAgentLoopTools>
       ) => {
-        startupOrder.wireInlineTools();
+        startupOrder.wireInlineTools(...args);
         return actual.wireInlineAgentLoopTools(...args);
       },
     };
@@ -345,6 +345,61 @@ describe('buildLiveTurnRecoveryCapabilityGate', () => {
 });
 
 describe('startRuntimeServices', () => {
+  it('wires the inline record-decision closure and the decision-memory repository into the scheduled projection input', async () => {
+    startupOrder.wireInlineTools.mockClear();
+    const decisionMemory = { findHumanDecision: vi.fn() };
+    const saveDecision = vi.fn(async () => undefined);
+
+    await startRuntimeServices(
+      {
+        app: makeApp(),
+        channelWiring: makeChannelWiring(),
+        liveTurnsEnabled: false,
+        jobExecution: false,
+      },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        getPermissionDecisionMemoryRepository: () => decisionMemory as never,
+        getPermissionRepository: () =>
+          ({
+            savePolicy: vi.fn(),
+            saveRule: vi.fn(),
+            saveDecision,
+            getDecision: vi.fn(),
+          }) as never,
+        recoverPendingMessages: vi.fn() as any,
+        logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+        exit: vi.fn() as any,
+      },
+    );
+
+    const wired = startupOrder.wireInlineTools.mock.calls.at(-1)?.[0];
+    expect(wired?.getPermissionDecisionMemoryRepository?.()).toBe(
+      decisionMemory,
+    );
+    await wired?.recordDecision({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      requestId: 'permission-inline-projection',
+      toolName: 'mcp__crm__read',
+      decision: { approved: true, decidedBy: 'human_decision' },
+      jobId: 'job:inline',
+      auditMetadata: { humanDecisionRecordId: 'human-inline-1' },
+    });
+    expect(saveDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorContext: expect.objectContaining({
+          jobId: 'job:inline',
+          humanDecisionRecordId: 'human-inline-1',
+        }),
+      }),
+    );
+  });
+
   it('preserves runtime-services startup order and snapshot shape', async () => {
     const order: string[] = [];
     const app = makeApp();

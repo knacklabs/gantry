@@ -963,7 +963,10 @@
         "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
         "apps/core/test/unit/jobs/execution.test.ts",
         "apps/core/test/unit/application/permission-management-service.test.ts",
-        "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts"
+        "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+        "apps/core/test/unit/application/jobperm-ask-and-wait.test.ts"
       ],
       "reviewer_focus": [
         "Constitution (load-bearing): constitution/03-modular-monolith-structure.md \u2014 ONE application helper owns the projection matrix; runtime and bootstrap stay thin callers; ceilings hold (inline-agent-loop-tools.ts 750, permission-management-service.ts 745, domain/types.ts 740).",
@@ -1018,9 +1021,9 @@
         "npm run test:integration:postgres"
       ],
       "review_budget": {
-        "max_changed_files": 24,
-        "max_changed_lines": 2400,
-        "reason": "22-file exact scope (architecture doc + runtime-services wiring leaf added in grill r2). One NEW application helper, one NEW small runtime module for the IPC owner resolution, the coordinator's typed projection input at the T3b consult position, the IPC post-apply audit forwarding, the line-neutral decision carrier, the inline seam through inline-permission-memory.ts plus the classifier exclusion, the inline audit closure from runtime-services.ts, owner threading in agent-spawn-types.ts and execution-phases-run.ts, one NEW unit suite and seven existing suites."
+        "max_changed_files": 27,
+        "max_changed_lines": 2700,
+        "reason": "25-file scope (S-0084: the tap-budget fixture/harness and the jobperm card test pin pre-0156 job behaviour and are updated to the ladder) (architecture doc + runtime-services wiring leaf added in grill r2). One NEW application helper, one NEW small runtime module for the IPC owner resolution, the coordinator's typed projection input at the T3b consult position, the IPC post-apply audit forwarding, the line-neutral decision carrier, the inline seam through inline-permission-memory.ts plus the classifier exclusion, the inline audit closure from runtime-services.ts, owner threading in agent-spawn-types.ts and execution-phases-run.ts, one NEW unit suite and seven existing suites."
       },
       "required_tests": [
         {
@@ -1122,5 +1125,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "1aa53d6b8c84de50355dc43f3e3fd4b49d8cb036"
+  "commit": "4340b441cb8421087451efbb174e4c74e48d877b"
 }

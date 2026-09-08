@@ -182,6 +182,90 @@ describe('ipc-interaction-handler', () => {
     expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards humanDecisionRecordId beside jobId from the production post-apply audit call', async () => {
+    const claimedPath = path.join(tempDir, 'claimed-projected-permission.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const saveDecision = vi.fn(async () => undefined);
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+    registerPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId: envelope.responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: 'job:projection',
+    });
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'permission-job-projection-audit',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseKeyId: envelope.responseKeyId,
+        responseNonce: 'projection-nonce',
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:team',
+        jobId: 'job:projection',
+        toolName: 'RunCommand',
+        toolInput: { command: 'cat report.txt' },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestPermissionApproval: vi.fn(),
+        conversationRoutes: () => ({
+          [makeAgentThreadQueueKey('tg:team', agentIdForFolder('main_agent'))]:
+            {
+              name: 'Main',
+              folder: 'main_agent',
+              trigger: '',
+              added_at: new Date(0).toISOString(),
+            },
+        }),
+        opsRepository: {
+          getJobById: vi.fn(async () => ({
+            execution_context: { personId: 'person-owner' },
+          })),
+        } as never,
+        getPermissionRuntimeSettings: () => ({
+          agents: { main_agent: { permissionMode: 'auto' } },
+          permissions: { autoMode: {} },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+        getPermissionDecisionMemoryRepository: () =>
+          ({
+            findHumanDecision: vi.fn(async ({ candidates }) => ({
+              id: 'human-decision-1',
+              outcome: 'allow',
+              scope: candidates[0]!.scope,
+            })),
+          }) as never,
+        getPermissionRepository: () =>
+          ({
+            savePolicy: vi.fn(),
+            saveRule: vi.fn(),
+            saveDecision,
+            getDecision: vi.fn(),
+          }) as never,
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-projected-permission.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+    unregisterPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId: envelope.responseKeyId,
+    });
+
+    expect(saveDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorContext: expect.objectContaining({
+          jobId: 'job:projection',
+          humanDecisionRecordId: 'human-decision-1',
+        }),
+      }),
+    );
+  });
+
   it("persists the remember context before delegating to the durable flow on both the denylist and classifier-ask prompt exits with a lane and effect hash equal to the helper's and a person id and label from the same host source that no callback identity overrides and an undefined label when the host source has none, still recovers a context after a crash between the provider claim and the helper returning, persists an eligible remembered Allow once before the current call is applied once-only with unchanged events, persists a remembered No with the current call denied, persists nothing for an ask, auto_strict, group, batch or scheduled-job prompt, a blank person, or a persisted context whose lane input re-derives outside interactive_auto, and treats a provider double-delivery as already decided with zero writes", async () => {
     const runRemembered = async (options: {
       code: 'remember_allow_exact' | 'remember_deny_exact';

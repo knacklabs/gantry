@@ -1244,4 +1244,276 @@ describe('coordinatePermissionDecision', () => {
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     unregisterPermissionRunRestriction(key);
   });
+
+  it("projects a job owner's remembered Allow after rails in exact tool-kind category-kind tool-place category-place order resolving an overridable ask to allow_once with human_decision provenance and humanDecisionRecordId never overriding a non-overridable rail never matching a place row for an escaping target letting a guard-returned decision stand with zero lookups and never consulting the repository for a null owner", async () => {
+    const projectionRequest: PermissionApprovalRequest = {
+      ...request,
+      toolName: 'RunCommand',
+      toolInput: { command: 'cat report.txt' },
+    };
+    const candidates = [
+      [HumanDecisionScope.Exact, 'effect-job'],
+      [HumanDecisionScope.Kind, 'kind:tool:RunCommand'],
+      [HumanDecisionScope.Kind, 'kind:file_read'],
+      [HumanDecisionScope.Place, 'place:tool:RunCommand:/workspace'],
+      [HumanDecisionScope.Place, 'place:file_read:/workspace'],
+    ] as const;
+    const overridableRails = (input: { trustedRoots?: readonly string[] }) =>
+      input.trustedRoots?.includes('/workspace')
+        ? undefined
+        : {
+            railOutcome: 'ask' as const,
+            railSignal: RailSignal.OutOfTrustedRoot,
+            reason: 'outside the trusted root',
+          };
+    for (const [scope, scopeKey] of candidates) {
+      const findHumanDecision = vi.fn(
+        async ({
+          candidates: actual,
+        }: {
+          candidates: Array<{ scopeKey: string }>;
+        }) =>
+          actual.some((candidate) => candidate.scopeKey === scopeKey)
+            ? humanDecisionRow({
+                outcome: HumanDecisionOutcome.Allow,
+                scope,
+                scopeKey,
+              })
+            : null,
+      );
+      const memory = {
+        list: vi.fn(async () => []),
+        findHumanDecision,
+      } as never;
+      const guard = vi.fn(() => undefined);
+      await expect(
+        coordinatePermissionDecision({
+          request: { ...projectionRequest },
+          analysis: {
+            lane: PermissionLane.Autonomous,
+            readOnlyMetaExecutor: false,
+          },
+          effectHash: 'effect-job',
+          workspaceRoot: '/workspace',
+          deterministicRails: overridableRails as never,
+          deterministicRailsInput: { workspaceRoot: '/workspace' },
+          decisionMemory: memory,
+          humanDecisionProjection: {
+            ownerPersonId: 'person-one',
+            memory,
+            guard,
+            warn: vi.fn(),
+          },
+          skipClassifierVerdictCache: true,
+          tail: vi.fn(),
+        }),
+      ).resolves.toMatchObject({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'human_decision',
+        source: 'human_decision',
+        repeatableForFutureRuns: true,
+        humanDecisionRecordId: `human-allow-${scope}`,
+      });
+      expect(guard).toHaveBeenCalledOnce();
+      expect(findHumanDecision).toHaveBeenCalledOnce();
+    }
+
+    for (const [railSignal, readOnlyMetaExecutor] of [
+      [RailSignal.OutOfTrustedRoot, false],
+      [RailSignal.UnsupportedMetaExecutor, true],
+    ] as const) {
+      for (const [scope, scopeKey] of candidates.slice(0, 2)) {
+        const hardFloorRail = {
+          railOutcome: 'ask' as const,
+          railSignal,
+          reason: 'hard floor asks',
+          hardFloor: true as const,
+        };
+        const findHumanDecision = vi.fn(async () =>
+          humanDecisionRow({
+            outcome: HumanDecisionOutcome.Allow,
+            scope,
+            scopeKey,
+          }),
+        );
+        const guard = vi.fn(() => undefined);
+        const tail = vi.fn(async (context?: PermissionDecisionTailContext) => {
+          expect(context?.railDecision).toBe(hardFloorRail);
+          return decisionForMode(projectionRequest, 'cancel', 'owner', 'human');
+        });
+        await expect(
+          coordinatePermissionDecision({
+            request: { ...projectionRequest },
+            analysis: {
+              lane: PermissionLane.Autonomous,
+              readOnlyMetaExecutor,
+            },
+            effectHash: 'effect-job',
+            workspaceRoot: '/workspace',
+            deterministicRails: () => hardFloorRail,
+            decisionMemory: { findHumanDecision } as never,
+            humanDecisionProjection: {
+              ownerPersonId: 'person-one',
+              memory: { findHumanDecision } as never,
+              guard,
+              warn: vi.fn(),
+            },
+            skipClassifierVerdictCache: true,
+            tail,
+          }),
+        ).resolves.toMatchObject({ approved: false, decidedBy: 'owner' });
+        expect(guard).not.toHaveBeenCalled();
+        expect(findHumanDecision).not.toHaveBeenCalled();
+        expect(tail).toHaveBeenCalledOnce();
+      }
+    }
+
+    const nonOverridableRail = {
+      railOutcome: 'ask' as const,
+      railSignal: RailSignal.Destructive,
+      reason: 'destructive rail asks',
+      hardFloor: true as const,
+    };
+    for (const [scope, scopeKey] of candidates) {
+      const findHumanDecision = vi.fn(async () =>
+        humanDecisionRow({
+          outcome: HumanDecisionOutcome.Allow,
+          scope,
+          scopeKey,
+        }),
+      );
+      const tail = vi.fn(async () =>
+        decisionForMode(projectionRequest, 'cancel', 'owner', 'human'),
+      );
+      await expect(
+        coordinatePermissionDecision({
+          request: { ...projectionRequest },
+          analysis: {
+            lane: PermissionLane.Autonomous,
+            readOnlyMetaExecutor: false,
+          },
+          effectHash: 'effect-job',
+          workspaceRoot: '/workspace',
+          deterministicRails: () => nonOverridableRail,
+          humanDecisionProjection: {
+            ownerPersonId: 'person-one',
+            memory: { findHumanDecision } as never,
+            guard: vi.fn(() => undefined),
+            warn: vi.fn(),
+          },
+          skipClassifierVerdictCache: true,
+          tail,
+        }),
+      ).resolves.toMatchObject({ approved: false, decidedBy: 'owner' });
+      expect(findHumanDecision).not.toHaveBeenCalled();
+      expect(tail).toHaveBeenCalledOnce();
+    }
+
+    const escapingFind = vi.fn(
+      async ({
+        candidates: actual,
+      }: {
+        candidates: Array<{ scopeKey: string }>;
+      }) =>
+        actual.some(({ scopeKey }) => scopeKey === 'place:file_read:/workspace')
+          ? humanDecisionRow({
+              outcome: HumanDecisionOutcome.Allow,
+              scope: HumanDecisionScope.Place,
+              scopeKey: 'place:file_read:/workspace',
+            })
+          : null,
+    );
+    const escapingMemory = {
+      list: vi.fn(async () => []),
+      findHumanDecision: escapingFind,
+    } as never;
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...projectionRequest },
+        analysis: {
+          lane: PermissionLane.Autonomous,
+          readOnlyMetaExecutor: false,
+        },
+        effectHash: 'effect-job',
+        workspaceRoot: '/workspace',
+        deterministicRails: () => ({
+          railOutcome: 'ask',
+          railSignal: RailSignal.OutOfTrustedRoot,
+          reason: 'target escapes the candidate root',
+        }),
+        deterministicRailsInput: { workspaceRoot: '/workspace' },
+        decisionMemory: escapingMemory,
+        humanDecisionProjection: {
+          ownerPersonId: 'person-one',
+          memory: escapingMemory,
+          guard: vi.fn(() => undefined),
+          warn: vi.fn(),
+        },
+        skipClassifierVerdictCache: true,
+        tail: async () =>
+          decisionForMode(projectionRequest, 'cancel', 'owner', 'human'),
+      }),
+    ).resolves.toMatchObject({ approved: false, decidedBy: 'owner' });
+    expect(escapingFind).toHaveBeenCalledOnce();
+    expect(escapingFind.mock.calls[0]![0].candidates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: HumanDecisionScope.Place }),
+      ]),
+    );
+
+    const guardedDecision = decisionForMode(
+      projectionRequest,
+      'cancel',
+      'runtime',
+      'machine',
+    );
+    const guardedFind = vi.fn();
+    const guard = vi.fn(() => guardedDecision);
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...projectionRequest },
+        analysis: {
+          lane: PermissionLane.Autonomous,
+          readOnlyMetaExecutor: false,
+        },
+        effectHash: 'effect-job',
+        workspaceRoot: '/workspace',
+        deterministicRails: () => undefined,
+        humanDecisionProjection: {
+          ownerPersonId: 'person-one',
+          memory: { findHumanDecision: guardedFind } as never,
+          guard,
+          warn: vi.fn(),
+        },
+        skipClassifierVerdictCache: true,
+        tail: vi.fn(),
+      }),
+    ).resolves.toBe(guardedDecision);
+    expect(guardedFind).not.toHaveBeenCalled();
+
+    const ownerlessFind = vi.fn();
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...projectionRequest },
+        analysis: {
+          lane: PermissionLane.Autonomous,
+          readOnlyMetaExecutor: false,
+        },
+        effectHash: 'effect-job',
+        workspaceRoot: '/workspace',
+        deterministicRails: () => undefined,
+        humanDecisionProjection: {
+          ownerPersonId: null,
+          memory: { findHumanDecision: ownerlessFind } as never,
+          guard: vi.fn(() => undefined),
+          warn: vi.fn(),
+        },
+        skipClassifierVerdictCache: true,
+        tail: async () =>
+          decisionForMode(projectionRequest, 'cancel', 'owner', 'human'),
+      }),
+    ).resolves.toMatchObject({ approved: false, decidedBy: 'owner' });
+    expect(ownerlessFind).not.toHaveBeenCalled();
+  });
 });

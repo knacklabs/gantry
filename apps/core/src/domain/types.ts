@@ -296,7 +296,6 @@ export interface PermissionCallbackClaim extends PermissionCallbackClaimReferenc
 }
 
 export type { PermissionApprovalRuleValue, PermissionApprovalUpdate };
-
 export interface PermissionApprovalDecision {
   approved: boolean;
   mode?: PermissionApprovalDecisionMode;
@@ -311,6 +310,7 @@ export interface PermissionApprovalDecision {
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
   batchDecision?: 'review_each';
   permissionCallbackClaim?: PermissionCallbackClaimReference;
+  humanDecisionRecordId?: string;
 }
 export interface UserQuestionOption {
   label: string;

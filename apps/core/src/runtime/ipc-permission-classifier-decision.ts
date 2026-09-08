@@ -61,6 +61,7 @@ import {
 import { deriveAutoLaneAnalysis } from '../application/permissions/auto-lane-analysis.js';
 import { gantryNativeCanonicalToolName } from '../application/permissions/gantry-tool-risk.js';
 import type { PermissionRememberPromptFacts } from '../application/permissions/human-decision-learning.js';
+import { resolveIpcPermissionJobProjection } from './ipc-permission-job-projection.js';
 
 type PermissionRuntimeSettings = ReturnType<
   NonNullable<IpcDeps['getPermissionRuntimeSettings']>
@@ -125,6 +126,22 @@ export async function resolvePermissionIpcDecision(input: {
     workspaceRoot,
   });
   const decisionMemory = input.deps.getPermissionDecisionMemoryRepository?.();
+  const humanDecisionProjection = await resolveIpcPermissionJobProjection({
+    hostJobId,
+    deps: input.deps,
+    guard: (railDecision) =>
+      applyIpcPermissionRouteGuard({
+        ...input,
+        effectHash,
+        decisionMemory,
+        hostJobId,
+        workspaceRoot,
+        route,
+        settings,
+        permissionMode,
+        context: Object.freeze({ analysis, railDecision }),
+      }),
+  });
   return coordinatePermissionDecision({
     request: input.request,
     effectHash,
@@ -181,11 +198,11 @@ export async function resolvePermissionIpcDecision(input: {
       });
     },
     skipClassifierVerdictCache: Boolean(
-      hostJobId ||
       gantryNativeCanonicalToolName(input.request.toolName)?.canonical ===
-        'capability_run',
+      'capability_run',
     ),
     analysis,
+    ...(humanDecisionProjection ? { humanDecisionProjection } : {}),
     tail: (context) =>
       resolvePermissionIpcDecisionTail({
         ...input,
@@ -338,7 +355,8 @@ async function consultIpcPermissionClassifier(
     : undefined;
   const shouldConsultClassifier =
     (input.context.analysis.lane === PermissionLane.InteractiveAuto ||
-      input.context.analysis.lane === PermissionLane.AutoStrict) &&
+      input.context.analysis.lane === PermissionLane.AutoStrict ||
+      Boolean(input.hostJobId)) &&
     input.deps.publishRuntimeEvent &&
     classifierConfig;
   const toolRepository = input.deps.getToolRepository?.();
@@ -415,7 +433,9 @@ function mergeIpcClassifierWithRail(
   const relaxesRailVeto = Boolean(
     classifierDecision?.decision === 'allow' &&
     railAsk &&
-    input.context.analysis.lane === PermissionLane.InteractiveAuto &&
+    railAsk.hardFloor !== true &&
+    (input.context.analysis.lane === PermissionLane.InteractiveAuto ||
+      Boolean(input.hostJobId)) &&
     (railAsk.railSignal === RailSignal.OutOfTrustedRoot ||
       (railAsk.railSignal === RailSignal.UnsupportedMetaExecutor &&
         input.context.analysis.readOnlyMetaExecutor)),
@@ -477,7 +497,7 @@ async function writeIpcClassifierCache(
   if (
     classifierDecision &&
     classifierDecision.status !== PermissionClassifierStatus.Skipped &&
-    !isInteractiveAutoUncacheableAllow(input, classifierDecision) &&
+    !isUncacheableAllow(input, classifierDecision) &&
     !merge.railRequiresApproval &&
     input.effectHash &&
     input.decisionMemory
@@ -501,12 +521,13 @@ async function writeIpcClassifierCache(
   }
 }
 
-function isInteractiveAutoUncacheableAllow(
+function isUncacheableAllow(
   input: PermissionIpcDecisionTailInput,
   classifierDecision: PermissionClassifierPromptConsultResult,
 ): boolean {
   if (
-    input.context.analysis.lane !== PermissionLane.InteractiveAuto ||
+    (input.context.analysis.lane !== PermissionLane.InteractiveAuto &&
+      !input.hostJobId) ||
     classifierDecision.decision !== 'allow'
   ) {
     return false;
