@@ -57,8 +57,8 @@ function makeService(input: {
         async () => input.participantUserIds,
       ),
       listConversationApprovers,
-      resolveConversationApproverPrincipal: vi.fn(async () =>
-        input.resolvedApprover ?? null,
+      resolveConversationApproverPrincipal: vi.fn(
+        async () => input.resolvedApprover ?? null,
       ),
     },
   };

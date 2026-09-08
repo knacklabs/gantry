@@ -302,7 +302,7 @@ export async function publishTerminalToolDenials(input: {
         appId: (appSession?.appId ?? input.runtimeAppId) as never,
         eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
         payload: toolDenialEventPayload(denial, safeError),
-    actor: { kind: 'system', source: 'scheduler' },
+        actor: { kind: 'system', source: 'scheduler' },
         correlationId: denial.invocationId,
         sessionId: appSession?.sessionId as never,
         jobId: input.currentJob.id as never,

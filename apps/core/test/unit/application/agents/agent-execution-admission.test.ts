@@ -16,9 +16,10 @@ describe('executionAdmissionForAgent', () => {
     await expect(
       executionAdmissionForAgent({
         agentId: 'agent:one',
-        getAgentRepository: () => ({
-          getAgent: async () => ({ status: 'offboarded' }),
-        }) as never,
+        getAgentRepository: () =>
+          ({
+            getAgent: async () => ({ status: 'offboarded' }),
+          }) as never,
       }),
     ).resolves.toBe(OFFBOARDED_AGENT_EXECUTION_ERROR);
   });
