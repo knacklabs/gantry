@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0157-20d6",
+  "profile": "degraded",
+  "reason": "Codex usage limit exhausted for this account (run 13 died at 2 min: 'You've hit your usage limit'); apply the three P2 stage-review fixes for ASKFLOOR-1-T5a (coordinator learn-tail root context, folder-gate kind candidate, trust-growth human label) directly, with pinned tests",
+  "started_at": "2026-09-08T15:46:43+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

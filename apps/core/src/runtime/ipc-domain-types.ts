@@ -105,6 +105,8 @@ export interface IpcDeps {
     options?: { providerAccountId?: string },
   ) => Promise<boolean>;
   mcpHostnameLookup?: HostnameLookup;
+  /** Channel-layer human tool label for the trust-growth card button (T5a). */
+  permissionToolLabel?: (toolName: string | undefined) => string | undefined;
   opsRepository: RuntimeJobRepository & RuntimeMessageRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getAgentRepository?: () => AgentRepository | undefined;

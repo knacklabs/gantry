@@ -61,8 +61,10 @@ export const PERMISSION_DECISION_STAGES = [
 ] as const;
 
 export interface PermissionDecisionTailContext {
-  readonly analysis: AutoLaneAnalysis;
+  /** Absent only on the trusted-root learning path of a caller without analysis. */
+  readonly analysis?: AutoLaneAnalysis;
   readonly railDecision: PermissionDeterministicRailDecision | undefined;
+  readonly canonicalRoot?: string;
   readonly cachedClassifierVerdict?: Readonly<ClassifierVerdict>;
 }
 
@@ -176,9 +178,6 @@ export async function coordinatePermissionDecision(
     ...input.deterministicRailsInput,
   };
   const railDecision = railFn(railsInput);
-  const tailContext = input.analysis
-    ? Object.freeze({ analysis: input.analysis, railDecision })
-    : undefined;
   let trustedRootLearning: TrustedRootLearning | undefined;
   let familyRuleRailHit = false;
   if (reviewedRuleDecision?.status === 'allow') {
@@ -202,7 +201,7 @@ export async function coordinatePermissionDecision(
     input.request.decisionOptions = ['allow_once', 'cancel'];
     input.request.decisionReason = `${FAMILY_RULE_RAIL_HIT_REASON} ${railDecision?.reason ?? shimReason}`;
     if (!railDecision || !input.analysis) {
-      return invokeTail(input, tailContext);
+      return invokeTail(input, undefined);
     }
     familyRuleRailHit = true;
   }
@@ -213,7 +212,7 @@ export async function coordinatePermissionDecision(
     if (railDecision.railOutcome === 'ask') {
       // Trusted-root stage (Task G): an out-of-root ask can be covered by a
       // learned grant, or offered as an ask-once "remember this folder". Rails
-      // still ran first, so a destructive/secret/escape ask is never learnable.
+      // still ran first, so root learning never widens destructive/secret asks.
       const trustedRoot =
         railDecision.railSignal === RailSignal.OutOfTrustedRoot
           ? await resolveTrustedRootStage(input, railFn, railsInput)
@@ -225,23 +224,45 @@ export async function coordinatePermissionDecision(
       if (!familyRuleRailHit && !trustedRootLearning)
         input.request.decisionReason = railDecision.reason;
       if (!input.analysis) {
+        // The learning tail still needs the validated root so the card can
+        // offer and store the folder decision (T5a).
         return completeTrustedRootLearning(
           input,
           trustedRootLearning,
-          await invokeTail(input, tailContext),
+          await invokeTail(
+            input,
+            trustedRootLearning
+              ? Object.freeze({
+                  railDecision,
+                  canonicalRoot: trustedRootLearning.canonicalRoot,
+                })
+              : undefined,
+          ),
         );
       }
     } else {
       return railDecision;
     }
   }
+  const tailContext = input.analysis
+    ? Object.freeze({
+        analysis: input.analysis,
+        railDecision,
+        ...(trustedRootLearning
+          ? { canonicalRoot: trustedRootLearning.canonicalRoot }
+          : {}),
+      })
+    : undefined;
   const railAllowsOverride =
     !railDecision ||
     (railDecision.railOutcome === 'ask' &&
       (railDecision.railSignal === RailSignal.OutOfTrustedRoot ||
         (railDecision.railSignal === RailSignal.UnsupportedMetaExecutor &&
           input.analysis?.readOnlyMetaExecutor === true)));
-  if (railAllowsOverride) {
+  const exactAllowCanOverride =
+    railDecision?.railOutcome === 'ask' &&
+    railDecision.railSignal === RailSignal.Destructive;
+  if (railAllowsOverride || exactAllowCanOverride) {
     if (
       railDecision?.hardFloor !== true &&
       input.analysis?.lane === PermissionLane.Autonomous &&
@@ -274,14 +295,19 @@ export async function coordinatePermissionDecision(
         };
       }
     }
-    const rememberedAllow = await consultRememberedAllow({
-      request: input.request,
-      analysis: input.analysis,
-      effectHash: input.effectHash,
-      workspaceRoot,
-      canonicalRoot: trustedRootLearning?.canonicalRoot,
-      decisionMemory: input.decisionMemory,
-    });
+    const rememberedAllow = await consultRememberedAllow(
+      {
+        request: input.request,
+        analysis: input.analysis,
+        effectHash: input.effectHash,
+        workspaceRoot,
+        canonicalRoot: trustedRootLearning?.canonicalRoot,
+        decisionMemory: input.decisionMemory,
+      },
+      {
+        exactOnly: exactAllowCanOverride,
+      },
+    );
     if (rememberedAllow) return rememberedAllow;
   }
   // CACHE STAGE (cache-hit-only shortcut). Reachable only past hard-deny/
