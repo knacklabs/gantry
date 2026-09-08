@@ -614,6 +614,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: FOLDER,
         actingPersonId: person,
+        railVersion: 3,
       }),
     ).resolves.toEqual({ file: 1, WebRead: 1 });
     await expect(
@@ -621,6 +622,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: FOLDER,
         actingPersonId: 'person-round-trip-other',
+        railVersion: 3,
       }),
     ).resolves.toEqual({ file: 1 });
     await expect(
@@ -628,6 +630,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: 'another-app',
         agentFolder: FOLDER,
         actingPersonId: person,
+        railVersion: 3,
       }),
     ).resolves.toEqual({});
     await expect(
@@ -635,6 +638,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: 'another-folder',
         actingPersonId: person,
+        railVersion: 3,
       }),
     ).resolves.toEqual({});
 
@@ -676,6 +680,48 @@ maybeDescribe('Postgres permission decision memory', () => {
     ).resolves.toEqual([
       expect.objectContaining({ id: concurrentResults[0]!.id }),
     ]);
+  });
+
+  it('counts only current-rail-version active exact Allows per tool so three older-version rows do not unlock trust growth', async () => {
+    const repository = runtime.repositories.permissionDecisionMemory;
+    const person = 'person-rail-count';
+    for (let index = 0; index < 5; index += 1) {
+      // Own id range: the candidate-key leaf above seeds 4000…0001-0004 and
+      // this suite has no per-test cleanup.
+      const id = `40000000-0000-4000-8000-0000000000c${index + 1}`;
+      const railVersion =
+        index < 3 ? RAIL_CATALOG_VERSION - 1 : RAIL_CATALOG_VERSION;
+      await repository.putHumanDecision({
+        id,
+        appId: APP,
+        agentFolder: FOLDER,
+        outcome: 'allow',
+        scope: 'exact',
+        scopeKey: `exact:rail-count:${index}`,
+        actingPersonId: person,
+        canonicalTool: 'FileWrite',
+        reason: 'rail-filtered count fixture',
+        effectSchemaVersion: 1,
+        railVersion,
+        provenance: encodeHumanDecisionProvenance({
+          id,
+          actingPersonId: person,
+          outcome: 'allow',
+          scope: 'exact',
+          railVersion,
+        }),
+        nowIso: `2026-09-08T00:00:0${index}.000Z`,
+      });
+    }
+
+    await expect(
+      repository.countExactAllowsByTool({
+        appId: APP,
+        agentFolder: FOLDER,
+        actingPersonId: person,
+        railVersion: RAIL_CATALOG_VERSION,
+      }),
+    ).resolves.toEqual({ FileWrite: 2 });
   });
 
   it("finds a human decision by ordered candidate keys for one person, app and folder only: the first of two matching candidates wins, a revoked row, another person's row and a row from another rails version never match, and no row yields null", async () => {
