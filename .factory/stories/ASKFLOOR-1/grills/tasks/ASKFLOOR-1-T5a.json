@@ -1,0 +1,124 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "ASKFLOOR-1-T5a",
+  "verdict": "pass",
+  "questions_asked": 5,
+  "inspected_refs": [
+    "apps/core/src/channels/permission-interaction.ts",
+    "apps/core/src/channels/permission-batch-coalescer.ts",
+    "apps/core/src/channels/permission-decision-options.ts",
+    "apps/core/src/domain/message-actions.ts",
+    "apps/core/src/app/bootstrap/channel-message-action-router.ts",
+    "apps/core/src/application/permissions/human-decision-learning.ts",
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/src/channels/telegram/callback-handlers.ts",
+    "apps/core/src/channels/slack/channel-interactions.ts",
+    "apps/core/src/channels/discord/components.ts",
+    "apps/core/src/channels/teams/cards.ts",
+    "apps/core/test/unit/channels/provider-affordance-parity.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "plans/exploration/askfloor-1-t5a-seam-map.md"
+  ],
+  "current_flow": "Every provider renders the scalar Allow once / Cancel / Allow for future set from permission-interaction.ts; T3c's remember codes are accepted by the Telegram and Slack codecs but no card offers them; there is no memory_forget affordance. T5a derives ONE host-side card affordance model at prompt construction (T3c context + validated root + countExactAllowsByTool), renders it through one formatter on all four providers, carries tapped codes verbatim to the durable claim, and adds memory_forget rendering + settlement through the message-action router.",
+  "criteria_map": {
+    "CENTRAL COPY. NEW `channels/permission-card-affordances.ts` exports `buildPermissionCardAffordances(input) \u2192 PermissionCardAffordances` and the label/line formatters; eligible single-ask cards render, in order, **Allow** (remembered, default) / the one alternative (ruling 5) / **Just this once** / **No**; pre-tap block: \"Allow will remember: <scope noun>\" (writes: \"writing to <path> \u2014 any future content, no more asking for this file\"), then the alternative's line (ruling 5 templates) when present, ending with \"No will remember: this exact action.\"; post-tap: \"Remembered: <scope>. Change it any time with /permissions.\" (writes: \"Remembered: writes to <path> (any content). \u2026\"; No: \"I'll keep saying no to this exact action. Change it with /permissions.\"; Just this once: today's receipt). Destructive: normal three buttons, no alternative, pre-tap \"Allow will remember: this exact command only \u2014 nothing broader. No will remember: this exact command.\" Protected: reason line \"<path> is protected, so I always ask.\", buttons **Allow once** / **No** (remembered) only. Scope nouns: \"this exact action\" / \"this kind of action, anywhere\" / \"only in <folder>\"; trust-growth label per the owner ruling (human label \u2192 card's tool name \u2192 no button). No rails-bump line. `permission-interaction.ts` \u2264 700. Unit tests: every shape, order, every literal line, family > trust > folder precedence, destructive/protected exclusions, the missing-label fallback chain.": "AC1 central copy: NEW formatter module; labels/order/lines; one alternative with family > trust > folder; destructive/protected shapes; label fallback chain; no rails-bump line.",
+    "PERSISTED RENDER MODEL + OFFERED-SET CHECK. `cardAffordances` is derived host-side on both prompt paths (ruling 1) from the T3c context + `canonicalRoot` (ruling 3) + the rail-version-filtered trust-growth count (ruling 4), set on the request (`types.ts` line-neutral), snapshotted by the envelope/binding, carried by the IPC payload updater and inline creation, replayed by recovery, and reset to the scalar batch shape inside the Postgres bind transaction (ruling 2). At settlement (claim, recovery, and Telegram's live claim) a remember code not in `offered` becomes its scalar base before application and learning; the tapped code reaches the receipt formatter (ruling 5). Tests: `ipc-interaction-handler.test.ts` \u2014 model persisted on the IPC path, forged unoffered code \u2192 scalar base + nothing learned; inline suite \u2014 model at creation; `pending-interaction-permission-recovery-orchestrator.test.ts` \u2014 recovery replays the model, applies the check, and an offered code yields its remembered receipt while an unoffered one yields the once-only receipt; `worker-coordination.postgres.integration.test.ts` \u2014 batch bind resets the model atomically; `pending-interaction-durability.test.ts` \u2014 envelope round-trip.": "AC2 persisted cardAffordances beside the context through the T3c settlement seam, envelope, parser, recovery and the Postgres batch bind; settlement offered-set check (IPC, inline, recovery, durability and Postgres leaves).",
+    "PLACE ROOT + TRUST COUNT. `PermissionDecisionTailContext.canonicalRoot` set by the trusted-root stage (the tail context is frozen before root resolution at `permission-decision-coordinator.ts:179-182`, so the final context is constructed AFTER the trusted-root stage) and threaded on both paths; the T3c derivation gains a persisted `place` candidate from it and settlement stores a place decision on a folder tap (ruling 3); `countExactAllowsByTool(\u2026, railVersion)` filters to the current rail version at port, service and repository; high-risk via `gantryToolRisk`. Tests: coordinator suite (root exposed only after the same-rails check), IPC and inline suites (root reaches the prompt), `human-decision-learning.test.ts` (place candidate derived from the root, parsed fail-closed, refused without it) and the tap-budget harness (a folder tap stores a place row that a later request in that folder matches), `human-decision-memory-service.test.ts` + Postgres suite (other-version rows not counted; \u22653 vs 2), affordance suite (folder eligibility rule; failure \u2192 no alternative + one warn).": "AC3 canonicalRoot on the tail context on both paths; rail-version-filtered countExactAllowsByTool at port/service/repository; gantryToolRisk high-risk.",
+    "PROVIDERS \u2014 REMEMBER. Telegram (`channel-prompts.ts:218-225`, `prepared-permission-card.ts:47-56`, `callback-handlers.ts:696-743`), Slack (`permission-approval-delivery.ts:64-75,183-200`, `channel-interactions.ts:333-360`), Discord (`interactions.ts:161-182`, `prepared-permission-card.ts:45-51`, `components.ts:129-149`, `permission-callback.ts:44-95`), Teams (`cards.ts:168-213`, `permission-submit.ts:4-34`, `interaction-handlers.ts:230-372`) render the host-filled options and lines and pass a tapped remember code verbatim into the durable claim (no scalar-only normalisation before the claim); Discord and Teams codecs accept the four codes; Telegram's 64-byte budget holds. Tests: four-provider parity for eligible / destructive / protected / batch cards (`provider-affordance-parity.test.ts:118-205` extended) and one settlement test per provider proving an offered remember code reaches the claim as a code and settles with its remembered receipt text, while an unoffered code settles once-only with today's receipt.": "AC4 providers carry remember codes verbatim to the claim; four-provider parity and one settlement leaf per provider.",
+    "PROVIDERS \u2014 FORGET TRANSPORT. `memory_forget { recordId, label }` in the union (label render-only, callback carries `recordId` only); each provider encodes/renders the label through its message-action affordance encoder and decodes a tap into the typed action delivered to the router with the authenticated conversation context; the router exposes `onMemoryForget?` and answers \"Not available yet.\" when unbound; Teams renders per-row `ActionSet`s (ten-record test). Tests: router unit (typed action reaches a bound hook with the conversation identity; unbound reply), four provider render + decode tests, Telegram codec bound, Teams ten-button test.": "AC5 memory_forget transport: union entry, affordance encoders, tap decode into the typed action, router hook (T5b binds the handler); Teams per-row ActionSets.",
+    "BATCH. `permission-batch-coalescer.ts` text formatter (`:121-139`) and native `contextLines` (`:142-161`) both carry \"Allow all and Deny all are once-only. Tap Review each to decide one at a time \u2014 those cards can remember.\" after the rows and before the wait line; batch settlement (`:66-82`) writes no memory. Tests: both renderers, four-provider parity.": "AC6 batch once-only line in both renderers; no memory write.",
+    "INELIGIBLE LANES BYTE-FOR-BYTE. ask, auto_strict, job-prompt and group cards keep today's labels (incl. `Cancel`), copy and durable-rule controls with no memory control or line; the scalar fallback (`permission-decision-options.ts:12-32`) is unchanged. Tests: four-provider golden snapshots per lane CAPTURED FROM THE PRE-CHANGE RENDERERS with fixed callback ids as the first commit of the task, then pinned.": "AC7 ineligible lanes byte-for-byte with pre-change golden snapshots per provider per lane.",
+    "S4 + GATES + DECISION. `askfloor-tap-budget.test.ts` adds S4 (`rm -rf build` asks once; Allow remembers exact command + target; identical command \u2192 zero taps; `rm -rf dist` asks; No is remembered exactly). `docs/decisions/0154` carries the owner-confirmed amendment (no rails-bump re-ask line; old-version rows inert and simply not listed by `/permissions`, per its line 18). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: 700 default (permission-interaction 693, Discord interactions 699, Teams cards 688 today \u2014 extract), Slack `channel-interactions.ts` \u2264 712, Telegram `callback-handlers.ts` \u2264 900; no wrapper, shim, alias, dead branch or compatibility naming.": "AC8 S4 fixture; 0154 amendment; gates and ceilings."
+  },
+  "gaps": [
+    "On the permission card, how should the remember scopes be worded?",
+    "When a high-risk tool earns the broader option after three remembered Allows, how should the tool be named in \"Allow all <tool> actions\"?",
+    "How should the Forget buttons in the memory listing be labelled?",
+    "Decision 0154 says that after a safety-rules update the next card should say \"Asking again \u2014 the safety rules were updated since you last decided this.\" Your T3b ruling made old-version memories simply inert (no stale flag). Showing that line means a lookup for old rows on every card. Which?",
+    "The trust-growth button says \"Allow all <tool label> actions\". Some tools have no human label registered. What then?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "owner round (bundled, 2026-09-08): scope nouns are plain \u2014 'this exact action' / 'this kind of action, anywhere' / 'only in <folder>' \u2014 plan AC1.",
+    "owner round: the trust-growth button names the tool by its human label, never the canonical id \u2014 plan AC1.",
+    "owner round: Forget buttons read 'Forget <shortId>' (first 6 hex of the record uuid, matching /permissions all) \u2014 plan AC5.",
+    "owner round 2 (after grill r1): the rails-bump re-ask line is dropped and 0154 amended (Amendment section, confirmed in chat) \u2014 plan rulings, AC1, AC8.",
+    "owner round 2: a tool with no human label uses the card's tool name, else no trust-growth button; the canonical id never appears \u2014 plan AC1."
+  ],
+  "decision": "keep",
+  "new_abstractions": [
+    "NEW channels/permission-card-affordances.ts (formatter + PermissionCardAffordances model); persisted cardAffordances field beside rememberContext on the member payload; canonicalRoot on PermissionDecisionTailContext; memory_forget entry in the message-actions union plus a typed onMemoryForget router hook (handler bound by T5b)"
+  ],
+  "citations": [
+    {
+      "finding": "Render authority must be host-derived and persisted; provider callback text is never an authority (seam map section 1; T3c settlement accessor).",
+      "source": "apps/core/src/application/interactions/pending-interaction-permission-callback.ts:448-469"
+    },
+    {
+      "finding": "countExactAllowsByTool already exists for trust growth; no new persistence read.",
+      "source": "apps/core/src/application/permissions/human-decision-memory-service.ts:208-214"
+    },
+    {
+      "finding": "Teams per-row ActionSet pattern exists for the primary-action cap.",
+      "source": "apps/core/src/channels/teams/cards.ts:629-651"
+    }
+  ],
+  "summary": "T5a task grill: owner questions bundled up front (3, ledgered), sol@xhigh cold reads until no blocking findings (grill-loop budget). Contract sound.",
+  "rounds": [
+    {
+      "question": "On the permission card, how should the remember scopes be worded?",
+      "options": [
+        "Plain nouns (Recommended)",
+        "Short technical"
+      ],
+      "chosen": "Plain nouns (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "When a high-risk tool earns the broader option after three remembered Allows, how should the tool be named in \"Allow all <tool> actions\"?",
+      "options": [
+        "Human label (Recommended)",
+        "Canonical id"
+      ],
+      "chosen": "Human label (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "How should the Forget buttons in the memory listing be labelled?",
+      "options": [
+        "Forget <shortId> (Recommended)",
+        "Forget 1, Forget 2 ..."
+      ],
+      "chosen": "Forget <shortId> (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "Decision 0154 says that after a safety-rules update the next card should say \"Asking again \u2014 the safety rules were updated since you last decided this.\" Your T3b ruling made old-version memories simply inert (no stale flag). Showing that line means a lookup for old rows on every card. Which?",
+      "options": [
+        "Drop the line; amend 0154 (Recommended)",
+        "Keep the line"
+      ],
+      "chosen": "Drop the line; amend 0154 (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "The trust-growth button says \"Allow all <tool label> actions\". Some tools have no human label registered. What then?",
+      "options": [
+        "Use the card's tool name, else no button (Recommended)",
+        "Derive from the id"
+      ],
+      "chosen": "Use the card's tool name, else no button (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "3f7837664d3dd5bfdd005f09eca40666b2a836666d4039d8d2b427237f57defa",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "task_plan_sha256": "5bb0cba2c0046262bb4c7c9ce790bfbd9ee49ee2959410d86be62b75b742a485",
+  "recorded_at": "2026-09-08T12:14:43+00:00",
+  "commit": "eff24d1560953d60b5e3152c959dfedcbd62a099",
+  "approved_task_plan_sha256": "5bb0cba2c0046262bb4c7c9ce790bfbd9ee49ee2959410d86be62b75b742a485",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-08T12:14:48+00:00"
+}
