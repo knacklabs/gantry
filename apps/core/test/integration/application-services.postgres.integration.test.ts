@@ -10,6 +10,7 @@ import {
 import type { AppId } from '@core/domain/app/app.js';
 import type { AgentId } from '@core/domain/agent/agent.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
+import { systemPrincipal } from '@core/domain/identity/principal-ref.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -116,7 +117,7 @@ maybeDescribe('application services with Postgres repositories', () => {
       reason: 'Approved in integration test',
       actorContext: { channel: 'slack' },
       actionPreview: 'Run tool',
-      approverRef: 'user:admin',
+      approverRef: systemPrincipal('user:admin'),
       createdAt: now,
     });
     await expect(
@@ -125,7 +126,7 @@ maybeDescribe('application services with Postgres repositories', () => {
       ),
     ).resolves.toMatchObject({
       effect: 'allow',
-      approverRef: 'user:admin',
+      approverRef: systemPrincipal('user:admin'),
     });
 
     const memoryService = new AppMemoryService(runtime.service.db);

@@ -1,6 +1,7 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import {
+  isPrincipalRef,
   systemPrincipal,
   type PrincipalRef,
 } from '../../domain/identity/principal-ref.js';
@@ -26,6 +27,13 @@ export interface RecordPermissionDecisionInput {
   toolId?: string;
   auditMetadata?: Record<string, unknown>;
   actor?: PrincipalRef;
+}
+
+function auditPrincipal(input: RecordPermissionDecisionInput): PrincipalRef {
+  const actor: unknown = input.actor;
+  if (isPrincipalRef(actor)) return actor;
+  if (typeof actor === 'string' && actor.trim()) return systemPrincipal(actor);
+  return systemPrincipal(input.decision.decidedBy?.trim() || 'permission');
 }
 
 export async function recordPermissionDecision(
@@ -55,7 +63,7 @@ export async function recordPermissionDecision(
     },
     actionPreview: input.toolName,
     toolId: input.toolId as never,
-    approverRef: input.actor ?? systemPrincipal('permission'),
+    approverRef: auditPrincipal(input),
     expiresAt: permissionDecisionExpiresAt(input.decision, now),
     createdAt: now,
   };

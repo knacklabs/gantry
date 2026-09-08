@@ -12,6 +12,7 @@ import type {
   PermissionRecoveryEnvelope,
 } from '../../domain/types.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
+import { systemPrincipal } from '../../domain/identity/principal-ref.js';
 import {
   parsePermissionRememberContext,
   type PermissionRememberContext,
@@ -560,6 +561,9 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
           request,
           sourceAgentFolder,
           decision,
+          actor: systemPrincipal(
+            decision.decidedBy ?? rowClaim.intent.approverRef ?? 'permission',
+          ),
           appId: input.claim.scope.appId,
           runId: member.runId,
           runLeaseToken: member.runLeaseToken,
