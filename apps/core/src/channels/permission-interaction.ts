@@ -1,3 +1,9 @@
+import { permissionHumanToolLabel } from '../application/permissions/permission-card-affordances.js';
+import {
+  formatPermissionCardPreTapLines,
+  formatPermissionCardReceipt,
+  permissionCardButtonLabel,
+} from './permission-card-affordances.js';
 import {
   amendmentButtonLabel,
   amendmentPromptParts,
@@ -8,14 +14,9 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
+  PermissionRememberCode,
 } from '../domain/types.js';
-import { adminMcpToolNameFromFullName } from '../shared/admin-mcp-tools.js';
-import {
-  isCanonicalBrowserCapabilityRule,
-  isThirdPartyMcpToolRule,
-  parseReadableScopedToolRule,
-  publicGantryToolNameForSdkTool,
-} from '../shared/agent-tool-references.js';
+import { parseReadableScopedToolRule } from '../shared/agent-tool-references.js';
 import { generatedRuntimeSkillPathDisplay } from '../shared/generated-runtime-paths.js';
 import {
   isMcpCapabilityProposalRequest,
@@ -59,10 +60,8 @@ import {
   isPermissionBatchRequest,
   permissionBatchButtonLabel,
 } from './permission-batch-coalescer.js';
-export {
-  normalizePermissionAction,
-  permissionDecisionOptions,
-} from './permission-decision-options.js';
+export { normalizePermissionAction } from './permission-decision-options.js';
+export { permissionDecisionOptions } from './permission-card-affordances.js';
 
 export {
   firstPersistentRule,
@@ -72,12 +71,19 @@ export {
 export { decisionForPermissionInteraction as decisionForMode };
 
 export function permissionButtonLabel(
-  mode: PermissionApprovalDecisionMode,
+  mode: PermissionApprovalDecisionMode | PermissionRememberCode,
   _request: PermissionApprovalRequest,
 ): string {
-  const amendmentLabel = amendmentButtonLabel(_request, mode);
+  const cardLabel = _request.cardAffordances
+    ? permissionCardButtonLabel(mode, _request.cardAffordances)
+    : undefined;
+  if (cardLabel) return cardLabel;
+  if (mode.startsWith('remember_'))
+    throw new Error('Permission card remember option has no label');
+  const scalarMode = mode as PermissionApprovalDecisionMode;
+  const amendmentLabel = amendmentButtonLabel(_request, scalarMode);
   if (amendmentLabel) return amendmentLabel;
-  const batchLabel = permissionBatchButtonLabel(_request, mode);
+  const batchLabel = permissionBatchButtonLabel(_request, scalarMode);
   if (batchLabel) return batchLabel;
   if (mode === 'allow_once')
     return isMcpCapabilityProposal(_request)
@@ -138,6 +144,15 @@ export function formatPermissionReceiptText(
   const summary = formatPermissionReceiptActionSummary(request); // Existing-prompt settlement, not a new chat receipt.
   const amendmentReceipt = amendmentReceiptText(request, decision);
   if (amendmentReceipt) return amendmentReceipt;
+  const rememberedReceipt =
+    request?.cardAffordances &&
+    decision.permissionCallbackClaim?.effectiveRememberCode
+      ? formatPermissionCardReceipt(
+          request.cardAffordances,
+          decision.permissionCallbackClaim.effectiveRememberCode,
+        )
+      : undefined;
+  if (rememberedReceipt) return limitPermissionMessage(rememberedReceipt);
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
   }
@@ -357,7 +372,10 @@ function formatPermissionContextLines(
   const lines = [
     `Agent: ${formatPermissionAgentDisplayName(request.sourceAgentFolder)}`,
     `Context: ${context}`,
-    ...familyScopeCoverageLines(request),
+    ...(request.cardAffordances ? [] : familyScopeCoverageLines(request)),
+    ...(request.cardAffordances
+      ? formatPermissionCardPreTapLines(request.cardAffordances)
+      : []),
   ];
   if (typeof request.threadId === 'string' && request.threadId.trim() !== '') {
     lines.push('Approval applies to the parent conversation.');
@@ -373,7 +391,11 @@ function formatPermissionContextLines(
       );
     }
   }
-  if (request.promotionHintCount && request.firstAskedAt) {
+  if (
+    !request.cardAffordances &&
+    request.promotionHintCount &&
+    request.firstAskedAt
+  ) {
     const days = permissionAskSpanDays(request.firstAskedAt);
     lines.push(
       `Approved once ${request.promotionHintCount} times in ${days} ${days === 1 ? 'day' : 'days'} — and it is asking again now. Approve permanently?`,
@@ -537,11 +559,6 @@ function requestedToolNameFromInput(
   return undefined;
 }
 
-function humanizeMcpServerName(toolName: string): string {
-  const match = toolName.match(/^mcp__([^_]+(?:_[^_]+)*)__/);
-  return match?.[1] ? humanizeIdentifier(match[1]) : 'third-party';
-}
-
 function humanizeIdentifier(value: string): string {
   return value
     .replace(/^mcp__/, '')
@@ -617,18 +634,7 @@ function neutralizeImplementationTerms(input: string): string {
 }
 
 function userFacingToolLabel(toolName: string | undefined): string | undefined {
-  const publicName = publicGantryToolNameForSdkTool(toolName?.trim() ?? '');
-  if (!publicName) return undefined;
-  const label = USER_FACING_TOOL_LABELS[publicName];
-  if (label) return label;
-  if (isCanonicalBrowserCapabilityRule(publicName)) return 'Browser';
-  if (publicName.startsWith('mcp__gantry__browser_')) return 'Browser';
-  const adminName = adminMcpToolNameFromFullName(publicName);
-  if (adminName) return `Gantry ${humanizeIdentifier(adminName)}`;
-  if (isThirdPartyMcpToolRule(publicName)) {
-    return `${humanizeMcpServerName(publicName)} tool access`;
-  }
-  return undefined;
+  return permissionHumanToolLabel(toolName);
 }
 
 function permissionCommand(request: PermissionApprovalRequest): string | null {

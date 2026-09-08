@@ -110,7 +110,7 @@ export async function inlinePermissionRememberContext(input: {
   canonicalRoot?: string;
   deps: Pick<
     InlineCoreToolHostDeps,
-    'getPermissionDecisionMemoryRepository' | 'permissionToolLabel' | 'warn'
+    'getPermissionDecisionMemoryRepository' | 'warn'
   >;
 }): Promise<PermissionRememberContext> {
   const facts = inlinePermissionMemoryInputs(input);
@@ -139,7 +139,6 @@ export async function inlinePermissionRememberContext(input: {
     context,
     canonicalRoot: input.canonicalRoot,
     repository: facts.decisionMemory,
-    toolLabel: input.deps.permissionToolLabel?.(input.request.toolName),
     warn: input.deps.warn,
   });
   input.request.cardAffordances = model.cardAffordances;

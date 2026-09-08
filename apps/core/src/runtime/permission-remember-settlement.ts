@@ -55,7 +55,6 @@ export function rememberingPermissionApprovalRequester(input: {
         personId: input.personId,
         hostJobId: input.hostJobId,
         repository: input.deps.getPermissionDecisionMemoryRepository?.(),
-        toolLabel: input.deps.permissionToolLabel?.(request.toolName),
         warn: input.logger.warn,
       });
       if (!persisted) {
@@ -91,7 +90,6 @@ export async function persistPermissionRememberPromptContext(input: {
   personId?: string;
   hostJobId?: string;
   repository?: PermissionDecisionMemoryRepository;
-  toolLabel?: string;
   warn: Warn;
 }): Promise<boolean> {
   const laneInput = {
@@ -118,7 +116,6 @@ export async function persistPermissionRememberPromptContext(input: {
     context,
     canonicalRoot: input.facts.canonicalRoot,
     repository: input.repository,
-    toolLabel: input.toolLabel,
     warn: input.warn,
   });
   input.request.cardAffordances = model.cardAffordances;
@@ -136,8 +133,6 @@ export async function buildPermissionRememberPromptModel(input: {
   context: PermissionRememberContext;
   canonicalRoot?: string;
   repository?: PermissionDecisionMemoryRepository;
-  /** Human tool label from the channel layer (trust-growth button); never the canonical id. */
-  toolLabel?: string;
   warn: Warn;
 }): Promise<{
   rememberContext: PermissionRememberContext;
@@ -151,7 +146,6 @@ export async function buildPermissionRememberPromptModel(input: {
     request: input.request,
     rememberContext: context,
     canonicalRoot: input.canonicalRoot,
-    toolLabel: input.toolLabel,
     highRisk:
       gantryToolRisk({
         toolName: input.request.toolName,

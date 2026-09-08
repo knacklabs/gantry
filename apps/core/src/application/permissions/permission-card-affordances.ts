@@ -5,8 +5,15 @@ import type {
   PermissionApprovalRequest,
   PermissionRememberCode,
 } from '../../domain/types.js';
-import { parseReadableScopedToolRule } from '../../shared/agent-tool-references.js';
+import { adminMcpToolNameFromFullName } from '../../shared/admin-mcp-tools.js';
+import {
+  isCanonicalBrowserCapabilityRule,
+  isThirdPartyMcpToolRule,
+  parseReadableScopedToolRule,
+  publicGantryToolNameForSdkTool,
+} from '../../shared/agent-tool-references.js';
 import { isFamilyRunCommandRule } from '../../shared/family-rule-synthesis.js';
+import { USER_FACING_TOOL_LABELS } from '../../shared/permission-tool-labels.js';
 import { sanitizeOutboundLlmText } from '../../shared/sensitive-material.js';
 import type { PermissionRememberContext } from './human-decision-learning.js';
 
@@ -14,7 +21,6 @@ export interface BuildPermissionCardAffordancesInput {
   request: PermissionApprovalRequest;
   rememberContext: Pick<PermissionRememberContext, 'eligible' | 'candidates'>;
   canonicalRoot?: string;
-  toolLabel?: string;
   highRisk: boolean;
   countExactAllowsByTool?: () => Promise<number>;
   warn?: (context: Record<string, unknown>, message: string) => void;
@@ -142,7 +148,11 @@ async function permissionCardAlternative(
   const family = familyAlternative(input.request);
   if (family) return family;
 
-  const label = input.toolLabel?.trim() ?? input.request.displayName?.trim();
+  // Owner ruling: the human label first, else the name the card shows, else
+  // no trust-growth button — the canonical id never appears in card copy.
+  const label =
+    permissionHumanToolLabel(input.request.toolName) ??
+    input.request.displayName?.trim();
   if (input.highRisk && label && input.countExactAllowsByTool) {
     try {
       if ((await input.countExactAllowsByTool()) >= 3) {
@@ -176,6 +186,40 @@ async function permissionCardAlternative(
     };
   }
   return undefined;
+}
+
+export function permissionHumanToolLabel(
+  toolName: string | undefined,
+): string | undefined {
+  const publicName = publicGantryToolNameForSdkTool(toolName?.trim() ?? '');
+  if (!publicName) return undefined;
+  const label = USER_FACING_TOOL_LABELS[publicName];
+  if (label) return label;
+  if (
+    isCanonicalBrowserCapabilityRule(publicName) ||
+    publicName.startsWith('mcp__gantry__browser_')
+  ) {
+    return 'Browser';
+  }
+  const adminName = adminMcpToolNameFromFullName(publicName);
+  if (adminName) return `Gantry ${humanizeIdentifier(adminName)}`;
+  if (isThirdPartyMcpToolRule(publicName)) {
+    return `${humanizeMcpServerName(publicName)} tool access`;
+  }
+  return undefined;
+}
+
+function humanizeMcpServerName(toolName: string): string {
+  const match = toolName.match(/^mcp__([^_]+(?:_[^_]+)*)__/);
+  return match?.[1] ? humanizeIdentifier(match[1]) : 'third-party';
+}
+
+function humanizeIdentifier(value: string): string {
+  return value
+    .replace(/^mcp__/, '')
+    .replaceAll(/[._-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function familyAlternative(
