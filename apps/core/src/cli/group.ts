@@ -569,7 +569,10 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
   }
 }
 
-async function runOffboard(runtimeHome: string, args: string[]): Promise<number> {
+async function runOffboard(
+  runtimeHome: string,
+  args: string[],
+): Promise<number> {
   const parsed = parseGroupOffboardArgs(args);
   if ('error' in parsed) {
     p.log.error(parsed.error);
@@ -601,17 +604,20 @@ async function runOffboard(runtimeHome: string, args: string[]): Promise<number>
     removeAgentFromDesiredSettings(nextSettings, folder);
     const { closeRuntimeStorage, getRuntimeStorage, initializeRuntimeStorage } =
       await import('../adapters/storage/postgres/runtime-store.js');
-    const { PostgresAgentOffboardingRepository } = await import(
-      '../adapters/storage/postgres/repositories/agent-offboarding-repository.postgres.js'
-    );
+    const { PostgresAgentOffboardingRepository } =
+      await import('../adapters/storage/postgres/repositories/agent-offboarding-repository.postgres.js');
+    const { offboardAgent } =
+      await import('../application/agents/offboard-agent.js');
     await initializeRuntimeStorage({ runtimeSettings: settings });
     let result;
     try {
       const storage = getRuntimeStorage();
-      const revision = await storage.repositories.settingsRevisions.getLatestSettingsRevision(
-        'default' as never,
-      );
-      result = await new PostgresAgentOffboardingRepository(storage.service.db).offboard({
+      const revision =
+        await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+          'default' as never,
+        );
+      result = await offboardAgent({
+        repository: new PostgresAgentOffboardingRepository(storage.service.db),
         appId: 'default',
         agentId: agentIdForFolder(folder),
         defaultAgentId: agentIdForFolder('main_agent'),
