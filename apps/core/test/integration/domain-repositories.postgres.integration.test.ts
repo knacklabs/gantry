@@ -225,6 +225,22 @@ maybeDescribe('Postgres domain repositories', () => {
       createdAt: now,
       updatedAt: now,
     });
+    const offboardJobId = 'job:test:offboard';
+    await service.db.insert(pgSchema.canonicalJobsPostgres).values({
+      id: offboardJobId,
+      appId,
+      agentId: offboardAgentId,
+      createdByActorId: 'system',
+      createdBySource: 'test',
+      name: 'Support follow-up',
+      prompt: 'Follow up on support requests.',
+      scheduleJson: { type: 'interval', everyMs: 60_000 },
+      status: 'active',
+      targetJson: {},
+      nextRunAt: '2026-04-29T00:00:00.000Z',
+      createdAt: now,
+      updatedAt: now,
+    });
     const initialRevision =
       await repositories.settingsRevisions.appendSettingsRevision({
         appId,
@@ -276,8 +292,14 @@ maybeDescribe('Postgres domain repositories', () => {
         offboardAgentId,
       ),
     ).resolves.toHaveLength(1);
+    await expect(
+      service.db
+        .select({ status: pgSchema.canonicalJobsPostgres.status })
+        .from(pgSchema.canonicalJobsPostgres)
+        .where(eq(pgSchema.canonicalJobsPostgres.id, offboardJobId)),
+    ).resolves.toEqual([{ status: 'active' }]);
 
-    const result = await offboarding.offboard({
+    const offboardInput = {
       appId,
       agentId: offboardAgentId,
       defaultAgentId: agentId,
@@ -288,15 +310,17 @@ maybeDescribe('Postgres domain repositories', () => {
         conversations: {},
       },
       createdBy: 'cli:agent-offboard',
-      actor: { kind: 'system', source: 'cli:agent-offboard' },
+      actor: { kind: 'system' as const, source: 'cli:agent-offboard' },
       now: '2026-04-28T00:00:00.000Z',
-    });
+      minReaderVersion: 1,
+    };
+    const result = await offboarding.offboard(offboardInput);
 
     expect(result).toMatchObject({
       status: 'offboarded',
       providerAccountsDisabled: 1,
       conversationInstallsRemoved: 1,
-      jobsCancelled: 0,
+      jobsCancelled: 1,
       settingsRevision: competingRevision.revision.revision + 1,
     });
     await expect(
@@ -316,6 +340,22 @@ maybeDescribe('Postgres domain repositories', () => {
         offboardAgentId,
       ),
     ).resolves.toEqual([]);
+    await expect(
+      service.db
+        .select({
+          status: pgSchema.canonicalJobsPostgres.status,
+          nextRunAt: pgSchema.canonicalJobsPostgres.nextRunAt,
+          pauseReason: pgSchema.canonicalJobsPostgres.pauseReason,
+        })
+        .from(pgSchema.canonicalJobsPostgres)
+        .where(eq(pgSchema.canonicalJobsPostgres.id, offboardJobId)),
+    ).resolves.toEqual([
+      {
+        status: 'cancelled',
+        nextRunAt: null,
+        pauseReason: 'agent_offboarded',
+      },
+    ]);
     await expect(
       service.db
         .select({ retiredBy: pgSchema.userAliasesPostgres.retiredBy })
@@ -356,6 +396,9 @@ maybeDescribe('Postgres domain repositories', () => {
         actor: { kind: 'system', source: 'cli:agent-offboard' },
       }),
     ]);
+    await expect(offboarding.offboard(offboardInput)).resolves.toEqual({
+      status: 'already_offboarded',
+    });
   });
 
   it('resolves aliases by exact app, provider, providerAccountId, and external user id', async () => {
