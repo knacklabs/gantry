@@ -7,7 +7,7 @@ import {
   envRuntimeSecretRef,
   gantryRuntimeSecretRef,
 } from '../domain/ports/runtime-secret-provider.js';
-import { systemPrincipal } from '../domain/identity/principal-ref.js';
+import type { PrincipalRef } from '../domain/identity/principal-ref.js';
 import { parseEnvContent } from '../shared/env-file.js';
 import { hasValidEncryptionSecret } from '../shared/security-posture.js';
 import { storeRuntimeSecretInput } from './credentials.js';
@@ -37,7 +37,7 @@ export async function planRuntimeSecretInput(input: {
   runtimeHome: string;
   name: string;
   value: string;
-  actor: string;
+  actor: PrincipalRef;
   label?: string;
 }): Promise<RuntimeSecretInputPlan | null> {
   const label = input.label ?? input.name;
@@ -117,7 +117,7 @@ export async function planRuntimeSecretInput(input: {
         runtimeHome: input.runtimeHome,
         name: input.name,
         value: input.value,
-        actor: systemPrincipal(input.actor),
+        actor: input.actor,
       });
     },
   };

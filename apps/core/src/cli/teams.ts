@@ -32,6 +32,7 @@ import {
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
 import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
+import { systemPrincipal } from '../domain/identity/principal-ref.js';
 
 type TeamsChannelChoice =
   | { type: 'selected'; channel: TeamsDiscoveredChannel }
@@ -303,7 +304,7 @@ export async function runTeamsConnectCommand(
     runtimeHome,
     name: runtimeSecretNameForAgent('teams', credentialOwnerId, 'CLIENT_ID'),
     value: credentials.clientId,
-    actor: 'cli:teams-connect',
+    actor: systemPrincipal('cli:teams-connect'),
     label: 'Teams client ID',
   });
   if (!clientIdSecret) {
@@ -318,7 +319,7 @@ export async function runTeamsConnectCommand(
       'CLIENT_SECRET',
     ),
     value: credentials.clientSecret,
-    actor: 'cli:teams-connect',
+    actor: systemPrincipal('cli:teams-connect'),
     label: 'Teams client secret',
   });
   if (!clientSecretRef) {
@@ -329,7 +330,7 @@ export async function runTeamsConnectCommand(
     runtimeHome,
     name: runtimeSecretNameForAgent('teams', credentialOwnerId, 'TENANT_ID'),
     value: credentials.tenantId,
-    actor: 'cli:teams-connect',
+    actor: systemPrincipal('cli:teams-connect'),
     label: 'Teams tenant ID',
   });
   if (!tenantIdSecret) {

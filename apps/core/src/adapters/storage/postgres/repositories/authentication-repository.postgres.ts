@@ -8,6 +8,7 @@ import type {
 } from '../../../../application/auth/auth-foundations.js';
 import type { AppId } from '../../../../domain/app/app.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
+import type { PrincipalRef } from '../../../../domain/identity/principal-ref.js';
 import * as schema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
@@ -373,7 +374,7 @@ export class PostgresAuthenticationRepository {
   async approveAccessReference(input: {
     accessReferenceHash: string;
     role: ConsoleRole;
-    actor: string;
+    actor: PrincipalRef;
     now: string;
   }) {
     return this.db.transaction(async (tx) => {
@@ -410,7 +411,7 @@ export class PostgresAuthenticationRepository {
       await this.runtimeEvents.appendRuntimeEventWithExecutor(tx, {
         appId: updated.appId as AppId,
         eventType: RUNTIME_EVENT_TYPES.AUTH_ACCESS_RECOVERED,
-        actor: { kind: 'system', source: input.actor },
+        actor: input.actor,
         payload: { userId: updated.userId, role: updated.role },
       });
       return updated;

@@ -160,7 +160,7 @@ it('authentication repository > records CLI recovery audit in the approval trans
     tx,
     expect.objectContaining({
       eventType: 'auth.access.recovered',
-      actor: 'cli:auth-access',
+      actor: { kind: 'system', source: 'cli:auth-access' },
       payload: { userId: 'user-1', role: 'administrator' },
     }),
   );
