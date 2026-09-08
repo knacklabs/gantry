@@ -1274,7 +1274,7 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "revokes the authenticated person's record by id and replies forgot already-forgotten or not-found including another person's id",
+          "id": "delivers a typed memory_forget action with the authenticated conversation identity to a bound onMemoryForget hook and answers not available yet when no hook is bound",
           "path": "apps/core/test/unit/bootstrap/channel-message-action-router.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
@@ -1326,5 +1326,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "eff24d1560953d60b5e3152c959dfedcbd62a099"
+  "commit": "6e427a36a4162d629b7c5b361c96a98f622f1368"
 }
