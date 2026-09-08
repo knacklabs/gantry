@@ -1093,6 +1093,8 @@
       "user_facing": true,
       "write_scope": [
         "apps/core/src/channels/permission-card-affordances.ts",
+        "apps/core/src/domain/permission-card-affordances.ts",
+        "apps/core/src/application/permissions/permission-card-affordances.ts",
         "apps/core/src/channels/permission-interaction.ts",
         "apps/core/src/channels/permission-batch-coalescer.ts",
         "apps/core/src/channels/permission-decision-options.ts",
@@ -1327,5 +1329,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "1250873fe364ae469a6cc292c63ae7971bb0d4e1"
+  "commit": "7be1a370d0b62d286d47bde8900d2bc18abb7ab2"
 }
