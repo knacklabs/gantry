@@ -1,0 +1,31 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "On the permission card, how should the remember scopes be worded?",
+      "options": [
+        "Plain nouns (Recommended)",
+        "Short technical"
+      ],
+      "chosen": "Plain nouns (Recommended)"
+    },
+    {
+      "question": "When a high-risk tool earns the broader option after three remembered Allows, how should the tool be named in \"Allow all <tool> actions\"?",
+      "options": [
+        "Human label (Recommended)",
+        "Canonical id"
+      ],
+      "chosen": "Human label (Recommended)"
+    },
+    {
+      "question": "How should the Forget buttons in the memory listing be labelled?",
+      "options": [
+        "Forget <shortId> (Recommended)",
+        "Forget 1, Forget 2 ..."
+      ],
+      "chosen": "Forget <shortId> (Recommended)"
+    }
+  ],
+  "at": "2026-09-08T10:18:27.438680+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Decision 0154 says that after a safety-rules update the next card should say \"Asking again \u2014 the safety rules were updated since you last decided this.\" Your T3b ruling made old-version memories simply inert (no stale flag). Showing that line means a lookup for old rows on every card. Which?",
+      "options": [
+        "Drop the line; amend 0154 (Recommended)",
+        "Keep the line"
+      ],
+      "chosen": "Drop the line; amend 0154 (Recommended)"
+    },
+    {
+      "question": "The trust-growth button says \"Allow all <tool label> actions\". Some tools have no human label registered. What then?",
+      "options": [
+        "Use the card's tool name, else no button (Recommended)",
+        "Derive from the id"
+      ],
+      "chosen": "Use the card's tool name, else no button (Recommended)"
+    }
+  ],
+  "at": "2026-09-08T11:30:44.044434+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
