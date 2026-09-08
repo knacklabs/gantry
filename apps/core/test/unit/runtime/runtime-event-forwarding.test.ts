@@ -63,6 +63,7 @@ describe('forwardRuntimeEvents', () => {
         runtimeEvents: [
           {
             eventType: RUNTIME_EVENT_TYPES.MODEL_USAGE,
+            actor: 'runner',
             payload: { usageEventId: 'only' },
           },
         ],
@@ -77,6 +78,11 @@ describe('forwardRuntimeEvents', () => {
     });
 
     expect(publishRuntimeEvent).toHaveBeenCalledTimes(1);
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: { kind: 'system', source: 'runner' },
+      }),
+    );
     expect(forwardedKeys.size).toBe(1);
   });
 });
