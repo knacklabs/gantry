@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-08T13:49:02+00:00", "story": "ASKFLOOR-1", "detail": "T5a required router test asks for revoke and forgot/already-forgotten/not-found replies, but Owner Ruling 7 and the approved T5a plan explicitly assign the host revoke handler and those replies to T5b"}

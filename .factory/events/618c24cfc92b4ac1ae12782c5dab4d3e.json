@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-08T13:50:12+00:00", "story": "ASKFLOOR-1", "detail": "S-0087-59a1: Contract corrected: the router leaf now reads 'delivers a typed memory_forget action with the authenticated conversation identity to a bound onMemoryForget hook and answers not available yet when no h"}
