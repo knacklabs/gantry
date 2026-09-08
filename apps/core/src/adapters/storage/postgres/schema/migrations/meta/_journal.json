@@ -1058,6 +1058,13 @@
       "when": 1788806732003,
       "tag": "20260907184532_conversation_approver_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1788844389997,
+      "tag": "20260908051309_permission_principal_refs",
+      "breakpoints": true
     }
   ]
 }
