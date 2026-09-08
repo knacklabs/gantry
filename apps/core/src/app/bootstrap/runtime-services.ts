@@ -273,7 +273,6 @@ export async function startRuntimeServices(
     ...makeDefaultDeps(),
     ...deps,
     runnerSandboxProvider: app.runnerSandboxProvider,
-    permissionToolLabel: channelWiring.permissionToolLabel,
   };
   const workerCoordination = resolved.getWorkerCoordinationRepository?.();
   const liveTurns = resolved.getLiveTurnRepository?.();
@@ -493,7 +492,8 @@ export async function startRuntimeServices(
       getPermissionPromotionRepository:
         resolved.getPermissionPromotionRepository,
       // prettier-ignore
-      getPermissionDecisionMemoryRepository: resolved.getPermissionDecisionMemoryRepository, permissionToolLabel: resolved.permissionToolLabel,
+      getPermissionDecisionMemoryRepository: resolved.getPermissionDecisionMemoryRepository,
+      permissionToolLabel: resolved.permissionToolLabel,
       publishRuntimeEvent: resolved.publishRuntimeEvent,
       getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
       getPermissionMessageRepository: () => resolved.opsRepository,
