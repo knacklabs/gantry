@@ -220,7 +220,7 @@ describe('PermissionManagementService', () => {
     );
   });
 
-  it('stamps an omitted non-human permission actor as the permission system', async () => {
+  it('preserves an omitted non-human permission actor source', async () => {
     const { repository, saveDecision } = permissionRepository();
     const service = new PermissionManagementService({
       now: () => '2026-05-15T12:00:00.000Z',
@@ -236,7 +236,7 @@ describe('PermissionManagementService', () => {
 
     expect(saveDecision).toHaveBeenCalledWith(
       expect.objectContaining({
-        approverRef: { kind: 'system', source: 'permission' },
+        approverRef: { kind: 'system', source: 'runtime' },
       }),
     );
   });
