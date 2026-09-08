@@ -1072,6 +1072,13 @@
       "when": 1788845228318,
       "tag": "20260908052708_person_merge_principal_refs",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1788845635247,
+      "tag": "20260908053355_memory_evidence_principal_refs",
+      "breakpoints": true
     }
   ]
 }

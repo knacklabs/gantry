@@ -1,4 +1,5 @@
 import { parseJsonObject } from './app-memory-canonical-codec.js';
+import { parsePrincipalRef } from '../domain/identity/principal-ref.js';
 import type {
   DreamingRunStatus,
   MemoryEvidenceRecord,
@@ -60,7 +61,7 @@ export function toEvidence(row: MemoryEvidenceRow): MemoryEvidenceRecord {
     sourceType: row.sourceType as MemoryEvidenceRecord['sourceType'],
     sourceId: row.sourceId,
     sourceUri: row.sourceUri,
-    actorId: row.actorId,
+    actorId: row.actorId ? parsePrincipalRef(row.actorId) : null,
     text: row.text,
     metadata: parseJsonObject(row.metadataJson),
     createdAt: row.createdAt,
