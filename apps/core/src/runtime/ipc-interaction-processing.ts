@@ -7,13 +7,6 @@ import type {
 } from '../domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
-import { executionAdmissionForAgent } from '../application/agents/agent-execution-admission.js';
-import {
-  systemPrincipal,
-  type PrincipalRef,
-} from '../domain/identity/principal-ref.js';
-import { decisionForMode } from '../domain/permission-decision.js';
-import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import type { PausedJobCapabilityRecheckResult } from '../application/jobs/job-permission-recovery.js';
 import { formatDurableAccessRuleForEvent } from '../shared/durable-access-policy.js';
 import {
@@ -71,6 +64,7 @@ import {
   publishPermissionRuntimeEvent,
 } from './ipc-interaction-runtime-events.js';
 import { permissionRunRestriction } from './permission-decision-coordinator.js';
+import { resolvePermissionDecisionIdentity } from './ipc-permission-decision-identity.js';
 import * as remember from './permission-remember-settlement.js';
 
 export { publishPendingInteractionRuntimeEvent };
@@ -240,36 +234,14 @@ export async function processPermissionInteractionIpc(input: {
       fs.unlinkSync(input.claimedPath);
       return;
     }
-    const executionFailure = decision.approved
-      ? await executionAdmissionForAgent({
-          agentId:
-            input.request.agentId ?? agentIdForFolder(input.sourceAgentFolder),
-          getAgentRepository: input.deps.getAgentRepository,
-        })
-      : undefined;
-    if (executionFailure) {
-      decision = {
-        ...decisionForMode(input.request, 'cancel', decision.decidedBy),
-        permissionCallbackClaim: decision.permissionCallbackClaim,
-        reason: executionFailure,
-      };
-    }
-    let decisionActor = await permissionDecisionActor({
+    const settledDecision = await resolvePermissionDecisionIdentity({
       request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
       deps: input.deps,
       decision,
     });
-    if (!decisionActor && isHumanPermissionDecision(decision)) {
-      decision = {
-        ...decisionForMode(input.request, 'cancel', 'system'),
-        permissionCallbackClaim: decision.permissionCallbackClaim,
-        reason:
-          'Permission approver identity could not be resolved. No action was taken.',
-      };
-      decisionActor = systemPrincipal('permission:unresolved-approver');
-    }
-    decisionActor ??= systemPrincipal(decision.decidedBy ?? 'permission');
+    decision = settledDecision.decision;
+    const decisionActor = settledDecision.actor;
     const claimedDecision = decision;
     await assertActiveScheduledPermissionLease(input);
     const decisionContext = permissionTelemetryContext(input.request, {
@@ -543,43 +515,6 @@ export async function processPermissionInteractionIpc(input: {
       input.claimedPath,
     );
   }
-}
-
-function isHumanPermissionDecision(
-  decision: PermissionApprovalDecision,
-): boolean {
-  return (
-    decision.source === 'human_once' ||
-    decision.source === 'human_persistent' ||
-    decision.source === 'human_decision'
-  );
-}
-
-async function permissionDecisionActor(input: {
-  request: ParsedPermissionIpcRequest;
-  sourceAgentFolder: string;
-  deps: IpcDeps;
-  decision: PermissionApprovalDecision;
-}): Promise<PrincipalRef | null> {
-  if (!isHumanPermissionDecision(input.decision)) {
-    return systemPrincipal(input.decision.decidedBy ?? 'permission');
-  }
-  const resolveApprover = input.deps.resolveControlApproverPrincipal;
-  if (!resolveApprover) {
-    return systemPrincipal(input.decision.decidedBy ?? 'permission');
-  }
-  const userId = input.decision.decidedBy?.trim();
-  const conversationJid = input.request.targetJid?.trim();
-  if (!userId || !conversationJid) return null;
-  return resolveApprover({
-    conversationJid,
-    providerAccountId: input.request.providerAccountId,
-    agentId: input.request.agentId,
-    threadId: input.request.threadId,
-    userId,
-    sourceAgentFolder: input.sourceAgentFolder,
-    decisionPolicy: input.request.decisionPolicy,
-  });
 }
 
 async function releasePermissionDecisionClaim(
