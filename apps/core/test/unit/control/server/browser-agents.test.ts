@@ -18,7 +18,14 @@ const helpers = fs.readFileSync(
   ),
   'utf8',
 );
-const agentRouteSource = `${source}\n${helpers}`;
+const observability = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'apps/core/src/control/server/routes/browser-agent-observability.ts',
+  ),
+  'utf8',
+);
+const agentRouteSource = `${source}\n${helpers}\n${observability}`;
 
 it('paginates app-scoped directory results and rejects cross-app access', () => {
   expect(isBrowserAgentsPath('/ui/api/agents')).toBe(true);
