@@ -402,7 +402,10 @@ maybeDescribe('session interaction response API (Postgres)', () => {
       );
     expect(granted).toBeDefined();
     expect(granted!.effect).toBe('allow');
-    expect(granted!.approverRef).toBe('api-key:test');
+    expect(JSON.parse(granted!.approverRef!)).toEqual({
+      kind: 'system',
+      source: 'api-key:test',
+    });
   }, 60_000);
 
   it('deny resolves the interaction as cancelled with no grants', async () => {

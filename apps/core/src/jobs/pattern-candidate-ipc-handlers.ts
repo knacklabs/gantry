@@ -78,7 +78,7 @@ async function publishAcceptedMetric(input: {
         conversationId: input.targetJid as never,
         ...(data.authThreadId ? { threadId: data.authThreadId as never } : {}),
         eventType: RUNTIME_EVENT_TYPES.PROACTIVE_SURFACING_OUTCOME,
-        actor: 'runtime',
+        actor: { kind: 'system', source: 'runtime' },
         responseMode: 'none',
         payload,
       })

@@ -125,7 +125,7 @@ export function ConnectMcpServerDialog({
           <DialogDescription>
             {replacement
               ? 'Connect a new reviewed source. The old source remains unchanged and no bindings are copied.'
-              : 'Connect a reviewed source. This does not grant an agent authority to execute its tools.'}
+              : 'Connect a reviewed source. This does not grant an AI employee authority to execute its tools.'}
           </DialogDescription>
         </DialogHeader>
         <form className="grid gap-4" onSubmit={submit}>

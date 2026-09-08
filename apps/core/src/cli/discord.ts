@@ -32,6 +32,7 @@ import {
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
 import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
+import { systemPrincipal } from '../domain/identity/principal-ref.js';
 
 type DiscordChannelChoice =
   | { type: 'selected'; channel: DiscordDiscoveredChannel }
@@ -227,7 +228,7 @@ export async function runDiscordConnectCommand(
     runtimeHome,
     name: runtimeSecretNameForAgent('discord', credentialOwnerId, 'BOT_TOKEN'),
     value: credentials.botToken,
-    actor: 'cli:discord-connect',
+    actor: systemPrincipal('cli:discord-connect'),
     label: 'Discord bot token',
   });
   if (!botSecret) return 1;
@@ -239,7 +240,7 @@ export async function runDiscordConnectCommand(
       'APPLICATION_ID',
     ),
     value: credentials.applicationId,
-    actor: 'cli:discord-connect',
+    actor: systemPrincipal('cli:discord-connect'),
     label: 'Discord application ID',
   });
   if (!applicationSecret) return 1;

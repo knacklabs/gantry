@@ -35,6 +35,7 @@ import {
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
 import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
+import { systemPrincipal } from '../domain/identity/principal-ref.js';
 import { slackInstallScopes } from './slack-install-scopes.js';
 
 export interface SlackTokenValidation {
@@ -540,7 +541,7 @@ export async function runSlackConnectCommand(
     runtimeHome,
     name: runtimeSecretNameForAgent('slack', credentialOwnerId, 'BOT_TOKEN'),
     value: botTokenInput,
-    actor: 'cli:slack-connect',
+    actor: systemPrincipal('cli:slack-connect'),
     label: 'Slack bot token',
   });
   if (!botSecret) {
@@ -551,7 +552,7 @@ export async function runSlackConnectCommand(
     runtimeHome,
     name: runtimeSecretNameForAgent('slack', credentialOwnerId, 'APP_TOKEN'),
     value: appTokenInput,
-    actor: 'cli:slack-connect',
+    actor: systemPrincipal('cli:slack-connect'),
     label: 'Slack app token',
   });
   if (!appSecret) {

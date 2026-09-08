@@ -91,7 +91,7 @@ export async function publishMcpToolActivity(input: {
     appId: activity.input.appId,
     agentId: activity.input.agentId,
     eventType: 'tool_activity',
-    actorId: 'mcp-tool-proxy',
+    actorId: { kind: 'system', source: 'mcp-tool-proxy' },
     ...(activity.reason ? { reason: activity.reason } : {}),
     metadata: payload,
     createdAt: nowIso() as never,
@@ -105,7 +105,7 @@ export async function publishMcpToolActivity(input: {
         ? { runId: input.options.runId as AgentRunId }
         : {}),
       eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-      actor: 'mcp-tool-proxy',
+      actor: { kind: 'system', source: 'mcp-tool-proxy' },
       responseMode: 'none',
       payload,
     });

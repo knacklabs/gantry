@@ -405,7 +405,7 @@ async function publishDiscardedCancellationRuntimeEvent<
       appId: cancellation.appId as never,
       threadId: cancellation.threadId as never,
       eventType: RUNTIME_EVENT_TYPES.INTERACTION_CANCELLATION_DISCARDED,
-      actor: 'interaction',
+      actor: { kind: 'system', source: 'interaction' },
       correlationId: cancellation.requestId,
       payload: {
         kind: lane.inFlightKind === 'user-question' ? 'question' : 'permission',

@@ -2,6 +2,7 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
 } from '../../domain/types.js';
+import type { PrincipalRef } from '../../domain/identity/principal-ref.js';
 import type { PausedJobCapabilityRecheckResult } from '../jobs/job-permission-recovery.js';
 import {
   applyRecoveredPersistentPermissionGrant,
@@ -12,6 +13,7 @@ export interface PermissionInteractionDecisionInput {
   request: PermissionApprovalRequest | null;
   sourceAgentFolder: string;
   decision: PermissionApprovalDecision;
+  actor?: PrincipalRef;
   appId?: string | null;
   runId?: string | null;
   runLeaseToken?: string | null;
@@ -57,6 +59,7 @@ export async function applyPendingInteractionGrantDecision(
       },
       sourceAgentFolder: input.sourceAgentFolder,
       decision: input.decision,
+      actor: input.actor,
       ipcDir: input.ipcDir,
       onApplied: input.onPersistentGrantApplied,
     });

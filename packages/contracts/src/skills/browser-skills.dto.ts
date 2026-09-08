@@ -22,7 +22,7 @@ export const BrowserSkillAttachedAgentResponseSchema = z
   .object({
     id: z.string(),
     name: z.string(),
-    status: z.enum(['active', 'disabled']),
+    status: z.enum(['active', 'disabled', 'offboarded']),
   })
   .strict();
 export type BrowserSkillAttachedAgentResponse = z.infer<

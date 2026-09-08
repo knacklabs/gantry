@@ -325,7 +325,7 @@ export async function processMemoryRequest(
             why: input.why,
             confidence: input.confidence,
             source: input.source || 'mcp-tool',
-            actorId: 'mcp-tool',
+            actorId: { kind: 'system', source: 'mcp-tool' },
             isAdminWrite: false,
             evidenceText: input.why || input.value,
           }),
@@ -429,7 +429,7 @@ export async function processMemoryRequest(
               ? { expectedVersion: input.expectedVersion }
               : {}),
             ...(input.reason ? { reason: input.reason } : {}),
-            actorId: 'mcp-tool',
+            actorId: { kind: 'system', source: 'mcp-tool' },
             isAdminWrite: false,
           }),
         );
@@ -572,7 +572,7 @@ export async function processMemoryRequest(
             why: input.trigger || undefined,
             confidence: input.confidence,
             source: input.source || 'mcp-tool',
-            actorId: 'mcp-tool',
+            actorId: { kind: 'system', source: 'mcp-tool' },
             isAdminWrite: false,
             evidenceText: input.body,
           }),

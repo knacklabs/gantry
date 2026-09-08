@@ -419,7 +419,10 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
     );
     expect(granted).toBeDefined();
     expect(granted!.effect).toBe('allow');
-    expect(granted!.approverRef).toBe(APPROVER);
+    expect(JSON.parse(granted!.approverRef!)).toEqual({
+      kind: 'system',
+      source: APPROVER,
+    });
     expect(granted!.actorContext).toMatchObject({
       mode: 'allow_persistent_rule',
       classification: 'user_permanent',

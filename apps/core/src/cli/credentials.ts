@@ -5,6 +5,10 @@ import { ModelCredentialService } from '../application/model-credentials/model-c
 import type { AppId } from '../domain/app/app.js';
 import { normalizeCapabilitySecretName } from '../domain/capability-secrets/capability-secrets.js';
 import {
+  systemPrincipal,
+  type PrincipalRef,
+} from '../domain/identity/principal-ref.js';
+import {
   listSupportedModelCredentialProviders,
   normalizeModelCredentialProvider,
 } from '../domain/model-credentials/model-credentials.js';
@@ -207,7 +211,7 @@ export async function storeRuntimeSecretInput(input: {
   runtimeHome: string;
   name: string;
   value: string;
-  actor?: string;
+  actor?: PrincipalRef;
   runtimeSettings?: RuntimeSettings;
 }): Promise<void> {
   const name = normalizeCapabilitySecretName(input.name);
@@ -218,7 +222,7 @@ export async function storeRuntimeSecretInput(input: {
         appId: DEFAULT_APP_ID,
         name,
         value: input.value,
-        actor: input.actor ?? 'cli',
+        actor: input.actor ?? systemPrincipal('cli'),
       }),
     { runtimeSettings: input.runtimeSettings },
   );
@@ -574,7 +578,7 @@ async function setCapabilitySecret(
       appId: DEFAULT_APP_ID,
       name: normalizedName,
       value,
-      actor: 'cli',
+      actor: systemPrincipal('cli'),
       allowedCapabilityIds: parsed.allowedCapabilityIds,
     }),
   );
@@ -603,7 +607,7 @@ async function importCapabilityEnvSecret(
       appId: DEFAULT_APP_ID,
       name: normalizedName,
       value,
-      actor: 'cli',
+      actor: systemPrincipal('cli'),
       allowedCapabilityIds: parsed.allowedCapabilityIds,
     }),
   );
@@ -624,7 +628,7 @@ async function unsetCapabilitySecret(
     capability.unset({
       appId: DEFAULT_APP_ID,
       name: normalizedName,
-      actor: 'cli',
+      actor: systemPrincipal('cli'),
     }),
   );
   if (deleted) p.log.success(`Removed ${normalizedName}.`);

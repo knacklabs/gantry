@@ -216,7 +216,7 @@ async function publishSchedulerLifecycleEvent(input: {
       appId: eventAppId as never,
       eventType: input.eventType,
       payload: input.payload,
-      actor: 'scheduler',
+      actor: { kind: 'system', source: 'scheduler' },
       sessionId: appSession?.sessionId as never,
       jobId: input.job.id as never,
       runId: input.runId as never,

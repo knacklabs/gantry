@@ -5,14 +5,17 @@ import * as p from '@clack/prompts';
 
 import type { ConversationRoute } from '../domain/types.js';
 import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
-import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
+import { providerFromGroupJid } from './provider-utils.js';
 import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import {
   capabilityToToolRule,
+  currentSettingsReaderVersion,
   ensureConfiguredConversationBinding,
   loadDesiredRuntimeSettingsForWrite,
   loadRuntimeSettings,
+  saveRuntimeSettings,
+  settingsToRevisionDocumentForWrite,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import {
@@ -30,12 +33,12 @@ import { runList } from './group-list.js';
 import { runProfile } from './agent-profile.js';
 import { verifyTelegramChatAccess } from './telegram.js';
 import { EnvRuntimeSecretProvider } from '../adapters/credentials/env-runtime-secret-provider.js';
+import { initializeRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import { getProviderRuntimeSecret } from '../channels/provider-runtime-secrets.js';
 import {
   parseGroupAddArgs,
   parseGroupPolicyArgs,
   parseGroupPolicyDefaultArgs,
-  parseGroupPolicyShowArgs,
   parseGroupRemoveArgs,
   parseGroupTriggerArgs,
 } from './group-args.js';
@@ -46,16 +49,19 @@ import {
   ensureGroupFiles,
   findConversationIdForAgent,
   formatAgentHarnessLine,
+  isAgentOffboardedForRemoval,
   isInteractiveTerminal,
   loadDatabase,
   normalizeGroupAddSelector,
   pruneAgentSenderPolicyOverride,
   pruneDesiredStateAgent,
+  removeAgentFromDesiredSettings,
   resolveGroupSelector,
   seedTelegramControlApproverForAgent,
   usage,
 } from './group-helpers.js';
-import { printPolicyChannel } from './group-policy-format.js';
+import { runOffboard } from './group-offboard.js';
+import { runPolicyShow } from './group-policy-show.js';
 import {
   buildAgentToolAccessView,
   buildRequestableAdminToolAccess,
@@ -436,6 +442,15 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       );
       return 1;
     }
+    const offboarding = await isAgentOffboardedForRemoval(found.group.folder);
+    if (offboarding.error) {
+      p.log.error(`Could not verify offboarding status: ${offboarding.error}`);
+      return 1;
+    }
+    if (!offboarding.offboarded) {
+      p.log.error('Offboard this AI employee before removing it.');
+      return 1;
+    }
     if (!parsed.assumeYes) {
       if (!isInteractiveTerminal()) {
         p.log.error(
@@ -800,36 +815,6 @@ async function runPolicyDefault(
   }
 }
 
-async function runPolicyShow(
-  runtimeHome: string,
-  args: string[],
-): Promise<number> {
-  const parsed = parseGroupPolicyShowArgs(args);
-  if ('error' in parsed) {
-    p.log.error(parsed.error);
-    return 1;
-  }
-
-  try {
-    const settings = loadRuntimeSettings(runtimeHome);
-    if (parsed.channel) {
-      printPolicyChannel(parsed.channel, settings);
-      return 0;
-    }
-    const channels = getProviderIds();
-    for (let i = 0; i < channels.length; i += 1) {
-      printPolicyChannel(channels[i]!, settings);
-      if (i < channels.length - 1) {
-        console.log('');
-      }
-    }
-    return 0;
-  } catch (err) {
-    p.log.error(`Could not read sender policies: ${errorMessage(err)}`);
-    return 1;
-  }
-}
-
 export async function runAgentCommand(
   runtimeHome: string,
   args: string[],
@@ -847,6 +832,18 @@ export async function runAgentCommand(
       return runInfo(runtimeHome, rest[0]);
     case 'add':
       return runAdd(runtimeHome, rest);
+    case 'offboard':
+      return runOffboard({
+        runtimeHome,
+        args: rest,
+        loadSettings: () => loadDesiredRuntimeSettingsForWrite({ runtimeHome }),
+        removeAgent: removeAgentFromDesiredSettings,
+        settingsToRevisionDocument: settingsToRevisionDocumentForWrite,
+        currentSettingsReaderVersion,
+        saveSettings: saveRuntimeSettings,
+        initializeStorage: (settings) =>
+          initializeRuntimeStorage({ runtimeSettings: settings }),
+      });
     case 'name':
       return runName(runtimeHome, rest);
     case 'remove':
@@ -858,7 +855,11 @@ export async function runAgentCommand(
     case 'policy-default':
       return runPolicyDefault(runtimeHome, rest);
     case 'policy-show':
-      return runPolicyShow(runtimeHome, rest);
+      return runPolicyShow({
+        runtimeHome,
+        args: rest,
+        loadSettings: loadRuntimeSettings,
+      });
     case 'access':
       return runAccess(runtimeHome, rest);
     case 'harness':

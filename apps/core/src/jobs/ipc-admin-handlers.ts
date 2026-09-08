@@ -65,7 +65,6 @@ import {
 // prettier-ignore
 import { formatApprovalRequestedMessage, formatNotApprovedMessage } from '../shared/user-visible-messages.js';
 import { jobLocalCliCapabilityConflict } from './ipc-request-permission-local-cli.js';
-import { maybeEnqueueApprovedDependencyBake } from './toolchain-bake-bootstrap.js';
 import {
   configureSkillInstallHandlers,
   requestSkillInstallHandler,
@@ -96,6 +95,7 @@ import {
 } from './request-access-job-recovery.js';
 import { requestOnlyCapabilityPendingKey } from './request-only-capability-dedupe.js';
 import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
+import { maybeEnqueueDependencyBakeOnApproval } from './request-only-capability-bake.js';
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
 const {
   asyncMcpCallToolHandler,
@@ -377,7 +377,7 @@ const adminPermissionRevokeHandler: TaskHandler = async (context) => {
       ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined,
       runHandle: data.runHandle,
       requestId: data.taskId ? `admin-permission-revoke:${data.taskId}` : undefined,
-      actor: `agent:${sourceAgentFolder}`,
+      actor: { kind: 'system', source: `agent:${sourceAgentFolder}` },
       conversationId: requestedTargetJid,
       threadId: data.authThreadId,
       reason,
@@ -564,8 +564,45 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
           : {}),
       });
       if (approvalResult.kind === 'delivery_failure') throw new Error(`Couldn't deliver the approval prompt: ${approvalResult.userMessage}`); const decision = approvalResult.decision;
-      const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved'; let persistedRules: string[] = [], liveRules: string[] = []; if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
-        persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], toolInput: input.review.toolInput, semanticCapabilityDefinitions, actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, jobId: input.jobId, reason: decision.reason });
+      const reason = decision.approved
+        ? 'missing approving principal'
+        : decision.reason || 'not approved';
+      let persistedRules: string[] = [];
+      let liveRules: string[] = [];
+      if (
+        input.review.toolName === 'request_permission' &&
+        isPermanentPermissionDecision(decision)
+      ) {
+        const actor =
+          (await input.deps.resolveControlApproverPrincipal?.({
+            conversationJid: input.targetJid,
+            providerAccountId: input.providerAccountId,
+            agentId: input.agentId,
+            threadId: input.threadId,
+            userId: decision.decidedBy!,
+            sourceAgentFolder: input.sourceAgentFolder,
+            decisionPolicy: 'same_channel',
+          })) ?? null;
+        if (!actor) {
+          throw new Error('Approving identity could not be resolved.');
+        }
+        persistedRules = await persistRequestPermissionRules({
+          deps: input.deps,
+          appId: input.appId,
+          agentId: input.agentId,
+          sourceAgentFolder: input.sourceAgentFolder,
+          ipcDir: input.ipcDir,
+          runHandle: input.runHandle,
+          requestId,
+          updates: decision.updatedPermissions ?? [],
+          toolInput: input.review.toolInput,
+          semanticCapabilityDefinitions,
+          actor,
+          conversationId: input.targetJid,
+          threadId: input.threadId,
+          jobId: input.jobId,
+          reason: decision.reason,
+        });
       }
       const recovery = persistedRules.length > 0 ? await recheckPausedSetupJobsAfterRequestAccessGrant({ deps: input.deps, appId: input.appId, sourceAgentFolder: input.sourceAgentFolder, targetJid: input.targetJid, jobId: input.jobId, recoveringPermissionRequestId: requestId, logWarn: (context, message) => logger.warn(context, message) }) : undefined;
       const mcpProposalRequest = isMcpCapabilityProposalRequest({
@@ -653,51 +690,6 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
     .finally(() => {
       if (input.pendingKey) pendingRequestOnlyCapabilityReviews.delete(input.pendingKey);
     });
-}
-/**
- * In fleet mode, an approved npm `request_skill_dependency_install` enqueues a
- * sandboxed toolchain bake instead of installing locally (ADR
- * capability-artifacts). Returns the user-facing approval message when a bake
- * was enqueued/deduplicated, or null to fall through to the default approval
- * message (workstation mode, non-npm ecosystems, or when no packages are given).
- */
-async function maybeEnqueueDependencyBakeOnApproval(input: {
-  review: RequestOnlyCapabilityReview;
-  appId: import('../domain/app/app.js').AppId;
-  agentId: import('../domain/agent/agent.js').AgentId;
-  conversationId: string;
-}): Promise<string | null> {
-  if (input.review.toolName !== 'request_skill_dependency_install') return null;
-  const ecosystem = toTrimmedString(input.review.toolInput.ecosystem, {
-    maxLen: 64,
-  });
-  if (ecosystem !== 'npm') return null;
-  const packages = sanitizedStringList(
-    Array.isArray(input.review.toolInput.packages)
-      ? input.review.toolInput.packages
-      : [],
-  );
-  if (packages.length === 0) return null;
-  try {
-    const result = await maybeEnqueueApprovedDependencyBake({
-      appId: input.appId,
-      packages,
-      requestedByAgentId: input.agentId,
-      approvedByConversationId: input.conversationId,
-      approvedAt: nowIso(),
-    });
-    if (!result) return null;
-    const names = packages.join(', ');
-    return result.deduplicated
-      ? `Approved ${input.review.displayName}. A toolchain bake for ${names} is already in progress for this fleet; it will be available on workers once activated.`
-      : `Approved ${input.review.displayName}. Queued a sandboxed toolchain bake for ${names}; it will be available on workers once baked and activated.`;
-  } catch (err) {
-    logger.warn(
-      { err, appId: input.appId },
-      'Failed to enqueue approved toolchain bake',
-    );
-    return `Approved ${input.review.displayName}, but I could not queue the setup. I left it unavailable; try again after the setup issue is fixed.`;
-  }
 }
 function hasAgentSuppliedCapabilityDefinition(
   payload: Record<string, unknown>,

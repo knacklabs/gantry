@@ -8,6 +8,7 @@ function makeService(input: {
   conversationKind: 'direct' | 'group';
   participantUserIds: string[];
   approverUserIds?: string[];
+  resolvedApprover?: { personId: string; aliasId?: string } | null;
 }) {
   const providerAccount = {
     id: 'provider-account-1',
@@ -56,6 +57,9 @@ function makeService(input: {
         async () => input.participantUserIds,
       ),
       listConversationApprovers,
+      resolveConversationApproverPrincipal: vi.fn(
+        async () => input.resolvedApprover ?? null,
+      ),
     },
   };
 
@@ -111,5 +115,29 @@ describe('isControlApproverAllowed', () => {
     await expect(
       service.isControlApproverAllowed({ ...request, userId: 'member-only' }),
     ).resolves.toBe(false);
+  });
+
+  it('resolves an authorized approver to its human principal', async () => {
+    const { service } = makeService({
+      conversationKind: 'group',
+      participantUserIds: ['allowlisted-user'],
+      approverUserIds: ['allowlisted-user'],
+      resolvedApprover: { personId: 'person:approver', aliasId: 'alias:1' },
+    });
+
+    await expect(
+      service.resolveControlApproverPrincipal({
+        appId: 'default' as never,
+        providerId: 'local' as never,
+        providerAccountId: 'provider-account-1' as never,
+        agentId: 'agent:main' as never,
+        conversationJid: 'chat-1',
+        userId: 'allowlisted-user',
+      }),
+    ).resolves.toEqual({
+      kind: 'human',
+      personId: 'person:approver',
+      aliasId: 'alias:1',
+    });
   });
 });

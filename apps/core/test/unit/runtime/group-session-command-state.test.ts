@@ -165,7 +165,7 @@ describe('createSessionCompactionHandlers', () => {
         sessionId: 'agent-session-1',
         conversationId: 'chat-1',
         eventType: 'session.compaction.ready',
-        actor: 'runtime',
+        actor: { kind: 'system', source: 'runtime' },
         payload: expect.objectContaining({
           state: 'ready',
           taskId: 'task-ready',

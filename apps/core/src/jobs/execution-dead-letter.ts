@@ -146,7 +146,7 @@ export async function deadLetterUnresolvedExecutionContext(input: {
         appId: eventAppId as never,
         eventType,
         payload,
-        actor: 'scheduler',
+        actor: { kind: 'system', source: 'scheduler' },
         sessionId: eventAppSession?.sessionId as never,
         jobId: input.currentJob.id as never,
         runId: input.runId as never,

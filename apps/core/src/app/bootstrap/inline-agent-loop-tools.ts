@@ -6,13 +6,9 @@ import {
 } from '../../application/core-tools/callable-agent-tools.js';
 import { runDurablePermissionInteraction } from '../../application/interactions/durable-interaction-handler.js';
 import { decisionForMode } from '../../domain/permission-decision.js';
+import { executionAdmissionForAgent } from '../../application/agents/agent-execution-admission.js';
 import { reviewedMcpReadBindingsForRuntimeAccess } from '../../application/agents/agent-tool-runtime-rules.js';
 import { synthesizeHostPermissionSuggestions } from '../../application/permissions/permission-suggestion-synthesis.js';
-import {
-  classifyMcpToolAuditError,
-  summarizeMcpToolArgumentPayload,
-  summarizeMcpToolError,
-} from '../../application/mcp/mcp-tool-audit.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type { RuntimeAgentSessionRepository } from '../../domain/repositories/ops-repo.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
@@ -66,8 +62,7 @@ import {
   type InlineConfiguredAgents,
 } from './inline-callable-agent-tools.js';
 import {
-  isMcpErrorResult,
-  isSuccessfulMcpActivity,
+  createInlineMcpActivityRecorder,
   type ThirdPartyMcpToolActivity,
 } from './inline-agent-loop-mcp-activity.js';
 import { publishInlinePermissionEvent } from './inline-agent-loop-permission-events.js';
@@ -140,6 +135,12 @@ export function createInlineCoreTools(
     ? createInlineToolSuccessLedger()
     : undefined;
   const taskLifecycleBackend = deps.createTaskLifecycleBackend(laneInput);
+  const executionAdmission = () =>
+    executionAdmissionForAgent({
+      agentId:
+        run.agentId ?? memoryAgentIdForWorkspaceFolder(laneInput.group.folder),
+      getAgentRepository: deps.getAgentRepository,
+    });
   const projectedCallableAgents =
     taskLifecycleBackend &&
     run.parentTaskId == null &&
@@ -193,6 +194,7 @@ export function createInlineCoreTools(
     onPermissionPromptFinished: (request) =>
       laneInput.jobActivity.finishPermissionRequest(request.requestId),
     taskLifecycleBackend,
+    executionAdmission,
     ...(callableAgentTaskLifecycleBackend && projectedCallableAgents.length
       ? {
           callableAgentManifest: projectedCallableAgents,
@@ -235,71 +237,27 @@ export function createInlineCoreTools(
   });
   const classifier = new ToolExecutionClassifier();
   const policy = new ToolExecutionPolicyService();
-  const recordThirdPartyMcpToolActivity = async (
-    activity: ThirdPartyMcpToolActivity,
-  ) => {
-    const repository = deps.getMcpServerRepository();
-    const appId = run.appId;
-    if (!repository || !appId) {
-      throw new Error('Inline MCP audit repository is unavailable.');
-    }
-    const capability = laneInput.mcpServers.find(
-      ({ name }) => name === activity.serverName,
-    );
-    const resultClass =
-      activity.resultClass ??
-      (activity.outcome === 'success' && isMcpErrorResult(activity.result)
-        ? 'failure'
-        : undefined) ??
-      (activity.outcome === 'failure'
-        ? classifyMcpToolAuditError(activity.error)
-        : activity.outcome);
-    const payload = {
-      serverName: activity.serverName,
-      toolName: activity.toolName,
-      requestedToolRule: `mcp__${activity.serverName}__${activity.toolName}`,
-      resultClass,
-      latencyMs: activity.latencyMs,
-      argumentSummary: summarizeMcpToolArgumentPayload(activity.toolInput),
-      ...(activity.structuredError
-        ? { error: activity.structuredError }
-        : activity.error
-          ? { error: summarizeMcpToolError(activity.error) }
-          : {}),
-    };
-    await repository.appendAuditEvent({
-      id: `mcp-audit:${randomUUID()}` as never,
-      appId: appId as never,
-      agentId: run.agentId as never,
-      serverId: capability?.serverId as never,
-      bindingId: capability?.bindingId as never,
-      eventType: 'tool_activity',
-      actorId: 'inline-agent',
-      metadata: payload,
-      createdAt: new Date().toISOString() as never,
-    });
-    if (isSuccessfulMcpActivity(activity)) {
-      toolSuccessLedger?.recordSuccess(
-        `mcp__${activity.serverName}__${activity.toolName}`,
-      );
-    }
-    if (!deps.publishRuntimeEvent) return;
-    await deps
-      .publishRuntimeEvent({
-        appId: appId as never,
-        agentId: run.agentId as never,
-        runId: activeRunId as never,
-        eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-        actor: 'inline-agent',
-        responseMode: 'none',
-        payload,
-      })
-      .catch(() => undefined);
-  };
+  const repository = deps.getMcpServerRepository();
+  const recordThirdPartyMcpToolActivity =
+    repository && run.appId
+      ? createInlineMcpActivityRecorder({
+          repository,
+          appId: run.appId,
+          agentId: run.agentId,
+          runId: activeRunId,
+          mcpServers: laneInput.mcpServers,
+          publishRuntimeEvent: deps.publishRuntimeEvent,
+          onSuccess: (toolName) => toolSuccessLedger?.recordSuccess(toolName),
+        })
+      : async () => {
+          throw new Error('Inline MCP audit repository is unavailable.');
+        };
   return {
     ...registry,
     authorizeThirdPartyMcpTool: async (name, toolInput, context) => {
       context?.signal?.throwIfAborted();
+      const admissionFailure = await executionAdmission();
+      if (admissionFailure) return { allowed: false, reason: admissionFailure };
       const toolRuleDenial = toolSuccessLedger
         ? support.evaluateToolPreChecks({
             toolName: name,
@@ -423,7 +381,7 @@ export function createInlineCoreTools(
               conversationId: run.chatJid,
               threadId: run.threadId,
               correlationId: permissionRequestId,
-              actor: 'permission',
+              actor: { kind: 'system', source: 'permission' },
               intentSource: 'operator_message',
               turnIntentSummary: run.prompt,
               canonicalToolName: name,

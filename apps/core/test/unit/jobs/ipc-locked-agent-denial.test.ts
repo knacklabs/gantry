@@ -184,11 +184,14 @@ describe('locked agent parent-side IPC denial', () => {
       expect(publishRuntimeEvent).toHaveBeenCalledTimes(1);
       const auditEvent = publishRuntimeEvent.mock.calls[0]?.[0] as {
         eventType: string;
-        actor: string;
+        actor: { kind: string; source: string };
         payload: { reasonCode: string; taskType: string };
       };
       expect(auditEvent.eventType).toBe('permission.denied');
-      expect(auditEvent.actor).toBe('agent:support_agent');
+      expect(auditEvent.actor).toEqual({
+        kind: 'system',
+        source: 'agent:support_agent',
+      });
       expect(auditEvent.payload.reasonCode).toBe('denied_by_profile');
       expect(auditEvent.payload.taskType).toBe(type);
     },

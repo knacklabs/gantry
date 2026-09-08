@@ -34,6 +34,7 @@ import {
 } from './capability-template-approval-intent.postgres.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import { serializePrincipalRef } from '../../../../domain/identity/principal-ref.js';
 
 const table = pgSchema.capabilityTemplateAmendmentProposalsPostgres;
 const historyTable = pgSchema.capabilityTemplateAmendmentHistoryPostgres;
@@ -369,7 +370,7 @@ export class PostgresCapabilityTemplateAmendmentRepository
         id: auditEventId,
         appId: input.appId,
         decisionId: null,
-        actorId: input.approvedBy,
+        actorId: serializePrincipalRef(input.approvedByPrincipal),
         eventType: 'capability_command_templates_amended',
         // Self-contained: history rows cascade with their proposal/agent,
         // so the surviving audit event must itself record what changed.

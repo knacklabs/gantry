@@ -2304,7 +2304,7 @@ describe('control server runtime hardening', () => {
           conversationId: 'conversation:tg:-100',
           threadId: 'thread:tg:-100:42',
           eventType: 'conversation.message.inbound',
-          actor: 'external-ci',
+          actor: { kind: 'system', source: 'external-ci' },
           payload: expect.objectContaining({
             direction: 'inbound',
             deliveryStatus: 'accepted',
@@ -4398,7 +4398,7 @@ describe('control server runtime hardening', () => {
       expect(runtimeEvents.publish).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'session.message.inbound',
-          actor: 'sdk',
+          actor: { kind: 'system', source: 'sdk' },
           sessionId: 'session-1',
           correlationId: 'corr-1',
           responseMode: 'sse',

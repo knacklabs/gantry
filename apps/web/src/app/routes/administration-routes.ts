@@ -20,6 +20,16 @@ const agentsRoute = createRoute({
   ),
 });
 
+const roleLibraryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'roles',
+  validateSearch: agentListSearchSchema,
+  component: lazyRouteComponent(
+    () => import('../../features/agents/routes/role-library-route'),
+    'RoleLibraryRoute',
+  ),
+});
+
 const agentDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'agents/$agentId',
@@ -61,6 +71,7 @@ const personDetailRoute = createRoute({
 
 export const administrationRoutes = [
   agentsRoute,
+  roleLibraryRoute,
   agentCreateRoute,
   agentDetailRoute,
   peopleRoute,

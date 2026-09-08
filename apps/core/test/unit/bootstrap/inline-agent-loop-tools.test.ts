@@ -212,6 +212,24 @@ afterEach(() => {
 });
 
 describe('inline core tool bootstrap', () => {
+  it('denies a new tool call after its AI employee is offboarded', async () => {
+    wire({
+      getAgentRepository: () => ({
+        getAgent: vi.fn(async () => ({ status: 'offboarded' })),
+      }),
+    });
+    const tools = createInlineCoreTools(laneInput(), support());
+
+    await expect(tools.execute('task_list', {})).resolves.toMatchObject({
+      isError: true,
+      error: {
+        category: 'permission',
+        message:
+          'This AI employee is offboarded and cannot start another tool call.',
+      },
+    });
+  });
+
   it('uses the active correlation run for permission and question requests', async () => {
     wire();
     const input = laneInput();
@@ -432,7 +450,10 @@ describe('inline core tool bootstrap', () => {
       },
     ]);
     wire({
-      getAgentRepository: () => ({ listAgents }),
+      getAgentRepository: () => ({
+        listAgents,
+        getAgent: vi.fn(async () => ({ status: 'active' })),
+      }),
       getPermissionRuntimeSettings: () => ({
         agents: {
           main_agent: { delegates: ['reviewer'] },
@@ -542,7 +563,10 @@ describe('inline core tool bootstrap', () => {
     ]);
     wire({
       getAsyncTaskRepository: () => repository,
-      getAgentRepository: () => ({ listAgents }),
+      getAgentRepository: () => ({
+        listAgents,
+        getAgent: vi.fn(async () => ({ status: 'active' })),
+      }),
       getPermissionRuntimeSettings: () => ({
         agents: {
           main_agent: { delegates: ['reviewer'] },

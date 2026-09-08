@@ -302,6 +302,17 @@ async function completeCapabilityTemplateAmendmentReview(input: {
     );
     return;
   }
+  const approver = decision.decidedBy
+    ? await input.deps.resolveControlApproverPrincipal?.({
+        conversationJid: proposal.conversationJid,
+        providerAccountId: proposal.providerAccountId ?? undefined,
+        agentId: proposal.agentId,
+        threadId: proposal.threadId ?? undefined,
+        userId: decision.decidedBy,
+        sourceAgentFolder: proposal.requestedBy,
+        decisionPolicy: 'same_channel',
+      })
+    : null;
   if (!decision.approved) {
     // Only an authenticated human rejection is terminal (0122). Timeouts and
     // system cancellations leave the proposal pending: the next mismatch
@@ -327,6 +338,13 @@ async function completeCapabilityTemplateAmendmentReview(input: {
     );
     return;
   }
+  if (!approver) {
+    logger.warn(
+      { proposalId: proposal.id },
+      'capability template amendment approver could not be resolved; proposal stays pending',
+    );
+    return;
+  }
 
   const amended =
     await input.repository.amendSemanticCapabilityCommandTemplates({
@@ -336,6 +354,7 @@ async function completeCapabilityTemplateAmendmentReview(input: {
       expectedReviewedSchemaHash: proposal.reviewedSchemaHash,
       proposedTemplates: proposal.proposedTemplates,
       approvedBy: decision.decidedBy!,
+      approvedByPrincipal: approver,
       approvedAt: decidedAt,
     });
   if (amended.status === 'stale') {

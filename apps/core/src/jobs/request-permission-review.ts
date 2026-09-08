@@ -5,6 +5,7 @@ import type {
 } from '../domain/types.js';
 import type { AppId } from '../domain/app/app.js';
 import type { AgentId } from '../domain/agent/agent.js';
+import type { PrincipalRef } from '../domain/identity/principal-ref.js';
 import type { IpcDeps } from '../runtime/ipc-domain-types.js';
 import { toTrimmedString } from './ipc-shared.js';
 import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rules.js';
@@ -97,7 +98,7 @@ export async function persistRequestPermissionRules(input: {
   ipcDir?: string;
   runHandle?: string;
   requestId?: string;
-  actor?: string;
+  actor?: PrincipalRef;
   conversationId?: string;
   threadId?: string;
   runId?: string;

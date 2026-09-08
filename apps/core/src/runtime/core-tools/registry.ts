@@ -162,6 +162,8 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
   ) => Promise<void> | void;
   durability?: DurableInteractionOperations;
   requestId?: (prefix: string) => string;
+  /** Rechecked immediately before every tool invocation. */
+  executionAdmission?: () => Promise<string | undefined>;
   evaluateToolPreChecks(input: {
     toolName: string;
     toolInput: unknown;
@@ -354,6 +356,10 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
           false,
         );
       }
+      const admissionFailure = await deps.executionAdmission?.();
+      if (admissionFailure) {
+        return errorResult(admissionFailure, 'permission', false);
+      }
       if (deps.context.toolRules?.length) {
         const ruleName = isCallableAgentToolName(name)
           ? 'AgentDelegation'
@@ -382,7 +388,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
                 conversationId: deps.context.conversationId as never,
                 threadId: deps.context.threadId as never,
                 eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-                actor: 'inline-agent',
+                actor: { kind: 'system', source: 'inline-agent' },
                 correlationId: context.invocationId,
                 responseMode: 'none',
                 payload: {

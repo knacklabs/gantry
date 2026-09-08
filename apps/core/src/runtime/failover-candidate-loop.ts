@@ -135,7 +135,7 @@ export function publishRunFailoverEvent(input: {
       conversationId: input.conversationId as never,
       ...(input.threadId ? { threadId: input.threadId as never } : {}),
       eventType: RUNTIME_EVENT_TYPES.RUN_FAILOVER,
-      actor: 'runtime',
+      actor: { kind: 'system', source: 'runtime' },
       responseMode: 'none',
       payload: {
         fromProvider: input.fromProvider,

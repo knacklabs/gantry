@@ -2552,7 +2552,7 @@ describe('createGroupProcessor', () => {
           runId: 'run-one',
           conversationId: 'group1@g.us',
           eventType: 'sandbox.blocked',
-          actor: 'runner',
+          actor: { kind: 'system', source: 'runner' },
           responseMode: 'none',
           payload: { phase: 'startup' },
         }),

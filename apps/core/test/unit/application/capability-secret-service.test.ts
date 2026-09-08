@@ -8,6 +8,7 @@ import type {
   CapabilitySecretMetadata,
 } from '@core/domain/capability-secrets/capability-secrets.js';
 import type { AppId } from '@core/domain/app/app.js';
+import type { PrincipalRef } from '@core/domain/identity/principal-ref.js';
 import type { CapabilitySecretRepository } from '@core/domain/ports/repositories.js';
 
 class InMemoryCapabilitySecretRepository implements CapabilitySecretRepository {
@@ -33,7 +34,7 @@ class InMemoryCapabilitySecretRepository implements CapabilitySecretRepository {
     name: string;
     value: string;
     allowedCapabilityIds?: string[];
-    actor?: string;
+    actor?: PrincipalRef;
     now?: string;
   }): Promise<CapabilitySecretMetadata> {
     const now = input.now ?? '2026-05-17T00:00:00.000Z';

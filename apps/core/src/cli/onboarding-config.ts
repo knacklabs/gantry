@@ -24,6 +24,7 @@ import {
   normalizeRuntimeSecretRefString,
   parseRuntimeSecretRefString,
 } from '../domain/ports/runtime-secret-provider.js';
+import { systemPrincipal } from '../domain/identity/principal-ref.js';
 import { runPostgresMigrations } from '../postgres-migrate.js';
 import { storeRuntimeSecretInput } from './credentials.js';
 import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
@@ -391,7 +392,7 @@ async function storeOnboardingRuntimeSecrets(
         'BOT_TOKEN',
       ),
       value: input.telegramBotToken.trim(),
-      actor: 'cli:onboarding',
+      actor: systemPrincipal('cli:onboarding'),
       runtimeSettings,
     });
     storedProviders.push('telegram');
@@ -406,7 +407,7 @@ async function storeOnboardingRuntimeSecrets(
           'BOT_TOKEN',
         ),
         value: input.slackBotToken.trim(),
-        actor: 'cli:onboarding',
+        actor: systemPrincipal('cli:onboarding'),
         runtimeSettings,
       }),
       storeRuntimeSecretInput({
@@ -417,7 +418,7 @@ async function storeOnboardingRuntimeSecrets(
           'APP_TOKEN',
         ),
         value: input.slackAppToken.trim(),
-        actor: 'cli:onboarding',
+        actor: systemPrincipal('cli:onboarding'),
         runtimeSettings,
       }),
     ]);

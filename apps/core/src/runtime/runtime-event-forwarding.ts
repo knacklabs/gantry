@@ -111,7 +111,10 @@ export async function forwardRuntimeEvents(input: {
           ? { threadId: (event.threadId ?? input.sessionThreadId) as never }
           : {}),
         eventType: event.eventType,
-        actor: event.actor ?? 'runner',
+        actor:
+          typeof event.actor === 'string'
+            ? { kind: 'system', source: event.actor }
+            : (event.actor ?? { kind: 'system', source: 'runner' }),
         ...(event.correlationId ? { correlationId: event.correlationId } : {}),
         responseMode: event.responseMode ?? 'none',
         payload: event.payload,

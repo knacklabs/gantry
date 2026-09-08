@@ -7,6 +7,10 @@ import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js
 import type { PostgresStorageService } from '../adapters/storage/postgres/storage-service.js';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
 import { ApplicationError } from '../application/common/application-error.js';
+import {
+  serializePrincipalRef,
+  type PrincipalRef,
+} from '../domain/identity/principal-ref.js';
 import { classifySensitiveMemoryMaterial } from '../shared/sensitive-material.js';
 import { normalizeSubject, subjectIdFor } from './app-memory-boundaries.js';
 import {
@@ -127,7 +131,7 @@ export class AppMemoryService {
       subjectId?: string;
       sourceType: MemoryEvidenceRecord['sourceType'];
       sourceId?: string;
-      actorId?: string;
+      actorId?: PrincipalRef;
       text: string;
       metadata?: Record<string, unknown>;
     },
@@ -154,7 +158,7 @@ export class AppMemoryService {
       threadId: null,
       sourceType: input.sourceType,
       sourceId: input.sourceId ?? null,
-      actorId: input.actorId ?? null,
+      actorId: input.actorId ? serializePrincipalRef(input.actorId) : null,
       text,
       metadataJson: JSON.stringify(input.metadata || {}),
       createdAt: nowIso(),

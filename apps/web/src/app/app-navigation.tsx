@@ -17,7 +17,6 @@ import {
   ExternalLink,
   Settings2,
   ShieldCheck,
-  Users,
   Workflow,
 } from 'lucide-react';
 
@@ -48,14 +47,16 @@ const navigation = [
       { to: '/providers', label: 'Model providers', icon: PlugZap },
       { to: '/mcp-servers', label: 'MCP servers', icon: Boxes },
       { to: '/skills', label: 'Skills', icon: PackageCheck },
+      {
+        to: '/channel-accounts',
+        label: 'Channel accounts',
+        icon: MessagesSquare,
+      },
     ],
   },
   {
     label: 'Administration',
-    items: [
-      { to: '/agents', label: 'Agents', icon: Bot },
-      { to: '/people', label: 'People', icon: Users },
-    ],
+    items: [{ to: '/agents', label: 'Directory', icon: Bot }],
   },
   {
     label: 'Conversations',

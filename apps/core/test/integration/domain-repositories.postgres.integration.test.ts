@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -9,6 +9,7 @@ import {
   type PostgresDomainRepositoryBundle,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import { PostgresPersonIdentityRepository } from '@core/adapters/storage/postgres/repositories/person-identity-repository.postgres.js';
+import { PostgresAgentOffboardingRepository } from '@core/adapters/storage/postgres/repositories/agent-offboarding-repository.postgres.js';
 import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '@core/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
 import { PostgresCapabilitySecretRepository } from '@core/adapters/storage/postgres/repositories/capability-secret-repository.postgres.js';
@@ -163,6 +164,243 @@ maybeDescribe('Postgres domain repositories', () => {
     ).resolves.toMatchObject({ id: threadId });
   });
 
+  it('offboards an AI employee atomically with its provider account, install, revision, and event', async () => {
+    const offboardAgentId = 'agent:test:offboard' as AgentId;
+    const offboardAccountId =
+      'channel-providerAccount:test:offboard' as ProviderAccountId;
+    const offboardConversationId =
+      'conversation:test:offboard' as ConversationId;
+    await repositories.agents.saveAgent({
+      id: offboardAgentId,
+      appId,
+      name: 'Support triage',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.providerAccounts.saveProviderAccount({
+      id: offboardAccountId,
+      appId,
+      agentId: offboardAgentId,
+      providerId,
+      externalIdentityRef: {
+        kind: 'provider_account',
+        value: 'U-support-triage',
+      },
+      label: 'Support Slack',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: { bot_token: 'env:SUPPORT_SLACK_BOT_TOKEN' },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.conversations.saveConversation({
+      id: offboardConversationId,
+      appId,
+      providerAccountId: offboardAccountId,
+      externalRef: { kind: 'conversation', value: 'C-offboard' },
+      kind: 'channel',
+      title: 'support',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.providerAccounts.saveConversationInstall({
+      id: 'agent-channel-binding:test:offboard' as never,
+      appId,
+      agentId: offboardAgentId,
+      providerAccountId: offboardAccountId,
+      conversationId: offboardConversationId,
+      displayName: 'Support triage',
+      status: 'active',
+      senderPolicy: 'provider_native',
+      controlPolicy: 'conversation_approvers',
+      memoryScope: 'conversation',
+      memorySubject: {
+        kind: 'conversation',
+        appId,
+        conversationId: offboardConversationId,
+      },
+      permissionPolicyIds: [DEFAULT_PERMISSION_POLICY_ID],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const offboardJobId = 'job:test:offboard';
+    await service.db.insert(pgSchema.canonicalJobsPostgres).values({
+      id: offboardJobId,
+      appId,
+      agentId: offboardAgentId,
+      createdByActorId: 'system',
+      createdBySource: 'test',
+      name: 'Support follow-up',
+      prompt: 'Follow up on support requests.',
+      scheduleJson: { type: 'interval', everyMs: 60_000 },
+      status: 'active',
+      targetJson: {},
+      nextRunAt: '2026-04-29T00:00:00.000Z',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const initialRevision =
+      await repositories.settingsRevisions.appendSettingsRevision({
+        appId,
+        settingsDocument: { agents: { offboard: { name: 'Support triage' } } },
+        minReaderVersion: 1,
+        createdBy: 'test',
+      });
+    expect(initialRevision.status).toBe('appended');
+    if (initialRevision.status !== 'appended')
+      throw new Error('Expected revision');
+    const competingRevision =
+      await repositories.settingsRevisions.appendSettingsRevision({
+        appId,
+        settingsDocument: { agents: { competing: { name: 'Other' } } },
+        minReaderVersion: 1,
+        createdBy: 'test',
+      });
+    expect(competingRevision.status).toBe('appended');
+    if (competingRevision.status !== 'appended')
+      throw new Error('Expected competing revision');
+
+    const offboarding = new PostgresAgentOffboardingRepository(service.db);
+    await expect(
+      offboarding.offboard({
+        appId,
+        agentId: offboardAgentId,
+        defaultAgentId: agentId,
+        expectedSettingsRevision: initialRevision.revision.revision,
+        settingsDocument: {
+          agents: {},
+          provider_accounts: {},
+          conversations: {},
+        },
+        createdBy: 'cli:agent-offboard',
+        actor: { kind: 'system', source: 'cli:agent-offboard' },
+        now: '2026-04-28T00:00:00.000Z',
+        minReaderVersion: 1,
+      }),
+    ).rejects.toThrow('Desired state changed; retry offboarding.');
+    await expect(
+      repositories.agents.getAgent(offboardAgentId),
+    ).resolves.toMatchObject({ status: 'active' });
+    await expect(
+      repositories.providerAccounts.getProviderAccount(offboardAccountId),
+    ).resolves.toMatchObject({ status: 'active' });
+    await expect(
+      repositories.providerAccounts.listConversationInstalls(
+        appId,
+        offboardAgentId,
+      ),
+    ).resolves.toHaveLength(1);
+    await expect(
+      service.db
+        .select({ status: pgSchema.canonicalJobsPostgres.status })
+        .from(pgSchema.canonicalJobsPostgres)
+        .where(eq(pgSchema.canonicalJobsPostgres.id, offboardJobId)),
+    ).resolves.toEqual([{ status: 'active' }]);
+
+    const offboardInput = {
+      appId,
+      agentId: offboardAgentId,
+      defaultAgentId: agentId,
+      expectedSettingsRevision: competingRevision.revision.revision,
+      settingsDocument: {
+        agents: {},
+        provider_accounts: {},
+        conversations: {},
+      },
+      createdBy: 'cli:agent-offboard',
+      actor: { kind: 'system' as const, source: 'cli:agent-offboard' },
+      now: '2026-04-28T00:00:00.000Z',
+      minReaderVersion: 1,
+    };
+    const result = await offboarding.offboard(offboardInput);
+
+    expect(result).toMatchObject({
+      status: 'offboarded',
+      providerAccountsDisabled: 1,
+      conversationInstallsRemoved: 1,
+      jobsCancelled: 1,
+      settingsRevision: competingRevision.revision.revision + 1,
+    });
+    await expect(
+      repositories.agents.getAgent(offboardAgentId),
+    ).resolves.toMatchObject({
+      status: 'offboarded',
+    });
+    await expect(
+      repositories.providerAccounts.getProviderAccount(offboardAccountId),
+    ).resolves.toMatchObject({
+      status: 'disabled',
+      runtimeSecretRefs: { bot_token: 'env:SUPPORT_SLACK_BOT_TOKEN' },
+    });
+    await expect(
+      repositories.providerAccounts.listConversationInstalls(
+        appId,
+        offboardAgentId,
+      ),
+    ).resolves.toEqual([]);
+    await expect(
+      service.db
+        .select({
+          status: pgSchema.canonicalJobsPostgres.status,
+          nextRunAt: pgSchema.canonicalJobsPostgres.nextRunAt,
+          pauseReason: pgSchema.canonicalJobsPostgres.pauseReason,
+        })
+        .from(pgSchema.canonicalJobsPostgres)
+        .where(eq(pgSchema.canonicalJobsPostgres.id, offboardJobId)),
+    ).resolves.toEqual([
+      {
+        status: 'cancelled',
+        nextRunAt: null,
+        pauseReason: 'agent_offboarded',
+      },
+    ]);
+    await expect(
+      service.db
+        .select({ retiredBy: pgSchema.userAliasesPostgres.retiredBy })
+        .from(pgSchema.userAliasesPostgres)
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, appId),
+            eq(
+              pgSchema.userAliasesPostgres.providerAccountId,
+              offboardAccountId,
+            ),
+          ),
+        ),
+    ).resolves.toContainEqual({
+      retiredBy: JSON.stringify({
+        kind: 'system',
+        source: 'cli:agent-offboard',
+      }),
+    });
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: offboardAccountId,
+        externalUserId: 'U-support-triage',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(
+      repositories.runtimeEvents.listRuntimeEvents({
+        appId,
+        eventTypes: [RUNTIME_EVENT_TYPES.IDENTITY_OFFBOARDED],
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        agentId: offboardAgentId,
+        actor: { kind: 'system', source: 'cli:agent-offboard' },
+      }),
+    ]);
+    await expect(offboarding.offboard(offboardInput)).resolves.toEqual({
+      status: 'already_offboarded',
+    });
+  });
+
   it('resolves aliases by exact app, provider, providerAccountId, and external user id', async () => {
     const created = await people.resolveIdentity({
       appId,
@@ -264,6 +502,157 @@ maybeDescribe('Postgres domain repositories', () => {
     ).resolves.toMatchObject({
       status: 'unresolved',
       personId: null,
+      memoryHydrationEligible: false,
+    });
+  });
+
+  it('marks service aliases ineligible for personal memory', async () => {
+    const servicePersonId = 'person:service:identity';
+    await service.db.insert(pgSchema.usersPostgres).values({
+      id: servicePersonId,
+      appId,
+      kind: 'service',
+      agentId: 'agent:service:identity',
+      displayName: 'Support bot',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await people.addAlias({
+      appId,
+      personId: servicePersonId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-service-identity',
+      displayName: 'Support bot',
+      evidenceType: 'provider_user',
+      actor: { kind: 'system', source: 'test' },
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-service-identity',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      personId: servicePersonId,
+      isServicePerson: true,
+      memoryHydrationEligible: false,
+    });
+  });
+
+  it('projects and retires a provider account service alias atomically', async () => {
+    const serviceProviderAccountId =
+      'channel-providerAccount:test:service-identity' as ProviderAccountId;
+    await repositories.providerAccounts.saveProviderAccount({
+      id: serviceProviderAccountId,
+      appId,
+      agentId,
+      providerId,
+      externalIdentityRef: {
+        kind: 'provider_account',
+        value: 'U-service-account',
+      },
+      label: 'Service Slack',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: serviceProviderAccountId,
+        externalUserId: 'U-service-account',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      isServicePerson: true,
+      memoryHydrationEligible: false,
+    });
+
+    await repositories.providerAccounts.disableProviderAccount({
+      appId,
+      id: serviceProviderAccountId,
+      updatedAt: '2026-04-27T00:00:01.000Z',
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: serviceProviderAccountId,
+        externalUserId: 'U-service-account',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).rejects.toThrow(/retired/);
+  });
+
+  it('retires the previous service alias when a provider account identity changes', async () => {
+    const serviceProviderAccountId =
+      'channel-providerAccount:test:service-alias-update' as ProviderAccountId;
+    await repositories.providerAccounts.saveProviderAccount({
+      id: serviceProviderAccountId,
+      appId,
+      agentId,
+      providerId,
+      externalIdentityRef: {
+        kind: 'provider_account',
+        value: 'U-service-old',
+      },
+      label: 'Rotated Slack identity',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await repositories.providerAccounts.updateProviderAccount({
+      appId,
+      id: serviceProviderAccountId,
+      patch: {
+        externalIdentityRef: {
+          kind: 'provider_account',
+          value: 'U-service-new',
+        },
+      },
+      updatedAt: '2026-04-27T00:00:02.000Z',
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: serviceProviderAccountId,
+        externalUserId: 'U-service-old',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).rejects.toThrow(/retired/);
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId: serviceProviderAccountId,
+        externalUserId: 'U-service-new',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      isServicePerson: true,
       memoryHydrationEligible: false,
     });
   });
@@ -1066,7 +1455,7 @@ maybeDescribe('Postgres domain repositories', () => {
       name: 'github_token',
       value: 'plain-token-value',
       allowedCapabilityIds: ['mcp:github'],
-      actor: 'test',
+      actor: { kind: 'system', source: 'test' },
       now,
     });
 
@@ -1074,8 +1463,8 @@ maybeDescribe('Postgres domain repositories', () => {
       appId,
       name: 'GITHUB_TOKEN',
       allowedCapabilityIds: ['mcp:github'],
-      createdBy: 'test',
-      updatedBy: 'test',
+      createdBy: { kind: 'system', source: 'test' },
+      updatedBy: { kind: 'system', source: 'test' },
     });
     await expect(
       repository.getSecret({ appId, name: 'GITHUB_TOKEN' }),

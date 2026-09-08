@@ -12,6 +12,8 @@ import type {
   PermissionRecoveryEnvelope,
   PermissionRememberCode,
 } from '../../domain/types.js';
+import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
+import { systemPrincipal } from '../../domain/identity/principal-ref.js';
 import {
   parsePermissionRememberContext,
   type PermissionRememberContext,
@@ -47,6 +49,7 @@ interface PermissionCallbackResolutionInput {
 
 interface PermissionCallbackBackend {
   repository: PendingInteractionRepository;
+  executionAdmission?: (agentId?: string) => Promise<string | undefined>;
   applyDecision: (
     input: PermissionInteractionDecisionInput,
   ) => Promise<boolean>;
@@ -566,11 +569,23 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
         ? expiredReviewEachMemberClaim(group, requestId)
         : group.prompt.claim;
       if (!request || !rowClaim) return false;
-      const decision = recoveredPermissionDecision({
+      let decision = recoveredPermissionDecision({
         request,
         claim: rowClaim,
         reason: input.reason,
       });
+      const executionFailure = decision.approved
+        ? await active.executionAdmission?.(
+            request.agentId ?? agentIdForFolder(sourceAgentFolder),
+          )
+        : undefined;
+      if (executionFailure) {
+        decision = {
+          ...decisionForMode(request, 'cancel', decision.decidedBy),
+          permissionCallbackClaim: decision.permissionCallbackClaim,
+          reason: executionFailure,
+        };
+      }
       const decisionClaim = decision.permissionCallbackClaim!;
       try {
         try {
@@ -586,6 +601,9 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
           request,
           sourceAgentFolder,
           decision,
+          actor: systemPrincipal(
+            decision.decidedBy ?? rowClaim.intent.approverRef ?? 'permission',
+          ),
           appId: input.claim.scope.appId,
           runId: member.runId,
           runLeaseToken: member.runLeaseToken,

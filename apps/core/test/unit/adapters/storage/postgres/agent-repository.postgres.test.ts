@@ -7,7 +7,13 @@ describe('PostgresAgentRepository config pointer', () => {
   it('preserves the existing config version when a projection save has none', async () => {
     const onConflictDoUpdate = vi.fn();
     const values = vi.fn(() => ({ onConflictDoUpdate }));
-    const db = { insert: vi.fn(() => ({ values })) };
+    const tx = { insert: vi.fn(() => ({ values })) };
+    const db = {
+      transaction: vi.fn(
+        async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+          operation(tx),
+      ),
+    };
     const repository = new PostgresAgentRepository(db as never);
 
     await repository.saveAgent({
@@ -26,6 +32,14 @@ describe('PostgresAgentRepository config pointer', () => {
             queryChunks: expect.any(Array),
           }),
         }),
+      }),
+    );
+    expect(tx.insert).toHaveBeenCalledTimes(2);
+    expect(values).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        agentId: 'agent:test',
+        kind: 'service',
+        status: 'active',
       }),
     );
   });
@@ -236,8 +250,8 @@ describe('PostgresAgentRepository MCP binding fence', () => {
     });
 
     expect(db.transaction).toHaveBeenCalledOnce();
-    expect(tx.insert).toHaveBeenCalledOnce();
-    expect(onConflictDoUpdate).toHaveBeenCalledOnce();
+    expect(tx.insert).toHaveBeenCalledTimes(2);
+    expect(onConflictDoUpdate).toHaveBeenCalledTimes(2);
     expect(agentLock.for).toHaveBeenCalledWith('update');
     expect(bindingLock.for).toHaveBeenCalledWith('update');
   });

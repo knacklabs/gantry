@@ -302,7 +302,7 @@ export async function handleWebhookRoutes(
       appId: auth.appId as never,
       eventType: RUNTIME_EVENT_TYPES.WEBHOOK_TEST,
       payload: { ok: true, webhookId: webhook.webhookId },
-      actor: 'sdk',
+      actor: { kind: 'system', source: 'sdk' },
       responseMode: 'webhook',
       webhookId: webhook.webhookId,
     });

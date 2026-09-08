@@ -25,7 +25,6 @@ import { getRuntimeRepositories, getRuntimeStorage, tryAcquireRuntimeAdvisoryLea
 import { EnvRuntimeSecretProvider } from '../../adapters/credentials/env-runtime-secret-provider.js';
 import { ConversationHistoryCoverageDistrust } from './conversation-history-coverage-distrust.js';
 import { RuntimeApp } from './runtime-app.js';
-import { ConversationAdministrationService } from '../../application/provider-conversations/conversation-administration-service.js';
 import { RuntimeSecretConversationMembershipValidator } from '../../channels/conversation-membership-validation.js';
 import type { AppId } from '../../domain/app/app.js';
 // prettier-ignore
@@ -61,9 +60,9 @@ import { sanitizeRetryTailForCanonicalDestination } from './runtime-services-des
 import { nowIso } from '../../shared/time/datetime.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import {
-  authorizeConversationApprover,
+  createControlApproverAuthorizer,
+  createControlApproverPrincipalResolver,
   resolveControlApproverContext,
-  resolveInputControlApproverContext,
 } from './channel-wiring-approver.js';
 import { createChannelMessageActionRouter } from './channel-message-action-router.js';
 import { createChannelProgressSender } from './channel-progress-sender.js';
@@ -159,47 +158,32 @@ export function createChannelWiring(
       findBinding: findLiveUxBinding,
       logger: resolved.logger,
     });
-  const isControlApproverAllowed = (input: {
-    providerId: string;
-    providerAccountId?: string;
-    conversationJid: string;
-    threadId?: string;
-    userId: string;
-    sourceAgentFolder: string;
-    agentId?: string;
-    decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
-  }): Promise<boolean> =>
-    Promise.resolve(
-      resolveInputControlApproverContext({
-        routes: app.getConversationRoutes(),
-        ...input,
-      }),
-    ).then((context) => {
-      if (!context) return false;
-      return authorizeConversationApprover({
-        ...input,
-        logger: resolved.logger,
-        lookup: async () => {
-          const repos = getRuntimeStorage().repositories;
-          return new ConversationAdministrationService(
-            {
-              providerAccounts: repos.providerAccounts,
-              conversations: repos.conversations,
-            },
-            new RuntimeSecretConversationMembershipValidator(
-              resolved.runtimeSecrets,
-            ),
-          ).isControlApproverAllowed({
-            appId: resolved.appId,
-            providerId: input.providerId as never,
-            providerAccountId: context.providerAccountId as never,
-            agentId: context.agentId as never,
-            conversationJid: input.conversationJid,
-            threadId: input.threadId,
-            userId: input.userId,
-          });
-        },
-      });
+  const approverRepositories = () => {
+    const repos = getRuntimeStorage().repositories;
+    return {
+      providerAccounts: repos.providerAccounts,
+      conversations: repos.conversations,
+    };
+  };
+  const isControlApproverAllowed = createControlApproverAuthorizer({
+    appId: resolved.appId,
+    routes: () => app.getConversationRoutes(),
+    repositories: approverRepositories,
+    membershipValidator: () =>
+      new RuntimeSecretConversationMembershipValidator(resolved.runtimeSecrets),
+    logger: resolved.logger,
+  });
+  const resolveControlApproverPrincipal =
+    createControlApproverPrincipalResolver({
+      appId: resolved.appId,
+      routes: () => app.getConversationRoutes(),
+      providerIdForJid,
+      repositories: approverRepositories,
+      membershipValidator: () =>
+        new RuntimeSecretConversationMembershipValidator(
+          resolved.runtimeSecrets,
+        ),
+      logger: resolved.logger,
     });
   const requestPermissionApproval = createPermissionApprovalRequester({
     findBoundChannel: (jid, providerAccountId, request) =>
@@ -786,5 +770,6 @@ export function createChannelWiring(
         ? isControlApproverAllowed({ ...input, ...context, providerId })
         : Promise.resolve(false);
     },
+    resolveControlApproverPrincipal,
   };
 }

@@ -380,8 +380,7 @@ export async function startRuntimeServices(
         jid,
         options?.threadId,
       )?.providerAccountId;
-    if (!providerAccountId) return options;
-    return { ...options, providerAccountId };
+    return providerAccountId ? { ...options, providerAccountId } : options;
   };
   const startScheduler = () =>
     resolved.startSchedulerLoop({
@@ -515,6 +514,8 @@ export async function startRuntimeServices(
       cancelPermissionApproval: channelWiring.cancelPermissionApproval,
       cancelUserQuestion: channelWiring.cancelUserQuestion,
       isControlApproverAllowed: channelWiring.isControlApproverAllowed,
+      resolveControlApproverPrincipal:
+        channelWiring.resolveControlApproverPrincipal,
       requestUserAnswer: inlineInteractions.requestUserAnswer,
       renderAgentTodo: (jid, render, options) =>
         liveTurnsEnabled && liveExecution
@@ -594,9 +595,8 @@ export async function startRuntimeServices(
         })) === 'queued_to_owner'
       );
     },
-    enqueueMessageCheck: (queueJid: string): boolean => {
-      return app.queue.enqueueMessageCheck(queueJid);
-    },
+    enqueueMessageCheck: (queueJid: string): boolean =>
+      app.queue.enqueueMessageCheck(queueJid),
     closeStdin: async (queueJid: string): Promise<void> => {
       if (!liveTurnAuthority) {
         app.queue.closeStdin(queueJid);

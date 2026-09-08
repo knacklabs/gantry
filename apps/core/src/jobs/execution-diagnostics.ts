@@ -5,6 +5,10 @@ import {
   isRuntimeEventType,
   type RuntimeEventType,
 } from '../domain/events/runtime-event-types.js';
+import {
+  isSystemPrincipal,
+  type PrincipalRef,
+} from '../domain/identity/principal-ref.js';
 import type {
   JobToolDenial,
   JobToolDeniedEventPayload,
@@ -319,6 +323,13 @@ export async function forwardRunnerRuntimeEvents(input: {
     );
     await input.emitJobEvent?.(event.eventType, payload, event.correlationId);
   }
+}
+
+/** Browser activity is durable only when stamped by the browser gateway. */
+export function browserRuntimeActivityEvents<T extends { actor: PrincipalRef }>(
+  events: readonly T[],
+): T[] {
+  return events.filter((event) => isSystemPrincipal(event.actor, 'browser'));
 }
 
 export function runnerRuntimeEventKey(event: {

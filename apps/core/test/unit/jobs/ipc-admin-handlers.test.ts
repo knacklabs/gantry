@@ -1713,6 +1713,10 @@ describe('admin IPC handlers', () => {
       deps: depsWithAdminTools([], {
         sendMessage,
         requestPermissionApproval,
+        resolveControlApproverPrincipal: vi.fn(async () => ({
+          kind: 'human',
+          personId: 'person:approver',
+        })),
         getToolRepository: () => toolRepository,
         mirrorAgentToolRulesToSettings: vi.fn(async () => undefined),
         onSchedulerChanged,
@@ -1865,7 +1869,7 @@ describe('admin IPC handlers', () => {
         appId: 'app:test',
         agentId: 'agent:main_agent',
         eventType: 'tool_activity',
-        actorId: 'mcp-tool-handler',
+        actorId: { kind: 'system', source: 'mcp-tool-handler' },
         metadata: expect.objectContaining({
           toolName: 'create_issue',
           resultClass: 'invalid_request',
@@ -1883,7 +1887,7 @@ describe('admin IPC handlers', () => {
         appId: 'app:test',
         agentId: 'agent:main_agent',
         runId: 'agent-run-1',
-        actor: 'mcp-tool-handler',
+        actor: { kind: 'system', source: 'mcp-tool-handler' },
         payload: expect.objectContaining({
           resultClass: 'invalid_request',
           toolName: 'create_issue',

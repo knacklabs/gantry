@@ -236,7 +236,7 @@ describe('PostgresRuntimeEventRepository', () => {
         appId: 'app:test' as never,
         sessionId: 'session:test' as never,
         eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
-        actor: 'agent',
+        actor: { kind: 'service', personId: 'person:agent' },
         responseMode: 'webhook',
         webhookId: 'webhook:test',
         payload: { text: 'done' },
@@ -257,6 +257,9 @@ describe('PostgresRuntimeEventRepository', () => {
       'insert:webhook_delivery',
       'transaction:commit',
     ]);
+    expect(db.insertedRuntimeEvent).toMatchObject({
+      actor: JSON.stringify({ kind: 'service', personId: 'person:agent' }),
+    });
     expect(db.insertedOutboxEvent).toMatchObject({
       eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
       eventVersion: 1,

@@ -11,6 +11,7 @@ import {
 import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
 import type { AppId } from '@core/domain/app/app.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
+import { systemPrincipal } from '@core/domain/identity/principal-ref.js';
 import type { JobId } from '@core/domain/jobs/jobs.js';
 import { _setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
 import { flushWebhookDeliveries } from '@core/control/server/webhook-delivery.js';
@@ -62,7 +63,7 @@ maybeDescribe('Postgres runtime event outbox', () => {
       appId,
       jobId,
       eventType: RUNTIME_EVENT_TYPES.JOB_STARTED,
-      actor: 'scheduler',
+      actor: systemPrincipal('scheduler'),
       correlationId: 'corr:test:runtime-event-outbox',
       responseMode: 'none',
       payload: {
@@ -126,7 +127,7 @@ maybeDescribe('Postgres runtime event outbox', () => {
       appId,
       jobId,
       eventType: RUNTIME_EVENT_TYPES.JOB_STARTED,
-      actor: 'scheduler',
+      actor: systemPrincipal('scheduler'),
       correlationId: 'corr:test:runtime-event-outbox',
       responseMode: 'none',
       createdAt,
@@ -153,7 +154,7 @@ maybeDescribe('Postgres runtime event outbox', () => {
       appId,
       jobId,
       eventType: RUNTIME_EVENT_TYPES.JOB_STARTED,
-      actor: 'scheduler',
+      actor: systemPrincipal('scheduler'),
       responseMode: 'none',
       payload: { jobId, step: 'before-cursor' },
     });
@@ -162,7 +163,7 @@ maybeDescribe('Postgres runtime event outbox', () => {
         appId,
         jobId,
         eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
-        actor: 'scheduler',
+        actor: systemPrincipal('scheduler'),
         responseMode: 'none',
         payload: { jobId, step: 'missed-wakeup' },
       });
@@ -262,7 +263,7 @@ maybeDescribe('Postgres runtime event outbox', () => {
         conversationId: conversationId as never,
         threadId: threadId as never,
         eventType: RUNTIME_EVENT_TYPES.RUN_STARTED,
-        actor: 'runtime',
+        actor: systemPrincipal('runtime'),
         payload: { status: 'running' },
       });
       const completed = await runtime.storageRuntime.runtimeEvents.publish({
@@ -272,7 +273,7 @@ maybeDescribe('Postgres runtime event outbox', () => {
         conversationId: conversationId as never,
         threadId: threadId as never,
         eventType: RUNTIME_EVENT_TYPES.RUN_COMPLETED,
-        actor: 'runtime',
+        actor: systemPrincipal('runtime'),
         payload: { status: 'completed' },
       });
       await expect(
@@ -313,7 +314,7 @@ maybeDescribe('Postgres runtime event outbox', () => {
       await runtime.storageRuntime.runtimeEvents.publish({
         appId,
         eventType: RUNTIME_EVENT_TYPES.WEBHOOK_TEST,
-        actor: 'sdk',
+        actor: systemPrincipal('sdk'),
         responseMode: 'webhook',
         webhookId: webhook.webhookId,
         payload: { ok: true },

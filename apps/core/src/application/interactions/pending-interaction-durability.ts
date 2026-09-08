@@ -43,6 +43,7 @@ type InteractionDurabilityRepository = PendingInteractionRepository &
   TransientGrantRepository;
 interface InteractionDurabilityBackend extends PendingInteractionResolutionBackend {
   repository: InteractionDurabilityRepository;
+  executionAdmission?: (agentId?: string) => Promise<string | undefined>;
   learn?: (claim: PermissionCallbackClaimReference) => Promise<void>;
 }
 let backend: InteractionDurabilityBackend | null = null;
@@ -59,6 +60,9 @@ export function configurePendingInteractionDurability(
           applyDecision: applyPermissionInteractionDecision,
           resolve: resolvePendingInteractionRecord,
           resolveOutcome: resolvePendingInteractionRecordOutcome,
+          ...(next.executionAdmission
+            ? { executionAdmission: next.executionAdmission }
+            : {}),
           ...(next.learn ? { learn: next.learn } : {}),
           ...(next.warn ? { warn: next.warn } : {}),
         }

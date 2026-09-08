@@ -142,13 +142,13 @@ describe('cli discord helpers', () => {
       runtimeHome,
       name: defaultDiscordBotSecretName,
       value: 'discord-token',
-      actor: 'cli:discord-connect',
+      actor: { kind: 'system', source: 'cli:discord-connect' },
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
       name: defaultDiscordApplicationSecretName,
       value: '123456789',
-      actor: 'cli:discord-connect',
+      actor: { kind: 'system', source: 'cli:discord-connect' },
     });
     expect(readEnvFile(envFilePath(runtimeHome))).not.toHaveProperty(
       'DISCORD_BOT_TOKEN',
@@ -256,7 +256,7 @@ describe('cli discord helpers', () => {
       runtimeHome,
       name: test2DiscordBotSecretName,
       value: 'discord-token',
-      actor: 'cli:discord-connect',
+      actor: { kind: 'system', source: 'cli:discord-connect' },
     });
     expect(groupsStore.get('dc:1234567890')).toEqual(
       expect.objectContaining({ folder: 'test2' }),

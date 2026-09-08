@@ -7,6 +7,7 @@ export type JobStatus =
   | 'active'
   | 'paused'
   | 'running'
+  | 'cancelled'
   | 'completed'
   | 'dead_lettered';
 

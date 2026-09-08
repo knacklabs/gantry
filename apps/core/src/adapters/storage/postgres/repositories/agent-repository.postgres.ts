@@ -21,6 +21,7 @@ import {
   assertExpectedMcpBindingsUnchanged,
   lockAgentMcpBindingSet,
 } from './mcp-binding-authority-fence.postgres.js';
+import { stableId } from './person-identity-mappers.postgres.js';
 
 type AgentWriteDb = Parameters<Parameters<CanonicalDb['transaction']>[0]>[0];
 
@@ -131,7 +132,9 @@ export class PostgresAgentRepository implements AgentRepository {
   }
 
   async saveAgent(agent: Agent): Promise<void> {
-    await this.saveAgentWithDb(this.db, agent);
+    await this.db.transaction(async (tx) => {
+      await this.saveAgentWithDb(tx, agent);
+    });
   }
 
   private async saveAgentWithDb(
@@ -150,6 +153,27 @@ export class PostgresAgentRepository implements AgentRepository {
           name: agent.name,
           status: agent.status,
           currentConfigVersionId: sql`coalesce(excluded.current_config_version_id, ${pgSchema.agentsPostgres.currentConfigVersionId})`,
+          updatedAt: agent.updatedAt,
+        },
+      });
+    await db
+      .insert(pgSchema.usersPostgres)
+      .values({
+        id: stableId('person', [agent.appId, 'service', agent.id]),
+        appId: agent.appId,
+        agentId: agent.id,
+        kind: 'service',
+        displayName: agent.name,
+        status: agent.status,
+        createdAt: agent.createdAt,
+        updatedAt: agent.updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: pgSchema.usersPostgres.agentId,
+        targetWhere: sql`${pgSchema.usersPostgres.agentId} IS NOT NULL`,
+        set: {
+          displayName: agent.name,
+          status: agent.status,
           updatedAt: agent.updatedAt,
         },
       });
@@ -478,16 +502,29 @@ export class PostgresAgentRepository implements AgentRepository {
     agentId: Agent['id'];
     updatedAt: string;
   }): Promise<Agent | null> {
-    const rows = await this.db
-      .update(pgSchema.agentsPostgres)
-      .set({ status: 'disabled', updatedAt: input.updatedAt })
-      .where(
-        and(
-          eq(pgSchema.agentsPostgres.appId, input.appId),
-          eq(pgSchema.agentsPostgres.id, input.agentId),
-        ),
-      )
-      .returning();
-    return (rows[0] as Agent | undefined) ?? null;
+    return this.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(pgSchema.agentsPostgres)
+        .set({ status: 'disabled', updatedAt: input.updatedAt })
+        .where(
+          and(
+            eq(pgSchema.agentsPostgres.appId, input.appId),
+            eq(pgSchema.agentsPostgres.id, input.agentId),
+          ),
+        )
+        .returning();
+      const agent = rows[0] as Agent | undefined;
+      if (!agent) return null;
+      await tx
+        .update(pgSchema.usersPostgres)
+        .set({ status: 'disabled', updatedAt: input.updatedAt })
+        .where(
+          and(
+            eq(pgSchema.usersPostgres.appId, input.appId),
+            eq(pgSchema.usersPostgres.agentId, input.agentId),
+          ),
+        );
+      return agent;
+    });
   }
 }

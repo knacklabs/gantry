@@ -40,6 +40,10 @@ import type {
   PermissionPolicy,
   PermissionRule,
 } from '../../../../domain/permissions/permissions.js';
+import {
+  parsePrincipalRef,
+  serializePrincipalRef,
+} from '../../../../domain/identity/principal-ref.js';
 import type {
   AgentConfigRepository,
   AgentRepository,
@@ -78,6 +82,11 @@ import {
   jsonb,
   type CanonicalDb,
 } from './canonical-graph-repository.postgres.js';
+import {
+  hasSameServiceAlias,
+  retireProviderAccountServiceAlias,
+  syncProviderAccountServiceAlias,
+} from './provider-account-service-alias.postgres.js';
 import {
   attachmentIdentityConflicts,
   existingAttachmentMetadataMaps,
@@ -147,6 +156,10 @@ import { PostgresMessageAttachmentRepository } from './message-attachment-reposi
 import { PostgresConversationHistoryCoverageRepository } from './conversation-history-coverage-repository.postgres.js';
 import { PostgresCapabilityTemplateAmendmentRepository } from './capability-template-amendment-repository.postgres.js';
 import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
+import {
+  replaceConversationApproverIdentities,
+  resolveConversationApproverPrincipal,
+} from './conversation-approver-identities.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -261,16 +274,6 @@ export function parseRuntimeSecretRefsJson(
   }
   return refs;
 }
-function safeIdPart(value: string): string {
-  return value.trim().replace(/[^a-zA-Z0-9._:@-]/g, '_');
-}
-function channelControlApproverId(
-  conversationId: string,
-  externalUserId: string,
-): string {
-  return `channel-control:${safeIdPart(conversationId)}:${safeIdPart(externalUserId)}`;
-}
-
 // Real approver IDs cannot be empty, so this row durably records a clear.
 const AUTHORITATIVE_EMPTY_APPROVER = '';
 
@@ -537,6 +540,14 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
   }
   async saveProviderAccount(providerAccount: ProviderAccount): Promise<void> {
     await this.db.transaction(async (tx) => {
+      const [existingRow] = await tx
+        .select()
+        .from(pgSchema.providerAccountsPostgres)
+        .where(eq(pgSchema.providerAccountsPostgres.id, providerAccount.id))
+        .limit(1);
+      const existing = existingRow
+        ? this.providerAccountFromRow(existingRow)
+        : null;
       await tx
         .insert(pgSchema.providersPostgres)
         .values({
@@ -577,6 +588,10 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
             updatedAt: providerAccount.updatedAt,
           },
         });
+      if (existing && !hasSameServiceAlias(existing, providerAccount)) {
+        await retireProviderAccountServiceAlias(tx, existing);
+      }
+      await syncProviderAccountServiceAlias(tx, providerAccount);
     });
   }
   async updateProviderAccount(input: {
@@ -608,34 +623,36 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
         input.patch.externalIdentityRef ?? undefined,
       );
     }
-    const rows = await this.db
-      .update(pgSchema.providerAccountsPostgres)
-      .set(set)
-      .where(
-        and(
-          eq(pgSchema.providerAccountsPostgres.appId, input.appId),
-          eq(pgSchema.providerAccountsPostgres.id, input.id),
-        ),
-      )
-      .returning();
-    return rows[0] ? this.providerAccountFromRow(rows[0]) : null;
+    return await this.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(pgSchema.providerAccountsPostgres)
+        .set(set)
+        .where(
+          and(
+            eq(pgSchema.providerAccountsPostgres.appId, input.appId),
+            eq(pgSchema.providerAccountsPostgres.id, input.id),
+          ),
+        )
+        .returning();
+      const providerAccount = rows[0]
+        ? this.providerAccountFromRow(rows[0])
+        : null;
+      if (providerAccount)
+        await syncProviderAccountServiceAlias(tx, providerAccount);
+      return providerAccount;
+    });
   }
   async disableProviderAccount(input: {
     appId: ProviderAccount['appId'];
     id: ProviderAccount['id'];
     updatedAt: string;
   }): Promise<ProviderAccount | null> {
-    await this.db
-      .update(pgSchema.providerAccountsPostgres)
-      .set({ status: 'disabled', updatedAt: input.updatedAt })
-      .where(
-        and(
-          eq(pgSchema.providerAccountsPostgres.appId, input.appId),
-          eq(pgSchema.providerAccountsPostgres.id, input.id),
-        ),
-      );
-    return await this.getProviderAccount(input.id);
+    return await this.updateProviderAccount({
+      ...input,
+      patch: { status: 'disabled' },
+    });
   }
+
   async saveConversationInstall(binding: ConversationInstall): Promise<void> {
     await this.db
       .insert(pgSchema.conversationInstallsPostgres)
@@ -1065,6 +1082,13 @@ export class PostgresConversationRepository implements ConversationRepository {
       (approver) => approver.externalUserId !== AUTHORITATIVE_EMPTY_APPROVER,
     );
   }
+  async resolveConversationApproverPrincipal(input: {
+    appId: AppId;
+    conversationId: Conversation['id'];
+    externalUserId: string;
+  }): Promise<{ personId: string; aliasId?: string } | null> {
+    return resolveConversationApproverPrincipal(this.db, input);
+  }
   async listConversationApproversForConversations(
     conversationIds: readonly Conversation['id'][],
   ): Promise<ConversationApprover[]> {
@@ -1090,6 +1114,8 @@ export class PostgresConversationRepository implements ConversationRepository {
       id: row.id,
       appId: row.appId,
       conversationId: row.conversationId,
+      personId: row.personId ?? undefined,
+      aliasId: row.aliasId ?? undefined,
       externalUserId: row.externalUserId,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -1101,32 +1127,7 @@ export class PostgresConversationRepository implements ConversationRepository {
     externalUserIds: string[];
     updatedAt: string;
   }): Promise<ConversationApprover[]> {
-    await this.db.transaction(async (tx) => {
-      await tx
-        .delete(pgSchema.conversationApproversPostgres)
-        .where(
-          and(
-            eq(pgSchema.conversationApproversPostgres.appId, input.appId),
-            eq(
-              pgSchema.conversationApproversPostgres.conversationId,
-              input.conversationId,
-            ),
-          ),
-        );
-      await tx.insert(pgSchema.conversationApproversPostgres).values(
-        (input.externalUserIds.length
-          ? input.externalUserIds
-          : [AUTHORITATIVE_EMPTY_APPROVER]
-        ).map((externalUserId) => ({
-          id: channelControlApproverId(input.conversationId, externalUserId),
-          appId: input.appId,
-          conversationId: input.conversationId,
-          externalUserId,
-          createdAt: input.updatedAt,
-          updatedAt: input.updatedAt,
-        })),
-      );
-    });
+    await replaceConversationApproverIdentities(this.db, input);
     return this.listConversationApprovers(input.conversationId);
   }
   private conversationFromRow(
@@ -1818,7 +1819,9 @@ export class PostgresPermissionRepository implements PermissionRepository {
         reason: decision.reason,
         actorContextJson: encodeJsonOrNull(decision.actorContext),
         actionPreview: decision.actionPreview ?? null,
-        approverRef: decision.approverRef ?? null,
+        approverRef: decision.approverRef
+          ? serializePrincipalRef(decision.approverRef)
+          : null,
         expiresAt: decision.expiresAt ?? null,
         createdAt: decision.createdAt,
       })
@@ -1833,7 +1836,9 @@ export class PostgresPermissionRepository implements PermissionRepository {
           reason: decision.reason,
           actorContextJson: encodeJsonOrNull(decision.actorContext),
           actionPreview: decision.actionPreview ?? null,
-          approverRef: decision.approverRef ?? null,
+          approverRef: decision.approverRef
+            ? serializePrincipalRef(decision.approverRef)
+            : null,
           expiresAt: decision.expiresAt ?? null,
         },
       });
@@ -1861,7 +1866,9 @@ export class PostgresPermissionRepository implements PermissionRepository {
         ? parseJson<JsonRecord>(row.actorContextJson, {})
         : undefined,
       actionPreview: row.actionPreview ?? undefined,
-      approverRef: row.approverRef ?? undefined,
+      approverRef: row.approverRef
+        ? parsePrincipalRef(row.approverRef)
+        : undefined,
       expiresAt: row.expiresAt ?? undefined,
       createdAt: row.createdAt,
     } as PermissionDecision;

@@ -68,7 +68,7 @@ describe('host capability template mismatch flow', () => {
         runId: 'run-1',
         jobId: 'job-1',
         eventType: 'tool.activity',
-        actor: 'host',
+        actor: { kind: 'system', source: 'host' },
         correlationId: 'capability-call-1',
         payload: {
           phase: 'success',

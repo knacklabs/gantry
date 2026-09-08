@@ -17,6 +17,7 @@ import {
 } from '@core/config/settings/runtime-settings.js';
 import type { AgentId } from '@core/domain/agent/agent.js';
 import type { AppId } from '@core/domain/app/app.js';
+import { systemPrincipal } from '@core/domain/identity/principal-ref.js';
 import type { RuntimeSecretProvider } from '@core/domain/ports/runtime-secret-provider.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { resolveConfiguredToolPolicy } from '@core/runtime/configured-agent-tools.js';
@@ -211,7 +212,7 @@ maybeDescribe('capability lifecycle chains (Postgres)', () => {
       appId: APP_ID,
       name,
       value: firstValue,
-      actor: 'integration:store',
+      actor: systemPrincipal('integration:store'),
       allowedCapabilityIds: ['acme.records.append'],
     });
     const stored = await runtime.service.pool.query<{
@@ -226,8 +227,8 @@ maybeDescribe('capability lifecycle chains (Postgres)', () => {
     expect(stored.rows).toHaveLength(1);
     expect(stored.rows[0]).toMatchObject({
       id: `capability-secret:${APP_ID}:${name}`,
-      created_by: 'integration:store',
-      updated_by: 'integration:store',
+      created_by: '{"kind":"system","source":"integration:store"}',
+      updated_by: '{"kind":"system","source":"integration:store"}',
     });
     const firstCiphertext = stored.rows[0]!.value_encrypted;
     expect(firstCiphertext).toMatch(/^gcred:v2:/);
@@ -247,7 +248,7 @@ maybeDescribe('capability lifecycle chains (Postgres)', () => {
       appId: APP_ID,
       name,
       value: rotatedValue,
-      actor: 'integration:rotate',
+      actor: systemPrincipal('integration:rotate'),
       allowedCapabilityIds: ['acme.records.append'],
     });
     const rotated = await runtime.service.pool.query<{
@@ -260,8 +261,8 @@ maybeDescribe('capability lifecycle chains (Postgres)', () => {
     );
     expect(rotated.rows).toHaveLength(1);
     expect(rotated.rows[0]).toMatchObject({
-      created_by: 'integration:store',
-      updated_by: 'integration:rotate',
+      created_by: '{"kind":"system","source":"integration:store"}',
+      updated_by: '{"kind":"system","source":"integration:rotate"}',
     });
     expect(rotated.rows[0]!.value_encrypted).toMatch(/^gcred:v2:/);
     expect(rotated.rows[0]!.value_encrypted).not.toBe(firstCiphertext);
@@ -292,9 +293,11 @@ maybeDescribe('capability lifecycle chains (Postgres)', () => {
         (event.payload as { name?: string }).name === name,
     );
     expect(auditEvents).toHaveLength(2);
-    expect(auditEvents.map((event) => event.actor).sort()).toEqual([
-      'integration:rotate',
-      'integration:store',
+    expect(
+      auditEvents.map((event) => JSON.stringify(event.actor)).sort(),
+    ).toEqual([
+      JSON.stringify(systemPrincipal('integration:rotate')),
+      JSON.stringify(systemPrincipal('integration:store')),
     ]);
     expect(inspect(auditEvents, { depth: 10 })).not.toContain(firstValue);
     expect(inspect(auditEvents, { depth: 10 })).not.toContain(rotatedValue);
@@ -340,7 +343,7 @@ maybeDescribe('capability lifecycle chains (Postgres)', () => {
       appId: APP_ID,
       name,
       value: plaintextMarker,
-      actor: 'integration:tamper',
+      actor: systemPrincipal('integration:tamper'),
       allowedCapabilityIds: [server.id, `mcp:${mcpName}`],
     });
 

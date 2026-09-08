@@ -72,13 +72,13 @@ export function McpAgentAttachmentsDialog({
           if (!response.ok || !data || !('agents' in data)) {
             setError(
               (data as BrowserError | null)?.error?.message ??
-                'Eligible agents could not be loaded.',
+                'Eligible AI employees could not be loaded.',
             );
             return;
           }
           setResult(data);
         } catch {
-          setError('Eligible agents could not be loaded.');
+          setError('Eligible AI employees could not be loaded.');
         } finally {
           setLoading(false);
         }
@@ -129,7 +129,7 @@ export function McpAgentAttachmentsDialog({
       if (!response.ok || !data || !('attached' in data)) {
         setError(
           (data as BrowserError | null)?.error?.message ??
-            'Agents could not be attached.',
+            'AI employees could not be attached.',
         );
         return;
       }
@@ -138,7 +138,7 @@ export function McpAgentAttachmentsDialog({
       onOpenChange(false);
     } catch {
       setError(
-        'Agents could not be attached. Check the Gantry service and try again.',
+        'AI employees could not be attached. Check the Gantry service and try again.',
       );
     } finally {
       setSaving(false);
@@ -158,16 +158,16 @@ export function McpAgentAttachmentsDialog({
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="grid gap-1">
             <DialogTitle className="text-lg font-semibold">
-              Attach agents
+              Attach AI employees
             </DialogTitle>
             <DialogDescription className="text-xs text-text-secondary">
-              Choose active agents that can use this reviewed source. This does
-              not grant actions.
+              Choose active AI employees that can use this reviewed source. This
+              does not grant actions.
             </DialogDescription>
           </div>
           <DialogClose asChild>
             <Button
-              aria-label="Close attach agents dialog"
+              aria-label="Close attach AI employees dialog"
               size="icon-sm"
               variant="ghost"
             >
@@ -177,14 +177,14 @@ export function McpAgentAttachmentsDialog({
         </header>
         <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden p-5">
           <label className="grid gap-1.5 text-xs font-semibold">
-            Search agents
+            Search AI employees
             <Input
               value={search}
               onChange={(event) => {
                 setSearch(event.target.value);
                 setPage(1);
               }}
-              placeholder="Search agents by name..."
+              placeholder="Search AI employees by name..."
             />
           </label>
           <div className="min-h-0 overflow-hidden rounded-lg border border-border">
@@ -196,7 +196,7 @@ export function McpAgentAttachmentsDialog({
                       <span className="sr-only">Select</span>
                     </th>
                     <th className="p-3" scope="col">
-                      Agent
+                      AI employee
                     </th>
                     <th className="p-3" scope="col">
                       Status
@@ -227,7 +227,7 @@ export function McpAgentAttachmentsDialog({
                           {attached
                             ? 'Attached'
                             : unavailable
-                              ? 'Unavailable · agent is disabled'
+                              ? 'Unavailable · AI employee is disabled'
                               : 'Eligible'}
                         </td>
                       </tr>
@@ -236,14 +236,14 @@ export function McpAgentAttachmentsDialog({
                   {!loading && result?.agents.length === 0 ? (
                     <tr>
                       <td className="p-4 text-text-secondary" colSpan={3}>
-                        No matching agents.
+                        No matching AI employees.
                       </td>
                     </tr>
                   ) : null}
                   {loading ? (
                     <tr>
                       <td className="p-4 text-text-secondary" colSpan={3}>
-                        Loading agents…
+                        Loading AI employees…
                       </td>
                     </tr>
                   ) : null}
@@ -291,7 +291,7 @@ export function McpAgentAttachmentsDialog({
             >
               {saving
                 ? 'Attaching…'
-                : `Attach ${selected.size} agent${selected.size === 1 ? '' : 's'}`}
+                : `Attach ${selected.size} AI employee${selected.size === 1 ? '' : 's'}`}
             </Button>
           </div>
         </footer>

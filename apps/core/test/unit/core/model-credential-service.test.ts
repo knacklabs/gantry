@@ -176,7 +176,7 @@ describe('ModelCredentialService', () => {
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         appId,
-        actor: 'owner',
+        actor: { kind: 'system', source: 'owner' },
         eventType: 'credential.model.updated',
         payload: expect.objectContaining({
           providerId: 'anthropic',

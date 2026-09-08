@@ -135,7 +135,7 @@ it('restores Skills URL state and responsive page states', () => {
   );
 });
 
-it('keeps Skills inspection read only and lazy with Agent Access links', () => {
+it('keeps Skills inspection read only and lazy with AI employee Access links', () => {
   const route = source('./skills-route.tsx');
 
   expect(route).toContain("search.tab === 'files'");
@@ -146,7 +146,7 @@ it('keeps Skills inspection read only and lazy with Agent Access links', () => {
 
   expect(route).toContain('to="/agents/$agentId"');
   expect(route).toContain("search={{ tab: 'access' }}");
-  expect(route).toContain('Open Agent Access');
+  expect(route).toContain('Open AI employee access');
 
   expect(route).toContain('<pre');
   expect(route).toContain('{file.content}');
@@ -193,16 +193,16 @@ it('supports administrator ZIP installation without automatic attachment', async
 
   const dialogs = source('./skills-admin-dialogs.tsx').replace(/\s+/g, ' ');
   expect(dialogs).toContain(
-    'Add a ZIP package to Gantry’s skill inventory. Agent attachment is managed separately after installation.',
+    'Add a ZIP package to Gantry’s skill inventory. AI employee attachment is managed separately after installation.',
   );
   expect(dialogs).toContain('Choose a skill ZIP');
   expect(dialogs).toContain('ZIP only · Maximum 5 MB');
   expect(dialogs).toContain(
-    'Installing a package with the same skill name updates it in place. Attached agents receive the updated instructions on their next run.',
+    'Installing a package with the same skill name updates it in place. Attached AI employees receive the updated instructions on their next run.',
   );
   expect(dialogs).toContain('Skill installed.');
   expect(dialogs).toContain('View skill');
-  expect(dialogs).toContain('Attach agents');
+  expect(dialogs).toContain('Attach AI employees');
   expect(dialogs).toContain('...skill.attachedAgents.map((agent) =>');
   expect(dialogs).toContain("agentQueryKeys.all, 'sources', agent.id");
   expect(dialogs).toContain('queryKey: agentQueryKeys.all');
@@ -240,15 +240,17 @@ it('replaces the complete attachment set and keeps disabled agents selectable', 
   );
 
   const dialogs = source('./skills-admin-dialogs.tsx').replace(/\s+/g, ' ');
-  expect(dialogs).toContain('Disabled · available when the agent is enabled.');
   expect(dialogs).toContain(
-    '<DialogTitle className="text-lg font-semibold"> Attach agents </DialogTitle>',
+    'Disabled · available when the AI employee is enabled.',
   );
   expect(dialogs).toContain(
-    'Choose which agents receive this skill’s instructions on their next run.',
+    '<DialogTitle className="text-lg font-semibold"> Attach AI employees </DialogTitle>',
   );
   expect(dialogs).toContain(
-    'Attachment is not authorization. Declared actions must still be enabled from each agent’s Access tab.',
+    'Choose which AI employees receive this skill’s instructions on their next run.',
+  );
+  expect(dialogs).toContain(
+    'Attachment is not authorization. Declared actions must still be enabled from each AI employee’s Access tab.',
   );
   expect(dialogs).toContain('checked={selected.has(agent.id)}');
   expect(skillAttachmentsQuery(skill.id, false).enabled).toBe(false);
@@ -305,7 +307,7 @@ it('preserves mutation failures and invalidates affected queries', async () => {
   expect(dialogs).toContain('hydratedSkillId !== skill.id');
   expect(dialogs).toContain('setHydratedSkillId(undefined)');
   expect(dialogs).toContain(
-    'Attachments saved. Changes apply on each agent’s next run.',
+    'Attachments saved. Changes apply on each AI employee’s next run.',
   );
   expect(dialogs).toContain('role="alert"');
   expect(dialogs).toContain('const refreshed = await query.refetch()');
@@ -325,7 +327,7 @@ it('preserves mutation failures and invalidates affected queries', async () => {
   ).toHaveLength(2);
   expect(dialogs).toContain("'Attachments could not be saved.'");
   expect(source('./skills-route.tsx')).toContain(
-    'Attachments saved. Changes apply on each agent’s next run.',
+    'Attachments saved. Changes apply on each AI employee’s next run.',
   );
 });
 
