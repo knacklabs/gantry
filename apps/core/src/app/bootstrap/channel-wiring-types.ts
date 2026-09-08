@@ -331,7 +331,7 @@ export interface ChannelWiring {
     agentId?: string;
     userId: string;
     sourceAgentFolder: string;
-    decisionPolicy?: 'same_channel';
+    decisionPolicy?: 'control_allowlist' | 'same_channel';
   }) => Promise<boolean>;
   resolveControlApproverPrincipal: (input: {
     conversationJid: string;
@@ -340,7 +340,7 @@ export interface ChannelWiring {
     threadId?: string;
     userId: string;
     sourceAgentFolder: string;
-    decisionPolicy?: 'same_channel';
+    decisionPolicy?: 'control_allowlist' | 'same_channel';
   }) => Promise<PrincipalRef | null>;
   disconnectChannels: () => Promise<void>;
 }

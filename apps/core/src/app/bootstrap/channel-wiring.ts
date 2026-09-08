@@ -217,12 +217,7 @@ export function createChannelWiring(
         ...input,
       }),
     ).then(async (context) => {
-      if (
-        !context ||
-        (input.decisionPolicy && input.decisionPolicy !== 'same_channel')
-      ) {
-        return null;
-      }
+      if (!context) return null;
       try {
         const repos = getRuntimeStorage().repositories;
         return await new ConversationAdministrationService(

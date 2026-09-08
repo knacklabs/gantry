@@ -156,7 +156,7 @@ export interface GroupProcessingDeps {
       conversationJid: string;
       userId: string;
       sourceAgentFolder: string;
-      decisionPolicy?: 'same_channel';
+      decisionPolicy?: 'control_allowlist' | 'same_channel';
     }) => Promise<boolean>;
   };
   getGroup: (

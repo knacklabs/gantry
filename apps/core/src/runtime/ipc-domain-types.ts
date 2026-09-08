@@ -90,7 +90,7 @@ export interface IpcDeps {
     providerAccountId?: string;
     userId: string;
     sourceAgentFolder: string;
-    decisionPolicy?: 'same_channel';
+    decisionPolicy?: 'control_allowlist' | 'same_channel';
   }) => Promise<boolean>;
   resolveControlApproverPrincipal?: (input: {
     conversationJid: string;
@@ -99,7 +99,7 @@ export interface IpcDeps {
     threadId?: string;
     userId: string;
     sourceAgentFolder: string;
-    decisionPolicy?: 'same_channel';
+    decisionPolicy?: 'control_allowlist' | 'same_channel';
   }) => Promise<PrincipalRef | null>;
   requestUserAnswer: (
     request: UserQuestionRequest,
