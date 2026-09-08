@@ -4,85 +4,46 @@
     {
       "id": "ASKFLOOR-1-T1",
       "title": "Routing: the judge's verdict stands in interactive auto",
-      "status": "done",
-      "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T2a",
       "title": "Shape classifier extraction, attachment birthright, judge status",
-      "status": "done",
-      "task_sha256": "50b0ea1feb43722f37ffef399152c3e78a98bbb5b1da76c9717e828467630626"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T2b",
       "title": "Default-allow risk table for gantry-native tools",
-      "status": "done",
-      "task_sha256": "f51df506bfbf31f97f7318c90fd16325653bf5766ad484000bcc9b58784fd560"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T3a",
       "title": "Human-decision memory persistence",
-      "status": "done",
-      "task_sha256": "d98075b30f22cdd450a7fde8c3c9b8269698b898cd70319c34e98da8dcc0af77"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T3b",
       "title": "Memory consult in the coordinator and the inline runtime",
-      "status": "done",
-      "task_sha256": "fed68f02e068ea6feb6bd7109c34f3be7b2b22483c7e9110db4f4b3ac1d5a81a"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T3c",
       "title": "Remember settlement and learning writes",
-      "status": "done",
-      "started_at": "2026-09-07T15:25:05+00:00",
-      "base_sha": "689550bcc3f28115a713775ca35f8559dc396121",
-      "dirty_at_start": {
-        ".factory/events/f4377b5df51e4926b22626c90baf1ffa.json": {
-          "digest": "f29355f2accafb7b922ffc520cd1f8f24328a5fbd250614773407d7a9a8a3c0b",
-          "git": "? .factory/events/f4377b5df51e4926b22626c90baf1ffa.json\u0000\u0000\u0000"
-        },
-        ".factory/stages.json": {
-          "digest": "ffa00b62e6d5cf7bf7bfc7c235d794e6ac551c7714c99c503d9f0b90036df4af",
-          "git": "1 .M N... 100644 100644 100644 8b7700d63394f1f7e44b23cdb3b73933be572b3f 8b7700d63394f1f7e44b23cdb3b73933be572b3f .factory/stages.json\u0000\u0000100644 8b7700d63394f1f7e44b23cdb3b73933be572b3f 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
-        },
-        ".factory/stories/ASKFLOOR-1/decomposition.json": {
-          "digest": "6d78af9ab2fa5e3ac9999eec82b94e5d188ee4fb0d5a0d5bc22f71a54905e016",
-          "git": "1 .M N... 100644 100644 100644 8da9f4001530a5367343c0c529fe03cb087aba4c 8da9f4001530a5367343c0c529fe03cb087aba4c .factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000100644 8da9f4001530a5367343c0c529fe03cb087aba4c 0\t.factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000H .factory/stories/ASKFLOOR-1/decomposition.json\u0000"
-        },
-        ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json": {
-          "digest": "a379eca4c305ab1f7203df233bbd0f7ecd5cd32c9a9353dfd29ef0129e1ee239",
-          "git": "1 .M N... 100644 100644 100644 f5ca9146c43a090e325c5d7559ed5c47c5be4a7a f5ca9146c43a090e325c5d7559ed5c47c5be4a7a .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json\u0000\u0000100644 f5ca9146c43a090e325c5d7559ed5c47c5be4a7a 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T3c.json\u0000"
-        },
-        ".factory/stories/ASKFLOOR-1/stages.json": {
-          "digest": "ffa00b62e6d5cf7bf7bfc7c235d794e6ac551c7714c99c503d9f0b90036df4af",
-          "git": "1 .M N... 100644 100644 100644 8b7700d63394f1f7e44b23cdb3b73933be572b3f 8b7700d63394f1f7e44b23cdb3b73933be572b3f .factory/stories/ASKFLOOR-1/stages.json\u0000\u0000100644 8b7700d63394f1f7e44b23cdb3b73933be572b3f 0\t.factory/stories/ASKFLOOR-1/stages.json\u0000\u0000H .factory/stories/ASKFLOOR-1/stages.json\u0000"
-        },
-        ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md": {
-          "digest": "93be330359993f5dcf1d838f9ca43eca3f101ccfb6ef8aec564045df018b348b",
-          "git": "1 .M N... 100644 100644 100644 768594b605f3296862d2fef400ef3fb0b352bce3 768594b605f3296862d2fef400ef3fb0b352bce3 .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md\u0000\u0000100644 768594b605f3296862d2fef400ef3fb0b352bce3 0\t.factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md\u0000\u0000H .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T3c.md\u0000"
-        },
-        "plans/exploration/askfloor-1-t3c-taskplan.md": {
-          "digest": "93be330359993f5dcf1d838f9ca43eca3f101ccfb6ef8aec564045df018b348b",
-          "git": "1 .M N... 100644 100644 100644 768594b605f3296862d2fef400ef3fb0b352bce3 768594b605f3296862d2fef400ef3fb0b352bce3 plans/exploration/askfloor-1-t3c-taskplan.md\u0000\u0000100644 768594b605f3296862d2fef400ef3fb0b352bce3 0\tplans/exploration/askfloor-1-t3c-taskplan.md\u0000\u0000H plans/exploration/askfloor-1-t3c-taskplan.md\u0000"
-        }
-      },
-      "task_sha256": "d23f9c1994ad7e6039911d00dd277e82b9a92cecec6f28db8e852fc97b07cd96",
-      "local_review_stamp": {
-        "stage_id": "ASKFLOOR-1-T3c",
-        "task_sha256": "d23f9c1994ad7e6039911d00dd277e82b9a92cecec6f28db8e852fc97b07cd96",
-        "brief_sha256": "520c0bd776c26744535c3c6e4139a4206d00a576edb65cc29b18187aa81492c8",
-        "base_sha": "689550bcc3f28115a713775ca35f8559dc396121",
-        "product_tree_digest": "94f1faab8c4a2c9aa9af95c5b45077c0953f7f334d53d449adf54b201635899f",
-        "recorded_at": "2026-09-07T16:37:20+00:00",
-        "generated_by": "autoreview"
-      },
-      "completed_at": "2026-09-07T16:51:59+00:00"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T4",
       "title": "Live job projection of learned decisions (0153)",
-      "status": "pending"
+      "status": "active",
+      "started_at": "2026-09-08T02:36:45+00:00",
+      "base_sha": "5ad1c6db41c95db5071da26ea2a85a784a1cde42",
+      "dirty_at_start": {
+        ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T4.json": {
+          "digest": "8531e8537d1a0cfa06b69eb977b189795e171a1bcb3d336f41a8ad58949526b6",
+          "git": "1 .M N... 100644 100644 100644 6ebd7203eb1c3a409bdde795c5558ad161e1ffb2 6ebd7203eb1c3a409bdde795c5558ad161e1ffb2 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T4.json\u0000\u0000100644 6ebd7203eb1c3a409bdde795c5558ad161e1ffb2 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T4.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T4.json\u0000"
+        }
+      },
+      "task_sha256": "ebcb07624b9f94c10b439ce70c1c6c7712e76cf213c5dc8c0e82b3b521e69dd0"
     },
     {
       "id": "ASKFLOOR-1-T5a",
