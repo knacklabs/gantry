@@ -52,24 +52,25 @@ Onboard, scope, audit, and offboard must read the same for a person and an agent
 - One persisted actor shape everywhere: `PrincipalRef { kind: human | service | system,
 personId?, aliasId? }`. Locked-posture denials (`denied_by_profile`) and API-key
   actors (`api-key:<kid>`) map to `system` with the original reference retained.
-- Migration matrix covers `runtime_events.actor`, `permission_audit_events.actor_id`,
-  `mcp_server_audit_events.actor_id`, `person_merge_audit.actor`, permission decision
-  `approver_ref` / `actor_context_json`, and provenance fields; each row is migrated,
-  backfilled, or explicitly exempted in the matrix. All writers go through one
-  stamping helper; bare strings fail typecheck.
+- First-deployment matrix covers `runtime_events.actor`,
+  `permission_audit_events.actor_id`, `mcp_server_audit_events.actor_id`,
+  `person_merge_audit.actor`, permission decision `approver_ref` /
+  `actor_context_json`, and provenance fields. Gantry is not yet deployed, so no
+  historical-row conversion is needed; persistent writers accept `PrincipalRef`,
+  while transport-only sources are stamped before persistence.
 
 #### Migration matrix
 
 | Durable surface                                                                          | Treatment                                                                                                                                                                                                                                              | Evidence                                                                      |
 | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `runtime_events.actor`                                                                   | Migrate all historical literals to system principals. New persistent publishers require `PrincipalRef`.                                                                                                                                                | `20260907121605_runtime_event_principal_refs.sql`; `RuntimeEventPublishInput` |
+| `runtime_events.actor`                                                                   | New persistent publishers require `PrincipalRef`; no historical literals exist to convert.                                                                                                                                                           | `RuntimeEventPublishInput`                                                    |
 | Runner event frames                                                                      | Explicit transport-only exemption. Provider runners may emit a diagnostic label, but `forwardRuntimeEvents` stamps it as a system `PrincipalRef` before calling the persistent publisher.                                                              | `runtime-event-forwarding.ts`                                                 |
-| `mcp_server_audit_events.actor_id`                                                       | Migrate historical literals to preserved system sources.                                                                                                                                                                                               | `20260907121901_mcp_audit_principal_refs.sql`                                 |
-| `permission_decisions.approver_ref`                                                      | Resolve Person, alias, and Agent identifiers; resolve conversation approvers through their Person-backed membership. Abort migration for an unresolvable authority-bearing value. Remaining machine/API-key literals retain their exact system source. | `20260908051309_permission_principal_refs.sql`                                |
-| `permission_audit_events.actor_id`                                                       | Resolve Person, alias, and Agent identifiers; preserve other historical values as system sources.                                                                                                                                                      | `20260908051309_permission_principal_refs.sql`                                |
+| `mcp_server_audit_events.actor_id`                                                       | New writes carry structured principals; no historical literals exist to convert.                                                                                                                                                                      | `McpServerAuditEvent`                                                         |
+| `permission_decisions.approver_ref`                                                      | New authority decisions use Person-backed `PrincipalRef`; `actor_context_json` remains request context.                                                                                                                                               | `PermissionDecision`                                                          |
+| `permission_audit_events.actor_id`                                                       | New writes carry structured principals; no historical literals exist to convert.                                                                                                                                                                      | `PermissionAuditEvent`                                                        |
 | `permission_decisions.actor_context_json`                                                | Explicitly exempt: it is request/routing context, not actor attribution. The actor is the structured `approver_ref`.                                                                                                                                   | `permissions.ts`                                                              |
-| `person_merge_audit.actor`                                                               | Resolve Person, alias, and Agent identifiers; preserve non-authority history as a system source.                                                                                                                                                       | `20260908052708_person_merge_principal_refs.sql`                              |
-| Memory provenance: `memory_evidence.actor_id`, `memory_items.source_ref_json.demoted_by` | Resolve Person, alias, and Agent identifiers; preserve other historic values as system sources.                                                                                                                                                        | `20260908053355_memory_evidence_principal_refs.sql`                           |
+| `person_merge_audit.actor`                                                               | New writes carry structured principals; no historical literals exist to convert.                                                                                                                                                                      | `PersonMergeAuditRecord`                                                      |
+| Memory provenance: `memory_evidence.actor_id`, `memory_items.source_ref_json.demoted_by` | New writes carry structured principals; no historical provenance exists to convert.                                                                                                                                                                   | `MemoryEvidence`                                                              |
 
 ### Offboarding
 
@@ -109,8 +110,8 @@ mutation audited with `PrincipalRef`.
   - Agent-sender classification runs before participant/message persistence in Slack, Teams, Discord
   - Offboard emits a named identity event through the existing runtime-event/outbox path (ADR 0016); Connector Accounts remain absent until they have a persisted lifecycle
 - **AUDIT-1** — Audit actor migration matrix to PrincipalRef
-  - Migration matrix covers runtime_events.actor, permission_audit_events.actor_id, mcp_server_audit_events.actor_id, person_merge_audit.actor, decision approver_ref/actor_context_json, and provenance fields; each row: migrate, backfill, or explicitly exempt
-  - All 103 writers route through one actor-stamping helper; bare strings ('agent','runtime','permission','sdk', CLI names) fail typecheck
+  - First-deployment matrix covers runtime_events.actor, permission_audit_events.actor_id, mcp_server_audit_events.actor_id, person_merge_audit.actor, decision approver_ref/actor_context_json, and provenance fields; persistent values are PrincipalRef and actor_context_json is explicitly exempt
+  - Persistent writer inputs use PrincipalRef; transport-only labels ('agent', 'runtime', 'permission', 'sdk', CLI names) are stamped before persistence
   - denied_by_profile (locked posture) and api-key:<kid> shapes mapped
 - **IDENT-4** — Person offboarding
   - gantry person offboard <personId> and a directory action retire all aliases (fail closed), redact personal memory and DM content, and keep alias keys and audit rows in redacted form
