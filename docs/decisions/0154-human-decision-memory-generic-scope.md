@@ -23,4 +23,4 @@ A human **[Allow]** or **[No]** in the interactive auto lane is recorded as a di
 
 ## Amendment (2026-09-08, confirmed by Ravi in chat)
 
-The "next ask explains the invalidation" clause is withdrawn: a record from another rails version simply stops applying (T3b owner ruling, 2026-09-07: no stale flag, no re-ask copy). The card renders no "Asking again — the safety rules were updated since you last decided this." line; `/permissions` (T5b) marks such rows outdated instead. Everything else in this decision stands.
+The "next ask explains the invalidation" clause is withdrawn: a record from another rails version simply stops applying (T3b owner ruling, 2026-09-07: no stale flag, no re-ask copy). The card renders no "Asking again — the safety rules were updated since you last decided this." line; such rows are simply absent from `/permissions`, which lists current-rails records only (above). Everything else in this decision stands.
