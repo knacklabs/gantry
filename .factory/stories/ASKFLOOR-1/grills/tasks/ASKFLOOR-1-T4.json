@@ -98,5 +98,8 @@
   "grounding_treeish": "",
   "task_plan_sha256": "e4f2c569cb51b9afdaa53b72b125a44ea29d2ca0993ec5abc41d81f00c05ac6e",
   "recorded_at": "2026-09-08T02:30:36+00:00",
-  "commit": "ed9e71fae513b46380ed828f84a153eb380e7f62"
+  "commit": "ed9e71fae513b46380ed828f84a153eb380e7f62",
+  "approved_task_plan_sha256": "e4f2c569cb51b9afdaa53b72b125a44ea29d2ca0993ec5abc41d81f00c05ac6e",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-08T02:31:08+00:00"
 }
