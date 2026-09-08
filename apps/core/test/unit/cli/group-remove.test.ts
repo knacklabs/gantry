@@ -4,14 +4,22 @@ const state = vi.hoisted(() => ({
   routes: new Map<string, { name: string; folder: string }>(),
   deleteSession: vi.fn(async () => {}),
   close: vi.fn(async () => {}),
+  logError: vi.fn(),
+  isAgentOffboardedForRemoval: vi.fn(async () => ({ offboarded: true })),
   pruneDesiredStateAgent: vi.fn(async (input: { remainingRoutes: number }) => ({
     pruned: input.remainingRoutes === 0,
   })),
+  settings: { agents: { main_agent: {} }, conversations: {} },
 }));
 
 vi.mock('@clack/prompts', () => ({
   isCancel: vi.fn(() => false),
-  log: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn() },
+  log: {
+    error: state.logError,
+    info: vi.fn(),
+    success: vi.fn(),
+    warn: vi.fn(),
+  },
   select: vi.fn(),
 }));
 
@@ -22,7 +30,7 @@ vi.mock('@core/cli/group-helpers.js', () => ({
   ensureGroupFiles: vi.fn(),
   findConversationIdForAgent: vi.fn(),
   formatAgentHarnessLine: vi.fn(),
-  isAgentOffboardedForRemoval: vi.fn(async () => ({ offboarded: true })),
+  isAgentOffboardedForRemoval: state.isAgentOffboardedForRemoval,
   isInteractiveTerminal: vi.fn(() => false),
   loadDatabase: vi.fn(async () => ({
     close: state.close,
@@ -35,6 +43,12 @@ vi.mock('@core/cli/group-helpers.js', () => ({
   normalizeGroupAddSelector: vi.fn(),
   pruneAgentSenderPolicyOverride: vi.fn(async () => ({ pruned: false })),
   pruneDesiredStateAgent: state.pruneDesiredStateAgent,
+  resolveRoutelessAgentFolder: vi.fn(
+    (input: {
+      settings: { agents?: Record<string, unknown> };
+      selector: string;
+    }) => (input.settings.agents?.[input.selector] ? input.selector : null),
+  ),
   resolveGroupSelector: (
     groups: Record<string, { name: string; folder: string }>,
     selector: string,
@@ -46,13 +60,27 @@ vi.mock('@core/cli/group-helpers.js', () => ({
   usage: vi.fn(() => ''),
 }));
 
+vi.mock('@core/config/settings/runtime-settings.js', () => ({
+  loadDesiredRuntimeSettingsForWrite: vi.fn(async () => state.settings),
+  loadRuntimeSettings: vi.fn(() => state.settings),
+  readRuntimeMemorySettingsSnapshot: vi.fn(() => ({})),
+  readRuntimeStorageSettingsSnapshot: vi.fn(() => ({})),
+  removeAgentFromDesiredSettings: vi.fn(),
+  saveRuntimeSettings: vi.fn(),
+}));
+
 import { runAgentCommand } from '@core/cli/group.js';
+import { removeRoutelessAgent } from '@core/cli/group-remove-routeless.js';
 
 beforeEach(() => {
   state.routes.clear();
   state.deleteSession.mockClear();
   state.close.mockClear();
+  state.logError.mockClear();
+  state.isAgentOffboardedForRemoval.mockReset();
+  state.isAgentOffboardedForRemoval.mockResolvedValue({ offboarded: true });
   state.pruneDesiredStateAgent.mockClear();
+  state.settings = { agents: { main_agent: {} }, conversations: {} };
 });
 
 describe('gantry agent remove', () => {
@@ -116,6 +144,58 @@ describe('gantry agent remove', () => {
       'errfolder',
       null,
       expect.objectContaining({ conversationJid: 'tg:err' }),
+    );
+  });
+
+  it('refuses route-scoped removal until the AI employee is offboarded', async () => {
+    state.routes.set('tg:active', { name: 'Active', folder: 'active' });
+    state.isAgentOffboardedForRemoval.mockResolvedValueOnce({
+      offboarded: false,
+    });
+
+    await expect(
+      runAgentCommand('/tmp/gantry-group-remove', [
+        'remove',
+        'tg:active',
+        '--yes',
+      ]),
+    ).resolves.toBe(1);
+    expect(state.pruneDesiredStateAgent).not.toHaveBeenCalled();
+    expect(state.logError).toHaveBeenCalledWith(
+      'Offboard this AI employee before removing it.',
+    );
+  });
+
+  it('refuses route-less removal until the AI employee is offboarded', async () => {
+    state.isAgentOffboardedForRemoval.mockResolvedValueOnce({
+      offboarded: false,
+    });
+
+    await expect(
+      removeRoutelessAgent({
+        runtimeHome: '/tmp/gantry-group-remove',
+        settings: { agents: { retired: {} }, conversations: {} } as never,
+        groups: {},
+        selector: 'retired',
+        assumeYes: true,
+      }),
+    ).resolves.toBe(1);
+    expect(state.pruneDesiredStateAgent).not.toHaveBeenCalled();
+    expect(state.logError).toHaveBeenCalledWith(
+      'Offboard this AI employee before removing it.',
+    );
+  });
+
+  it('rejects default AI employee offboarding before opening storage', async () => {
+    await expect(
+      runAgentCommand('/tmp/gantry-group-remove', [
+        'offboard',
+        'main_agent',
+        '--yes',
+      ]),
+    ).resolves.toBe(1);
+    expect(state.logError).toHaveBeenCalledWith(
+      'The default AI employee cannot be offboarded.',
     );
   });
 });
