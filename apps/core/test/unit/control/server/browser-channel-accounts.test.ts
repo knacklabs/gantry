@@ -21,6 +21,16 @@ it('exposes session-bound channel account reads and guarded write-only creation'
   expect(isBrowserChannelAccountsPath('/ui/api/conversations')).toBe(true);
   expect(
     isBrowserChannelAccountsPath(
+      '/ui/api/conversations/conversation%3Aslack%3AC123/approvers/verify',
+    ),
+  ).toBe(true);
+  expect(
+    isBrowserChannelAccountsPath(
+      '/ui/api/conversations/conversation%3Aslack%3AC123/members',
+    ),
+  ).toBe(true);
+  expect(
+    isBrowserChannelAccountsPath(
       '/ui/api/agents/agent%3Aone/conversation-installs',
     ),
   ).toBe(true);

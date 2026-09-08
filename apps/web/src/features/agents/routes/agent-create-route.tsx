@@ -37,7 +37,9 @@ import {
   createChannelAccount,
   discoverChannelConversations,
   installAgentConversation,
+  loadSlackConversationMembers,
   replaceConversationApprovers,
+  verifyConversationApprovers,
 } from '../../channel-accounts/channel-account-queries';
 import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentModelSelect } from '../components/agent-model-select';
@@ -119,6 +121,7 @@ export function AgentCreateDialog({
     'conversation' | 'agent' | 'app'
   >('conversation');
   const [approverIds, setApproverIds] = useState('');
+  const [slackMemberSearch, setSlackMemberSearch] = useState('');
   const accounts = useQuery(channelAccountsQuery());
   const providers = useQuery(channelProvidersQuery());
   const conversations = useQuery(channelConversationsQuery());
@@ -191,15 +194,24 @@ export function AgentCreateDialog({
         queryKey: channelAccountQueryKeys.all,
       }),
   });
+  function currentApproverIds() {
+    return parseMemberIds(
+      approverIds || approvers.data?.approvers.join(',') || '',
+    );
+  }
+  const verifyApprovers = useMutation({
+    mutationFn: () =>
+      verifyConversationApprovers(conversationId, currentApproverIds()),
+  });
+  const loadSlackMembers = useMutation({
+    mutationFn: () => loadSlackConversationMembers(conversationId),
+  });
   const finishSetup = useMutation({
     mutationFn: async () => {
       if (!agentId || !providerAccountId || !conversationId) {
         throw new Error('Choose an account and conversation before finishing.');
       }
-      const userIds = (approverIds || approvers.data?.approvers.join(',') || '')
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean);
+      const userIds = currentApproverIds();
       if (!userIds.length) throw new Error('Enter at least one approver ID.');
       await replaceConversationApprovers(conversationId, userIds);
       return await installAgentConversation({
@@ -255,6 +267,19 @@ export function AgentCreateDialog({
   const accountConversations = (conversations.data?.conversations ?? []).filter(
     (conversation) => conversation.providerAccountId === providerAccountId,
   );
+  const isSlackConversation =
+    selectedAccount?.providerId === 'slack' && Boolean(conversationId);
+  const visibleSlackMemberIds = (loadSlackMembers.data?.memberIds ?? [])
+    .filter((memberId) =>
+      memberId.toLowerCase().includes(slackMemberSearch.trim().toLowerCase()),
+    )
+    .slice(0, 100);
+  const approvalsVerified =
+    verifyApprovers.data?.verification.invalidUserIds.length === 0 &&
+    sameMemberIds(
+      verifyApprovers.data?.verification.validUserIds ?? [],
+      currentApproverIds(),
+    );
   const stepOrder = [
     'base',
     'sources',
@@ -323,15 +348,17 @@ export function AgentCreateDialog({
           className="grid grid-cols-7 overflow-x-auto border-b border-border bg-surface-muted text-[11px] font-semibold text-text-secondary"
           aria-label="Onboarding steps"
         >
-          {([
-            ['base', 'Employee'],
-            ['sources', 'Sources', 'optional'],
-            ['capabilities', 'Capabilities', 'optional'],
-            ['account', 'Channel account'],
-            ['conversation', 'Conversation'],
-            ['approvals', 'Approvals'],
-            ['review', 'Review'],
-          ] as const).map(([item, label, optional], index) => (
+          {(
+            [
+              ['base', 'Employee'],
+              ['sources', 'Sources', 'optional'],
+              ['capabilities', 'Capabilities', 'optional'],
+              ['account', 'Channel account'],
+              ['conversation', 'Conversation'],
+              ['approvals', 'Approvals'],
+              ['review', 'Review'],
+            ] as const
+          ).map(([item, label, optional], index) => (
             <li
               aria-current={item === step ? 'step' : undefined}
               className={
@@ -344,7 +371,7 @@ export function AgentCreateDialog({
                         ['account', 'conversation', 'approvals'].includes(item)
                       )
                     ? 'min-w-28 border-r border-border px-3 py-[11px] text-status-success last:border-r-0'
-                  : 'min-w-28 border-r border-border px-3 py-[11px] last:border-r-0'
+                    : 'min-w-28 border-r border-border px-3 py-[11px] last:border-r-0'
               }
               key={item}
             >
@@ -637,7 +664,12 @@ export function AgentCreateDialog({
                           }`}
                           key={conversation.id}
                           type="button"
-                          onClick={() => setConversationId(conversation.id)}
+                          onClick={() => {
+                            setConversationId(conversation.id);
+                            setApproverIds('');
+                            verifyApprovers.reset();
+                            loadSlackMembers.reset();
+                          }}
                         >
                           <span>
                             <strong className="block text-sm">
@@ -687,9 +719,9 @@ export function AgentCreateDialog({
               <div>
                 <h2 className="m-0 text-lg font-semibold">Approvals</h2>
                 <p className="mt-1 mb-0 text-sm text-text-secondary">
-                  Enter provider member IDs for people who can approve risky
-                  actions in this conversation. Gantry verifies membership when
-                  the installation is saved.
+                  Add provider member IDs for people who can approve risky
+                  actions in this conversation, then verify them before
+                  continuing.
                 </p>
               </div>
               <TextField
@@ -702,8 +734,116 @@ export function AgentCreateDialog({
                 label="Provider member IDs"
                 placeholder="U0123ABC, U0456DEF"
                 value={approverIds}
-                onChange={(event) => setApproverIds(event.target.value)}
+                onChange={(event) => {
+                  setApproverIds(event.target.value);
+                  verifyApprovers.reset();
+                }}
               />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  disabled={
+                    verifyApprovers.isPending || !currentApproverIds().length
+                  }
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                  onClick={() => verifyApprovers.mutate()}
+                >
+                  {verifyApprovers.isPending
+                    ? 'Verifying members…'
+                    : 'Verify member IDs'}
+                </Button>
+                {verifyApprovers.isSuccess ? (
+                  verifyApprovers.data.verification.invalidUserIds.length ? (
+                    <span className="text-xs text-danger" role="alert">
+                      Not in this conversation:{' '}
+                      {verifyApprovers.data.verification.invalidUserIds.join(
+                        ', ',
+                      )}
+                      {verifyApprovers.data.verification.reason
+                        ? ` · ${verifyApprovers.data.verification.reason}`
+                        : ''}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-status-success">
+                      All member IDs are verified.
+                    </span>
+                  )
+                ) : null}
+                {verifyApprovers.isError ? (
+                  <span className="text-xs text-danger" role="alert">
+                    {verifyApprovers.error.message}
+                  </span>
+                ) : null}
+              </div>
+              {isSlackConversation ? (
+                <section className="grid gap-3 rounded-md border border-border bg-surface-muted p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="m-0 text-sm font-semibold">
+                        Slack members
+                      </h3>
+                      <p className="mt-1 mb-0 text-xs text-text-secondary">
+                        Load Slack member IDs to add them above, or paste IDs
+                        manually.
+                      </p>
+                    </div>
+                    <Button
+                      disabled={loadSlackMembers.isPending}
+                      size="sm"
+                      type="button"
+                      variant="secondary"
+                      onClick={() => loadSlackMembers.mutate()}
+                    >
+                      {loadSlackMembers.isPending
+                        ? 'Loading members…'
+                        : 'Load members'}
+                    </Button>
+                  </div>
+                  {loadSlackMembers.isSuccess ? (
+                    <>
+                      <TextField
+                        id="slack-member-search"
+                        label="Search loaded member IDs"
+                        placeholder="U0123ABC"
+                        value={slackMemberSearch}
+                        onChange={(event) =>
+                          setSlackMemberSearch(event.target.value)
+                        }
+                      />
+                      <div className="grid max-h-40 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+                        {visibleSlackMemberIds.map((memberId) => (
+                          <Button
+                            className="justify-start font-mono text-xs"
+                            key={memberId}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                            onClick={() => {
+                              setApproverIds((current) =>
+                                appendMemberId(current, memberId),
+                              );
+                              verifyApprovers.reset();
+                            }}
+                          >
+                            {memberId}
+                          </Button>
+                        ))}
+                      </div>
+                      {visibleSlackMemberIds.length === 0 ? (
+                        <p className="m-0 text-xs text-text-secondary">
+                          No loaded member IDs match this search.
+                        </p>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {loadSlackMembers.isError ? (
+                    <p className="m-0 text-xs text-danger" role="alert">
+                      {loadSlackMembers.error.message}
+                    </p>
+                  ) : null}
+                </section>
+              ) : null}
               <p className="m-0 rounded-md border border-border bg-surface-muted p-3 text-xs text-text-secondary">
                 Directory recognition does not grant approval authority.
                 Approval authority is checked per conversation.
@@ -802,7 +942,9 @@ export function AgentCreateDialog({
           <span className="text-xs leading-5 text-text-secondary">
             Step {stepNumber} of 7
             <br />
-            {agentId ? 'Close to save and resume later' : 'No employee saved yet'}
+            {agentId
+              ? 'Close to save and resume later'
+              : 'No employee saved yet'}
           </span>
           {step === 'base' ? (
             <div className="flex items-center gap-2">
@@ -814,9 +956,7 @@ export function AgentCreateDialog({
                 form="agent-base-form"
                 type="submit"
               >
-                {saveAgent.isPending
-                  ? 'Saving…'
-                  : 'Continue & save'}
+                {saveAgent.isPending ? 'Saving…' : 'Continue & save'}
               </Button>
             </div>
           ) : null}
@@ -879,11 +1019,7 @@ export function AgentCreateDialog({
               >
                 Back
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={deferChannelSetup}
-              >
+              <Button type="button" variant="ghost" onClick={deferChannelSetup}>
                 Set up channels later
               </Button>
               <Button
@@ -911,11 +1047,7 @@ export function AgentCreateDialog({
               >
                 Back
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={deferChannelSetup}
-              >
+              <Button type="button" variant="ghost" onClick={deferChannelSetup}>
                 Set up channels later
               </Button>
               <Button
@@ -936,17 +1068,11 @@ export function AgentCreateDialog({
               >
                 Back
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={deferChannelSetup}
-              >
+              <Button type="button" variant="ghost" onClick={deferChannelSetup}>
                 Set up channels later
               </Button>
               <Button
-                disabled={
-                  !approverIds.trim() && !approvers.data?.approvers.length
-                }
+                disabled={!approvalsVerified}
                 type="button"
                 onClick={() => setStep('review')}
               >
@@ -1125,6 +1251,28 @@ function formatCredentialLabel(key: string): string {
   return key
     .replaceAll('_', ' ')
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function parseMemberIds(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+}
+
+function appendMemberId(value: string, memberId: string): string {
+  return [...new Set([...parseMemberIds(value), memberId])].join(', ');
+}
+
+function sameMemberIds(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((memberId, index) => memberId === right[index])
+  );
 }
 
 function ReviewCard({

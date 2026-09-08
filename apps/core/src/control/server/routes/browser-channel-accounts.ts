@@ -12,7 +12,6 @@ import {
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
 import { isRecentlyReauthenticated } from '../../../application/auth/auth-foundations.js';
 import { createRepositoryRuntimeSecretProvider } from '../../../adapters/credentials/repository-runtime-secret-provider.js';
-import { RuntimeSecretConversationMembershipValidator } from '../../../channels/conversation-membership-validation.js';
 import { BuiltInControlChannelProviderCatalog } from '../../../channels/control-provider-catalog.js';
 import { RuntimeSecretConversationDiscovery } from '../../../channels/control-provider-catalog.js';
 import type { AgentId } from '../../../domain/agent/agent.js';
@@ -38,6 +37,10 @@ import {
   activeSession,
   requireBrowserMutationSession,
 } from './browser-auth.js';
+import {
+  createBrowserConversationAdministrationService,
+  sendBrowserConversationMembers,
+} from './browser-conversation-members.js';
 
 type BrowserChannelAccountSettings = {
   authentication: {
@@ -56,7 +59,9 @@ const ACCOUNT_DISCOVERY_PATH =
 const AGENT_INSTALL_PATH =
   /^\/ui\/api\/agents\/([^/]+)\/conversation-installs\/([^/]+)$/;
 const CONVERSATION_APPROVERS_PATH =
-  /^\/ui\/api\/conversations\/([^/]+)\/approvers$/;
+  /^\/ui\/api\/conversations\/([^/]+)\/approvers(?:\/(verify))?$/;
+const CONVERSATION_MEMBERS_PATH =
+  /^\/ui\/api\/conversations\/([^/]+)\/members$/;
 
 type AccountCreationBody = {
   agentId: string;
@@ -78,7 +83,8 @@ export function isBrowserChannelAccountsPath(pathname: string): boolean {
     AGENT_INSTALLS_PATH.test(pathname) ||
     ACCOUNT_DISCOVERY_PATH.test(pathname) ||
     AGENT_INSTALL_PATH.test(pathname) ||
-    CONVERSATION_APPROVERS_PATH.test(pathname)
+    CONVERSATION_APPROVERS_PATH.test(pathname) ||
+    CONVERSATION_MEMBERS_PATH.test(pathname)
   );
 }
 
@@ -94,14 +100,16 @@ export async function handleBrowserChannelAccountRoutes(
   const canDiscover =
     ACCOUNT_DISCOVERY_PATH.test(pathname) && req.method === 'POST';
   const canInstall = AGENT_INSTALL_PATH.test(pathname) && req.method === 'PUT';
-  const canReplaceApprovers =
-    CONVERSATION_APPROVERS_PATH.test(pathname) && req.method === 'PUT';
+  const approversMatch = pathname.match(CONVERSATION_APPROVERS_PATH);
+  const canUpdateApprovers =
+    Boolean(approversMatch) &&
+    req.method === (approversMatch?.[2] ? 'POST' : 'PUT');
   if (
     req.method !== 'GET' &&
     !canCreate &&
     !canDiscover &&
     !canInstall &&
-    !canReplaceApprovers
+    !canUpdateApprovers
   ) {
     res.setHeader(
       'Allow',
@@ -125,8 +133,8 @@ export async function handleBrowserChannelAccountRoutes(
   if (canInstall) {
     return await installBrowserConversation(req, res, ctx, pathname, settings);
   }
-  if (canReplaceApprovers) {
-    return await replaceBrowserConversationApprovers(
+  if (canUpdateApprovers) {
+    return await updateBrowserConversationApprovers(
       req,
       res,
       ctx,
@@ -142,7 +150,9 @@ export async function handleBrowserChannelAccountRoutes(
   const appId = session.appId as AppId;
   const role = session.role as ConsoleRole;
   const needsAgentAdministration =
-    AGENT_INSTALLS_PATH.test(pathname) || AGENT_INSTALL_PATH.test(pathname);
+    AGENT_INSTALLS_PATH.test(pathname) ||
+    AGENT_INSTALL_PATH.test(pathname) ||
+    CONVERSATION_MEMBERS_PATH.test(pathname);
   const requiredScope = needsAgentAdministration
     ? 'agents:admin'
     : pathname === CONVERSATIONS_PATH
@@ -212,20 +222,28 @@ export async function handleBrowserChannelAccountRoutes(
     });
     return true;
   }
-  const approversMatch = pathname.match(CONVERSATION_APPROVERS_PATH);
-  if (approversMatch) {
+  const approverSummaryMatch = pathname.match(CONVERSATION_APPROVERS_PATH);
+  if (approverSummaryMatch && !approverSummaryMatch[2]) {
     const conversationId = decodeURIComponent(
-      approversMatch[1]!,
+      approverSummaryMatch[1]!,
     ) as ConversationId;
     try {
       const summary = await new ConversationAdministrationService({
         providerAccounts: storage.repositories.providerAccounts,
         conversations: storage.repositories.conversations,
       }).getAdminSummary({ appId, conversationId });
-      sendJson(res, 200, { approvers: summary.controlAllowlist });
+      sendJson(res, 200, { approvers: summary.controlAllowlist.userIds });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }
+    return true;
+  }
+  const membersMatch = pathname.match(CONVERSATION_MEMBERS_PATH);
+  if (membersMatch) {
+    const conversationId = decodeURIComponent(
+      membersMatch[1]!,
+    ) as ConversationId;
+    await sendBrowserConversationMembers(res, appId, conversationId);
     return true;
   }
   const match = pathname.match(AGENT_INSTALLS_PATH);
@@ -491,7 +509,7 @@ async function installBrowserConversation(
   return true;
 }
 
-async function replaceBrowserConversationApprovers(
+async function updateBrowserConversationApprovers(
   req: IncomingMessage,
   res: ServerResponse,
   ctx: ControlRouteContext,
@@ -505,21 +523,20 @@ async function replaceBrowserConversationApprovers(
   const userIds = await readApproverIds(req, res);
   if (!userIds) return true;
   const appId = session.appId as AppId;
-  const storage = getRuntimeStorage();
   const conversationId = decodeURIComponent(match[1]!) as ConversationId;
   try {
-    const result = await new ConversationAdministrationService(
-      {
-        providerAccounts: storage.repositories.providerAccounts,
-        conversations: storage.repositories.conversations,
-      },
-      new RuntimeSecretConversationMembershipValidator(
-        createRepositoryRuntimeSecretProvider({
+    const service = createBrowserConversationAdministrationService(appId);
+    if (match[2]) {
+      sendJson(res, 200, {
+        verification: await service.validateControlAllowlist({
           appId,
-          repository: storage.repositories.capabilitySecrets,
+          conversationId,
+          userIds,
         }),
-      ),
-    ).replaceControlAllowlist({
+      });
+      return true;
+    }
+    const result = await service.replaceControlAllowlist({
       appId,
       conversationId,
       userIds,

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Link2, Plus, RefreshCw } from 'lucide-react';
+import { Link2, RefreshCw } from 'lucide-react';
 
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { PageState } from '../../../ui/compositions/page-state';
@@ -45,27 +45,6 @@ export function ChannelAccountsRoute() {
         eyebrow="Configure"
         title="Channel accounts"
         description="Bot identities owned by AI employees. An account can connect its owner to several conversations."
-        action={
-          <Link
-            search={{
-              tab: 'agents',
-              kind: 'all',
-              q: '',
-              status: 'all',
-              page: 1,
-              pageSize: 25,
-              role: 'all',
-              sort: 'name',
-              desc: false,
-            }}
-            to="/agents"
-          >
-            <Button>
-              <Plus size={16} aria-hidden="true" />
-              Onboard an AI employee
-            </Button>
-          </Link>
-        }
       />
       {loading ? (
         <PageState

@@ -138,6 +138,40 @@ export function conversationApproversQuery(conversationId: string) {
   });
 }
 
+export async function verifyConversationApprovers(
+  conversationId: string,
+  userIds: string[],
+): Promise<{
+  verification: {
+    validUserIds: string[];
+    invalidUserIds: string[];
+    reason?: string;
+  };
+}> {
+  const response = await browserFetch(
+    `/ui/api/conversations/${encodeURIComponent(conversationId)}/approvers/verify`,
+    {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
+      body: JSON.stringify({ userIds }),
+    },
+  );
+  if (!response.ok) throw new Error('Gantry could not verify those members.');
+  return response.json();
+}
+
+export async function loadSlackConversationMembers(
+  conversationId: string,
+): Promise<{ memberIds: string[] }> {
+  const response = await browserFetch(
+    `/ui/api/conversations/${encodeURIComponent(conversationId)}/members`,
+    { credentials: 'same-origin' },
+  );
+  if (!response.ok) throw new Error('Slack members could not be loaded.');
+  return response.json();
+}
+
 export async function createChannelAccount(input: {
   agentId: string;
   providerId: string;

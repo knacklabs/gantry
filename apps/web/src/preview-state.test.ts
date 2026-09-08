@@ -13,7 +13,12 @@ describe('static preview state', () => {
       status: 'all',
       page: 1,
     });
-    expect(agentListSearchSchema.parse({ page: 0 })).toMatchObject({ page: 1 });
+    expect(
+      agentListSearchSchema.parse({ page: 0, tab: 'roles' }),
+    ).toMatchObject({
+      page: 1,
+      tab: 'roles',
+    });
     expect(
       providers.filter((provider) => provider.status === 'ready'),
     ).toHaveLength(2);
