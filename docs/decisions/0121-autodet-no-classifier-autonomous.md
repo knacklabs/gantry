@@ -1,8 +1,9 @@
 ---
-status: accepted
+status: superseded
 confirmed_by: "Ravi"
 date: 2026-08-11
 stories: [AUTODET-1]
+superseded_by: 0156-jobs-use-the-chat-permission-ladder
 ---
 
 # Autonomous Runs Decide Permissions Deterministically — Classifier Is Interactive-Only

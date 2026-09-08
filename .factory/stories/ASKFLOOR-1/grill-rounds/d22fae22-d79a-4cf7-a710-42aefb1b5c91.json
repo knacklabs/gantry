@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "T4 makes jobs stop asking the classifier (decision 0121). Today a scheduled job's borderline tool call can still get a quiet 'low risk' allow from the classifier. After T4, a job call runs only if you remembered an Allow for it, or a declared rule covers it; otherwise it takes the deterministic path (cancel or card). Keep that strict behaviour?",
+      "options": [
+        "Strict, as planned (Recommended)",
+        "Keep classifier low-allow for jobs"
+      ],
+      "chosen": "Keep classifier low-allow for jobs"
+    },
+    {
+      "question": "A remembered Allow projected into a job is re-checked against the safety rails (same as your remembered Allows in chat). It can clear an overridable ask but never a hard rail. Confirm?",
+      "options": [
+        "Re-check against rails (Recommended)",
+        "Treat like a declared rule that skips rails"
+      ],
+      "chosen": "Re-check against rails (Recommended)"
+    }
+  ],
+  "at": "2026-09-08T01:34:21.114109+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

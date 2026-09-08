@@ -1,0 +1,12 @@
+{
+  "topic": "confirmation-run",
+  "lesson": "CONFIRMATION RUN \u2014 the T4 implementation is COMPLETE and COMMITTED on this branch (c48659d8e: both P1 hard-floor fixes from lessons 106 and 107 are in; the host has verified leaves 9/9, unit 9157/9157, verify.py passed, stage autoreview clean). The previous launch died in a Codex compaction error after its work landed, so this launch exists to bind a successful write launch to the stage. Do NOT restart or rework anything. Re-read the contract, run the IPC and coordinator suites (npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts apps/core/test/unit/runtime/permission-decision-coordinator.test.ts) and npx tsc --noEmit, confirm each acceptance criterion against the committed diff (git diff 46585b469..HEAD --stat), and finish with a short report. Change files ONLY if you find a concrete contract violation; if you do, name it explicitly in the report.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T05:45:53+00:00"
+}
