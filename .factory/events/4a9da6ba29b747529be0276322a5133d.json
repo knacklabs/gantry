@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-08T04:19:01+00:00", "story": "ASKFLOOR-1", "detail": "S-0084-646b: Scope widened: askfloor-tap-budget.test.ts, askfloor-tap-budget-harness.ts and jobperm-ask-and-wait.test.ts added to ASKFLOOR-1-T4 write scope (budget 27/2700) \u2014 they pin pre-0156 job behaviour; updat"}
