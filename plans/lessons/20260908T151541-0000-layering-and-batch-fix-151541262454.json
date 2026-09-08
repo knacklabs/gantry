@@ -1,0 +1,13 @@
+{
+  "topic": "layering-and-batch-fix",
+  "lesson": "CONTINUE, do not restart (the tree holds all fourteen leaves; thirteen pass). TWO things remain, in this order. (A) LAYERING (resolves S-0089; both new files are in scope): move the PermissionCardAffordances TYPE into NEW apps/core/src/domain/permission-card-affordances.ts (domain imports nothing above it; domain/types.ts references it line-neutrally), move the host-side DERIVATION (buildPermissionCardAffordances, scalarPermissionCardAffordances, parsePermissionCardAffordances and any input types) into NEW apps/core/src/application/permissions/permission-card-affordances.ts, and leave in apps/core/src/channels/permission-card-affordances.ts ONLY the labels, scope nouns, pre/post-tap lines and alternative templates, importing the model from domain/application; fix every import so application and runtime never import from channels; npm run check:architecture must pass. (B) REGRESSION (lesson-103 family \u2014 batch finalisation must be ONE atomic statement inside the Postgres bind transaction): apps/core/test/integration/worker-coordination.postgres.integration.test.ts \"resets the card affordances to the scalar batch shape inside the bind transaction alongside the remember context\" fails: the member's rememberContext still reads eligible true after a batch bind. In worker-coordination-permission-prompt.postgres.ts, the SAME UPDATE inside the bind transaction must set rememberContext.eligible=false AND cardAffordances = the scalar batch shape for every batch member payload that carries a context \u2014 never a second statement, never per-member loops, never after binding. Run this leaf through vitest.integration.config.ts (the default Postgres lane excludes this file) with GANTRY_TEST_DATABASE_URL exported, then the T3c leaf in the same file that pins eligible=false on batch bind. Finish with npx tsc --noEmit, npm run check:architecture, and the touched suites. The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/channels/permission-card-affordances.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
+    "apps/core/src/domain/types.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T15:15:41+00:00"
+}

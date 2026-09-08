@@ -1,0 +1,13 @@
+{
+  "topic": "task-continuation",
+  "lesson": "CONTINUE, do not restart: the worktree holds runs 4-5's uncommitted work (41 modified files, +990, plus the NEW permission-card-affordances.ts and its suite): carrier, envelope/binding/durability/inline creation, Postgres batch reset, offered-set check (callback, recovery, telegram settlement), permission-interaction.ts and the batch coalescer as consumers, and all four providers partly done (Telegram 3 files, Slack 4, Discord 4, Teams 3; you were extending the Teams action variants with memory_forget in teams/message-actions.ts, now in scope). Read git status and git diff FIRST, then finish only what is missing, in this order: Teams memory_forget variants + per-row ActionSets; the remaining provider render/decode gaps for remember codes; the router onMemoryForget hook + \"Not available yet.\"; canonicalRoot on the tail context + both prompt paths + the place candidate; countExactAllowsByTool railVersion filter + gantryToolRisk trust growth; S4 fixture; then run tsc and every touched suite. Keep reads to the cited ranges. The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/channels/teams/message-actions.ts",
+    "apps/core/src/app/bootstrap/channel-message-action-router.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T14:01:42+00:00"
+}

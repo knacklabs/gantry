@@ -1,0 +1,13 @@
+{
+  "topic": "task-slicing",
+  "lesson": "WORK IN SLICES, EDIT EARLY: the previous two launches spent their whole budget surveying the 63-file scope and died in a Codex compaction error before writing a line. Do NOT survey everything first. Read only the line ranges the contract cites, then edit in this order, running the touched suite after each slice: (1) NEW channels/permission-card-affordances.ts + its unit suite (all labels/lines from lesson 110); (2) PermissionApprovalRequest.cardAffordances (types.ts line-neutral) + the envelope/binding/durability/inline-creation carriers + the Postgres batch reset; (3) the settlement offered-set check (callback accessor, recovery, telegram permission-prompt-settlement) + the effective code on the claim reference + the receipt formatter; (4) canonicalRoot on the tail context + both prompt paths + the place candidate in human-decision-learning; (5) countExactAllowsByTool railVersion filter (port/service/repository) + gantryToolRisk trust growth; (6) permission-interaction.ts + batch coalescer as thin consumers; (7) providers one at a time (Telegram, Slack, Discord, Teams): render from the model, pass the code verbatim, Forget transport via the message-action affordance encoders; (8) router hook; (9) S4 fixture. The snapshot checkpoint is already committed (c24742c10); the orchestrator commits, never you. If you are cut off, everything you wrote survives on disk and the next launch continues.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/channels/permission-card-affordances.ts",
+    "apps/core/src/channels/permission-interaction.ts",
+    "apps/core/src/domain/types.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T12:54:18+00:00"
+}

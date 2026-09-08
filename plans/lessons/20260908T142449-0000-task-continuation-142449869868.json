@@ -1,0 +1,13 @@
+{
+  "topic": "task-continuation",
+  "lesson": "CONTINUE, do not restart (44 modified files / +1346 plus the new formatter module and suite are on disk; tsc is clean). Host check of the fourteen required leaves \u2014 DONE: place candidate (human-decision-learning), Postgres batch reset, Postgres rail-filtered count, formatter shapes, four-provider parity, Teams settlement + ActionSets, batch line. STILL MISSING, do these and nothing else, running each touched suite as you go: (1) apps/core/src/app/bootstrap/channel-message-action-router.ts has NO onMemoryForget hook yet \u2014 add the typed hook and the \"Not available yet.\" unbound reply, then the router leaf \"delivers a typed memory_forget action with the authenticated conversation identity to a bound onMemoryForget hook and answers not available yet when no hook is bound\"; (2) the recovery leaf in pending-interaction-permission-recovery-orchestrator.test.ts (replays the persisted card affordances, offered-set check, receipt for offered vs unoffered); (3) the IPC leaf in ipc-interaction-handler.test.ts (model persisted on the IPC path; forged unoffered code degrades to its scalar base and learns nothing); (4) the Telegram, Slack and Discord settlement leaves with the exact titles from the contract (\"passes an offered remember code verbatim into the durable claim settles it with its remembered receipt settles an unoffered code once-only with today's receipt and renders and settles a memory_forget tap on <Provider>\"); (5) S4 in askfloor-tap-budget.test.ts (the destructive build-directory removal asks once; Allow remembers the exact command; zero taps on repeat; the same removal of the dist directory asks; No is remembered exactly). Then npx tsc --noEmit and the touched suites. The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/app/bootstrap/channel-message-action-router.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/channels/telegram.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T14:24:49+00:00"
+}
