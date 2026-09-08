@@ -39,11 +39,11 @@ export function AgentDirectoryTable({
       <header className="flex min-h-[var(--table-panel-header-height)] items-center justify-between gap-4 border-b border-border px-[var(--table-panel-padding-inline)] py-[13px]">
         <div>
           <h2 className="m-0 text-[13px] font-semibold text-text">
-            Agent directory
+            AI employees
           </h2>
           <p className="mt-[3px] mb-0 text-[length:var(--table-meta-font-size)] text-text-secondary">
-            {total ? `${first}–${last} of ${total}` : '0'} agents · sorted by
-            name
+            {total ? `${first}–${last} of ${total}` : '0'} AI employee
+            {total === 1 ? '' : 's'} · sorted by name
           </p>
         </div>
         <Badge
@@ -58,7 +58,7 @@ export function AgentDirectoryTable({
           <thead className="sticky top-0 z-10 bg-surface-muted">
             <tr className="border-b border-border">
               <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold text-text-secondary">
-                Agent
+                AI employee
               </th>
               <th className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold text-text-secondary">
                 Status
@@ -128,7 +128,10 @@ export function AgentDirectoryTable({
         </table>
       </div>
       <footer className="flex min-h-[var(--table-pager-height)] items-center justify-between border-t border-border px-[var(--table-cell-padding-inline)] text-[length:var(--table-meta-font-size)] text-text-secondary">
-        <span>{total ? `${first}–${last} of ${total}` : '0'} agents</span>
+        <span>
+          {total ? `${first}–${last} of ${total}` : '0'} AI employee
+          {total === 1 ? '' : 's'}
+        </span>
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-2">
             Rows
@@ -177,6 +180,7 @@ export function AgentDirectoryTable({
 
 function DirectoryStatus({ status }: { status: AgentDirectoryItem['status'] }) {
   const active = status === 'active';
+  const offboarded = status === 'offboarded';
   return (
     <Badge
       className="h-[var(--table-status-height)] px-2 font-mono text-[length:var(--table-status-font-size)]"
@@ -185,7 +189,7 @@ function DirectoryStatus({ status }: { status: AgentDirectoryItem['status'] }) {
       {active ? (
         <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
       ) : null}
-      {active ? 'Active' : 'Disabled'}
+      {active ? 'Active' : offboarded ? 'Offboarded' : 'Disabled'}
     </Badge>
   );
 }

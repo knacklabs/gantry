@@ -317,6 +317,10 @@ describe('skill registry integration flow', () => {
       registerGroup: vi.fn(),
       getToolRepository: () => toolRepository,
       mirrorAgentToolRulesToSettings,
+      resolveControlApproverPrincipal: vi.fn(async () => ({
+        kind: 'human' as const,
+        personId: 'person:approver',
+      })),
     };
     return {
       deps,

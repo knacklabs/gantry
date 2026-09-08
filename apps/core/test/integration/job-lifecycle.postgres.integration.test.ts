@@ -531,6 +531,10 @@ maybeDescribe('job lifecycle (Postgres)', () => {
         deps: {
           requestPermissionApproval,
           sendMessage,
+          resolveControlApproverPrincipal: vi.fn(async () => ({
+            kind: 'human' as const,
+            personId: 'person:ravi',
+          })),
           opsRepository: runtime.ops,
           onSchedulerChanged: vi.fn(),
           getToolRepository: () => runtime.repositories.tools,
@@ -664,6 +668,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
               recorded.review.proposal.reviewedSchemaHash,
             proposedTemplates,
             approvedBy: 'person:ravi',
+            approvedByPrincipal: { kind: 'human', personId: 'person:ravi' },
             approvedAt: now,
           },
         ),
@@ -899,6 +904,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
               recorded.review.proposal.reviewedSchemaHash,
             proposedTemplates,
             approvedBy: 'person:ravi',
+            approvedByPrincipal: { kind: 'human', personId: 'person:ravi' },
             approvedAt: now,
           },
         ),

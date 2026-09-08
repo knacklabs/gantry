@@ -42,6 +42,8 @@ export interface ConversationApprover {
   id: ConversationApproverId;
   appId: AppId;
   conversationId: ConversationId;
+  personId?: string;
+  aliasId?: string;
   externalUserId: string;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;

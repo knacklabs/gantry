@@ -1633,6 +1633,76 @@ describe('createChannelWiring', () => {
     );
   });
 
+  it('drops a service sender before message persistence or live admission', async () => {
+    const app = makeApp({
+      'sl:C123': {
+        name: 'Support',
+        folder: 'support',
+        providerAccountId: 'slack_support',
+        trigger: '@Support',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+    });
+    const storeMessage = vi.fn(async () => undefined);
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    const resolvePersonIdentity = vi.fn(async () => ({
+      status: 'resolved' as const,
+      personId: 'person:service',
+      memoryHydrationEligible: false,
+      isServicePerson: true,
+    }));
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        appId: 'app-one',
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        resolvePersonIdentity,
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+      } as any,
+      ops: () =>
+        ({
+          storeMessage,
+          storeChatMetadata: vi.fn(),
+          storeMessageWithLiveAdmission,
+        }) as any,
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+    });
+
+    await expect(
+      handlers.onMessage('sl:C123', {
+        id: 'm-service-sender',
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+        providerAccountId: 'slack_support',
+        sender: 'USERVICE',
+        sender_name: 'Support bot',
+        content: 'already handled',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      }),
+    ).resolves.toBe('dropped');
+
+    expect(resolvePersonIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createIfMissing: false,
+        externalUserId: 'USERVICE',
+      }),
+    );
+    expect(storeMessage).not.toHaveBeenCalled();
+    expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
+  });
+
   it('fans one inbound provider message out to each selected agent route', async () => {
     const app = makeApp({
       [makeAgentThreadQueueKey('tg:123', 'agent:alpha')]: {
@@ -2950,7 +3020,7 @@ describe('createChannelWiring', () => {
         conversationId: 'sl:C123',
         threadId: '1700.1',
         eventType: 'conversation.message.outbound',
-        actor: 'agent',
+        actor: { kind: 'system', source: 'agent' },
         responseMode: 'none',
         payload: expect.objectContaining({
           conversationId: 'conversation:slack_default:sl:C123',

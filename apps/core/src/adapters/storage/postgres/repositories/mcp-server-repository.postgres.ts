@@ -12,6 +12,10 @@ import type {
   McpServerId,
 } from '../../../../domain/mcp/mcp-servers.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  parsePrincipalRef,
+  serializePrincipalRef,
+} from '../../../../domain/identity/principal-ref.js';
 import * as pgSchema from '../schema/schema.js';
 import { lockAgentMcpBindingSet } from './mcp-binding-authority-fence.postgres.js';
 import { saveMcpAgentBindingsBatch } from './mcp-server-agent-bindings.postgres.js';
@@ -567,7 +571,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       serverId: event.serverId ?? null,
       bindingId: event.bindingId ?? null,
       eventType: event.eventType,
-      actorId: event.actorId ?? null,
+      actorId: event.actorId ? serializePrincipalRef(event.actorId) : null,
       reason: event.reason ?? null,
       metadataJson: encodeJson(event.metadata),
       createdAt: event.createdAt,
@@ -671,7 +675,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       serverId: row.serverId as McpServerAuditEvent['serverId'],
       bindingId: row.bindingId as McpServerAuditEvent['bindingId'],
       eventType: row.eventType as McpServerAuditEvent['eventType'],
-      actorId: row.actorId ?? undefined,
+      actorId: row.actorId ? parsePrincipalRef(row.actorId) : undefined,
       reason: row.reason ?? undefined,
       metadata: parseJsonRecord(row.metadataJson),
       createdAt: row.createdAt,

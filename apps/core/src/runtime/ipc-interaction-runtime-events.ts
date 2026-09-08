@@ -23,7 +23,7 @@ export async function publishPermissionRuntimeEvent(
       conversationId: request.targetJid as never,
       threadId: request.threadId as never,
       eventType: input.eventType,
-      actor: 'permission',
+      actor: { kind: 'system', source: 'permission' },
       correlationId: request.requestId,
       payload: input.payload,
     });
@@ -49,7 +49,7 @@ export async function publishPendingInteractionRuntimeEvent(
       conversationId: request.targetJid as never,
       threadId: request.threadId as never,
       eventType: RUNTIME_EVENT_TYPES.INTERACTION_PENDING,
-      actor: 'interaction',
+      actor: { kind: 'system', source: 'interaction' },
       correlationId: request.requestId,
       payload: {
         kind,

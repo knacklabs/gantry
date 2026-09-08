@@ -66,7 +66,7 @@ export function ChatRoute() {
           id="chat-search"
           label="Search sessions"
           name="q"
-          placeholder="Title, agent, or content"
+          placeholder="Title, AI employee, or content"
         />
         <FilterSelect
           label="Status"
@@ -77,7 +77,7 @@ export function ChatRoute() {
           }
         />
         <FilterSelect
-          label="Agent"
+          label="AI employee"
           options={agents}
           value={search.agent}
           onChange={(agent) => void navigate({ search: { ...search, agent } })}

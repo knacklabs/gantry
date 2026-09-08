@@ -105,6 +105,21 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     };
   }
 
+  async listConversationMemberIds(
+    input: ConversationMembershipValidationInput,
+  ): Promise<string[] | null> {
+    if (normalizeProviderId(String(input.providerId)) !== 'slack') return null;
+    const botToken = await this.resolveSecret(
+      input.providerAccount.runtimeSecretRefs,
+      ['bot_token'],
+    );
+    if (!botToken) throw new Error('Slack bot token is not configured.');
+    return this.listSlackMembers(
+      botToken,
+      externalConversationValue(input).replace(/^sl:/, ''),
+    );
+  }
+
   private async validateTelegram(
     input: ConversationMembershipValidationInput,
   ): Promise<ConversationMembershipValidationResult> {

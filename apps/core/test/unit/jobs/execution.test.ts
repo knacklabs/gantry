@@ -2735,7 +2735,7 @@ describe('jobs/execution', () => {
       await runtimeStoreMock.publish({
         appId: 'default',
         eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-        actor: 'browser',
+        actor: { kind: 'system', source: 'browser' },
         jobId: 'job-1',
         runId: input.runId,
         payload: {

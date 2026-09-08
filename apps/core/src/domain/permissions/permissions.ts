@@ -3,6 +3,7 @@ import type { AgentRunId } from '../events/events.js';
 import type { ToolId } from '../tools/tools.js';
 import type { BrandedId } from '../../shared/ids/branded-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
+import type { PrincipalRef } from '../identity/principal-ref.js';
 
 export type PermissionPolicyId = BrandedId<'PermissionPolicyId'>;
 export type PermissionRuleId = BrandedId<'PermissionRuleId'>;
@@ -46,7 +47,8 @@ export interface PermissionDecision {
   reason: string;
   actorContext?: Record<string, unknown>;
   actionPreview?: string;
-  approverRef?: string;
+  /** The human, service, or system that produced this durable outcome. */
+  approverRef?: PrincipalRef;
   expiresAt?: IsoTimestamp;
   createdAt: IsoTimestamp;
 }

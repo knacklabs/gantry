@@ -9,6 +9,11 @@ import type {
   CapabilitySecretMetadata,
 } from '../../../../domain/capability-secrets/capability-secrets.js';
 import {
+  parsePrincipalRef,
+  serializePrincipalRef,
+  type PrincipalRef,
+} from '../../../../domain/identity/principal-ref.js';
+import {
   assertValidCapabilitySecretName,
   normalizeCapabilitySecretName,
 } from '../../../../domain/capability-secrets/capability-secrets.js';
@@ -89,7 +94,7 @@ export class PostgresCapabilitySecretRepository implements CapabilitySecretRepos
     name: string;
     value: string;
     allowedCapabilityIds?: string[];
-    actor?: string;
+    actor?: PrincipalRef;
     now?: string;
   }): Promise<CapabilitySecretMetadata> {
     const name = normalizeCapabilitySecretName(input.name);
@@ -117,8 +122,8 @@ export class PostgresCapabilitySecretRepository implements CapabilitySecretRepos
           this.runtimeSecrets,
         ),
         allowedCapabilityIdsJson: encodeJson(allowedCapabilityIds),
-        createdBy: input.actor ?? null,
-        updatedBy: input.actor ?? null,
+        createdBy: input.actor ? serializePrincipalRef(input.actor) : null,
+        updatedBy: input.actor ? serializePrincipalRef(input.actor) : null,
         createdAt: now,
         updatedAt: now,
       })
@@ -137,7 +142,7 @@ export class PostgresCapabilitySecretRepository implements CapabilitySecretRepos
             this.runtimeSecrets,
           ),
           allowedCapabilityIdsJson: encodeJson(allowedCapabilityIds),
-          updatedBy: input.actor ?? null,
+          updatedBy: input.actor ? serializePrincipalRef(input.actor) : null,
           updatedAt: now,
         },
       })
@@ -179,8 +184,8 @@ function mapMetadata(row: {
     appId: row.appId as CapabilitySecretMetadata['appId'],
     name: row.name,
     allowedCapabilityIds: parseJsonArray(row.allowedCapabilityIdsJson),
-    ...(row.createdBy ? { createdBy: row.createdBy } : {}),
-    ...(row.updatedBy ? { updatedBy: row.updatedBy } : {}),
+    ...(row.createdBy ? { createdBy: parsePrincipalRef(row.createdBy) } : {}),
+    ...(row.updatedBy ? { updatedBy: parsePrincipalRef(row.updatedBy) } : {}),
     createdAt: toIsoTimestamp(row.createdAt),
     updatedAt: toIsoTimestamp(row.updatedAt),
   };

@@ -150,8 +150,8 @@ events are observable delivery evidence, not the sole audit source.
 ### 2. Replace identity domain and persistence
 
 - Move Person, alias, merge policy, and repository types into domain ownership.
-- Replace provider-shaped alias fields with `kind`, `authorityId`,
-  `subject`.
+- Retain the canonical `provider`, `providerAccountId`, and `externalUserId`
+  alias fields; product display terminology does not rename storage.
 - Remove V1 `email`, `phone`, and `web_user` evidence kinds.
 - Enforce active uniqueness on `(appId, kind, authorityId, subject)`.
 - Use transaction/advisory locking for concurrent resolve/create.
@@ -350,15 +350,21 @@ and rerun until clean.
 > is `docs/specs/agent-identity-and-offboarding.md`; where this section and the
 > spec differ, the spec wins.
 
+> **IDENT-2 storage correction (2026-09-08):** references below to replacing
+> `user_aliases(provider, providerAccountId, externalUserId)` with
+> `(kind, authorityId, subject)` are superseded. IDENT-2 keeps the existing
+> backend field names; Provider Account and AI employee are frontend display
+> labels. Connector Accounts remain absent until they have a persisted lifecycle.
+
 > **Status:** Proposed — extends IDENTITY-01; does not reopen its locked decisions.
 > **Positioning it serves:** "Onboard AI employees like real ones" — one directory
 > shape for people and agents, so onboarding, access, audit, and offboarding
 > read the same for both.
 > **Prerequisite:** IDENTITY-01 merged (PR #373). **Note (2026-08-26 gap
 > sweep):** what shipped is `users` + `user_aliases(provider,
-> providerAccountId, externalUserId)`, not the `(appId, kind, authorityId,
-> subject)` alias documented above; IDENT-2 therefore starts with a schema
-> migration. See `docs/architecture/ai-employee-v1-gap-analysis.md`.
+> providerAccountId, externalUserId)`. IDENT-2 retains that schema and adds
+> service-identity behavior without renaming those storage fields. See
+> `docs/architecture/ai-employee-v1-gap-analysis.md`.
 
 ## Summary
 

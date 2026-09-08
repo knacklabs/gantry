@@ -7,7 +7,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
-import { appsPostgres, usersPostgres } from './apps.js';
+import { appsPostgres, userAliasesPostgres, usersPostgres } from './apps.js';
 
 export const conversationsPostgres = pgTable(
   'conversations',
@@ -117,6 +117,8 @@ export const conversationApproversPostgres = pgTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversationsPostgres.id, { onDelete: 'cascade' }),
+    personId: text('person_id'),
+    aliasId: text('alias_id'),
     externalUserId: text('external_user_id').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
@@ -134,5 +136,15 @@ export const conversationApproversPostgres = pgTable(
       table.conversationId,
       table.externalUserId,
     ),
+    appScopedPerson: foreignKey({
+      name: 'conversation_approvers_app_user_fk',
+      columns: [table.appId, table.personId],
+      foreignColumns: [usersPostgres.appId, usersPostgres.id],
+    }),
+    appScopedAlias: foreignKey({
+      name: 'conversation_approvers_alias_fk',
+      columns: [table.aliasId],
+      foreignColumns: [userAliasesPostgres.id],
+    }),
   }),
 );

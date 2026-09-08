@@ -649,7 +649,7 @@ export class PostgresRuntimeRepositoryBundle
       conversationId: session.conversationId,
       threadId: session.threadId,
       eventType: RUNTIME_EVENT_TYPES.RUN_STARTED,
-      actor: 'runtime',
+      actor: { kind: 'system', source: 'runtime' },
       // Resolved-run diagnostics for the live lane: the inherited agent engine
       // (derived from the diagnostic executionProviderId) and the diagnostic id
       // itself. No secrets. The DB-layer emit does not have the modelAlias /
@@ -718,7 +718,7 @@ export class PostgresRuntimeRepositoryBundle
           : input.status === 'failed'
             ? RUNTIME_EVENT_TYPES.RUN_FAILED
             : RUNTIME_EVENT_TYPES.RUN_CANCELED,
-      actor: 'runtime',
+      actor: { kind: 'system', source: 'runtime' },
       payload: {
         resultSummary: resultSummary ?? null,
         errorSummary: errorSummary ?? null,

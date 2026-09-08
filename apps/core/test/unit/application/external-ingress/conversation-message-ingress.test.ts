@@ -142,7 +142,7 @@ describe('ConversationMessageIngressModule', () => {
         conversationId: 'conversation:tg:-100',
         threadId: 'thread:tg:-100:42',
         eventType: 'conversation.message.inbound',
-        actor: 'external-system',
+        actor: { kind: 'system', source: 'external-system' },
         responseMode: 'none',
         payload: expect.objectContaining({
           direction: 'inbound',

@@ -126,7 +126,7 @@ it('authentication CLI > uses one-time local authorization and trusted access ap
   expect(mocks.approve).toHaveBeenCalledWith({
     accessReferenceHash,
     role: 'administrator',
-    actor: 'cli:auth-access',
+    actor: { kind: 'system', source: 'cli:auth-access' },
     now: expect.any(String),
   });
   expect(mocks.confirm.mock.invocationCallOrder[0]!).toBeLessThan(

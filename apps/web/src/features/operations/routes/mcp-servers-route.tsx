@@ -303,7 +303,7 @@ export function McpServersRoute() {
           setReceipt({
             message: replacement
               ? `Replacement connected. ${replacement.displayName ?? replacement.name} remains ${replacement.status} and no bindings were copied.`
-              : 'Server connected. You can attach an agent below or manage it later.',
+              : 'Server connected. You can attach an AI employee below or manage it later.',
             replacement,
           });
           window.requestAnimationFrame(() => receiptRef.current?.focus());

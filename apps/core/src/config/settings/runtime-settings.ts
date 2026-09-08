@@ -60,6 +60,26 @@ export {
   applyConversationInstallToSettings,
   hasConversationInstallInSettings,
 } from './conversation-install-settings.js';
+export { removeAgentFromRuntimeSettings } from './agent-settings-removal.js';
+
+/**
+ * Keeps adapter callers on the runtime-settings façade while avoiding a
+ * settings-revision module cycle during bootstrap.
+ */
+export async function settingsToRevisionDocumentForWrite(
+  settings: RuntimeSettings,
+): Promise<Record<string, unknown>> {
+  const { settingsToRevisionDocument } =
+    await import('./settings-revision-document.js');
+  return settingsToRevisionDocument(settings);
+}
+
+/** Settings-revision reader contract, loaded lazily to avoid its runtime-settings cycle. */
+export async function currentSettingsReaderVersion(): Promise<number> {
+  const { CURRENT_SETTINGS_READER_VERSION } =
+    await import('./settings-fleet-import.js');
+  return CURRENT_SETTINGS_READER_VERSION;
+}
 
 const DEFAULT_PROVIDER_ACCOUNT_IDS: Record<string, string> = {
   app: 'app_default',

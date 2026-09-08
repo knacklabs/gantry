@@ -30,14 +30,18 @@ no page at all. Without this capability "onboard" means a terminal session.
 ### Onboarding wizard (V1.0)
 
 Screens in order: Employee (name, model alias, access preset `full` default or
-`locked`, harness `auto`); Channel seat (provider, label, secret references through
-a shared `SecretRefField`, provider validation); Scope (discover or enter a
-conversation id, memory scope default `conversation`, trigger); Approvals (one or
-more approvers that resolve to Persons); Review and activate — writes happen only on
-confirmation and the native identity is verified to respond. Creating the agent
-creates its service-kind Person and desired-state entry in one operation. Persona
-and profile editing, non-default harness, provider secret rotation, and discovery
-beyond a manual id may remain CLI in V1.0 and are labelled as such.
+`locked`, harness `auto`); Sources; Capabilities; Account (select an existing
+Provider Account or create one inline with a write-only secret form); Conversation
+(discover or enter a conversation id, memory scope default `conversation`, trigger);
+Approvers (one or more approvers that resolve to Persons); Review and activate.
+The Employee step atomically creates the Agent, its service-kind Person, and its
+initial desired-state revision; every later completed step persists to that Agent, so
+the modal is resumable rather than an unsaved browser draft. Sources and Capabilities
+may be skipped individually. Account, Conversation, and Approvers may defer
+deployment; Review either finishes without deployment or creates the installation and
+shows server-derived verification status. Persona and profile editing, non-default
+harness, provider secret rotation, and discovery beyond a manual id may remain CLI in
+V1.0 and are labelled as such.
 
 ### Secret references
 
@@ -92,8 +96,9 @@ All surfaces follow decisions 0132/0135: same-origin `/ui/api/*`, viewer read an
 administrator (or owner where the roles spec allows) mutation, exact Origin plus
 CSRF, hosted re-authentication for high-risk actions, audit, scope classification,
 boundary tests. Existing primitives (`PageHeader`, `Panel`, `DataTable`,
-`Dialog`/`AlertDialog`, `PageState`) and the `/people` route pattern are reused; no
-toast system — inline receipts.
+`Dialog`/`AlertDialog`, `PageState`) and the `/people` route pattern are reused. A
+global bottom-right toast stack reports mutation outcomes; actionable validation
+remains inline.
 
 ## Acceptance criteria
 
@@ -103,7 +108,7 @@ toast system — inline receipts.
   - Approved by the product owner before DIR-UI-1 and ONBOARD-UI-1 are planned; mockups linked from their plans
   - APPROVED 2026-08-26 by vrknetha — canvas https://claude.ai/code/artifact/cbcf11f1-8bc2-4912-bb37-b2ea7c300010 (21 artboards, light/dark). DIR-UI-1 and ONBOARD-UI-1 plan from these mockups.
 - **ONBOARD-UI-1** — Onboarding wizard: create agent, seat, scope, approvers
-  - Screens: Employee (name, model alias, access preset full|locked default full, harness auto), Channel seat (provider, label, secret references via SecretRefField, provider validation), Scope (discover or enter conversation id, memory scope default conversation, trigger), Approvals (one or more resolvable approvers), Review and activate
+  - Screens: Employee (name, model alias, access preset full|locked default full, harness auto), Sources, Capabilities, Account (select or create a Provider Account with SecretRefField and provider validation), Conversation (discover or enter conversation id, memory scope default conversation, trigger), Approvers (one or more resolvable approvers), Review and activate. Employee persists the Agent, service Person, and initial desired-state revision; later steps remain resumable, and Sources/Capabilities may be skipped.
   - Facades: POST /ui/api/agents (creates agent + service Person + desired-state entry atomically), /ui/api/provider-accounts, /ui/api/provider-accounts/:id/discover-conversations, /ui/api/agents/:id/conversation-installs, /ui/api/conversations/:id/approvers — administrator, Origin+CSRF, hosted reauth, audit
   - Write-only secret ingest endpoint stores a Gantry-held secret and returns only its reference; the browser never receives a secret value (decision 0143)
   - Persona/profile editing, non-default harness, provider secret rotation, and Slack/Teams discovery beyond manual id may stay CLI in V1.0 and are labelled so

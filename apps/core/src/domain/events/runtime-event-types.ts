@@ -15,6 +15,7 @@ export const RUNTIME_EVENT_TYPES = {
   IDENTITY_RESOLVED: 'identity.resolved',
   IDENTITY_ALIAS_LINKED: 'identity.alias.linked',
   IDENTITY_ALIAS_RETIRED: 'identity.alias.retired',
+  IDENTITY_OFFBOARDED: 'identity.offboarded',
   IDENTITY_MERGED: 'identity.merged',
   IDENTITY_UNMERGED: 'identity.unmerged',
   MEMORY_HYDRATION_DECISION: 'memory.hydration.decision',

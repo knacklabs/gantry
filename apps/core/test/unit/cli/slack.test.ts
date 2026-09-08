@@ -270,7 +270,14 @@ function mockRuntimeStoreDisableAgent(
   vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
     initializeRuntimeStorage: vi.fn(async () => undefined),
     closeRuntimeStorage: vi.fn(async () => undefined),
-    getRuntimeStorage: () => ({ repositories: { agents: { disableAgent } } }),
+    getRuntimeStorage: () => ({
+      repositories: {
+        agents: {
+          disableAgent,
+          getAgent: vi.fn(async () => ({ status: 'offboarded' })),
+        },
+      },
+    }),
   }));
   return disableAgent;
 }
@@ -803,13 +810,13 @@ describe('cli slack helpers', () => {
       runtimeHome,
       name: defaultSlackBotSecretName,
       value: 'xoxb-valid-token',
-      actor: 'cli:slack-connect',
+      actor: { kind: 'system', source: 'cli:slack-connect' },
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
       name: defaultSlackAppSecretName,
       value: 'xapp-valid-token',
-      actor: 'cli:slack-connect',
+      actor: { kind: 'system', source: 'cli:slack-connect' },
     });
     expect(fetchSpy).toHaveBeenCalledTimes(3);
     const settings = loadRuntimeSettings(runtimeHome);
@@ -1220,6 +1227,7 @@ describe('cli slack helpers', () => {
     );
     const sourceRoute = groupsStore.get('sl:C0123456789');
     groupsStore.set(routeKey, { ...sourceRoute, requiresTrigger: true });
+    mockRuntimeStoreDisableAgent();
 
     const { runAgentCommand } = await import('@core/cli/group.js');
     const code = await runAgentCommand(runtimeHome, [

@@ -150,7 +150,7 @@ async function seedStructuredEvidence(
     ...(subject.channelId ? { channelId: subject.channelId } : {}),
     sourceType: 'session',
     sourceId: `run:${scope.label}`,
-    actorId: 'integration-test',
+    actorId: { kind: 'system', source: 'integration-test' },
     text: scope.promoteValue,
     metadata: {
       memoryCandidate: {

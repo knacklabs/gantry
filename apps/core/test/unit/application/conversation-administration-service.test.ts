@@ -111,6 +111,21 @@ function makeService(options?: {
 }
 
 describe('ConversationAdministrationService', () => {
+  it('verifies conversation approvers without changing the allowlist', async () => {
+    const { service, repositories } = makeService({ validUserIds: ['123'] });
+
+    await expect(
+      service.validateControlAllowlist({
+        appId: 'default' as never,
+        conversationId: 'conversation-1' as never,
+        userIds: ['123', '999'],
+      }),
+    ).resolves.toEqual({ validUserIds: ['123'], invalidUserIds: ['999'] });
+    expect(
+      repositories.conversations.replaceConversationApprovers,
+    ).not.toHaveBeenCalled();
+  });
+
   it('replaces conversation approvers deterministically', async () => {
     const { service, repositories } = makeService({
       validUserIds: ['123', '456'],

@@ -180,7 +180,7 @@ async function reconcileTerminalDelivery(
         conversationId: context.conversationId as never,
         threadId: context.threadId ? (context.threadId as never) : undefined,
         eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_CARD_DELIVERY,
-        actor: 'scheduler',
+        actor: { kind: 'system', source: 'scheduler' },
         idempotencyKey: terminalDeliveryEventKey(
           item.permissionPromptId,
           item.generation,
@@ -327,7 +327,7 @@ async function expirePrompt(
         appId: prompt.appId as never,
         jobId: prompt.jobId as never,
         eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_CARD_DELIVERY,
-        actor: 'scheduler',
+        actor: { kind: 'system', source: 'scheduler' },
         idempotencyKey: terminalDeliveryEventKey(
           promptId,
           cancelled.generation,
@@ -349,7 +349,7 @@ async function expirePrompt(
       appId: prompt.appId as never,
       jobId: prompt.jobId as never,
       eventType: RUNTIME_EVENT_TYPES.JOB_SETUP_CARD_DELIVERY,
-      actor: 'scheduler',
+      actor: { kind: 'system', source: 'scheduler' },
       idempotencyKey: `card_delivery_expired:${promptId}`,
       payload: jobSetupCardDeliveryEventPayload({
         prompt_id: promptId,

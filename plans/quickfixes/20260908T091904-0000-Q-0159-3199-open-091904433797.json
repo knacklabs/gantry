@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0159-3199",
+  "profile": "quickfix",
+  "reason": "Remove the duplicate AI employee onboarding action from Channel accounts.",
+  "started_at": "2026-09-08T09:19:04+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

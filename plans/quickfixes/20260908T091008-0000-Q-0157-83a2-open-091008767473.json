@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0157-83a2",
+  "profile": "quickfix",
+  "reason": "Align Directory actions with the title row and move the Role library return control above its page header.",
+  "started_at": "2026-09-08T09:10:08+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

@@ -108,7 +108,7 @@ export function AgentVersionHistory({ agent }: { agent: AgentDirectoryItem }) {
                       previous?.agentNameSnapshot &&
                       previous.agentNameSnapshot !== selected.agentNameSnapshot
                         ? `Renamed ${previous.agentNameSnapshot} to ${selected.agentNameSnapshot}.`
-                        : `Saved agent name: ${selected.agentNameSnapshot}.`
+                        : `Saved AI employee name: ${selected.agentNameSnapshot}.`
                     }
                   />
                 ) : null}

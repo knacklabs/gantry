@@ -1,5 +1,9 @@
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
+import {
+  systemPrincipal,
+  type PrincipalRef,
+} from '../../domain/identity/principal-ref.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import type { CapabilitySecretRepository } from '../../domain/ports/repositories.js';
 import type { McpCredentialRef } from '../../domain/mcp/mcp-servers.js';
@@ -41,7 +45,7 @@ export class CapabilitySecretService {
     appId: AppId;
     name: string;
     value: string;
-    actor?: string;
+    actor?: PrincipalRef;
     allowedCapabilityIds?: string[];
   }) {
     const name = normalizeCapabilitySecretName(input.name);
@@ -55,7 +59,7 @@ export class CapabilitySecretService {
     });
     await this.publishAudit({
       appId: input.appId,
-      actor: input.actor ?? 'capability-secret-service',
+      actor: input.actor ?? systemPrincipal('capability-secret-service'),
       eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_CAPABILITY_UPDATED,
       payload: {
         name: metadata.name,
@@ -69,7 +73,7 @@ export class CapabilitySecretService {
   async unset(input: {
     appId: AppId;
     name: string;
-    actor?: string;
+    actor?: PrincipalRef;
   }): Promise<boolean> {
     const name = normalizeCapabilitySecretName(input.name);
     assertValidCapabilitySecretName(name);
@@ -80,7 +84,7 @@ export class CapabilitySecretService {
     if (deleted) {
       await this.publishAudit({
         appId: input.appId,
-        actor: input.actor ?? 'capability-secret-service',
+        actor: input.actor ?? systemPrincipal('capability-secret-service'),
         eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_CAPABILITY_REMOVED,
         payload: { name },
       });

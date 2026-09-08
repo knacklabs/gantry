@@ -138,50 +138,53 @@ describe('PostgresCanonicalJobRepository', () => {
     expect(tx.update).toHaveBeenCalledTimes(1);
   });
 
-  it('does not claim a queued dispatch after the job is paused', async () => {
-    const limit = vi.fn(async () => [
-      {
-        id: 'job-1',
-        status: 'paused',
-        nextRunAt: '2026-05-12T10:00:00.000Z',
-      },
-    ]);
-    const forUpdate = vi.fn(() => ({ limit }));
-    const where = vi.fn(() => ({ for: forUpdate }));
-    const from = vi.fn(() => ({ where }));
-    const tx = {
-      select: vi.fn(() => ({ from })),
-      insert: vi.fn(),
-      update: vi.fn(),
-    };
-    const db = {
-      transaction: vi.fn(async (callback) => callback(tx)),
-    };
-    const repository = new PostgresCanonicalJobRepository(db as never);
-
-    await expect(
-      repository.claimDueRunStart({
-        jobId: 'job-1',
-        leaseExpiresAt: '2026-05-12T10:05:00.000Z',
-        workerInstanceId: 'worker-test',
-        run: {
-          run_id: 'run-1',
-          job_id: 'job-1',
-          scheduled_for: '2026-05-12T10:00:00.000Z',
-          started_at: '2026-05-12T10:00:00.000Z',
-          ended_at: null,
-          status: 'running',
-          result_summary: null,
-          error_summary: null,
-          retry_count: 0,
-          notified_at: null,
+  it.each(['paused', 'cancelled'] as const)(
+    'does not claim a queued dispatch after the job is %s',
+    async (status) => {
+      const limit = vi.fn(async () => [
+        {
+          id: 'job-1',
+          status,
+          nextRunAt: '2026-05-12T10:00:00.000Z',
         },
-      }),
-    ).resolves.toBeNull();
+      ]);
+      const forUpdate = vi.fn(() => ({ limit }));
+      const where = vi.fn(() => ({ for: forUpdate }));
+      const from = vi.fn(() => ({ where }));
+      const tx = {
+        select: vi.fn(() => ({ from })),
+        insert: vi.fn(),
+        update: vi.fn(),
+      };
+      const db = {
+        transaction: vi.fn(async (callback) => callback(tx)),
+      };
+      const repository = new PostgresCanonicalJobRepository(db as never);
 
-    expect(tx.insert).not.toHaveBeenCalled();
-    expect(tx.update).not.toHaveBeenCalled();
-  });
+      await expect(
+        repository.claimDueRunStart({
+          jobId: 'job-1',
+          leaseExpiresAt: '2026-05-12T10:05:00.000Z',
+          workerInstanceId: 'worker-test',
+          run: {
+            run_id: 'run-1',
+            job_id: 'job-1',
+            scheduled_for: '2026-05-12T10:00:00.000Z',
+            started_at: '2026-05-12T10:00:00.000Z',
+            ended_at: null,
+            status: 'running',
+            result_summary: null,
+            error_summary: null,
+            retry_count: 0,
+            notified_at: null,
+          },
+        }),
+      ).resolves.toBeNull();
+
+      expect(tx.insert).not.toHaveBeenCalled();
+      expect(tx.update).not.toHaveBeenCalled();
+    },
+  );
 
   it('retries generated run short ids after a concurrent insert wins the same id', async () => {
     const graphSelectLimit = vi.fn(async () => [

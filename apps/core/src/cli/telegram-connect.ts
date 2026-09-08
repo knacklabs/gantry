@@ -20,6 +20,7 @@ import {
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
 import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
+import { systemPrincipal } from '../domain/identity/principal-ref.js';
 
 type TelegramChatChoice =
   | {
@@ -225,7 +226,7 @@ export async function runTelegramConnectCommand(
     runtimeHome,
     name: runtimeSecretNameForAgent('telegram', credentialOwnerId, 'BOT_TOKEN'),
     value: tokenInput,
-    actor: 'cli:telegram-connect',
+    actor: systemPrincipal('cli:telegram-connect'),
     label: 'Telegram bot token',
   });
   if (!tokenSecret) {

@@ -131,7 +131,7 @@ export function McpServerDetail({
         setReconnectOpen(false);
         onStatusChanged(
           server,
-          'Source reconnected. Attach agents explicitly.',
+          'Source reconnected. Attach AI employees explicitly.',
         );
       }
     } finally {
@@ -299,8 +299,8 @@ export function McpServerDetail({
             <AlertDialogDescription>
               Gantry will recheck the stored reviewed configuration for{' '}
               {server.displayName ?? server.name}. It will not contact the
-              server or discover tools. Any previous agent attachments remain
-              disabled and must be attached again explicitly.
+              server or discover tools. Any previous AI employee attachments
+              remain disabled and must be attached again explicitly.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {error ? <p className="m-0 text-sm text-danger">{error}</p> : null}
@@ -320,12 +320,12 @@ export function McpServerDetail({
         </AlertDialogContent>
       </AlertDialog>
       <Panel
-        title="Attached agents"
+        title="Attached AI employees"
         description="Connected sources make MCP tools visible. They do not grant authority to act."
         action={
           canManage && server.status === 'active' ? (
             <Button onClick={() => setAttachOpen(true)} size="sm">
-              Attach agents
+              Attach AI employees
             </Button>
           ) : null
         }
@@ -350,7 +350,7 @@ export function McpServerDetail({
                     search={{ tab: 'access' }}
                     to="/agents/$agentId"
                   >
-                    Open agent
+                    Open AI employee
                   </Link>
                   {canManage ? (
                     <Button
@@ -366,7 +366,7 @@ export function McpServerDetail({
             ))}
             {server.bindings.length === 0 ? (
               <li className="p-4 text-sm text-text-secondary">
-                No agents are attached to this MCP server.
+                No AI employees are attached to this MCP server.
               </li>
             ) : null}
           </ul>
@@ -379,7 +379,7 @@ export function McpServerDetail({
         onAttached={async (count) => {
           await refresh();
           setNotice(
-            `MCP source attached to ${count} agent${count === 1 ? '' : 's'}. It becomes available on each agent’s next run.`,
+            `MCP source attached to ${count} AI employee${count === 1 ? '' : 's'}. It becomes available on each AI employee’s next run.`,
           );
         }}
       />

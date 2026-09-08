@@ -5,6 +5,7 @@ import { PostgresAuthenticationRepository } from '../adapters/storage/postgres/r
 import { acquireRuntimeStorageForRuntimeHome } from '../adapters/storage/postgres/runtime-store.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
 import { nowIso } from '../shared/time/datetime.js';
+import { systemPrincipal } from '../domain/identity/principal-ref.js';
 
 const ACCESS_REFERENCE_PATTERN = /^GNT-[0-9A-F]{10}$/;
 
@@ -84,7 +85,7 @@ export async function runAuthCommand(
     const approved = await repo.approveAccessReference({
       accessReferenceHash,
       role,
-      actor: 'cli:auth-access',
+      actor: systemPrincipal('cli:auth-access'),
       now: nowIso(),
     });
     if (!approved) {

@@ -347,7 +347,7 @@ async function publishRecheckEvent(
     await input.publishRuntimeEvent({
       appId: input.appId as never,
       eventType: RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
-      actor: 'permission',
+      actor: { kind: 'system', source: 'permission' },
       jobId: job.id as never,
       conversationId: job.execution_context?.conversationJid as never,
       threadId: (job.execution_context?.threadId ?? job.thread_id) as never,

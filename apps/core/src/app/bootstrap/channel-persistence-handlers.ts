@@ -164,6 +164,46 @@ export function createChannelPersistenceHandlers({
     onMessage: async (chatJid: string, msg: NewMessage) => {
       const canRoute = await ensureConfiguredConversationRoute(chatJid, msg);
       if (!canRoute) return 'dropped' as const;
+      if (
+        !msg.is_from_me &&
+        !msg.is_bot_message &&
+        resolved.resolvePersonIdentity
+      ) {
+        const provider = msg.provider ?? chatJid.split(':', 1)[0];
+        try {
+          const identity = await resolved.resolvePersonIdentity({
+            appId: resolved.appId,
+            provider,
+            providerAccountId: msg.providerAccountId,
+            externalUserId: msg.sender,
+            displayName: msg.sender_name,
+            evidenceType: 'provider_user',
+            createIfMissing: false,
+          });
+          if (identity.isServicePerson) {
+            resolved.logger.info(
+              {
+                chatJid,
+                providerAccountId: msg.providerAccountId,
+                sender: msg.sender,
+              },
+              'Dropping inbound message from service identity',
+            );
+            return 'dropped' as const;
+          }
+        } catch (err) {
+          resolved.logger.warn(
+            {
+              err,
+              chatJid,
+              providerAccountId: msg.providerAccountId,
+              sender: msg.sender,
+            },
+            'Dropping inbound message because service identity could not be resolved',
+          );
+          return 'dropped' as const;
+        }
+      }
       const routes = routesForChat(
         chatJid,
         msg.thread_id,

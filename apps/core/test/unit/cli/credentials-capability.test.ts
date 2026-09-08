@@ -200,7 +200,7 @@ describe('credentials capability CLI', () => {
         appId: 'default',
         name: 'GITHUB_TOKEN',
         value: 'secret-token-value',
-        actor: 'cli',
+        actor: { kind: 'system', source: 'cli' },
         allowedCapabilityIds: ['mcp:github'],
       }),
     );
@@ -211,7 +211,7 @@ describe('credentials capability CLI', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'default',
-        actor: 'cli',
+        actor: { kind: 'system', source: 'cli' },
         eventType: 'credential.capability.updated',
         payload: expect.objectContaining({
           name: 'GITHUB_TOKEN',

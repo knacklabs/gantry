@@ -57,7 +57,7 @@ export function ConversationsRoute() {
         ),
       },
       { accessorKey: 'provider', header: 'Provider' },
-      { accessorKey: 'agent', header: 'Installed agent' },
+      { accessorKey: 'agent', header: 'Installed AI employee' },
       {
         accessorKey: 'status',
         header: 'Status',
@@ -94,7 +94,7 @@ export function ConversationsRoute() {
           id="conversation-search"
           label="Search conversations"
           name="q"
-          placeholder="Name, provider, or agent"
+          placeholder="Name, provider, or AI employee"
         />
         <SelectField
           label="Status"

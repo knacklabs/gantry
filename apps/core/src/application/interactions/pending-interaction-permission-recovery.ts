@@ -12,6 +12,7 @@ import type {
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
 } from '../../domain/types.js';
+import type { PrincipalRef } from '../../domain/identity/principal-ref.js';
 import type { JobManagementServiceDeps } from '../jobs/job-management-types.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -72,6 +73,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
   request: PermissionApprovalRequest;
   sourceAgentFolder: string;
   decision: PermissionApprovalDecision;
+  actor?: PrincipalRef;
   ipcDir?: string;
   onApplied?: (
     recovery: PausedJobCapabilityRecheckResult,
@@ -127,7 +129,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     ipcDir: input.ipcDir,
     runHandle: input.request.runHandle,
     requestId: input.request.requestId,
-    actor: input.decision.decidedBy,
+    actor: input.actor,
     conversationId: scopedRequest.targetJid,
     threadId: scopedRequest.threadId,
     runId: input.request.runId,

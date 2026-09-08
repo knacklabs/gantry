@@ -612,7 +612,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
         ...(conversationId ? { conversationId } : {}),
         ...(threadId ? { threadId } : {}),
         eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_USED,
-        actor: 'gantry-model-gateway',
+        actor: { kind: 'system', source: 'gantry-model-gateway' },
         payload: {
           providerId: tokenRecord.providerId,
           tokenScope: tokenRecord.tokenScope,
@@ -670,7 +670,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
         ...(conversationId ? { conversationId } : {}),
         ...(threadId ? { threadId } : {}),
         eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_USED,
-        actor: 'gantry-model-gateway',
+        actor: { kind: 'system', source: 'gantry-model-gateway' },
         payload: {
           providerId: tokenRecord.providerId,
           tokenScope: tokenRecord.tokenScope,

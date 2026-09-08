@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppMemoryService } from '@core/memory/app-memory-service.js';
+import { usersPostgres } from '@core/adapters/storage/postgres/schema/apps.js';
+import { and, eq } from 'drizzle-orm';
 import {
   DEFAULT_APP_ID,
   DEFAULT_LLM_PROFILE_ID,
@@ -8,6 +10,7 @@ import {
 import type { AppId } from '@core/domain/app/app.js';
 import type { AgentId } from '@core/domain/agent/agent.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
+import { systemPrincipal } from '@core/domain/identity/principal-ref.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -42,6 +45,36 @@ maybeDescribe('application services with Postgres repositories', () => {
       createdAt: now,
       updatedAt: now,
     });
+    await expect(
+      runtime.service.db
+        .select()
+        .from(usersPostgres)
+        .where(
+          and(
+            eq(usersPostgres.appId, appId),
+            eq(usersPostgres.agentId, agentId),
+          ),
+        ),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        appId,
+        agentId,
+        kind: 'service',
+        displayName: 'Integration Agent',
+        status: 'active',
+      }),
+    ]);
+    await runtime.repositories.agents.disableAgent({
+      appId,
+      agentId,
+      updatedAt: '2026-04-28T00:01:00.000Z',
+    });
+    await expect(
+      runtime.service.db
+        .select({ status: usersPostgres.status })
+        .from(usersPostgres)
+        .where(eq(usersPostgres.agentId, agentId)),
+    ).resolves.toEqual([{ status: 'disabled' }]);
 
     const configVersionId = 'agent-config:integration:1' as never;
     await runtime.repositories.agentConfigs.saveConfigVersion({
@@ -84,7 +117,7 @@ maybeDescribe('application services with Postgres repositories', () => {
       reason: 'Approved in integration test',
       actorContext: { channel: 'slack' },
       actionPreview: 'Run tool',
-      approverRef: 'user:admin',
+      approverRef: systemPrincipal('user:admin'),
       createdAt: now,
     });
     await expect(
@@ -93,7 +126,7 @@ maybeDescribe('application services with Postgres repositories', () => {
       ),
     ).resolves.toMatchObject({
       effect: 'allow',
-      approverRef: 'user:admin',
+      approverRef: systemPrincipal('user:admin'),
     });
 
     const memoryService = new AppMemoryService(runtime.service.db);

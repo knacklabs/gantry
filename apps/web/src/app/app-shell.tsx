@@ -19,12 +19,6 @@ export function AppShell() {
     : runtime.isError
       ? 'unavailable'
       : runtime.data.status;
-  const runtimeAccent = {
-    checking: 'after:bg-status-idle',
-    connected: 'after:bg-status-success',
-    unavailable: 'after:bg-danger',
-  }[runtimeState];
-
   return (
     <>
       <div className="flex min-h-dvh items-center justify-center bg-canvas p-6 text-center md:hidden">
@@ -51,9 +45,7 @@ export function AppShell() {
           <AppNavigation />
         </aside>
         <div className="grid min-w-0 grid-rows-[64px_minmax(0,1fr)]">
-          <header
-            className={`relative flex min-w-0 items-center justify-between border-b border-border bg-canvas/90 px-4 after:absolute after:right-0 after:bottom-[-1px] after:left-0 after:h-[3px] sm:px-6 ${runtimeAccent}`}
-          >
+          <header className="relative flex min-w-0 items-center justify-between border-b border-border bg-surface/95 px-4 sm:px-[26px]">
             <div className="flex min-w-0 items-center gap-3">
               <ConnectionState state={runtimeState} />
             </div>
@@ -71,7 +63,7 @@ export function AppShell() {
               )}
             </Button>
           </header>
-          <main id="main-content" className="min-w-0 px-4 py-6 sm:px-6 sm:py-8">
+          <main id="main-content" className="min-w-0 px-4 py-5 sm:px-7 sm:py-7">
             <Outlet />
           </main>
         </div>

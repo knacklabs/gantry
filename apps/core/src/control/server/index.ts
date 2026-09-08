@@ -53,35 +53,12 @@ import type {
 } from './handler-context.js';
 import {
   apiRequestHasSessionCookie,
-  browserRequestHasBearer,
   isLoopbackHost,
-  setNoStore,
 } from './browser-auth-boundary.js';
 import { createRateLimiter } from './rate-limit.js';
 import { handleAgentRoutes } from './routes/agents.js';
 import { handleBrainRoutes } from './routes/brain.js';
-import { handleBrowserAuthRoutes } from './routes/browser-auth.js';
-import {
-  handleBrowserRuntimeStatus,
-  isBrowserRuntimeStatusPath,
-} from './routes/browser-runtime-status.js';
-import {
-  handleBrowserNavigationSummary,
-  isBrowserNavigationSummaryPath,
-} from './routes/browser-navigation-summary.js';
-import {
-  handleBrowserAgentRoutes,
-  isBrowserAgentsPath,
-} from './routes/browser-agents.js';
-import { handleBrowserModelProviderRoutes } from './routes/browser-model-providers.js';
-import {
-  handleBrowserMcpServerRoutes,
-  isBrowserMcpServerPath,
-} from './routes/browser-mcp-servers.js';
-import {
-  handleBrowserSkillRoutes,
-  isBrowserSkillsPath,
-} from './routes/browser-skills.controller.js';
+import { handleBrowserControlRoutes } from './browser-route-dispatch.js';
 import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
@@ -158,91 +135,16 @@ function createControlRequestHandler(
         return;
       }
       if (
-        pathname.startsWith('/auth/') ||
-        pathname.startsWith('/ui/api/auth/') ||
-        isBrowserRuntimeStatusPath(pathname) ||
-        isBrowserNavigationSummaryPath(pathname) ||
-        isBrowserAgentsPath(pathname) ||
-        pathname.startsWith('/ui/api/model-providers') ||
-        isBrowserMcpServerPath(pathname) ||
-        isBrowserSkillsPath(pathname)
-      ) {
-        setNoStore(res);
-        if (browserRequestHasBearer(req)) {
-          sendControlError(
-            res,
-            401,
-            'UNAUTHORIZED',
-            'Bearer credentials are not accepted for browser routes.',
-          );
-          return;
-        }
-      }
-      if (
-        isBrowserRuntimeStatusPath(pathname) &&
-        (await handleBrowserRuntimeStatus(
+        await handleBrowserControlRoutes({
           req,
           res,
           ctx,
-          pathname,
-          getRuntimeSettingsForConfig(),
-        ))
-      )
-        return;
-      if (
-        isBrowserNavigationSummaryPath(pathname) &&
-        (await handleBrowserNavigationSummary(
-          req,
-          res,
-          ctx,
-          pathname,
-          getRuntimeSettingsForConfig(),
-        ))
-      )
-        return;
-      if (
-        isBrowserAgentsPath(pathname) &&
-        (await handleBrowserAgentRoutes(
-          req,
-          res,
-          ctx,
-          pathname,
           url,
-          getRuntimeSettingsForConfig(),
-        ))
-      )
-        return;
-      if (
-        isBrowserMcpServerPath(pathname) &&
-        (await handleBrowserMcpServerRoutes(
-          req,
-          res,
-          ctx,
           pathname,
-          getRuntimeSettingsForConfig(),
-        ))
+          getSettings: getRuntimeSettingsForConfig,
+        })
       )
         return;
-      if (
-        pathname.startsWith('/ui/api/model-providers') &&
-        (await handleBrowserModelProviderRoutes(
-          req,
-          res,
-          pathname,
-          getRuntimeSettingsForConfig(),
-        ))
-      )
-        return;
-      const browserSettings = getRuntimeSettingsForConfig();
-      if (
-        await handleBrowserSkillRoutes(req, res, ctx, pathname, browserSettings)
-      )
-        return;
-      if (await handleBrowserAuthRoutes(req, res, ctx, pathname)) return;
-      if (pathname.startsWith('/ui/api/auth/')) {
-        sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
-        return;
-      }
       if (handleUiStatic(req, res, pathname, uiDistDir)) return;
       if (await handleOpenApiRoutes(req, res, pathname)) return;
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;

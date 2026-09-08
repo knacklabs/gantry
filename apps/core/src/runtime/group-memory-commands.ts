@@ -361,7 +361,7 @@ export async function saveGroupProcedureMemory(input: {
     source: 'explicit',
     confidence: 0.8,
     evidenceText: input.body,
-    actorId: 'agent',
+    actorId: { kind: 'system', source: 'agent' },
     isAdminWrite: input.isAdminWrite,
   });
 }

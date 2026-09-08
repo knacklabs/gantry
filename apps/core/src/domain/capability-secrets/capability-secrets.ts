@@ -1,4 +1,5 @@
 import type { AppId } from '../app/app.js';
+import type { PrincipalRef } from '../identity/principal-ref.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { BrandedId } from '../../shared/ids/branded-id.js';
 
@@ -9,8 +10,8 @@ export interface CapabilitySecretMetadata {
   appId: AppId;
   name: string;
   allowedCapabilityIds: string[];
-  createdBy?: string;
-  updatedBy?: string;
+  createdBy?: PrincipalRef;
+  updatedBy?: PrincipalRef;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
 }

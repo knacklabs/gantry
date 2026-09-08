@@ -282,6 +282,10 @@ maybeDescribe('MCP capability authoring (Postgres)', () => {
         getMcpServerRepository: () => runtime.repositories.mcpServers,
         getPermissionRepository: () => runtime.repositories.permissions,
         mirrorAgentToolRulesToSettings: async () => {},
+        resolveControlApproverPrincipal: async () => ({
+          kind: 'human' as const,
+          personId: 'person:mcp-capability-approver',
+        }),
       } as never,
       conversationBindings: {},
       sourceAgentFolderJids: ['tg:mcp-capability-authoring'],

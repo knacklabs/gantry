@@ -2348,6 +2348,57 @@ describe('pending interaction durability', () => {
     },
   );
 
+  it('cancels an approved callback when its AI employee is offboarded', async () => {
+    const row = permissionRow({
+      id: 'offboarded-agent-interaction',
+      agent: 'agent-a',
+      requestId: 'offboarded-agent-request',
+    });
+    (row.payload.request as { agentId?: string }).agentId = 'agent:offboarded';
+    const repository = permissionClaimRepository([row]);
+    const applyDecision = vi.fn(async () => true);
+    configurePendingInteractionPermissionCallbacks({
+      repository: repository as never,
+      executionAdmission: async (agentId) =>
+        agentId === 'agent:offboarded'
+          ? 'This AI employee is offboarded and cannot start another tool call.'
+          : undefined,
+      applyDecision,
+      resolve: async (input) =>
+        repository.resolvePendingInteraction({
+          idempotencyKey: row.idempotencyKey,
+          ...input,
+        }),
+    });
+    const claim = await claimPermissionInteractionCallback({
+      scope: {
+        appId: 'default',
+        sourceAgentFolder: 'agent-a',
+        interactionId: 'offboarded-agent-request',
+      },
+      mode: 'allow_once',
+      approverRef: 'person:approver',
+      matchKind: 'individual',
+    });
+    expect(claim.status).toBe('claimed');
+    if (claim.status !== 'claimed') throw new Error('claim failed');
+
+    await expect(
+      resolveDurablePermissionInteractionByRequestId({ claim: claim.claim }),
+    ).resolves.toBe(true);
+    expect(applyDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: expect.objectContaining({
+          approved: false,
+          mode: 'cancel',
+          reason:
+            'This AI employee is offboarded and cannot start another tool call.',
+        }),
+      }),
+    );
+    expect(row.status).toBe('cancelled');
+  });
+
   it('retries settlement with the same claim after authority application succeeds', async () => {
     const row = permissionRow({
       id: 'interaction-authority-before-settlement',

@@ -122,7 +122,7 @@ describe('patternCandidateDecisionHandler', () => {
           conversationId: 'u1',
           threadId: 'thread-1',
           eventType: RUNTIME_EVENT_TYPES.PROACTIVE_SURFACING_OUTCOME,
-          actor: 'runtime',
+          actor: { kind: 'system', source: 'runtime' },
           responseMode: 'none',
           payload: {
             subjectHash: sha256Hex('u1'),

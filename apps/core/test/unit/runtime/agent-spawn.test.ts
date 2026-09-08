@@ -1099,7 +1099,7 @@ describe('agent-spawn timeout behavior', () => {
         agentId: 'agent-one',
         runId: 'run-one',
         eventType: 'run.startup_diagnostic',
-        actor: 'runtime',
+        actor: { kind: 'system', source: 'runtime' },
         responseMode: 'none',
         payload: expect.objectContaining({
           provider: 'host',

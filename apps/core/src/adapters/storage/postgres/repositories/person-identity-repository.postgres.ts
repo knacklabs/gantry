@@ -33,6 +33,7 @@ import {
   personMergeFingerprint,
 } from '../../../../application/identity/person-identity-service.js';
 import type { RuntimeEventPublishInput } from '../../../../domain/events/events.js';
+import { serializePrincipalRef } from '../../../../domain/identity/principal-ref.js';
 import {
   assertAliasCanResolve,
   assertAliasOwnership,
@@ -68,6 +69,7 @@ import {
   PERSON_MERGE_DETAIL_LIMIT,
 } from './person-identity-merge-conflicts.postgres.js';
 import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
+import { findActiveIdentityAlias } from './person-identity-alias-lookup.postgres.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 type Executor = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -91,13 +93,14 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     // use of the person id any fresher. Reviews suggesting a lock here have
     // been rejected twice; merges re-point participants and re-key memory, so
     // stale ids self-heal at the data they touch.
-    const alias = await this.findActiveAlias(this.db, input);
-    if (alias) {
-      const mapped = toAlias(alias);
+    const identityAlias = await findActiveIdentityAlias(this.db, input);
+    if (identityAlias) {
+      const mapped = toAlias(identityAlias.alias);
       const result: IdentityResolveResult = {
         status: 'resolved',
         personId: mapped.personId,
-        memoryHydrationEligible: true,
+        memoryHydrationEligible: identityAlias.matchedPersonKind !== 'service',
+        isServicePerson: identityAlias.matchedPersonKind === 'service',
         matchedAlias: mapped,
         verificationStatus: mapped.verificationStatus,
       };
@@ -124,13 +127,14 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     }
     return await this.db.transaction(async (tx) => {
       await lockPersonAliasKey(tx, input);
-      const existing = await this.findActiveAlias(tx, input);
+      const existing = await findActiveIdentityAlias(tx, input);
       if (existing) {
-        const mapped = toAlias(existing);
+        const mapped = toAlias(existing.alias);
         const result = {
           status: 'resolved' as const,
           personId: mapped.personId,
-          memoryHydrationEligible: true,
+          memoryHydrationEligible: existing.matchedPersonKind !== 'service',
+          isServicePerson: existing.matchedPersonKind === 'service',
           matchedAlias: mapped,
           verificationStatus: mapped.verificationStatus,
         };
@@ -405,7 +409,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         .set({
           verificationStatus: 'retired',
           retiredAt: timestamp,
-          retiredBy: input.actor,
+          retiredBy: serializePrincipalRef(input.actor),
           updatedAt: timestamp,
         })
         .where(
@@ -563,7 +567,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           idempotencyKey,
           sourcePersonId: input.sourcePersonId,
           targetPersonId: input.targetPersonId,
-          actor: input.actor,
+          actor: serializePrincipalRef(input.actor),
           conflictResolution,
           aliasesMoved: preview.aliasesToMove.length,
           memoryRowsMoved: moved.movedMemoryIds.length,
@@ -799,10 +803,14 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
             eq(pgSchema.usersPostgres.id, audit.sourcePersonId),
           ),
         );
+      const unmergeResult = JSON.stringify({
+        unmergedAt: timestamp,
+        unmergedBy: input.actor,
+      });
       await tx
         .update(pgSchema.personMergeAuditPostgres)
         .set({
-          resultJson: sql`${pgSchema.personMergeAuditPostgres.resultJson} || jsonb_build_object('unmergedAt', ${timestamp}::text, 'unmergedBy', ${input.actor}::text)`,
+          resultJson: sql`${pgSchema.personMergeAuditPostgres.resultJson} || ${unmergeResult}::jsonb`,
           // Free the idempotency key: a repeat merge with the same deterministic
           // key must run fresh, not replay this spent (unmerged) audit.
           idempotencyKey: sql`${pgSchema.personMergeAuditPostgres.idempotencyKey} || ':unmerged:' || ${audit.id}`,

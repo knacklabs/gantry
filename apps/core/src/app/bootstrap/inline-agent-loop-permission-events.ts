@@ -20,7 +20,7 @@ export async function publishInlinePermissionEvent(
       conversationId: request.targetJid as never,
       threadId: request.threadId as never,
       eventType,
-      actor: 'permission',
+      actor: { kind: 'system', source: 'permission' },
       correlationId: request.requestId,
       payload,
     })

@@ -64,6 +64,7 @@ import {
   publishPermissionRuntimeEvent,
 } from './ipc-interaction-runtime-events.js';
 import { permissionRunRestriction } from './permission-decision-coordinator.js';
+import { resolvePermissionDecisionIdentity } from './ipc-permission-decision-identity.js';
 import * as remember from './permission-remember-settlement.js';
 
 export { publishPendingInteractionRuntimeEvent };
@@ -233,6 +234,14 @@ export async function processPermissionInteractionIpc(input: {
       fs.unlinkSync(input.claimedPath);
       return;
     }
+    const settledDecision = await resolvePermissionDecisionIdentity({
+      request: input.request,
+      sourceAgentFolder: input.sourceAgentFolder,
+      deps: input.deps,
+      decision,
+    });
+    decision = settledDecision.decision;
+    const decisionActor = settledDecision.actor;
     const claimedDecision = decision;
     await assertActiveScheduledPermissionLease(input);
     const decisionContext = permissionTelemetryContext(input.request, {
@@ -257,6 +266,7 @@ export async function processPermissionInteractionIpc(input: {
       request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
       decision,
+      actor: decisionActor,
       appId: input.request.appId,
       runId: input.request.runId,
       runLeaseToken: input.request.runLeaseToken,
@@ -335,6 +345,7 @@ export async function processPermissionInteractionIpc(input: {
         requestId: input.request.requestId,
         toolName: input.request.toolName,
         decision,
+        actor: decisionActor,
         permissionRepository: input.deps.getPermissionRepository?.(),
         conversationId: input.request.targetJid,
         threadId: input.request.threadId,
@@ -542,7 +553,7 @@ async function denyLockedPermissionInteraction(
       conversationId: input.request.targetJid as never,
       threadId: input.request.threadId as never,
       eventType: RUNTIME_EVENT_TYPES.PERMISSION_DENIED,
-      actor: `agent:${input.sourceAgentFolder}`,
+      actor: { kind: 'system', source: `agent:${input.sourceAgentFolder}` },
       correlationId: input.request.requestId,
       payload: {
         requestId: input.request.requestId,

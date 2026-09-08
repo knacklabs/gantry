@@ -3,10 +3,12 @@ import * as p from '@clack/prompts';
 import type { ConversationRoute } from '../domain/types.js';
 import {
   disableRemovedAgentProjection,
+  isAgentOffboardedForRemoval,
   isInteractiveTerminal,
   pruneDesiredStateAgent,
   resolveRoutelessAgentFolder,
 } from './group-helpers.js';
+import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
 
 /**
  * Remove an agent that has no conversation routes left.
@@ -32,6 +34,22 @@ export async function removeRoutelessAgent(input: {
     selector: input.selector,
   });
   if (!folder) return null;
+  if (folder === DEFAULT_AGENT_FOLDER) {
+    p.log.error(
+      `Agent ${folder} is the default agent (main_agent) and cannot be removed; it underpins runtime startup. Use \`gantry agent name\` to rename it instead.`,
+    );
+    return 1;
+  }
+
+  const offboarding = await isAgentOffboardedForRemoval(folder);
+  if (offboarding.error) {
+    p.log.error(`Could not verify offboarding status: ${offboarding.error}`);
+    return 1;
+  }
+  if (!offboarding.offboarded) {
+    p.log.error('Offboard this AI employee before removing it.');
+    return 1;
+  }
 
   if (!input.assumeYes) {
     if (!isInteractiveTerminal()) {

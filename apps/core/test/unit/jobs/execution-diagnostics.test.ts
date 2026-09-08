@@ -3,6 +3,7 @@ import { DEFAULT_AGENT_ENGINE } from '../../../src/shared/agent-engine.js';
 
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import {
+  browserRuntimeActivityEvents,
   createJobRunDiagnostics,
   filterUnforwardedRunnerRuntimeEvents,
   formatTerminalToolDenial,
@@ -15,6 +16,19 @@ import {
 } from '@core/jobs/execution-diagnostics.js';
 
 describe('job execution diagnostics', () => {
+  it('forwards only browser-gateway activity from durable runtime events', () => {
+    const events = [
+      { actor: { kind: 'system' as const, source: 'browser' }, id: 'browser' },
+      { actor: { kind: 'system' as const, source: 'runner' }, id: 'runner' },
+      {
+        actor: { kind: 'service' as const, personId: 'person:agent' },
+        id: 'agent',
+      },
+    ];
+
+    expect(browserRuntimeActivityEvents(events)).toEqual([events[0]]);
+  });
+
   it('deduplicates cumulative streamed runtime-event frames by invocation', () => {
     const event = (invocationId: string) => ({
       eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
