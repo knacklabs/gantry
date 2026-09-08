@@ -504,7 +504,7 @@ describe('IPC permission classifier decision', () => {
     }
   });
 
-  it('keeps jobId requests off the classifier and denies terminally without a deliverable route', async () => {
+  it('denies a host job before classifier consultation when no deliverable route exists and ignores a worker-forged jobId', async () => {
     const responseKeyId = 'autodet-job-response-key';
     const classifierConsult = vi.fn(async () => ({
       risk_level: 'low' as const,
