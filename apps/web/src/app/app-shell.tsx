@@ -45,9 +45,7 @@ export function AppShell() {
           <AppNavigation />
         </aside>
         <div className="grid min-w-0 grid-rows-[64px_minmax(0,1fr)]">
-          <header
-            className="relative flex min-w-0 items-center justify-between border-b border-border bg-surface/95 px-4 sm:px-[26px]"
-          >
+          <header className="relative flex min-w-0 items-center justify-between border-b border-border bg-surface/95 px-4 sm:px-[26px]">
             <div className="flex min-w-0 items-center gap-3">
               <ConnectionState state={runtimeState} />
             </div>
