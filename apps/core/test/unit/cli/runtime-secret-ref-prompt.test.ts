@@ -50,7 +50,7 @@ describe('runtime secret ref prompt', () => {
       runtimeHome: '/tmp/gantry-secret-ref-test',
       name: 'SLACK_BOT_TOKEN',
       value: 'xoxb-token',
-      actor: 'test',
+      actor: { kind: 'system', source: 'test' },
     });
   });
 

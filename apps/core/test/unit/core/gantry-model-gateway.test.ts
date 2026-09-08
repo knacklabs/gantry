@@ -757,7 +757,7 @@ describe('GantryModelGatewayBroker', () => {
           appId,
           runId: 'run:credential-audit',
           eventType: 'credential.model.used',
-          actor: 'gantry-model-gateway',
+          actor: { kind: 'system', source: 'gantry-model-gateway' },
           payload: expect.objectContaining({
             providerId: 'anthropic',
             outcome: 'forwarded',
@@ -846,7 +846,7 @@ describe('GantryModelGatewayBroker', () => {
         expect.objectContaining({
           appId,
           eventType: 'credential.model.used',
-          actor: 'gantry-model-gateway',
+          actor: { kind: 'system', source: 'gantry-model-gateway' },
           payload: expect.objectContaining({
             providerId: 'anthropic',
             outcome: 'token_issued',
@@ -947,7 +947,7 @@ describe('GantryModelGatewayBroker', () => {
         expect.objectContaining({
           appId,
           eventType: 'credential.model.used',
-          actor: 'gantry-model-gateway',
+          actor: { kind: 'system', source: 'gantry-model-gateway' },
           payload: expect.objectContaining({
             providerId: 'anthropic',
             outcome: 'token_issued',
@@ -984,7 +984,7 @@ describe('GantryModelGatewayBroker', () => {
         expect.objectContaining({
           appId,
           eventType: 'credential.model.used',
-          actor: 'gantry-model-gateway',
+          actor: { kind: 'system', source: 'gantry-model-gateway' },
           payload: expect.objectContaining({
             providerId: 'anthropic',
             tokenScope: 'api_key:control-key-a',
@@ -2723,7 +2723,7 @@ describe('GantryModelGatewayBroker', () => {
         expect.objectContaining({
           appId,
           eventType: 'credential.model.used',
-          actor: 'gantry-model-gateway',
+          actor: { kind: 'system', source: 'gantry-model-gateway' },
           payload: expect.objectContaining({
             providerId: 'anthropic',
             outcome: 'rate_limited',

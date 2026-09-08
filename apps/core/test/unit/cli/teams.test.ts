@@ -384,19 +384,19 @@ describe('cli teams helpers', () => {
       runtimeHome,
       name: test2TeamsClientIdSecretName,
       value: 'client-id',
-      actor: 'cli:teams-connect',
+      actor: { kind: 'system', source: 'cli:teams-connect' },
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
       name: test2TeamsClientSecretName,
       value: 'client-secret',
-      actor: 'cli:teams-connect',
+      actor: { kind: 'system', source: 'cli:teams-connect' },
     });
     expect(storeRuntimeSecretInput).toHaveBeenCalledWith({
       runtimeHome,
       name: test2TeamsTenantIdSecretName,
       value: 'tenant-id',
-      actor: 'cli:teams-connect',
+      actor: { kind: 'system', source: 'cli:teams-connect' },
     });
     expect(readEnvFile(envFilePath(runtimeHome))).not.toHaveProperty(
       'TEAMS_CLIENT_ID',
