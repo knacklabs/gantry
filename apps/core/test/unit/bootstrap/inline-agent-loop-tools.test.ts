@@ -449,7 +449,10 @@ describe('inline core tool bootstrap', () => {
       },
     ]);
     wire({
-      getAgentRepository: () => ({ listAgents }),
+      getAgentRepository: () => ({
+        listAgents,
+        getAgent: vi.fn(async () => ({ status: 'active' })),
+      }),
       getPermissionRuntimeSettings: () => ({
         agents: {
           main_agent: { delegates: ['reviewer'] },
@@ -559,7 +562,10 @@ describe('inline core tool bootstrap', () => {
     ]);
     wire({
       getAsyncTaskRepository: () => repository,
-      getAgentRepository: () => ({ listAgents }),
+      getAgentRepository: () => ({
+        listAgents,
+        getAgent: vi.fn(async () => ({ status: 'active' })),
+      }),
       getPermissionRuntimeSettings: () => ({
         agents: {
           main_agent: { delegates: ['reviewer'] },

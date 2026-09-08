@@ -3020,7 +3020,7 @@ describe('createChannelWiring', () => {
         conversationId: 'sl:C123',
         threadId: '1700.1',
         eventType: 'conversation.message.outbound',
-        actor: 'agent',
+        actor: { kind: 'system', source: 'agent' },
         responseMode: 'none',
         payload: expect.objectContaining({
           conversationId: 'conversation:slack_default:sl:C123',
