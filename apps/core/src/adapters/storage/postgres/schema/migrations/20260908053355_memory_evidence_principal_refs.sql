@@ -11,7 +11,7 @@ FROM "users" AS person
 WHERE evidence."app_id" = person."app_id"
   AND evidence."actor_id" = person."id"
   AND person."kind" IN ('human', 'service')
-  AND evidence."actor_id" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND evidence."actor_id" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "memory_evidence" AS evidence
@@ -27,7 +27,7 @@ JOIN "users" AS person
 WHERE evidence."app_id" = alias."app_id"
   AND evidence."actor_id" = alias."id"
   AND person."kind" IN ('human', 'service')
-  AND evidence."actor_id" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND evidence."actor_id" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "memory_evidence" AS evidence
@@ -39,7 +39,7 @@ FROM "users" AS person
 WHERE evidence."app_id" = person."app_id"
   AND evidence."actor_id" = person."agent_id"
   AND person."kind" = 'service'
-  AND evidence."actor_id" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND evidence."actor_id" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "memory_evidence"
@@ -47,7 +47,7 @@ SET "actor_id" = json_build_object(
   'kind', 'system', 'source', "actor_id"
 )::text
 WHERE "actor_id" IS NOT NULL
-  AND "actor_id" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND "actor_id" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "memory_items" AS item

@@ -11,7 +11,7 @@ FROM "users" AS person
 WHERE audit."app_id" = person."app_id"
   AND audit."actor" = person."id"
   AND person."kind" IN ('human', 'service')
-  AND audit."actor" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND audit."actor" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "person_merge_audit" AS audit
@@ -27,7 +27,7 @@ JOIN "users" AS person
 WHERE audit."app_id" = alias."app_id"
   AND audit."actor" = alias."id"
   AND person."kind" IN ('human', 'service')
-  AND audit."actor" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND audit."actor" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "person_merge_audit" AS audit
@@ -39,11 +39,11 @@ FROM "users" AS person
 WHERE audit."app_id" = person."app_id"
   AND audit."actor" = person."agent_id"
   AND person."kind" = 'service'
-  AND audit."actor" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND audit."actor" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "person_merge_audit"
 SET "actor" = json_build_object(
   'kind', 'system', 'source', "actor"
 )::text
-WHERE "actor" !~ '^\\s*\\{\\s*"kind"\\s*:';
+WHERE "actor" !~ E'^\\s*\\{\\s*"kind"\\s*:';

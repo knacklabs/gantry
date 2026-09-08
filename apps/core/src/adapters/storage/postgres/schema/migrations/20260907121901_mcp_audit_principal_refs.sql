@@ -5,4 +5,4 @@
 UPDATE mcp_server_audit_events
 SET actor_id = json_build_object('kind', 'system', 'source', actor_id)::text
 WHERE actor_id IS NOT NULL
-  AND actor_id !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND actor_id !~ E'^\\s*\\{\\s*"kind"\\s*:';

@@ -5,4 +5,4 @@
 -- literal as the system source instead of guessing a human or service Person.
 UPDATE runtime_events
 SET actor = json_build_object('kind', 'system', 'source', actor)::text
-WHERE actor !~ '^\\s*\\{\\s*"kind"\\s*:';
+WHERE actor !~ E'^\\s*\\{\\s*"kind"\\s*:';

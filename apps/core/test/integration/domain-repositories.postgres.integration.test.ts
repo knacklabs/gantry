@@ -526,7 +526,7 @@ maybeDescribe('Postgres domain repositories', () => {
       externalUserId: 'U-service-identity',
       displayName: 'Support bot',
       evidenceType: 'provider_user',
-      actor: 'test',
+      actor: { kind: 'system', source: 'test' },
     });
 
     await expect(
@@ -1455,7 +1455,7 @@ maybeDescribe('Postgres domain repositories', () => {
       name: 'github_token',
       value: 'plain-token-value',
       allowedCapabilityIds: ['mcp:github'],
-      actor: 'test',
+      actor: { kind: 'system', source: 'test' },
       now,
     });
 
@@ -1463,8 +1463,8 @@ maybeDescribe('Postgres domain repositories', () => {
       appId,
       name: 'GITHUB_TOKEN',
       allowedCapabilityIds: ['mcp:github'],
-      createdBy: 'test',
-      updatedBy: 'test',
+      createdBy: { kind: 'system', source: 'test' },
+      updatedBy: { kind: 'system', source: 'test' },
     });
     await expect(
       repository.getSecret({ appId, name: 'GITHUB_TOKEN' }),

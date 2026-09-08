@@ -11,7 +11,7 @@ FROM "users" AS person
 WHERE decision."app_id" = person."app_id"
   AND decision."approver_ref" = person."id"
   AND person."kind" IN ('human', 'service')
-  AND decision."approver_ref" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND decision."approver_ref" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 -- Alias IDs retain their historic identity even after alias retirement.
@@ -28,7 +28,7 @@ JOIN "users" AS person
 WHERE decision."app_id" = alias."app_id"
   AND decision."approver_ref" = alias."id"
   AND person."kind" IN ('human', 'service')
-  AND decision."approver_ref" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND decision."approver_ref" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 -- An Agent configuration identifier resolves through its service Person.
@@ -41,7 +41,7 @@ FROM "users" AS person
 WHERE decision."app_id" = person."app_id"
   AND decision."approver_ref" = person."agent_id"
   AND person."kind" = 'service'
-  AND decision."approver_ref" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND decision."approver_ref" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 -- A conversation approval is authority-bearing. It must resolve through the
@@ -58,7 +58,7 @@ WHERE decision."app_id" = approver."app_id"
   AND approver."external_user_id" = decision."approver_ref"
   AND approver."person_id" IS NOT NULL
   AND decision."actor_context_json" LIKE '%"conversationId"%'
-  AND decision."approver_ref" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND decision."approver_ref" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 DO $$
@@ -68,7 +68,7 @@ BEGIN
     FROM "permission_decisions" AS decision
     WHERE decision."approver_ref" IS NOT NULL
       AND decision."actor_context_json" LIKE '%"conversationId"%'
-      AND decision."approver_ref" !~ '^\\s*\\{\\s*"kind"\\s*:'
+      AND decision."approver_ref" !~ E'^\\s*\\{\\s*"kind"\\s*:'
       AND decision."approver_ref" NOT IN (
         'runtime',
         'system',
@@ -96,7 +96,7 @@ SET "approver_ref" = json_build_object(
   "approver_ref"
 )::text
 WHERE "approver_ref" IS NOT NULL
-  AND "approver_ref" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND "approver_ref" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 -- Permission audit events have no conversation authority context. Resolve
@@ -110,7 +110,7 @@ FROM "users" AS person
 WHERE audit."app_id" = person."app_id"
   AND audit."actor_id" = person."id"
   AND person."kind" IN ('human', 'service')
-  AND audit."actor_id" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND audit."actor_id" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "permission_audit_events" AS audit
@@ -126,7 +126,7 @@ JOIN "users" AS person
 WHERE audit."app_id" = alias."app_id"
   AND audit."actor_id" = alias."id"
   AND person."kind" IN ('human', 'service')
-  AND audit."actor_id" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND audit."actor_id" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "permission_audit_events" AS audit
@@ -138,7 +138,7 @@ FROM "users" AS person
 WHERE audit."app_id" = person."app_id"
   AND audit."actor_id" = person."agent_id"
   AND person."kind" = 'service'
-  AND audit."actor_id" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND audit."actor_id" !~ E'^\\s*\\{\\s*"kind"\\s*:';
 --> statement-breakpoint
 
 UPDATE "permission_audit_events"
@@ -147,4 +147,4 @@ SET "actor_id" = json_build_object(
   'source', "actor_id"
 )::text
 WHERE "actor_id" IS NOT NULL
-  AND "actor_id" !~ '^\\s*\\{\\s*"kind"\\s*:';
+  AND "actor_id" !~ E'^\\s*\\{\\s*"kind"\\s*:';
