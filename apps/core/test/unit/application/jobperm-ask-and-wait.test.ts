@@ -65,7 +65,12 @@ it('jobperm-1-t1-card-not-cancel', async () => {
       'human',
     ),
   }));
-  const classifierConsult = vi.fn();
+  const classifierConsult = vi.fn(async () => ({
+    risk_level: 'high' as const,
+    risk_category: 'privileged' as const,
+    reason: 'The job call needs human approval.',
+    latencyMs: 1,
+  }));
   registerWorkerPermissionRunRestriction({
     sourceAgentFolder: 'main_agent',
     responseKeyId,
@@ -112,8 +117,10 @@ it('jobperm-1-t1-card-not-cancel', async () => {
       jobId: 'job-1',
       decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
       suggestions: [PERSISTENT_RUN_COMMAND_UPDATE],
+      risk_level: 'high',
+      risk_category: 'privileged',
     });
-    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(classifierConsult).toHaveBeenCalledOnce();
 
     requestPermissionApproval.mockResolvedValueOnce({
       kind: 'decision',
@@ -160,7 +167,7 @@ it('jobperm-1-t1-card-not-cancel', async () => {
       decidedBy: 'operator-1',
     });
     expect(requestPermissionApproval).toHaveBeenCalledTimes(2);
-    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(classifierConsult).toHaveBeenCalledTimes(2);
 
     const browserResponseKeyId = 'jobperm-browser-response-key';
     registerWorkerPermissionRunRestriction({
@@ -212,7 +219,7 @@ it('jobperm-1-t1-card-not-cancel', async () => {
         decidedBy: 'reviewed_rule',
       });
       expect(requestPermissionApproval).toHaveBeenCalledTimes(2);
-      expect(classifierConsult).not.toHaveBeenCalled();
+      expect(classifierConsult).toHaveBeenCalledTimes(2);
     } finally {
       unregisterPermissionRunRestriction({
         sourceAgentFolder: 'main_agent',

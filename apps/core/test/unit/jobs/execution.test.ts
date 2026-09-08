@@ -1401,6 +1401,65 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('binds the canonical job owner from execution_context.personId into the scheduled AgentInput and a null owner for a group-created job without changing memoryUserId', async () => {
+    const ownedJob = makeJob({
+      execution_context: {
+        conversationJid: 'tg:scheduler',
+        threadId: 'thread-scheduled',
+        workspaceKey: 'scheduler_agent',
+        personId: 'person-owner',
+      },
+    });
+    const ownedRunAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'owned job completed',
+    }));
+
+    await runJob(
+      ownedJob,
+      {
+        conversationRoutes: () => ({
+          'tg:scheduler': { ...makeRoute(), conversationKind: 'dm' },
+        }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: makeOpsRepository(ownedJob) as never,
+        runAgent: ownedRunAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    const ownedInput = ownedRunAgent.mock.calls[0]?.[1];
+    expect(ownedInput).toMatchObject({
+      jobOwnerPersonId: 'person-owner',
+      memoryUserId: 'tg:scheduler',
+    });
+    expect(ownedInput?.memoryUserId).toBe('tg:scheduler');
+
+    const groupJob = makeJob();
+    const groupRunAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'group job completed',
+    }));
+    await runJob(
+      groupJob,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: makeOpsRepository(groupJob) as never,
+        runAgent: groupRunAgent as never,
+      },
+      'tg:scheduler',
+    );
+    expect(groupRunAgent.mock.calls[0]?.[1]).toMatchObject({
+      jobOwnerPersonId: null,
+      memoryUserId: undefined,
+    });
+  });
+
   it('does not persist streamed provider resume handles in the job-owned session scope', async () => {
     const job = makeJob();
     const opsRepository = {

@@ -1,0 +1,12 @@
+{
+  "topic": "review-p1-hardfloor",
+  "lesson": "Stage autoreview P1 (must fix in this run, then re-run the coordinator and IPC suites plus the full unit suite): apps/core/src/runtime/permission-decision-coordinator.ts around :243 \u2014 the job projection block is gated only by railAllowsOverride, whose typed-signal cases do NOT exclude railDecision.hardFloor === true, so an autonomous request with a hard-floor out_of_trusted_root or read-only unsupported_meta_executor ASK enters the block and an exact or kind memory match returns an approved human_decision. Omitting place candidates for an escaping target does not protect the exact and kind candidates. Fix: require railDecision?.hardFloor !== true BEFORE invoking the guard or the projection (same explicit guard the IPC classifier predicate now has). Pin it in apps/core/test/unit/runtime/permission-decision-coordinator.test.ts inside the required leaf: a hard-floor ASK (both hardFloor signals) with an exact match AND with a kind match in the repository must NOT be approved \u2014 zero repository calls, the ASK stands \u2014 and the existing overridable-ASK cases stay approved.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T04:51:41+00:00"
+}

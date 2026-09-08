@@ -67,6 +67,7 @@ export interface AgentInput {
   chatJid: string;
   threadId?: string;
   memoryUserId?: string;
+  jobOwnerPersonId?: string | null;
   memoryDefaultScope?: 'user' | 'group';
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;

@@ -109,6 +109,7 @@ import {
   startAsyncTaskRecoveryLoop,
 } from './runtime-services-async-task-recovery.js';
 import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
+import { PermissionManagementService } from '../../application/permissions/permission-management-service.js';
 import { createGroupSnapshotSync } from './runtime-services-group-snapshot-sync.js';
 import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
 import { createAttachmentOpen } from './attachment-resolver-wiring.js';
@@ -133,7 +134,6 @@ export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
   });
 }
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
-
 // prettier-ignore
 type LiveTurnCommandWakeupSourceFactory = () => LiveTurnCommandWakeupSource | undefined;
 // prettier-ignore
@@ -341,6 +341,8 @@ export async function startRuntimeServices(
     getAgentRepository: resolved.getAgentRepository,
     getMcpServerRepository: resolved.getMcpServerRepository,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
+    // prettier-ignore
+    recordDecision: (decision) => new PermissionManagementService().recordDecision({ ...decision, permissionRepository: resolved.getPermissionRepository?.() }),
     warn: (context, message) => resolved.logger.warn(context, message),
   });
   const asyncTaskRecoveryDeps = {

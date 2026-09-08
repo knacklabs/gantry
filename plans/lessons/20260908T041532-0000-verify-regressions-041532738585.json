@@ -1,0 +1,14 @@
+{
+  "topic": "verify-regressions",
+  "lesson": "Host verify after run 3: 9,154 of 9,157 unit tests pass; THREE failures must be fixed in this run (then re-run the full unit suite yourself: npx vitest run -c vitest.unit.config.ts). (1) apps/core/test/unit/application/jobperm-ask-and-wait.test.ts \"jobperm-1-t1-card-not-cancel\": TypeError reading 'risk_level' of undefined at :78 \u2014 a job request whose classifier result is ASK now reaches the card path without the risk fields the job route guard used to carry; the card payload for a job ask must keep its risk_level/risk fields exactly as before (0156 changes WHEN the classifier runs, never the card shape). (2) apps/core/test/unit/runtime/askfloor-tap-budget.test.ts \"S3: 2>/dev/null and read-only find cost 0 taps in interactive auto\": expected 0 taps, got 1 decidedBy owner \u2014 this is the INTERACTIVE lane, which the contract says is untouched; the coordinator's new humanDecisionProjection/guard insertion must be a no-op when the input is absent or the lane is interactive (find the exact change that altered the interactive first-ask path and confine it to job requests). (3) same file, \"keeps today's outcome for the TB1 TB2 TB3 TB4 fixtures under auto_strict, ask and autonomous\": the fixture harness throws \"Expected the LLM classifier consult not to be invoked\" for the autonomous lane \u2014 under 0156 the classifier IS consulted on a job miss, so update the autonomous row of that fixture (and the harness expectation) to the ladder: projection miss -> classifier consulted -> allow runs / ask -> card; keep auto_strict and ask rows unchanged.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/application/jobperm-ask-and-wait.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T04:15:32+00:00"
+}
