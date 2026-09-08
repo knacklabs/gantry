@@ -13,6 +13,55 @@ function secretRefName(ref: { ref?: string; env?: string }): string {
 }
 
 describe('RuntimeSecretConversationMembershipValidator', () => {
+  it('lists Slack conversation member IDs without exposing credentials', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, members: ['U123', 'U456'] }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const validator = new RuntimeSecretConversationMembershipValidator({
+      getSecret(ref) {
+        const value = this.getOptionalSecret(ref);
+        if (!value) throw new Error(`missing ${secretRefName(ref)}`);
+        return value;
+      },
+      getOptionalSecret(ref) {
+        return { SLACK_BOT_TOKEN: 'slack-token' }[secretRefName(ref)];
+      },
+    });
+
+    await expect(
+      validator.listConversationMemberIds({
+        providerId: 'slack' as never,
+        providerAccount: {
+          id: 'providerAccount-slack',
+          appId: 'default' as never,
+          agentId: 'main_agent' as never,
+          providerId: 'slack' as never,
+          label: 'Slack',
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
+          createdAt: iso,
+          updatedAt: iso,
+        },
+        conversation: {
+          id: 'conversation:slack:C123' as never,
+          appId: 'default' as never,
+          providerAccountId: 'providerAccount-slack' as never,
+          externalRef: { kind: 'conversation', value: 'slack:C123' },
+          kind: 'channel',
+          title: 'Support',
+          status: 'active',
+          createdAt: iso,
+          updatedAt: iso,
+        },
+        userIds: [],
+      }),
+    ).resolves.toEqual(['U123', 'U456']);
+  });
+
   it('normalizes Telegram prefix provider IDs before validating approvers', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

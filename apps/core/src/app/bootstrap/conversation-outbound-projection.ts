@@ -72,7 +72,7 @@ export function createConversationOutboundProjection(input: {
           conversationId: input.conversationJid as never,
           ...(input.threadId ? { threadId: input.threadId as never } : {}),
           eventType: RUNTIME_EVENT_TYPES.CONVERSATION_MESSAGE_OUTBOUND,
-          actor: 'agent',
+          actor: { kind: 'system', source: 'agent' },
           responseMode: 'none',
           payload: {
             messageId,

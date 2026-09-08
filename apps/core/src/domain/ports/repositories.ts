@@ -11,6 +11,7 @@ import type {
   CapabilitySecret,
   CapabilitySecretMetadata,
 } from '../capability-secrets/capability-secrets.js';
+import type { PrincipalRef } from '../identity/principal-ref.js';
 import type {
   ModelCredential,
   ModelCredentialFieldFingerprint,
@@ -276,6 +277,11 @@ export interface ConversationRepository {
   listConversationApprovers(
     conversationId: ConversationId,
   ): Promise<ConversationApprover[]>;
+  resolveConversationApproverPrincipal(input: {
+    appId: AppId;
+    conversationId: ConversationId;
+    externalUserId: string;
+  }): Promise<{ personId: string; aliasId?: string } | null>;
   listConversationApproversForConversations(
     conversationIds: readonly ConversationId[],
   ): Promise<ConversationApprover[]>;
@@ -572,7 +578,7 @@ export interface CapabilitySecretRepository {
     name: string;
     value: string;
     allowedCapabilityIds?: string[];
-    actor?: string;
+    actor?: PrincipalRef;
     now?: string;
   }): Promise<CapabilitySecretMetadata>;
   deleteSecret(input: { appId: AppId; name: string }): Promise<boolean>;

@@ -29,6 +29,7 @@ import {
 import { learnRememberedDecision } from '../../../application/permissions/human-decision-learning.js';
 import { HumanDecisionMemoryService } from '../../../application/permissions/human-decision-memory-service.js';
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
+import { executionAdmissionForAgent } from '../../../application/agents/agent-execution-admission.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import {
   type IdentityResolveInput,
@@ -132,6 +133,11 @@ export async function initializeRuntimeStorage(
     configurePendingInteractionDurability({
       repository: nextRuntime.repositories.workerCoordination,
       liveTurns: nextRuntime.repositories.liveTurns,
+      executionAdmission: (agentId) =>
+        executionAdmissionForAgent({
+          agentId,
+          getAgentRepository: () => nextRuntime.repositories.agents,
+        }),
       learn: permissionRememberLearner(nextRuntime),
       warn: (context, message) => logger.warn(context, message),
     });
@@ -522,6 +528,11 @@ export function _setRuntimeStorageForTest(
       ? {
           repository: workerCoordination,
           liveTurns: nextRuntime.repositories?.liveTurns ?? null,
+          executionAdmission: (agentId) =>
+            executionAdmissionForAgent({
+              agentId,
+              getAgentRepository: () => nextRuntime.repositories.agents,
+            }),
           learn: permissionRememberLearner(nextRuntime),
         }
       : null,

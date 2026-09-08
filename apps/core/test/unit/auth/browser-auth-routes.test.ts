@@ -25,6 +25,13 @@ it('browser authentication routes > keeps browser protocol routes separate and r
     path.join(repoRoot, 'apps/core/src/control/server/index.ts'),
     'utf8',
   );
+  const browserDispatch = fs.readFileSync(
+    path.join(
+      repoRoot,
+      'apps/core/src/control/server/browser-route-dispatch.ts',
+    ),
+    'utf8',
+  );
   const mcpServers = fs.readFileSync(
     path.join(
       repoRoot,
@@ -70,13 +77,13 @@ it('browser authentication routes > keeps browser protocol routes separate and r
   expect(source).toContain('RUNTIME_EVENT_TYPES.AUTH_INVITATION_ACCEPTED');
   expect(source).toContain('RUNTIME_EVENT_TYPES.AUTH_INVITATION_REVOKED');
   expect(server.indexOf("if (routeProfile === 'ops')")).toBeLessThan(
-    server.indexOf('browserRequestHasBearer(req)'),
+    server.indexOf('handleBrowserControlRoutes('),
   );
-  expect(server.indexOf('browserRequestHasBearer(req)')).toBeLessThan(
-    server.indexOf('handleBrowserMcpServerRoutes('),
-  );
-  expect(server.indexOf('handleBrowserMcpServerRoutes(')).toBeLessThan(
-    server.indexOf('handleBrowserModelProviderRoutes('),
+  expect(
+    browserDispatch.indexOf('browserRequestHasBearer(input.req)'),
+  ).toBeLessThan(browserDispatch.indexOf('handleBrowserMcpServerRoutes('));
+  expect(browserDispatch.indexOf('handleBrowserMcpServerRoutes(')).toBeLessThan(
+    browserDispatch.indexOf('handleBrowserModelProviderRoutes('),
   );
   expect(mcpServers).toContain("'mcp:read'");
   expect(mcpServers).toContain("'mcp:admin'");

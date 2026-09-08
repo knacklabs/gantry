@@ -478,7 +478,7 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     const auditDecision = await permissionDecisionRow(result.request.requestId);
     expect(auditDecision).toMatchObject({
       effect: 'allow',
-      approverRef: APPROVER,
+      approverRef: JSON.stringify({ kind: 'system', source: APPROVER }),
     });
     const events = await runtimeEvents(result.request.requestId);
     expect(events.map((event) => event.eventType)).toEqual([

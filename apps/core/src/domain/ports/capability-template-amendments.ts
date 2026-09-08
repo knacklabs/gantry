@@ -1,3 +1,5 @@
+import type { PrincipalRef } from '../identity/principal-ref.js';
+
 export type CapabilityTemplateAmendmentStatus =
   | 'pending'
   | 'approved'
@@ -57,6 +59,7 @@ export interface CapabilityTemplateAmendmentRepository {
     expectedReviewedSchemaHash: string;
     proposedTemplates: string[];
     approvedBy: string;
+    approvedByPrincipal: PrincipalRef;
     approvedAt: string;
   }): Promise<
     | { status: 'amended'; historyId: string; auditEventId: string }

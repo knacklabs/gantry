@@ -255,7 +255,7 @@ export async function notifyJobSetupRequired(input: {
       setupState: input.setupState,
       notified,
     }),
-    actor: 'scheduler',
+    actor: { kind: 'system', source: 'scheduler' },
     sessionId: input.appSession?.sessionId as never,
     jobId: input.currentJob.id as never,
     responseMode: input.appSession?.defaultResponseMode,

@@ -71,7 +71,7 @@ export class CapabilityStarvationAlerter {
       await this.deps.publishRuntimeEvent({
         appId: signal.appId as never,
         eventType: RUNTIME_EVENT_TYPES.TASK_NOTIFICATION,
-        actor: 'scheduler',
+        actor: { kind: 'system', source: 'scheduler' },
         jobId: (signal.jobId ?? undefined) as never,
         runId: (signal.runId ?? undefined) as never,
         payload: {

@@ -107,7 +107,7 @@ export function buildRunnerHostStartupDiagnosticEvent(
     ...(conversationId ? { conversationId } : {}),
     ...(threadId ? { threadId } : {}),
     eventType: RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC as RuntimeEventType,
-    actor: 'runtime',
+    actor: { kind: 'system', source: 'runtime' },
     responseMode: 'none',
     payload: {
       provider: 'host',

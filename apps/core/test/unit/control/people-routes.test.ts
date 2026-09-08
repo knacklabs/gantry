@@ -658,7 +658,7 @@ describe('people control routes', () => {
         targetPersonId: 'person-target',
         auditId: 'audit-1',
         expectedFingerprint: 'sha256:preview',
-        actor: 'test',
+        actor: { kind: 'system', source: 'test' },
       },
       expect.any(Function),
     );

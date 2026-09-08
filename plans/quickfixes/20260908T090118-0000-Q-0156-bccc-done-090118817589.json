@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0156-bccc",
+  "profile": "quickfix",
+  "reason": "Simplify the Directory role-management UI: replace the Roles tab with a Role library route and clarify the directory's table/filter vocabulary.",
+  "started_at": "2026-09-08T08:51:22+00:00",
+  "completed_at": "2026-09-08T09:01:18+00:00",
+  "files": []
+}

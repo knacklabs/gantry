@@ -1096,7 +1096,7 @@ describe('executeRunnerProcess', () => {
           agentId: 'agent:test',
           runId: 'agent-run:test-visible',
           eventType: 'run.startup_diagnostic',
-          actor: 'runtime',
+          actor: { kind: 'system', source: 'runtime' },
           responseMode: 'none',
           payload: expect.objectContaining({
             provider: 'host',

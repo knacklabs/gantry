@@ -92,7 +92,7 @@ async function denyLockedIpcTask(
       conversationId: data.chatJid as never,
       threadId: data.authThreadId as never,
       eventType: RUNTIME_EVENT_TYPES.PERMISSION_DENIED,
-      actor: `agent:${sourceAgentFolder}`,
+      actor: { kind: 'system', source: `agent:${sourceAgentFolder}` },
       payload: {
         taskType: data.type,
         reasonCode: DENIED_BY_PROFILE_REASON,

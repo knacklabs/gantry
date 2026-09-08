@@ -12,9 +12,11 @@ import { agentModelsQuery } from '../agents-queries';
 const DEPLOYMENT_DEFAULT_MODEL = '__deployment_default__';
 
 export function AgentModelSelect({
+  disabled = false,
   value,
   onValueChange,
 }: {
+  disabled?: boolean;
   value: string | null;
   onValueChange: (value: string | null) => void;
 }) {
@@ -23,6 +25,7 @@ export function AgentModelSelect({
     <label className="grid gap-1.5 text-xs font-semibold text-text">
       Model
       <Select
+        disabled={disabled}
         value={value ?? DEPLOYMENT_DEFAULT_MODEL}
         onValueChange={(next) =>
           onValueChange(next === DEPLOYMENT_DEFAULT_MODEL ? null : next)

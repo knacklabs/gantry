@@ -46,7 +46,7 @@ export function publishRunnerProcessStartupDiagnostic(input: {
         }
       : {}),
     eventType: RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC,
-    actor: 'runtime',
+    actor: { kind: 'system', source: 'runtime' },
     responseMode: 'none',
     payload: {
       provider: 'host',

@@ -141,7 +141,7 @@ describe('locked agent parent-side permission IPC denial', () => {
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'permission.denied',
-        actor: 'agent:support_agent',
+        actor: { kind: 'system', source: 'agent:support_agent' },
         correlationId: 'perm-forged-locked',
         payload: expect.objectContaining({
           reasonCode: 'denied_by_profile',

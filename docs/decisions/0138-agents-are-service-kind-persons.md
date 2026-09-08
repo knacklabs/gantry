@@ -1,6 +1,6 @@
 ---
-status: proposed
-confirmed_by: ""
+status: accepted
+confirmed_by: 'Ravi'
 date: 2026-08-26
 stories: [IDENT-2, AUDIT-1, IDENT-4]
 ---
@@ -21,8 +21,9 @@ meant to remove.
 
 An agent's canonical identity is a `kind: service` Person bound one-to-one to its
 `agentId`, created with the agent and never minted from a live message. Provider
-Accounts and Connector Accounts are aliases of that Person (`provider_account`,
-`connector_account`). `PrincipalRef` is `{ kind: human | service | system,
+Accounts are aliases of that Person (`provider_account`). Connector Accounts may
+use the same projection only after Gantry persists their lifecycle; they are absent
+from IDENT-2. `PrincipalRef` is `{ kind: human | service | system,
 personId?, aliasId? }`. One alias table, one uniqueness rule across kinds, one
 offboard use case for both kinds. IDENTITY-02 is reconciled to this model; the
 spec `agent-identity-and-offboarding` is the contract.

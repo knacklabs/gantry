@@ -556,7 +556,7 @@ describe('cli telegram helpers', () => {
       runtimeHome,
       name: defaultTelegramBotSecretName,
       value: 'telegram-token',
-      actor: 'cli:telegram-connect',
+      actor: { kind: 'system', source: 'cli:telegram-connect' },
     });
     expect(loadRuntimeSettings(runtimeHome).providers.telegram.enabled).toBe(
       true,
@@ -641,7 +641,7 @@ describe('cli telegram helpers', () => {
       runtimeHome,
       name: defaultTelegramBotSecretName,
       value: 'telegram-token',
-      actor: 'cli:telegram-connect',
+      actor: { kind: 'system', source: 'cli:telegram-connect' },
     });
   });
 
@@ -737,7 +737,7 @@ describe('cli telegram helpers', () => {
       runtimeHome,
       name: test2TelegramBotSecretName,
       value: 'telegram-token',
-      actor: 'cli:telegram-connect',
+      actor: { kind: 'system', source: 'cli:telegram-connect' },
     });
     expect(registerTelegramMainGroup).toHaveBeenCalledWith(
       expect.objectContaining({

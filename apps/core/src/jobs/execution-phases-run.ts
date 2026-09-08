@@ -27,7 +27,7 @@ import { normalizeCleanupAfterMs } from './cleanup.js';
 import { collectCompactBoundaryMemory, collectJobCompletionMemory } from './compact-memory.js';
 import { createJobExecutionDeletionGuard } from './execution-deletion-guard.js';
 // prettier-ignore
-import { createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload } from './execution-diagnostics.js';
+import { browserRuntimeActivityEvents, createJobRunDiagnostics, createStreamingEventFlusher, filterUnforwardedRunnerRuntimeEvents, formatTerminalToolDenial, forwardRunnerRuntimeEvents, runnerRuntimeEventKey, terminalDiagnosticsPayload } from './execution-diagnostics.js';
 import {
   buildExecutionTurnContextInput,
   resolveExecutionMemoryContext,
@@ -438,9 +438,7 @@ async function settleActiveJobAgentOutput(
       eventTypes: [RUNTIME_EVENT_TYPES.TOOL_ACTIVITY],
     });
     await forwardRunnerRuntimeEvents({
-      events: browserActivityEvents.filter(
-        (event) => event.actor === 'browser',
-      ),
+      events: browserRuntimeActivityEvents(browserActivityEvents),
       diagnostics: context.diagnostics!,
     });
     await context.updateRunProviderMetadata!({ force: true });

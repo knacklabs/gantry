@@ -878,6 +878,11 @@ describe('ipc-interaction-handler', () => {
       saveAgentToolBinding: vi.fn(async () => undefined),
       disableAgentToolBinding: vi.fn(async () => null),
     };
+    const resolveControlApproverPrincipal = vi.fn(async () => ({
+      kind: 'human' as const,
+      personId: 'person:owner',
+      aliasId: 'alias:owner',
+    }));
 
     await processPermissionInteractionIpc({
       request: {
@@ -899,6 +904,7 @@ describe('ipc-interaction-handler', () => {
             approved: true,
             mode: 'allow_persistent_rule',
             decidedBy: 'owner',
+            source: 'human_persistent',
             reason: 'persistent tool allowed',
             decisionClassification: 'user_permanent',
             updatedPermissions: [
@@ -920,6 +926,7 @@ describe('ipc-interaction-handler', () => {
           updateJob: vi.fn(async () => null),
         } as never,
         getToolRepository: () => toolRepository as never,
+        resolveControlApproverPrincipal,
         getPermissionRepository: () =>
           ({
             savePolicy: vi.fn(),
@@ -943,6 +950,17 @@ describe('ipc-interaction-handler', () => {
       classification: 'user_permanent',
     });
     expect(savedDecision.actorContext).not.toHaveProperty('threadId');
+    expect(savedDecision.approverRef).toEqual({
+      kind: 'human',
+      personId: 'person:owner',
+      aliasId: 'alias:owner',
+    });
+    expect(resolveControlApproverPrincipal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationJid: 'tg:team',
+        userId: 'owner',
+      }),
+    );
     const publishedEvents = publishRuntimeEvent.mock.calls.map(
       (call) => call[0],
     );
@@ -1209,6 +1227,58 @@ describe('ipc-interaction-handler', () => {
         ),
       ),
     ).toBe(false);
+  });
+
+  it('fails closed when a human permission approver cannot resolve to a Person', async () => {
+    const claimedPath = path.join(tempDir, 'claimed-unresolved-approver.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-unresolved-approver',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseNonce: 'nonce-unresolved-approver',
+        responseKeyId: envelope.responseKeyId,
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:team',
+        toolName: 'Bash',
+        toolInput: { command: 'npm test' },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestPermissionApproval: vi.fn(async () =>
+          permissionDecisionResult({
+            approved: true,
+            mode: 'allow_once',
+            decidedBy: 'owner',
+            source: 'human_once',
+            decisionClassification: 'user_temporary',
+          }),
+        ),
+        resolveControlApproverPrincipal: vi.fn(async () => null),
+        getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-unresolved-approver.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            tempDir,
+            'main_agent',
+            'permission-responses',
+            'perm-unresolved-approver.json',
+          ),
+          'utf-8',
+        ),
+      ),
+    ).toMatchObject({ approved: false, decidedBy: 'system' });
   });
 
   it('auto-allows an eligible IPC request without requester gating', async () => {

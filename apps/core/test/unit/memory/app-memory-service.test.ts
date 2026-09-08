@@ -334,10 +334,12 @@ describe('app-grade memory boundaries', () => {
         agentId: 'agent-a',
         groupId: 'group-a',
         sourceType: 'manual',
+        actorId: { kind: 'system', source: 'test' },
         text: 'This evidence discusses prompt injection and system prompt handling.',
       }),
     ).resolves.toMatchObject({
       text: 'This evidence discusses prompt injection and system prompt handling.',
+      actorId: { kind: 'system', source: 'test' },
     });
 
     await expect(
@@ -350,6 +352,9 @@ describe('app-grade memory boundaries', () => {
       }),
     ).rejects.toThrow(/sensitive material blocked in memory evidence/);
     expect(insertedRows).toHaveLength(1);
+    expect(insertedRows[0].actorId).toBe(
+      JSON.stringify({ kind: 'system', source: 'test' }),
+    );
   });
 
   it('blocks secrets but allows benign prompt-injection discussion in direct memory saves', async () => {

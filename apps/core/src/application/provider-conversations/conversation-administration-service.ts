@@ -1,5 +1,6 @@
 import type { AppId } from '../../domain/app/app.js';
 import type { AgentId } from '../../domain/agent/agent.js';
+import type { PrincipalRef } from '../../domain/identity/principal-ref.js';
 import type {
   ProviderAccount,
   ProviderAccountId,
@@ -33,6 +34,9 @@ export interface ConversationMembershipValidator {
   validateControlApprovers(
     input: ConversationMembershipValidationInput,
   ): Promise<ConversationMembershipValidationResult>;
+  listConversationMemberIds?(
+    input: ConversationMembershipValidationInput,
+  ): Promise<string[] | null>;
 }
 
 export interface ConversationAdminSummary {
@@ -70,6 +74,36 @@ export class ConversationAdministrationService {
     userIds: string[];
     updatedAt: string;
   }): Promise<{ userIds: string[] }> {
+    const userIds = normalizeUserIds(input.userIds);
+    const validation = await this.validateControlAllowlist(input);
+    if (validation.invalidUserIds.length > 0) {
+      throw new ApplicationError(
+        'INVALID_CONTROL_ALLOWLIST',
+        [
+          'Control approvers must be members of the conversation.',
+          `Invalid: ${validation.invalidUserIds.join(', ')}`,
+          validation.reason,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      );
+    }
+    const { conversation } = await this.requireConversation(input);
+    const rows =
+      await this.repositories.conversations.replaceConversationApprovers({
+        appId: input.appId,
+        conversationId: conversation.id,
+        externalUserIds: userIds,
+        updatedAt: input.updatedAt,
+      });
+    return { userIds: rows.map((row) => row.externalUserId) };
+  }
+
+  async validateControlAllowlist(input: {
+    appId: AppId;
+    conversationId: ConversationId;
+    userIds: string[];
+  }): Promise<ConversationMembershipValidationResult> {
     const { conversation, providerAccount } =
       await this.requireConversation(input);
     const userIds = normalizeUserIds(input.userIds);
@@ -80,34 +114,50 @@ export class ConversationAdministrationService {
         `Invalid control approver user ids: ${invalidShape.join(', ')}`,
       );
     }
-    if (userIds.length > 0) {
-      const validation = await this.validateMembership({
+    if (!userIds.length) {
+      return { validUserIds: [], invalidUserIds: [] };
+    }
+    return this.validateMembership({
+      providerId: providerAccount.providerId,
+      providerAccount,
+      conversation,
+      userIds,
+    });
+  }
+
+  async listConversationMemberIds(input: {
+    appId: AppId;
+    conversationId: ConversationId;
+  }): Promise<string[]> {
+    const { conversation, providerAccount } =
+      await this.requireConversation(input);
+    if (!this.membershipValidator?.listConversationMemberIds) {
+      throw new ApplicationError(
+        'NOT_IMPLEMENTED',
+        'Conversation member lists are not available for this provider.',
+      );
+    }
+    let memberIds: string[] | null;
+    try {
+      memberIds = await this.membershipValidator.listConversationMemberIds({
         providerId: providerAccount.providerId,
         providerAccount,
         conversation,
-        userIds,
+        userIds: [],
       });
-      if (validation.invalidUserIds.length > 0) {
-        throw new ApplicationError(
-          'INVALID_CONTROL_ALLOWLIST',
-          [
-            'Control approvers must be members of the conversation.',
-            `Invalid: ${validation.invalidUserIds.join(', ')}`,
-            validation.reason,
-          ]
-            .filter(Boolean)
-            .join(' '),
-        );
-      }
+    } catch {
+      throw new ApplicationError(
+        'UNAVAILABLE',
+        'Conversation members could not be loaded. Verify the account and retry.',
+      );
     }
-    const rows =
-      await this.repositories.conversations.replaceConversationApprovers({
-        appId: input.appId,
-        conversationId: conversation.id,
-        externalUserIds: userIds,
-        updatedAt: input.updatedAt,
-      });
-    return { userIds: rows.map((row) => row.externalUserId) };
+    if (memberIds === null) {
+      throw new ApplicationError(
+        'NOT_IMPLEMENTED',
+        'Conversation member lists are not available for this provider.',
+      );
+    }
+    return memberIds;
   }
 
   async isControlApproverAllowed(input: {
@@ -154,6 +204,34 @@ export class ConversationAdministrationService {
       userIds: [userId],
     });
     return validation.validUserIds.includes(userId);
+  }
+
+  async resolveControlApproverPrincipal(input: {
+    appId: AppId;
+    providerId: ProviderId;
+    providerAccountId: ProviderAccountId;
+    agentId: AgentId;
+    conversationJid: string;
+    threadId?: string;
+    userId: string;
+  }): Promise<PrincipalRef | null> {
+    if (!(await this.isControlApproverAllowed(input))) return null;
+    const conversation = await this.findConversationForJid(input);
+    if (!conversation) return null;
+    const identity =
+      await this.repositories.conversations.resolveConversationApproverPrincipal(
+        {
+          appId: input.appId,
+          conversationId: conversation.id,
+          externalUserId: input.userId.trim(),
+        },
+      );
+    if (!identity) return null;
+    return {
+      kind: 'human',
+      personId: identity.personId,
+      ...(identity.aliasId ? { aliasId: identity.aliasId } : {}),
+    };
   }
 
   private async resolveControlApproverUserIds(

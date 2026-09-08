@@ -104,7 +104,7 @@ export function ConversationDetailRoute() {
 
         <div className="grid content-start gap-4">
           <Panel
-            title="Installed agent"
+            title="Installed AI employee"
             action={<Bot size={16} aria-hidden="true" />}
           >
             <div className="grid gap-3 p-4">
@@ -118,7 +118,9 @@ export function ConversationDetailRoute() {
               <Button
                 variant="secondary"
                 onClick={() =>
-                  requestConnection(`Change agent for ${conversation.name}`)
+                  requestConnection(
+                    `Change AI employee for ${conversation.name}`,
+                  )
                 }
               >
                 Change installation

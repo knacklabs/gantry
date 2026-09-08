@@ -203,7 +203,7 @@ export async function publishCapabilityRunSuccessActivity(input: {
       conversationId: input.conversationId as never,
       ...(input.threadId ? { threadId: input.threadId as never } : {}),
       eventType: RUNTIME_EVENT_TYPES.TOOL_ACTIVITY,
-      actor: 'host',
+      actor: { kind: 'system', source: 'host' },
       correlationId: input.invocationId,
       responseMode: 'none',
       payload: terminalToolActivityPayload({
@@ -460,7 +460,7 @@ const capabilityRunHandler: TaskHandler = async (context) => {
               conversationId: data.chatJid as never,
               threadId: data.authThreadId as never,
               eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
-              actor: 'host',
+              actor: { kind: 'system', source: 'host' },
               correlationId: invocationId,
               responseMode: 'none',
               payload: toolDenialEventPayload(denial, error.message),

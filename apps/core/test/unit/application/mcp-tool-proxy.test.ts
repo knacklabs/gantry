@@ -1432,7 +1432,7 @@ describe('McpToolProxy', () => {
         agentId: 'agent-one',
         runId: 'agent-run-1',
         eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
-        actor: 'mcp-tool-proxy',
+        actor: { kind: 'system', source: 'mcp-tool-proxy' },
         responseMode: 'none',
         payload: expect.objectContaining({
           serverName: 'github',
@@ -1472,7 +1472,7 @@ describe('McpToolProxy', () => {
     expect(appendAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'tool_activity',
-        actorId: 'mcp-tool-proxy',
+        actorId: { kind: 'system', source: 'mcp-tool-proxy' },
         metadata: expect.objectContaining({
           resultClass: 'success',
           selectedToolRule: 'mcp__github__create_issue',

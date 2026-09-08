@@ -205,7 +205,7 @@ export class ConversationMessageIngressModule {
       conversationId: conversation.id,
       threadId: publicThreadId ?? undefined,
       eventType: RUNTIME_EVENT_TYPES.CONVERSATION_MESSAGE_INBOUND,
-      actor: senderId,
+      actor: { kind: 'system', source: senderId },
       correlationId: input.correlationId ?? null,
       responseMode: 'none',
       payload: {

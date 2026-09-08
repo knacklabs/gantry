@@ -289,7 +289,7 @@ describe.each([
     expect(fixture.publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: RUNTIME_EVENT_TYPES.INTERACTION_CANCELLATION_DISCARDED,
-        actor: 'interaction',
+        actor: { kind: 'system', source: 'interaction' },
         correlationId: fixture.requestId,
         payload: expect.objectContaining({
           kind: kind === 'user-question' ? 'question' : 'permission',
@@ -367,7 +367,7 @@ describe.each([
     expect(fixture.publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: RUNTIME_EVENT_TYPES.INTERACTION_CANCELLATION_DISCARDED,
-        actor: 'interaction',
+        actor: { kind: 'system', source: 'interaction' },
         correlationId: fixture.requestId,
         payload: expect.objectContaining({
           kind: kind === 'user-question' ? 'question' : 'permission',

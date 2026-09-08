@@ -45,7 +45,7 @@ function buildHostProfileService(context: TaskContext): AgentProfileService {
               input.action === 'update'
                 ? RUNTIME_EVENT_TYPES.PROFILE_FILE_UPDATED
                 : RUNTIME_EVENT_TYPES.PROFILE_FILE_READ,
-            actor: input.actor,
+            actor: { kind: 'system', source: input.actor },
             payload: {
               fileKind: input.kind,
               version: input.version,

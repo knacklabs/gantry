@@ -40,6 +40,7 @@ import {
   validName,
   validateModelAlias,
 } from './browser-agents-helpers.js';
+import { handleBrowserAgentObservabilityRoutes } from './browser-agent-observability.js';
 
 type BrowserAgentsSettings = {
   authentication: { mode: 'local' | 'hosted'; canonicalOrigin: string };
@@ -207,6 +208,16 @@ export async function handleBrowserAgentRoutes(
       sendJson(res, 200, { agent: await agentView(storage, agent) });
       return true;
     }
+    if (
+      await handleBrowserAgentObservabilityRoutes({
+        res,
+        pathname,
+        url,
+        storage,
+        appId,
+      })
+    )
+      return true;
     const sourcesMatch = pathname.match(AGENT_SOURCES_PATH);
     if (sourcesMatch) {
       const agentId = decodeURIComponent(sourcesMatch[1]) as AgentId;
@@ -446,6 +457,16 @@ export async function handleBrowserAgentRoutes(
       );
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      if (agent.status === 'offboarded')
+        return (
+          sendError(
+            res,
+            409,
+            'CONFLICT',
+            'Offboarded AI employees cannot be changed.',
+          ),
+          true
+        );
       await assertAvailableAgentName(storage, appId, body.name, agent.id);
       const now = nowIso();
       let updated = { ...agent, name: body.name.trim(), updatedAt: now };
@@ -538,6 +559,16 @@ export async function handleBrowserAgentRoutes(
       );
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      if (statusMatch[2] === 'enable' && agent.status === 'offboarded')
+        return (
+          sendError(
+            res,
+            409,
+            'CONFLICT',
+            'Offboarded AI employees cannot be enabled.',
+          ),
+          true
+        );
       const updated =
         statusMatch[2] === 'disable'
           ? await storage.repositories.agents.disableAgent({

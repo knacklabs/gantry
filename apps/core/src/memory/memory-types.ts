@@ -344,7 +344,7 @@ export interface MemoryEvidenceRecord extends NormalizedMemorySubject {
   sourceType: MemoryEvidenceSource;
   sourceId?: string | null;
   sourceUri?: string | null;
-  actorId?: string | null;
+  actorId?: PrincipalRef | null;
   text: string;
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -370,7 +370,7 @@ export interface SaveAppMemoryInput extends Partial<MemoryBoundaryContext> {
   source?: string;
   evidenceText?: string;
   evidenceIds?: string[];
-  actorId?: string;
+  actorId?: PrincipalRef;
   isAdminWrite?: boolean;
   dreamingPromotion?: {
     runId: string;
@@ -409,7 +409,7 @@ export interface DemoteDreamingMemoryInput extends Partial<MemoryBoundaryContext
   id: string;
   expectedVersion?: number;
   isAdminWrite?: boolean;
-  actorId?: string;
+  actorId?: PrincipalRef;
   reason?: string;
 }
 
@@ -589,3 +589,4 @@ export interface PatchProcedureInput {
   trigger?: string | null;
   confidence?: number;
 }
+import type { PrincipalRef } from '../domain/identity/principal-ref.js';

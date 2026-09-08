@@ -31,6 +31,7 @@ export const usersPostgres = pgTable(
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
     kind: text('kind').notNull().default('human'),
+    agentId: text('agent_id'),
     displayName: text('display_name'),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -41,6 +42,9 @@ export const usersPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    serviceAgentUnique: uniqueIndex('idx_users_service_agent')
+      .on(table.agentId)
+      .where(sql`${table.agentId} IS NOT NULL`),
     appScopedIdentity: uniqueIndex('uniq_users_app_id_id').on(
       table.appId,
       table.id,
@@ -160,5 +164,30 @@ export const personMergeAuditPostgres = pgTable(
       columns: [table.appId, table.targetPersonId],
       foreignColumns: [usersPostgres.appId, usersPostgres.id],
     }),
+  }),
+);
+
+export const identityOffboardingAuditPostgres = pgTable(
+  'identity_offboarding_audit',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    idempotencyKey: text('idempotency_key').notNull(),
+    personId: text('person_id').notNull(),
+    agentId: text('agent_id').notNull(),
+    actor: text('actor').notNull(),
+    resultJson: jsonb('result_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idempotencyUnique: uniqueIndex(
+      'idx_identity_offboarding_audit_app_idempotency',
+    ).on(table.appId, table.idempotencyKey),
   }),
 );

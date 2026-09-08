@@ -87,7 +87,7 @@ export function publishProactiveSurfacingOutcomeEvent(input: {
         conversationId: input.conversationId as never,
         ...(input.threadId ? { threadId: input.threadId as never } : {}),
         eventType: RUNTIME_EVENT_TYPES.PROACTIVE_SURFACING_OUTCOME,
-        actor: 'runtime',
+        actor: { kind: 'system', source: 'runtime' },
         responseMode: 'none',
         payload,
       }),
