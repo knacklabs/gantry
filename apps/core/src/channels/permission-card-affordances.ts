@@ -10,13 +10,34 @@ export function permissionCardDecisionOptions(
   affordances: PermissionCardAffordances,
 ): (PermissionApprovalDecisionMode | PermissionRememberCode)[] {
   if (!affordances.eligible) return [];
-  if (affordances.protected) return ['allow_once', 'remember_deny_exact'];
+  const offers = (code: PermissionRememberCode) =>
+    affordances.offered.includes(code);
+  if (affordances.protected) {
+    return [
+      'allow_once',
+      ...(offers('remember_deny_exact')
+        ? ['remember_deny_exact' as const]
+        : []),
+    ];
+  }
+  const alternative = affordances.alternative;
+  const showAlternative =
+    alternative &&
+    (!isPermissionRememberCode(alternative.code) || offers(alternative.code));
   return [
-    'remember_allow_exact',
-    ...(affordances.alternative ? [affordances.alternative.code] : []),
+    ...(offers('remember_allow_exact')
+      ? ['remember_allow_exact' as const]
+      : []),
+    ...(showAlternative ? [alternative.code] : []),
     'allow_once',
-    'remember_deny_exact',
+    ...(offers('remember_deny_exact') ? ['remember_deny_exact' as const] : []),
   ];
+}
+
+function isPermissionRememberCode(
+  code: PermissionApprovalDecisionMode | PermissionRememberCode,
+): code is PermissionRememberCode {
+  return code.startsWith('remember_');
 }
 
 export function permissionDecisionOptions(

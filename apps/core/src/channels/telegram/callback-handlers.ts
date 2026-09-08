@@ -750,7 +750,10 @@ async function handleTelegramPermissionCallback(
     });
     return;
   }
-  if (!permissionDecisionOptions(pending.request).includes(mode)) {
+  if (
+    !permissionDecisionOptions(pending.request).includes(mode) &&
+    !mode.startsWith('remember_')
+  ) {
     await ctx.answer('This approval option is no longer available.', true);
     return;
   }

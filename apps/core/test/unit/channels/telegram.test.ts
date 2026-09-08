@@ -5642,7 +5642,12 @@ describe('TelegramChannel', () => {
           .requestPermissionApproval('tg:100200300', request)
           .then(requirePermissionDecision);
         await flushPromises();
-        const callback = latestPermissionCallback('Allow');
+        const callback = offered
+          ? latestPermissionCallback('Allow')
+          : latestPermissionCallback('Just this once').replace(
+              'allow_once',
+              'remember_allow_exact',
+            );
         currentBot().api.deleteMessage.mockRejectedValueOnce(
           new Error('show receipt'),
         );

@@ -36,8 +36,11 @@ export async function buildPermissionCardAffordances(
 ): Promise<PermissionCardAffordances> {
   if (!input.rememberContext.eligible) return scalarPermissionCardAffordances();
 
+  const allowExact = input.rememberContext.candidates.exact.ok;
+  const denyExact = input.rememberContext.candidates.deny.ok;
+  if (!allowExact && !denyExact) return scalarPermissionCardAffordances();
   const protectedCard =
-    !input.rememberContext.candidates.exact.ok &&
+    !allowExact &&
     input.rememberContext.candidates.exact.reason === 'protected_destination';
   const destructive = input.request.risk_category === 'destructive';
   const writePath = permissionWritePath(input.request);
@@ -54,11 +57,11 @@ export async function buildPermissionCardAffordances(
     const path = protectedPath(input.request) ?? 'This path';
     return {
       eligible: true,
-      offered: ['remember_deny_exact'],
+      offered: denyExact ? ['remember_deny_exact'] : [],
       destructive: false,
       protected: true,
       preTapLines: [`${path} is protected, so I always ask.`],
-      postTapLines: { remember_deny_exact: denyReceipt },
+      postTapLines: denyExact ? { remember_deny_exact: denyReceipt } : {},
     };
   }
 
@@ -66,24 +69,33 @@ export async function buildPermissionCardAffordances(
     ? undefined
     : await permissionCardAlternative(input);
   const offered: PermissionRememberCode[] = [
-    'remember_allow_exact',
+    ...(allowExact ? ['remember_allow_exact' as const] : []),
     ...(alternative && isPermissionRememberCode(alternative.code)
       ? [alternative.code]
       : []),
-    'remember_deny_exact',
+    ...(denyExact ? ['remember_deny_exact' as const] : []),
   ];
   const preTapLines = destructive
-    ? [
-        'Allow will remember: this exact command only — nothing broader. No will remember: this exact command.',
-      ]
+    ? allowExact && denyExact
+      ? [
+          'Allow will remember: this exact command only — nothing broader. No will remember: this exact command.',
+        ]
+      : [
+          ...(allowExact
+            ? [
+                'Allow will remember: this exact command only — nothing broader.',
+              ]
+            : []),
+          ...(denyExact ? ['No will remember: this exact command.'] : []),
+        ]
     : [
-        `Allow will remember: ${exactScope}`,
+        ...(allowExact ? [`Allow will remember: ${exactScope}`] : []),
         ...(alternative ? [alternative.line] : []),
-        'No will remember: this exact action.',
+        ...(denyExact ? ['No will remember: this exact action.'] : []),
       ];
   const postTapLines: PermissionCardAffordances['postTapLines'] = {
-    remember_allow_exact: exactReceipt,
-    remember_deny_exact: denyReceipt,
+    ...(allowExact ? { remember_allow_exact: exactReceipt } : {}),
+    ...(denyExact ? { remember_deny_exact: denyReceipt } : {}),
   };
   if (alternative?.code === 'remember_allow_kind') {
     postTapLines.remember_allow_kind = rememberedReceipt(
@@ -175,6 +187,7 @@ async function permissionCardAlternative(
         },
         'Permission card trust-growth count unavailable',
       );
+      return undefined;
     }
   }
 

@@ -35,6 +35,7 @@ function context(
   return {
     eligible: true,
     candidates: {
+      deny: remembered('deny:read'),
       exact: remembered('exact:read'),
       kind: remembered('kind:file_read'),
       kindTool: remembered('kind:tool:FileRead'),
@@ -213,8 +214,8 @@ describe('permission card affordances', () => {
     const warn = vi.fn();
     const failedCount = await buildPermissionCardAffordances({
       request: request({ toolName: 'FileWrite' }),
-      rememberContext: context({ place: { ok: false, reason: 'no_root' } }),
-      toolLabel: 'file writing',
+      rememberContext: context(),
+      canonicalRoot: '/workspace/project',
       highRisk: true,
       countExactAllowsByTool: vi.fn().mockRejectedValue(new Error('offline')),
       warn,
@@ -259,6 +260,39 @@ describe('permission card affordances', () => {
       'allow_once',
       'remember_deny_exact',
     ]);
+  });
+
+  it('does not offer remember actions whose exact candidates are refused', async () => {
+    const refusedAllow = await buildPermissionCardAffordances({
+      request: request(),
+      rememberContext: context({
+        exact: { ok: false as const, reason: 'incomplete_effect' },
+      }),
+      highRisk: false,
+    });
+    expect(permissionCardDecisionOptions(refusedAllow)).toEqual([
+      'allow_once',
+      'remember_deny_exact',
+    ]);
+    expect(refusedAllow.preTapLines).not.toContain(
+      'Allow will remember: this exact action',
+    );
+    expect(refusedAllow.postTapLines).not.toHaveProperty(
+      'remember_allow_exact',
+    );
+
+    const refusedDeny = await buildPermissionCardAffordances({
+      request: request(),
+      rememberContext: context({
+        deny: { ok: false as const, reason: 'incomplete_effect' },
+      }),
+      highRisk: false,
+    });
+    expect(permissionCardDecisionOptions(refusedDeny)).toEqual([
+      'remember_allow_exact',
+      'allow_once',
+    ]);
+    expect(refusedDeny.postTapLines).not.toHaveProperty('remember_deny_exact');
   });
 
   it('offers the trust-growth alternative from the human tool label when the request has no displayName and withholds it when no label exists', async () => {

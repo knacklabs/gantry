@@ -447,7 +447,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         return;
       }
       if (!samePermissionCallbackLocator(pending.callback, callback)) return;
-      if (!permissionDecisionOptions(pending.request).includes(mode)) {
+      if (
+        !permissionDecisionOptions(pending.request).includes(mode) &&
+        !mode.startsWith('remember_')
+      ) {
         return;
       }
       const callbackChannelId =

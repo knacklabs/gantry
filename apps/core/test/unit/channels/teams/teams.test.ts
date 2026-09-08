@@ -1868,6 +1868,9 @@ describe('TeamsChannel adapter scaffold', () => {
       expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
     );
 
+    vi.mocked(sdkClient.updateAdaptiveCard!).mockRejectedValueOnce(
+      new Error('show receipt'),
+    );
     await startInput?.onMessage({
       conversationId: '19:abc@thread.v2',
       from: { id: 'teams-user-1', name: 'Team Admin' },
@@ -1878,11 +1881,66 @@ describe('TeamsChannel adapter scaffold', () => {
       },
     });
 
-    await expect(approval).resolves.toMatchObject({ approved: true });
+    const offeredDecision = await approval;
+    expect(offeredDecision).toMatchObject({ approved: true });
     expect(repository.claimPendingPermissionCallback).toHaveBeenCalledWith({
       claim: expect.objectContaining({
         intent: expect.objectContaining({ mode: 'remember_allow_exact' }),
       }),
+    });
+    expect(offeredDecision.permissionCallbackClaim).toMatchObject({
+      effectiveRememberCode: 'remember_allow_exact',
+    });
+    expect(sdkClient.sendMessage).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+      text: 'Remembered: this exact action. Change it any time with /permissions.',
+    });
+
+    const unofferedRequest = {
+      ...request,
+      requestId: 'perm-teams-unoffered',
+      cardAffordances: { ...cardAffordances, offered: [] },
+    };
+    const unofferedRepository =
+      configureTeamsPermissionRequest(unofferedRequest);
+    const unofferedApproval = channel
+      .requestPermissionApproval('teams:19:abc@thread.v2', unofferedRequest)
+      .then(requirePermissionDecision);
+    await vi.waitFor(() =>
+      expect(
+        unofferedRepository.bindPendingPermissionPrompt,
+      ).toHaveBeenCalledTimes(2),
+    );
+    vi.mocked(sdkClient.updateAdaptiveCard!).mockRejectedValueOnce(
+      new Error('show receipt'),
+    );
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        action: 'permission_decision',
+        callback: latestTeamsPermissionCallback(sdkClient),
+        decision: 'remember_allow_exact',
+      },
+    });
+    const unofferedDecision = await unofferedApproval;
+    expect(
+      unofferedRepository.claimPendingPermissionCallback,
+    ).toHaveBeenCalledWith({
+      claim: expect.objectContaining({
+        intent: expect.objectContaining({ mode: 'remember_allow_exact' }),
+      }),
+    });
+    expect(unofferedDecision).toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+    });
+    expect(unofferedDecision.permissionCallbackClaim).not.toHaveProperty(
+      'effectiveRememberCode',
+    );
+    expect(sdkClient.sendMessage).toHaveBeenLastCalledWith({
+      conversationId: '19:abc@thread.v2',
+      text: 'Approved for this run only: exact command access.',
     });
 
     await channel.sendMessage('teams:19:abc@thread.v2', 'Permissions', {

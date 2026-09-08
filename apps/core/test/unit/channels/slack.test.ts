@@ -6547,6 +6547,14 @@ describe('Slack channel', () => {
         .mockRejectedValueOnce(new Error('show receipt'))
         .mockResolvedValueOnce({});
       const actionId = 'gantry_perm_decision_remember_allow_exact';
+      const actionValue = offered
+        ? latestSlackPermissionActionValue(actionId)
+        : {
+            ...latestSlackPermissionActionValue(
+              'gantry_perm_decision_allow_once',
+            ),
+            decision: 'remember_allow_exact',
+          };
       await appRef.current.actionHandlers.get(actionId)?.({
         ack: vi.fn().mockResolvedValue(undefined),
         respond,
@@ -6556,7 +6564,7 @@ describe('Slack channel', () => {
           user: { id: 'U_APPROVER', name: 'Approver' },
         },
         action: {
-          value: JSON.stringify(latestSlackPermissionActionValue(actionId)),
+          value: JSON.stringify(actionValue),
         },
       });
       return {

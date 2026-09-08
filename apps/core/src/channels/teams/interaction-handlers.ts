@@ -346,7 +346,10 @@ export async function handleTeamsPermissionDecision(input: {
     );
     return true;
   }
-  if (!permissionDecisionOptions(pending.request).includes(mode)) {
+  if (
+    !permissionDecisionOptions(pending.request).includes(mode) &&
+    !mode.startsWith('remember_')
+  ) {
     await sendDeniedTeamsDecisionFeedback(
       input.context,
       conversationId,

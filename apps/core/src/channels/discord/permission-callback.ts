@@ -70,7 +70,8 @@ export async function handleDiscordPermissionCallback(input: {
       pending.request.threadId,
       pending.request.approvalContextJid ?? pending.request.targetJid,
     )) ||
-    !permissionDecisionOptions(pending.request).includes(parsed.mode)
+    (!permissionDecisionOptions(pending.request).includes(parsed.mode) &&
+      !parsed.mode.startsWith('remember_'))
   ) {
     return;
   }
