@@ -1,19 +1,12 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import {
-  systemPrincipal,
-  type PrincipalRef,
-} from '../../domain/identity/principal-ref.js';
+import type { PrincipalRef } from '../../domain/identity/principal-ref.js';
 import type { McpBindingAuthorityPrecondition } from '../../domain/mcp/mcp-servers.js';
 import type {
   McpServerRepository,
   PermissionRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
-import type {
-  PermissionDecision,
-  PermissionDecisionId,
-} from '../../domain/permissions/permissions.js';
 import type {
   AgentToolBinding,
   ToolCatalogItem,
@@ -29,17 +22,17 @@ import {
   type SemanticCapabilityDefinition,
 } from '../../shared/semantic-capabilities.js';
 import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
-import type {
-  PermissionApprovalDecision,
-  PermissionApprovalUpdate,
-} from '../../domain/types.js';
+import type { PermissionApprovalUpdate } from '../../domain/types.js';
 import {
   ensureMcpSourceBindingsForRules,
   rollbackAppliedMcpSourceBindings,
   type AppliedMcpSourceBinding,
   withMcpCapabilityProposalSourceLocks,
 } from './mcp-capability-source-bindings.js';
-import { permissionDecisionExpiresAt } from './permission-decision-expiry.js';
+import {
+  recordPermissionDecision,
+  type RecordPermissionDecisionInput,
+} from './permission-decision-audit.js';
 import { persistentPermissionBindingId } from './permission-management-rules.js';
 import {
   adminMcpToolIdForFullName,
@@ -120,21 +113,7 @@ export interface PersistentPermissionRevokeInput {
   toolId?: string;
 }
 
-export interface RecordPermissionDecisionInput {
-  appId: AppId;
-  agentId?: AgentId;
-  requestId: string;
-  toolName: string;
-  decision: PermissionApprovalDecision;
-  permissionRepository?: PermissionRepository;
-  conversationId?: string;
-  threadId?: string;
-  runId?: string;
-  jobId?: string;
-  toolId?: string;
-  auditMetadata?: Record<string, unknown>;
-  actor?: PrincipalRef;
-}
+export type { RecordPermissionDecisionInput } from './permission-decision-audit.js';
 
 export class PermissionManagementService {
   constructor(
@@ -492,38 +471,7 @@ export class PermissionManagementService {
   }
 
   async recordDecision(input: RecordPermissionDecisionInput): Promise<void> {
-    if (!input.permissionRepository) return;
-    const now = this.clock.now();
-    const effect = input.decision.approved ? 'allow' : 'deny';
-    const decision: PermissionDecision = {
-      id: `permission-decision:${globalThis.crypto.randomUUID()}` as PermissionDecisionId,
-      appId: input.appId,
-      ruleIds: [],
-      runId: input.runId as never,
-      effect,
-      reason:
-        input.decision.reason ||
-        (input.decision.approved ? 'Permission approved' : 'Permission denied'),
-      actorContext: {
-        requestId: input.requestId,
-        origin: 'permission_management_service',
-        ...(input.agentId ? { agentId: input.agentId } : {}),
-        ...(input.conversationId
-          ? { conversationId: input.conversationId }
-          : {}),
-        ...(input.threadId ? { threadId: input.threadId } : {}),
-        ...(input.jobId ? { jobId: input.jobId } : {}),
-        mode: input.decision.mode ?? null,
-        classification: input.decision.decisionClassification ?? null,
-        ...(input.auditMetadata ?? {}),
-      },
-      actionPreview: input.toolName,
-      toolId: input.toolId as never,
-      approverRef: input.actor ?? systemPrincipal('permission'),
-      expiresAt: permissionDecisionExpiresAt(input.decision, now),
-      createdAt: now,
-    };
-    await input.permissionRepository.saveDecision(decision);
+    return recordPermissionDecision(input, this.clock.now());
   }
 }
 export function validatePersistentRule(
