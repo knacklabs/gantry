@@ -117,6 +117,10 @@ describe('permission recovery', () => {
       deps: {
         requestPermissionApproval,
         sendMessage,
+        resolveControlApproverPrincipal: vi.fn(async () => ({
+          kind: 'human' as const,
+          personId: 'person:ravi',
+        })),
         opsRepository: {
           listJobs: vi.fn(async () => [job]),
           getJobById: vi.fn(async () => job),
@@ -142,6 +146,7 @@ describe('permission recovery', () => {
         expectedReviewedSchemaHash: proposal.reviewedSchemaHash,
         proposedTemplates: proposal.proposedTemplates,
         approvedBy: 'person:ravi',
+        approvedByPrincipal: { kind: 'human', personId: 'person:ravi' },
       }),
     );
     // S4-INTENT: the approval path records the durable intent; the resume
