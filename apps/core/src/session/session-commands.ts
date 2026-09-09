@@ -579,7 +579,11 @@ export async function handleSessionCommand(opts: {
     await deps.sendMessage(message);
     return { handled: true, success: true };
   }
-  if (command.kind === 'permissions_show' || command.kind === 'permissions_all' || command.kind === 'permissions_forget') {
+  if (
+    command.kind === 'permissions_show' ||
+    command.kind === 'permissions_all' ||
+    command.kind === 'permissions_forget'
+  ) {
     deps.advanceCursor(cmdMsg);
     const response = deps.remembered
       ? await permissionMemoryCommandResponse({
@@ -589,8 +593,11 @@ export async function handleSessionCommand(opts: {
         })
       : undefined;
     await deps.sendMessage(
-      response?.text ?? `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`,
-      ...(response?.actionAffordances ? [{ actionAffordances: response.actionAffordances }] : []),
+      response?.text ??
+        `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`,
+      ...(response?.actionAffordances
+        ? [{ actionAffordances: response.actionAffordances }]
+        : []),
     );
     return { handled: true, success: true };
   }

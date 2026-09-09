@@ -503,7 +503,9 @@ async function handleTelegramMemoryForgetCallback(
       const result = await channel.opts.onMessageAction?.({
         kind: 'memory_forget',
         conversationJid: ctx.conversationJid!,
-        ...(ctx.providerAccountId ? { providerAccountId: ctx.providerAccountId } : {}),
+        ...(ctx.providerAccountId
+          ? { providerAccountId: ctx.providerAccountId }
+          : {}),
         threadId: ctx.threadId,
         userId: ctx.userId!,
         ...action,
@@ -515,7 +517,12 @@ async function handleTelegramMemoryForgetCallback(
       );
       if (result?.permissionMemoryListView) {
         await ctx.raw.editMessageText(result.permissionMemoryListView.text, {
-          reply_markup: telegramActionReplyMarkup(result.permissionMemoryListView.affordances.map((affordance) => ({ kind: 'memory_forget' as const, ...affordance }))),
+          reply_markup: telegramActionReplyMarkup(
+            result.permissionMemoryListView.affordances.map((affordance) => ({
+              kind: 'memory_forget' as const,
+              ...affordance,
+            })),
+          ),
         });
       }
       return result;
