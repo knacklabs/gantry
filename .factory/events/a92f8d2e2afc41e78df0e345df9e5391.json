@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T14:48:03+00:00", "story": "cache-bug", "detail": "S-0102-adee: Ruled before (S-0093) and now a ledgered lesson: DB-gated leaves run on the host; the orchestrator has a throwaway pgvector Postgres and runs them before stage close. Do not block on it. Finish the ab"}

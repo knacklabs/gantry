@@ -1,0 +1,11 @@
+{
+  "topic": "cache-bug-T1: partial-usage wrapper must not swallow close-driven aborts",
+  "lesson": "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts 'aborts an in-flight run on a _close sentinel and exits cleanly with NO completed marker (close-stdin)' fails deterministically (exit code 1, error frame) because stream-normalizer-partial-usage.ts wraps EVERY thrown error into the DeepAgentPartialUsage carrier, so runner/index.ts:283 (liveControl.closed() && isAbortError(err)) no longer recognises the close-driven AbortError as a graceful stop. Fix: the wrapper passes abort errors through unwrapped (isAbortError check before wrapping), or isAbortError looks through the carrier's cause; keep the partial-usage frame for genuine failures. Run the DB-gated integration lane (npm run test:integration with GANTRY_TEST_DATABASE_URL) on Node 24 before reporting.",
+  "source": "verify.py run 2026-09-09 14:30 (Node 24), commit d4be19ef6",
+  "applies_to": [
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T14:40:42+00:00"
+}

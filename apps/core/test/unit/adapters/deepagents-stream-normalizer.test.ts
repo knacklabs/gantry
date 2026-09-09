@@ -1039,4 +1039,26 @@ describe('normalizeDeepAgentStream', () => {
       contextUsage: { totalTokens: 1012, maxTokens: 400_000 },
     });
   });
+
+  it('passes a close-driven abort through without a partial-usage wrapper', async () => {
+    const abortError = Object.assign(new Error('Aborted by signal'), {
+      name: 'AbortError',
+    });
+    const events = {
+      async *[Symbol.asyncIterator](): AsyncIterableIterator<LangGraphStreamEvent> {
+        yield streamEvent('');
+        throw abortError;
+      },
+    };
+
+    const error = await normalizeDeepAgentStream({
+      events,
+      newSessionId: 'session-abort',
+      modelProfile: { maxInputTokens: 400_000 },
+      emit: () => undefined,
+    }).catch((error: unknown) => error);
+
+    expect(error).toBe(abortError);
+    expect(error).not.toBeInstanceOf(DeepAgentPartialUsage);
+  });
 });

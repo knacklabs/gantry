@@ -22,7 +22,7 @@ export function validateModelProviderDefinitions(
       typeof prompt.cacheReadsIncludedInInput !== 'boolean' ||
       typeof prompt.cacheWritesIncludedInInput !== 'boolean'
     ) {
-      throw new Error(
+      throw new TypeError(
         `Model provider ${provider.id} must declare prompt cache input inclusion.`,
       );
     }

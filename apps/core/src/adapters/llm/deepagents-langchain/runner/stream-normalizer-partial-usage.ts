@@ -2,6 +2,7 @@ import type {
   NormalizedModelUsage,
   RuntimeContextUsageSnapshot,
 } from '../../../../shared/model-catalog.js';
+import { isAbortError } from './live-control.js';
 
 export class DeepAgentPartialUsage {
   readonly kind = 'deep_agent_partial_usage';
@@ -42,6 +43,7 @@ export async function* partialUsageEvents<T>(
   try {
     for await (const event of events) yield event;
   } catch (error) {
+    if (isAbortError(error)) throw error;
     throw onError(error);
   }
 }

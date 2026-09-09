@@ -30,7 +30,7 @@ describe('model provider registry', () => {
     } as unknown as ModelProviderDefinition;
 
     expect(() => validateModelProviderDefinitions([invalid])).toThrow(
-      'must declare prompt cache input inclusion',
+      TypeError,
     );
   });
 });
