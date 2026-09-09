@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Six merged ASKFLOOR-1 task worktrees (T2b, T3a, T3b, T3c, T4, T5a) are clean, fully merged, and take 7.2 GB. Remove them now?",
+      "options": [
+        "Remove the six now (Recommended)",
+        "Remove all merged worktrees",
+        "Keep them"
+      ],
+      "chosen": "Remove the six now (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T16:20:48.858615+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

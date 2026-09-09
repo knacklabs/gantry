@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "T5b's PR #496 is in CI. T6 (judge outage latch, invariance suite, tap budget) is the last ASKFLOOR-1 task, user-facing, with no contract yet. How do you want T6 handled?",
+      "options": [
+        "Plan T6 now in plan mode (Recommended)",
+        "Split T6 into two tasks",
+        "Pause after #496 merges"
+      ],
+      "chosen": "Plan T6 now in plan mode (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T16:10:53.529157+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "How do you want to sequence the harness fixes?",
+      "options": [
+        "After T5b ships (Recommended)",
+        "Mechanical PR now, in parallel",
+        "Plan everything now in plan mode"
+      ],
+      "chosen": "After T5b ships (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T13:35:59.765490+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
