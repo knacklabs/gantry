@@ -202,6 +202,7 @@ describe('permission memory listing', () => {
       new Map([[rows[0]!.id, { jobs: ['Job one', 'Job two'], more: 1 }]]),
     );
     expect(listJobs).toHaveBeenCalledOnce();
+    expect(listJobs).toHaveBeenCalledWith(['deleted', 'one', 'two', 'three']);
 
     const usedByRows = vi.fn(async () => new Map());
     const newest = commandInput(rows, { kind: 'permissions_show' });

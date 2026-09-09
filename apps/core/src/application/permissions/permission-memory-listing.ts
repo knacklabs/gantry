@@ -26,7 +26,9 @@ export type UsedByJobReader = (
 export function createUsedByJobReader(input: {
   appId: string;
   permissions: PermissionRepository;
-  listJobs: () => Promise<Array<{ id: string; name?: string; title?: string }>>;
+  listJobs: (
+    jobIds: string[],
+  ) => Promise<Array<{ id: string; name?: string; title?: string }>>;
 }): UsedByJobReader {
   return async (recordIds) => {
     const rows = await input.permissions.listDecisionsByHumanDecisionRecordId({
@@ -43,7 +45,7 @@ export function createUsedByJobReader(input: {
     }
     if (!jobIds.size) return new Map();
     const jobsById = new Map(
-      (await input.listJobs())
+      (await input.listJobs([...jobIds]))
         .filter((job) => jobIds.has(job.id))
         .map((job) => [job.id, job]),
     );
