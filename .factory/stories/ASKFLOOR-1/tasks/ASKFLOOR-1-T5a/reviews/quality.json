@@ -1,26 +1,25 @@
 {
   "generated_by": "autoreview",
-  "score": 6,
-  "summary": "quality lens over ASKFLOOR-1-T5a (67 product path(s), 8376193..e70a3a4, Codex via the autoreview skill at --max-priority P2): 1 blocking, 1 non-blocking. The requested surfaces are broadly implemented and verified, but hard-floor asks are not consistently excluded from remembered-decision lookup or learning, leaving a concrete permission bypass and misleading persistence behavior.\nVERDICT ASKFLOOR-1-T5a-AC1: partial \u2014 apps/core/src/runtime/permission-remember-settlement.ts:111 hard-floor prompts are not made ineligible before card derivation\nVERDICT ASKFLOOR-1-T5a-AC2: implemented \u2014 apps/core/src/application/interactions/pending-interaction-permission-callback.ts:480 enforces the persisted offered set\nVERDICT ASKFLOOR-1-T5a-AC3: implemented \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:241 carries canonicalRoot and apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:329 filters railVersion\nVERDICT ASKFLOOR-1-T5a-AC4: implemented \u2014 apps/core/test/unit/channels/provider-affordance-parity.test.ts:1455 exercises four-provider rendering and codecs\nVERDICT ASKFLOOR-1-T5a-AC5: implemented \u2014 apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes memory_forget with the unbound response\nVERDICT ASKFLOOR-1-T5a-AC6: implemented \u2014 apps/core/src/channels/permission-batch-coalescer.ts:132 adds the required once-only line to batch rendering\nVERDICT ASKFLOOR-1-T5a-AC7: implemented \u2014 apps/core/test/unit/channels/provider-affordance-parity.test.ts:164 pins the four ineligible lanes across providers\nVERDICT ASKFLOOR-1-T5a-AC8: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:98 contains the S4 destructive-command flow and recorded verification is green",
+  "score": 7,
+  "summary": "quality lens over ASKFLOOR-1-T5a (67 product path(s), 8376193..779c2f0, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The persistence, provider, copy, and offered-set work is broadly implemented, but the hard-floor destructive path introduces a concrete permission-safety bypass and must be fixed before shipping.\nVERDICT ASKFLOOR-1-T5a-AC1: partial \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:304 allows a hard-floor destructive card to be remembered and replayed\nVERDICT ASKFLOOR-1-T5a-AC2: implemented \u2014 apps/core/src/application/interactions/pending-interaction-permission-callback.ts:469 enforces the persisted offered set\nVERDICT ASKFLOOR-1-T5a-AC3: implemented \u2014 apps/core/src/application/permissions/human-decision-learning.ts:68 derives the canonical-root place candidate and the repository filters rail versions\nVERDICT ASKFLOOR-1-T5a-AC4: implemented \u2014 apps/core/src/channels/discord/permission-callback.ts:82 passes effective remember codes through durable settlement, with equivalent provider paths included\nVERDICT ASKFLOOR-1-T5a-AC5: implemented \u2014 apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes typed memory_forget actions and supplies the unbound reply\nVERDICT ASKFLOOR-1-T5a-AC6: implemented \u2014 apps/core/src/channels/permission-batch-coalescer.ts:131 adds the required once-only line to batch rendering\nVERDICT ASKFLOOR-1-T5a-AC7: implemented \u2014 apps/core/test/unit/channels/provider-affordance-parity.test.ts:163 pins the four pre-change ineligible lanes\nVERDICT ASKFLOOR-1-T5a-AC8: partial \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:304 violates the hard-floor permission gate despite the S4 and verification coverage\nNO LEFTOVERS: the reviewed additions contain no remaining wrapper, shim, alias, dead branch, or compatibility naming.",
   "blocking_findings": [
     {
       "category": "security",
       "area": "apps/core/src/runtime",
-      "summary": "[P1] Block remembered allows for every hard-floor rail ask (apps/core/src/runtime/permission-decision-coordinator.ts:299): `railAllowsOverride` remains true for hard-floor `OutOfTrustedRoot` and eligible `UnsupportedMetaExecutor` asks, and this call to `consultRememberedAllow` is not guarded by `railDecision.hardFloor !== true`."
+      "summary": "[P1] Keep hard-floor destructive asks out of remembered-allow lookup (apps/core/src/runtime/permission-decision-coordinator.ts:304): `exactAllowCanOverride` is true for every destructive ASK, including `hardFloor: true`, but the hard-floor check protects only the autonomous projection lookup."
     },
     {
       "category": "plan-contract-partial",
       "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria",
       "summary": "ASKFLOOR-1-T5a-AC1: CENTRAL COPY. NEW `channels/permission-card-affordances.ts` exports `buildPermissionCardAffordances(input) \u2192 PermissionCardAffordances` and the label/line formatters; eligible single-ask cards render, in order, **Allow** (remembered, default) / the one alternative (ruling 5) / **Just this once** / **No**; pre-tap block: \"Allow will remember: <scope noun>\" (writes: \"writing to <path> \u2014 any future content, no more asking for this file\"), then the alternative's line (ruling 5 templates) when present, ending with \"No will remember: this exact action.\"; post-tap: \"Remembered: <scope>. Change it any time with /permissions.\" (writes: \"Remembered: writes to <path> (any content). \u2026\"; No: \"I'll keep saying no to this exact action. Change it with /permissions.\"; Just this once: today's receipt). Destructive: normal three buttons, no alternative, pre-tap \"Allow will remember: this exact command only \u2014 nothing broader. No will remember: this exact command.\" Protected: reason line \"<path> is protected, so I always ask.\", buttons **Allow once** / **No** (remembered) only. Scope nouns: \"this exact action\" / \"this kind of action, anywhere\" / \"only in <folder>\"; trust-growth label per the owner ruling (human label \u2192 card's tool name \u2192 no button). No rails-bump line. `permission-interaction.ts` \u2264 700. Unit tests: every shape, order, every literal line, family > trust > folder precedence, destructive/protected exclusions, the missing-label fallback chain."
-    }
-  ],
-  "non_blocking_findings": [
+    },
     {
-      "category": "security",
-      "area": "apps/core/src/runtime",
-      "summary": "[P2] Make hard-floor prompt contexts ineligible for remembering (apps/core/src/runtime/permission-remember-settlement.ts:111): Prompt-model construction relies on `context.eligible`, but the context is derived from facts that carry no rail decision or `hardFloor` state."
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T5a-AC8: S4 + GATES + DECISION. `askfloor-tap-budget.test.ts` adds S4 (`rm -rf build` asks once; Allow remembers exact command + target; identical command \u2192 zero taps; `rm -rf dist` asks; No is remembered exactly). `docs/decisions/0154` carries the owner-confirmed amendment (no rails-bump re-ask line; old-version rows inert and simply not listed by `/permissions`, per its line 18). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: 700 default (permission-interaction 693, Discord interactions 699, Teams cards 688 today \u2014 extract), Slack `channel-interactions.ts` \u2264 712, Telegram `callback-handlers.ts` \u2264 900; no wrapper, shim, alias, dead branch or compatibility naming."
     }
   ],
+  "non_blocking_findings": [],
   "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
@@ -98,42 +97,42 @@
     {
       "contract_id": "ASKFLOOR-1-T5a-AC1",
       "verdict": "partial",
-      "evidence": "apps/core/src/runtime/permission-remember-settlement.ts:111 hard-floor prompts are not made ineligible before card derivation"
+      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:304 allows a hard-floor destructive card to be remembered and replayed"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/interactions/pending-interaction-permission-callback.ts:480 enforces the persisted offered set"
+      "evidence": "apps/core/src/application/interactions/pending-interaction-permission-callback.ts:469 enforces the persisted offered set"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:241 carries canonicalRoot and apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:329 filters railVersion"
+      "evidence": "apps/core/src/application/permissions/human-decision-learning.ts:68 derives the canonical-root place candidate and the repository filters rail versions"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/channels/provider-affordance-parity.test.ts:1455 exercises four-provider rendering and codecs"
+      "evidence": "apps/core/src/channels/discord/permission-callback.ts:82 passes effective remember codes through durable settlement, with equivalent provider paths included"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes memory_forget with the unbound response"
+      "evidence": "apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes typed memory_forget actions and supplies the unbound reply"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/channels/permission-batch-coalescer.ts:132 adds the required once-only line to batch rendering"
+      "evidence": "apps/core/src/channels/permission-batch-coalescer.ts:131 adds the required once-only line to batch rendering"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC7",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/channels/provider-affordance-parity.test.ts:164 pins the four ineligible lanes across providers"
+      "evidence": "apps/core/test/unit/channels/provider-affordance-parity.test.ts:163 pins the four pre-change ineligible lanes"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC8",
-      "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:98 contains the S4 destructive-command flow and recorded verification is green"
+      "verdict": "partial",
+      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:304 violates the hard-floor permission gate despite the S4 and verification coverage"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -337,10 +336,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "45c1ae8dac3c64431007669ee6ce9e8b681cbe0e8344cb859591100fdf2ff5ee",
+  "review_run_id": "4ff6795b0408beaf16b2a26d5146406ba497fb41ca3383878c6a482a6bf131f1",
   "brief_sha256": "679a9375082c60827271a740e84a98df6af7be508d3fbacacbb6c076a0532257",
-  "branch_diff_digest": "4b5d6c7082e76e210f287caf5b53556e7aec12dc6fc6dd0664d1d5c84ca8bd6a",
+  "branch_diff_digest": "03ccd292945e2fed2a652021b9be292656850bab980eb83f44f3dd036d8f6a76",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T02:29:40+00:00",
-  "commit": "e70a3a4b71ddb50d851a0517c877db4d94845def"
+  "recorded_at": "2026-09-09T02:51:49+00:00",
+  "commit": "779c2f057e5c968c37c47e01473fa45c71ac064b"
 }

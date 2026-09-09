@@ -1,17 +1,12 @@
 {
   "generated_by": "autoreview",
-  "score": 4,
-  "summary": "security lens over ASKFLOOR-1-T5a (67 product path(s), 8376193..e70a3a4, Codex via the autoreview skill at --max-priority P2): 2 blocking, 0 non-blocking. The offered-set checks and provider transport are generally fail-closed, but hard-floor rail decisions are not consistently enforced. Existing remembered Allows can still bypass some hard-floor prompts, and newly displayed hard-floor prompts can still create remembered grants. These are concrete permission-boundary defects.",
+  "score": 7,
+  "summary": "security lens over ASKFLOOR-1-T5a (67 product path(s), 8376193..779c2f0, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The patch introduces a concrete authorization bypass: remembered exact allows can override hard-floor destructive permission rails. This defeats the mandatory approval boundary for repeated destructive actions.",
   "blocking_findings": [
     {
       "category": "security",
       "area": "apps/core/src/runtime",
-      "summary": "[P1] Gate every remembered-Allow lookup on the hard-floor flag (apps/core/src/runtime/permission-decision-coordinator.ts:266): When a hard-floor ASK has `OutOfTrustedRoot` or eligible `UnsupportedMetaExecutor`, `railAllowsOverride` is still true."
-    },
-    {
-      "category": "security",
-      "area": "apps/core/src/runtime",
-      "summary": "[P1] Make hard-floor prompts ineligible for remembered decisions (apps/core/src/runtime/permission-remember-settlement.ts:111): The prompt-model path derives remember eligibility without carrying `railDecision.hardFloor`; after derivation it builds and persists remembered affordances whenever the ordinary interactive-auto context is eligible."
+      "summary": "Hard-floor destructive asks can be auto-approved from remembered allows (apps/core/src/runtime/permission-decision-coordinator.ts:271): `exactAllowCanOverride` admits every destructive rail ASK without excluding `hardFloor: true`, and the subsequent chat-side `consultRememberedAllow` has no hard-floor guard."
     }
   ],
   "non_blocking_findings": [],
@@ -89,10 +84,10 @@
     "review-animations"
   ],
   "aspect": "security",
-  "review_run_id": "45c1ae8dac3c64431007669ee6ce9e8b681cbe0e8344cb859591100fdf2ff5ee",
+  "review_run_id": "4ff6795b0408beaf16b2a26d5146406ba497fb41ca3383878c6a482a6bf131f1",
   "brief_sha256": "679a9375082c60827271a740e84a98df6af7be508d3fbacacbb6c076a0532257",
-  "branch_diff_digest": "4b5d6c7082e76e210f287caf5b53556e7aec12dc6fc6dd0664d1d5c84ca8bd6a",
+  "branch_diff_digest": "03ccd292945e2fed2a652021b9be292656850bab980eb83f44f3dd036d8f6a76",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T02:29:40+00:00",
-  "commit": "e70a3a4b71ddb50d851a0517c877db4d94845def"
+  "recorded_at": "2026-09-09T02:51:49+00:00",
+  "commit": "779c2f057e5c968c37c47e01473fa45c71ac064b"
 }

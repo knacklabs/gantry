@@ -1,21 +1,16 @@
 {
   "generated_by": "autoreview",
-  "score": 9,
-  "summary": "performance lens over ASKFLOOR-1-T5a (67 product path(s), 8376193..e70a3a4, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. The patch leaves hard-floor prompts capable of creating remembered permission state and introduces a blocking Telegram callback path that waits on potentially slow application work before acknowledging the interaction. Both are actionable P2 defects.",
-  "blocking_findings": [],
-  "non_blocking_findings": [
+  "score": 7,
+  "summary": "performance lens over ASKFLOOR-1-T5a (67 product path(s), 8376193..779c2f0, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The patch contains a concrete permission-safety regression: remembered exact allows can override hard-floor destructive decisions. No additional P0\u2013P2 performance defect is demonstrated by the supplied diff.",
+  "blocking_findings": [
     {
       "category": "security",
       "area": "apps/core/src/runtime",
-      "summary": "Hard-floor destructive prompts still persist remembered authority (apps/core/src/runtime/permission-remember-settlement.ts:111): The coordinator now prevents an existing exact Allow from overriding a hard-floor destructive ASK, but this prompt-model path only checks the ordinary remember-context eligibility and receives no `railDecision`/`hardFloor` state."
-    },
-    {
-      "category": "bug",
-      "area": "apps/core/src/channels/telegram",
-      "summary": "Acknowledge Telegram Forget callbacks before awaiting the handler (apps/core/src/channels/telegram/callback-handlers.ts:498): The new Forget callback awaits the arbitrary asynchronous `onMessageAction` hook before making its first and only `ctx.answer` call."
+      "summary": "Hard-floor destructive requests can be auto-approved from memory (apps/core/src/runtime/permission-decision-coordinator.ts:281): `exactAllowCanOverride` is true for every destructive ASK regardless of `railDecision.hardFloor`."
     }
   ],
-  "recommendation": "approve-with-caveats",
+  "non_blocking_findings": [],
+  "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
@@ -89,10 +84,10 @@
     "review-animations"
   ],
   "aspect": "performance",
-  "review_run_id": "45c1ae8dac3c64431007669ee6ce9e8b681cbe0e8344cb859591100fdf2ff5ee",
+  "review_run_id": "4ff6795b0408beaf16b2a26d5146406ba497fb41ca3383878c6a482a6bf131f1",
   "brief_sha256": "679a9375082c60827271a740e84a98df6af7be508d3fbacacbb6c076a0532257",
-  "branch_diff_digest": "4b5d6c7082e76e210f287caf5b53556e7aec12dc6fc6dd0664d1d5c84ca8bd6a",
+  "branch_diff_digest": "03ccd292945e2fed2a652021b9be292656850bab980eb83f44f3dd036d8f6a76",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T02:29:40+00:00",
-  "commit": "e70a3a4b71ddb50d851a0517c877db4d94845def"
+  "recorded_at": "2026-09-09T02:51:49+00:00",
+  "commit": "779c2f057e5c968c37c47e01473fa45c71ac064b"
 }
