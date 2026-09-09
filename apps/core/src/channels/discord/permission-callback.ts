@@ -8,10 +8,8 @@ import type {
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
 } from '../../domain/types.js';
-import {
-  decisionForMode,
-  permissionDecisionOptions,
-} from '../permission-interaction.js';
+import { decisionForMode } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import { parsePermissionCustomId } from './components.js';
 import type { DiscordInteraction } from './types.js';
 import { DISCORD_API_ROOT, discordHeaders } from './interaction-helpers.js';

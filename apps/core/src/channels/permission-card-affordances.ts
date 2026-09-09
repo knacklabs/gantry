@@ -12,13 +12,13 @@ export function permissionCardDecisionOptions(
   if (!affordances.eligible) return [];
   const offers = (code: PermissionRememberCode) =>
     affordances.offered.includes(code);
+  // A card always carries a way to say no: the remembered No when it is
+  // offered, otherwise the scalar denial.
+  const denial = offers('remember_deny_exact')
+    ? ('remember_deny_exact' as const)
+    : ('cancel' as const);
   if (affordances.protected) {
-    return [
-      'allow_once',
-      ...(offers('remember_deny_exact')
-        ? ['remember_deny_exact' as const]
-        : []),
-    ];
+    return ['allow_once', denial];
   }
   const alternative = affordances.alternative;
   const showAlternative =
@@ -30,7 +30,7 @@ export function permissionCardDecisionOptions(
       : []),
     ...(showAlternative ? [alternative.code] : []),
     'allow_once',
-    ...(offers('remember_deny_exact') ? ['remember_deny_exact' as const] : []),
+    denial,
   ];
 }
 
@@ -67,6 +67,7 @@ export function permissionCardButtonLabel(
   if (code === 'allow_once')
     return affordances.protected ? 'Allow once' : 'Just this once';
   if (code === 'remember_deny_exact') return 'No';
+  if (code === 'cancel' && affordances.eligible) return 'No';
   return undefined;
 }
 

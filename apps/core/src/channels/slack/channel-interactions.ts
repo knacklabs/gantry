@@ -20,8 +20,8 @@ import {
   buildPermissionPromptFullView,
   decisionForMode,
   formatPermissionReceiptText,
-  permissionDecisionOptions,
 } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import { SlackChannelState, SlackMessageLike } from './channel-state.js';
 import {
   buildPermissionFullViewModalBlocks,

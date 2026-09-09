@@ -10,10 +10,8 @@ import {
 import { buttonRows, permissionCustomId } from './components.js';
 import { discordChannelIdFromJid } from './interaction-helpers.js';
 import { discordPermissionFullViewCustomId } from './permission-full-view.js';
-import {
-  permissionButtonLabel,
-  permissionDecisionOptions,
-} from '../permission-interaction.js';
+import { permissionButtonLabel } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 
 export function prepareDiscordPermissionCardSend(input: {
   jid: string;

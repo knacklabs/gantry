@@ -20,8 +20,8 @@ import {
   decisionForMode,
   formatPermissionPromptPartsText,
   permissionButtonLabel,
-  permissionDecisionOptions,
 } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import { type ChannelOpts } from '../channel-provider.js';
 import {
   buttonRows,

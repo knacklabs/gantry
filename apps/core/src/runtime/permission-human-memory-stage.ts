@@ -77,9 +77,7 @@ export async function consultRememberedAllow(
             trustGrowthTool: false,
           }),
         ])
-      ).filter((value): value is HumanDecisionMemoryCandidate =>
-        Boolean(value),
-      );
+  ).filter((value): value is HumanDecisionMemoryCandidate => Boolean(value));
   if (candidates.length === 0) return undefined;
   const row = await findHumanDecision(input, actingPersonId, candidates);
   if (row?.outcome !== HumanDecisionOutcome.Allow) return undefined;

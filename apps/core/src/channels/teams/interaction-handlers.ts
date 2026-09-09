@@ -20,8 +20,8 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import {
   decisionForMode,
   formatPermissionReceiptText,
-  permissionDecisionOptions,
 } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import {
   buildTeamsMessageCard,
   buildTeamsUserQuestionReceiptCard,

@@ -62,7 +62,6 @@ import {
   permissionBatchButtonLabel,
 } from './permission-batch-coalescer.js';
 export { normalizePermissionAction } from './permission-decision-options.js';
-export { permissionDecisionOptions } from './permission-card-affordances.js';
 
 export {
   firstPersistentRule,
@@ -538,7 +537,7 @@ function permissionAccessLabel(
   if (capabilityName) return capabilityName;
   const toolName =
     scopedRule?.toolName || requestedToolName || request.toolName;
-  const toolLabel = userFacingToolLabel(toolName);
+  const toolLabel = permissionHumanToolLabel(toolName);
   if (toolLabel) return toolLabel;
   const display = request.displayName || request.title || toolName;
   return formatPermissionRequestLabel(display);
@@ -616,7 +615,7 @@ function semanticCapabilityId(
 
 function formatPermissionRequestLabel(label: string): string {
   const trimmed = label.trim();
-  const toolLabel = userFacingToolLabel(trimmed);
+  const toolLabel = permissionHumanToolLabel(trimmed);
   if (toolLabel) return humanizeIdentifier(toolLabel);
   return neutralizeImplementationTerms(
     sanitizePermissionText(trimmed, 160, 40),
@@ -631,10 +630,6 @@ function neutralizeImplementationTerms(input: string): string {
     text = text.replaceAll(technical, label);
   }
   return text;
-}
-
-function userFacingToolLabel(toolName: string | undefined): string | undefined {
-  return permissionHumanToolLabel(toolName);
 }
 
 function permissionCommand(request: PermissionApprovalRequest): string | null {
@@ -653,7 +648,7 @@ export function formatPermissionReceiptActionSummary(
   const tool =
     request.displayName ||
     request.title ||
-    userFacingToolLabel(request.toolName);
+    permissionHumanToolLabel(request.toolName);
   const input = request.toolInput;
   if (!input || typeof input !== 'object') {
     return tool ? formatPermissionRequestLabel(tool) : 'permission request';

@@ -34,8 +34,8 @@ export { agentTodoLines } from '../agent-todo-render.js';
 import {
   formatPermissionPromptText,
   permissionButtonLabel,
-  permissionDecisionOptions,
 } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import { escapeTeamsCardText, teamsSideFact } from './cards-helpers.js';
 
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =

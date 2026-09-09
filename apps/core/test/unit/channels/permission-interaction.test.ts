@@ -9,9 +9,9 @@ import {
   formatPermissionReceiptText,
   normalizePermissionAction,
   persistentRules,
-  permissionDecisionOptions,
   permissionButtonLabel,
 } from '@core/channels/permission-interaction.js';
+import { permissionDecisionOptions } from '@core/channels/permission-card-affordances.js';
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import { decisionForMode as domainDecisionForMode } from '@core/domain/permission-decision.js';

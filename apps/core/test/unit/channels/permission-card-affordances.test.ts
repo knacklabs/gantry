@@ -106,6 +106,18 @@ describe('permission card affordances', () => {
     expect(formatPermissionCardReceipt(write, 'remember_allow_exact')).toBe(
       'Remembered: writes to /workspace/project/report.md (any content). Change it any time with /permissions.',
     );
+    // The public write identities classify as writes too.
+    for (const toolName of ['Write', 'Edit', 'MultiEdit']) {
+      const publicWrite = await buildPermissionCardAffordances({
+        request: request({
+          toolName,
+          toolInput: { file_path: '/workspace/project/report.md' },
+        }),
+        rememberContext: context(),
+        highRisk: false,
+      });
+      expect(publicWrite.preTapLines[0]).toBe(write.preTapLines[0]);
+    }
 
     const destructive = await buildPermissionCardAffordances({
       request: request({
@@ -291,7 +303,9 @@ describe('permission card affordances', () => {
     expect(permissionCardDecisionOptions(refusedDeny)).toEqual([
       'remember_allow_exact',
       'allow_once',
+      'cancel',
     ]);
+    expect(permissionCardButtonLabel('cancel', refusedDeny)).toBe('No');
     expect(refusedDeny.postTapLines).not.toHaveProperty('remember_deny_exact');
   });
 

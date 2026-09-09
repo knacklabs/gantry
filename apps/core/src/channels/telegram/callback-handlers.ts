@@ -8,7 +8,7 @@ import type {
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
-import { permissionDecisionOptions } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import type { PendingPermission } from './channel-permission-cancellation.js';
 import {
   TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN,
