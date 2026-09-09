@@ -4,81 +4,42 @@
     {
       "id": "ASKFLOOR-1-T1",
       "title": "Routing: the judge's verdict stands in interactive auto",
-      "status": "done",
-      "task_sha256": "d904be3c254e9b5359489341604522ee856d2a2ca72fdb897ed3a67d7f57ea70"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T2a",
       "title": "Shape classifier extraction, attachment birthright, judge status",
-      "status": "done",
-      "task_sha256": "50b0ea1feb43722f37ffef399152c3e78a98bbb5b1da76c9717e828467630626"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T2b",
       "title": "Default-allow risk table for gantry-native tools",
-      "status": "done",
-      "task_sha256": "f51df506bfbf31f97f7318c90fd16325653bf5766ad484000bcc9b58784fd560"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T3a",
       "title": "Human-decision memory persistence",
-      "status": "done",
-      "task_sha256": "d98075b30f22cdd450a7fde8c3c9b8269698b898cd70319c34e98da8dcc0af77"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T3b",
       "title": "Memory consult in the coordinator and the inline runtime",
-      "status": "done",
-      "task_sha256": "fed68f02e068ea6feb6bd7109c34f3be7b2b22483c7e9110db4f4b3ac1d5a81a"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T3c",
       "title": "Remember settlement and learning writes",
-      "status": "done",
-      "task_sha256": "d23f9c1994ad7e6039911d00dd277e82b9a92cecec6f28db8e852fc97b07cd96"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T4",
       "title": "Live job projection of learned decisions (0153)",
-      "status": "done",
-      "task_sha256": "f81f864ddd9c45e9870d3afbc44c2e59da9772bbb2f74fd443d7f5445c61af97"
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T5a",
       "title": "Card UX and provider surfaces",
-      "status": "done",
-      "started_at": "2026-09-08T12:16:59+00:00",
-      "base_sha": "ba774adf166110d0e8173f777bfab7ead7366c26",
-      "dirty_at_start": {
-        ".factory/stories/ASKFLOOR-1/decomposition.json": {
-          "digest": "329430d898c8585c744bdd9a5d1756b6213ed719b89b541799132f706a5f2cad",
-          "git": "1 .M N... 100644 100644 100644 17205fe3f4108bbb62166dd77a71b1d43049feae 17205fe3f4108bbb62166dd77a71b1d43049feae .factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000100644 17205fe3f4108bbb62166dd77a71b1d43049feae 0\t.factory/stories/ASKFLOOR-1/decomposition.json\u0000\u0000H .factory/stories/ASKFLOOR-1/decomposition.json\u0000"
-        },
-        ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5a.json": {
-          "digest": "4915563baba5f2433730d76ca38107be712759df537d526563be8996b1cdb9d2",
-          "git": "? .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5a.json\u0000\u0000\u0000"
-        },
-        ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md": {
-          "digest": "2f8146642dc00dc6d807a994b79e71df278771a60f8b7d1d9a9b287e89b8e688",
-          "git": "? .factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md\u0000\u0000\u0000"
-        }
-      },
-      "task_sha256": "8cd0aa1d7e77d04055d77c8d43355c858af0479f87fe70754df31f33611bf302",
-      "local_review_stamp": {
-        "stage_id": "ASKFLOOR-1-T5a",
-        "task_sha256": "8cd0aa1d7e77d04055d77c8d43355c858af0479f87fe70754df31f33611bf302",
-        "brief_sha256": "e4fed94d1a7872afd6bbe97117172cfe5c7a9e05db62433107fbb535bdbff637",
-        "base_sha": "ba774adf166110d0e8173f777bfab7ead7366c26",
-        "product_tree_digest": "2554196d1c658e758565f1602c0a361e5a9b62e8fc2275baf5ac44c004a324e6",
-        "recorded_at": "2026-09-09T01:26:50+00:00",
-        "generated_by": "autoreview"
-      },
-      "completed_at": "2026-09-09T01:46:54+00:00",
-      "contract_changed": {
-        "at": "2026-09-09T01:46:54+00:00",
-        "from": "c9c6c69eed8e7add42f261a8e217cbb601d891d484a7f313007b71305048ebd4",
-        "to": "8cd0aa1d7e77d04055d77c8d43355c858af0479f87fe70754df31f33611bf302"
-      }
+      "status": "done"
     },
     {
       "id": "ASKFLOOR-1-T5b",
