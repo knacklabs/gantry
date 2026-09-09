@@ -105,7 +105,7 @@ function setup(
       'Current permission mode: auto (agent/default).',
     service,
     timezone: 'Asia/Kolkata',
-    usedBy: input.usedBy ?? (async () => new Map()),
+    usedBy: () => input.usedBy ?? (async () => new Map()),
   });
   return { callOrder, handler, list, revoke };
 }

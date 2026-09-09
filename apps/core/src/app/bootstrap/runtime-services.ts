@@ -593,6 +593,10 @@ export async function startRuntimeServices(
   );
   const decisionMemory = resolved.getPermissionDecisionMemoryRepository?.();
   const permissionRepository = resolved.getPermissionRepository?.();
+  const readJobs = (jobIds: string[]) =>
+    Promise.all(
+      jobIds.map((jobId) => resolved.opsRepository.getJobById(jobId)),
+    ).then((jobs) => jobs.flatMap((job) => (job ? [job] : [])));
   if (decisionMemory && permissionRepository) {
     channelWiring.setMemoryForgetMessageActionHandler(
       createMemoryForgetHandler({
@@ -626,16 +630,12 @@ export async function startRuntimeServices(
           return `Current permission mode: ${mode} (${override ? 'conversation override' : 'agent/default'}).`;
         },
         service: new HumanDecisionMemoryService({ repository: decisionMemory }),
-        usedBy: createUsedByJobReader({
-          appId: String(channelWiring.getRuntimeAppId()),
-          permissions: permissionRepository,
-          listJobs: async (jobIds) =>
-            (
-              await Promise.all(
-                jobIds.map((jobId) => resolved.opsRepository.getJobById(jobId)),
-              )
-            ).flatMap((job) => (job ? [job] : [])),
-        }),
+        usedBy: (appId) =>
+          createUsedByJobReader({
+            appId,
+            permissions: permissionRepository,
+            listJobs: readJobs,
+          }),
         timezone: TIMEZONE,
       }),
     );

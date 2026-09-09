@@ -35,7 +35,7 @@ export function createMemoryForgetHandler(input: {
   ) => Promise<string | undefined>;
   resolvePermissionMode: (route: ConversationRoute) => string;
   service: HumanDecisionMemoryService;
-  usedBy: UsedByJobReader;
+  usedBy: (appId: string) => UsedByJobReader;
   timezone: string;
 }): OnMemoryForgetMessageAction {
   return async (action) => {
@@ -91,7 +91,7 @@ export function createMemoryForgetHandler(input: {
         rows: activeRows,
         agentId,
         timezone: input.timezone,
-        usedBy: await input.usedBy(
+        usedBy: await input.usedBy(appId)(
           activeRows.slice(0, 10).map((entry) => entry.id),
         ),
       }),

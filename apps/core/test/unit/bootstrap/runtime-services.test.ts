@@ -360,6 +360,9 @@ describe('startRuntimeServices', () => {
       personId: 'person-one',
       memoryHydrationEligible: true,
     }));
+    const permissionRepository = {
+      listDecisionsByHumanDecisionRecordId: vi.fn(async () => []),
+    };
 
     await startRuntimeServices(
       {
@@ -375,7 +378,7 @@ describe('startRuntimeServices', () => {
         opsRepository: {} as any,
         getToolRepository: vi.fn(() => ({}) as any),
         getPermissionDecisionMemoryRepository: () => ({}) as never,
-        getPermissionRepository: () => ({}) as never,
+        getPermissionRepository: () => permissionRepository as never,
         resolvePersonIdentity: resolvePersonIdentity as never,
         recoverPendingMessages: vi.fn() as any,
         logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
@@ -404,6 +407,10 @@ describe('startRuntimeServices', () => {
     await expect(
       resolvePerson(action, { conversationKind: 'channel' }),
     ).resolves.toBeUndefined();
+    await memoryForget.input.usedBy('otherapp')(['record-one']);
+    expect(
+      permissionRepository.listDecisionsByHumanDecisionRecordId,
+    ).toHaveBeenCalledWith({ appId: 'otherapp', recordIds: ['record-one'] });
     expect(resolvePersonIdentity).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
