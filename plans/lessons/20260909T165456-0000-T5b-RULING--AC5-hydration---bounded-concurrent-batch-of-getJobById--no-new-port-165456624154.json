@@ -1,0 +1,13 @@
+{
+  "topic": "T5b RULING: AC5 hydration = bounded concurrent batch of getJobById; no new port",
+  "lesson": "Orchestrator ruling (S-0095 resolved): do NOT add listJobsByIds or touch ops-repo.ts / the jobs Postgres adapter (out of scope). AC5 is implemented by: collect the job ids referenced by the rows being rendered (\u226410 for bare /permissions; all active rows for /permissions all), dedupe once, and resolve names with ONE concurrent batch \u2014 Promise.all over getJobById for exactly that set \u2014 in the reader bound at runtime-services.ts ~626 and group-processor-deps.ts ~87; never list every job. Pin with a listing test that the reader is invoked only with the referenced ids. Do not raise a contradiction about this. Then: (P1) runtime-services.ts ~601 pass appIdFromConversationJid(action.conversationJid) into resolveCanonicalMemoryPersonId (test: conversation app \u2260 process app); (AC2) delete the duplicate category-noun table at permission-memory-listing.ts ~155 and call the shared helper; add the one-job and two-job used-by cases. Run runtime-services, listing, forget-handler suites, tsc, check:architecture; ceilings after prettier.",
+  "source": ".factory/signals.jsonl",
+  "applies_to": [
+    "apps/core/src/app/bootstrap/**",
+    "apps/core/src/application/permissions/**",
+    "apps/core/test/unit/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T16:54:56+00:00"
+}
