@@ -228,3 +228,22 @@ def test_every_lens_brief_hunts_for_compatibility_leftovers():
         text = _lens_prompt(task, lens).decode()
         assert LEFTOVER_INSTRUCTION in text, lens
         assert "BLOCKING" in LEFTOVER_INSTRUCTION
+
+
+def test_vendored_client_review_excludes_the_harness_machinery(repo):
+    """A re-vendor commit on a task branch put 36 harness files into a client's
+    review bundle and the quality lens raised P1s against harness code the task
+    never touched. In a vendored client the review drops the same machinery
+    prefixes the stage measure already exempts."""
+    from forge_cli.review import HARNESS_PREFIXES, review_excluded_prefixes
+    from forge_cli.stages import HARNESS_MACHINERY_PATHS, WORKFLOW_PATHS
+    marker = repo / "constitution" / "VENDORED_FROM"
+    marker.parent.mkdir(exist_ok=True)
+    marker.write_text("symphony-forge @ deadbeef\n")
+    vendored = review_excluded_prefixes(repo)
+    assert "factory/" in vendored and ".claude/" in vendored and "constitution/" in vendored
+    assert set(vendored) == set(HARNESS_PREFIXES) | set(WORKFLOW_PATHS) | set(HARNESS_MACHINERY_PATHS)
+    marker.unlink()
+    harness_only = review_excluded_prefixes(repo)
+    assert set(harness_only) == set(HARNESS_PREFIXES) | set(WORKFLOW_PATHS)
+    assert "factory/" not in harness_only
