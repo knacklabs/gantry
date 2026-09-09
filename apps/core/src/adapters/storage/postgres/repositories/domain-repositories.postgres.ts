@@ -1895,10 +1895,12 @@ export class PostgresPermissionRepository implements PermissionRepository {
       )
       .groupBy(recordId, jobId)
       .orderBy(desc(lastUsedAt), asc(jobId));
-    return rows.filter(
-      (row): row is { recordId: string; jobId: string; lastUsedAt: string } =>
-        Boolean(row.recordId && row.jobId && row.lastUsedAt),
-    );
+    return rows
+      .filter(
+        (row): row is { recordId: string; jobId: string; lastUsedAt: string } =>
+          Boolean(row.recordId && row.jobId && row.lastUsedAt),
+      )
+      .map((row) => ({ ...row, lastUsedAt: toIsoTimestamp(row.lastUsedAt) }));
   }
 }
 export class PostgresSandboxRepository implements SandboxRepository {
