@@ -1,5 +1,5 @@
 {
-  "commit": "a9b99f24b2864ac407e302148d67d54198ac50b0",
+  "commit": "43f7e5c47db2a7d2fab412a37967eccf15013926",
   "functional": {
     "generated_by": "functional-checker",
     "status": "pass",
@@ -32,11 +32,11 @@
     "recorded_at": "2026-09-09T16:07:14+00:00",
     "commit": "366d6567f3b523fbda3affb5876200f01ab6b8cd"
   },
-  "updated_at": "2026-09-09T17:19:50+00:00",
+  "updated_at": "2026-09-09T17:40:51+00:00",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "18/18 required leaves pass on the committed tree a9b99f24b (per-leaf JUnit reports in the scratchpad); full unit suite 713 files / 9214 tests green; Postgres permission-decision-memory suite 13/13.",
+    "summary": "18/18 required leaves pass on the committed tree 43f7e5c47 (per-leaf JUnit reports in the scratchpad); full unit suite 713 files / 9214 tests green; Postgres permission-decision-memory suite 13/13.",
     "blocking_findings": [],
     "commands_run": [
       "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts -t <leaf>",
@@ -131,7 +131,7 @@
     "residual_risks": [],
     "manual_validation_steps": [],
     "task_id": "ASKFLOOR-1-T5b",
-    "recorded_at": "2026-09-09T17:19:50+00:00",
-    "commit": "a9b99f24b2864ac407e302148d67d54198ac50b0"
+    "recorded_at": "2026-09-09T17:40:51+00:00",
+    "commit": "43f7e5c47db2a7d2fab412a37967eccf15013926"
   }
 }
