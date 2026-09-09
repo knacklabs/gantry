@@ -120,7 +120,18 @@ def _validate_round_provenance(
             )
         available.remove(match)
     if rounds[-1].get("frontier_empty") is not True:
-        raise SystemExit(f"{gate} grill final round requires frontier_empty true")
+        raise SystemExit(
+            f"{gate} grill final round requires frontier_empty true.\n"
+            "  The ledger never carries this flag — post_tool_use records the "
+            "question and the answer, nothing more — so you set it BY HAND on "
+            "the last entry of the `rounds` you submit. Copying the ledger "
+            "verbatim can therefore never satisfy this gate.\n"
+            "  If the frontier really is closed, ask one genuine closing "
+            "question (\"any remaining gap before we hand off?\"), answer it, "
+            "and mark that entry \"frontier_empty\": true. If it is not "
+            "closed, the grill has not converged and another round is the "
+            "honest answer (factory/prompts/griller.md)."
+        )
 
 
 def _validate_task_grill(root: Path, payload: dict, task_id: str) -> dict:
@@ -432,6 +443,8 @@ _gate = get_gate(args.gate)
 _validate_round_provenance(
     root, payload, args.gate, active_story, args.task or "",
 )
+
+
 story = active_story if _gate.story_scoped else ""
 name = _gate.evidence_name(args.task or "")
 dest = evidence_path(root, story, name, for_write=True)

@@ -152,6 +152,44 @@ def _board_handoff(base: Path) -> str:
             else f"NO BOARD IS RUNNING — start one: `./forge board` ({url}).")
 
 
+_PARALLEL_COMMANDS = {
+    "await-merge": "./forge task pr-ready {id} (its own PR; merge in dependency order)",
+    "delegate": "./forge delegate {id} from inside its worktree",
+    "stage-start": "./forge task start {id}, then `./forge stage start {id}` from "
+                   "inside the worktree it prints",
+    "await-approval": "./forge task approve {id} --by \"<name>\" once the human "
+                      "has read it on the board",
+    "grill": "./forge grill run --gate task --task {id}",
+    "author-task-plan": "author its plan, then ./forge task plan save {id} --from <path>",
+    "author-contract": "author its contract and re-record the decomposition",
+}
+
+
+def _parallel_frontier(base: Path, first_id: str) -> list[str]:
+    """Every OTHER task that can move right now, one exact command each, plus
+    where each active stage lives. Tasks inside a story run in parallel when
+    their dependencies are done and their write scopes are disjoint."""
+    from factory_lib import task_frontier_items
+    from .stages import active_stages_everywhere, scope_conflicts
+    lines: list[str] = []
+    conflicts = scope_conflicts(base, first_id)
+    if conflicts:
+        lines.append(f"[dev] {first_id} collides with an active stage "
+                     f"({'; '.join(conflicts)}): grill and approve it now, but it "
+                     "starts only when that stage is done — never beside it.")
+    for state, task in task_frontier_items(base):
+        task_id = task.get("id", "")
+        if task_id == first_id:
+            continue
+        command = _PARALLEL_COMMANDS.get(state, state).format(id=task_id)
+        lines.append(f"[dev] Also ready in PARALLEL — {task_id} ({state}): {command}")
+    active = active_stages_everywhere(base)
+    if len(active) > 1 or (active and lines):
+        lines.append("Active stages per worktree: " + "; ".join(
+            f"{stage.get('id')} in {root}" for root, stage in active))
+    return lines
+
+
 def cmd_next(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
     _auto_heal_roadmap_after_merge(base)
@@ -385,11 +423,20 @@ def cmd_next(args: argparse.Namespace) -> None:
                 "record_grill_from_json.py --gate requirements"
             )
         else:
-            steps.append("[dev] MANDATORY: plan per factory/prompts/planner.md, or "
+            steps.append(
+                "[dev] FIRST read the system this plan will assert about — open "
+                "the types, enums, routes, permission codes and decision "
+                "records it will name. Not the architecture note describing "
+                "them: the file. Docs record the system as designed and drift "
+                "from what was built, and the cold reader checks what was "
+                "built. Delegate BREADTH to a read-only Codex run "
+                "(/codex:rescue) when the question is how a whole flow hangs "
+                "together; look up specific facts yourself.")
+            steps.append("[dev] THEN plan per factory/prompts/planner.md, or "
                          "deliberately open a bounded "
                          "`./forge quickfix start \"<reason>\"` window. Product writes are "
-                         "hook-blocked otherwise (Codex planning alternative: planner-high; "
-                         "exploration via /codex:rescue read-only). Authoring is "
+                         "hook-blocked otherwise (Codex planning alternative: "
+                         "planner-high). Authoring is "
                          "mode-agnostic (0050) — do not switch the session's mode "
                          "to write a plan.")
             steps.append("[dev] Record new decisions as you go: forge.py decision new <slug>")
@@ -465,16 +512,33 @@ def cmd_next(args: argparse.Namespace) -> None:
                         "(ledgered, so a killed launcher still shows in `forge codex "
                         "status`; it pins the cold reader from harness.yaml) — not "
                         "a Claude sub-agent, never inline — and you MUST actively WATCH "
-                        "that Codex run (it can pause on a signal awaiting you). Carry "
-                        "its findings into your own AskUserQuestion rounds, fold in the "
-                        "human's answers, re-run the Codex grill, and LOOP until a round "
-                        "is clean AND the plan is stable (no further edits). Record the "
-                        "digest-bound pass. Only a clean grill makes the plan appear on "
-                        "the board. Do NOT ask for approval before the grill converges."
+                        "that Codex run (it can pause on a signal awaiting you). ONE "
+                        "cold read is the WHOLE grill. Clean? Record and move on. "
+                        "Otherwise resolve every finding the REPO answers yourself, and "
+                        "put only what it cannot answer to the human in THIS grill via "
+                        "AskUserQuestion (recommended answer first) — there is no later "
+                        "round to save the hard ones for. Amend the contract once, then "
+                        "record the digest-bound pass against the AMENDED version. Do "
+                        "NOT cold-read again: a second unconstrained read returns a "
+                        "DIFFERENT frontier, not a shorter one, and that is how grills "
+                        "reached forty rounds. Only a clean grill makes the plan appear "
+                        "on the board. Do NOT ask for approval before it is recorded."
                     )
                 elif frontier == "author-task-plan":
                     steps.append(
-                        f"[dev] Author the {task_id} plan — do NOT present it in "
+                        f"[dev] FIRST read what {task_id} will touch — open the "
+                        "types, enums, routes, permission codes, migrations and "
+                        "decision records the contract will name. Not the "
+                        "architecture note describing them: the file. This plan "
+                        "names the exact surfaces the implementer writes against, "
+                        "so a fact taken from a doc that has drifted does not cost "
+                        "a grill round — it costs a worker paused mid-"
+                        "implementation against a contract that asked for "
+                        "something not there. Delegate BREADTH (/codex:rescue "
+                        "read-only) when the question is how a flow hangs "
+                        "together; look up specific facts yourself.")
+                    steps.append(
+                        f"[dev] THEN author the {task_id} plan — do NOT present it in "
                         "chat, and do NOT change the session's mode to write it "
                         "(authoring is mode-agnostic, 0050). It MUST carry "
                         "`## Workflow` (the end-to-end flow this task builds — a "
@@ -496,9 +560,9 @@ def cmd_next(args: argparse.Namespace) -> None:
                         "clean round AND the plan is final — no pending edits): "
                         "the human reviews it THERE (not in chat) and approves; "
                         f"then record it: `./forge task approve {task_id} --by \"<name>\"`. "
-                        "The approval is REFUSED until the board has actually sent "
-                        "them this plan text, so the link is the step, not a "
-                        "courtesy. Do NOT approve after an intermediate grill — a "
+                        "`task approve` prints the board link again as a courtesy; "
+                        "it does not check that the plan was opened — you do. "
+                        "Do NOT approve after an intermediate grill — a "
                         "later edit re-stales the approval and forces another round."
                     )
                 elif frontier == "stage-start":
@@ -564,6 +628,7 @@ def cmd_next(args: argparse.Namespace) -> None:
                         "skills_used); apple-design advisory for gesture/motion — "
                         "harness.yaml required_skills"
                     )
+                steps.extend(_parallel_frontier(base, task_id))
         elif task_closeout:
             # Sourced from require_closeout_order so `forge next` and the ship
             # gate can never disagree: re-deriving the same facts twice is how

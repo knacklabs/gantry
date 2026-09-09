@@ -50,6 +50,14 @@ def load_events(base: Path) -> list[dict]:
     return read_ledger_records(ledger_path(base))
 
 
+def closed_windows(base: Path) -> list[dict]:
+    """Every window that CLOSED with `done` (never an abandoned or open one),
+    as its ledgered done record: id, profile/kind, reason, started_at,
+    completed_at and the files it claimed."""
+    return [event for event in load_events(base)
+            if event.get("event") == "done" and isinstance(event.get("id"), str)]
+
+
 def _append(base: Path, event: dict) -> None:
     stamp = event.get("completed_at") or event.get("started_at") or now_iso()
     record_id = f"{stamp.replace(':', '').replace('-', '')}-{event.get('id', 'q')}-{event.get('event', '')}"
@@ -138,6 +146,11 @@ def _open(base: Path, *, profile: str, reason: str, by: str | None = None) -> di
     }
     if profile == DEGRADED:
         active["kind"] = DEGRADED
+        # Bind a mid-stage host-fix window to THE stage it serves: `stage done`
+        # accepts only a window whose task_id is its own.
+        if active_stages:
+            active["task_id"] = active_stages[0]
+            active["story"] = load_stages(base).get("issue", "")
     if by is not None:
         active["by"] = by
     if profile == LITE:
@@ -250,6 +263,9 @@ def cmd_mode_done(args: argparse.Namespace) -> None:
             "completed_at": now_iso(),
             "files": active.get("files", []),
         }
+        for field in ("task_id", "story"):
+            if field in active:
+                event[field] = active[field]
         _append(base, event)
         quickfix_path(base).unlink()
         print(f"Degraded mode {active['id']} done ({len(event['files'])} file(s)): "

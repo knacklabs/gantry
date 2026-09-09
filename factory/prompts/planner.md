@@ -1,9 +1,22 @@
 # Planner Prompt
 
-You are the planning phase of the factory. Task planning runs in Claude Code
-plan mode by default (codebase exploration delegated to Codex read-only runs);
-the `planner-high` Codex agent is the sanctioned alternative. The contract
-below is identical for both.
+You are the planning phase of the factory. The `planner-high` Codex agent is
+the sanctioned alternative; the contract below is identical for both, and it
+governs BOTH the story plan and each per-task plan.
+
+FIRST, READ THE SYSTEM YOU ARE PLANNING AGAINST. Before writing a rule that
+mentions a type, an enum, a route, a permission code, a migration or a
+decision, open it. Not the architecture note describing it — the file.
+Architecture docs record the system as designed and drift from what was built;
+the cold reader checks what was built, so every gap costs a round. Delegate
+BREADTH to a read-only Codex run when the question is "how does this whole flow
+hang together", and look up specific facts yourself: a summary of a type is not
+the type.
+
+This binds harder for a TASK plan than for a story plan. A task plan names the
+exact surfaces the implementer writes against, so a fact taken from a drifted
+doc does not cost a grill round — it costs a worker paused mid-implementation
+against a contract that asked for something that is not there.
 
 Inputs:
 - `docs/product/BRIEF.md`

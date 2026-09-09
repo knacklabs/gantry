@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import hashlib
 import importlib.util
 import json
 import os
@@ -17,6 +18,7 @@ import sys
 import tempfile
 import urllib.request
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from factory_lib import decomposition_state_path, load_json, parse_sections, repo_root
@@ -466,6 +468,101 @@ def _gstack_dir(home: Path) -> Path:
 
 def _autoreview_dir(home: Path) -> Path:
     return home / ".codex" / "skills" / "autoreview"
+
+
+AUTOREVIEW_UPSTREAM = "https://github.com/openclaw/agent-skills.git"
+AUTOREVIEW_SHA_FILE = ".upstream-sha"
+
+
+def _autoreview_upstream_sha() -> str:
+    """HEAD of the autoreview upstream; "" when offline or unreachable (then
+    the copy is never called stale — no network, no verdict)."""
+    code, out = run_quiet(["git", "ls-remote", AUTOREVIEW_UPSTREAM, "HEAD"])
+    first = out.split()[0] if code == 0 and out.split() else ""
+    return first if re.fullmatch(r"[0-9a-f]{40}", first) else ""
+
+
+def _autoreview_installed_sha(target: Path) -> str:
+    try:
+        return (target / AUTOREVIEW_SHA_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _autoreview_status(home: Path, upstream_sha: str) -> tuple[bool, str]:
+    """(ok, detail) for the doctor row: missing, stale against upstream, or
+    installed. A copy with no recorded sha (installed before refreshes
+    existed) counts as stale whenever upstream is reachable."""
+    target = _autoreview_dir(home)
+    if not target.is_dir():
+        return False, "not installed"
+    if upstream_sha and _autoreview_installed_sha(target) != upstream_sha:
+        return False, f"stale (upstream {upstream_sha})"
+    return True, str(target)
+
+
+AUTOREVIEW_DIGEST_FILE = ".installed-digest"
+_AUTOREVIEW_STAMPS = {AUTOREVIEW_SHA_FILE, AUTOREVIEW_DIGEST_FILE}
+
+
+def _autoreview_tree_digest(target: Path) -> str:
+    """Content digest of an installed skill tree, stamps excluded."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in target.rglob("*") if p.is_file()):
+        rel = path.relative_to(target).as_posix()
+        if rel in _AUTOREVIEW_STAMPS:
+            continue
+        digest.update(rel.encode() + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def _autoreview_backup_if_modified(target: Path) -> Path | None:
+    """A refresh must never silently overwrite local edits: when the tree no
+    longer matches the digest recorded at install (or has none), move it
+    aside to <dir>.bak-<timestamp> first and say so. Returns the backup."""
+    if not target.is_dir():
+        return None
+    try:
+        recorded = (target / AUTOREVIEW_DIGEST_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        recorded = ""
+    if recorded == _autoreview_tree_digest(target):
+        return None
+    backup = target.with_name(
+        f"{target.name}.bak-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}")
+    shutil.move(str(target), str(backup))
+    print(f"[fix ] {target} was modified locally; kept as {backup}")
+    return backup
+
+
+def _autoreview_install(home: Path, upstream_sha: str) -> bool:
+    """Copy skills/autoreview from a fresh shallow clone into
+    ~/.codex/skills/autoreview and — when that copy exists — into
+    ~/.claude/skills/autoreview too, stamping the upstream sha and the
+    installed tree's digest in each. A locally modified copy is backed up
+    first (see _autoreview_backup_if_modified)."""
+    targets = [_autoreview_dir(home)]
+    claude_copy = home / ".claude" / "skills" / "autoreview"
+    if claude_copy.is_dir():
+        targets.append(claude_copy)
+    with tempfile.TemporaryDirectory() as tmp:
+        code, _ = run_quiet([
+            "git", "clone", "--depth", "1", AUTOREVIEW_UPSTREAM, tmp,
+        ])
+        src = Path(tmp) / "skills" / "autoreview"
+        if code != 0 or not src.is_dir():
+            return False
+        code, cloned = run_quiet(["git", "-C", tmp, "rev-parse", "HEAD"])
+        sha = cloned.strip() if code == 0 and re.fullmatch(
+            r"[0-9a-f]{40}", cloned.strip()) else upstream_sha
+        for target in targets:
+            _autoreview_backup_if_modified(target)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src, target, dirs_exist_ok=True)
+            (target / AUTOREVIEW_SHA_FILE).write_text(sha + "\n", encoding="utf-8")
+            (target / AUTOREVIEW_DIGEST_FILE).write_text(
+                _autoreview_tree_digest(target) + "\n", encoding="utf-8")
+    return True
 
 
 def _python_candidates() -> list[tuple[str, tuple[str, ...]]]:
@@ -1470,27 +1567,26 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     ))
 
     # autoreview is the SOLE reviewer (decision 0001 D6) — the review gate
-    # cannot pass without it, so it is REQUIRED and --fix installs it.
+    # cannot pass without it, so it is REQUIRED and --fix installs it, and
+    # REFRESHES it when upstream moved (a client otherwise reviews with a
+    # copy that is months behind and never finds out).
     autoreview = _autoreview_dir(home)
-    if not autoreview.is_dir() and args.fix:
-        print("[fix ] installing the autoreview skill ...")
-        with tempfile.TemporaryDirectory() as tmp:
-            code, _ = run_quiet([
-                "git", "clone", "--depth", "1",
-                "https://github.com/openclaw/agent-skills.git", tmp,
-            ])
-            src = Path(tmp) / "skills" / "autoreview"
-            if code == 0 and src.is_dir():
-                autoreview.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(src, autoreview, dirs_exist_ok=True)
+    upstream_sha = _autoreview_upstream_sha()
+    ok, detail = _autoreview_status(home, upstream_sha)
+    if not ok and args.fix:
+        print("[fix ] installing the autoreview skill ..."
+              if not autoreview.is_dir() else
+              f"[fix ] refreshing the autoreview skill (upstream {upstream_sha[:12]}) ...")
+        _autoreview_install(home, upstream_sha)
+        ok, detail = _autoreview_status(home, upstream_sha)
 
     checks.append(_check(
         "autoreview skill",
-        autoreview.is_dir(),
-        str(autoreview) if autoreview.is_dir() else "not installed",
+        ok,
+        detail,
         "clone https://github.com/openclaw/agent-skills and copy skills/autoreview "
         "to ~/.codex/skills/ (the ONE reviewer — the review gate needs it) — "
-        "or rerun with --fix",
+        "or rerun with --fix (it also refreshes a stale copy)",
     ))
 
     # /grill-me is the grilling skill the plan and task gates require (referenced
@@ -1521,12 +1617,15 @@ def cmd_doctor(args: argparse.Namespace) -> None:
             print(f"[fix ] mirroring {label} into ~/.codex/skills ...")
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(source, target, dirs_exist_ok=True)
-    # Both halves must be present for Codex: the trigger AND what it delegates to.
+    # `grilling` is what a reader actually loads, on either runtime. `grill-me`
+    # is the human's `/grill-me` alias and carries disable-model-invocation, so
+    # requiring its Codex mirror gated health on a file no model can use — a
+    # machine missing it was told to fix something irrelevant.
     grill_me_ok = ((grill_me / "SKILL.md").is_file()
-                   and (grill_me_codex / "SKILL.md").is_file()
+                   and (grilling / "SKILL.md").is_file()
                    and (grilling_codex / "SKILL.md").is_file())
     checks.append(_check(
-        "grill-me skill (both runtimes)",
+        "grilling skill (both runtimes)",
         grill_me_ok,
         "installed" if grill_me_ok else "not installed",
         "`npx -y skills add mattpocock/skills -g --copy --all`, then mirror BOTH "

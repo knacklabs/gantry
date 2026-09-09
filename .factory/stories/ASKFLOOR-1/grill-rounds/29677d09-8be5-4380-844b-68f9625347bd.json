@@ -1,0 +1,31 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Listing rows: the stored record keeps the outcome, risk category, tool, place, approver label and date, but for an exact-action row the exact call is only a hash. How should a row read?",
+      "options": [
+        "Recoverable copy only (Recommended)",
+        "Persist a display snapshot"
+      ],
+      "chosen": "Recoverable copy only (Recommended)"
+    },
+    {
+      "question": "Folding round 2 pushes T5b to roughly 55 files / 5,000 lines (host injection path, label carrier through the run registry, Discord deferred-update path, forget-handler module). Ship as one task or split?",
+      "options": [
+        "One task, widened budget (Recommended)",
+        "Split into two tasks"
+      ],
+      "chosen": "One task, widened budget (Recommended)"
+    },
+    {
+      "question": "The \"used by job\" read scans the permission audit table by JSON field once per /permissions in a DM. Accept the scan or add an index migration?",
+      "options": [
+        "Accept the scan (Recommended)",
+        "Add an index migration"
+      ],
+      "chosen": "Accept the scan (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T01:14:56.131819+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

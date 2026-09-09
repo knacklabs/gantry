@@ -131,11 +131,12 @@ def main() -> None:
         root = read_ceremony_target(root) or root
         story = _active_story_key(root) or None
         tool = payload.get("tool_name")
-        if tool in WRITE_TOOLS and payload.get("permission_mode") == "plan":
-            record = _plan_marker(root, payload)
-            if record is not None:
-                _write_record(root, story, "plan-mode", record)
-        elif tool == "AskUserQuestion":
+        # Decision 0050 removed the plan-mode marker GATE; nothing has read a
+        # marker since. Recording them kept `permission_mode == "plan"` in the
+        # dispatch, which reads as if plan mode were still load-bearing three
+        # decisions after it stopped being. Provenance nobody consults is not
+        # provenance.
+        if tool == "AskUserQuestion":
             record = _grill_round(root, payload)
             if record is not None:
                 _write_record(root, story, "grill-rounds", record)

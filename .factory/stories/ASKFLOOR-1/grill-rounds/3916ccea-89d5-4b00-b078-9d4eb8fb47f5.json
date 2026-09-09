@@ -1,0 +1,39 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "At stage done, what should still refuse? Today write scope, review budget, test naming and verification all refuse the seal.",
+      "options": [
+        "Refuse only on failing verification (Recommended)",
+        "Keep all refusals"
+      ],
+      "chosen": "Refuse only on failing verification (Recommended)"
+    },
+    {
+      "question": "Is 'only Codex writes product code' a principle or a habit? T5a needed eleven degraded windows because the writer could not act after stage done or without network.",
+      "options": [
+        "Bounded coordinator fixes allowed (Recommended)",
+        "Codex-only stays"
+      ],
+      "chosen": "Bounded coordinator fixes allowed (Recommended)"
+    },
+    {
+      "question": "Is the plan review a gate or a review? A gate binds to bytes and refuses on drift; a review records findings against a version and lets you decide.",
+      "options": [
+        "Review that records, not a gate (Recommended)",
+        "Keep it a gate"
+      ],
+      "chosen": "Review that records, not a gate (Recommended)"
+    },
+    {
+      "question": "Per-task PRs or story PRs? Per-task drives the marker, frontier, reconcile and PR-contract machinery; story PRs remove it but batch the review.",
+      "options": [
+        "Per-task PRs, kept (Recommended)",
+        "Story PRs"
+      ],
+      "chosen": "Per-task PRs, kept (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T04:57:29.186580+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
