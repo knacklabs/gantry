@@ -1,0 +1,13 @@
+{
+  "topic": "task-continuation",
+  "lesson": "CONTINUE, do not restart: the worktree already holds the previous run's uncommitted T4 work (NEW application/permissions/human-decision-job-projection.ts, NEW runtime/ipc-permission-job-projection.ts, NEW test/unit/application/human-decision-job-projection.test.ts, plus coordinator, IPC, inline, execution-phases, agent-spawn-types, types.ts, runtime-services and test-suite edits). Read git status and git diff first, keep what matches the contract, and finish the remaining acceptance criteria and the nine required leaves (the permission-management-service audit leaf, the execution suite, the inline suite split, the runtime-services wiring leaf and the Postgres leaf were not yet done when run 1 died).",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/application/permissions/human-decision-job-projection.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T03:14:31+00:00"
+}

@@ -1,0 +1,12 @@
+{
+  "topic": "hardFloor floors the classifier, not remembered decisions",
+  "lesson": "The rail's hardFloor flag floors the classifier only (T3b-AC3); a human's remembered exact Allow on a destructive ask is honoured (story S4). Do not hoist a hardFloor guard over the interactive remembered-allow path in permission-decision-coordinator.ts \u2014 that fix broke S4 and was reverted (Q-0173).",
+  "source": ".factory/stories/ASKFLOOR-1/tasks/ASKFLOOR-1-T5a/reviews/security.json",
+  "applies_to": [
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/runtime/permission-*.ts"
+  ],
+  "severity": "high",
+  "generated_by": "autoreview",
+  "added_at": "2026-09-09T08:59:07+00:00"
+}
