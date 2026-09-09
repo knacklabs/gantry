@@ -43,10 +43,18 @@ import {
   normalizeDeepAgentStream,
   type LangGraphStreamEvent,
 } from '../runner/stream-normalizer.js';
+import {
+  deepAgentUsageEventIdForTurn,
+  isDeepAgentPartialUsage,
+} from '../runner/stream-normalizer-partial-usage.js';
 import { runnableToolInvocationId } from '../runner/tool-invocation-id.js';
 import * as memory from './gantry-memory-middleware.js';
 import { createInlineSkillsMiddleware } from './skills.js';
-import { abortedOutput, structuredOutputError } from './inline-lane-output.js';
+import {
+  abortedOutput,
+  partialUsageError,
+  structuredOutputError,
+} from './inline-lane-output.js';
 import { connectRemoteMcpTools } from './remote-mcp-startup.js';
 
 const CHECKPOINT_POOL_MAX_CONNECTIONS = 1;
@@ -209,6 +217,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
       }) as unknown as InlineDeepAgentGraph;
 
       let firstTurn = true;
+      let turnNumber = 0;
       let emitChain = Promise.resolve();
       for (;;) {
         const queued = pendingFollowups.splice(0);
@@ -249,7 +258,10 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
               },
             ),
             newSessionId: sessionId,
+            usageEventId: deepAgentUsageEventIdForTurn(sessionId, ++turnNumber),
             modelId: model.modelId,
+            provider: laneInput.resolvedModel.value.modelEntry.modelRoute.id,
+            modelRoute: laneInput.resolvedModel.value.modelEntry.modelRoute.id,
             modelProfile: readModelProfile(model.model),
             cacheProvider: cacheProvider(model),
             shouldEmitToolOutcome: (invocationId) =>
@@ -274,6 +286,12 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
           await emitChain;
         } catch (error) {
           if (signal.aborted && isAbortError(error)) break;
+          if (isDeepAgentPartialUsage(error)) {
+            await emitChain;
+            const terminal = partialUsageError(error, sessionId);
+            await laneInput.emitOutput(terminal);
+            return terminal;
+          }
           if (isGraphRecursionLimitError(error)) {
             await emitChain;
             const terminal = inlineAgentMaxTurnsError(maxTurns, sessionId);
@@ -319,6 +337,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
           newSessionId: sessionId,
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
           usage: normalized.terminalUsage,
+          usageEventId: normalized.usageEventId,
           contextUsage: normalized.terminalContextUsage,
         };
         await laneInput.emitOutput(lastTerminal);

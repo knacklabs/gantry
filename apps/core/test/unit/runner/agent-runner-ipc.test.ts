@@ -776,6 +776,23 @@ export async function* query({ prompt, options }) {
     }
     return;
   }
+  if (process.env.TEST_ERRORED_RESULT_WITH_USAGE === '1') {
+    yield {
+      type: 'result',
+      subtype: 'error_during_execution',
+      errors: ['Provider unavailable.'],
+      request_id: 'usage-event-1',
+      modelUsage: {
+        'claude-sonnet-4-6': {
+          inputTokens: 1000,
+          outputTokens: 12,
+          cacheReadInputTokens: 270000,
+          cacheCreationInputTokens: 500,
+        },
+      },
+    };
+    return;
+  }
   if (process.env.TEST_COMPACT_BOUNDARY === '1') {
     yield { type: 'system', subtype: 'compact_boundary', uuid: 'compact-1' };
   }
@@ -3169,6 +3186,40 @@ describe('agent-runner IPC lifecycle', () => {
           decisionClassification: 'user_reject',
         }),
       );
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+});
+
+describe('claude runner', () => {
+  it(
+    'writes the QueryFailure usage on the single error frame',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput(),
+        { TEST_ERRORED_RESULT_WITH_USAGE: '1' },
+        RUNNER_IPC_TEST_TIMEOUT_MS,
+      );
+
+      expect(result.exitCode, result.stderr).toBe(1);
+      const errorFrames = readRunnerOutputs(result.stdout).filter(
+        (output) => output.status === 'error',
+      );
+      expect(errorFrames).toEqual([
+        expect.objectContaining({
+          error: 'Provider unavailable.',
+          usageEventId: 'usage-event-1',
+          usage: expect.objectContaining({
+            inputTokens: 1000,
+            outputTokens: 12,
+            cacheReadTokens: 270000,
+            cacheWriteTokens: 500,
+          }),
+        }),
+      ]);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

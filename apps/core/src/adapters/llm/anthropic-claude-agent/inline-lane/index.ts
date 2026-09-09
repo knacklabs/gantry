@@ -290,8 +290,28 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         }
         if (record?.type !== 'result') continue;
 
+        resultCount += 1;
+        const usage = normalizeModelUsage({
+          message,
+          fallbackModel: input.resolvedModel.value.runnerModel,
+        });
+        const resultUsage = usage
+          ? {
+              usage,
+              usageEventId: usageEventIdForMessage(
+                message,
+                newSessionId ?? input.input.sessionId,
+                resultCount,
+                queryRunId,
+              ),
+            }
+          : {};
+
         if (record.subtype === 'error_max_turns') {
-          lastTerminal = inlineAgentMaxTurnsError(maxTurns, newSessionId);
+          lastTerminal = {
+            ...inlineAgentMaxTurnsError(maxTurns, newSessionId),
+            ...resultUsage,
+          };
           await input.emitOutput(lastTerminal);
           break;
         }
@@ -300,18 +320,30 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
           responseSchema &&
           record.subtype === 'error_max_structured_output_retries'
         ) {
-          lastTerminal = structuredOutputError(
-            sdkResultFailureMessage(message) ??
-              'Claude SDK could not produce output matching response_schema.',
-            newSessionId,
-          );
+          lastTerminal = {
+            ...structuredOutputError(
+              sdkResultFailureMessage(message) ??
+                'Claude SDK could not produce output matching response_schema.',
+              newSessionId,
+            ),
+            ...resultUsage,
+          };
           await input.emitOutput(lastTerminal);
           break;
         }
 
         const failure = sdkResultFailureMessage(message);
-        if (failure) throw new Error(failure);
-        resultCount += 1;
+        if (failure) {
+          lastTerminal = {
+            status: 'error',
+            result: null,
+            error: failure,
+            ...(newSessionId ? { newSessionId } : {}),
+            ...resultUsage,
+          };
+          await input.emitOutput(lastTerminal);
+          break;
+        }
         const resultText = stringValue(record.result);
         const structuredResult = responseSchema
           ? jsonString(record.structured_output)
@@ -325,10 +357,6 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
           break;
         }
         const contextUsage = await readContextUsage(sdkQuery);
-        const usage = normalizeModelUsage({
-          message,
-          fallbackModel: input.resolvedModel.value.runnerModel,
-        });
         const continuedByFollowup = steeringGate.pendingCount() > 0;
         lastTerminal = {
           status: 'success',
@@ -337,17 +365,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
             (sawPartialText ? null : resultText || assistantText || null),
           newSessionId,
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
-          ...(usage
-            ? {
-                usage,
-                usageEventId: usageEventIdForMessage(
-                  message,
-                  newSessionId ?? input.input.sessionId,
-                  resultCount,
-                  queryRunId,
-                ),
-              }
-            : {}),
+          ...resultUsage,
           ...(contextUsage ? { contextUsage } : {}),
         };
         await input.emitOutput(lastTerminal);

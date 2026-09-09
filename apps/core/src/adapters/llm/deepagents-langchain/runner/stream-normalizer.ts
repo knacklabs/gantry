@@ -27,12 +27,14 @@ import {
   unprojectedAccessActivityDetail,
   unprojectedAccessIdentityFromToolResult,
 } from '../../../../shared/unprojected-access.js';
+import {
+  DeepAgentPartialUsage,
+  deepAgentUsageEventIdForTurn,
+  partialUsageEvents,
+} from './stream-normalizer-partial-usage.js';
 
-// Pure normalizer: turns an async iterable of LangGraph `streamEvents` (v2)
-// events into provider-neutral runner output frames. Kept free of any
-// network/SDK construction so it is unit-testable against a mocked stream.
-//
-// Behavior mirrors the Anthropic runner streaming contract:
+// Pure normalizer: turns LangGraph `streamEvents` (v2) into provider-neutral
+// runner frames, free of network/SDK construction for mocked unit tests.
 //   - text token deltas are emitted as intermediate frames
 //     { status:'success', result:<delta>, newSessionId } so channels stream;
 //   - the SINGLE per-turn terminal frame is NOT emitted here. The normalizer
@@ -86,7 +88,10 @@ export interface ModelProfileSnapshot {
 export interface StreamNormalizerInput {
   events: AsyncIterable<LangGraphStreamEvent>;
   newSessionId: string;
+  usageEventId?: string;
   modelId?: string;
+  provider?: NormalizedModelUsage['provider'];
+  modelRoute?: NormalizedModelUsage['modelRoute'];
   modelProfile: ModelProfileSnapshot;
   // Prompt-cache provider for the resolved model, derived from the runner's
   // endpoint family on the HOST/runner (openrouter -> 'openrouter-provider',
@@ -128,6 +133,7 @@ export interface NormalizedTurnResult {
   terminalResult: string | null;
   terminalUsage: NormalizedModelUsage;
   terminalContextUsage: RuntimeContextUsageSnapshot;
+  usageEventId: string;
 }
 
 export async function normalizeDeepAgentStream(
@@ -144,6 +150,8 @@ export async function normalizeDeepAgentStream(
   let sawFirstEvent = false;
   let sawFirstVisibleText = false;
   let toolSequence = 0;
+  const usageEventId =
+    input.usageEventId ?? deepAgentUsageEventIdForTurn(input.newSessionId, 1);
   const pendingTools = new Map<
     string,
     Array<{ invocationId: string; tracerRunId?: string; seq: number }>
@@ -152,7 +160,22 @@ export async function normalizeDeepAgentStream(
   const terminalProviderRunIds = new Set<string>();
   const nextToolSequence = () => input.nextToolSequence?.() ?? ++toolSequence;
 
-  for await (const event of input.events) {
+  for await (const event of partialUsageEvents(
+    input.events,
+    (error) =>
+      new DeepAgentPartialUsage(
+        error,
+        normalizedUsage(
+          usage,
+          input.modelId,
+          input.cacheProvider,
+          input.provider,
+          input.modelRoute,
+        ),
+        contextUsageSnapshot(usage, input.modelId, input.modelProfile),
+        usageEventId,
+      ),
+  )) {
     if (!sawFirstEvent) {
       sawFirstEvent = true;
       input.onFirstEvent?.(event.event);
@@ -289,12 +312,19 @@ export async function normalizeDeepAgentStream(
     text: accumulatedText,
     usage,
     terminalResult: sawPartialText ? null : accumulatedText || null,
-    terminalUsage: normalizedUsage(usage, input.modelId, input.cacheProvider),
+    terminalUsage: normalizedUsage(
+      usage,
+      input.modelId,
+      input.cacheProvider,
+      input.provider,
+      input.modelRoute,
+    ),
     terminalContextUsage: contextUsageSnapshot(
       usage,
       input.modelId,
       input.modelProfile,
     ),
+    usageEventId,
   };
 }
 
@@ -596,6 +626,8 @@ function normalizedUsage(
   usage: UsageAccumulator,
   modelId: string | undefined,
   cacheProvider: NormalizedCacheProvider | undefined,
+  modelProvider: NormalizedModelUsage['provider'],
+  modelRoute: NormalizedModelUsage['modelRoute'],
 ): NormalizedModelUsage {
   const provider = cacheProvider ?? 'none';
   // A prompt-cache lane (openai/openrouter-provider) supports cache accounting;
@@ -605,6 +637,8 @@ function normalizedUsage(
   const cacheWriteTokens = supportsCacheAccounting ? usage.cacheWriteTokens : 0;
   return {
     ...(modelId ? { model: modelId } : {}),
+    ...(modelProvider ? { provider: modelProvider } : {}),
+    ...(modelRoute ? { modelRoute } : {}),
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
     cacheReadTokens,

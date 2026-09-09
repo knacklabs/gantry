@@ -13,6 +13,7 @@ import type {
   AgentSession,
   ExecutionProviderId,
 } from '../../../../domain/sessions/sessions.js';
+import type { RetiredProviderSessionReference } from '../../../../domain/sessions/provider-session-measurement.js';
 import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execution-provider-id.js';
 import type { RunLease } from '../../../../domain/ports/worker-coordination.js';
 import type {
@@ -542,6 +543,7 @@ export class PostgresRuntimeRepositoryBundle
     readyProviderSessionId?: string;
     readyExternalSessionId?: string;
     providerSessionAccessFingerprint?: string;
+    contextHighWaterMark?: number;
     compactionDeltaReplay?: {
       status: 'pending' | 'applied' | 'degraded';
       baseCursor?: string;
@@ -573,6 +575,27 @@ export class PostgresRuntimeRepositoryBundle
     externalSessionId: string;
   }): Promise<void> {
     await this.sessions.expireProviderSession(input);
+  }
+
+  async raiseProviderSessionContextHighWaterMark(input: {
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: ExecutionProviderId;
+    externalSessionId: string;
+    expectedAgentSessionResetAt: string | null;
+    contextHighWaterMark: number;
+  }): Promise<boolean> {
+    return this.sessions.raiseProviderSessionContextHighWaterMark(input);
+  }
+
+  async retireProviderSession(input: {
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: ExecutionProviderId;
+    externalSessionId: string;
+    expectedAgentSessionResetAt: string | null;
+  }): Promise<RetiredProviderSessionReference | undefined> {
+    return this.sessions.retireProviderSession(input);
   }
 
   async markProviderSessionMaintenance(input: {
@@ -738,8 +761,8 @@ export class PostgresRuntimeRepositoryBundle
       memoryUserId?: string;
       agentId?: string;
     } = {},
-  ): Promise<void> {
-    await this.sessions.deleteSession(agentFolder, threadId, {
+  ): Promise<readonly RetiredProviderSessionReference[]> {
+    return this.sessions.deleteSession(agentFolder, threadId, {
       appId: metadata.appId,
       chatJid: metadata.conversationJid,
       providerAccountId: metadata.providerAccountId,

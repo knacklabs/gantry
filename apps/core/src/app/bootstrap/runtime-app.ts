@@ -47,6 +47,7 @@ import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
+import type { RetiredProviderSessionReference } from '../../domain/sessions/provider-session-measurement.js';
 import type {
   RuntimeAgentSessionRepository,
   RuntimeChatMetadataRepository,
@@ -113,7 +114,7 @@ export interface RuntimeApp {
     chatJid: string,
     threadId?: string | null,
     metadata?: { memoryUserId?: string; providerAccountId?: string | null },
-  ) => Promise<void>;
+  ) => Promise<readonly RetiredProviderSessionReference[]>;
   processGroupMessages: (
     chatJid: string,
     options?: GroupProcessOptions,
@@ -547,7 +548,7 @@ export function createRuntimeApp(
     chatJid: string,
     threadId?: string | null,
     metadata: { memoryUserId?: string; providerAccountId?: string | null } = {},
-  ): Promise<void> {
+  ): Promise<readonly RetiredProviderSessionReference[]> {
     const {
       chatJid: conversationJid,
       agentId,
@@ -562,8 +563,8 @@ export function createRuntimeApp(
       agentId,
       providerAccountId,
     );
-    if (!group) return;
-    await ops().deleteSession(group.folder, threadId, {
+    if (!group) return Object.freeze([]);
+    return ops().deleteSession(group.folder, threadId, {
       conversationJid,
       providerAccountId,
       conversationKind: group.conversationKind,

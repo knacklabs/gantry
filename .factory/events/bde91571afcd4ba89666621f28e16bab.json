@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T11:28:37+00:00", "story": "cache-bug", "detail": "S11 requires npm run lint in verify and CI, but lint has 82 pre-existing errors outside scope, making S10's required verify.py green impossible without an unapproved baseline, suppression, or scope ex"}

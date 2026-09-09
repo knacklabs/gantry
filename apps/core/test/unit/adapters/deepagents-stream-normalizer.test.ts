@@ -13,6 +13,7 @@ import {
   normalizeDeepAgentStream,
   type LangGraphStreamEvent,
 } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer.js';
+import { DeepAgentPartialUsage } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.js';
 import { createGantryFacadeTools } from '@core/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.js';
 import { wrapThirdPartyMcpToolsWithGate } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
 import { runnableToolInvocationId } from '@core/adapters/llm/deepagents-langchain/runner/tool-invocation-id.js';
@@ -1000,5 +1001,42 @@ describe('normalizeDeepAgentStream', () => {
     expect(frames).toHaveLength(0);
     expect(result.terminalResult).toBeNull();
     expect(result.terminalUsage.outputTokens).toBe(3);
+  });
+
+  it('an errored turn carries one cumulative partial-usage payload with the resolved route', async () => {
+    const failure = new Error('gateway failed');
+    const events = {
+      async *[Symbol.asyncIterator](): AsyncIterableIterator<LangGraphStreamEvent> {
+        yield streamEvent('partial', { input: 900, output: 8 });
+        yield streamEvent('', { input: 1000, output: 12 });
+        throw failure;
+      },
+    };
+
+    const result = normalizeDeepAgentStream({
+      events,
+      newSessionId: 'session-error',
+      usageEventId: 'session-error:run:4',
+      modelId: 'gpt-5.5',
+      provider: 'openai',
+      modelRoute: 'openai',
+      modelProfile: { maxInputTokens: 400_000 },
+      cacheProvider: 'openai',
+      emit: () => undefined,
+    });
+
+    await expect(result).rejects.toBeInstanceOf(DeepAgentPartialUsage);
+    await expect(result).rejects.toMatchObject({
+      cause: failure,
+      usageEventId: 'session-error:run:4',
+      usage: {
+        model: 'gpt-5.5',
+        provider: 'openai',
+        modelRoute: 'openai',
+        inputTokens: 1000,
+        outputTokens: 12,
+      },
+      contextUsage: { totalTokens: 1012, maxTokens: 400_000 },
+    });
   });
 });

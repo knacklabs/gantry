@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The harness makes the task count your call before the decomposition is recorded. The approved plan has three sequential backend tasks: T1 measurement and storage (registry booleans, derived input, partial usage on error, typed column with generated migration, fenced raise and retire operations, resetScope references, lint gate); T2 host policy (cap setting with reader-version bump, ceiling preflight with non-hydrating lost-race re-read, post-run raise, two events, docs and recipe, architecture alignment); T3 adapter release port (adapter contract, DeepAgents deleteThread, post-reply coordinator, both /new paths). How many tasks?",
+      "options": [
+        "Three, as planned (Recommended)",
+        "Two: merge T2 and T3",
+        "One task"
+      ],
+      "chosen": "Three, as planned (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T10:47:00.589720+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

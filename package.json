@@ -73,6 +73,7 @@
     "prepare": "HUSKY=1 husky || true",
     "prepublishOnly": "npm run build",
     "lint": "eslint apps/core/src packages/contracts/src packages/sdk/src",
+    "lint:changed": "files=\"$(git diff --name-only --diff-filter=ACMR $(git merge-base HEAD origin/main) -- '*.ts' '*.tsx'; git ls-files --others --exclude-standard -- '*.ts' '*.tsx')\"; test -z \"$files\" || eslint $files",
     "lint:web": "npm run lint --workspace @gantry/web",
     "lint:fix": "eslint apps/core/src packages/contracts/src packages/sdk/src --fix",
     "test": "npm run build:contracts && npm run test:unit && npm run test:integration",

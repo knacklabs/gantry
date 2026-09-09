@@ -26,6 +26,7 @@ import {
 } from './model-config.js';
 import { writeOutput } from './output.js';
 import { runQuery } from './query-loop.js';
+import { QueryFailure } from './query-failure.exception.js';
 import {
   buildEffectiveToolNetworkEnv,
   buildSdkEnv,
@@ -248,6 +249,7 @@ async function runScheduledQuery(opts: {
       result: null,
       newSessionId: diagnosticSessionId,
       error: errorMessage,
+      ...queryFailureUsageOutput(err),
       runtimeEvents: sdkSandboxBlockedRuntimeEvents(
         opts.agentInput,
         errorMessage,
@@ -306,6 +308,7 @@ async function runInteractiveQueryLoop(opts: {
       result: null,
       newSessionId: diagnosticSessionId,
       error: errorMessage,
+      ...queryFailureUsageOutput(err),
       runtimeEvents: sdkSandboxBlockedRuntimeEvents(
         opts.agentInput,
         errorMessage,
@@ -313,6 +316,13 @@ async function runInteractiveQueryLoop(opts: {
     });
     process.exit(1);
   }
+}
+
+function queryFailureUsageOutput(err: unknown) {
+  if (!(err instanceof QueryFailure) || !err.partialUsage) {
+    return {};
+  }
+  return err.partialUsage;
 }
 
 main();

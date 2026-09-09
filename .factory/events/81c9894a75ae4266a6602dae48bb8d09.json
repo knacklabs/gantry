@@ -1,0 +1,1 @@
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-09-09T12:05:30+00:00", "story": "cache-bug", "detail": "npm run lint reports 82 errors outside cache-bug-T1 write scope; S11 requires a recorded deferral with trigger but the brief names no permitted deferral artifact or recording action."}

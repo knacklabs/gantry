@@ -1,0 +1,130 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "issue": "cache-bug",
+  "task_id": "cache-bug-T1",
+  "verdict": "pass",
+  "decision": "keep",
+  "summary": "Task gate for cache-bug-T1: one cold read (task-mttz6nle-ok6kd7) returned six findings; the human chose to cover inline lanes in T1; the remaining findings were repository-answered and folded into the re-recorded decomposition contract and the re-saved task plan in one amendment.",
+  "inspected_refs": [
+    "apps/core/src/runtime/group-agent-runner-compaction-delta.ts",
+    "apps/core/src/runtime/group-agent-runner.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-messages.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane/index.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/index.ts",
+    "apps/core/src/runtime/agent-spawn-preparation.ts",
+    "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-helpers.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/schema/sessions.ts",
+    "apps/core/src/shared/model-provider-registry.ts",
+    "apps/core/src/shared/model-usage.ts",
+    "docs/decisions/0159-adapter-session-release-port.md",
+    "factory/scripts/record_grill_from_json.py"
+  ],
+  "current_flow": "Live turn: getAgentTurnContext selects the newest resumable provider session (promoting ready) \u2192 prepareCompactionDeltaReplay (stale/too-large delta marks degraded then expireProviderSession on the READY row) \u2192 fingerprint check (expireProviderSession, void) \u2192 createSessionAgentRun \u2192 invokeAgent with resumeExternalSessionId; on missing-session error expireTurnProviderSession (void) then retry without resume; after each output persistProviderSessionFromOutput (setSession inserts/updates the handle and DELETES prior rows) and recordRuntimeModelUsage (normalised usage, contextUsage). Claude runner: result-error branch throws bare Error before normalising usage; runner/index.ts catch writes a bare error frame. DeepAgents: normaliser accumulates usage locally and throws without it; index.ts catch writes a bare error frame. Inline lanes mirror both. /new: resetScope deletes provider-session rows in a transaction and returns void; canonical-ops-repo.postgres.ts deleteSession discards the result. No context measure is stored anywhere; totalBillableInputTokens = input - cacheRead.",
+  "criteria_map": {
+    "S1 derivation: modelVisibleInputTokens returns 271,500 for an Anthropic usage of 1,000 input / 270,000 cache read / 500 cache write; 1,000 for an OpenAI-compatible usage of 1,000 input / 800 cached; the additive form for a mixed or unresolved route; totalBillableInputTokens and all other billing fields unchanged.": "required test 'modelVisibleInputTokens > sums input, cache read and cache write for an additive Anthropic route' in apps/core/test/unit/shared/model-visible-input-tokens.test.ts; required test 'modelVisibleInputTokens > uses input alone for an inclusive OpenAI-compatible route with nonzero cache writes' in apps/core/test/unit/shared/model-visible-input-tokens.test.ts; required test 'modelVisibleInputTokens > uses the additive form for a mixed or unresolved route' in apps/core/test/unit/shared/model-visible-input-tokens.test.ts",
+    "S2/R2 partial usage, spawned runners: an errored Claude worker run and an errored DeepAgents worker run each write one cumulative partial-usage payload with the turn's usageEventId on their single error frame; Claude carries it as a typed QueryFailure thrown from the result branch and written by runner/index.ts; DeepAgents carries it as a typed DeepAgentPartialUsage value passed stream-normalizer \u2192 deep-agent-runner \u2192 index.": "required test 'deepagents stream normalizer > an errored turn carries one cumulative partial-usage payload with the resolved route' in apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts; required test 'deepagents runner > writes the partial usage on the single error frame' in apps/core/test/unit/adapters/deepagents-runner-error-frame.test.ts; required test 'claude query loop > a failed result throws a QueryFailure carrying the accumulated usage' in apps/core/test/unit/runner/query-loop-error-usage.test.ts; required test 'claude runner > writes the QueryFailure usage on the single error frame' in apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+    "S2/R2 partial usage, inline lanes: an errored Claude inline-lane turn and an errored DeepAgents inline-lane turn each emit one terminal error output carrying the accumulated usage with the turn's usageEventId.": "required test 'deepagents inline lane > an errored turn emits one terminal error output carrying accumulated usage' in apps/core/test/unit/adapters/deepagents-inline-lane-error-usage.test.ts; required test 'claude inline lane > an errored turn emits one terminal error output carrying accumulated usage' in apps/core/test/unit/adapters/claude-inline-lane-error-usage.test.ts",
+    "S3 storage: provider_sessions.context_high_water_mark is a nullable integer column added by a generated drizzle migration (db:migrations:check clean); raiseProviderSessionContextHighWaterMark keeps the larger value, leaves metadata_json untouched, rejects a stale owner, ignores non-resumable rows, rejects non-integer or negative values before SQL with ProviderSessionMeasurementError, and returns whether a row changed; the turn-context projection returns contextHighWaterMark.": "required test 'provider session context high-water mark > raise keeps the larger value and leaves metadata_json untouched' in apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts; required test 'provider session context high-water mark > raise rejects a stale owner and ignores non-resumable rows' in apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts; required test 'provider session measurement > rejects non-integer and negative values before SQL' in apps/core/test/unit/sessions/provider-session-measurement.test.ts; verify command npm run db:migrations:check",
+    "R1 fences: raise and retireProviderSession compare agent_sessions.reset_at with IS NOT DISTINCT FROM the caller's generation; a null/null generation succeeds and null versus non-null is rejected on both operations.": "required test 'provider session context high-water mark > raise and retire fence null-safely on the agent session generation' in apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+    "R1 retirement: retireProviderSession is one atomic active\u2192expired UPDATE fenced on id, agent_session_id, provider, external_session_id, status='active' and the generation, returning { providerSessionId, externalSessionId, executionProviderId } or undefined; the fingerprint-change, missing-session and ops-service facade callers switch to it, while the compaction-delta degradation path keeps the existing expireProviderSession helper unchanged (0159 \u00a74).": "required test 'provider session context high-water mark > retire returns the retired reference only for a won active transition' in apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts; required test 'group agent runner > fingerprint change and missing-session retry retire through retireProviderSession' in apps/core/test/unit/runtime/group-processing.test.ts; required test 'group agent runner > compaction-delta degradation still uses expireProviderSession' in apps/core/test/unit/runtime/group-processing.test.ts",
+    "R3 registry: every executable route's cacheSupport.prompt declares cacheReadsIncludedInInput and cacheWritesIncludedInInput (type in model-provider-registry.ts); the registry validator fails a route missing either; nonzero OpenAI and OpenRouter cache-write usage yields inputTokens unchanged; DeepAgents normalised usage carries the resolved provider and modelRoute.": "required test 'model provider registry > every executable route declares both cache-inclusion booleans' in apps/core/test/unit/shared/model-provider-registry-cache-inclusion.test.ts; required test 'model provider registry > a route missing a cache-inclusion boolean fails validation' in apps/core/test/unit/shared/model-provider-registry-cache-inclusion.test.ts; required test 'deepagents stream normalizer > an errored turn carries one cumulative partial-usage payload with the resolved route' in apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts",
+    "R4 return type: resetScope returns an immutable list of retired { providerSessionId, externalSessionId, executionProviderId } selected FOR UPDATE before delete and returned after commit, and a readonly empty list on no-route or empty paths; canonical-session-ops-service, canonical-ops-repo.postgres.ts and clearSessionForChatJid propagate it; no caller releases yet.": "required test 'provider session context high-water mark > resetScope returns the retired references after commit and an empty list when nothing matched' in apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+    "S11 lint gate: npm run lint runs inside FACTORY_STRUCTURAL_CMD in .envrc and in the CI check step; lint debt outside this task's diff is recorded as a deferral with a trigger, not silently fixed.": "verify commands npm run lint and python3 factory/scripts/verify.py (FACTORY_STRUCTURAL_CMD in .envrc); CI check step diff reviewed in review",
+    "S10 unchanged behaviour: the four pinned tests (group-processing 'passes hydrated memory context with provider session resume id', agent-runner-ipc 'resumes and persists SDK sessions for live channel turns', claude-agent-sdk-boundary 'passes hermetic Gantry capabilities and settings into the Claude SDK', deepagents-memory-context 'injects the trust-scoped memory block exactly once as a model-visible user message') and the scheduled-job tests are untouched and green; python3 factory/scripts/verify.py is green.": "required test 'passes hydrated memory context with provider session resume id' in apps/core/test/unit/runtime/group-processing.test.ts; required test 'resumes and persists SDK sessions for live channel turns' in apps/core/test/unit/runner/agent-runner-ipc.test.ts; required test 'passes hermetic Gantry capabilities and settings into the Claude SDK' in apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts; required test 'injects the trust-scoped memory block exactly once as a model-visible user message' in apps/core/test/unit/adapters/deepagents-memory-context.test.ts; verify command python3 factory/scripts/verify.py"
+  },
+  "new_abstractions": [
+    "ProviderSessionMeasurementError (domain/sessions) \u2014 typed validation error for the mark",
+    "QueryFailure (Claude runner/types.ts) \u2014 value-carrying error with usage + usageEventId",
+    "DeepAgentPartialUsage / DeepAgentTurnFailure (DeepAgents runner) \u2014 typed partial-usage carrier",
+    "retireProviderSession returning a RetiredProviderSessionRef; resetScope returning readonly RetiredProviderSessionRef[]",
+    "cacheReadsIncludedInInput / cacheWritesIncludedInInput on ModelProviderPromptCacheSupport"
+  ],
+  "gaps": [
+    "Compaction-delta contract contradicted 0159: T1 required that ready-row path to use active-only retireProviderSession, which would return undefined and leave the row resumable",
+    "Claude partial-usage design had no transport to the error frame; stashing on context cannot cross the runQuery throw boundary and early emission would create two error frames",
+    "S2/R2 omitted the configured inline runtime lanes of both adapters, which can lose accumulated usage on failure",
+    "The repository return contract could not reach production: canonical-ops-repo.postgres.ts facade outside write_scope and deleteSession discards the result; empty/no-route reset paths returned undefined",
+    "Proof contract insufficient: required tests stopped before the runner error frames, omitted caller switches, empty-list propagation, pinned tests and the scheduled-job check; verify_commands omitted verify.py",
+    "Task grill unrecordable: nine acceptance criteria versus three plan-contract statements; recorder requires identical key sets",
+    "Non-blocking: model-provider-registry-types.ts does not exist; the cache-support type lives in model-provider-registry.ts"
+  ],
+  "contradictions": [
+    "T1 contract vs decision 0159 \u00a74 on the compaction-delta path"
+  ],
+  "resolutions": [
+    "Gap 1 \u2014 compaction-delta path stays on expireProviderSession unchanged; three callers switch (AC6; task plan Workflow and \u00a76)",
+    "Gap 2 \u2014 typed QueryFailure thrown from the result branch, unwrapped by runner/index.ts into exactly one error frame; runner dir in write_scope (AC2; task plan \u00a74)",
+    "Gap 3 \u2014 Human: cover inline lanes in T1; both inline-lane dirs in write_scope, AC3 and two required tests added (task plan \u00a74/\u00a74b)",
+    "Gap 4 \u2014 canonical-ops-repo.postgres.ts in write_scope; resetScope returns a readonly empty list on no-route paths (AC8; task plan \u00a77)",
+    "Gap 5 \u2014 required tests now 23 incl. runner and inline error frames, caller switches, empty-list propagation, the four pinned tests; verify_commands include python3 factory/scripts/verify.py (AC10)",
+    "Gap 6 \u2014 ten acceptance criteria, each exactly one plan_contract statement; criteria_map keys equal both",
+    "Gap 7 \u2014 task plan \u00a71 names model-provider-registry.ts",
+    "Contradiction \u2014 resolved for 0159: the path is untouched (AC6)"
+  ],
+  "open_items": [],
+  "citations": [
+    {
+      "finding": "Compaction-delta contract contradicted 0159: T1 required that ready-row path to use active-only retireProviderSession, which would return undefined and leave the row resumable",
+      "source": "docs/decisions/0159-adapter-session-release-port.md \u00a74; apps/core/src/runtime/group-agent-runner-compaction-delta.ts:103"
+    },
+    {
+      "finding": "Claude partial-usage design had no transport to the error frame; stashing on context cannot cross the runQuery throw boundary and early emission would create two error frames",
+      "source": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-messages.ts:255; apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts:301"
+    },
+    {
+      "finding": "S2/R2 omitted the configured inline runtime lanes of both adapters, which can lose accumulated usage on failure",
+      "source": "apps/core/src/runtime/agent-spawn-preparation.ts:39; apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane/index.ts:312"
+    },
+    {
+      "finding": "The repository return contract could not reach production: canonical-ops-repo.postgres.ts facade outside write_scope and deleteSession discards the result; empty/no-route reset paths returned undefined",
+      "source": "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts:569,730; apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts:656"
+    },
+    {
+      "finding": "Proof contract insufficient: required tests stopped before the runner error frames, omitted caller switches, empty-list propagation, pinned tests and the scheduled-job check; verify_commands omitted verify.py",
+      "source": ".factory/stories/cache-bug/decomposition.json (T1 required_tests, verify_commands); .factory/stories/cache-bug/task-plans/cache-bug-T1.md"
+    },
+    {
+      "finding": "Task grill unrecordable: nine acceptance criteria versus three plan-contract statements; recorder requires identical key sets",
+      "source": "factory/scripts/record_grill_from_json.py:215"
+    },
+    {
+      "finding": "Non-blocking: model-provider-registry-types.ts does not exist; the cache-support type lives in model-provider-registry.ts",
+      "source": "apps/core/src/shared/model-provider-registry.ts:95"
+    }
+  ],
+  "rounds": [
+    {
+      "question": "Task grill finding: both adapters also have inline runtime lanes (agentRuntime 'inline', no spawned worker) that can lose accumulated usage on failure, and T1 only covers the spawned-runner error frames. Cover inline lanes in T1, or narrow the criterion?",
+      "options": [
+        "Cover inline lanes in T1 (Recommended)",
+        "Narrow to spawned-runner frames, defer inline"
+      ],
+      "chosen": "Cover inline lanes in T1 (Recommended)"
+    },
+    {
+      "question": "Closing question for the T1 task gate. The other five findings are repository-answered and will be folded in once: the compaction-delta path keeps the existing expiry helper (ready row, no retirement) per 0159, so three callers switch, not four; the Claude partial usage travels as a typed failure carrier thrown from the result branch and written by runner/index.ts (added to scope) as one error frame; canonical-ops-repo.postgres.ts joins the write scope and resetScope returns a readonly empty list on no-route paths; required tests add both runners' error frames, the caller switches, empty-list propagation, the four pinned tests and verify.py joins verify_commands; T1's acceptance criteria are restated so each is exactly one plan-contract statement, which the recorder requires; the registry type lives in model-provider-registry.ts. Any remaining gap before I amend once, record, and delegate T1?",
+      "options": [
+        "No remaining gap, amend and delegate (Recommended)",
+        "Yes, there is a gap"
+      ],
+      "chosen": "No remaining gap, amend and delegate (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "e6fc3f6a23c09b7564acf73d2aa08797e9a3b06a113a0ad6c3c919e62d6a147a",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "task_plan_sha256": "ea54a8965179a02a5414ff0c226f36d67dcad5e6ea290abefcedf261a1bc336a",
+  "recorded_at": "2026-09-09T11:10:44+00:00",
+  "commit": "a86e0b467f72564abd085c9927e98e8150aea461",
+  "approved_task_plan_sha256": "ea54a8965179a02a5414ff0c226f36d67dcad5e6ea290abefcedf261a1bc336a",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-09T11:11:05+00:00"
+}

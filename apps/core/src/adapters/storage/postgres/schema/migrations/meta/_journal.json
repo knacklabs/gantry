@@ -1030,6 +1030,13 @@
       "when": 1788854689129,
       "tag": "20260908080449_ident_2_agent_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1788953932534,
+      "tag": "20260909113852_provider_session_context_high_water_mark",
+      "breakpoints": true
     }
   ]
 }

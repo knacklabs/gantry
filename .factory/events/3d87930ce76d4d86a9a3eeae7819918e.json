@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T12:07:38+00:00", "story": "cache-bug", "detail": "S-0095-5435: Ruling: the deferral is RECORDED \u2014 D-0080 in plans/deferrals.md, written by the orchestrator via ./forge defer add (82 errors / 1,173 warnings; trigger: a lint-debt paydown story lands, then lint:chan"}

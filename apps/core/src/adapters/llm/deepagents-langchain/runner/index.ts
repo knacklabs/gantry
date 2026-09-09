@@ -15,6 +15,10 @@
  */
 
 import { runDeepAgentTurn } from './deep-agent-runner.js';
+import {
+  deepAgentUsageEventIdForTurn,
+  isDeepAgentPartialUsage,
+} from './stream-normalizer-partial-usage.js';
 import type { OpenRouterProviderPreferences } from './model-factory.js';
 import {
   drainIpcInput,
@@ -92,6 +96,26 @@ function runtimeEventsForTurn(
     : {};
 }
 
+function partialUsageFor(
+  error: unknown,
+): Pick<RunnerOutputFrame, 'usage' | 'usageEventId' | 'contextUsage'> {
+  return isDeepAgentPartialUsage(error)
+    ? {
+        usage: error.usage,
+        usageEventId: error.usageEventId,
+        contextUsage: error.contextUsage,
+      }
+    : {};
+}
+
+function errorMessage(error: unknown): string {
+  return isDeepAgentPartialUsage(error)
+    ? error.message
+    : error instanceof Error
+      ? error.message
+      : String(error);
+}
+
 async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
   // Scheduled jobs are ephemeral: no session persistence (mirrors the Anthropic
   // runner's isScheduledJob path). A diagnostic session id is still emitted.
@@ -119,6 +143,7 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
       ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
       ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
       newSessionId: diagnosticSessionId,
+      usageEventId: deepAgentUsageEventIdForTurn(diagnosticSessionId, 1),
       includeMemoryContext: true,
       emit,
       log,
@@ -134,6 +159,7 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
       result: turn.terminalResult,
       newSessionId: diagnosticSessionId,
       ...(turn.terminalUsage ? { usage: turn.terminalUsage } : {}),
+      usageEventId: turn.usageEventId,
       ...(turn.terminalContextUsage
         ? { contextUsage: turn.terminalContextUsage }
         : {}),
@@ -146,7 +172,8 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
       status: 'error',
       result: null,
       newSessionId: diagnosticSessionId,
-      error: err instanceof Error ? err.message : String(err),
+      ...partialUsageFor(err),
+      error: errorMessage(err),
     });
     process.exit(1);
   }
@@ -213,6 +240,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
     // the continuation/stop decision (R2/R3), mirroring the Anthropic
     // query-loop's per-result frame.
     let firstTurn = true;
+    let turnNumber = 0;
     for (;;) {
       const followupText = pendingFollowups.join('\n');
       const turnInput =
@@ -239,6 +267,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
           ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
           ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
           newSessionId: sessionId,
+          usageEventId: deepAgentUsageEventIdForTurn(sessionId, ++turnNumber),
           threadId: sessionId,
           checkpointer,
           checkpointTiming,
@@ -288,6 +317,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
           newSessionId: sessionId,
           continuedByFollowup: true,
           ...(turn?.terminalUsage ? { usage: turn.terminalUsage } : {}),
+          ...(turn?.usageEventId ? { usageEventId: turn.usageEventId } : {}),
           ...(turn?.terminalContextUsage
             ? { contextUsage: turn.terminalContextUsage }
             : {}),
@@ -303,6 +333,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
         result: turn?.terminalResult ?? null,
         newSessionId: sessionId,
         ...(turn?.terminalUsage ? { usage: turn.terminalUsage } : {}),
+        ...(turn?.usageEventId ? { usageEventId: turn.usageEventId } : {}),
         ...(turn?.terminalContextUsage
           ? { contextUsage: turn.terminalContextUsage }
           : {}),
@@ -316,7 +347,8 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
       status: 'error',
       result: null,
       newSessionId: sessionId,
-      error: err instanceof Error ? err.message : String(err),
+      ...partialUsageFor(err),
+      error: errorMessage(err),
     });
     process.exit(1);
   } finally {

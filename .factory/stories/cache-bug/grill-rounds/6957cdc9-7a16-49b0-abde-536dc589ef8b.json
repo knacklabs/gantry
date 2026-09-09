@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Task grill finding: both adapters also have inline runtime lanes (agentRuntime 'inline', no spawned worker) that can lose accumulated usage on failure, and T1 only covers the spawned-runner error frames. Cover inline lanes in T1, or narrow the criterion?",
+      "options": [
+        "Cover inline lanes in T1 (Recommended)",
+        "Narrow to spawned-runner frames, defer inline"
+      ],
+      "chosen": "Cover inline lanes in T1 (Recommended)"
+    },
+    {
+      "question": "Closing question for the T1 task gate. The other five findings are repository-answered and will be folded in once: the compaction-delta path keeps the existing expiry helper (ready row, no retirement) per 0159, so three callers switch, not four; the Claude partial usage travels as a typed failure carrier thrown from the result branch and written by runner/index.ts (added to scope) as one error frame; canonical-ops-repo.postgres.ts joins the write scope and resetScope returns a readonly empty list on no-route paths; required tests add both runners' error frames, the caller switches, empty-list propagation, the four pinned tests and verify.py joins verify_commands; T1's acceptance criteria are restated so each is exactly one plan-contract statement, which the recorder requires; the registry type lives in model-provider-registry.ts. Any remaining gap before I amend once, record, and delegate T1?",
+      "options": [
+        "No remaining gap, amend and delegate (Recommended)",
+        "Yes, there is a gap"
+      ],
+      "chosen": "No remaining gap, amend and delegate (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T11:03:46.636713+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

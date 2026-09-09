@@ -388,12 +388,13 @@ export function createGroupAgentRunner(input: {
         currentAccessFingerprint,
       )
     ) {
-      if (ops().expireProviderSession) {
-        await ops().expireProviderSession?.({
+      if (ops().retireProviderSession) {
+        await ops().retireProviderSession?.({
           providerSessionId: turnContext.providerSessionId,
           agentSessionId: turnContext.agentSessionId,
           provider: executionProviderId,
           externalSessionId: turnContext.externalSessionId,
+          expectedAgentSessionResetAt: turnContext.agentSessionResetAt ?? null,
         });
       }
       latestProviderSessionId = undefined;
@@ -506,15 +507,16 @@ export function createGroupAgentRunner(input: {
           !turnContext?.providerSessionId ||
           !turnContext.agentSessionId ||
           !turnContext.externalSessionId ||
-          !ops().expireProviderSession
+          !ops().retireProviderSession
         ) {
           return false;
         }
-        await ops().expireProviderSession?.({
+        await ops().retireProviderSession?.({
           providerSessionId: turnContext.providerSessionId,
           agentSessionId: turnContext.agentSessionId,
           provider: executionProviderId,
           externalSessionId: turnContext.externalSessionId,
+          expectedAgentSessionResetAt: turnContext.agentSessionResetAt ?? null,
         });
         latestProviderSessionId = undefined;
         await updateRunProviderMetadata({ providerSessionId: null });

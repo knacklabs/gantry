@@ -38,6 +38,8 @@ jobs:
           --health-retries 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 25
@@ -49,8 +51,9 @@ jobs:
       # SBOM, the ~4 minute image build — is wasted work when formatting, an
       # architecture budget, or a type error is already broken.
       #
-      # Format check and Architecture check stay adjacent because together they
-      # mirror verify.py's `structural` phase (format:check && check:architecture).
+      # Format, Architecture, and changed-file lint checks stay adjacent because
+      # together they mirror verify.py's structural phase. Full lint remains
+      # advisory until the recorded debt is paid down.
       # Without the architecture step a PR can merge green while leaving main
       # failing that gate, and because verify.py aborts at its first failing phase,
       # one over-budget file then masks typecheck and tests for every branch.
@@ -59,6 +62,13 @@ jobs:
 
       - name: Architecture check
         run: npm run check:architecture
+
+      - name: Changed-file lint
+        run: npm run lint:changed
+
+      - name: Full lint (advisory)
+        continue-on-error: true
+        run: npm run lint
 
       - name: Drizzle migration check
         run: |

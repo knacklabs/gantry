@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T11:28:52+00:00", "story": "cache-bug", "detail": "S-0091-a4ba: Ruling: plans/deferrals.md is orchestrator-owned and written only through ./forge defer add; it stays OUTSIDE cache-bug-T1's write scope. Revert any direct edit you made to plans/deferrals.md. Fix lin"}

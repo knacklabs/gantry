@@ -8,6 +8,7 @@ import {
   resolveModelCacheProvider,
   resolveModelCacheSupport,
 } from './model-cache-support.js';
+import { getModelProviderDefinition } from './model-provider-registry.js';
 import { nowIso } from './time/datetime.js';
 
 function numeric(value: unknown): number {
@@ -39,6 +40,22 @@ function readPath(input: unknown, path?: string): unknown {
     cursor = (cursor as Record<string, unknown>)[segment];
   }
   return cursor;
+}
+
+export function modelVisibleInputTokens(
+  usage: Pick<
+    NormalizedModelUsage,
+    'inputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'modelRoute'
+  >,
+): number {
+  const prompt = usage.modelRoute
+    ? getModelProviderDefinition(usage.modelRoute)?.cacheSupport.prompt
+    : undefined;
+  return (
+    usage.inputTokens +
+    (prompt?.cacheReadsIncludedInInput ? 0 : usage.cacheReadTokens) +
+    (prompt?.cacheWritesIncludedInInput ? 0 : usage.cacheWriteTokens)
+  );
 }
 
 export function estimateUsageCostUsd(

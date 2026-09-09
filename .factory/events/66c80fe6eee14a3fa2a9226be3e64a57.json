@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T12:40:21+00:00", "story": "cache-bug", "detail": "S11 requires npm run lint inside FACTORY_STRUCTURAL_CMD and CI while the recorded 82-error lint debt makes that gate fail; the current diff uses lint:changed, so confirm whether that is the approved f"}

@@ -1,0 +1,14 @@
+{
+  "ok": false,
+  "completed_at": "2026-09-09T12:28:09+00:00",
+  "commit": "a86e0b467f72564abd085c9927e98e8150aea461",
+  "results": [
+    {
+      "command": "npm run format:check && npm run check:architecture",
+      "exit_code": 1,
+      "stdout": "\n> @gantry/runtime@1.2.52 format:check\n> prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"\n\nChecking formatting...\nAll matched files use Prettier code style!\n\n> @gantry/runtime@1.2.52 check:architecture\n> python3 scripts/check_architecture.py\n\nArchitecture checks failed.\n\n[File Size Budget]\n- apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts has 738 lines (limit 700).\n- apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts has 739 lines (limit 705).\n- apps/core/src/shared/model-provider-registry.ts has 727 lines (limit 700).\n\n[Provider Boundary]\n- apps/core/test/unit/adapters/claude-inline-lane-error-usage.test.ts:12: matched provider token `@anthropic-ai/claude-agent-sdk` 1 time(s) outside approved provider adapter boundary `apps/core/src/adapters/llm/anthropic-claude-agent, apps/core/src/adapters/llm/deepagents-langchain`; either move the code behind that boundary or record exact debt for cleanup plan `myclaw-architecture-gates-20260517-provider-boundary-sentinels`.\n- apps/core/test/unit/adapters/claude-inline-lane-error-usage.test.ts:49: matched provider token `ANTHROPIC_` 2 time(s) outside approved provider adapter boundary `apps/core/src/adapters/llm/anthropic-claude-agent, apps/core/src/adapters/llm/deepagents-langchain`; either move the code behind that boundary or record exact debt for cleanup plan `myclaw-architecture-gates-20260517-provider-boundary-sentinels`.\n",
+      "stderr": "",
+      "phase": "structural"
+    }
+  ]
+}
