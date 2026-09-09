@@ -1,0 +1,32 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Grill finding 1: decision 0089 pins that every provider turn sees the 30-message channel block plus the thread window. The spec drops that snapshot on resumed sessions. Which way?",
+      "options": [
+        "Keep 0089, ceiling only (Recommended)",
+        "Supersede 0089 with a delta snapshot",
+        "Supersede 0089, no snapshot on resume"
+      ],
+      "chosen": "Keep 0089, ceiling only (Recommended)"
+    },
+    {
+      "question": "Grill finding 2: expiring a DeepAgents session starts a fresh thread but leaves the old raw LangGraph checkpoint rows, so Postgres still grows. Reclaim or narrow?",
+      "options": [
+        "Reclaim on expiry (Recommended)",
+        "Narrow the promise, defer reclamation"
+      ],
+      "chosen": "Reclaim on expiry (Recommended)"
+    },
+    {
+      "question": "Findings 3 to 5 have clear defaults. Confirm all three: threshold is one validated global runtime setting per decision 0025 (not an env var), default 150,000; expiry keys on the max single model-call inputTokens (no cache-read double count); durable memory stays freshly injected on every run and the rule is renamed to no duplicate channel/thread snapshot.",
+      "options": [
+        "Confirm all three (Recommended)",
+        "Change something"
+      ],
+      "chosen": "Confirm all three (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T07:38:42.636871+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

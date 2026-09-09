@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Round 3 shows the per-request measurement is not implementable from current adapter output (DeepAgents emits one terminal usage snapshot whose input already includes cache reads; Claude aggregates per run), and the model-capacity clause is unknowable because no model identity is stored on the session. Do you want the minimal scope or the full design?",
+      "options": [
+        "Minimal: existing per-run usage as the ceiling (Recommended)",
+        "Full: new per-request seam, fenced cleanup, retry owner"
+      ],
+      "chosen": "Minimal: existing per-run usage as the ceiling (Recommended)"
+    },
+    {
+      "question": "Finding 2: retiring legacy sessions lazily on their next turn is a runtime migration, which decisions 0003 and 0112 reject. How are pre-existing sessions handled?",
+      "options": [
+        "Manual pre-deploy reset by the owner (Recommended)",
+        "Record an exception decision for lazy retirement"
+      ],
+      "chosen": "Manual pre-deploy reset by the owner (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T08:07:11.515888+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}
