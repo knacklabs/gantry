@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0177-6001",
+  "profile": "degraded",
+  "reason": "T5b: architecture exception entry for group-processor-deps",
+  "started_at": "2026-09-09T13:30:30+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "ASKFLOOR-1-T5b",
+  "story": "ASKFLOOR-1"
+}

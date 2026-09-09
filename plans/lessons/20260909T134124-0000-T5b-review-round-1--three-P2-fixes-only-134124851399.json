@@ -1,0 +1,14 @@
+{
+  "topic": "T5b review round 1: three P2 fixes only",
+  "lesson": "The review found no blocker; exactly three P2s remain and nothing else may change: (1) /permissions forget <prefix> must match the prefix against the FULL record id (the short display id is a rendering of it, never the match key) \u2014 pin with a test where two records share a short-id prefix; (2) decoding the remembered place must preserve colons inside the value (split on the first separator only) \u2014 pin with a place containing a colon; (3) add the concurrent double-tap coverage each provider suite was required to carry: two Forget taps on the same row settle to one applied and one already_revoked reply. Run only the touched suites; tsc and check:architecture must stay green.",
+  "source": ".factory/stories/ASKFLOOR-1/tasks/ASKFLOOR-1-T5b/reviews/quality.json",
+  "applies_to": [
+    "apps/core/src/application/permissions/**",
+    "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts",
+    "apps/core/test/unit/channels/**",
+    "apps/core/test/unit/application/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T13:41:24+00:00"
+}

@@ -1296,19 +1296,229 @@
     {
       "id": "ASKFLOOR-1-T5b",
       "title": "/permissions: remembered list, all, forget",
-      "objective": "The existing /permissions command keeps its mode display and appends the ten newest remembered decisions with Forget buttons, used-by-job suffixes from actual audit consumption, /permissions all as a plain-text full list with short ids, and /permissions forget <id> with person-scoped prefix resolution; the caller binds app, agent and resolved person; every group variant is non-mutating DM guidance; one guidance line in the prompt profile.",
+      "objective": "/permissions in a DM keeps its mode line and lists the ten newest active remembered decisions with Forget buttons (used-by-job suffix from audit rows, deleted jobs omitted); /permissions all lists every active record, short id first; /permissions forget <prefix> revokes one person-scoped match; the bound Forget handler returns re-rendered rows for in-place edits; old-rails rows hidden and unrevocable; group variants reply DM guidance, no mutation; host-stamped approver label; one guidance line.",
       "acceptance_criteria": [
-        "bare /permissions, all and forget <id> behave per the plan with the exact replies for applied, already forgotten, not found and ambiguous; ambiguity never mutates",
-        "rows show outcome, scope, date and the snapshotted approver label; used-by-job comes only from records a job actually consumed",
-        "group variants never mutate and reply with the DM-feature line; the plain-chat pointer line exists in the prompt profile",
-        "AF-AC8 S5 (remembered shape runs in a job with 0 cards, near-miss cards, after Forget it cards again) and the listing fixture",
-        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+        "PARSER. `parsePermissionsCommand` accepts `permissions_all` and `permissions_forget { prefix }` (prefix \u2265 4 chars, lower-cased; anything else is today's usage reply); show/set/default unchanged. Tests: parser suite (`session-commands.test.ts:186-210`) \u2014 both new forms, a 3-char prefix rejected, mixed-case prefix lower-cased, every existing form unchanged.",
+        "LISTING. Bare `/permissions` in a DM renders today's mode line, then the ten newest ACTIVE current-rails records as \"<Outcome> \u00b7 <scope noun> \u00b7 <place> \u00b7 <d Mon> \u00b7 <label>\" (+ \" \u00b7 used by job <a>, <b>\" or \"+N jobs\" per ruling 4) each with a `memory_forget { recordId, agentRouteKey, label: 'Forget <shortId>' }` affordance, then the footer lines when more exist; the empty state when none; `/permissions all` renders every active record as plain text with the short id first; dates use the configured timezone, day + month. NEW `application/permissions/permission-memory-listing.ts` owns every row and reply string and consumes the domain-owned `PermissionMemoryListMessageView` (the type stays in `domain/message-actions.ts` \u2014 domain must not import application; ruling S-0093); the listing module owns the category-noun mapping and exports `permissionMemoryScopeNoun` (no other noun helper exists in the tree; the card copy derives its wording from the typed risk table, not from a noun helper \u2014 ruling S-0097); exact-call rows read \"<tool label>, this exact call\". Tests: NEW listing suite \u2014 row format from real T3-shaped rows (scopeKey-decoded category and place, `canonicalRoot` null, the literal Bash exact-call example) incl. \"someone\" fallback, exact \"2 Sep\" under a foreign process locale, timezone day-crossing date, agentRouteKey round-trip / max-size / unknown / collision, ten-newest cut + footer, empty state, `all` ordering (newest first) and short-id-first, used-by suffix with 1, 2, 3+ jobs, a deleted job omitted before the +N count, one job used twice rendered once.",
+        "FORGET BY ID AND BY BUTTON. `/permissions forget <prefix>` resolves (case-insensitive) against this person's ACTIVE current-rails records only: one match \u2192 `service.revoke` \u2192 \"Forgot: <scope>. I'll ask next time.\"; several \u2192 the ambiguity reply, nothing mutated; none \u2192 the not_found reply. `createMemoryForgetHandler` does the same for a tap: app id from the jid, agentRouteKey resolved against the route-effective agent ids, route by (jid, thread, agentId, account), DM-gated person, row loaded through person-scoped `list({ includeRevoked: true })` BEFORE `revoke`, a revoked row \u2192 \"Already forgotten.\" with zero revoke calls, another person's / other-agent / stale-rails id / an unknown route / a group route \u2192 not_found with zero revoke calls, and on `applied` re-lists the active rows and returns `permissionMemoryListView` (mode line via the injected resolver \u2014 default and route override pinned \u2014 plus the re-read rows and footer). Tests: listing suite (three outcomes, revoked-row prefix \u2192 not_found, cross-person \u2192 not_found, ambiguity \u2192 zero revoke calls); NEW `test/unit/bootstrap/permission-memory-forget-handler.test.ts` (the real factory: applied with listing, already_revoked, cross-person, stale rails, unknown route, group route, list-before-revoke ordering, a revoke racing to already_revoked); router suite (`channel-message-action-router.test.ts:170-196`) \u2014 the bound handler's result reaches the provider unchanged; `runtime-services.test.ts` \u2014 the handler is bound at startup through the setter.",
+        "IN-PLACE EDIT. Telegram, Slack and Teams, when the outcome carries `permissionMemoryListView`, edit the tapped message with the view (text + Forget affordances) through the same path they use for `observerDigestView`, using their locally held message id / token, and send the receipt in every case (no view \u2192 receipt only); Discord answers with its existing ephemeral receipt only. Every provider forwards the agent identity as the bounded `agentRouteKey` in its callback payload (the codec key the round-3 grill ruled; the host handler resolves the route-effective `agentId` from it \u2014 no raw `agentId` field, Telegram's callback payload limit forbids it; ruling S-0098). Every provider codec round-trips `agentRouteKey` within its payload limit. Tests: Telegram/Slack/Teams (edit called with the rendered view under the per-message lock; receipt; no edit without a view; concurrent double-tap \u2192 no resurrected row), Discord (no source-list mutation, one ephemeral receipt update), Teams routing with the authenticated `message.threadId` and mutating `replyToId ?? id`, ignoring submitted `threadId`/`targetJid`.",
+        "USED-BY READ. `listDecisionsByHumanDecisionRecordId` on the port + Postgres adapter: one row per `(recordId, jobId)`, latest use, ordered `lastUsedAt DESC, jobId`, filtered by app and record ids, extracted from `actor_context_json`; no index (owner-accepted scan, recorded as an assumption at pr-ready). The used-by reader hydrates names via `getJobById`, drops deleted jobs first, names two, then \"+N jobs\". Tests: Postgres integration (rows written through `recordDecision` with `humanDecisionRecordId` on both job lanes are returned once per job with the latest timestamp; unrelated rows and other apps are not), reader unit (1, 2, 3+ jobs; deleted job dropped before the count; ordering).",
+        "IDENTITY + GROUPS + LABEL. The caller passes the complete `remembered` context (app, agent folder, kind, `resolveMemoryUserId`); on a group route every variant replies mode line + DM guidance with zero `list`, used-by and `revoke` calls (one test per variant); `memoryUserLabel` is derived from `sender_name` in group processing, carried on `memoryContext` \u2192 `AgentInput` \u2192 the permission run restriction, persisted as `personLabel` on both prompt paths, and rendered from the stored row. Tests: group-processing suite (DM lists; group bare/all/forget \u2192 guidance, three zero-call assertions; the runner options carry `memoryContext.label` from `sender_name`); `permission-decision-coordinator.test.ts` (the registry exposes the label when `setupPermissionRunRestriction` is fed an `AgentInput`, `:1185-1206` pattern \u2014 not direct registration); group-processing (a trailing bot / different-sender message does not change the label); `ipc-interaction-handler.test.ts` (label from the registry persisted; a worker-supplied label ignored); `inline-agent-loop-tools.test.ts` (label from the run persisted).",
+        "GUIDANCE + S5 + GATES. The guidance line is in `FULL_TOOL_ACCESS_GUIDANCE` (guard updated); S5 in `askfloor-tap-budget.test.ts` (remember in chat \u2192 the projected job runs with zero cards \u2192 a NEAR-MISS call in the same job still cards \u2192 Forget \u2192 the same job asks again) with the harness's `revokeById` made real (`askfloor-tap-budget-harness.ts:332-397`); decision 0153's consequence line reads \"used by job\". Existing unit and Postgres suites pass; tsc and check:architecture green; `session-commands.ts` \u2264 740, `prompt-profile-service.ts` \u2264 783, `runtime-services.ts` \u2264 1186 after the scheduler-start move, `runtime-app.ts` \u2264 739 after the group-processor-deps move, `channel-wiring.ts` \u2264 790 with no new channel import, 700 elsewhere; no wrapper, shim, alias, re-export, dead branch or compatibility naming."
       ],
       "depends_on": [
         "ASKFLOOR-1-T5a",
         "ASKFLOOR-1-T4"
       ],
-      "user_facing": true
+      "user_facing": true,
+      "write_scope": [
+        "apps/core/src/session/session-command-parse.ts",
+        "apps/core/src/session/session-commands.ts",
+        "apps/core/src/application/permissions/permission-memory-listing.ts",
+        "apps/core/src/application/permissions/human-decision-memory-service.ts",
+        "apps/core/src/runtime/group-processing-session-command-handlers.ts",
+        "apps/core/src/runtime/group-processing-types.ts",
+        "apps/core/src/runtime/group-processing.ts",
+        "apps/core/src/runtime/group-agent-runner.ts",
+        "apps/core/src/runtime/agent-spawn-types.ts",
+        "apps/core/src/runtime/agent-spawn-permission-run-restriction.ts",
+        "apps/core/src/runtime/permission-decision-coordinator.ts",
+        "apps/core/src/runtime/ipc-interaction-processing.ts",
+        "apps/core/src/runtime/permission-remember-settlement.ts",
+        "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+        "apps/core/src/app/bootstrap/runtime-app.ts",
+        "apps/core/src/app/bootstrap/runtime-group-processor-deps.ts",
+        "apps/core/src/app/bootstrap/runtime-services.ts",
+        "apps/core/src/app/bootstrap/runtime-scheduler-start.ts",
+        "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts",
+        "apps/core/src/app/bootstrap/channel-wiring-types.ts",
+        "apps/core/src/app/bootstrap/channel-wiring.ts",
+        "apps/core/src/app/bootstrap/channel-message-action-router.ts",
+        "apps/core/src/domain/message-actions.ts",
+        "apps/core/src/domain/ports/repositories.ts",
+        "apps/core/src/domain/ports/permission-decision-memory.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+        "apps/core/src/application/agents/prompt-profile-service.ts",
+        "apps/core/src/channels/telegram/callback-handlers.ts",
+        "apps/core/src/channels/slack/channel-message-action-handler.ts",
+        "apps/core/src/channels/slack/message-action-affordances.ts",
+        "apps/core/src/channels/discord/components.ts",
+        "apps/core/src/channels/telegram/message-action-affordances.ts",
+        "apps/core/src/channels/teams/cards.ts",
+        "apps/core/src/channels/teams/message-actions.ts",
+        "docs/decisions/0153-learned-decisions-project-into-job-grants.md",
+        "apps/core/test/unit/session/session-commands.test.ts",
+        "apps/core/test/unit/application/permission-memory-listing.test.ts",
+        "apps/core/test/unit/bootstrap/permission-memory-forget-handler.test.ts",
+        "apps/core/test/unit/runtime/group-processing.test.ts",
+        "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+        "apps/core/test/unit/bootstrap/runtime-app.test.ts",
+        "apps/core/test/unit/bootstrap/channel-message-action-router.test.ts",
+        "apps/core/test/unit/bootstrap/runtime-services.test.ts",
+        "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+        "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+        "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+        "apps/core/test/unit/runtime/prompt-profile.test.ts",
+        "apps/core/test/unit/channels/telegram.test.ts",
+        "apps/core/test/unit/channels/slack.test.ts",
+        "apps/core/test/unit/channels/discord/discord.test.ts",
+        "apps/core/test/unit/channels/teams/teams.test.ts",
+        "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+        "apps/core/src/app/bootstrap/group-processor-deps.ts",
+        "scripts/architecture-exceptions.json"
+      ],
+      "reviewer_focus": [
+        "Constitution (load-bearing): constitution/03-modular-monolith-structure.md - ONE application module owns every row and reply string and consumes the domain-owned PermissionMemoryListMessageView (the type stays in domain \u2014 domain must not import application; ruling S-0093) (nouns from the existing application helpers; exact rows read \"<tool label>, this exact call\" \u2014 no display snapshot); the command, the forget-handler module and the four providers are consumers; ceilings hold (session-commands 740, prompt-profile-service 783, runtime-services 1186 after the scheduler-start move, runtime-app 739 after the group-processor-deps move, channel-wiring 790 with its channel-import cap exhausted, 700 default); no re-export left behind.",
+        "IDENTITY (AC3, AC6 normative; 0118): the person axis is the canonical DM person from resolveCanonicalMemoryPersonId on every path; forget by prefix and by button resolve against THIS person's CURRENT-RAILS records only through service.list before revoke (button path includeRevoked: true -> Already forgotten with zero revoke calls; cross-person, other-agent, stale rails, unknown route, group route -> not_found with zero revoke calls); app id from the jid, route keyed by the bounded agentRouteKey resolved against route-effective agent ids (fail closed); group variants call nothing; the approver label is memoryUserLabel carried memoryContext -> AgentInput -> run restriction, never a worker value.",
+        "COPY (AC2, AC3 normative; story plan line 162; owner rulings 2026-09-08): exact row format, footer, empty state, all listing with the short id first, the three forget replies and the ambiguity reply verbatim; deleted jobs omitted; two most recent uses then +N jobs; configured-timezone day + month dates; 'someone' when no label.",
+        "USED-BY (AC5 normative; 0153): only durable audit rows carrying humanDecisionRecordId (actual consumption) feed the suffix, one row per (recordId, jobId) latest use, deleted jobs dropped BEFORE the +N count; owner-accepted unbounded scan, no index, recorded as an assumption; never runtime events or predicted matches.",
+        "IN-PLACE EDIT (AC4 normative): the replacement rides MessageActionOutcome.permissionMemoryListView like observerDigestView; Telegram/Slack/Teams edit with their own message handle under the per-message lock only when the view is present (the handler re-lists active rows and injects the mode line); Discord is receipt-only (no deferred-update path); the receipt is sent in every case.",
+        "NO LEFTOVERS (owner ruling 2026-09-06): no wrapper, shim, alias, retained symbol, dead branch or compatibility naming anywhere in the diff - a blocking finding.",
+        "Verification: python3 factory/scripts/verify.py with GANTRY_TEST_DATABASE_URL exported; user_facing: functional check before pr-ready."
+      ],
+      "plan_contracts": [
+        {
+          "id": "ASKFLOOR-1-T5b-AC1",
+          "statement": "PARSER. `parsePermissionsCommand` accepts `permissions_all` and `permissions_forget { prefix }` (prefix \u2265 4 chars, lower-cased; anything else is today's usage reply); show/set/default unchanged. Tests: parser suite (`session-commands.test.ts:186-210`) \u2014 both new forms, a 3-char prefix rejected, mixed-case prefix lower-cased, every existing form unchanged.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5b-AC2",
+          "statement": "LISTING. Bare `/permissions` in a DM renders today's mode line, then the ten newest ACTIVE current-rails records as \"<Outcome> \u00b7 <scope noun> \u00b7 <place> \u00b7 <d Mon> \u00b7 <label>\" (+ \" \u00b7 used by job <a>, <b>\" or \"+N jobs\" per ruling 4) each with a `memory_forget { recordId, agentRouteKey, label: 'Forget <shortId>' }` affordance, then the footer lines when more exist; the empty state when none; `/permissions all` renders every active record as plain text with the short id first; dates use the configured timezone, day + month. NEW `application/permissions/permission-memory-listing.ts` owns every row and reply string and consumes the domain-owned `PermissionMemoryListMessageView` (the type stays in `domain/message-actions.ts` \u2014 domain must not import application; ruling S-0093); the listing module owns the category-noun mapping and exports `permissionMemoryScopeNoun` (no other noun helper exists in the tree; the card copy derives its wording from the typed risk table, not from a noun helper \u2014 ruling S-0097); exact-call rows read \"<tool label>, this exact call\". Tests: NEW listing suite \u2014 row format from real T3-shaped rows (scopeKey-decoded category and place, `canonicalRoot` null, the literal Bash exact-call example) incl. \"someone\" fallback, exact \"2 Sep\" under a foreign process locale, timezone day-crossing date, agentRouteKey round-trip / max-size / unknown / collision, ten-newest cut + footer, empty state, `all` ordering (newest first) and short-id-first, used-by suffix with 1, 2, 3+ jobs, a deleted job omitted before the +N count, one job used twice rendered once.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5b-AC3",
+          "statement": "FORGET BY ID AND BY BUTTON. `/permissions forget <prefix>` resolves (case-insensitive) against this person's ACTIVE current-rails records only: one match \u2192 `service.revoke` \u2192 \"Forgot: <scope>. I'll ask next time.\"; several \u2192 the ambiguity reply, nothing mutated; none \u2192 the not_found reply. `createMemoryForgetHandler` does the same for a tap: app id from the jid, agentRouteKey resolved against the route-effective agent ids, route by (jid, thread, agentId, account), DM-gated person, row loaded through person-scoped `list({ includeRevoked: true })` BEFORE `revoke`, a revoked row \u2192 \"Already forgotten.\" with zero revoke calls, another person's / other-agent / stale-rails id / an unknown route / a group route \u2192 not_found with zero revoke calls, and on `applied` re-lists the active rows and returns `permissionMemoryListView` (mode line via the injected resolver \u2014 default and route override pinned \u2014 plus the re-read rows and footer). Tests: listing suite (three outcomes, revoked-row prefix \u2192 not_found, cross-person \u2192 not_found, ambiguity \u2192 zero revoke calls); NEW `test/unit/bootstrap/permission-memory-forget-handler.test.ts` (the real factory: applied with listing, already_revoked, cross-person, stale rails, unknown route, group route, list-before-revoke ordering, a revoke racing to already_revoked); router suite (`channel-message-action-router.test.ts:170-196`) \u2014 the bound handler's result reaches the provider unchanged; `runtime-services.test.ts` \u2014 the handler is bound at startup through the setter.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5b-AC4",
+          "statement": "IN-PLACE EDIT. Telegram, Slack and Teams, when the outcome carries `permissionMemoryListView`, edit the tapped message with the view (text + Forget affordances) through the same path they use for `observerDigestView`, using their locally held message id / token, and send the receipt in every case (no view \u2192 receipt only); Discord answers with its existing ephemeral receipt only. Every provider forwards the agent identity as the bounded `agentRouteKey` in its callback payload (the codec key the round-3 grill ruled; the host handler resolves the route-effective `agentId` from it \u2014 no raw `agentId` field, Telegram's callback payload limit forbids it; ruling S-0098). Every provider codec round-trips `agentRouteKey` within its payload limit. Tests: Telegram/Slack/Teams (edit called with the rendered view under the per-message lock; receipt; no edit without a view; concurrent double-tap \u2192 no resurrected row), Discord (no source-list mutation, one ephemeral receipt update), Teams routing with the authenticated `message.threadId` and mutating `replyToId ?? id`, ignoring submitted `threadId`/`targetJid`.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5b-AC5",
+          "statement": "USED-BY READ. `listDecisionsByHumanDecisionRecordId` on the port + Postgres adapter: one row per `(recordId, jobId)`, latest use, ordered `lastUsedAt DESC, jobId`, filtered by app and record ids, extracted from `actor_context_json`; no index (owner-accepted scan, recorded as an assumption at pr-ready). The used-by reader hydrates names via `getJobById`, drops deleted jobs first, names two, then \"+N jobs\". Tests: Postgres integration (rows written through `recordDecision` with `humanDecisionRecordId` on both job lanes are returned once per job with the latest timestamp; unrelated rows and other apps are not), reader unit (1, 2, 3+ jobs; deleted job dropped before the count; ordering).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5b-AC6",
+          "statement": "IDENTITY + GROUPS + LABEL. The caller passes the complete `remembered` context (app, agent folder, kind, `resolveMemoryUserId`); on a group route every variant replies mode line + DM guidance with zero `list`, used-by and `revoke` calls (one test per variant); `memoryUserLabel` is derived from `sender_name` in group processing, carried on `memoryContext` \u2192 `AgentInput` \u2192 the permission run restriction, persisted as `personLabel` on both prompt paths, and rendered from the stored row. Tests: group-processing suite (DM lists; group bare/all/forget \u2192 guidance, three zero-call assertions; the runner options carry `memoryContext.label` from `sender_name`); `permission-decision-coordinator.test.ts` (the registry exposes the label when `setupPermissionRunRestriction` is fed an `AgentInput`, `:1185-1206` pattern \u2014 not direct registration); group-processing (a trailing bot / different-sender message does not change the label); `ipc-interaction-handler.test.ts` (label from the registry persisted; a worker-supplied label ignored); `inline-agent-loop-tools.test.ts` (label from the run persisted).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5b-AC7",
+          "statement": "GUIDANCE + S5 + GATES. The guidance line is in `FULL_TOOL_ACCESS_GUIDANCE` (guard updated); S5 in `askfloor-tap-budget.test.ts` (remember in chat \u2192 the projected job runs with zero cards \u2192 a NEAR-MISS call in the same job still cards \u2192 Forget \u2192 the same job asks again) with the harness's `revokeById` made real (`askfloor-tap-budget-harness.ts:332-397`); decision 0153's consequence line reads \"used by job\". Existing unit and Postgres suites pass; tsc and check:architecture green; `session-commands.ts` \u2264 740, `prompt-profile-service.ts` \u2264 783, `runtime-services.ts` \u2264 1186 after the scheduler-start move, `runtime-app.ts` \u2264 739 after the group-processor-deps move, `channel-wiring.ts` \u2264 790 with no new channel import, 700 elsewhere; no wrapper, shim, alias, re-export, dead branch or compatibility naming.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria"
+        }
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py",
+        "npx tsc --noEmit",
+        "npm run check:architecture",
+        "npm run test:integration:postgres"
+      ],
+      "review_budget": {
+        "max_changed_files": 55,
+        "max_changed_lines": 5000,
+        "reason": "55-file manifest (grill r1+r2+r3 folds; owner-approved 2026-09-09): parser + command + NEW application listing module + scope-noun move, the caller identity, the wiring setter + NEW forget-handler module + the scheduler-start move out of runtime-services, the audit read port + Postgres adapter + rails filter, the host label carrier on both prompt paths, the guidance line, 0153 wording, four provider in-place edits, two NEW unit suites and fifteen existing suites; user_facing."
+      },
+      "required_tests": [
+        {
+          "id": "parses permissions all and permissions forget with a prefix of at least four characters and leaves show set and default unchanged",
+          "path": "apps/core/test/unit/session/session-commands.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "renders the mode line then the ten newest active rows from scopeKey-decoded T3 rows with Forget affordances carrying a bounded agent route key the footer the empty state and the plain-text all listing with the short id first using exact day-month dates in the configured timezone the someone fallback and the used-by suffix with deleted jobs dropped before the count",
+          "path": "apps/core/test/unit/application/permission-memory-listing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "resolves a case-insensitive forget prefix against this person's active current-rails records only revoking one match replying ambiguity with zero revoke calls and not-found for none revoked stale rails or another person",
+          "path": "apps/core/test/unit/application/permission-memory-listing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "resolves the agent route key then loads the person-scoped current-rails row including revoked before revoking and maps applied with a re-listed view carrying the mode line already-revoked cross-person other-agent stale-rails unknown-route and group-route outcomes to the three replies with zero revoke calls on not-found and already-revoked",
+          "path": "apps/core/test/unit/bootstrap/permission-memory-forget-handler.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "forwards the bound memory_forget handler result to the provider unchanged",
+          "path": "apps/core/test/unit/bootstrap/channel-message-action-router.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "binds the memory_forget host handler at startup through the channel wiring setter",
+          "path": "apps/core/test/unit/bootstrap/runtime-services.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "replaces the list message with the re-listed view under the source-message lock and sends the confirmation reply on Telegram",
+          "path": "apps/core/test/unit/channels/telegram.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "replaces the list message with the re-listed view under the source-message lock and sends the confirmation reply on Slack",
+          "path": "apps/core/test/unit/channels/slack.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "answers the Forget interaction with one ephemeral receipt update and no source-list mutation on Discord",
+          "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "replaces the list card with the re-listed view using the authenticated activity thread and reply id and sends the confirmation reply on Teams",
+          "path": "apps/core/test/unit/channels/teams/teams.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "lists one latest use per job by human decision record id from the durable audit rows written on both job lanes ordered by most recent use and ignores unrelated rows and other apps",
+          "path": "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "excludes old rail version rows from listHumanDecisions in SQL and includes revoked rows only when asked",
+          "path": "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "lists the DM person's rows with the sender-matched approver label and replies the non-mutating guidance for bare all and forget variants on a group route with zero list used-by and revoke calls",
+          "path": "apps/core/test/unit/runtime/group-processing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "persists the approver label from the host run registry on the IPC prompt path and ignores a worker-supplied label",
+          "path": "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "persists the approver label from the run on the inline prompt path",
+          "path": "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "exposes the approver label from AgentInput through setupPermissionRunRestriction into the registry",
+          "path": "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "includes the permissions guidance line in the operating guidance block within the truncation guard",
+          "path": "apps/core/test/unit/runtime/prompt-profile.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "S5 remembers in chat runs the projected job with zero cards still cards the near-miss forgets and the same job asks again",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ]
     },
     {
       "id": "ASKFLOOR-1-T6",
@@ -1328,6 +1538,6 @@
     }
   ],
   "project": "",
-  "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "ace063daf234cdffb11b28188ce9fc6bbfa6ebd0"
+  "plan_sha256": "1dd7b989a14b6c352fc20f8ee715fb0b21b46b9827d495b79abbb642bb9d271a",
+  "commit": "4839599f5920c9721dab55c1e6112c823ca7c064"
 }

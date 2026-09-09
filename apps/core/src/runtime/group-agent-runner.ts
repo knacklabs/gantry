@@ -84,6 +84,7 @@ export function createGroupAgentRunner(input: {
       memoryContext?: {
         source: 'message' | 'command';
         userId?: string;
+        label?: string;
         threadId?: string;
         recallQuery?: string;
       };
@@ -542,6 +543,7 @@ export function createGroupAgentRunner(input: {
             turnQueueKey: queueJid,
             threadId: options?.memoryContext?.threadId,
             memoryUserId: options?.memoryContext?.userId,
+            memoryUserLabel: options?.memoryContext?.label,
             memoryDefaultScope: defaultMemoryScope,
             memoryReviewerIsControlApprover,
             persona: group.agentConfig?.persona,

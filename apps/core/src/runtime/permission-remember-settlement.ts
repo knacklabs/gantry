@@ -39,6 +39,7 @@ export function rememberingPermissionApprovalRequester(input: {
   deps: IpcDeps;
   sourceAgentFolder: string;
   personId?: string;
+  personLabel?: string;
   hostJobId?: string;
   onAttached: () => void;
   logger: { warn: Warn };
@@ -53,6 +54,7 @@ export function rememberingPermissionApprovalRequester(input: {
         sourceAgentFolder: input.sourceAgentFolder,
         facts,
         personId: input.personId,
+        personLabel: input.personLabel,
         hostJobId: input.hostJobId,
         repository: input.deps.getPermissionDecisionMemoryRepository?.(),
         warn: input.logger.warn,
@@ -88,6 +90,7 @@ export async function persistPermissionRememberPromptContext(input: {
   sourceAgentFolder: string;
   facts: PermissionRememberPromptFacts;
   personId?: string;
+  personLabel?: string;
   hostJobId?: string;
   repository?: PermissionDecisionMemoryRepository;
   warn: Warn;
@@ -106,6 +109,7 @@ export async function persistPermissionRememberPromptContext(input: {
       gantryNativeCanonicalToolName(input.request.toolName)?.canonical ??
       input.request.toolName,
     personId: input.personId,
+    personLabel: input.personLabel,
     effectSchemaVersion: EFFECT_SCHEMA_VERSION,
     railVersion: RAIL_CATALOG_VERSION,
     kindVariant: 'category',

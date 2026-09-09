@@ -1,0 +1,14 @@
+{
+  "topic": "T5b RULING: agent identity rides in agentRouteKey; one AC5 fix remains",
+  "lesson": "Orchestrator ruling (review round 6): MemoryForgetMessageActionInput carries the agent identity as the bounded agentRouteKey \u2014 the codec key the round-3 grill ruled because Telegram's callback payload is size-limited; the host handler resolves the route-effective agentId from it. Do NOT add an agentId field to the domain input or to any provider payload; AC4 has been amended to say so. Do not raise a contradiction about it. The single remaining change: app/bootstrap/runtime-services.ts ~line 631 \u2014 the post-Forget used-by hydration (and any used-by read the Forget handler performs) must use the CONVERSATION's app id (appIdFromConversationJid(action.conversationJid), the same value the handler already uses for the memory lookup and the person resolver), never the process-wide app id; pin it with a runtime-services test where the conversation app differs from the process app. Run runtime-services + forget-handler suites, tsc, check:architecture; ceilings after prettier (runtime-services \u2264 1186 \u2014 extract a tiny helper if needed). Finish.",
+  "source": ".factory/stories/ASKFLOOR-1/tasks/ASKFLOOR-1-T5b/reviews/quality.json",
+  "applies_to": [
+    "apps/core/src/app/bootstrap/**",
+    "apps/core/src/domain/**",
+    "apps/core/src/channels/**",
+    "apps/core/test/unit/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T17:28:40+00:00"
+}

@@ -6623,6 +6623,7 @@ describe('Slack channel', () => {
           kind: 'memory_forget',
           label: 'Forget a1b2c3',
           recordId: '30000000-0000-4000-8000-000000000001',
+          agentRouteKey: 'agent-route',
         },
       ],
     });
@@ -6650,6 +6651,115 @@ describe('Slack channel', () => {
       threadId: '1710000000.000111',
       userId: 'U_APPROVER',
       recordId: '30000000-0000-4000-8000-000000000001',
+      agentRouteKey: 'agent-route',
+    });
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+      text: 'Forgot.',
+    });
+
+    onMessageAction
+      .mockResolvedValueOnce({ state: 'applied', receipt: 'Forgot once.' })
+      .mockResolvedValueOnce({ state: 'stale', receipt: 'Already forgotten.' });
+    const actionArgs = {
+      ack: vi.fn().mockResolvedValue(undefined),
+      action: { value: forgetButton.value },
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER' },
+        message: { ts: '1710000000.000222', thread_ts: '1710000000.000111' },
+      },
+    };
+    await Promise.all([
+      slackActionHandler(forgetButton.action_id)?.(actionArgs),
+      slackActionHandler(forgetButton.action_id)?.(actionArgs),
+    ]);
+    expect(
+      appRef.current.client.chat.postEphemeral.mock.calls.slice(-2),
+    ).toEqual([
+      [
+        {
+          channel: 'C1234567890',
+          user: 'U_APPROVER',
+          text: 'Forgot once.',
+        },
+      ],
+      [
+        {
+          channel: 'C1234567890',
+          user: 'U_APPROVER',
+          text: 'Already forgotten.',
+        },
+      ],
+    ]);
+
+    onMessageAction.mockResolvedValueOnce({
+      state: 'applied',
+      receipt: 'Forgot despite edit failure.',
+      permissionMemoryListView: {
+        text: 'Current permission mode: auto (agent/default).',
+        affordances: [],
+      },
+    });
+    appRef.current.client.chat.update.mockRejectedValueOnce(
+      new Error('edit failed'),
+    );
+    await expect(
+      slackActionHandler(forgetButton.action_id)?.(actionArgs),
+    ).rejects.toThrow('edit failed');
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenLastCalledWith({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+      text: 'Forgot despite edit failure.',
+    });
+  });
+
+  it('replaces the list message with the re-listed view under the source-message lock and sends the confirmation reply on Slack', async () => {
+    const onMessageAction = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Forgot.',
+      permissionMemoryListView: {
+        text: 'Current permission mode: auto (agent/default).\nAllow · read-only reads · anywhere · 2 Sep · Ada',
+        affordances: [],
+      },
+    }));
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOptsWithApproverHook(['U_APPROVER']),
+      onMessageAction,
+    } as any);
+    await channel.connect();
+    await channel.sendMessage('sl:C1234567890', 'Permissions', {
+      actionAffordances: [
+        {
+          kind: 'memory_forget',
+          label: 'Forget a1b2c3',
+          recordId: '30000000-0000-4000-8000-000000000001',
+          agentRouteKey: 'agent-route',
+        },
+      ],
+    });
+    const message =
+      appRef.current.client.chat.postMessage.mock.calls.at(-1)?.[0];
+    const forgetButton = message.blocks
+      .flatMap((block: any) => block.elements ?? [])
+      .find((button: any) => button.text?.text === 'Forget a1b2c3');
+
+    await slackActionHandler(forgetButton.action_id)?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      action: { value: forgetButton.value },
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER' },
+        message: { ts: '1710000000.000222', thread_ts: '1710000000.000111' },
+      },
+    });
+
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.000222',
+      text: 'Current permission mode: auto (agent/default).\nAllow · read-only reads · anywhere · 2 Sep · Ada',
+      blocks: [],
     });
     expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith({
       channel: 'C1234567890',

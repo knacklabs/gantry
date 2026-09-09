@@ -6,6 +6,7 @@ import {
   getCredentialBrokerRuntimeConfig,
   getDeploymentMode,
   getRuntimeSettingsForConfig,
+  getSelectedAgentPermissionMode,
 } from '../../config/index.js';
 import { liveUxReactionSinks } from './live-ux-reaction-sinks.js';
 import path from 'node:path';
@@ -20,7 +21,6 @@ import {
   toGroupMessageCursor,
 } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import type { MessageSendOptions } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
@@ -83,7 +83,6 @@ import { splitLiveSendProfileText } from './runtime-services-live-send-segmentat
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 // prettier-ignore
 import { dispatchRuntimePermissionCard, PERMISSION_CARD_DISPATCH_ACTIVE, startRuntimePermissionCardReconciliation, setupPermissionCardProfile } from './runtime-services-permission-card.js';
-import { resolveConversationRoute } from './runtime-app-routes.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
 import {
   queueActiveCompactionForRuntime,
@@ -110,12 +109,18 @@ import {
 } from './runtime-services-async-task-recovery.js';
 import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
 import { PermissionManagementService } from '../../application/permissions/permission-management-service.js';
+import { HumanDecisionMemoryService } from '../../application/permissions/human-decision-memory-service.js';
+import { createUsedByJobReader } from '../../application/permissions/permission-memory-listing.js';
+import { resolveEffectivePermissionMode } from '../../shared/permission-mode.js';
 import { createGroupSnapshotSync } from './runtime-services-group-snapshot-sync.js';
 import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
 import { createAttachmentOpen } from './attachment-resolver-wiring.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
-import { createSchedulerLifecycleNotificationUpdater } from './scheduler-lifecycle-notification.js';
+import { createRuntimeSchedulerStarter } from './runtime-scheduler-start.js';
+import { createMemoryForgetHandler } from './permission-memory-forget-handler.js';
+import { resolveCanonicalMemoryPersonId } from '../../runtime/group-person-identity.js';
+import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import {
   sendJobPermCard,
@@ -369,68 +374,13 @@ export async function startRuntimeServices(
     createJobTrigger: (request) =>
       getRuntimeControlRepository().createJobTrigger(request),
   });
-  const schedulerMessageOptions = (
-    jid: string,
-    options?: MessageSendOptions,
-  ): MessageSendOptions | undefined => {
-    const providerAccountId =
-      options?.providerAccountId ??
-      resolveConversationRoute(
-        app.getConversationRoutes(),
-        jid,
-        options?.threadId,
-      )?.providerAccountId;
-    return providerAccountId ? { ...options, providerAccountId } : options;
-  };
-  const startScheduler = () =>
-    resolved.startSchedulerLoop({
-      processRole,
-      conversationRoutes: () => app.getConversationRoutes(),
-      queue: app.queue,
-      onProcess: (groupJid, proc, runHandle, workspaceFolder, stopAliasJids) =>
-        app.queue.registerProcess(
-          groupJid,
-          proc,
-          runHandle,
-          workspaceFolder,
-          stopAliasJids,
-        ),
-      sendMessage: (jid, rawText, options) => {
-        const messageOptions = schedulerMessageOptions(jid, options);
-        return channelWiring.sendMessage(jid, rawText, {
-          durability: 'required',
-          throwOnMissing: true,
-          ...(messageOptions ? { messageOptions } : {}),
-        });
-      },
-      ...createSchedulerLifecycleNotificationUpdater({ channelWiring }),
-      sendStreamingChunk: channelWiring.sendStreamingChunk,
-      resetStreaming: channelWiring.resetStreaming,
-      onSchedulerChanged,
-      runAgent: app.runAgent,
-      opsRepository: resolved.opsRepository,
-      collectSessionMemory: resolved.collectSessionMemory,
-      getCredentialBroker:
-        resolved.getCredentialBroker ??
-        (typeof app.getCredentialBroker === 'function'
-          ? () => app.getCredentialBroker()
-          : undefined),
-      getSkillRepository: resolved.getSkillRepository,
-      getMcpServerRepository: resolved.getMcpServerRepository,
-      getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
-      getMcpHostnameLookup: () => resolved.mcpHostnameLookup,
-      getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
-      getSkillArtifactStore: resolved.getSkillArtifactStore,
-      getToolRepository: resolved.getToolRepository,
-      getAsyncTaskRepository: resolved.getAsyncTaskRepository,
-      getBrowserStatus,
-      executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
-      executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
-      runnerSandboxProvider:
-        resolved.runnerSandboxProvider ?? app.runnerSandboxProvider,
-      closeBrowserSession: closeBrowser,
-      closeBrowserToolBackends: resolved.closeBrowserToolBackends,
-    });
+  const startScheduler = createRuntimeSchedulerStarter({
+    app,
+    channelWiring,
+    onSchedulerChanged,
+    processRole,
+    resolved,
+  });
   const mirrorAgentToolRulesToSettings = createAgentToolRuleSettingsMirror({
     opsRepository: resolved.opsRepository,
     repositories: resolved.settingsRepositories,
@@ -641,6 +591,55 @@ export async function startRuntimeServices(
     liveMessageQueue,
     jobPermissionDurability,
   );
+  const decisionMemory = resolved.getPermissionDecisionMemoryRepository?.();
+  const permissionRepository = resolved.getPermissionRepository?.();
+  const readJobs = (jobIds: string[]) =>
+    Promise.all(
+      jobIds.map((jobId) => resolved.opsRepository.getJobById(jobId)),
+    ).then((jobs) => jobs.flatMap((job) => (job ? [job] : [])));
+  if (decisionMemory && permissionRepository) {
+    channelWiring.setMemoryForgetMessageActionHandler(
+      createMemoryForgetHandler({
+        getConversationRoutes: () => app.getConversationRoutes(),
+        resolvePerson: async (action, route) => {
+          const appId = appIdFromConversationJid(action.conversationJid);
+          if (!appId) return undefined;
+          return resolveCanonicalMemoryPersonId({
+            resolvePersonIdentity: resolved.resolvePersonIdentity,
+            normalizeProviderId: channelWiring.normalizeProviderId,
+            publishRuntimeEvent: resolved.publishRuntimeEvent,
+            appId,
+            rawUserId: action.userId,
+            conversationKind:
+              route.conversationKind === 'dm' ? 'dm' : 'channel',
+            messages: [],
+            chatJid: action.conversationJid,
+            threadId: action.threadId,
+            providerAccountId:
+              action.providerAccountId ?? route.providerAccountId,
+            identityEvidenceType: route.senderIdentityEvidenceType,
+            systemSenderIds: route.systemSenderIds,
+          });
+        },
+        resolvePermissionMode: (route) => {
+          const override = route.agentConfig?.permissionMode;
+          const mode = resolveEffectivePermissionMode(
+            override,
+            getSelectedAgentPermissionMode(route.folder),
+          );
+          return `Current permission mode: ${mode} (${override ? 'conversation override' : 'agent/default'}).`;
+        },
+        service: new HumanDecisionMemoryService({ repository: decisionMemory }),
+        usedBy: (appId) =>
+          createUsedByJobReader({
+            appId,
+            permissions: permissionRepository,
+            listJobs: readJobs,
+          }),
+        timezone: TIMEZONE,
+      }),
+    );
+  }
   registerRuntimeMemoryReviewMessageAction(channelWiring, app);
   registerRuntimeObserverFeedbackMessageAction(channelWiring);
   registerRuntimeBrainDreamReviewMessageAction(channelWiring);

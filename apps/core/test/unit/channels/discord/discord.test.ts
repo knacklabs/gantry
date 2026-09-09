@@ -4447,6 +4447,7 @@ describe('DiscordChannel', () => {
           kind: 'memory_forget',
           label: 'Forget a1b2c3',
           recordId: '30000000-0000-4000-8000-000000000001',
+          agentRouteKey: 'agent-route',
         },
       ],
     });
@@ -4476,6 +4477,7 @@ describe('DiscordChannel', () => {
         providerAccountId: 'discord-default',
         userId: 'user-1',
         recordId: '30000000-0000-4000-8000-000000000001',
+        agentRouteKey: 'agent-route',
       }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
@@ -4503,6 +4505,109 @@ describe('DiscordChannel', () => {
           }),
         }),
       ),
+    );
+    await channel.disconnect();
+  });
+
+  it('answers the Forget interaction with one ephemeral receipt update and no source-list mutation on Discord', async () => {
+    let socket!: FakeWebSocket;
+    const onMessageAction = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Forgot.',
+    }));
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) =>
+        String(input).endsWith('/gateway/bot')
+          ? jsonResponse({ url: 'wss://gateway.discord.test' })
+          : jsonResponse({ id: 'forget-message' }),
+      );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({ providerAccountId: 'discord-default', onMessageAction }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+    await channel.connect();
+    await channel.sendMessage('dc:channel-1', 'Permissions', {
+      actionAffordances: [
+        {
+          kind: 'memory_forget',
+          label: 'Forget a1b2c3',
+          recordId: '30000000-0000-4000-8000-000000000001',
+          agentRouteKey: 'agent-route',
+        },
+      ],
+    });
+    const sendCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith('/messages') && init?.method === 'POST',
+    );
+    const customId = JSON.parse(String(sendCall?.[1]?.body)).components[0]
+      .components[0].custom_id;
+
+    socket.receive({
+      op: 0,
+      t: 'INTERACTION_CREATE',
+      d: {
+        id: 'forget-interaction',
+        token: 'forget-token',
+        type: 3,
+        channel_id: 'channel-1',
+        data: { custom_id: customId },
+        member: { user: { id: 'user-1', username: 'Ravi' } },
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://discord.com/api/v10/webhooks/app-id/forget-token/messages/@original',
+        expect.objectContaining({ method: 'PATCH' }),
+      ),
+    );
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).includes('/channels/channel-1/messages/') &&
+          init?.method === 'PATCH',
+      ),
+    ).toEqual([]);
+
+    onMessageAction.mockClear();
+    (onMessageAction as any)
+      .mockResolvedValueOnce({ state: 'applied', receipt: 'Forgot once.' })
+      .mockResolvedValueOnce({
+        state: 'stale',
+        receipt: 'Already forgotten.',
+      });
+    for (const [id, token] of [
+      ['forget-interaction-1', 'forget-token-1'],
+      ['forget-interaction-2', 'forget-token-2'],
+    ]) {
+      socket.receive({
+        op: 0,
+        t: 'INTERACTION_CREATE',
+        d: {
+          id,
+          token,
+          type: 3,
+          channel_id: 'channel-1',
+          data: { custom_id: customId },
+          member: { user: { id: 'user-1', username: 'Ravi' } },
+        },
+      });
+    }
+    await vi.waitFor(() => expect(onMessageAction).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls
+          .filter(([url]) => String(url).includes('/messages/@original'))
+          .slice(-2)
+          .map(([, init]) => JSON.parse(String(init?.body)).content),
+      ).toEqual(['Forgot once.', 'Already forgotten.']),
     );
     await channel.disconnect();
   });

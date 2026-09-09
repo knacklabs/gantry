@@ -198,6 +198,7 @@ async function replayExactMemorySequence(
         request: {
           requestId: `${scenario}-remember-${run}`,
           appId: 'default',
+          targetJid: 'tap-budget:conversation',
           sourceAgentFolder: 'main_agent',
           personId: 'person-one',
           toolName: 'RunCommand',
@@ -329,6 +330,111 @@ export function replayDestructiveExactMemory(): Promise<ExactMemoryReplay> {
   ]);
 }
 
+export async function replayRememberedJobProjection(): Promise<{
+  chatTaps: number;
+  jobTaps: number[];
+  revoked: 'applied' | 'already_revoked' | 'not_found';
+  decisions: PermissionApprovalDecision[];
+}> {
+  const command = `cd ${TAP_BUDGET_WORKSPACE_ROOT} && ls && git log`;
+  const chat = await replayExactMemorySequence('s5', [
+    { command, rememberCode: 'remember_allow_exact' },
+  ]);
+  const rows = chat.rows;
+  const memory = inMemoryDecisionMemory(rows);
+  const replayJob = async (requestId: string, jobCommand: string) => {
+    let taps = 0;
+    const responseKeyId = `tap-budget-${requestId}`;
+    registerWorkerPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: 'job-s5',
+      runId: `run-${requestId}`,
+    });
+    try {
+      const decision = await resolvePermissionIpcDecision({
+        request: {
+          requestId,
+          appId: 'default',
+          responseKeyId,
+          targetJid: 'tap-budget:conversation',
+          sourceAgentFolder: 'main_agent',
+          toolName: 'RunCommand',
+          toolInput: { command: jobCommand },
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          conversationRoutes: () => ({
+            'tap-budget:conversation': {
+              name: 'tap budget',
+              folder: 'main_agent',
+              trigger: '@gantry',
+              added_at: '2026-09-04',
+              agentConfig: { permissionMode: 'auto' },
+            },
+          }),
+          requestPermissionApproval: async () => {
+            taps += 1;
+            return permissionDecisionResult({
+              approved: false,
+              mode: 'cancel',
+              decidedBy: 'owner',
+              source: 'user',
+            });
+          },
+          classifierConsult: async () => ({
+            risk_level: 'high',
+            reason: 'Ask the person.',
+            latencyMs: 1,
+          }),
+          publishRuntimeEvent: async () => undefined,
+          getPermissionDecisionMemoryRepository: () => memory,
+          opsRepository: {
+            getJobById: async () => ({
+              id: 'job-s5',
+              execution_context: { personId: 'person-one' },
+            }),
+          },
+          getPermissionRuntimeSettings: () => ({
+            agents: { main_agent: { permissionMode: 'auto' } },
+            permissions: {
+              autoMode: {},
+              trustedRoots: [TAP_BUDGET_WORKSPACE_ROOT],
+            },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+        } as never,
+      });
+      return { taps, decision };
+    } finally {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId,
+      });
+    }
+  };
+
+  const projected = await replayJob('s5-projected', command);
+  const nearMiss = await replayJob('s5-near-miss', `${command} --oneline`);
+  const revoked = await memory.revokeById({
+    appId: 'default',
+    agentFolder: 'main_agent',
+    actingPersonId: 'person-one',
+    recordId: rows[0]!.id,
+    nowIso: '2026-09-09T00:00:00.000Z',
+  });
+  const afterForget = await replayJob('s5-after-forget', command);
+
+  return {
+    chatTaps: chat.taps[0]!,
+    jobTaps: [projected.taps, nearMiss.taps, afterForget.taps],
+    revoked,
+    decisions: [projected.decision, nearMiss.decision, afterForget.decision],
+  };
+}
+
 export function inMemoryDecisionMemory(
   rows: PermissionDecisionMemoryRow[],
 ): PermissionDecisionMemoryRepository {
@@ -346,7 +452,8 @@ export function inMemoryDecisionMemory(
           row.agentFolder === input.agentFolder &&
           row.actingPersonId === input.actingPersonId &&
           row.scope === input.scope &&
-          row.scopeKey === input.scopeKey,
+          row.scopeKey === input.scopeKey &&
+          !row.revokedAt,
       );
       if (current) return { id: current.id, status: 'refreshed' };
       rows.push({
@@ -388,11 +495,24 @@ export function inMemoryDecisionMemory(
               row.actingPersonId === input.actingPersonId &&
               row.scope === candidate.scope &&
               row.scopeKey === candidate.scopeKey &&
-              row.railVersion === input.railVersion,
+              row.railVersion === input.railVersion &&
+              !row.revokedAt,
           ),
         )
         .find(Boolean) ?? null,
-    revokeById: async () => 'not_found',
+    revokeById: async (input) => {
+      const row = rows.find(
+        (candidate) =>
+          candidate.id === input.recordId &&
+          candidate.appId === input.appId &&
+          candidate.agentFolder === input.agentFolder &&
+          candidate.actingPersonId === input.actingPersonId,
+      );
+      if (!row) return 'not_found';
+      if (row.revokedAt) return 'already_revoked';
+      row.revokedAt = input.nowIso;
+      return 'applied';
+    },
     countExactAllowsByTool: async () => ({}),
   };
 }

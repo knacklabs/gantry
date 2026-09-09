@@ -276,6 +276,7 @@ describe('ipc-interaction-handler', () => {
       code: 'remember_allow_exact' | 'remember_deny_exact';
       permissionMode?: 'ask' | 'auto' | 'auto_strict';
       personId?: string;
+      personLabel?: string;
       denylist?: boolean;
       forgedPersonId?: string;
       mutateLane?: 'ask';
@@ -310,6 +311,9 @@ describe('ipc-interaction-handler', () => {
         runKind: options.scheduledJob ? 'scheduled' : 'interactive',
         ...(options.scheduledJob ? { jobId: 'job-remembered' } : {}),
         ...(options.personId ? { memoryUserId: options.personId } : {}),
+        ...(options.personLabel
+          ? { memoryUserLabel: options.personLabel }
+          : {}),
         runId: 'run-remembered',
       });
       const workspaceRoot = resolveWorkspaceFolderPath('main_agent');
@@ -327,6 +331,7 @@ describe('ipc-interaction-handler', () => {
         runLeaseFencingVersion: 1,
         targetJid,
         personId: options.forgedPersonId,
+        memoryUserLabel: 'worker-supplied label',
         toolName: 'RunCommand',
         toolInput: { command },
         ...(options.denylist
@@ -518,6 +523,7 @@ describe('ipc-interaction-handler', () => {
       const allowed = await runRemembered({
         code: 'remember_allow_exact',
         personId: 'host-person',
+        personLabel: 'Host Approver',
         forgedPersonId: 'forged-person',
         denylist,
       });
@@ -525,12 +531,18 @@ describe('ipc-interaction-handler', () => {
         eligible: true,
         lane: 'interactive_auto',
         personId: 'host-person',
+        personLabel: 'Host Approver',
         effectHash: allowed.expectedEffectHash,
       });
-      expect(allowed.contextBeforeDelegation).not.toHaveProperty('personLabel');
+      expect(allowed.contextBeforeDelegation).toMatchObject({
+        personLabel: 'Host Approver',
+      });
       expect(allowed.putHumanDecision).toHaveBeenCalledOnce();
       expect(allowed.putHumanDecision).toHaveBeenCalledWith(
-        expect.objectContaining({ actingPersonId: 'host-person' }),
+        expect.objectContaining({
+          actingPersonId: 'host-person',
+          actingPersonLabel: 'Host Approver',
+        }),
       );
       expect(allowed.putHumanDecision.mock.invocationCallOrder[0]).toBeLessThan(
         allowed.createTransientGrant.mock.invocationCallOrder[0]!,

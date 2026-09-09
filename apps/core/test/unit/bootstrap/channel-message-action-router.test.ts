@@ -167,7 +167,7 @@ describe('createChannelMessageActionRouter', () => {
     expect(memoryHandler).not.toHaveBeenCalled();
   });
 
-  it('delivers a typed memory_forget action with the authenticated conversation identity to a bound onMemoryForget hook and answers not available yet when no hook is bound', async () => {
+  it('forwards the bound memory_forget handler result to the provider unchanged', async () => {
     const input = {
       kind: 'memory_forget' as const,
       conversationJid: 'sl:C123',
@@ -175,6 +175,7 @@ describe('createChannelMessageActionRouter', () => {
       threadId: 'thread-1',
       userId: 'U123',
       recordId: '30000000-0000-4000-8000-000000000001',
+      agentRouteKey: 'agent-route',
     };
     const unbound = createChannelMessageActionRouter();
     await expect(unbound.handle(input)).resolves.toEqual({

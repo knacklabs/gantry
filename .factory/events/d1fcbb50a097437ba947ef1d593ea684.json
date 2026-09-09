@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T16:53:07+00:00", "story": "ASKFLOOR-1", "detail": "T5b requires one ID-bounded bulk job read, but RuntimeJobRepository exposes only listJobs/getJobById and JobListFilters has no ids filter; adding listJobsByIds needs excluded domain/repositories/ops-r"}

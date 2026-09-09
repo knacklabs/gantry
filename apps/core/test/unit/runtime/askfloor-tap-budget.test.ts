@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   assertLlmConsultNotInvoked,
   replayDestructiveExactMemory,
+  replayRememberedJobProjection,
   replayRememberedExactAllow,
   replayPermissionRequest,
   TAP_BUDGET_WORKSPACE_ROOT,
@@ -117,6 +118,19 @@ describe('ASKFLOOR tap budget', () => {
     expect(replay.rows[0]?.scopeKey).toBe(replay.rows[0]?.effectHash);
     expect(replay.rows[1]?.scopeKey).toBe(replay.rows[1]?.effectHash);
     expect(replay.rows[0]?.scopeKey).not.toBe(replay.rows[1]?.scopeKey);
+  });
+
+  it('S5 remembers in chat runs the projected job with zero cards still cards the near-miss forgets and the same job asks again', async () => {
+    const replay = await replayRememberedJobProjection();
+
+    expect(replay.chatTaps).toBe(1);
+    expect(replay.jobTaps).toEqual([0, 1, 1]);
+    expect(replay.revoked).toBe('applied');
+    expect(replay.decisions).toMatchObject([
+      { approved: true, source: 'human_decision' },
+      { approved: false, source: 'user' },
+      { approved: false, source: 'user' },
+    ]);
   });
 
   it('TB1 TB2 TB3 TB4: a browser click, a file read by path, an unprotected file write and a native FileWrite inside the workspace cost 0 taps in interactive auto with the LLM consult not invoked', async () => {

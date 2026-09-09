@@ -183,6 +183,7 @@ export interface PermissionDecisionMemoryRepository {
     appId: string;
     agentFolder: string;
     actingPersonId: string;
+    railVersion: number;
     includeRevoked?: boolean;
   }): Promise<PermissionDecisionMemoryRow[]>;
 

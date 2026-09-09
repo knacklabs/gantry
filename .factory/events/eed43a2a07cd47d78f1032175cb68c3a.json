@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T13:30:27+00:00", "story": "ASKFLOOR-1", "detail": "S-0091-ba8c: Resolved by the orchestrator: scripts/architecture-exceptions.json is outside the companion write guard, so the one capped exception entry for app/bootstrap/group-processor-deps.ts is added host-side "}

@@ -210,6 +210,34 @@ describe('extractSessionCommand', () => {
     expect(extractSessionCommand('/permissions always', trigger)).toBeNull();
   });
 
+  it('parses permissions all and permissions forget with a prefix of at least four characters and leaves show set and default unchanged', () => {
+    expect(extractSessionCommand('/permissions all', trigger)).toEqual({
+      kind: 'permissions_all',
+      raw: '/permissions all',
+    });
+    expect(extractSessionCommand('/permissions forget AbCd', trigger)).toEqual({
+      kind: 'permissions_forget',
+      raw: '/permissions forget AbCd',
+      prefix: 'abcd',
+    });
+    expect(
+      extractSessionCommand('/permissions forget abc', trigger),
+    ).toBeNull();
+    expect(extractSessionCommand('/permissions', trigger)).toEqual({
+      kind: 'permissions_show',
+      raw: '/permissions',
+    });
+    expect(extractSessionCommand('/permissions auto', trigger)).toEqual({
+      kind: 'permissions_set',
+      raw: '/permissions auto',
+      value: 'auto',
+    });
+    expect(extractSessionCommand('/permissions default', trigger)).toEqual({
+      kind: 'permissions_default',
+      raw: '/permissions default',
+    });
+  });
+
   it('rejects /compact with extra text', () => {
     expect(extractSessionCommand('/compact now please', trigger)).toBeNull();
   });
