@@ -10,5 +10,19 @@
       "git": "1 .M N... 100644 100644 100644 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000\u0000100644 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000"
     }
   },
-  "task_sha256": "b23eb0964f299868e39f2b91f6e4461d0afe342d92dff77beed375afb2096364"
+  "task_sha256": "b23eb0964f299868e39f2b91f6e4461d0afe342d92dff77beed375afb2096364",
+  "local_review_stamp": {
+    "stage_id": "ASKFLOOR-1-T5b",
+    "task_sha256": "b23eb0964f299868e39f2b91f6e4461d0afe342d92dff77beed375afb2096364",
+    "brief_sha256": "7bd7fe9f569fbeb93eab662eff16e457a2ca61788cbcda9277071927849d92ac",
+    "base_sha": "70b5520f10d36b65fae8e00f2fad3238cb99068c",
+    "product_tree_digest": "3c5bfa09daf154c2a974045f3ce875af75246ab5ba5be3a964ba52b519f02032",
+    "recorded_at": "2026-09-09T15:26:45+00:00",
+    "generated_by": "autoreview",
+    "lenses": [
+      "quality",
+      "performance",
+      "security"
+    ]
+  }
 }

@@ -1,11 +1,17 @@
 {
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T5b",
-  "score": 10,
-  "summary": "security lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..b43dbb6, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. The diff shows no actionable P0\u2013P2 security defect. Forget operations are DM-gated, resolve authenticated users to canonical people, fail closed on unknown or colliding agent route keys, and scope list/revoke operations by app, agent folder, person, current rails, and record ID. Provider callbacks preserve authenticated conversation context, group commands avoid memory access, audit lookups are app-scoped, and no credentials or prohibited compatibility leftovers are present.",
+  "score": 9,
+  "summary": "security lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..3f5ed72, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The callback path is otherwise fail-closed and person-scoped, but its canonical identity lookup uses a different app scope from the subsequent memory lookup. That is an actionable authorization-boundary defect for multi-app routes.",
   "blocking_findings": [],
-  "non_blocking_findings": [],
-  "recommendation": "approve",
+  "non_blocking_findings": [
+    {
+      "category": "security",
+      "area": "apps/core/src/app/bootstrap",
+      "summary": "[P2] Resolve the callback principal in the conversation's app (apps/core/src/app/bootstrap/runtime-services.ts:604): The Forget handler scopes list/revoke using the app derived from `action.conversationJid`, but this resolver instead canonicalizes the tapping user under the runtime-wide app ID."
+    }
+  ],
+  "recommendation": "approve-with-caveats",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
@@ -67,10 +73,10 @@
     "review-animations"
   ],
   "aspect": "security",
-  "review_run_id": "3a49397c3363ee4e876c544dcdc61ad7bc4beaa2c391b84395ac0ca4b085cd4b",
-  "brief_sha256": "d8142b5b188065bacb250c166c3c2436eee5237dd59d1c7f5480fc8defbe84bb",
-  "branch_diff_digest": "14d9dac089e10fd80f2c19aeb4830f4e6aa52ab75a4b4db0d8f7b88b9213d811",
+  "review_run_id": "0f81812d15d68ab062f34757632af94059f629724c5b5f55a5ea3ab77f956c69",
+  "brief_sha256": "878cdfb1ea1f5b1754fedb14933fe776cd5c7c06087d88bb49711d4c3f37a541",
+  "branch_diff_digest": "6cb290c9376f6a7fc85352c6320b9c2ba08ddb8e1bda0990fc252f86dd724549",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T14:51:56+00:00",
-  "commit": "b43dbb6a86d39ec9feeb3da3cdf8ee385f1a086b"
+  "recorded_at": "2026-09-09T15:26:44+00:00",
+  "commit": "3f5ed729558871897e1f0846f7dd458f3a585835"
 }

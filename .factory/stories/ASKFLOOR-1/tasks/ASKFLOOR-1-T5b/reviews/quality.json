@@ -1,14 +1,9 @@
 {
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T5b",
-  "score": 6,
-  "summary": "quality lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..b43dbb6, Codex via the autoreview skill at --max-priority P2): 1 blocking, 1 non-blocking. VERDICT ASKFLOOR-1-T5b-AC1: implemented \u2014 apps/core/src/session/session-command-parse.ts:31\nVERDICT ASKFLOOR-1-T5b-AC2: partial \u2014 apps/core/src/application/permissions/permission-memory-listing.ts:149 duplicates the category nouns instead of consuming the existing helper\nVERDICT ASKFLOOR-1-T5b-AC3: partial \u2014 apps/core/src/app/bootstrap/runtime-services.ts:597 resolves the actor through the control-approver identity rather than the canonical memory-person identity\nVERDICT ASKFLOOR-1-T5b-AC4: implemented \u2014 apps/core/src/channels/slack/channel-message-action-handler.ts:116\nVERDICT ASKFLOOR-1-T5b-AC5: implemented \u2014 apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts:1878\nVERDICT ASKFLOOR-1-T5b-AC6: implemented \u2014 apps/core/src/runtime/group-processing.ts:156\nVERDICT ASKFLOOR-1-T5b-AC7: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:120\nNO LEFTOVERS: none found in the supplied diff.",
+  "score": 8,
+  "summary": "quality lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..3f5ed72, Codex via the autoreview skill at --max-priority P2): 0 blocking, 3 non-blocking. VERDICT ASKFLOOR-1-T5b-AC1: implemented \u2014 apps/core/src/session/session-command-parse.ts:29 implements the two new parser forms.\nVERDICT ASKFLOOR-1-T5b-AC2: partial \u2014 apps/core/src/domain/message-actions.ts:3 places the required application-owned view outside its owner, and apps/core/src/application/permissions/permission-memory-listing.ts:160 duplicates the noun mapping.\nVERDICT ASKFLOOR-1-T5b-AC3: implemented \u2014 apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:27 implements the person-, route-, and rails-scoped button path.\nVERDICT ASKFLOOR-1-T5b-AC4: implemented \u2014 apps/core/src/channels/telegram/callback-handlers.ts:489, apps/core/src/channels/slack/channel-message-action-handler.ts:110, and apps/core/src/channels/teams/message-actions.ts:292 implement the provider outcomes.\nVERDICT ASKFLOOR-1-T5b-AC5: partial \u2014 apps/core/test/unit/application/permission-memory-listing.test.ts:215 covers only the 3+ used-by case, omitting the required one- and two-job cases.\nVERDICT ASKFLOOR-1-T5b-AC6: implemented \u2014 apps/core/src/runtime/group-processing.ts:156 and apps/core/src/runtime/ipc-interaction-processing.ts:211 carry the host-derived label and group identity behavior.\nVERDICT ASKFLOOR-1-T5b-AC7: implemented \u2014 apps/core/src/application/agents/prompt-profile-service.ts:218 and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:123 provide the guidance and S5 evidence; the recorded verification gates pass.",
   "blocking_findings": [
-    {
-      "category": "bug",
-      "area": "apps/core/src/app/bootstrap",
-      "summary": "[P1] Resolve Forget actors through the canonical memory-person identity (apps/core/src/app/bootstrap/runtime-services.ts:597): The button path resolves `action.userId` through `resolveControlApproverPrincipal`, but the identity contract requires the canonical DM person from `resolveCanonicalMemoryPersonId`."
-    },
     {
       "category": "plan-contract-partial",
       "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria",
@@ -17,17 +12,27 @@
     {
       "category": "plan-contract-partial",
       "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T5b-AC3: FORGET BY ID AND BY BUTTON. `/permissions forget <prefix>` resolves (case-insensitive) against this person's ACTIVE current-rails records only: one match \u2192 `service.revoke` \u2192 \"Forgot: <scope>. I'll ask next time.\"; several \u2192 the ambiguity reply, nothing mutated; none \u2192 the not_found reply. `createMemoryForgetHandler` does the same for a tap: app id from the jid, agentRouteKey resolved against the route-effective agent ids, route by (jid, thread, agentId, account), DM-gated person, row loaded through person-scoped `list({ includeRevoked: true })` BEFORE `revoke`, a revoked row \u2192 \"Already forgotten.\" with zero revoke calls, another person's / other-agent / stale-rails id / an unknown route / a group route \u2192 not_found with zero revoke calls, and on `applied` re-lists the active rows and returns `permissionMemoryListView` (mode line via the injected resolver \u2014 default and route override pinned \u2014 plus the re-read rows and footer). Tests: listing suite (three outcomes, revoked-row prefix \u2192 not_found, cross-person \u2192 not_found, ambiguity \u2192 zero revoke calls); NEW `test/unit/bootstrap/permission-memory-forget-handler.test.ts` (the real factory: applied with listing, already_revoked, cross-person, stale rails, unknown route, group route, list-before-revoke ordering, a revoke racing to already_revoked); router suite (`channel-message-action-router.test.ts:170-196`) \u2014 the bound handler's result reaches the provider unchanged; `runtime-services.test.ts` \u2014 the handler is bound at startup through the setter."
+      "summary": "ASKFLOOR-1-T5b-AC5: USED-BY READ. `listDecisionsByHumanDecisionRecordId` on the port + Postgres adapter: one row per `(recordId, jobId)`, latest use, ordered `lastUsedAt DESC, jobId`, filtered by app and record ids, extracted from `actor_context_json`; no index (owner-accepted scan, recorded as an assumption at pr-ready). The used-by reader hydrates names via `getJobById`, drops deleted jobs first, names two, then \"+N jobs\". Tests: Postgres integration (rows written through `recordDecision` with `humanDecisionRecordId` on both job lanes are returned once per job with the latest timestamp; unrelated rows and other apps are not), reader unit (1, 2, 3+ jobs; deleted job dropped before the count; ordering)."
     }
   ],
   "non_blocking_findings": [
     {
       "category": "maintainability",
+      "area": "apps/core/src/domain",
+      "summary": "[P2] Keep the list-view type in the required application owner (apps/core/src/domain/message-actions.ts:3): The contract explicitly makes `application/permissions/permission-memory-listing.ts` the owner of `PermissionMemoryListMessageView`, but the patch defines that interface in `domain/message-actions.ts` and imports it into the listing module."
+    },
+    {
+      "category": "maintainability",
       "area": "apps/core/src/application/permissions",
-      "summary": "[P2] Use the shared category-noun helper for permission-memory rows (apps/core/src/application/permissions/permission-memory-listing.ts:149): The listing introduces a second hard-coded category-to-noun table even though AC2 requires these nouns to come from the existing application helper."
+      "summary": "[P2] Reuse the authoritative category-noun formatter (apps/core/src/application/permissions/permission-memory-listing.ts:160): The listing module introduces its own `CATEGORY_NOUNS` mapping even though AC2 and the load-bearing constitution require these nouns to come from the existing application helpers."
+    },
+    {
+      "category": "test_gap",
+      "area": "apps/core/test/unit/application",
+      "summary": "[P2] Add the required one- and two-job used-by cases (apps/core/test/unit/application/permission-memory-listing.test.ts:215): The new listing suite exercises only the 3+ jobs path (including deletion and duplicate-use handling)."
     }
   ],
-  "recommendation": "request-changes",
+  "recommendation": "approve-with-caveats",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
@@ -92,37 +97,37 @@
     {
       "contract_id": "ASKFLOOR-1-T5b-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/session/session-command-parse.ts:31"
+      "evidence": "apps/core/src/session/session-command-parse.ts:29 implements the two new parser forms."
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC2",
       "verdict": "partial",
-      "evidence": "apps/core/src/application/permissions/permission-memory-listing.ts:149 duplicates the category nouns instead of consuming the existing helper"
+      "evidence": "apps/core/src/domain/message-actions.ts:3 places the required application-owned view outside its owner, and apps/core/src/application/permissions/permission-memory-listing.ts:160 duplicates the noun mapping."
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC3",
-      "verdict": "partial",
-      "evidence": "apps/core/src/app/bootstrap/runtime-services.ts:597 resolves the actor through the control-approver identity rather than the canonical memory-person identity"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:27 implements the person-, route-, and rails-scoped button path."
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/channels/slack/channel-message-action-handler.ts:116"
+      "evidence": "apps/core/src/channels/telegram/callback-handlers.ts:489, apps/core/src/channels/slack/channel-message-action-handler.ts:110, and apps/core/src/channels/teams/message-actions.ts:292 implement the provider outcomes."
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC5",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts:1878"
+      "verdict": "partial",
+      "evidence": "apps/core/test/unit/application/permission-memory-listing.test.ts:215 covers only the 3+ used-by case, omitting the required one- and two-job cases."
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-processing.ts:156"
+      "evidence": "apps/core/src/runtime/group-processing.ts:156 and apps/core/src/runtime/ipc-interaction-processing.ts:211 carry the host-derived label and group identity behavior."
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC7",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:120"
+      "evidence": "apps/core/src/application/agents/prompt-profile-service.ts:218 and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:123 provide the guidance and S5 evidence; the recorded verification gates pass."
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -366,10 +371,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "3a49397c3363ee4e876c544dcdc61ad7bc4beaa2c391b84395ac0ca4b085cd4b",
-  "brief_sha256": "d8142b5b188065bacb250c166c3c2436eee5237dd59d1c7f5480fc8defbe84bb",
-  "branch_diff_digest": "14d9dac089e10fd80f2c19aeb4830f4e6aa52ab75a4b4db0d8f7b88b9213d811",
+  "review_run_id": "0f81812d15d68ab062f34757632af94059f629724c5b5f55a5ea3ab77f956c69",
+  "brief_sha256": "878cdfb1ea1f5b1754fedb14933fe776cd5c7c06087d88bb49711d4c3f37a541",
+  "branch_diff_digest": "6cb290c9376f6a7fc85352c6320b9c2ba08ddb8e1bda0990fc252f86dd724549",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T14:51:55+00:00",
-  "commit": "b43dbb6a86d39ec9feeb3da3cdf8ee385f1a086b"
+  "recorded_at": "2026-09-09T15:26:44+00:00",
+  "commit": "3f5ed729558871897e1f0846f7dd458f3a585835"
 }
