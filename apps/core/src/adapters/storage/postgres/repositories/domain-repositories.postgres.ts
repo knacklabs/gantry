@@ -5,6 +5,7 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
   or,
   sql,
@@ -1872,6 +1873,32 @@ export class PostgresPermissionRepository implements PermissionRepository {
       expiresAt: row.expiresAt ?? undefined,
       createdAt: row.createdAt,
     } as PermissionDecision;
+  }
+
+  async listDecisionsByHumanDecisionRecordId(input: {
+    appId: string;
+    recordIds: string[];
+  }): Promise<Array<{ recordId: string; jobId: string; lastUsedAt: string }>> {
+    if (input.recordIds.length === 0) return [];
+    const recordId = sql<string>`(${pgSchema.permissionDecisionsPostgres.actorContextJson}::jsonb)->>'humanDecisionRecordId'`;
+    const jobId = sql<string>`(${pgSchema.permissionDecisionsPostgres.actorContextJson}::jsonb)->>'jobId'`;
+    const lastUsedAt = sql<string>`max(${pgSchema.permissionDecisionsPostgres.createdAt})`;
+    const rows = await this.db
+      .select({ recordId, jobId, lastUsedAt })
+      .from(pgSchema.permissionDecisionsPostgres)
+      .where(
+        and(
+          eq(pgSchema.permissionDecisionsPostgres.appId, input.appId),
+          inArray(recordId, input.recordIds),
+          isNotNull(jobId),
+        ),
+      )
+      .groupBy(recordId, jobId)
+      .orderBy(desc(lastUsedAt), asc(jobId));
+    return rows.filter(
+      (row): row is { recordId: string; jobId: string; lastUsedAt: string } =>
+        Boolean(row.recordId && row.jobId && row.lastUsedAt),
+    );
   }
 }
 export class PostgresSandboxRepository implements SandboxRepository {

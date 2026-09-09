@@ -10,6 +10,7 @@ import {
   extractSessionCommand,
   isSessionCommandAllowed,
   type AgentResult,
+  type SessionCommand,
 } from './session-command-parse.js';
 export {
   extractSessionCommand,
@@ -130,6 +131,7 @@ export interface SessionCommandDeps {
   ) => Promise<void> | void;
   getGroupPermissionModeOverride: () => PermissionMode | undefined;
   getDefaultPermissionMode: () => PermissionMode;
+  handlePermissionMemoryCommand?: (command: Extract<SessionCommand, { kind: 'permissions_show' | 'permissions_all' | 'permissions_forget' }>) => Promise<{ text: string; actionAffordances?: NonNullable<MessageSendOptions['actionAffordances']> }>;
   setGroupPermissionModeOverride: (
     value: PermissionMode | undefined,
   ) => Promise<void> | void;
@@ -577,11 +579,10 @@ export async function handleSessionCommand(opts: {
     return { handled: true, success: true };
   }
 
-  if (command.kind === 'permissions_show') {
+  if (command.kind === 'permissions_show' || command.kind === 'permissions_all' || command.kind === 'permissions_forget') {
     deps.advanceCursor(cmdMsg);
-    await deps.sendMessage(
-      `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`,
-    );
+    const response = await deps.handlePermissionMemoryCommand?.(command);
+    await deps.sendMessage(response?.text ?? `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`, response?.actionAffordances ? { actionAffordances: response.actionAffordances } : undefined);
     return { handled: true, success: true };
   }
   if (command.kind === 'model_set') {

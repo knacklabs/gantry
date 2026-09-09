@@ -44,7 +44,9 @@ function isMessageActionValid(input: MessageActionCallbackInput): boolean {
         input.decision === 'edit')
     );
   }
-  if (input.kind === 'memory_forget') return input.recordId.trim().length > 0;
+  if (input.kind === 'memory_forget') {
+    return input.recordId.trim().length > 0 && input.agentRouteKey.trim().length > 0;
+  }
   if (input.kind === 'observer_feedback') {
     return (
       input.insightId.trim().length > 0 &&

@@ -14,6 +14,7 @@ import {
   TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN,
   TELEGRAM_BRAIN_REVIEW_DECISION_BY_CODE,
   parseTelegramMemoryForgetCallback,
+  telegramActionReplyMarkup,
   TELEGRAM_REVIEW_CALLBACK_PATTERN,
   TELEGRAM_REVIEW_DECISION_BY_CODE,
 } from './message-action-affordances.js';
@@ -493,20 +494,29 @@ async function handleTelegramMemoryForgetCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
 ): Promise<void> {
-  const recordId = parseTelegramMemoryForgetCallback(ctx.data);
-  if (!recordId || !ctx.conversationJid || !ctx.userId)
+  const action = parseTelegramMemoryForgetCallback(ctx.data);
+  if (!action || !ctx.conversationJid || !ctx.userId)
     return void (await ctx.answer('Not available yet.', true));
   await ctx.answer(); // acknowledge before the host hook's identity/db work
-  const outcome = await channel.opts.onMessageAction?.({
-    kind: 'memory_forget',
-    conversationJid: ctx.conversationJid,
-    ...(ctx.providerAccountId
-      ? { providerAccountId: ctx.providerAccountId }
-      : {}),
-    threadId: ctx.threadId,
-    userId: ctx.userId,
-    recordId,
-  });
+  const outcome = await withObserverDigestEditLock(
+    `tg:${ctx.chatId}:${ctx.messageId ?? ''}`,
+    async () => {
+      const result = await channel.opts.onMessageAction?.({
+        kind: 'memory_forget',
+        conversationJid: ctx.conversationJid!,
+        ...(ctx.providerAccountId ? { providerAccountId: ctx.providerAccountId } : {}),
+        threadId: ctx.threadId,
+        userId: ctx.userId!,
+        ...action,
+      });
+      if (result?.permissionMemoryListView) {
+        await ctx.raw.editMessageText(result.permissionMemoryListView.text, {
+          reply_markup: telegramActionReplyMarkup(result.permissionMemoryListView.affordances.map((affordance) => ({ kind: 'memory_forget' as const, ...affordance }))),
+        });
+      }
+      return result;
+    },
+  );
   await ctx.raw.api.sendMessage(
     ctx.chatId,
     outcome?.receipt ?? 'Not available yet.',

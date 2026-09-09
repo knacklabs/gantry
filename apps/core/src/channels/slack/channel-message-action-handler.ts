@@ -11,6 +11,7 @@ import {
 } from './observer-digest-affordances.js';
 import { parseSlackBrainReview } from './brain-review-affordances.js';
 import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
+import { slackMessageActionBlocks } from './message-action-affordances.js';
 
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
   'scheduler_run_now',
@@ -75,6 +76,7 @@ export function registerSlackMessageActionHandler(
           decision?: unknown;
           actionToken?: unknown;
           recordId?: unknown;
+          agentRouteKey?: unknown;
           providerAccountId?: unknown;
         }
       | undefined;
@@ -108,16 +110,32 @@ export function registerSlackMessageActionHandler(
       payload?.kind === 'memory_forget' &&
       typeof payload.recordId === 'string' &&
       payload.recordId.trim() &&
+      typeof payload.agentRouteKey === 'string' &&
+      payload.agentRouteKey.trim() &&
       channelId &&
       userId
     ) {
-      const outcome = await opts?.onMessageAction?.({
-        kind: 'memory_forget',
-        conversationJid: `sl:${channelId}`,
-        ...providerAccountFromPayload(payload, opts?.providerAccountId),
-        threadId: body.message?.thread_ts,
-        userId,
-        recordId: payload.recordId,
+      const recordId = payload.recordId;
+      const agentRouteKey = payload.agentRouteKey;
+      const outcome = await withObserverDigestEditLock(`sl:${channelId}:${body.message?.ts ?? ''}`, async () => {
+        const result = await opts?.onMessageAction?.({
+          kind: 'memory_forget',
+          conversationJid: `sl:${channelId}`,
+          ...providerAccountFromPayload(payload, opts?.providerAccountId),
+          threadId: body.message?.thread_ts,
+          userId,
+          recordId,
+          agentRouteKey,
+        });
+        if (result?.permissionMemoryListView && body.message?.ts) {
+          await app.client.chat.update({
+            channel: channelId,
+            ts: body.message.ts,
+            text: result.permissionMemoryListView.text,
+            blocks: slackMessageActionBlocks(result.permissionMemoryListView.text, result.permissionMemoryListView.affordances.map((affordance) => ({ kind: 'memory_forget' as const, ...affordance })), { providerAccountId: payload.providerAccountId as string | undefined }),
+          });
+        }
+        return result;
       });
       await app.client.chat.postEphemeral({
         channel: channelId,

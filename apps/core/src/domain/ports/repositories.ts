@@ -621,6 +621,10 @@ export interface PermissionRepository {
   saveRule(rule: PermissionRule): Promise<void>;
   saveDecision(decision: PermissionDecision): Promise<void>;
   getDecision(id: PermissionDecisionId): Promise<PermissionDecision | null>;
+  listDecisionsByHumanDecisionRecordId(input: {
+    appId: string;
+    recordIds: string[];
+  }): Promise<Array<{ recordId: string; jobId: string; lastUsedAt: string }>>;
 }
 
 export interface PendingAccessRequestsRepository {

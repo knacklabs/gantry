@@ -100,9 +100,10 @@ function slackActionValue(
     const value = JSON.stringify({
       kind: action.kind,
       recordId: action.recordId,
+      agentRouteKey: action.agentRouteKey,
       ...(providerAccountId ? { providerAccountId } : {}),
     });
-    return action.recordId.trim() &&
+    return action.recordId.trim() && action.agentRouteKey.trim() &&
       Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
       ? value
       : undefined;

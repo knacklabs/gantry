@@ -14,6 +14,7 @@ import {
   newHumanDecisionId,
 } from '../../shared/human-decision-id.js';
 import { nowIso as currentIso } from '../../shared/time/datetime.js';
+import { RAIL_CATALOG_VERSION } from '../../domain/permission-effect-key.js';
 import { gantryNativeCanonicalToolName } from './gantry-tool-risk.js';
 import {
   deriveHumanDecisionScopeKey,
@@ -161,6 +162,7 @@ export class HumanDecisionMemoryService {
       appId: dto.appId,
       agentFolder: dto.agentFolder,
       actingPersonId: dto.actingPersonId,
+      railVersion: RAIL_CATALOG_VERSION,
     });
     const activeIds = new Set(siblings.map((row) => row.id));
     activeIds.add(stored.id);
@@ -183,8 +185,12 @@ export class HumanDecisionMemoryService {
     agentFolder: string;
     actingPersonId: string;
     limit?: number;
+    includeRevoked?: boolean;
   }): Promise<HumanDecisionMemoryListRow[]> {
-    const rows = await this.repository.listHumanDecisions(input);
+    const rows = await this.repository.listHumanDecisions({
+      ...input,
+      railVersion: RAIL_CATALOG_VERSION,
+    });
     const ids = rows.map((row) => row.id);
     const shortIds = deriveHumanDecisionShortIds(ids);
     const withShortIds = rows.map((row) => ({
