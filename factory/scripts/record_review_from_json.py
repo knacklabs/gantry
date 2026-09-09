@@ -204,12 +204,27 @@ if args.aspect == "stage-local":
     from forge_cli.delegate import delegation_exclusion
     with delegation_exclusion(root, "stages", kind="stage-state", namespace="state"):
         stages = load_stages(root)
-        active = [stage for stage in stages.get("stages", [])
-                  if stage.get("status") == "active"]
+        # With --task the stamp lands on THAT stage (active or done, so a
+        # review that closed after `stage done` can still seal it); without
+        # it, on the single active stage — two active stages (parallel tasks)
+        # need the task named.
+        if args.task:
+            named = [stage for stage in stages.get("stages", [])
+                     if stage.get("id") == args.task]
+            if not named or named[0].get("status") not in ("active", "done"):
+                raise SystemExit(
+                    f"stage-local review: task {args.task} is not an active or "
+                    "done stage")
+            active = named
+        else:
+            active = [stage for stage in stages.get("stages", [])
+                      if stage.get("status") == "active"]
         if len(active) != 1:
             raise SystemExit(
                 "stage-local review requires exactly one active stage "
-                f"(found {len(active)})"
+                f"(found {len(active)}); name it with --task. Restamping a done "
+                "stage after review fixes: `forge task reopen <id> --review-fix` "
+                "first, or pass --task <id>."
             )
         stage = active[0]
         task = task_for(root, stage.get("id", ""))

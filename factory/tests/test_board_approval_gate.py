@@ -131,7 +131,8 @@ def test_forge_next_hands_over_the_address(repo: Path):
               ).read_text(encoding="utf-8")
     step = source[source.index("plan is ready for review"):][:900]
     assert "GIVE THE HUMAN THAT LINK" in step
-    assert "REFUSED" in step, "the step must say the approval is gated"
+    assert "does not check" in step, (
+        "the step must say the approval is NOT gated on the board")
 
 
 def test_the_board_port_is_named_once(repo: Path):
@@ -147,17 +148,17 @@ def test_the_board_port_is_named_once(repo: Path):
     assert isinstance(DEFAULT_PORT, int)
 
 
-def test_approve_refuses_until_the_board_has_shown_the_plan(repo: Path, tmp_path):
-    """The gate itself, end to end — the thing guidance could not do.
+def test_approve_prints_the_board_link_and_does_not_gate_on_it(repo: Path, tmp_path):
+    """The board-view marker is a courtesy, not a gate.
 
-    A grilled, converged, digest-fresh plan is still not approvable until the
-    board has put that text in front of someone. This is the case that
-    happened: the coordinator was told the plan was "visible on the board",
-    no board was running, and the approval was recorded anyway.
+    Gating approval on "the board sent this text" refused the human who had
+    just read the plan in another worktree (the marker is per git control
+    dir) and turned every approval into a marker hunt. The approval prints
+    the board address; whether the plan was read there is the human's call.
     """
     from test_gates import (  # noqa: E402
         STAGE_TASK, intake, record_skeleton_then_frontier, record_task_grill,
-        save_plan, sign_off, view_plan_on_board,
+        save_plan, sign_off,
     )
 
     sign_off(repo)
@@ -169,17 +170,9 @@ def test_approve_refuses_until_the_board_has_shown_the_plan(repo: Path, tmp_path
 
     code, out = run(
         repo, "forge.py", "task", "approve", "T1", "--by", "Test Human")
-    assert code != 0, f"approved a plan nobody opened:\n{out}"
-    assert "has not been opened on the board" in out
-    # The refusal has to say what to DO, or it just moves the confusion.
-    assert "./forge board" in out
-
-    # And it must be satisfiable the moment the human actually looks.
-    view_plan_on_board(repo, "T1")
-    code, out = run(
-        repo, "forge.py", "task", "approve", "T1", "--by", "Test Human")
     assert code == 0, out
     assert "Approved task plan" in out
+    assert "http://127.0.0.1:" in out, "the board address is the courtesy"
 
 
 def test_an_edit_after_the_human_looked_needs_a_second_look(repo: Path, tmp_path):

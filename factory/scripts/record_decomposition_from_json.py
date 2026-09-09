@@ -124,7 +124,7 @@ if not tasks:
         "decomposition needs at least one leaf task — an empty task graph opens the "
         "implementation gates with nothing bounded to implement."
     )
-OBJECTIVE_MAX = 500
+OBJECTIVE_MAX = 2000
 seen_task_ids: set[str] = set()
 seen_contract_ids: set[str] = set()
 for pos, task in enumerate(tasks, 1):

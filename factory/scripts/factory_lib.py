@@ -1826,10 +1826,14 @@ def task_digest(task: dict) -> str:
 
 
 def plan_digest_without_assumptions(path: Path) -> str:
-    """Hash the approved plan while excluding implementation-time appendices."""
-    text = path.read_text(encoding="utf-8")
-    approved_text = text.partition("\n## Implementation Assumptions")[0]
-    return hashlib.sha256(approved_text.encode()).hexdigest()
+    """The plan digest every grill and approval binds to: the authored BODY,
+    without the frontmatter block and without implementation-time appendices.
+
+    Same digest as ``plan_body_digest``. Hashing the frontmatter too meant
+    `plan save`'s own `saved:` timestamp changed the digest, so a grill
+    recorded against the draft never matched the saved copy and every plan
+    needed a second grill record before it could be approved."""
+    return plan_body_digest(path)
 
 
 def plan_body_digest(path: Path) -> str:
@@ -1846,10 +1850,22 @@ def plan_body_digest(path: Path) -> str:
     """
     raw = path.read_bytes()
     normalised = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-    frontmatter = re.match(br"\A---\n.*?\n---\n", normalised, re.DOTALL)
+    frontmatter = re.match(br"\A---\n(.*?)\n---\n", normalised, re.DOTALL)
     body = normalised[frontmatter.end():] if frontmatter else normalised
+    # Authored frontmatter (decisions_reviewed, ...) is part of what was
+    # grilled and approved, so it is hashed too; only the fields `plan save`
+    # stamps itself are dropped, so saving never changes the digest.
+    authored = b"\n".join(
+        line for line in (frontmatter.group(1).split(b"\n") if frontmatter else [])
+        if not re.match(PLAN_SAVE_OWNED_FIELDS, line)
+    )
     approved_body = body.partition(b"\n## Implementation Assumptions")[0]
-    return hashlib.sha256(approved_body).hexdigest()
+    return hashlib.sha256(authored + b"\n---\n" + approved_body).hexdigest()
+
+
+# Frontmatter keys `plan save` writes itself (plus saved:/updated: stamps):
+# harness bookkeeping, never something a grill read.
+PLAN_SAVE_OWNED_FIELDS = rb"(issue|title|status|saved|updated|story):"
 
 
 def approved_plan_digest(
@@ -1891,7 +1907,17 @@ def require_approved_plan_digest(root: Path) -> str:
     return approved
 
 
-def product_tree_digest(root: Path, treeish: str = "") -> str:
+def harness_owned_prefixes() -> tuple[str, ...]:
+    """Paths the workflow writes while a task is being planned or worked —
+    the run/stage/evidence tree, plans, decision records, the context ledger.
+    None of them is the product a grill read."""
+    from forge_cli.review import HARNESS_PREFIXES
+    from forge_cli.stages import WORKFLOW_PATHS
+    return tuple(sorted(set(WORKFLOW_PATHS) | set(HARNESS_PREFIXES)))
+
+
+def product_tree_digest(root: Path, treeish: str = "",
+                        exclude: tuple[str, ...] = (".factory/", "plans/")) -> str:
     """Hash product blobs from the index, or from a named historical tree."""
     git_args = (["ls-tree", "-r", "-z", treeish]
                 if treeish else ["ls-files", "--stage", "-z"])
@@ -1914,7 +1940,7 @@ def product_tree_digest(root: Path, treeish: str = "") -> str:
         if not entry:
             continue
         metadata, path = entry.split("\t", 1)
-        if path.startswith((".factory/", "plans/")):
+        if path.startswith(exclude):
             continue
         fields = metadata.split()
         blobs.append((path, fields[2] if treeish else fields[1]))
@@ -1994,8 +2020,12 @@ def grounding_digest(root: Path, task: dict, *, treeish: str = "",
     # moves BECAUSE OF the work the grill authorised, so binding to it makes
     # the gate self-defeating: committing the implementation stales the grill,
     # and the grill is what `forge delegate` needs to fix the implementation.
+    # Harness-owned paths (a decision record, the context ledger) are left
+    # out even before the stage: writing one is the workflow doing its job,
+    # not the codebase the grill read changing under it.
     if not in_stage:
-        body["product_tree_sha256"] = product_tree_digest(root, treeish)
+        body["product_tree_sha256"] = product_tree_digest(
+            root, treeish, exclude=harness_owned_prefixes())
     payload = json.dumps(body, sort_keys=True, separators=(",", ":"),
                          ensure_ascii=True)
     return hashlib.sha256(payload.encode()).hexdigest()
@@ -2372,6 +2402,54 @@ def task_ready_ids(root: Path) -> list[str]:
     return ready_task_ids(tasks, done)
 
 
+def task_done_ids(root: Path) -> set[str]:
+    """Tasks that are DONE for gating: marker on the trunk in a task worktree,
+    stage done in a story-level tracker (the same rule `task_ready_ids` uses)."""
+    return _task_schedule(root)[2]
+
+
+def task_frontier_items(root: Path) -> list[tuple[str, dict]]:
+    """Every task that can be acted on right now, first the one
+    `task_frontier_state` would pick: tasks awaiting their merge, stages active
+    in any worktree of this story, then every READY task whose write scope is
+    disjoint from the active stages. Parallel work is the tail of this list."""
+    from forge_cli.stages import active_stages_everywhere, scope_conflicts
+    tasks, stage_by_id, done = _task_schedule(root)
+    key = _active_story_key(root)
+    first = task_frontier_state(root)
+    items: list[tuple[str, dict]] = [first] if first else []
+    listed = {first[1].get("id")} if first else set()
+    active = {stage.get("id") for _root, stage in active_stages_everywhere(root)}
+    for candidate in tasks:
+        task_id = candidate.get("id")
+        if task_id in listed or task_id in done:
+            continue
+        if _has_origin(root) and (
+                stage_by_id.get(task_id, {}).get("status") == "done"
+                or task_stage_record(root, task_id).get("status") == "done"
+        ) and not task_marker_on_main(root, key, task_id):
+            items.append(("await-merge", candidate))
+            listed.add(task_id)
+    for candidate in tasks:
+        task_id = candidate.get("id")
+        if task_id in listed or task_id not in active:
+            continue
+        items.append(("delegate", candidate))  # active in its own worktree
+        listed.add(task_id)
+    unmerged = {task.get("id") for state, task in items if state == "await-merge"}
+    for task_id in ready_task_ids(tasks, done):
+        # A dependency that is done but not yet merged has not shipped: the
+        # per-task PR flow starts the next task from the trunk that has it.
+        if task_id in listed or task_id in active or scope_conflicts(root, task_id) \
+                or unmerged & set(task_dependencies(tasks, task_id)):
+            continue
+        candidate = next(c for c in tasks if c.get("id") == task_id)
+        items.append((_task_action_state(root, key, candidate,
+                                         stage_by_id.get(task_id, {})), candidate))
+        listed.add(task_id)
+    return items
+
+
 def task_frontier_state(root: Path) -> tuple[str, dict] | None:
     """Return the next JIT action and the task to act on, without raising.
 
@@ -2392,10 +2470,13 @@ def task_frontier_state(root: Path) -> tuple[str, dict] | None:
     # Only applies when an origin/trunk exists to ship the PR to — a repo without
     # an origin keeps the stage-status frontier (no per-task PR to await).
     if _has_origin(root):
+        # A task closed in its OWN worktree is done there, not in this tracker.
         await_merge = next(
             (
                 candidate for candidate in tasks
-                if stage_by_id.get(candidate.get("id"), {}).get("status") == "done"
+                if (stage_by_id.get(candidate.get("id"), {}).get("status") == "done"
+                    or task_stage_record(root, candidate.get("id")).get("status")
+                    == "done")
                 and not task_marker_on_main(root, key, candidate.get("id"))
             ),
             None,
@@ -2404,15 +2485,41 @@ def task_frontier_state(root: Path) -> tuple[str, dict] | None:
             return "await-merge", await_merge
 
     ready = set(task_ready_ids(root))
+    # A task worktree's frontier is ITS task: with two tasks ready side by
+    # side, the earlier one is not this worktree's work. And a task active in
+    # a SIBLING worktree is not this checkout's frontier either — it is
+    # someone else's; this checkout moves on to the next ready task.
+    from forge_cli.stages import active_stages_everywhere
+    own = load_json(run_state_path(root), default={}).get("task_id")
+    elsewhere = {
+        stage.get("id") for wt, stage in active_stages_everywhere(root)
+        if wt.resolve() != root.resolve() and stage.get("id") != own
+    }
+
+    def local(candidate: dict) -> bool:
+        return candidate.get("id") not in done and candidate.get("id") not in elsewhere
+
     frontier = next(
         (
             candidate for candidate in tasks
-            if candidate.get("id") not in done
+            if candidate.get("id") == own and local(candidate)
+            and (candidate.get("id") in ready
+                 or stage_by_id.get(own, {}).get("status") == "active")
+        ),
+        None,
+    ) or next(
+        (
+            candidate for candidate in tasks
+            if local(candidate)
             and stage_by_id.get(candidate.get("id"), {}).get("status") == "active"
         ),
         None,
     ) or next(
-        (candidate for candidate in tasks if candidate.get("id") in ready),
+        (candidate for candidate in tasks
+         if local(candidate) and candidate.get("id") in ready),
+        None,
+    ) or next(
+        (candidate for candidate in tasks if local(candidate)),
         None,
     ) or next(
         (candidate for candidate in tasks if candidate.get("id") not in done),
@@ -2420,23 +2527,26 @@ def task_frontier_state(root: Path) -> tuple[str, dict] | None:
     )
     if frontier is None:
         return None
-    task_id = frontier.get("id")
-    stage = stage_by_id.get(task_id, {})
+    return _task_action_state(
+        root, key, frontier, stage_by_id.get(frontier.get("id"), {})), frontier
 
-    if not _task_contract_complete(frontier):
-        return "author-contract", frontier
+
+def _task_action_state(root: Path, key: str, task: dict, stage: dict) -> str:
+    """The next JIT action for ONE task, given its stage record."""
+    task_id = task.get("id")
+    if not _task_contract_complete(task):
+        return "author-contract"
 
     grill_path = evidence_path(root, key, f"grills/tasks/{task_id}.json")
     grill = load_json(grill_path, default={})
-    plan_state = _task_plan_state(root, frontier, grill)
+    plan_state = _task_plan_state(root, task, grill)
     if plan_state == "author-task-plan":
-        return plan_state, frontier
-    if not _task_grill_fresh(root, frontier, grill):
-        return "grill", frontier
+        return plan_state
+    if not _task_grill_fresh(root, task, grill):
+        return "grill"
     if plan_state != "approved":
-        return plan_state, frontier
-    state = "delegate" if stage.get("status") == "active" else "stage-start"
-    return state, frontier
+        return plan_state
+    return "delegate" if stage.get("status") == "active" else "stage-start"
 
 
 INTERRUPT_REFUSAL = (
@@ -2615,20 +2725,20 @@ def require_ready_task(
     tasks_all, stage_by_id, done = _task_schedule(root)
     stage = stage_by_id.get(task_id, {})
     completed = stage.get("status") == "done"
-    if not (allow_completed and completed):
-        other_active = next(
-            (
-                other_id for other_id, other in stage_by_id.items()
-                if other_id != task_id and other.get("status") == "active"
-            ),
-            None,
-        )
-        if other_active is not None:
+    if allow_completed and completed:
+        # Merge order is the dependency order: a done task seals only once
+        # its dependencies are done (their markers on the trunk in a task
+        # worktree), never ahead of them.
+        waiting = [d for d in task_dependencies(tasks_all, task_id) if d not in done]
+        if waiting:
             raise SystemExit(
-                f"{task_id} cannot start while {other_active} is active; "
-                "one task runs at a time — finish it "
-                f"(`./forge stage done {other_active}`) first."
+                f"{task_id} cannot seal before its dependencies ship: waiting on "
+                f"{', '.join(waiting)} — merge those task PRs first."
             )
+    else:
+        # Another active stage is no longer a refusal here: a task is grilled
+        # and approved while a sibling runs, and `stage start` is what refuses
+        # to OPEN it beside a sibling whose write scope overlaps (scope_conflicts).
         if task_id not in ready_task_ids(tasks_all, done):
             waiting = [
                 d for d in task_dependencies(tasks_all, task_id) if d not in done

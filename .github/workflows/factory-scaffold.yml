@@ -59,11 +59,17 @@ jobs:
       # (FORGE-INIT-1), its own roadmap, and its own single-skill .claude tree —
       # none of which a client has. They are the harness's regression suite,
       # vendored only so `forge upgrade` keeps one copy of this file.
+      # Every test builds its own git repo and drives forge.py as a subprocess,
+      # so the suite is process-bound and parallelises per TEST: each test owns
+      # its temp repo, the board test picks its own port, env changes go through
+      # monkeypatch. Distribute per test (worksteal), never per file —
+      # test_gates.py holds ~700 of the 890 tests, and loadfile pinned all of
+      # them to one worker (23 min, barely better than serial).
       - name: Gate regression tests
         if: steps.repo_kind.outputs.is_harness == 'true'
         run: |
-          python3 -m pip install --quiet pytest psutil
-          python3 -m pytest factory/tests -q
+          python3 -m pip install --quiet pytest pytest-xdist psutil
+          python3 -m pytest factory/tests -q -n auto --dist worksteal
       # Scaffolds from THIS repo, so it inherits whatever .claude skills the repo
       # carries. In the harness that is just `forge`, whose canon lives in the
       # copied factory/ tree. A client's own skills point at repo-root skills/,

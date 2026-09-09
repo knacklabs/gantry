@@ -301,7 +301,9 @@ def cmd_approve(args: argparse.Namespace) -> None:
     append_event(base, "plan-human-approved", actor="human",
                  story=marker["story"] or "",
                  detail=f"{marker['issue']} approved by {approver}")
-    print(f"Plan approved by {approver}")
+    from .board import DEFAULT_PORT
+    print(f"Plan approved by {approver} — board: http://127.0.0.1:{DEFAULT_PORT}/"
+          f"#{marker['story'] or ''}; `plan save` the unchanged plan to record it")
 
 
 def cmd_list(args: argparse.Namespace) -> None:
