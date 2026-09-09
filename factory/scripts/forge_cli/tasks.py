@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory_lib import (
-    plan_was_viewed,
     clean_git_env, default_trunk_branch, dump_json, evidence_path,
     git_control_dir, load_json, now_iso,
     plan_digest_without_assumptions, repo_root, require_ready_task,
@@ -212,23 +211,13 @@ def cmd_approve(args: argparse.Namespace) -> None:
     grill = load_json(grill_path, default={})
     require_fresh_task_grill(base, args.id, plan, grill)
     digest = plan_digest_without_assumptions(plan)
-    # The plan is reviewed on the BOARD, not in chat. That was guidance only,
-    # and guidance is what failed: `forge next` announced the plan "is now
-    # visible on the board" without checking a board was running, gave no URL,
-    # and this command accepted the approval with no evidence anyone had seen
-    # it. A plan can now only be approved after the board actually sent THIS
-    # text to a reader.
-    if not plan_was_viewed(base, story or "", args.id, digest):
-        fail(
-            f"task approval refused: this {args.id} plan has not been opened on "
-            f"the board.\n"
-            f"  The human reviews the plan THERE, not in chat — approving text "
-            f"nobody opened is the gap this closes.\n"
-            f"  Run `./forge board`, open {story or 'the story'}, read the "
-            f"{args.id} plan, then approve.\n"
-            f"  (If it was edited after they read it, the digest changed and "
-            f"they need to look again.)"
-        )
+    # The plan is reviewed on the BOARD; the board URL is printed as a
+    # courtesy, never demanded as proof — a board-view marker gated the
+    # approval once and mostly refused the human who had just read the plan
+    # in a different worktree.
+    from .board import DEFAULT_PORT
+    print(f"Board: http://127.0.0.1:{DEFAULT_PORT}/#{story or ''} "
+          f"(the {args.id} plan renders in the story drawer)")
     grill["approved_task_plan_sha256"] = digest
     grill["approved_by"] = approved_by
     grill["approved_at"] = now_iso()
@@ -262,16 +251,22 @@ def cmd_task_start(args: argparse.Namespace) -> None:
     task_marker_path(key, args.id)  # validates both branch/path components
 
     trunk = default_trunk_branch(base)
-    if index:
-        predecessor = tasks[index - 1].get("id")
-        if not task_marker_on_main(base, key, predecessor):
-            marker = task_marker_path(key, predecessor)
-            fail(
-                f"task {args.id} cannot start: predecessor {predecessor} marker "
-                f"is absent from fetched origin/{trunk} ({marker.as_posix()})"
-            )
-    else:
-        _require_git(base, f"fetching origin/{trunk}", "fetch", "origin", trunk)
+    _require_git(base, f"fetching origin/{trunk}", "fetch", "origin", trunk)
+    # The gate is the dependency graph, not the list order: a task starts once
+    # every task it depends on has its marker on the trunk, so independent
+    # tasks start side by side in their own worktrees.
+    from factory_lib import task_dependencies
+    shipped = {
+        task.get("id") for task in tasks
+        if task_marker_on_main(base, key, task.get("id"), refresh=False)
+    }
+    waiting = [d for d in task_dependencies(tasks, args.id) if d not in shipped]
+    if waiting:
+        markers = ", ".join(task_marker_path(key, d).as_posix() for d in waiting)
+        fail(
+            f"task {args.id} cannot start: dependency {', '.join(waiting)} marker "
+            f"is absent from fetched origin/{trunk} ({markers})"
+        )
     base_main_sha = _require_git(
         base, f"resolving fetched origin/{trunk}", "rev-parse", "--verify",
         f"origin/{trunk}^{{commit}}",
@@ -320,9 +315,9 @@ def cmd_task_start(args: argparse.Namespace) -> None:
             {
                 "id": task.get("id"),
                 "title": task.get("title"),
-                "status": "done" if position < index else "pending",
+                "status": "done" if task.get("id") in shipped else "pending",
             }
-            for position, task in enumerate(tasks)
+            for task in tasks
         ],
     }, indent=2) + "\n").encode()
 
@@ -408,6 +403,36 @@ def cmd_task_reopen(args: argparse.Namespace) -> None:
         print(f"WARNING: could not reach origin/{default_branch} to confirm "
               f"{args.id} is unshipped; proceeding on local state. Do NOT reopen a "
               "task whose PR has already merged.")
+    if getattr(args, "review_fix", False):
+        # A review fix keeps the stage's identity: the contract did not change,
+        # the base ref still measures the task's real delta, and the plan
+        # approval stands. Only the stage-local review stamp goes — it is bound
+        # to the pre-fix tree — so `stage done` demands a fresh clean one.
+        # Without this, `forge review`'s own "delegate the fixes" instruction
+        # is unfollowable: delegate writes only inside an active stage, and a
+        # done stage never reopened (ASKFLOOR-1-T5a spent six degraded windows
+        # on review fixes for that reason).
+        if status != "done":
+            fail(f"task {args.id} is '{status}', not done — --review-fix reopens "
+                 "a stage that closed clean and then failed its review")
+        later = [s.get("id") for s in stages[idx + 1:]
+                 if s.get("status") in ("done", "active")]
+        if later:
+            fail(f"task {args.id} cannot take a review fix while "
+                 f"{', '.join(later)} already built on it; reopen without "
+                 "--review-fix to move the frontier back")
+        for field in ("local_review_stamp", "completed_at"):
+            target.pop(field, None)
+        target["status"] = "active"
+        target["review_fix_reopened_at"] = now_iso()
+        target["review_fix_count"] = int(target.get("review_fix_count") or 0) + 1
+        write_stages(base, data)
+        print(f"Reopened {args.id} -> active for a review fix (round "
+              f"{target['review_fix_count']}): base, contract and plan approval "
+              f"stand. Delegate the fixes, commit, `forge review {args.id}` (a run "
+              "with no blocking finding stamps the stage), then "
+              f"`forge stage done {args.id}` and `forge task pr-ready {args.id}`.")
+        return
     # Reopening ripples forward: the done-tail built on this task has a changed
     # base, so it returns to pending too. Clear the evidence so every reopened
     # stage is re-grilled + re-implemented from scratch.
@@ -491,9 +516,12 @@ def cmd_task_pr_ready(args: argparse.Namespace) -> None:
             "Install GitHub CLI, run `gh auth login`, then retry to open the PR."
         )
     title = f"{key} {args.id}: {task.get('title', '').strip()}".rstrip(": ")
+    from .review import rejected_findings_report
+    rejected = rejected_findings_report(base, key, args.id)
     body = (
         f"Task marker: {marker.as_posix()}\n\n"
         f"Sealed commit: {commit}\n"
+        + (f"\n{rejected}" if rejected else "")
     )
     # Resolve owner/repo from origin so `gh` targets THIS repo — a bare
     # `gh pr create` can resolve a PR number against the wrong repo when a
@@ -510,6 +538,19 @@ def cmd_task_pr_ready(args: argparse.Namespace) -> None:
     )
     if proc.returncode != 0:
         detail = proc.stderr.strip() or proc.stdout.strip()
+        # A PR for this branch may already exist (a retry after a push that
+        # succeeded, or a re-seal): that is the ship, not a failure.
+        existing = subprocess.run(
+            ["gh", "pr", "view", branch, "--json", "url,state",
+             "--jq", 'select(.state == "OPEN") | .url']
+            + (["--repo", slug] if slug and "/" in slug else []),
+            cwd=base, capture_output=True, text=True, encoding="utf-8",
+        )
+        url = existing.stdout.strip() if existing.returncode == 0 else ""
+        if url:
+            print(f"Task {args.id} PR ready: {marker.as_posix()}")
+            print(f"PR already open for {branch}: {url}")
+            return
         fail(
             f"task {args.id} is sealed at {marker.as_posix()}, but opening the PR "
             f"to {default_branch} failed{f': {detail}' if detail else ''}. "

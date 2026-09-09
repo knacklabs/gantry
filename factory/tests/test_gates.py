@@ -65,7 +65,8 @@ def run(repo: Path, script: str, *args: str, stdin: str | None = None,
         env: dict[str, str] | None = None):
     proc = subprocess.run(
         [sys.executable, str(repo / "factory" / "scripts" / script), *args],
-        cwd=repo, capture_output=True, text=True, input=stdin,
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+        input=stdin,
         env={**os.environ, **(env or {})},
     )
     return proc.returncode, proc.stdout + proc.stderr
@@ -372,7 +373,7 @@ def seed_task_grill_frontier(repo: Path, task: dict) -> None:
     }))
     (control / "decomposition.json").write_text(json.dumps({
         "plan_file": plan.relative_to(repo).as_posix(),
-        "plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "plan_sha256": plan_digest_without_assumptions(plan),
         "tasks": [task],
     }))
     task_plan = repo / ".factory" / "task-plans" / f"{task['id']}.md"
@@ -561,8 +562,9 @@ def save_plan(repo: Path, tmp_path: Path) -> tuple[int, str]:
     if code == 0 or "awaiting-approval" not in out:
         return code, out
     active = next((repo / "plans" / "active").glob(f"{story}-*.md"))
-    code, out = record_grill(repo, "plan", digest_of=active)
-    assert code == 0, out
+    # ONE grill record, made against the draft, still matches the saved copy:
+    # the digest is the plan BODY, so `saved:` in the frontmatter cannot
+    # invalidate it (the second record-after-save round is gone).
     code, out = run(repo, "forge.py", "plan", "approve", "--by", "Gate Test Human")
     assert code == 0, out
     return run(repo, "forge.py", "plan", "save", "--from", str(active),
@@ -1114,18 +1116,20 @@ def test_board_stages_are_attributed_per_story(repo):
     from forge_cli.board import _stages_for
     from forge_cli import stages as stages_mod
 
-    # A scoped-layout story (intake created its dir) gets a per-story snapshot.
+    # A scoped-layout story (intake created its dir) gets a per-story snapshot:
+    # one record per task (decision 0022), never one shared stages.json.
     (repo / ".factory" / "stories" / "STORY-A").mkdir(parents=True)
     stages_mod.write_stages(
         repo, {"issue": "STORY-A",
                "stages": [{"id": "T1", "title": "t", "status": "done"}]})
-    snap_a = repo / ".factory" / "stories" / "STORY-A" / "stages.json"
-    assert snap_a.is_file(), "write_stages writes a per-story snapshot"
+    snap_a = repo / ".factory" / "stories" / "STORY-A" / "stages" / "T1.json"
+    assert snap_a.is_file(), "write_stages writes a per-task story record"
+    assert not (repo / ".factory" / "stories" / "STORY-A" / "stages.json").exists()
 
     # Decomposing STORY-B flips the singleton; the outgoing STORY-A is preserved
     # (covers a story decomposed before per-story snapshots existed).
     stages_mod.write_skeleton(repo, "STORY-B", [{"id": "T1", "title": "t"}])
-    assert json.loads(snap_a.read_text(encoding="utf-8"))["stages"][0]["status"] == "done"
+    assert json.loads(snap_a.read_text(encoding="utf-8"))["status"] == "done"
 
     # Each story shows its OWN stages; neither bleeds from the singleton.
     assert _stages_for(repo, "STORY-A")["stages"][0]["status"] == "done"
@@ -6949,41 +6953,6 @@ def plan_hook_payload(path: Path, *, tool="Write", mode="plan", session_id=None)
     return payload
 
 
-def test_post_tool_use_records_plan_mode_marker(repo):
-    root_plan = repo / "plans" / "root-draft.md"
-    root_plan.write_text("# Root draft\n", encoding="utf-8")
-    code, out = post_hook(repo, plan_hook_payload(root_plan, session_id="session-root"))
-    assert code == 0, out
-    root_records = list((repo / ".factory" / "plan-mode").glob("*.json"))
-    assert len(root_records) == 1
-
-    code, out = intake(repo, "PLAN-1", "Plan provenance")
-    assert code == 0, out
-    plan = repo / "plans" / "draft.md"
-    plan.write_text("# Draft\n\nBody\n\n## Implementation Assumptions\n- ignored\n")
-    records_dir = story_state(repo, "PLAN-1") / "plan-mode"
-    for tool in ("Write", "Edit", "MultiEdit"):
-        payload = plan_hook_payload(plan, tool=tool, session_id=f"session-{tool}")
-        before = set(records_dir.glob("*.json"))
-        code, out = post_hook(repo, payload)
-        assert code == 0, out
-        records = set(records_dir.glob("*.json"))
-        assert len(records) == len(before) + 1
-        marker = json.loads((records - before).pop().read_text())
-        assert marker == {
-            "generated_by": "claude-code:plan-mode",
-            "path": str(plan),
-            "sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
-            "sha256_body": plan_digest_without_assumptions(plan),
-            "at": marker["at"],
-            "session_id": f"session-{tool}",
-        }
-
-    code, out = post_hook(repo, {**payload, "permission_mode": "default"})
-    assert code == 0, out
-    assert len(list(records_dir.glob("*.json"))) == 3
-
-
 def test_post_tool_use_records_ask_user_question_round(repo):
     root_payload = {
         "tool_name": "AskUserQuestion",
@@ -7065,21 +7034,6 @@ def test_vendor_integrity_covers_post_tool_use(repo):
     assert code == 0 and "OK" in out, out
 
 
-def test_post_tool_use_marks_plan_outside_repo_with_raw_and_body_digests(
-        repo, tmp_path):
-    plan = tmp_path / "outside-plan.md"
-    plan.write_bytes(b"# Draft\n\nBody\n\n## Implementation Assumptions\n- ignored\n")
-    code, out = post_hook(repo, plan_hook_payload(plan))
-    assert code == 0, out
-    records = list((repo / ".factory" / "plan-mode").glob("*.json"))
-    assert len(records) == 1
-    marker = json.loads(records[0].read_text())
-    assert marker["path"] == str(plan.resolve())
-    assert marker["sha256"] == hashlib.sha256(plan.read_bytes()).hexdigest()
-    assert marker["sha256_body"] == plan_digest_without_assumptions(plan)
-    assert marker["session_id"] == ""
-
-
 def test_post_tool_use_round_without_response_records_chosen_null(repo):
     payload = {
         "tool_name": "AskUserQuestion",
@@ -7099,15 +7053,6 @@ def test_post_tool_use_round_without_response_records_chosen_null(repo):
         record = json.loads(added.pop().read_text())
         assert record["questions"][0]["chosen"] is None
         assert record["session_id"] == ""
-
-
-def test_post_tool_use_records_without_session_id(repo):
-    plan = repo / "plans" / "draft.md"
-    plan.write_text("# Draft\n", encoding="utf-8")
-    code, out = post_hook(repo, plan_hook_payload(plan, tool="Edit"))
-    assert code == 0, out
-    marker = next((repo / ".factory" / "plan-mode").glob("*.json"))
-    assert json.loads(marker.read_text())["session_id"] == ""
 
 
 def make_unmerged(repo: Path, rel: str = "src/conflict.ts") -> None:
@@ -8668,7 +8613,11 @@ def test_forge_next_routes_requirements_round_first(repo):
     assert code == 0, out
     # 0050 removed the "enter plan mode" instruction; the planning step is
     # still what appears once the requirements round is recorded.
-    assert "MANDATORY: plan per factory/prompts/planner.md" in out
+    # Reading comes first and authoring second — assert the ORDER, since
+    # that is the whole point of splitting the step.
+    assert "FIRST read the system this plan will assert about" in out
+    assert "THEN plan per factory/prompts/planner.md" in out
+    assert out.index("FIRST read the system") < out.index("THEN plan per")
     assert "FIRST: re-grill" not in out
 
     product = repo / "requirements-routing.txt"
@@ -8845,24 +8794,6 @@ def test_plan_mode_marker_matches_body_not_assumptions(repo, tmp_path):
     assert "plan-mode marker required" not in out
 
 
-def test_plan_mode_marker_in_root_scope_counts_for_active_story(repo, tmp_path):
-    sign_off(repo)
-    plan = tmp_path / "root-scope-plan.md"
-    plan.write_text(plan_draft(repo))
-    code, out = post_hook(repo, plan_hook_payload(plan))
-    assert code == 0, out
-    assert list((repo / ".factory" / "plan-mode").glob("*.json"))
-
-    intake(repo)
-    code, out = record_grill(repo, "plan", digest_of=plan, plan_mode=False)
-    assert code == 0, out
-    code, out = run(repo, "forge.py", "plan", "save", "--from", str(plan),
-                    "--story", "ENG-1")
-
-    assert code != 0 and "awaiting-approval" in out, out
-    assert "plan-mode marker required" not in out
-
-
 def test_plan_save_restamp_does_not_invalidate_marker(repo, tmp_path):
     sign_off(repo)
     intake(repo)
@@ -8902,14 +8833,11 @@ def test_plan_approve_refuses_without_a_fresh_plan_grill(repo, tmp_path):
     assert code != 0 and "--by" in out
     code, out = run(repo, "forge.py", "plan", "approve", "--by", "  ")
     assert code != 0 and "human approver" in out
+    # The ONE grill recorded against the draft still matches the saved copy
+    # (body digest): no second record before approval.
     code, out = run(repo, "forge.py", "plan", "approve", "--by", "Client PM")
-    assert code != 0 and "awaiting plan" in out and "Re-grill" in out
-
+    assert code == 0, out
     active = next((repo / "plans" / "active").glob("ENG-1-*.md"))
-    code, out = record_grill(repo, "plan", digest_of=active)
-    assert code == 0, out
-    code, out = run(repo, "forge.py", "plan", "approve", "--by", "Client PM")
-    assert code == 0, out
 
     marker_path = story_state(repo) / "plan-approval.json"
     marker = json.loads(marker_path.read_text())
@@ -10224,8 +10152,8 @@ def test_outcome_is_required_to_ship_and_survives_in_the_record(repo, tmp_path):
     # the paragraph must read like one: a command line or an essay is not it
     code, out = run(repo, "forge.py", "outcome", "set", "fixed it")
     assert code != 0 and "at least" in out
-    code, out = run(repo, "forge.py", "outcome", "set", "word " * 300)
-    assert code != 0 and "max" in out
+    code, out = run(repo, "forge.py", "outcome", "set", "word " * 500)
+    assert code != 0 and "max 2000" in out
     text = ("Invoices now load for every account and can be filtered by date, "
             "so support no longer has to run the export by hand.")
     code, out = run(repo, "forge.py", "outcome", "set", text)
@@ -11218,9 +11146,9 @@ def test_recorder_holds_the_task_narrative_contract(repo, tmp_path):
     bare = {**DECOMP, "tasks": [{"id": "T1", "title": "core slice"}]}
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(bare))
     assert code != 0 and "objective" in out
-    dumped = {**DECOMP, "tasks": [{**DECOMP["tasks"][0], "objective": "x " * 400}]}
+    dumped = {**DECOMP, "tasks": [{**DECOMP["tasks"][0], "objective": "x " * 1100}]}
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(dumped))
-    assert code != 0 and "max 500" in out, out
+    assert code != 0 and "max 2000" in out, out
     no_ac = {**DECOMP, "tasks": [{**DECOMP["tasks"][0], "acceptance_criteria": []}]}
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(no_ac))
     assert code != 0 and "acceptance_criteria" in out
@@ -11873,11 +11801,9 @@ def test_stage_loop_orders_execution_and_gates_pr_ready(repo, tmp_path):
          "acceptance_criteria": ["rows show"]},
     ]}
     record_skeleton_then_frontier(repo, decomp["tasks"])
-    # Order is strict inside one story worktree.
+    # T2 depends on its predecessor T1 (no explicit dependencies), so it waits.
     code, out = run(repo, "forge.py", "stage", "start", "T2", "--trunk")
     assert code != 0 and "T1" in out
-    code, out = run(repo, "forge.py", "stage", "start", "T2", "--parallel")
-    assert code != 0 and "task stages are sequential" in out
     # done requires the stage to have actually started
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code != 0 and "not active" in out
@@ -12226,7 +12152,7 @@ def test_task_start_creates_worktree_off_main_and_gates_on_predecessor_marker(
     sources = seed_task_start_inputs(repo, key, [first, second], "T2")
     second_worktree = repo.parent / f"{repo.name}-{key}-T2"
     code, out = run(repo, "forge.py", "task", "start", "T2")
-    assert code != 0 and "predecessor T1 marker is absent" in out, out
+    assert code != 0 and "dependency T1 marker is absent" in out, out
     assert not second_worktree.exists()
 
     marker = repo / ".factory" / "stories" / key / "tasks" / "T1" / "pr-ready.json"
@@ -13445,7 +13371,7 @@ def test_stage_local_stamp_is_a_stages_token_not_a_fourth_review(repo, tmp_path)
 
 def test_review_budget_default_lowered_raised_and_exceeded(
         repo, tmp_path, capsys):
-    from forge_cli.stages import _measure
+    from forge_cli.stages import _measure, _measure_notes
 
     def clone_case(name: str) -> Path:
         target = tmp_path / name
@@ -13473,9 +13399,12 @@ def test_review_budget_default_lowered_raised_and_exceeded(
             if index + 1 == commit_after:
                 git(target, "add", "src")
                 git(target, "commit", "-qm", "stage work")
-        _measure(target, "T1", stage, task)
+        return _measure(target, "T1", stage, task)
 
-    measure_case("budget-default", STAGE_TASK, 1)
+    assert measure_case("budget-default", STAGE_TASK, 1) == {
+        "strays": [], "files": 1, "lines": 1,
+        "budget": {"files": 8, "lines": 400},
+    }
 
     lowered = {**STAGE_TASK, "review_budget": {
         "max_changed_files": 1,
@@ -13494,26 +13423,34 @@ def test_review_budget_default_lowered_raised_and_exceeded(
         "max_changed_files": 1,
         "max_changed_lines": 10,
     }}
-    with pytest.raises(SystemExit) as refusal:
-        measure_case("budget-files-exceeded", exceeded_files, 2)
-    assert refusal.value.code == 1
-    out = capsys.readouterr().out
-    assert "measured files=2, lines=2; budget files=1, lines=10" in out
-    assert "default 8 files / 400 lines is the policy target" in out
-    assert "decision=split" in out and "frozen graph prefix" in out
-    assert "stage done T1 --incomplete" in out
+    # An overrun is MEASURED and noted, not refused.
+    measured = measure_case("budget-files-exceeded", exceeded_files, 2)
+    assert measured["files"] == 2 and measured["budget"] == {"files": 1, "lines": 10}
+    notes = "\n".join(_measure_notes("T1", measured))
+    assert "measured files=2, lines=2; budget files=1, lines=10" in notes
+    assert "default 8 files / 400 lines is the policy target" in notes
 
     exceeded_lines = {**STAGE_TASK, "review_budget": {
         "max_changed_files": 2,
         "max_changed_lines": 1,
     }}
+    measured = measure_case(
+        "budget-lines-exceeded", exceeded_lines, 1, lines_per_file=2,
+    )
+    assert measured["files"] == 1 and measured["lines"] == 2
+    assert "measured files=1, lines=2; budget files=2, lines=1" in "\n".join(
+        _measure_notes("T1", measured))
+
+    # The ONE measure that still refuses: more than TWICE the line budget.
     with pytest.raises(SystemExit) as refusal:
         measure_case(
-            "budget-lines-exceeded", exceeded_lines, 1, lines_per_file=2,
+            "budget-lines-doubled", exceeded_lines, 1, lines_per_file=3,
         )
     assert refusal.value.code == 1
     out = capsys.readouterr().out
-    assert "measured files=1, lines=2; budget files=2, lines=1" in out
+    assert "TWICE" in out and "3 lines" in out
+    assert "decision=split" in out and "frozen graph prefix" in out
+    assert "stage done T1 --incomplete" in out
 
     validation = clone_case("budget-validation")
     sign_off(validation)
@@ -13547,12 +13484,29 @@ def test_review_budget_default_lowered_raised_and_exceeded(
         assert code != 0 and message in out, (budget, out)
 
 
-def test_stage_done_refuses_out_of_scope_change(repo, tmp_path):
+def measured_stage(repo: Path, stage_id: str = "T1") -> dict:
+    """What `stage done` RECORDED on the stage (authoritative tracker)."""
+    stages = json.loads((delegation_ledger(repo).parent / "stages.json").read_text())
+    return next(s for s in stages["stages"] if s["id"] == stage_id)
+
+
+def test_stage_done_records_out_of_scope_change(repo, tmp_path):
+    # A stray is MEASURED and recorded, not refused: the review already read
+    # the diff, and refusing here only ever forced a re-record/re-grill loop.
     start_stage(repo, tmp_path, STAGE_TASK)
     write_in_scope(repo, "src/core.py")
     write_in_scope(repo, "billing/ledger.py")
+    stamp_and_commit(repo)
     code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0 and "write_scope" in out and "billing/ledger.py" in out
+    assert code == 0, out
+    assert "NOTE" in out and "write_scope" in out and "billing/ledger.py" in out
+    stage = measured_stage(repo)
+    assert stage["status"] == "done"
+    assert stage["measured"]["strays"] == ["billing/ledger.py"]
+    assert stage["measured"]["files"] == 2 and stage["measured"]["test_id_misses"] == []
+    code, out = run(repo, "forge.py", "stage", "list")
+    assert code == 0 and "strays: billing/ledger.py" in out, out
+    assert any(e.get("event") == "stage-measured" for e in load_events(repo))
 
 
 def test_stage_done_sees_deleted_initial_untracked_path(repo, tmp_path):
@@ -13561,8 +13515,10 @@ def test_stage_done_sees_deleted_initial_untracked_path(repo, tmp_path):
     start_stage(repo, tmp_path, STAGE_TASK)
     outside.unlink()
     write_in_scope(repo, "src/core.py")
+    stamp_and_commit(repo)
     code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0 and "outside.tmp" in out and "write_scope" in out
+    assert code == 0 and "outside.tmp" in out and "write_scope" in out, out
+    assert measured_stage(repo)["measured"]["strays"] == ["outside.tmp"]
 
 
 def test_stage_done_sees_initial_untracked_path_staged_without_byte_change(
@@ -13572,8 +13528,10 @@ def test_stage_done_sees_initial_untracked_path_staged_without_byte_change(
     start_stage(repo, tmp_path, STAGE_TASK)
     git(repo, "add", "outside.tmp")
     write_in_scope(repo, "src/core.py")
+    stamp_and_commit(repo)
     code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0 and "outside.tmp" in out and "write_scope" in out
+    assert code == 0 and "outside.tmp" in out and "write_scope" in out, out
+    assert measured_stage(repo)["measured"]["strays"] == ["outside.tmp"]
 
 
 def test_stage_done_does_not_credit_unchanged_initial_dirt(repo, tmp_path):
@@ -13844,10 +13802,12 @@ def test_stage_done_measures_a_changed_gitlink(repo, tmp_path):
     subprocess.run(["git", *GIT_ID, "commit", "-qm", "advance dependency"],
                    cwd=checkout, check=True)
     write_in_scope(repo, "src/core.py")
+    stamp_and_commit(repo)
     code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0
+    assert code == 0, out
     assert "vendor/dependency" in out and "write_scope" in out
     assert "unreadable" not in out
+    assert measured_stage(repo)["measured"]["strays"] == ["vendor/dependency"]
 
 
 def test_gitlink_index_parser_preserves_unusual_path_characters(repo):
@@ -13893,8 +13853,10 @@ def test_stage_done_checks_both_sides_of_a_committed_rename(repo, tmp_path):
     (repo / "src").mkdir(exist_ok=True)
     git(repo, "mv", "outside.py", "src/outside.py")
     git(repo, "commit", "-qam", "move into declared scope")
+    stamp_and_commit(repo)
     code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0 and "outside.py" in out and "write_scope" in out
+    assert code == 0 and "outside.py" in out and "write_scope" in out, out
+    assert measured_stage(repo)["measured"]["strays"] == ["outside.py"]
 
 
 def test_stage_done_refuses_missing_required_test(repo, tmp_path):
@@ -13916,7 +13878,10 @@ def test_stage_done_refuses_missing_required_test(repo, tmp_path):
     assert code == 0, out
 
 
-def test_stage_done_requires_exact_junit_testcase_identity(repo, tmp_path):
+def test_stage_done_matches_required_test_by_id_prefix(repo, tmp_path):
+    # The recorded id is a PREFIX of the testcase name at a boundary (a
+    # parametrised case, 'test_slice[a]'): that identifies the test, no miss
+    # is recorded. 'test_slice_extra' would NOT (see the unit test).
     test_id = "test_slice"
     path = "src/test_core.py"
     task = {**STAGE_TASK, "required_tests": [{
@@ -13926,10 +13891,37 @@ def test_stage_done_requires_exact_junit_testcase_identity(repo, tmp_path):
     }]}
     start_stage(repo, tmp_path, task)
     write_in_scope(repo, "src/core.py")
-    write_in_scope(repo, path, "def test_slice_extra():\n    pass\n")
+    write_in_scope(repo, path, "import pytest\n\n@pytest.mark.parametrize"
+                   "('case', ['a'])\ndef test_slice(case):\n    pass\n")
     stamp_and_commit(repo)
     code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0 and "not present in the fresh JUnit report" in out
+    assert code == 0, out
+    assert measured_stage(repo)["measured"]["test_id_misses"] == []
+
+
+def test_stage_done_records_a_required_test_id_that_matched_no_case(
+        repo, tmp_path):
+    # The run PASSED; only the recorded id lined up with nothing. That is a
+    # bookkeeping miss, measured and recorded — a failed or never-run test is
+    # still a refusal (see the missing-file and failing cases).
+    test_id = "test_slice"
+    path = "src/test_core.py"
+    task = {**STAGE_TASK, "required_tests": [{
+        "id": test_id, "path": path,
+        "command": "python3 -m pytest {path} -q -k \"not {id}\" "
+                   "-o junit_family=legacy --junitxml={report}",
+    }]}
+    start_stage(repo, tmp_path, task)
+    write_in_scope(repo, "src/core.py")
+    write_in_scope(repo, path, "def test_other():\n    pass\n")
+    stamp_and_commit(repo)
+    code, out = run(repo, "forge.py", "stage", "done", "T1")
+    assert code == 0, out
+    assert "NOTE" in out and "not present in the fresh JUnit report" in out
+    misses = measured_stage(repo)["measured"]["test_id_misses"]
+    assert len(misses) == 1 and "'test_slice'" in misses[0]
+    code, out = run(repo, "forge.py", "stage", "list")
+    assert code == 0 and "required-test id misses" in out, out
 
 
 def test_stage_done_runs_environment_prefixed_required_test(repo, tmp_path):
@@ -13963,7 +13955,10 @@ def test_stage_done_binds_required_test_to_declared_path(repo, tmp_path):
     write_in_scope(repo, "src/test_other.py", "def test_slice():\n    pass\n")
     stamp_and_commit(repo)
     code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0 and "not attributed" in out and path in out
+    # A case attributed to another path is a recorded miss, not a refusal.
+    assert code == 0 and "not attributed" in out and path in out, out
+    misses = measured_stage(repo)["measured"]["test_id_misses"]
+    assert len(misses) == 1 and "not attributed" in misses[0]
 
 
 def test_stage_done_refuses_required_test_product_mutation(repo, tmp_path):
@@ -14240,7 +14235,7 @@ def test_stage_done_reloads_launch_after_proof_commands(repo, tmp_path):
     assert code != 0 and "no successful write launch" in out
 
 
-def test_stage_tasks_are_sequential_and_parallel_flag_is_refused(repo, tmp_path):
+def test_stage_start_gates_on_dependencies_not_list_order(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
@@ -14249,10 +14244,12 @@ def test_stage_tasks_are_sequential_and_parallel_flag_is_refused(repo, tmp_path)
         skeletal_stage_task("T2"),
     ]}
     record_skeleton_then_frontier(repo, decomp["tasks"])
+    # `--parallel` is gone: parallelism is decided by dependencies and scopes.
     code, out = run(repo, "forge.py", "stage", "start", "T2", "--parallel")
+    assert code != 0 and "unrecognized arguments: --parallel" in out
+    code, out = run(repo, "forge.py", "stage", "start", "T2", "--trunk")
     assert code != 0
-    assert "task stages are sequential" in out
-    assert "dependency-ready stories" in out
+    assert "T2 waits on unfinished dependency task(s): T1" in out
 
 
 def test_stage_done_ledgers_a_contract_rewritten_mid_stage(repo, tmp_path):
@@ -14508,8 +14505,10 @@ def test_stage_done_sees_later_edits_to_an_initially_dirty_file(repo, tmp_path):
     start_stage(repo, tmp_path, STAGE_TASK)
     write_in_scope(repo, "src/core.py")
     write_in_scope(repo, "billing/ledger.py", "after = 2\n")
-    code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0 and "billing/ledger.py" in out
+    # The same measurement `stage done` records: the later edit is SEEN.
+    code, out = run(repo, "forge.py", "stage", "amend-scope", "T1",
+                    "--reason", "measured: the dirty file was edited too")
+    assert code == 0 and "billing/ledger.py" in out, out
     widened = {**STAGE_TASK, "write_scope": ["src/", "billing/"]}
     code, out = run(
         repo, "record_decomposition_from_json.py",
@@ -14535,8 +14534,10 @@ def test_stage_done_scope_checks_initial_dirt_once_it_is_committed(repo, tmp_pat
     write_in_scope(repo, "src/core.py")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "stage work plus unrelated dirt")
+    stamp_and_commit(repo)
     code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0 and "billing/ledger.py" in out and "write_scope" in out
+    assert code == 0 and "billing/ledger.py" in out and "write_scope" in out, out
+    assert measured_stage(repo)["measured"]["strays"] == ["billing/ledger.py"]
 
 
 def test_stage_done_incomplete_leaves_stage_open(repo, tmp_path):
@@ -14691,7 +14692,7 @@ def test_decomposition_provenance_overrides_agent_supplied_fields(repo, tmp_path
         "story": "AGENT-9",
         "epic": "agent-epic",
         "plan_file": "plans/active/agent.md",
-        "plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "plan_sha256": plan_digest_without_assumptions(plan),
     }
     code, out = run(
         repo, "record_decomposition_from_json.py",
@@ -14711,7 +14712,7 @@ def test_decomposition_provenance_overrides_agent_supplied_fields(repo, tmp_path
         "story": "ENG-1",
         "epic": "billing",
         "plan_file": state["plan_file"],
-        "plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
+        "plan_sha256": plan_digest_without_assumptions(plan),
     }
 
 
@@ -16871,9 +16872,9 @@ def test_forge_next_routes_the_jit_frontier_states(repo, tmp_path):
         code, out = run(repo, "forge.py", "next")
         assert code == 0 and "PHASE: implementing" in out, out
         actions = [line for line in out.splitlines() if ". [dev]" in line]
-        assert len(actions) == 1, out
+        assert actions, out
         assert "emil-design-eng" in out
-        return actions[0]
+        return chr(10).join(actions)
 
     skeleton = skeletal_stage_task("T1")
     code, out = run(
@@ -17064,13 +17065,13 @@ def test_task_frontier_honours_dependency_dag(repo, tmp_path):
     require_ready_task(repo, "T3", require_approval=False, require_grill=False)
     with pytest.raises(SystemExit, match="T4 is not ready: waiting on T2"):
         require_ready_task(repo, "T4", require_approval=False, require_grill=False)
-    # One active stage at a time: with T2 active, T3 must wait for it.
+    # With T2 active, T3 may still be grilled and approved; whether its stage
+    # can OPEN beside T2 is `stage start`'s scope check (test_task_parallelism).
     stages["stages"][1]["status"] = "active"
     write_stages(repo, stages)
     frontier = task_frontier_state(repo)
     assert frontier and frontier[1]["id"] == "T2"
-    with pytest.raises(SystemExit, match="T3 cannot start while T2 is active"):
-        require_ready_task(repo, "T3", require_approval=False, require_grill=False)
+    require_ready_task(repo, "T3", require_approval=False, require_grill=False)
 
 
 def test_stage_start_and_delegate_refuse_without_approved_task_plan(repo, tmp_path):
@@ -17114,11 +17115,10 @@ def test_forge_next_and_board_route_author_task_plan_and_await_approval(
         assert task_rows(repo)[0]["state"] == row_state
         code, output = run(repo, "forge.py", "next")
         assert code == 0, output
-        action = next(
-            line.split(". ", 1)[1]
-            for line in output.splitlines() if ". [dev]" in line
-        )
-        assert command in action
+        actions = [line.split(". ", 1)[1]
+                   for line in output.splitlines() if ". [dev]" in line]
+        action = next((a for a in actions if command in a), None)
+        assert action is not None, f"{command!r} in none of: {actions}"
         assert action in next_actions(repo)["steps"]
 
     assert_route("author-task-plan", "author-task-plan", "task plan save T1")
@@ -19525,6 +19525,23 @@ def test_junit_case_matches_id_exact_and_leaf():
     assert _junit_case_matches_id(exact, "t1-boot-migrate")
     assert _junit_case_matches_id(leaf, "t1-boot-migrate")
     assert not _junit_case_matches_id(other, "t1-boot-migrate")
+    # Id-PREFIX: a suffixed/parametrised case, whitespace normalised.
+    suffixed = ET.fromstring('<testcase name="t1-boot-migrate  [sqlite]"/>')
+    leaf_suffixed = ET.fromstring(
+        '<testcase name="backbone &gt; t1-boot-migrate (fresh db)"/>')
+    assert _junit_case_matches_id(suffixed, "t1-boot-migrate [sqlite]")
+    assert _junit_case_matches_id(suffixed, "t1-boot-migrate")
+    assert _junit_case_matches_id(leaf_suffixed, "t1-boot-migrate")
+    assert not _junit_case_matches_id(exact, "t1-boot-migrate [sqlite]")
+    assert not _junit_case_matches_id(exact, "")
+    # A prefix needs a parameter suffix ('[' or '('): a longer test name, or
+    # a plain-word continuation, is a different test.
+    longer = ET.fromstring('<testcase name="t1-boot-migrate-extra"/>')
+    assert not _junit_case_matches_id(longer, "t1-boot-migrate")
+    assert not _junit_case_matches_id(
+        ET.fromstring('<testcase name="test_slice_extra"/>'), "test_slice")
+    assert not _junit_case_matches_id(
+        ET.fromstring('<testcase name="t1-boot-migrate more"/>'), "t1-boot-migrate")
 
 
 def test_junit_case_attributed_file_or_classname_suffix():

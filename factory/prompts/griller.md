@@ -26,10 +26,15 @@ defending it.
 
 RELEASE IT THROUGH THE HARNESS. `./forge grill run --gate <gate>` composes the cold-read brief (this contract plus the artifact) and releases Codex through the SAME ledgered launcher a delegation uses: the pid is recorded before the wait, so a grill whose launcher is killed still shows up in `forge codex status` instead of vanishing. It is read-only, so it takes no delegation lock and can never satisfy `stage done`. Recording the gate stays yours — the cold read only returns findings.
 
-The read-only Codex cold-reader LOADS and RUNS the `grill-me` skill (Matt
-Pocock's, installed into `~/.codex/skills/grill-me` by `./forge doctor --fix`)
-to structure its interrogation; this contract is the harness-side floor, the
-skill is the technique. In Claude, the `/grill-me` skill satisfies the same.
+The technique is Matt Pocock's `grilling` skill — the design tree, the
+frontier, numbered questions with recommended answers. `doctor --fix` installs
+it into BOTH runtimes, and `./forge grill run` also inlines it into the brief,
+so a reader reaches it whether or not its runtime resolves skills. This
+contract is the harness-side floor; `grilling` is the technique.
+
+`grill-me` is the HUMAN entry point — you type `/grill-me` and it redirects to
+`grilling`. It carries `disable-model-invocation: true`, so no model invokes it
+and none should be told to.
 
 WHICH RUNTIME CAN RECORD WHICH GATE — get this wrong and you will chase a
 refusal you cannot satisfy. ALL SIX gates match the AskUserQuestion ledger and
@@ -58,22 +63,61 @@ authored the plan, the independent cold-read pass is MANDATORY, not optional: on
 EVERY round release a fresh READ-ONLY Codex pass with
 `./forge grill run --gate <gate> [--task <id>]` that reads the plan/contract
 cold and returns findings — never a
-Claude sub-agent, never grill your own work inline — then carry ONLY those
+Claude sub-agent, never grill your own work inline — then carry ALL of those
 findings into your own AskUserQuestion rounds (the recorder rejects rounds not in
-the ledger, so the top-level session must still ask). Loop Codex grill → your
-AskUserQuestion rounds → answers → Codex grill again, until a round is clean AND
-the plan is stable; only then, approve exactly once. Read cold, as an adversary
-who did not write it. (EVERY gate is ledger-matched — signoff and epics no
+the ledger, so the top-level session must still ask). Read cold, as an adversary
+who did not write it.
+
+ONE COLD READ PER GATE — put every question to the human INSIDE it. The old
+shape was Codex grill → your rounds → amend → Codex grill AGAIN, looping until
+clean. That loop cannot converge: a fresh reader has no memory of what the last
+one found, so it returns a DIFFERENT frontier rather than a shorter one, and the
+artifact you amended to close round one becomes round two's input. Stories
+reached eleven, twenty-six and forty rounds that way; the last cost six hours.
+`forge grill run` now REFUSES a second unconstrained read on a gate that has
+already been read since its last recorded pass.
+
+So the WHOLE grill is:
+
+1. `./forge grill run --gate <gate>` — one cold read. WATCH it.
+2. Clean? Record the pass and approve. Nothing else happens.
+3. Otherwise resolve every finding the REPOSITORY answers yourself — open the
+   file and settle it. Take to the human only what the repository cannot
+   answer: a decision nobody has made, a priority, a tradeoff between two
+   workable shapes. Put those through AskUserQuestion with your recommended
+   answer first, all of them, now. There is no later round to save the hard
+   ones for, and a finding is not a menu.
+4. Amend the artifact ONCE, to what they decided.
+5. Record the pass against the AMENDED version, then approve exactly once.
+
+The price is stated plainly, twice over: nothing independent re-reads the
+amended version, and a gap this reader misses is not caught by a second reader
+at this gate. Both surface at the next gate, or in review. That is the trade
+for ending a loop that was costing whole days.
+
+If the human's answers changed the artifact's SHAPE — a component dropped, a
+different approach chosen — the amended artifact is not the one that was read
+in any useful sense. Say so and read again: `./forge grill run --gate <gate>
+--reread "<what changed shape>"`. It is a choice with a recorded reason, not a
+way around the rule, and the five-read cap still backstops it. (EVERY gate is ledger-matched — signoff and epics no
 longer excepted — so no gate can be recorded by a read-only Codex grill alone:
 the top-level session asks the round and records it.)
 
-FRESH CONTEXT, NOT FRESH READING. Every round is a NEW read-only Codex session —
-that independence is the whole point, and it is why the reader has no memory of
-what it already blessed. It does NOT mean re-deriving the plan from scratch every
-round: after the FIRST round, hand the fresh reader the plan AND what changed
-since the last round (the resolutions you just folded in, and which sections they
-touched), and tell it to concentrate there while still refusing anything it can
-see is wrong elsewhere. Same cold judgement, a fraction of the tokens.
+FRESH CONTEXT, AND THE ANSWERS SO FAR. Every round is a NEW read-only Codex
+session — that independence is the whole point. But a reader that knows nothing
+of the earlier rounds does not re-find the same gaps, it finds DIFFERENT ones,
+so the rounds never shrink and the grill has no natural end. `./forge grill run`
+therefore carries every question already put to the human and the answer they
+chose, read from the ledger the recorder validates against.
+
+That gives the reader two obligations: do not re-raise settled questions, and
+CHECK EACH ANSWER — that the artifact honours it, and that it contradicts no
+other answer, accepted decision or constitution rule. An answer can be wrong, or
+right and never applied; saying so is part of the read.
+
+Do NOT tell the reader where to concentrate. A cold read is worth having because
+it is unconstrained, and steering it toward the diff is how the thing nobody
+looked at survives every round. More information, no direction.
 
 END EVERY ROUND WITH AN EXPLICIT CONVERGENCE VERDICT, on its own line, so the
 coordinator never has to guess whether to grill again or approve:
@@ -82,10 +126,10 @@ coordinator never has to guess whether to grill again or approve:
 - `NOT CONVERGED — <the specific reason: open gaps, a contradiction, or the plan
   changed after the last clean round>`
 
-Converged means BOTH: this round is clean AND the plan did not change after the
-round that made it clean. A clean round on a plan you have just edited is not
-convergence — it is an unreviewed edit. Only `CONVERGED` authorises asking the
-human for approval, and approval happens exactly once.
+`CONVERGED` on the cold read means there is nothing to amend: record and
+approve. `NOT CONVERGED` does NOT mean read again — it means resolve what the
+repository answers, put the rest to the human, amend once, and record the pass
+against the amended version. Approval happens exactly once.
 
 Five gates, five scopes:
 
@@ -170,8 +214,12 @@ Five gates, five scopes:
   is the hard refusal point. Interrogate the next leaf task's just-authored
   contract in the re-recorded decomposition against the approved story plan,
   active decisions, and the actual repository state left by completed prior
-  stages. Hunt: assumed files or APIs that prior work did not produce, stale
-  or over-broad `write_scope`, acceptance criteria not served by the proposed
+  stages. Hunt: assumed files or APIs that prior work did not produce, a
+  `write_scope` whose AREAS miss where the work must land or reach into areas
+  the task has no business in (scope is directory prefixes plus named new
+  files — a missing existing file under a declared prefix, a drifted line
+  number or a renamed module is a NON-BLOCKING note, never a blocking finding;
+  `stage done` measures the exact paths), acceptance criteria not served by the proposed
   work, a task that OWNS a plan `## Surface Impact` surface but whose
   `write_scope`/`required_tests` do not actually PRODUCE it (owns the API row but
   builds only domain services with no HTTP controllers/DTOs/routes; owns the UI

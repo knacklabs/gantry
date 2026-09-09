@@ -71,7 +71,8 @@ def _derive_done_ids(base: Path, key: str, tasks: list[dict]) -> set[str]:
     per-task marker is present in this checkout (shipped markers ride the
     trunk you cloned). This stays offline so it is safe to run inside `next`.
     """
-    prior = load_json(stages_path(base), default={})
+    from .stages import load_story_stages
+    prior = load_story_stages(base, key) or load_json(stages_path(base), default={})
     snapshot_done = (
         {stage.get("id") for stage in prior.get("stages", [])
          if stage.get("status") == "done"}

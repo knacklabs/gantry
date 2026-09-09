@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0161-9d5a",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Commit the symphony-forge 6babcda re-vendor on the main checkout: forge upgrade wrote the vendored gate files, the session write lock refuses the git commit of canon paths, and forge delegate has no task for a vendor bump (same recipe as the #470 re-vendor)",
+  "started_at": "2026-09-09T08:14:12+00:00",
+  "completed_at": "2026-09-09T08:14:51+00:00",
+  "files": [
+    "2x"
+  ]
+}

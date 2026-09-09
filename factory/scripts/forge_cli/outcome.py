@@ -18,7 +18,7 @@ from factory_lib import (dump_json, evidence_path, head_sha, load_json, now_iso,
 from .common import fail
 
 MIN_WORDS = 12
-MAX_CHARS = 800
+MAX_CHARS = 2000
 
 
 def outcome_path(base: Path, *, for_write: bool = False) -> Path:

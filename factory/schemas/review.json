@@ -10,7 +10,9 @@
     "blocking_findings": "list"
   },
   "optional": {
+    "task_id": "str",
     "non_blocking_findings": "list",
+    "rejected_findings": "list",
     "residual_risks": "list",
     "recommendation": "str",
     "reviewed_scope": "list",

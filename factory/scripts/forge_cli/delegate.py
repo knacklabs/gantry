@@ -1038,6 +1038,12 @@ def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
     lessons = relevant_lessons(base, scope)
     body += _section("Lessons recorded against these paths", "\n".join(
         f"- {le.get('lesson', '')}" for le in lessons))
+    # A parallel worker must not ask what a sibling task already settled: the
+    # story's rulings and the contracts of the tasks this one builds on ride
+    # in the brief (the review brief composes the same section).
+    from .review_brief import _settled_section
+    body += _section("Settled by the story and by the tasks this one builds on "
+                     "— do not ask again", "\n".join(_settled_section(base, task)))
     prompt = base / "factory" / "prompts" / "implementer.md"
     if prompt.is_file():
         body += _section("Implementer contract", prompt.read_text(encoding="utf-8"))
