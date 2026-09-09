@@ -39,7 +39,9 @@ async function loadRuntimeApp() {
       throw new Error('ops repository should not be used by this test');
     }),
     getRuntimeSkillArtifactStore: vi.fn(),
-    getRuntimeStorage: vi.fn(() => ({})),
+    getRuntimeStorage: vi.fn(() => ({
+      repositories: { permissionDecisionMemory: {} },
+    })),
     getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
     resolveRuntimePersonIdentity: vi.fn(),
   }));
@@ -78,6 +80,7 @@ async function loadRuntimeAppWithGroupProcessorSpy() {
     getRuntimeStorage: vi.fn(() => ({
       repositories: {
         conversationHistoryCoverage: runtimeHistoryCoverage,
+        permissionDecisionMemory: {},
       },
     })),
     tryAcquireRuntimeAdvisoryLease: vi.fn(),
@@ -135,7 +138,10 @@ async function loadRuntimeAppWithPersistedRoutes(
     getRuntimeRepositories: vi.fn(() => {
       throw new Error('ops repository should not be used by this test');
     }),
-    getRuntimeStorage: vi.fn(() => ({ fileArtifacts })),
+    getRuntimeStorage: vi.fn(() => ({
+      fileArtifacts,
+      repositories: { permissionDecisionMemory: {} },
+    })),
     getRuntimeSkillArtifactStore: vi.fn(),
     getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
     resolveRuntimePersonIdentity: vi.fn(),

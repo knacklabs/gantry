@@ -11,6 +11,7 @@ import type { TeamsAdaptiveCardPayload } from './cards.js';
 import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
 import {
   buildTeamsReviewReceiptCard,
+  buildTeamsMessageCard,
   teamsObserverDigestCard,
 } from './cards.js';
 
@@ -58,6 +59,7 @@ export function readTeamsMessageAction(value: unknown):
   | {
       kind: 'memory_forget';
       recordId: string;
+      agentRouteKey: string;
       targetJid: string;
       threadId?: string;
     }
@@ -111,12 +113,18 @@ export function readTeamsMessageAction(value: unknown):
     };
   }
   if (payload.kind === 'memory_forget') {
-    if (typeof payload.recordId !== 'string' || !payload.recordId.trim()) {
+    if (
+      typeof payload.recordId !== 'string' ||
+      !payload.recordId.trim() ||
+      typeof payload.agentRouteKey !== 'string' ||
+      !payload.agentRouteKey.trim()
+    ) {
       return null;
     }
     return {
       kind: 'memory_forget',
       recordId: payload.recordId,
+      agentRouteKey: payload.agentRouteKey,
       targetJid: payload.targetJid,
       ...(typeof payload.threadId === 'string'
         ? { threadId: payload.threadId }
@@ -284,22 +292,58 @@ export async function handleTeamsMessageAction(input: {
     return true;
   }
   if (payload.kind === 'memory_forget') {
-    const outcome = await input.onMessageAction?.({
-      kind: 'memory_forget',
-      conversationJid: input.jid,
-      ...(input.providerAccountId
-        ? { providerAccountId: input.providerAccountId }
-        : {}),
-      userId: input.userId,
-      recordId: payload.recordId,
-      ...(payload.threadId ? { threadId: payload.threadId } : {}),
-    });
-    if (outcome) {
-      await input.sendDenied(
-        teamsConversationIdFromJid(input.jid),
-        outcome.receipt,
-      );
-    }
+    const messageId = input.message.replyToId ?? input.message.id;
+    await withObserverDigestEditLock(
+      `teams:${input.jid}:${messageId}`,
+      async () => {
+        const result = await input.onMessageAction?.({
+          kind: 'memory_forget',
+          conversationJid: input.jid,
+          ...(input.providerAccountId
+            ? { providerAccountId: input.providerAccountId }
+            : {}),
+          userId: input.userId,
+          recordId: payload.recordId,
+          agentRouteKey: payload.agentRouteKey,
+          ...(input.message.threadId
+            ? { threadId: input.message.threadId }
+            : {}),
+        });
+        if (result) {
+          await input.sendDenied(
+            teamsConversationIdFromJid(input.jid),
+            result.receipt,
+          );
+        }
+        const conversationId = teamsConversationIdFromJid(input.jid);
+        if (
+          result?.permissionMemoryListView &&
+          conversationId &&
+          messageId &&
+          input.updateReviewCard
+        ) {
+          await input.updateReviewCard({
+            conversationId,
+            messageId,
+            card: buildTeamsMessageCard({
+              text: result.permissionMemoryListView.text,
+              targetJid: input.jid,
+              ...(input.message.threadId
+                ? { threadId: input.message.threadId }
+                : {}),
+              actionAffordances:
+                result.permissionMemoryListView.affordances.map(
+                  (affordance) => ({
+                    kind: 'memory_forget' as const,
+                    ...affordance,
+                  }),
+                ),
+            }),
+          });
+        }
+        return result;
+      },
+    );
     return true;
   }
   if (payload.kind === 'memory_review_decision') {

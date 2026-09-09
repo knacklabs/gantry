@@ -1,0 +1,14 @@
+{
+  "topic": "T5b: make AC2 and AC5 fully implemented (two small changes)",
+  "lesson": "The review marked two contracts partial; close them and nothing else. (AC2) PermissionMemoryListMessageView and the list-view type live in application/permissions/permission-memory-listing.ts (the required owner) \u2014 move the type there and import it from the current location; no behaviour change. (AC5) the used-by read fetches ONLY the job ids referenced by the rendered records: collect the ids from the rows being rendered, dedupe once, and pass exactly that set to the single bulk job read; add a listing test asserting the bulk read receives only referenced ids. Run listing + forget-handler suites, tsc, check:architecture; ceilings measured after prettier.",
+  "source": ".factory/stories/ASKFLOOR-1/tasks/ASKFLOOR-1-T5b/reviews/quality.json",
+  "applies_to": [
+    "apps/core/src/application/permissions/**",
+    "apps/core/src/app/bootstrap/**",
+    "apps/core/src/domain/**",
+    "apps/core/test/unit/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T16:12:04+00:00"
+}

@@ -129,6 +129,7 @@ export async function inlinePermissionRememberContext(input: {
       gantryNativeCanonicalToolName(input.request.toolName)?.canonical ??
       input.request.toolName,
     personId: facts.personId,
+    personLabel: input.run.memoryUserLabel,
     effectSchemaVersion: EFFECT_SCHEMA_VERSION,
     railVersion: RAIL_CATALOG_VERSION,
     kindVariant: 'category',

@@ -1,0 +1,11 @@
+{
+  "topic": "T5b: one-line adapter fix \u2014 ISO timestamps from the used-by read",
+  "lesson": "Everything else is committed and green. The only failing test is 'lists one latest use per job by human decision record id\u2026' in the Postgres suite: the adapter's listDecisionsByHumanDecisionRecordId returns lastUsedAt as the raw Postgres text ('2026-09-04 00:00:00+00') while the port promises an ISO string ('2026-09-04T00:00:00.000Z'). Fix it in adapters/storage/postgres/repositories/domain-repositories.postgres.ts by normalising the value the way the sibling reads in that file do (e.g. new Date(value).toISOString() or the existing timestamp helper); do not change the test's expectation. You cannot reach Postgres from your sandbox \u2014 the orchestrator runs that suite; just make the change, run tsc, and finish.",
+  "source": "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+  "applies_to": [
+    "apps/core/src/adapters/storage/postgres/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T15:07:45+00:00"
+}

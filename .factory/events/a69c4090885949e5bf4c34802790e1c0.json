@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T16:59:38+00:00", "story": "ASKFLOOR-1", "detail": "S-0096-938e: Scope widened in the recorded contract: apps/core/src/app/bootstrap/group-processor-deps.ts and scripts/architecture-exceptions.json are now in the T5b write scope (the guard read the pre-rename filen"}

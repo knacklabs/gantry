@@ -17,6 +17,7 @@ import {
   type HumanDecisionRememberRequest,
 } from '@core/domain/human-decision.js';
 import type { PermissionApprovalDecisionMode } from '@core/domain/types.js';
+import { RAIL_CATALOG_VERSION } from '@core/domain/permission-effect-key.js';
 
 const ID = '12345678-1234-4abc-8def-1234567890ab';
 const STORED_ID = 'abcdef00-1234-4abc-8def-1234567890ab';
@@ -440,6 +441,7 @@ describe('human decision memory service', () => {
       agentFolder: 'main_agent',
       actingPersonId: 'person-one',
       limit: 1,
+      railVersion: RAIL_CATALOG_VERSION,
     });
 
     const revokeInput = {

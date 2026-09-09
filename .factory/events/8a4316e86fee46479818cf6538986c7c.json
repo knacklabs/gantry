@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T13:28:46+00:00", "story": "ASKFLOOR-1", "detail": "ASKFLOOR-1-T5b requires app/bootstrap/group-processor-deps.ts to import config and Postgres adapters, but scripts/architecture-map.json classifies all apps/core/src/app paths as runtime; the prescribe"}

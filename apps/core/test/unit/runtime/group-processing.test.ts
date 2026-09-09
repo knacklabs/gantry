@@ -559,6 +559,91 @@ describe('createGroupProcessor', () => {
       expect(mockSpawnAgent).toHaveBeenCalled();
     });
 
+    it("lists the DM person's rows with the sender-matched approver label and replies the non-mutating guidance for bare all and forget variants on a group route with zero list used-by and revoke calls", async () => {
+      const { handleSessionCommand } = await vi.importActual<
+        typeof import('@core/session/session-commands.js')
+      >('@core/session/session-commands.js');
+      const service = {
+        list: vi.fn(),
+        revoke: vi.fn(),
+      };
+      const usedBy = vi.fn();
+      const group = makeGroup({ requiresTrigger: false });
+
+      for (const content of [
+        '/permissions',
+        '/permissions all',
+        '/permissions forget abcd',
+      ]) {
+        const messages = [
+          makeMessage({
+            content,
+            sender: 'approver@s.whatsapp.net',
+            sender_name: 'Approver',
+          }),
+          makeMessage({
+            id: `${content}-trailing`,
+            content: 'later bot output',
+            sender: 'gantry@s.whatsapp.net',
+            sender_name: 'Gantry',
+            is_bot_message: true,
+          }),
+        ];
+        const { deps, channel } = setupHappyPath({ group, messages });
+        deps.remembered = {
+          service: service as never,
+          usedBy: () => usedBy,
+          timezone: 'UTC',
+        };
+        mockIsSenderControlAllowed.mockReturnValue(true);
+        mockHandleSessionCommand.mockImplementation((input) =>
+          handleSessionCommand(input as never),
+        );
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+        expect(channel.sendMessage).toHaveBeenCalledWith(
+          'group1@g.us',
+          'Current permission mode: ask (agent/default).\n' +
+            'Remembered decisions are a DM feature — nothing is remembered in groups. Send /permissions to me directly to see yours.',
+        );
+      }
+
+      expect(service.list).not.toHaveBeenCalled();
+      expect(service.revoke).not.toHaveBeenCalled();
+      expect(usedBy).not.toHaveBeenCalled();
+
+      mockHandleSessionCommand.mockResolvedValue({ handled: false });
+      const { deps } = setupHappyPath({
+        group,
+        messages: [
+          makeMessage({
+            sender: 'approver@s.whatsapp.net',
+            sender_name: 'Approver',
+          }),
+          makeMessage({
+            id: 'bot-trailing',
+            sender: 'gantry@s.whatsapp.net',
+            sender_name: 'Gantry',
+            is_bot_message: true,
+          }),
+        ],
+      });
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(
+        processGroupMessages('group1@g.us', {
+          memoryContext: {
+            source: 'message',
+            userId: 'approver@s.whatsapp.net',
+          },
+        }),
+      ).resolves.toBe(true);
+
+      expect(mockSpawnAgent.mock.calls[0]?.[1]).toMatchObject({
+        memoryUserLabel: 'Approver',
+      });
+    });
+
     it('starts the run with the bounded pending replay and requeues when more may remain', async () => {
       const messages = makePendingMessages(
         1_001,

@@ -17,6 +17,7 @@ import {
 } from './group-session-command-state.js';
 import { resolveGroupRouteExecutionProviderIdForDeps } from './group-initial-execution-provider.js';
 import { createRuntimeModelStatusAccess } from './model-status-store.js';
+import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { createSessionCommandAgentRunners } from './group-session-command-runner.js';
 import type {
@@ -145,6 +146,23 @@ export function createGroupProcessingSessionCommandHandlers(input: {
     ) => deps.setGroupThinkingOverride(input.commandOverrideRouteKey, value),
     getGroupPermissionModeOverride: () => group.agentConfig?.permissionMode,
     getDefaultPermissionMode: input.getDefaultPermissionMode,
+    ...(deps.remembered
+      ? {
+          remembered: {
+            appId,
+            agentFolder: group.folder,
+            agentId: group.agentId ?? agentIdForFolder(group.folder),
+            conversationKind:
+              group.conversationKind === 'dm'
+                ? ('dm' as const)
+                : ('group' as const),
+            resolvePersonId: resolveMemoryUserId,
+            service: deps.remembered.service,
+            usedBy: deps.remembered.usedBy(appId),
+            timezone: deps.remembered.timezone,
+          },
+        }
+      : {}),
     setGroupPermissionModeOverride: (
       value: Parameters<
         GroupProcessingDeps['setGroupPermissionModeOverride']

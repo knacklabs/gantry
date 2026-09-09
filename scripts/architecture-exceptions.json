@@ -112,6 +112,13 @@
     "maxViolations": 4
   },
   {
+    "file": "apps/core/src/app/bootstrap/group-processor-deps.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "group-processor deps compose the Postgres runtime-store and config for group processing (extracted from runtime-app for its ceiling) — same capped bootstrap-wiring seam as the sibling register files.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
     "file": "apps/core/src/app/bootstrap/runtime-observer-feedback-wiring.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "observer feedback wiring composes adapters/config for the message-action handler \u2014 same capped bootstrap-wiring seam as the sibling register files.",

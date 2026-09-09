@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T17:02:28+00:00", "story": "ASKFLOOR-1", "detail": "T5b's final AC2 instruction requires deleting permission-memory-listing.ts CATEGORY_NOUNS and calling an existing shared category-noun helper, but no such helper exists in the permitted source tree; t"}

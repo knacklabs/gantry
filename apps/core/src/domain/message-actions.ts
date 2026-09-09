@@ -1,5 +1,14 @@
 import type { ObserverDigestMessageView } from './observer-digest-view.js';
 
+export interface PermissionMemoryListMessageView {
+  text: string;
+  affordances: Array<{
+    recordId: string;
+    agentRouteKey: string;
+    label: string;
+  }>;
+}
+
 export type MessageActionAffordanceKind =
   | 'scheduler_run_now'
   | 'scheduler_pause_job'
@@ -41,7 +50,12 @@ export type MessageActionAffordance =
       label: string;
       actionToken: string;
     }
-  | { kind: 'memory_forget'; label: string; recordId: string }
+  | {
+      kind: 'memory_forget';
+      label: string;
+      recordId: string;
+      agentRouteKey: string;
+    }
   | {
       kind: 'memory_review_decision';
       label: string;
@@ -115,6 +129,7 @@ export type MessageActionCallbackInput =
       threadId?: string;
       userId?: string;
       recordId: string;
+      agentRouteKey: string;
     }
   | {
       kind: 'memory_review_decision';
@@ -188,6 +203,7 @@ export interface MessageActionOutcome {
    * non-terminal outcomes (denied/stale/invalid), which never mutate the digest.
    */
   observerDigestView?: ObserverDigestMessageView;
+  permissionMemoryListView?: PermissionMemoryListMessageView;
 }
 
 export type OnObserverFeedbackMessageAction = (

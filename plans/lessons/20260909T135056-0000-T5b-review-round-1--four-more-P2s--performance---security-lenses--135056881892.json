@@ -1,0 +1,15 @@
+{
+  "topic": "T5b review round 1: four more P2s (performance + security lenses)",
+  "lesson": "Together with the three quality P2s these are the ONLY changes in this round: (4) the used-by lookup runs only for the rows actually rendered (the ten newest for bare /permissions, all for /permissions all), never for every remembered record; (5) job-name hydration is ONE batched read for the collected job ids, not a serial per-record loop; (6) a provider in-place edit failure must never suppress the Forget receipt \u2014 send the confirmation reply first or independently, then attempt the edit, and pin it with a test per provider where the edit throws; (7) keep behaviour otherwise identical. Run only the touched suites; tsc and check:architecture stay green.",
+  "source": ".factory/stories/ASKFLOOR-1/tasks/ASKFLOOR-1-T5b/reviews/security.json",
+  "applies_to": [
+    "apps/core/src/application/permissions/**",
+    "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts",
+    "apps/core/src/channels/**",
+    "apps/core/src/adapters/storage/postgres/**",
+    "apps/core/test/unit/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T13:50:56+00:00"
+}

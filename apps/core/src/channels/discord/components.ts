@@ -47,7 +47,7 @@ export function discordActionComponents(
   }
   for (const action of options?.actionAffordances ?? []) {
     if (action.kind === 'memory_forget') {
-      const customId = `${MEMORY_FORGET_CUSTOM_ID_PREFIX}${action.recordId}`;
+      const customId = `${MEMORY_FORGET_CUSTOM_ID_PREFIX}${action.recordId}:${action.agentRouteKey}`;
       if (
         action.recordId.trim() &&
         customId.length <= DISCORD_CUSTOM_ID_MAX_LENGTH
@@ -103,7 +103,7 @@ export function parseDiscordDirectMessageAction(
   customId: string,
 ):
   | { kind: 'live_turn_stop'; actionToken: string }
-  | { kind: 'memory_forget'; recordId: string }
+  | { kind: 'memory_forget'; recordId: string; agentRouteKey: string }
   | null {
   if (customId.startsWith(LIVE_STOP_CUSTOM_ID_PREFIX)) {
     return {
@@ -112,8 +112,12 @@ export function parseDiscordDirectMessageAction(
     };
   }
   if (customId.startsWith(MEMORY_FORGET_CUSTOM_ID_PREFIX)) {
-    const recordId = customId.slice(MEMORY_FORGET_CUSTOM_ID_PREFIX.length);
-    return recordId.trim() ? { kind: 'memory_forget', recordId } : null;
+    const [recordId, agentRouteKey] = customId
+      .slice(MEMORY_FORGET_CUSTOM_ID_PREFIX.length)
+      .split(':');
+    return recordId?.trim() && agentRouteKey?.trim()
+      ? { kind: 'memory_forget', recordId, agentRouteKey }
+      : null;
   }
   return null;
 }

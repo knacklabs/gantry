@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T13:25:55+00:00", "story": "ASKFLOOR-1", "detail": "S-0090-8568: Ruling: no architecture-map change. Use the established seam: add ONE entry to scripts/architecture-exceptions.json for apps/core/src/app/bootstrap/group-processor-deps.ts with rule forbidden_import_b"}

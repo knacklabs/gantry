@@ -49,6 +49,8 @@ import type {
   ConversationHistoryCoverageRepository,
   ConversationHistoryDistrustEpoch,
 } from '../domain/ports/conversation-history-coverage.js';
+import type { HumanDecisionMemoryService } from '../application/permissions/human-decision-memory-service.js';
+import type { UsedByJobReader } from '../application/permissions/permission-memory-listing.js';
 
 export type {
   ConversationContextHydrationCoverage,
@@ -64,6 +66,7 @@ export type GroupProcessOptions = {
   queued?: boolean;
   memoryContext?: {
     userId?: string;
+    label?: string;
     source?: 'message' | 'command';
     threadId?: string | null;
     recallQuery?: string;
@@ -258,4 +261,9 @@ export interface GroupProcessingDeps {
   getHistoryCoverageDistrustEpoch?: (
     providerAccountId: string,
   ) => ConversationHistoryDistrustEpoch | undefined;
+  remembered?: {
+    service: HumanDecisionMemoryService;
+    usedBy: (appId: string) => UsedByJobReader;
+    timezone: string;
+  };
 }

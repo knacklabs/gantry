@@ -1,0 +1,18 @@
+{
+  "topic": "T5b: work in slices, edits survive on disk",
+  "lesson": "The tree already holds partial T5b work (listing module, forget handler, parser, ports, four provider branches). Do NOT re-survey: read only the cited line ranges in the brief and the files you are about to edit. Order: 1 listing module + parser + session command; 2 forget handler + wiring setter + runtime-services bind; 3 audit read port + Postgres adapter + job-name hydration; 4 label carrier on both prompt paths + guidance line; 5 the four provider in-place edits; 6 tests one file at a time, running only the touched suite after each. Everything you write survives on disk across relaunches; commit nothing, finish the slice in front of you.",
+  "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md",
+  "applies_to": [
+    "apps/core/src/session/**",
+    "apps/core/src/application/permissions/**",
+    "apps/core/src/app/bootstrap/**",
+    "apps/core/src/channels/**",
+    "apps/core/src/domain/**",
+    "apps/core/src/adapters/storage/postgres/**",
+    "apps/core/test/unit/**",
+    "apps/core/test/integration/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T11:37:47+00:00"
+}

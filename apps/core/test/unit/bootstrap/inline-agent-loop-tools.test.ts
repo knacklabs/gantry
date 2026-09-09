@@ -924,6 +924,7 @@ describe('inline core tool bootstrap', () => {
     const runRememberScenario = async (options: {
       scheduled?: boolean;
       failWrite?: boolean;
+      personLabel?: string;
     }) => {
       const { repository } = inMemoryPermissionDurability();
       configurePendingInteractionDurability({
@@ -983,6 +984,7 @@ describe('inline core tool bootstrap', () => {
       const input = laneInput();
       input.input.permissionMode = 'auto';
       input.input.memoryUserId = 'person-one';
+      input.input.memoryUserLabel = options.personLabel;
       if (options.scheduled) {
         input.input.isScheduledJob = true;
         input.input.jobId = 'job-one';
@@ -1000,13 +1002,15 @@ describe('inline core tool bootstrap', () => {
       return { result, putHumanDecision, warn };
     };
 
-    const eligible = await runRememberScenario({});
+    const eligible = await runRememberScenario({
+      personLabel: 'Host Approver',
+    });
     expect(eligible.result).toEqual({ allowed: true });
     expect(eligible.putHumanDecision).toHaveBeenCalledOnce();
     expect(eligible.putHumanDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         actingPersonId: 'person-one',
-        actingPersonLabel: undefined,
+        actingPersonLabel: 'Host Approver',
       }),
     );
 

@@ -1,0 +1,16 @@
+{
+  "topic": "T5b review round 2: last fix cycle, four items",
+  "lesson": "Final fix cycle; change nothing else. (1) After a Forget tap the re-rendered list hydrates used-by ONLY for the rows it renders (the ten newest), same as the bare listing. (2) Job-name hydration is ONE bulk repository read for the deduplicated job ids (a single list/getMany call), not concurrent per-id reads \u2014 this also bounds /permissions all to one query. (3) Slack: when the replacement view has no buttons, clear the blocks (send an empty blocks array / text-only update) so stale buttons do not linger; pin with a test. (4) Move the 'Already forgotten.' string into the listing copy owner beside the other replies. Run only the touched suites; tsc and check:architecture stay green.",
+  "source": ".factory/stories/ASKFLOOR-1/tasks/ASKFLOOR-1-T5b/reviews/quality.json",
+  "applies_to": [
+    "apps/core/src/application/permissions/**",
+    "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts",
+    "apps/core/src/channels/slack/**",
+    "apps/core/src/domain/repositories/**",
+    "apps/core/src/adapters/storage/postgres/**",
+    "apps/core/test/unit/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T14:21:05+00:00"
+}

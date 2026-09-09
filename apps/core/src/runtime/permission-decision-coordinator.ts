@@ -534,6 +534,7 @@ export interface PermissionRunRestriction {
   hideAuthorityTools: boolean;
   runKind: 'interactive' | 'scheduled';
   memoryUserId?: string;
+  memoryUserLabel?: string;
   jobId?: string;
   runId?: string;
   parentTaskId?: string;
@@ -547,6 +548,7 @@ export function registerPermissionRunRestriction(input: {
   hideAuthorityTools: boolean;
   runKind: 'interactive' | 'scheduled';
   memoryUserId?: string;
+  memoryUserLabel?: string;
   jobId?: string;
   runId?: string;
   parentTaskId?: string;
@@ -555,6 +557,9 @@ export function registerPermissionRunRestriction(input: {
     hideAuthorityTools: input.hideAuthorityTools,
     runKind: input.runKind,
     ...(input.memoryUserId ? { memoryUserId: input.memoryUserId } : {}),
+    ...(input.memoryUserLabel
+      ? { memoryUserLabel: input.memoryUserLabel }
+      : {}),
     ...(input.jobId ? { jobId: input.jobId } : {}),
     ...(input.runId ? { runId: input.runId } : {}),
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),

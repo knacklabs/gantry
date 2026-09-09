@@ -156,6 +156,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     );
     const rawMemoryUserId =
       options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
+    const memoryUserLabel =
+      options.memoryContext?.label ??
+      (rawMemoryUserId
+        ? [...missedMessages]
+            .reverse()
+            .find((message) => message.sender === rawMemoryUserId)
+            ?.sender_name?.trim() || undefined
+        : undefined);
     const resolveActionMemoryUserId = createGroupProcessingPersonResolver({
       deps,
       appId: turnAppId,
@@ -668,6 +676,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             memoryContext: {
               source: 'message',
               userId: memoryUserId,
+              label: memoryUserLabel,
               threadId: activeThreadId,
               recallQuery,
             },

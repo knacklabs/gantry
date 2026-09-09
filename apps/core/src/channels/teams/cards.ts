@@ -63,7 +63,7 @@ export interface TeamsAdaptiveCardAction {
     // prettier-ignore
     | { action: 'message_action'; kind: 'job_permission_decision'; actionToken: string; targetJid: string; threadId?: string }
     // prettier-ignore
-    | { action: 'message_action'; kind: 'memory_forget'; recordId: string; targetJid: string; threadId?: string }
+    | { action: 'message_action'; kind: 'memory_forget'; recordId: string; agentRouteKey: string; targetJid: string; threadId?: string }
     // prettier-ignore
     | { action: 'message_action'; kind: 'scheduler_run_now' | 'scheduler_pause_job' | 'scheduler_retry_ask'; jobId: string; targetJid: string; threadId?: string }
     | {
@@ -324,7 +324,11 @@ export function buildTeamsMessageCard(options: {
                   kind: action.kind,
                   actionToken: action.actionToken,
                 }
-              : { kind: action.kind, recordId: action.recordId }),
+              : {
+                  kind: action.kind,
+                  recordId: action.recordId,
+                  agentRouteKey: action.agentRouteKey,
+                }),
             targetJid: options.targetJid,
             ...threadFragment,
           },
