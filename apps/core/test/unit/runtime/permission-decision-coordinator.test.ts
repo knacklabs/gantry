@@ -963,6 +963,68 @@ describe('coordinatePermissionDecision', () => {
     expect(railRequest.decisionReason).toBe('rail now asks');
   });
 
+  it('never consults a remembered Allow for a hard-floor destructive ask while the same ask without the floor is answered from exact memory', async () => {
+    const tailDecision = {
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'human',
+    };
+    const findHumanDecision = vi.fn(async () =>
+      humanDecisionRow({
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Exact,
+        scopeKey: 'hard-floor-allow',
+      }),
+    );
+    const interactive = Object.freeze({
+      lane: PermissionLane.InteractiveAuto,
+      readOnlyMetaExecutor: false,
+    });
+    const hardTail = vi.fn(async () => tailDecision);
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...request, personId: 'person-one' },
+        analysis: interactive,
+        effectHash: 'hard-floor-allow',
+        decisionMemory: { findHumanDecision } as never,
+        deterministicRails: () => ({
+          railOutcome: 'ask' as const,
+          reason: 'destructive command requires approval',
+          railSignal: RailSignal.Destructive,
+          hardFloor: true as const,
+        }),
+        tail: hardTail,
+      }),
+    ).resolves.toEqual(tailDecision);
+    // The remembered-No stage runs before the rails and may read the port;
+    // the remembered-Allow lookup after the rails must not.
+    expect(findHumanDecision).toHaveBeenCalledTimes(1);
+    expect(hardTail).toHaveBeenCalledOnce();
+
+    const softTail = vi.fn();
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...request, personId: 'person-one' },
+        analysis: interactive,
+        effectHash: 'hard-floor-allow',
+        decisionMemory: { findHumanDecision } as never,
+        deterministicRails: () => ({
+          railOutcome: 'ask' as const,
+          reason: 'destructive command requires approval',
+          railSignal: RailSignal.Destructive,
+        }),
+        tail: softTail,
+      }),
+    ).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'human_decision',
+    });
+    // Without the floor both stages read the port: the No stage, then the Allow.
+    expect(findHumanDecision).toHaveBeenCalledTimes(3);
+    expect(softTail).not.toHaveBeenCalled();
+  });
+
   it('lets a locked preset outrank a cached allow (lock beats cache)', async () => {
     const tail = vi.fn();
     const getClassifierVerdict = vi.fn(async () => ({

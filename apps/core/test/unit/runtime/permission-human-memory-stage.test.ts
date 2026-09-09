@@ -138,6 +138,17 @@ describe('permission human memory stage', () => {
       railVersion: 2,
     });
 
+    const exactOnlyFind = vi.fn(async () => null);
+    await consultRememberedAllow(
+      stageInput({ decisionMemory: memory(exactOnlyFind) }),
+      { exactOnly: true },
+    );
+    expect(exactOnlyFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidates: [{ scope: 'exact', scopeKey: 'effect-hash' }],
+      }),
+    );
+
     const deny = row({
       outcome: HumanDecisionOutcome.Deny,
       scope: HumanDecisionScope.Exact,

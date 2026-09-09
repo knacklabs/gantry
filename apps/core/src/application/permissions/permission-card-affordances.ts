@@ -170,7 +170,14 @@ async function permissionCardAlternative(
   const label =
     permissionHumanToolLabel(input.request.toolName) ??
     input.request.displayName?.trim();
-  if (input.highRisk && label && input.countExactAllowsByTool) {
+  // Trust growth stores the tool-kind candidate; a refused one would leave the
+  // receipt saying "Remembered" with nothing stored.
+  if (
+    input.highRisk &&
+    label &&
+    input.countExactAllowsByTool &&
+    input.rememberContext.candidates.kindTool.ok
+  ) {
     try {
       if ((await input.countExactAllowsByTool()) >= 3) {
         return {

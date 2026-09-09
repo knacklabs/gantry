@@ -259,9 +259,13 @@ export async function coordinatePermissionDecision(
       (railDecision.railSignal === RailSignal.OutOfTrustedRoot ||
         (railDecision.railSignal === RailSignal.UnsupportedMetaExecutor &&
           input.analysis?.readOnlyMetaExecutor === true)));
+  // A hard-floor destructive ask is a mandatory prompt: an exact remembered
+  // Allow never answers it (a hard-floor out-of-root ask stays answerable by
+  // a remembered place Allow — the pinned near-miss contract).
   const exactAllowCanOverride =
     railDecision?.railOutcome === 'ask' &&
-    railDecision.railSignal === RailSignal.Destructive;
+    railDecision.railSignal === RailSignal.Destructive &&
+    railDecision.hardFloor !== true;
   if (railAllowsOverride || exactAllowCanOverride) {
     if (
       railDecision?.hardFloor !== true &&

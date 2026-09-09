@@ -50,15 +50,15 @@ export async function consultRememberedAllow(
 ): Promise<PermissionApprovalDecision | undefined> {
   const actingPersonId = eligiblePerson(input);
   if (!actingPersonId) return undefined;
-  const exact = await candidate(input, HumanDecisionOutcome.Allow, {
+  const exact = candidate(input, HumanDecisionOutcome.Allow, {
     scope: HumanDecisionScope.Exact,
   });
-  const candidates = options.exactOnly
-    ? exact
-      ? [exact]
-      : []
-    : (
-        await Promise.all([
+  // Hot path: every derivation starts together; only the exact-only
+  // (destructive) case waits for the single result.
+  const candidates = (
+    options.exactOnly
+      ? [await exact]
+      : await Promise.all([
           exact,
           candidate(input, HumanDecisionOutcome.Allow, {
             scope: HumanDecisionScope.Kind,
