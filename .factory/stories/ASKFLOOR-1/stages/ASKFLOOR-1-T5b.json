@@ -1,9 +1,6 @@
 {
   "id": "ASKFLOOR-1-T5b",
   "title": "/permissions: remembered list, all, forget",
-<<<<<<< HEAD
-  "status": "pending"
-=======
   "status": "done",
   "started_at": "2026-09-09T11:18:25+00:00",
   "base_sha": "70b5520f10d36b65fae8e00f2fad3238cb99068c",
@@ -48,5 +45,4 @@
     "from": "b23eb0964f299868e39f2b91f6e4461d0afe342d92dff77beed375afb2096364",
     "to": "36891eb00e3da323950e2fced80bf5db73e17da06f86757d82f43f6b3aa004e5"
   }
->>>>>>> origin/main
 }
