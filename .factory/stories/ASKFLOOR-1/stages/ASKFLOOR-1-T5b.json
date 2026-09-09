@@ -1,0 +1,14 @@
+{
+  "id": "ASKFLOOR-1-T5b",
+  "title": "/permissions: remembered list, all, forget",
+  "status": "active",
+  "started_at": "2026-09-09T11:18:25+00:00",
+  "base_sha": "70b5520f10d36b65fae8e00f2fad3238cb99068c",
+  "dirty_at_start": {
+    ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json": {
+      "digest": "ccc5c86a805083c1c60ca8bbed88dd16de6c3b5de7892d20666e5563495efa28",
+      "git": "1 .M N... 100644 100644 100644 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000\u0000100644 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000"
+    }
+  },
+  "task_sha256": "b23eb0964f299868e39f2b91f6e4461d0afe342d92dff77beed375afb2096364"
+}
