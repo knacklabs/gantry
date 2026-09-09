@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0170-07cd",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Three-lens review round 1 fixes for ASKFLOOR-1-T5a, window 3 of 5 (owner ruling 2026-09-09): repoint provider importers of permissionDecisionOptions from the deleted permission-interaction re-export to channels/permission-card-affordances (security P1 leftover), Discord + Slack files.",
+  "started_at": "2026-09-09T02:15:31+00:00",
+  "completed_at": "2026-09-09T02:16:04+00:00",
+  "files": []
+}

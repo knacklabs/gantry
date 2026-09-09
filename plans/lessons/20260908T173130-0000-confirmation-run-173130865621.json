@@ -1,0 +1,12 @@
+{
+  "topic": "confirmation-run",
+  "lesson": "CONFIRMATION RUN \u2014 the T5a implementation is COMPLETE and COMMITTED on this branch (the host ran all fourteen required leaves green, the full unit suite green, verify.py passed, and the stage autoreview is clean after three P2 fixes made in degraded windows while Codex was out of quota). This launch exists to bind a successful write launch to the stage and to make ONE cleanup the orchestrator cannot: delete apps/core/src/channels/permission-tool-labels.ts \u2014 it is unreferenced (the labels map now lives in apps/core/src/shared/permission-tool-labels.ts and the human-label helper in apps/core/src/application/permissions/permission-card-affordances.ts); confirm with a grep that nothing imports the old path, delete the file, run npx tsc --noEmit and npm run check:architecture and the channels unit suites (permission-card-affordances, permission-interaction, provider-affordance-parity). Do NOT rework anything else. Change other files ONLY if you find a concrete contract violation, and name it explicitly in the report. The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/channels/permission-card-affordances.ts",
+    "apps/core/src/application/permissions/permission-card-affordances.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T17:31:30+00:00"
+}

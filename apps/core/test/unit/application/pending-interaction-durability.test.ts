@@ -35,6 +35,7 @@ import {
   HumanDecisionScope,
 } from '@core/domain/human-decision.js';
 import { PermissionLane } from '@core/domain/permission-lane.js';
+import type { PermissionCardAffordances } from '@core/domain/permission-card-affordances.js';
 
 function permissionRow(input: {
   id: string;
@@ -447,9 +448,22 @@ function permissionClaimRepository(
       }
       rememberContexts.forEach((context, index) => {
         if (!context) return;
+        const cardAffordances = {
+          eligible: false,
+          offered: [],
+          destructive: false,
+          protected: false,
+          preTapLines: [],
+          postTapLines: {},
+        };
+        const request = members[index]!.payload.request;
         members[index]!.payload = {
           ...members[index]!.payload,
           rememberContext: { ...context, eligible: false },
+          cardAffordances,
+          ...(request && typeof request === 'object' && !Array.isArray(request)
+            ? { request: { ...request, cardAffordances } }
+            : {}),
         };
       });
       for (const oldPrompt of oldPrompts) {
@@ -635,6 +649,23 @@ describe('pending interaction durability', () => {
         exact: { ok: true, scopeKey: 'effect-one', pathOnly: false },
         kind: { ok: true, scopeKey: 'kind:read_only_command', pathOnly: false },
         kindTool: { ok: true, scopeKey: 'kind:tool:Bash', pathOnly: false },
+        place: { ok: false, reason: 'no_root' },
+      },
+    };
+    const cardAffordances: PermissionCardAffordances = {
+      eligible: true,
+      offered: ['remember_allow_exact', 'remember_deny_exact'],
+      destructive: false,
+      protected: false,
+      preTapLines: [
+        'Allow will remember: this exact action',
+        'No will remember: this exact action.',
+      ],
+      postTapLines: {
+        remember_allow_exact:
+          'Remembered: this exact action. Change it any time with /permissions.',
+        remember_deny_exact:
+          "I'll keep saying no to this exact action. Change it with /permissions.",
       },
     };
     const createPendingInteraction = vi.fn(async (input: any) => ({
@@ -662,6 +693,7 @@ describe('pending interaction durability', () => {
         sourceAgentFolder: 'agent-folder',
         toolName: 'Bash',
         toolInput: { command: 'ls' },
+        cardAffordances,
       },
       sourceAgentFolder: 'agent-folder',
       payload: { requestId: 'member-one' },
@@ -670,6 +702,9 @@ describe('pending interaction durability', () => {
     expect(
       createPendingInteraction.mock.calls[0]![0].payload.rememberContext,
     ).toEqual(rememberContext);
+    expect(
+      createPendingInteraction.mock.calls[0]![0].payload.cardAffordances,
+    ).toEqual(cardAffordances);
 
     const rows = [
       permissionRow({
@@ -685,7 +720,11 @@ describe('pending interaction durability', () => {
         batchId: 'batch-one',
       }),
     ];
-    for (const row of rows) row.payload.rememberContext = rememberContext;
+    for (const row of rows) {
+      row.payload.rememberContext = rememberContext;
+      row.payload.cardAffordances = cardAffordances;
+      row.payload.request.cardAffordances = cardAffordances;
+    }
     const repository = permissionClaimRepository(rows);
     configurePendingInteractionDurability({ repository: repository as never });
     await expect(
@@ -702,6 +741,27 @@ describe('pending interaction durability', () => {
       false,
       false,
     ]);
+    expect(rows.map((row) => row.payload.cardAffordances)).toEqual([
+      {
+        eligible: false,
+        offered: [],
+        destructive: false,
+        protected: false,
+        preTapLines: [],
+        postTapLines: {},
+      },
+      {
+        eligible: false,
+        offered: [],
+        destructive: false,
+        protected: false,
+        preTapLines: [],
+        postTapLines: {},
+      },
+    ]);
+    expect(rows.map((row) => row.payload.request.cardAffordances)).toEqual(
+      rows.map((row) => row.payload.cardAffordances),
+    );
     expect(repository.updatePendingInteractionPayload).not.toHaveBeenCalled();
 
     const claimed = await claimPermissionInteractionCallback({
@@ -718,14 +778,7 @@ describe('pending interaction durability', () => {
     if (claimed.status !== 'claimed') throw new Error('claim failed');
     const expected = {
       context: { ...rememberContext, eligible: false },
-      resolution: {
-        mode: 'allow_once',
-        remember: {
-          kind: 'remember',
-          outcome: HumanDecisionOutcome.Allow,
-          scope: HumanDecisionScope.Exact,
-        },
-      },
+      resolution: { mode: 'allow_once' },
     };
     await expect(rememberSettlementForClaim(claimed.claim)).resolves.toEqual(
       expected,
@@ -786,7 +839,10 @@ describe('pending interaction durability', () => {
         requestId: 'failed-request-b',
       }),
     ];
-    for (const row of failedRows) row.payload.rememberContext = rememberContext;
+    for (const row of failedRows) {
+      row.payload.rememberContext = rememberContext;
+      row.payload.cardAffordances = cardAffordances;
+    }
     const failedRepository = permissionClaimRepository(failedRows, {
       failMemberPayloadUpdate: true,
     });
@@ -1230,6 +1286,14 @@ describe('pending interaction durability', () => {
       },
       toolInputSanitized: true,
       toolInputSanitizedPaths: ['command', 'file_path', 'credential'],
+      cardAffordances: {
+        eligible: false,
+        offered: [],
+        destructive: false,
+        protected: false,
+        preTapLines: [],
+        postTapLines: {},
+      },
     };
     const pending = {
       id: 'pending-permission-full-view',
@@ -1293,6 +1357,7 @@ describe('pending interaction durability', () => {
     expect(envelope.renderedRequest).toMatchObject({
       toolInputSanitized: true,
       toolInputSanitizedPaths: ['command', 'file_path', 'credential'],
+      cardAffordances: request.cardAffordances,
     });
     expect(envelope.renderedRequest).not.toHaveProperty('toolInput');
     expect(envelope.renderedRequest).not.toHaveProperty('description');

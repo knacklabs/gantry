@@ -40,6 +40,7 @@ export interface PermissionRememberContext {
     exact: HumanDecisionScopeKeyResult;
     kind: HumanDecisionScopeKeyResult;
     kindTool: HumanDecisionScopeKeyResult;
+    place: HumanDecisionScopeKeyResult;
   };
 }
 
@@ -47,6 +48,7 @@ export interface PermissionRememberPromptFacts {
   analysis: AutoLaneAnalysis;
   effectHash?: string;
   workspaceRoot?: string;
+  canonicalRoot?: string;
 }
 
 export async function derivePermissionRememberContext(input: {
@@ -66,8 +68,9 @@ export async function derivePermissionRememberContext(input: {
     request: input.request,
     effectHash: input.facts.effectHash,
     workspaceRoot: input.facts.workspaceRoot,
+    canonicalRoot: input.facts.canonicalRoot,
   };
-  const [deny, exact, kind, kindTool] = await Promise.all([
+  const [deny, exact, kind, kindTool, place] = await Promise.all([
     deriveHumanDecisionScopeKey({
       ...candidateInput,
       outcome: HumanDecisionOutcome.Deny,
@@ -92,6 +95,12 @@ export async function derivePermissionRememberContext(input: {
       scope: HumanDecisionScope.Kind,
       trustGrowthTool: true,
     }),
+    deriveHumanDecisionScopeKey({
+      ...candidateInput,
+      outcome: HumanDecisionOutcome.Allow,
+      scope: HumanDecisionScope.Place,
+      trustGrowthTool: false,
+    }),
   ]);
   const personId = input.personId?.trim() || undefined;
   return {
@@ -115,7 +124,7 @@ export async function derivePermissionRememberContext(input: {
       ? { workspaceRoot: input.facts.workspaceRoot }
       : {}),
     kindVariant: input.kindVariant,
-    candidates: { deny, exact, kind, kindTool },
+    candidates: { deny, exact, kind, kindTool, place },
   };
 }
 
@@ -244,7 +253,7 @@ function rememberCandidate(
       ? context.candidates.kindTool
       : context.candidates.kind;
   }
-  return refused(HumanDecisionNotRememberableReason.NoRoot);
+  return context.candidates.place;
 }
 
 function parseLaneInput(
@@ -275,8 +284,9 @@ function parseCandidates(
   const exact = parseCandidate(value.exact);
   const kind = parseCandidate(value.kind);
   const kindTool = parseCandidate(value.kindTool);
-  return deny && exact && kind && kindTool
-    ? { deny, exact, kind, kindTool }
+  const place = parseCandidate(value.place);
+  return deny && exact && kind && kindTool && place
+    ? { deny, exact, kind, kindTool, place }
     : null;
 }
 

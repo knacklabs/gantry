@@ -1,5 +1,6 @@
 // User-facing labels for technical tool names on permission surfaces.
-// Data-only sibling of permission-interaction.ts (line-budget split).
+// Data-only; lives in shared so the application-layer card builder and the
+// channel renderers derive the same human label (T5a trust-growth button).
 export const USER_FACING_TOOL_LABELS: Record<string, string> = {
   RunCommand: 'exact command access',
   Bash: 'exact command access',

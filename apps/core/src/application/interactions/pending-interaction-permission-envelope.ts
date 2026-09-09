@@ -1,4 +1,5 @@
 import type { PermissionApprovalRequest } from '../../domain/types.js';
+import { parsePermissionCardAffordances } from '../permissions/permission-card-affordances.js';
 
 export interface DurablePermissionFullView {
   label: string;
@@ -31,6 +32,7 @@ export function durablePermissionRequestSnapshot(
     toolInputSanitizedPaths: request.toolInputSanitizedPaths,
     suggestions: request.suggestions,
     decisionOptions: request.decisionOptions,
+    cardAffordances: request.cardAffordances,
     decisionPolicy: request.decisionPolicy,
     semanticCapabilityDefinitions: request.semanticCapabilityDefinitions,
     permissionBatch: request.permissionBatch,
@@ -93,6 +95,8 @@ function isPermissionRequest(
   return (
     typeof request.requestId === 'string' &&
     typeof request.sourceAgentFolder === 'string' &&
-    typeof request.toolName === 'string'
+    typeof request.toolName === 'string' &&
+    (request.cardAffordances === undefined ||
+      parsePermissionCardAffordances(request.cardAffordances) !== null)
   );
 }

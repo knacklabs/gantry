@@ -46,6 +46,7 @@ import {
   InboundMessageDeliveryError,
   type ChannelOpts,
 } from '@core/channels/channel-provider.js';
+import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import { DISCORD_LIVE_ATTACHMENT_DEADLINE_MS } from '@core/channels/discord/live-attachment-capture.js';
 import { DISCORD_MESSAGE_MAX_LENGTH } from '@core/channels/discord/limits.js';
 import { discordMessageContent } from '@core/channels/discord/conversation-context.js';
@@ -4292,6 +4293,218 @@ describe('DiscordChannel', () => {
     });
     await channel.disconnect();
     vi.restoreAllMocks();
+  });
+
+  it("passes an offered remember code verbatim into the durable claim settles it with its remembered receipt settles an unoffered code once-only with today's receipt and renders and settles a memory_forget tap on Discord", async () => {
+    const runRemember = async (offered: boolean) => {
+      let socket!: FakeWebSocket;
+      durabilityMocks.claimPermissionInteractionCallback.mockClear();
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url.endsWith('/gateway/bot')) {
+            return jsonResponse({ url: 'wss://gateway.discord.test' });
+          }
+          if (init?.method === 'POST' && url.endsWith('/messages')) {
+            return jsonResponse({ id: 'remember-message' });
+          }
+          if (init?.method === 'DELETE') {
+            return new Response(null, { status: 500 });
+          }
+          return jsonResponse({});
+        });
+      const channel = new DiscordChannel(
+        'bot-token',
+        'app-id',
+        opts({ isControlApproverAllowed: vi.fn(async () => true) }),
+        (url) => {
+          socket = new FakeWebSocket(url);
+          return socket;
+        },
+      );
+      const request: PermissionApprovalRequest = {
+        requestId: `discord-remember-${offered ? 'offered' : 'unoffered'}`,
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'dc:channel-1',
+        toolName: 'Bash',
+        toolInput: { command: 'git log' },
+        cardAffordances: {
+          eligible: true,
+          offered: offered ? ['remember_allow_exact'] : [],
+          destructive: false,
+          protected: false,
+          preTapLines: [
+            'Allow will remember: this exact action',
+            'No will remember: this exact action.',
+          ],
+          postTapLines: {
+            remember_allow_exact:
+              'Remembered: this exact action. Change it any time with /permissions.',
+          },
+        },
+      };
+
+      await channel.connect();
+      const approval = channel
+        .requestPermissionApproval('dc:channel-1', request)
+        .then(requirePermissionDecision);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      socket.receive({
+        op: 0,
+        t: 'INTERACTION_CREATE',
+        d: {
+          id: 'remember-interaction',
+          token: 'remember-token',
+          type: 3,
+          channel_id: 'channel-1',
+          data: {
+            custom_id: permissionCustomId(
+              latestDiscordPermissionAlias(),
+              'remember_allow_exact',
+            ),
+          },
+          member: { user: { id: 'user-1', username: 'Ravi' } },
+        },
+      });
+
+      const decision = await approval;
+      const patchCall = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith('/messages/remember-message') &&
+          init?.method === 'PATCH',
+      );
+      const receipt = JSON.parse(String(patchCall?.[1]?.body)).content;
+      await channel.disconnect();
+      fetchMock.mockRestore();
+      return {
+        decision,
+        receipt,
+        claim:
+          durabilityMocks.claimPermissionInteractionCallback.mock.calls.at(
+            -1,
+          )?.[0],
+      };
+    };
+
+    const offered = await runRemember(true);
+    expect(offered.claim).toMatchObject({
+      mode: 'remember_allow_exact',
+    });
+    expect(offered.decision.permissionCallbackClaim).toMatchObject({
+      effectiveRememberCode: 'remember_allow_exact',
+    });
+    expect(offered.receipt).toBe(
+      'Remembered: this exact action. Change it any time with /permissions.',
+    );
+
+    const unoffered = await runRemember(false);
+    expect(unoffered.claim).toMatchObject({
+      mode: 'remember_allow_exact',
+    });
+    expect(unoffered.decision).toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+    });
+    expect(unoffered.decision.permissionCallbackClaim).not.toHaveProperty(
+      'effectiveRememberCode',
+    );
+    expect(unoffered.receipt).toBe(
+      'Approved for this run only: Command (git log).',
+    );
+
+    let socket!: FakeWebSocket;
+    let resolveForget!: (outcome: {
+      state: 'applied';
+      receipt: string;
+    }) => void;
+    const onMessageAction = vi.fn(
+      () =>
+        new Promise<{ state: 'applied'; receipt: string }>((resolve) => {
+          resolveForget = resolve;
+        }),
+    );
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input) =>
+        String(input).endsWith('/gateway/bot')
+          ? jsonResponse({ url: 'wss://gateway.discord.test' })
+          : jsonResponse({ id: 'forget-message' }),
+      );
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({ providerAccountId: 'discord-default', onMessageAction }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+    await channel.connect();
+    await channel.sendMessage('dc:channel-1', 'Permissions', {
+      actionAffordances: [
+        {
+          kind: 'memory_forget',
+          label: 'Forget a1b2c3',
+          recordId: '30000000-0000-4000-8000-000000000001',
+        },
+      ],
+    });
+    const sendCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith('/messages') && init?.method === 'POST',
+    );
+    const sent = JSON.parse(String(sendCall?.[1]?.body));
+    const forgetButton = sent.components[0].components[0];
+    expect(forgetButton).toMatchObject({ label: 'Forget a1b2c3' });
+    socket.receive({
+      op: 0,
+      t: 'INTERACTION_CREATE',
+      d: {
+        id: 'forget-interaction',
+        token: 'forget-token',
+        type: 3,
+        channel_id: 'channel-1',
+        data: { custom_id: forgetButton.custom_id },
+        member: { user: { id: 'user-1', username: 'Ravi' } },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(onMessageAction).toHaveBeenCalledWith({
+        kind: 'memory_forget',
+        conversationJid: 'dc:channel-1',
+        providerAccountId: 'discord-default',
+        userId: 'user-1',
+        recordId: '30000000-0000-4000-8000-000000000001',
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://discord.com/api/v10/interactions/forget-interaction/forget-token/callback',
+      expect.objectContaining({
+        body: JSON.stringify({
+          type: 4,
+          data: {
+            content: 'Processing.',
+            flags: 64,
+            allowed_mentions: { parse: [] },
+          },
+        }),
+      }),
+    );
+    resolveForget({ state: 'applied', receipt: 'Forgot.' });
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://discord.com/api/v10/webhooks/app-id/forget-token/messages/@original',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({
+            content: 'Forgot.',
+            allowed_mentions: { parse: [] },
+          }),
+        }),
+      ),
+    );
+    await channel.disconnect();
   });
 
   it('resolves a local approval on disconnect when its durable cancel claim is retryable', async () => {

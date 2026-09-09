@@ -46,31 +46,37 @@ export async function consultRememberedDeny(
 
 export async function consultRememberedAllow(
   input: PermissionHumanMemoryStageInput,
+  options: { exactOnly?: boolean } = {},
 ): Promise<PermissionApprovalDecision | undefined> {
   const actingPersonId = eligiblePerson(input);
   if (!actingPersonId) return undefined;
+  const exact = candidate(input, HumanDecisionOutcome.Allow, {
+    scope: HumanDecisionScope.Exact,
+  });
+  // Hot path: every derivation starts together; only the exact-only
+  // (destructive) case waits for the single result.
   const candidates = (
-    await Promise.all([
-      candidate(input, HumanDecisionOutcome.Allow, {
-        scope: HumanDecisionScope.Exact,
-      }),
-      candidate(input, HumanDecisionOutcome.Allow, {
-        scope: HumanDecisionScope.Kind,
-        trustGrowthTool: true,
-      }),
-      candidate(input, HumanDecisionOutcome.Allow, {
-        scope: HumanDecisionScope.Kind,
-        trustGrowthTool: false,
-      }),
-      candidate(input, HumanDecisionOutcome.Allow, {
-        scope: HumanDecisionScope.Place,
-        trustGrowthTool: true,
-      }),
-      candidate(input, HumanDecisionOutcome.Allow, {
-        scope: HumanDecisionScope.Place,
-        trustGrowthTool: false,
-      }),
-    ])
+    options.exactOnly
+      ? [await exact]
+      : await Promise.all([
+          exact,
+          candidate(input, HumanDecisionOutcome.Allow, {
+            scope: HumanDecisionScope.Kind,
+            trustGrowthTool: true,
+          }),
+          candidate(input, HumanDecisionOutcome.Allow, {
+            scope: HumanDecisionScope.Kind,
+            trustGrowthTool: false,
+          }),
+          candidate(input, HumanDecisionOutcome.Allow, {
+            scope: HumanDecisionScope.Place,
+            trustGrowthTool: true,
+          }),
+          candidate(input, HumanDecisionOutcome.Allow, {
+            scope: HumanDecisionScope.Place,
+            trustGrowthTool: false,
+          }),
+        ])
   ).filter((value): value is HumanDecisionMemoryCandidate => Boolean(value));
   if (candidates.length === 0) return undefined;
   const row = await findHumanDecision(input, actingPersonId, candidates);

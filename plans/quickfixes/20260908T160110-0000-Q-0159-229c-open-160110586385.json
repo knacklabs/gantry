@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0159-229c",
+  "profile": "degraded",
+  "reason": "Codex usage limit exhausted; part 3 of the P2 fixes for ASKFLOOR-1-T5a: channel-wiring supplies permissionToolLabel (the only bootstrap file allowed to import channels)",
+  "started_at": "2026-09-08T16:01:10+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

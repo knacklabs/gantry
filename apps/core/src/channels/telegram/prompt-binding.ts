@@ -9,7 +9,7 @@ import type {
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
-import { permissionDecisionOptions } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 
 type PendingTelegramPermission = {
   callback: {

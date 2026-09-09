@@ -1,0 +1,13 @@
+{
+  "topic": "task-order",
+  "lesson": "ORDER OF WORK for ASKFLOOR-1-T5a (contract AC7): your FIRST commit on this branch must be the four-provider golden snapshots of today's ineligible-lane cards (ask, auto_strict, job prompt, group) captured from the PRE-CHANGE renderers with fixed callback ids \u2014 commit them before touching any renderer, so the byte-for-byte guarantee is pinned against today's output, not your own. Then the formatter module and the request-owned cardAffordances carrier, then providers, then Forget transport. Ceilings are tight (permission-interaction.ts 693/700, discord/interactions.ts 699/700, teams/cards.ts 688/700): extract into channels/permission-card-affordances.ts and the message-action affordance encoders rather than growing those files; domain/types.ts must stay line-neutral at 740.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/channels/permission-interaction.ts",
+    "apps/core/src/channels/permission-card-affordances.ts",
+    "apps/core/test/unit/channels/provider-affordance-parity.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T12:18:28+00:00"
+}

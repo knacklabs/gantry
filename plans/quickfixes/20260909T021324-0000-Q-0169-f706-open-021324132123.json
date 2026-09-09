@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0169-f706",
+  "profile": "degraded",
+  "reason": "Three-lens review round 1 fixes for ASKFLOOR-1-T5a, window 2 (owner ruling 2026-09-09; delegate cannot write after stage done): scalar No fallback when the remembered denial is not offered (quality P2), delete the permissionDecisionOptions re-export and the userFacingToolLabel wrapper (security P1 leftovers) with callers repointed, pin Write/Edit/MultiEdit write classification.",
+  "started_at": "2026-09-09T02:13:24+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

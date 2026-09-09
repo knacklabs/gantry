@@ -613,8 +613,17 @@ describe('coordinatePermissionDecision', () => {
       decisionMemory: { findHumanDecision: nonOverridableFind } as never,
       tail: railTail,
     });
-    expect(nonOverridableFind).toHaveBeenCalledOnce();
-    expect(nonOverridableFind).toHaveBeenCalledWith(
+    expect(nonOverridableFind).toHaveBeenCalledTimes(2);
+    expect(nonOverridableFind).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        candidates: [
+          { scope: HumanDecisionScope.Exact, scopeKey: 'non-overridable' },
+        ],
+      }),
+    );
+    expect(nonOverridableFind).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         candidates: [
           { scope: HumanDecisionScope.Exact, scopeKey: 'non-overridable' },
@@ -954,6 +963,68 @@ describe('coordinatePermissionDecision', () => {
     expect(railRequest.decisionReason).toBe('rail now asks');
   });
 
+  it('answers a hard-floor destructive ask from a remembered exact Allow (T3b-AC3 keys the consult on the rail case, never its hardFloor flag; story S4) while a protected-path ask never reaches exact memory', async () => {
+    const findHumanDecision = vi.fn(async () =>
+      humanDecisionRow({
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Exact,
+        scopeKey: 'destructive-allow',
+      }),
+    );
+    const interactive = Object.freeze({
+      lane: PermissionLane.InteractiveAuto,
+      readOnlyMetaExecutor: false,
+    });
+    const destructiveTail = vi.fn();
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...request, personId: 'person-one' },
+        analysis: interactive,
+        effectHash: 'destructive-allow',
+        decisionMemory: { findHumanDecision } as never,
+        deterministicRails: () => ({
+          railOutcome: 'ask' as const,
+          reason: 'Destructive command requires approval.',
+          railSignal: RailSignal.Destructive,
+          hardFloor: true as const,
+        }),
+        tail: destructiveTail,
+      }),
+    ).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'human_decision',
+    });
+    // The No stage reads the port once before the rails, the Allow stage once after.
+    expect(findHumanDecision).toHaveBeenCalledTimes(2);
+    expect(destructiveTail).not.toHaveBeenCalled();
+
+    const tailDecision = {
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'human',
+    };
+    const secretTail = vi.fn(async () => tailDecision);
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...request, personId: 'person-one' },
+        analysis: interactive,
+        effectHash: 'destructive-allow',
+        decisionMemory: { findHumanDecision } as never,
+        deterministicRails: () => ({
+          railOutcome: 'ask' as const,
+          reason: 'Command references a credential, secret, or protected path.',
+          railSignal: RailSignal.SecretPath,
+          hardFloor: true as const,
+        }),
+        tail: secretTail,
+      }),
+    ).resolves.toEqual(tailDecision);
+    // Only the No stage read the port; the Allow consult never ran.
+    expect(findHumanDecision).toHaveBeenCalledTimes(3);
+    expect(secretTail).toHaveBeenCalledOnce();
+  });
+
   it('lets a locked preset outrank a cached allow (lock beats cache)', async () => {
     const tail = vi.fn();
     const getClassifierVerdict = vi.fn(async () => ({
@@ -1042,6 +1113,30 @@ describe('coordinatePermissionDecision', () => {
       approved: true,
       decidedBy: 'trusted_root_grant',
     });
+  });
+
+  it('passes the validated canonical root to the learning tail when the caller supplied no lane analysis', async () => {
+    const list = vi.fn(async () => []);
+    const put = vi.fn(async () => {});
+    const tail = vi.fn(async () => ({
+      approved: false,
+      mode: 'cancel' as const,
+    }));
+    await coordinatePermissionDecision({
+      request: {
+        ...request,
+        toolName: 'RunCommand',
+        toolInput: { command: 'git status' },
+      },
+      decisionMemory: { list, put } as never,
+      deterministicRailsInput: shellIn('/perm2test/project'),
+      tail,
+    });
+    expect(tail).toHaveBeenCalledOnce();
+    expect(tail.mock.calls[0][0]).toMatchObject({
+      canonicalRoot: '/perm2test/project',
+    });
+    expect(tail.mock.calls[0][0]?.analysis).toBeUndefined();
   });
 
   it('auto-allows a reviewed family op inside a granted trusted root WITHOUT prompting', async () => {

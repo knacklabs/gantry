@@ -59,6 +59,7 @@ import {
   type PermissionDecisionTailContext,
 } from './permission-decision-coordinator.js';
 import { deriveAutoLaneAnalysis } from '../application/permissions/auto-lane-analysis.js';
+import type { AutoLaneAnalysis } from '../application/permissions/auto-lane-analysis-types.js';
 import { gantryNativeCanonicalToolName } from '../application/permissions/gantry-tool-risk.js';
 import type { PermissionRememberPromptFacts } from '../application/permissions/human-decision-learning.js';
 import { resolveIpcPermissionJobProjection } from './ipc-permission-job-projection.js';
@@ -213,7 +214,9 @@ export async function resolvePermissionIpcDecision(input: {
         route,
         settings,
         permissionMode,
-        context: context!,
+        // The IPC path always supplies `analysis` to the coordinator, so the
+        // tail context carries it; spell that out for the narrowed input.
+        context: { ...context!, analysis },
       }),
   });
 }
@@ -229,7 +232,9 @@ interface PermissionIpcDecisionTailInput {
   route?: ConversationRoute;
   settings?: PermissionRuntimeSettings;
   permissionMode: PermissionMode;
-  context: PermissionDecisionTailContext;
+  context: PermissionDecisionTailContext & {
+    readonly analysis: AutoLaneAnalysis;
+  };
 }
 
 interface IpcClassifierConsultResult {
@@ -592,6 +597,7 @@ async function resolveIpcPermissionPromptOrTerminal(
       analysis: input.context.analysis,
       effectHash: input.effectHash,
       workspaceRoot: input.workspaceRoot,
+      canonicalRoot: input.context.canonicalRoot,
     });
     if (result.kind === 'delivery_failure') {
       throw new Error(
@@ -634,6 +640,7 @@ async function resolveIpcPermissionPromptOrTerminal(
     analysis: input.context.analysis,
     effectHash: input.effectHash,
     workspaceRoot: input.workspaceRoot,
+    canonicalRoot: input.context.canonicalRoot,
   });
   if (result.kind === 'delivery_failure') {
     throw new Error(

@@ -31,6 +31,7 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   scheduler_retry_ask: 'ask',
   live_turn_stop: '',
   job_permission_decision: '',
+  memory_forget: '',
   // ponytail: memory_review_decision rendering lands in Task 6 (Telegram codec).
   memory_review_decision: '',
   // ponytail: observer_feedback rendering lands in a later OBS-RESOLVE task.
@@ -73,6 +74,18 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
   | undefined {
   const buttons = (actions ?? [])
     .map((action) => {
+      if (action.kind === 'memory_forget') {
+        const callbackData = telegramMemoryForgetCallbackData(action.recordId);
+        return callbackData && action.label.trim()
+          ? {
+              text: truncateUtf8ToByteLimit(
+                action.label.trim(),
+                TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
+              ),
+              callback_data: callbackData,
+            }
+          : null;
+      }
       if (action.kind === 'job_permission_decision') {
         return action.label.trim() &&
           Buffer.byteLength(action.actionToken, 'utf8') <=
@@ -116,6 +129,28 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
     inline_keyboard.push(buttons.slice(index, index + 2));
   }
   return { inline_keyboard };
+}
+
+export const TELEGRAM_MEMORY_FORGET_CALLBACK_PATTERN = /^mf:(.+)$/;
+
+export function telegramMemoryForgetCallbackData(
+  recordId: string,
+): string | undefined {
+  const data = `mf:${encodeURIComponent(recordId)}`;
+  return recordId.trim() &&
+    Buffer.byteLength(data, 'utf8') <= TELEGRAM_CALLBACK_DATA_MAX_BYTES
+    ? data
+    : undefined;
+}
+
+export function parseTelegramMemoryForgetCallback(data: string): string | null {
+  const match = TELEGRAM_MEMORY_FORGET_CALLBACK_PATTERN.exec(data);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]).trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 const TELEGRAM_REVIEW_DECISION_CODE: Record<

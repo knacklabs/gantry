@@ -74,6 +74,7 @@ export function registerSlackMessageActionHandler(
           reviewId?: unknown;
           decision?: unknown;
           actionToken?: unknown;
+          recordId?: unknown;
           providerAccountId?: unknown;
         }
       | undefined;
@@ -103,6 +104,28 @@ export function registerSlackMessageActionHandler(
       return;
     }
     await args.ack();
+    if (
+      payload?.kind === 'memory_forget' &&
+      typeof payload.recordId === 'string' &&
+      payload.recordId.trim() &&
+      channelId &&
+      userId
+    ) {
+      const outcome = await opts?.onMessageAction?.({
+        kind: 'memory_forget',
+        conversationJid: `sl:${channelId}`,
+        ...providerAccountFromPayload(payload, opts?.providerAccountId),
+        threadId: body.message?.thread_ts,
+        userId,
+        recordId: payload.recordId,
+      });
+      await app.client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: outcome?.receipt ?? 'Not available yet.',
+      });
+      return;
+    }
     const observerFeedback = parseSlackObserverFeedback(payload);
     if (observerFeedback && channelId && userId) {
       const messageTs = body.message?.ts;

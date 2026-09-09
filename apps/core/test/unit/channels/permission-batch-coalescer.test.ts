@@ -6,6 +6,7 @@ import {
   PermissionBatchCoalescer,
   createPermissionBatchRequest,
   decisionForPermissionInteraction,
+  buildPermissionBatchPromptParts,
   formatPermissionBatchPromptText,
   isDenyOrCancelDecision,
   permissionBatchButtonLabel,
@@ -80,8 +81,33 @@ describe('PermissionBatchCoalescer', () => {
     );
 
     expect(formatPermissionBatchPromptText(batch, 0)).toBe(
-      '🔐 Review 2 permission requests\n\n1. Read file\n2. Run command',
+      '🔐 Review 2 permission requests\n\n1. Read file\n2. Run command\n\nAllow all and Deny all are once-only. Tap Review each to decide one at a time — those cards can remember.',
     );
+  });
+
+  it('carries the once-only line after the rows and before the wait line in both batch renderers and writes no memory on a batch decision', () => {
+    const batch = createPermissionBatchRequest(
+      [request('permission-1'), request('permission-2')],
+      ['1. Read file', '2. Run command'],
+    );
+    const line =
+      'Allow all and Deny all are once-only. Tap Review each to decide one at a time — those cards can remember.';
+    const rendered = formatPermissionBatchPromptText(batch, 60_000)!;
+    expect(rendered.indexOf(line)).toBeGreaterThan(
+      rendered.indexOf('2. Run command'),
+    );
+    expect(rendered.indexOf(line)).toBeLessThan(
+      rendered.indexOf('Reply in 1m'),
+    );
+    expect(
+      buildPermissionBatchPromptParts(batch, 60_000)?.contextLines,
+    ).toEqual([line]);
+    expect(
+      decisionForPermissionInteraction(batch, 'allow_once', 'Ravi'),
+    ).toMatchObject({
+      source: 'human_once',
+      repeatableForFutureRuns: false,
+    });
   });
 
   it('includes the exact member request set in the canonical batch id', () => {

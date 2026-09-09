@@ -7,11 +7,13 @@ import {
 import { HumanDecisionMemoryService } from '@core/application/permissions/human-decision-memory-service.js';
 import type { DurablePermissionInteractionContext } from '@core/application/interactions/pending-interaction-permission-callback.js';
 import { recoverDurablePermissionDecision } from '@core/application/interactions/pending-interaction-permission-recovery-orchestrator.js';
+import { formatPermissionReceiptText } from '@core/channels/permission-interaction.js';
 import {
   HumanDecisionOutcome,
   HumanDecisionScope,
 } from '@core/domain/human-decision.js';
 import { PermissionLane } from '@core/domain/permission-lane.js';
+import type { PermissionCardAffordances } from '@core/domain/permission-card-affordances.js';
 import type {
   PermissionApprovalRequest,
   PermissionCallbackClaim,
@@ -29,7 +31,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock(
   '@core/application/interactions/pending-interaction-permission-callback.js',
-  () => ({
+  async (importOriginal) => ({
+    ...(await importOriginal()),
     claimPermissionInteractionCallback: mocks.claim,
     findDurablePermissionInteractionByRequestId: mocks.findByRequestId,
     releasePermissionInteractionCallback: mocks.release,
@@ -53,6 +56,21 @@ const scope = {
 const claim: PermissionCallbackClaimReference = {
   id: 'claim-id',
   scope,
+};
+
+const rememberedAffordances: PermissionCardAffordances = {
+  eligible: true,
+  offered: ['remember_allow_exact'],
+  destructive: false,
+  protected: false,
+  preTapLines: [
+    'Allow will remember: this exact action',
+    'No will remember: this exact action.',
+  ],
+  postTapLines: {
+    remember_allow_exact:
+      'Remembered: this exact action. Change it any time with /permissions.',
+  },
 };
 
 function durable(
@@ -157,6 +175,7 @@ describe('pending interaction permission recovery orchestrator', () => {
       targetJid: 'sl:C123',
       toolName: 'Bash',
       toolInput: { command: 'git log' },
+      cardAffordances: rememberedAffordances,
     };
     const persistedClaim: PermissionCallbackClaim = {
       ...claim,
@@ -188,6 +207,7 @@ describe('pending interaction permission recovery orchestrator', () => {
         exact: { ok: true, scopeKey: 'exact-one', pathOnly: false },
         kind: { ok: true, scopeKey: 'kind-one', pathOnly: false },
         kindTool: { ok: true, scopeKey: 'kind-tool-one', pathOnly: false },
+        place: { ok: false, reason: 'no_root' },
       },
     });
     const group = {
@@ -369,5 +389,160 @@ describe('pending interaction permission recovery orchestrator', () => {
     resolutionSucceeds = true;
     await expect(recover()).resolves.toBe('resolved');
     expect(rows).toHaveLength(1);
+  });
+
+  it('replays the persisted card affordances on recovery converts a remember code outside the offered set to its scalar base before applying and learning and yields the remembered receipt for an offered code and the once-only receipt otherwise', async () => {
+    const actual = await vi.importActual<
+      typeof import('@core/application/interactions/pending-interaction-permission-callback.js')
+    >(
+      '@core/application/interactions/pending-interaction-permission-callback.js',
+    );
+    const request: PermissionApprovalRequest = {
+      requestId: 'replayed-affordances',
+      appId: 'default',
+      sourceAgentFolder: 'agent-a',
+      targetJid: 'sl:C123',
+      toolName: 'Bash',
+      toolInput: { command: 'git log' },
+      cardAffordances: rememberedAffordances,
+    };
+    const persistedClaim: PermissionCallbackClaim = {
+      ...claim,
+      intent: {
+        mode: 'remember_allow_exact',
+        approverRef: 'person-one',
+        decidedAt: '2026-09-08T00:00:00.000Z',
+      },
+      match: {
+        kind: 'individual',
+        canonicalId: scope.interactionId,
+        providerAliases: [],
+      },
+    };
+    const group = {
+      prompt: {
+        claim: persistedClaim,
+        matchKind: 'individual',
+        settlementState: 'claimed',
+      },
+      members: [
+        {
+          sourceAgentFolder: scope.sourceAgentFolder,
+          requestId: request.requestId,
+          runId: null,
+          runLeaseToken: null,
+          runLeaseFencingVersion: null,
+          payload: {
+            request,
+            rememberContext: {
+              eligible: true,
+              laneInput: { permissionMode: 'auto' },
+              lane: PermissionLane.InteractiveAuto,
+              appId: 'default',
+              agentFolder: 'agent-a',
+              canonicalTool: 'Bash',
+              personId: 'person-one',
+              effectHash: 'effect-one',
+              effectSchemaVersion: 3,
+              railVersion: 7,
+              kindVariant: 'category',
+              candidates: {
+                deny: { ok: true, scopeKey: 'deny-one', pathOnly: false },
+                exact: { ok: true, scopeKey: 'exact-one', pathOnly: false },
+                kind: { ok: true, scopeKey: 'kind-one', pathOnly: false },
+                kindTool: {
+                  ok: true,
+                  scopeKey: 'kind-tool-one',
+                  pathOnly: false,
+                },
+                place: { ok: false, reason: 'no_root' },
+              },
+            },
+          },
+        },
+      ],
+    };
+    const order: string[] = [];
+    const learnedRemember = vi.fn();
+    actual.configurePendingInteractionPermissionCallbacks({
+      repository: {
+        findPendingPermissionPrompt: vi.fn(async () => group),
+        releasePendingPermissionCallback: vi.fn(async () => true),
+      } as never,
+      learn: async (currentClaim) => {
+        order.push('learn');
+        learnedRemember(
+          (await actual.rememberSettlementForClaim(currentClaim))?.resolution
+            .remember,
+        );
+      },
+      applyDecision: vi.fn(async () => {
+        order.push('apply');
+        return true;
+      }),
+      resolve: vi.fn(async () => true),
+    });
+    mocks.findByRequestId.mockResolvedValue({
+      ...durable(request),
+      claim: persistedClaim,
+      decisionOptions: ['remember_allow_exact'],
+    });
+    mocks.claim.mockResolvedValue({
+      status: 'claimed',
+      claim,
+      persistedClaim,
+    });
+    mocks.resolve.mockImplementation((input) =>
+      actual.resolveDurablePermissionInteractionByRequestId(input),
+    );
+    const receipts: string[] = [];
+    const recover = () =>
+      recoverDurablePermissionDecision({
+        locator: { kind: 'scope', scope, matchKind: 'individual' },
+        surfaceJid: 'sl:C123',
+        incomingMode: 'remember_allow_exact',
+        incomingApprover: 'person-one',
+        authorize: vi.fn(async () => true),
+        terminalize: vi.fn(async (receipt) => {
+          if (receipt.status === 'resolved') {
+            expect(receipt.request.cardAffordances).toEqual(
+              request.cardAffordances,
+            );
+            receipts.push(
+              formatPermissionReceiptText(
+                receipt.request.requestId,
+                receipt.request,
+                receipt.decision,
+              ),
+            );
+          }
+          return true;
+        }),
+        feedback: vi.fn(async () => undefined),
+      });
+
+    await expect(recover()).resolves.toBe('resolved');
+    request.cardAffordances = {
+      ...rememberedAffordances,
+      offered: [],
+      postTapLines: {},
+    };
+    await expect(recover()).resolves.toBe('resolved');
+
+    expect(order).toEqual(['learn', 'apply', 'learn', 'apply']);
+    expect(learnedRemember.mock.calls).toEqual([
+      [
+        {
+          kind: 'remember',
+          outcome: HumanDecisionOutcome.Allow,
+          scope: HumanDecisionScope.Exact,
+        },
+      ],
+      [undefined],
+    ]);
+    expect(receipts).toEqual([
+      'Remembered: this exact action. Change it any time with /permissions.',
+      'Approved for this run only: Command (git log).',
+    ]);
   });
 });

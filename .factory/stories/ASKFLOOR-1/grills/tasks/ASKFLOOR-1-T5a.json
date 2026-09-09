@@ -112,13 +112,13 @@
       "frontier_empty": true
     }
   ],
-  "input_sha256": "3f7837664d3dd5bfdd005f09eca40666b2a836666d4039d8d2b427237f57defa",
-  "grounding_basis": "working-tree",
-  "grounding_treeish": "",
-  "task_plan_sha256": "5bb0cba2c0046262bb4c7c9ce790bfbd9ee49ee2959410d86be62b75b742a485",
-  "recorded_at": "2026-09-08T12:14:43+00:00",
-  "commit": "eff24d1560953d60b5e3152c959dfedcbd62a099",
-  "approved_task_plan_sha256": "5bb0cba2c0046262bb4c7c9ce790bfbd9ee49ee2959410d86be62b75b742a485",
+  "grounding_basis": "stage-baseline",
+  "grounding_treeish": "ba774adf166110d0e8173f777bfab7ead7366c26",
+  "input_sha256": "39ac7d0308421cc83de2e88ef2ce314081f16cda06e79f0e9773c53a1f83daa5",
+  "task_plan_sha256": "90adfc515cb2b6a8a56b09d9dbe8146e2569ab7992b73db116e545fe66d42394",
+  "recorded_at": "2026-09-09T08:22:18+00:00",
+  "commit": "1a1d0080194e71f61fa495d5b9892f22c0901211",
+  "approved_task_plan_sha256": "90adfc515cb2b6a8a56b09d9dbe8146e2569ab7992b73db116e545fe66d42394",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-08T12:14:48+00:00"
+  "approved_at": "2026-09-09T08:22:33+00:00"
 }

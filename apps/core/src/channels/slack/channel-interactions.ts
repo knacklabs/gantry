@@ -5,6 +5,7 @@ import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionCallbackScope,
+  PermissionRememberCode,
 } from '../../domain/types.js';
 import {
   claimPermissionInteractionCallback,
@@ -13,13 +14,14 @@ import {
   releasePermissionInteractionCallback,
   samePermissionCallbackLocator,
 } from '../../application/interactions/pending-interaction-durability.js';
+import { effectivePermissionDecisionCode } from '../../application/interactions/pending-interaction-permission-callback.js';
+import { decodePermissionDecisionCode } from '../../application/permissions/permission-remember-codec.js';
 import {
   buildPermissionPromptFullView,
   decisionForMode,
   formatPermissionReceiptText,
-  normalizePermissionAction,
-  permissionDecisionOptions,
 } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import { SlackChannelState, SlackMessageLike } from './channel-state.js';
 import {
   buildPermissionFullViewModalBlocks,
@@ -227,7 +229,9 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
   }
   protected async claimAndResolvePermissionPrompt(
     providerAlias: string,
-    mode: NonNullable<PermissionApprovalDecision['mode']>,
+    mode:
+      | NonNullable<PermissionApprovalDecision['mode']>
+      | PermissionRememberCode,
     approverRef: string,
     respond?: (payload: Record<string, unknown>) => Promise<unknown>,
     reason?: string,
@@ -245,10 +249,20 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     if (claimed.status === 'already_decided')
       return claimed.ownerless ? 'ownerless' : 'already_decided';
     if (claimed.status === 'retryable') return 'retryable';
+    const decoded = effectivePermissionDecisionCode(pending.request, mode);
+    if (!decoded) {
+      await releasePermissionInteractionCallback({ claim: claimed.claim });
+      return 'retryable';
+    }
     const decision = {
-      ...decisionForMode(pending.request, mode, approverRef),
+      ...decisionForMode(pending.request, decoded.mode, approverRef),
       ...(reason ? { reason } : {}),
-      permissionCallbackClaim: claimed.claim,
+      permissionCallbackClaim: {
+        ...claimed.claim,
+        ...(decoded.effectiveRememberCode
+          ? { effectiveRememberCode: decoded.effectiveRememberCode }
+          : {}),
+      },
     };
     if (
       await this.resolvePermissionPrompt(
@@ -355,8 +369,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         typeof payload.providerAccountId === 'string'
           ? payload.providerAccountId
           : this.opts.providerAccountId;
-      const mode = normalizePermissionAction(payload.decision);
-      if (!mode) return;
+      if (!decodePermissionDecisionCode(payload.decision)) return;
+      const mode = payload.decision as
+        | NonNullable<PermissionApprovalDecision['mode']>
+        | PermissionRememberCode;
       const pending = this.pendingPermissionPrompts.get(callback.providerAlias);
       const respond =
         body.response_url && typeof args.respond === 'function'
@@ -376,7 +392,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
             providerAlias: callback.providerAlias,
           },
           surfaceJid: `sl:${callbackChannelId}`,
-          incomingMode: mode,
+          incomingMode: mode as NonNullable<PermissionApprovalDecision['mode']>,
           incomingApprover: userId,
           authorize: (durable) =>
             this.canDecidePermission(
@@ -431,7 +447,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         return;
       }
       if (!samePermissionCallbackLocator(pending.callback, callback)) return;
-      if (!permissionDecisionOptions(pending.request).includes(mode)) {
+      if (
+        !permissionDecisionOptions(pending.request).includes(mode) &&
+        !mode.startsWith('remember_')
+      ) {
         return;
       }
       const callbackChannelId =

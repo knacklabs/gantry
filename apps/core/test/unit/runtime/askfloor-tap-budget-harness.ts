@@ -168,34 +168,40 @@ export async function replayPermissionRequest(
 export const TAP_BUDGET_WORKSPACE_ROOT =
   resolveWorkspaceFolderPath('main_agent');
 
-export async function replayRememberedExactAllow(): Promise<{
+interface ExactMemoryReplay {
   taps: number[];
   claimedCodes: PermissionRememberCode[];
   applications: PermissionApprovalDecision['mode'][];
-  activeRows: number;
-}> {
+  decisions: PermissionApprovalDecision[];
+  rows: PermissionDecisionMemoryRow[];
+}
+
+async function replayExactMemorySequence(
+  scenario: string,
+  steps: Array<{ command: string; rememberCode?: PermissionRememberCode }>,
+): Promise<ExactMemoryReplay> {
   const rows: PermissionDecisionMemoryRow[] = [];
   const decisionMemory = inMemoryDecisionMemory(rows);
   const durability = inMemoryPermissionDurability();
   const claimedCodes: PermissionRememberCode[] = [];
   const applications: PermissionApprovalDecision['mode'][] = [];
+  const decisions: PermissionApprovalDecision[] = [];
   const taps: number[] = [];
   configurePendingInteractionDurability({
     repository: durability.repository as never,
   });
   try {
-    for (let run = 0; run < 2; run += 1) {
+    for (const [run, step] of steps.entries()) {
       let runTaps = 0;
+      const rememberCode = step.rememberCode;
       const decision = await resolvePermissionIpcDecision({
         request: {
-          requestId: `s2-remember-${run}`,
+          requestId: `${scenario}-remember-${run}`,
           appId: 'default',
           sourceAgentFolder: 'main_agent',
           personId: 'person-one',
           toolName: 'RunCommand',
-          toolInput: {
-            command: `cd ${TAP_BUDGET_WORKSPACE_ROOT} && ls && git log`,
-          },
+          toolInput: { command: step.command },
         },
         sourceAgentFolder: 'main_agent',
         deps: {
@@ -205,6 +211,9 @@ export async function replayRememberedExactAllow(): Promise<{
             facts?: PermissionRememberPromptFacts,
           ) => {
             runTaps += 1;
+            if (!rememberCode) {
+              throw new Error(`${scenario} unexpectedly requested approval`);
+            }
             const interaction = await runDurablePermissionInteraction({
               request,
               sourceAgentFolder: 'main_agent',
@@ -220,7 +229,7 @@ export async function replayRememberedExactAllow(): Promise<{
               prompt: async () => {
                 await bindPendingPermissionInteractionMessage({
                   request,
-                  decisionOptions: ['remember_allow_exact'],
+                  decisionOptions: [rememberCode],
                 });
                 const claimed = await claimPermissionInteractionCallback({
                   scope: {
@@ -228,12 +237,12 @@ export async function replayRememberedExactAllow(): Promise<{
                     sourceAgentFolder: 'main_agent',
                     interactionId: request.requestId,
                   },
-                  mode: 'remember_allow_exact',
+                  mode: rememberCode,
                   approverRef: 'person-one',
                   matchKind: 'individual',
                 });
                 if (claimed.status !== 'claimed') {
-                  throw new Error('S2 permission claim failed');
+                  throw new Error(`${scenario} permission claim failed`);
                 }
                 claimedCodes.push(claimed.persistedClaim.intent.mode);
                 const recovered =
@@ -242,7 +251,9 @@ export async function replayRememberedExactAllow(): Promise<{
                     sourceAgentFolder: 'main_agent',
                     requestId: request.requestId,
                   });
-                if (!recovered) throw new Error('S2 decision recovery failed');
+                if (!recovered) {
+                  throw new Error(`${scenario} decision recovery failed`);
+                }
                 return permissionDecisionResult(recovered);
               },
               afterDecision: async (current) => {
@@ -254,7 +265,9 @@ export async function replayRememberedExactAllow(): Promise<{
               },
             });
             if (interaction.kind !== 'decision' || !interaction.resolved) {
-              throw new Error('S2 durable interaction did not resolve');
+              throw new Error(
+                `${scenario} durable interaction did not resolve`,
+              );
             }
             applications.push(interaction.decision.mode);
             return permissionDecisionResult(interaction.decision);
@@ -276,13 +289,44 @@ export async function replayRememberedExactAllow(): Promise<{
           }),
         } as never,
       });
-      if (!decision.approved) throw new Error('S2 permission was not allowed');
+      decisions.push(decision);
       taps.push(runTaps);
     }
   } finally {
     configurePendingInteractionDurability(null);
   }
-  return { taps, claimedCodes, applications, activeRows: rows.length };
+  return { taps, claimedCodes, applications, decisions, rows };
+}
+
+export async function replayRememberedExactAllow(): Promise<{
+  taps: number[];
+  claimedCodes: PermissionRememberCode[];
+  applications: PermissionApprovalDecision['mode'][];
+  activeRows: number;
+}> {
+  const command = `cd ${TAP_BUDGET_WORKSPACE_ROOT} && ls && git log`;
+  const replay = await replayExactMemorySequence('s2', [
+    { command, rememberCode: 'remember_allow_exact' },
+    { command },
+  ]);
+  if (replay.decisions.some((decision) => !decision.approved)) {
+    throw new Error('S2 permission was not allowed');
+  }
+  return {
+    taps: replay.taps,
+    claimedCodes: replay.claimedCodes,
+    applications: replay.applications,
+    activeRows: replay.rows.length,
+  };
+}
+
+export function replayDestructiveExactMemory(): Promise<ExactMemoryReplay> {
+  return replayExactMemorySequence('s4', [
+    { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
+    { command: 'rm -rf build' },
+    { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
+    { command: 'rm -rf dist' },
+  ]);
 }
 
 export function inMemoryDecisionMemory(

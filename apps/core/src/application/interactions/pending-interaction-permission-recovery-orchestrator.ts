@@ -7,9 +7,9 @@ import type {
   PermissionCallbackScope,
   PermissionRememberCode,
 } from '../../domain/types.js';
-import { decodePermissionDecisionCode } from '../permissions/permission-remember-codec.js';
 import {
   claimPermissionInteractionCallback,
+  effectivePermissionDecisionCode,
   findDurablePermissionInteractionByRequestId,
   resolveDurablePermissionInteractionByRequestId,
   type DurablePermissionInteractionContext,
@@ -138,7 +138,10 @@ export async function recoverDurablePermissionDecision(
       await feedback(hooks, 'This permission request was already decided.');
       return 'already_decided';
     }
-    const settled = decodePermissionDecisionCode(settledMode);
+    const settled = effectivePermissionDecisionCode(
+      durable.request,
+      settledMode,
+    );
     if (!settled) {
       await feedback(hooks, 'This approval option is no longer available.');
       return 'option_unavailable';
@@ -152,7 +155,17 @@ export async function recoverDurablePermissionDecision(
           : (recoveredClaim?.intent.approverRef ?? 'system'),
         matchKind,
       ),
-      ...(recoveredClaim ? { permissionCallbackClaim: recoveredClaim } : {}),
+      ...(recoveredClaim
+        ? {
+            permissionCallbackClaim: {
+              id: recoveredClaim.id,
+              scope: recoveredClaim.scope,
+              ...(settled.effectiveRememberCode
+                ? { effectiveRememberCode: settled.effectiveRememberCode }
+                : {}),
+            },
+          }
+        : {}),
     };
     try {
       if (
@@ -181,7 +194,7 @@ export async function recoverDurablePermissionDecision(
   const mode = expiringReviewEach
     ? 'cancel'
     : (persistedIntent?.intent.mode ?? effectiveMode);
-  const decoded = decodePermissionDecisionCode(mode);
+  const decoded = effectivePermissionDecisionCode(durable.request, mode);
   if (!decoded) {
     await feedback(hooks, 'This approval option is no longer available.');
     return 'option_unavailable';
@@ -192,7 +205,12 @@ export async function recoverDurablePermissionDecision(
   const request = durable.request;
   const decision = {
     ...decisionForMode(request, decoded.mode, approverRef, matchKind),
-    permissionCallbackClaim: claimed.claim,
+    permissionCallbackClaim: {
+      ...claimed.claim,
+      ...(decoded.effectiveRememberCode
+        ? { effectiveRememberCode: decoded.effectiveRememberCode }
+        : {}),
+    },
   };
   const resolved = await resolveDurablePermissionInteractionByRequestId({
     claim: claimed.claim,

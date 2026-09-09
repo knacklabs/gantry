@@ -31,6 +31,7 @@ import type {
   PermissionRememberCode,
 } from '../../../../domain/types.js';
 import { parsePermissionRememberContext } from '../../../../application/permissions/human-decision-learning.js';
+import { scalarPermissionCardAffordances } from '../../../../application/permissions/permission-card-affordances.js';
 import { decodePermissionDecisionCode } from '../../../../application/permissions/permission-remember-codec.js';
 import * as pgSchema from '../schema/schema.js';
 import {
@@ -304,16 +305,28 @@ export async function bindPendingPermissionPromptRows(
     ];
     if (parentEnvelopeIds.length > 1) return null;
     if (input.matchKind === 'batch') {
+      const cardAffordances = scalarPermissionCardAffordances();
       const payloadChanges = memberRows.flatMap((row) => {
         const payload = (row.payloadJson ?? {}) as Record<string, unknown>;
         const context = parsePermissionRememberContext(payload.rememberContext);
-        return context?.eligible
+        return context
           ? [
               {
                 id: row.id,
                 payload: {
                   ...payload,
                   rememberContext: { ...context, eligible: false },
+                  cardAffordances,
+                  ...(payload.request &&
+                  typeof payload.request === 'object' &&
+                  !Array.isArray(payload.request)
+                    ? {
+                        request: {
+                          ...payload.request,
+                          cardAffordances,
+                        },
+                      }
+                    : {}),
                 },
               },
             ]

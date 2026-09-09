@@ -1,19 +1,19 @@
 import { resolveDurableQuestionInteractionByRequestId } from '../../application/interactions/pending-interaction-durability.js';
+import { decodePermissionDecisionCode } from '../../application/permissions/permission-remember-codec.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  PermissionRememberCode,
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import { withObserverDigestEditLock } from '../observer-digest-edit-lock.js';
-import {
-  normalizePermissionAction,
-  permissionDecisionOptions,
-} from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import type { PendingPermission } from './channel-permission-cancellation.js';
 import {
   TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN,
   TELEGRAM_BRAIN_REVIEW_DECISION_BY_CODE,
+  parseTelegramMemoryForgetCallback,
   TELEGRAM_REVIEW_CALLBACK_PATTERN,
   TELEGRAM_REVIEW_DECISION_BY_CODE,
 } from './message-action-affordances.js';
@@ -26,8 +26,8 @@ import { resolveDurableTelegramPermissionCallback } from './permission-callback.
 import { handleTelegramSchedulerCallback } from './scheduler-callback.js';
 import {
   TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN,
-  TELEGRAM_PERMISSION_CALLBACK_PATTERN,
   TELEGRAM_USER_QUESTION_CALLBACK_PATTERN,
+  parseTelegramPermissionCallbackData,
   type PendingUserQuestionState,
   type TelegramUserQuestionCallbackTarget,
 } from './channel-shared.js';
@@ -205,6 +205,10 @@ export async function dispatchTelegramCallback(
   }
   if (ctx.data.startsWith('jp:')) {
     await handleTelegramJobPermissionCallback(channel, ctx);
+    return;
+  }
+  if (ctx.data.startsWith('mf:')) {
+    await handleTelegramMemoryForgetCallback(channel, ctx);
     return;
   }
   const reviewMatch = TELEGRAM_REVIEW_CALLBACK_PATTERN.exec(ctx.data);
@@ -485,6 +489,31 @@ async function handleTelegramJobPermissionCallback(
   await ctx.answer('Decision received.');
 }
 
+async function handleTelegramMemoryForgetCallback(
+  channel: TelegramCallbackChannel,
+  ctx: TelegramCallbackContext,
+): Promise<void> {
+  const recordId = parseTelegramMemoryForgetCallback(ctx.data);
+  if (!recordId || !ctx.conversationJid || !ctx.userId)
+    return void (await ctx.answer('Not available yet.', true));
+  await ctx.answer(); // acknowledge before the host hook's identity/db work
+  const outcome = await channel.opts.onMessageAction?.({
+    kind: 'memory_forget',
+    conversationJid: ctx.conversationJid,
+    ...(ctx.providerAccountId
+      ? { providerAccountId: ctx.providerAccountId }
+      : {}),
+    threadId: ctx.threadId,
+    userId: ctx.userId,
+    recordId,
+  });
+  await ctx.raw.api.sendMessage(
+    ctx.chatId,
+    outcome?.receipt ?? 'Not available yet.',
+    ctx.threadId ? { message_thread_id: Number(ctx.threadId) } : {},
+  );
+}
+
 async function handleTelegramMemoryReviewCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -697,23 +726,21 @@ async function handleTelegramPermissionCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
 ): Promise<void> {
-  const permissionMatch = TELEGRAM_PERMISSION_CALLBACK_PATTERN.exec(ctx.data);
-  if (!permissionMatch) {
+  const parsed = parseTelegramPermissionCallbackData(ctx.data);
+  if (!parsed) {
     if (ctx.data.startsWith('perm:')) {
       await ctx.answer('Permission request is no longer active.', true);
     }
     return;
   }
-  const mode = normalizePermissionAction(permissionMatch[1]);
-  if (!mode) return;
-  const callbackId = permissionMatch[2];
+  const { mode, callbackId } = parsed;
   const pending = channel.pendingPermissionPrompts.get(callbackId);
   if (!pending) {
     await resolveDurableTelegramPermissionCallback({
       context: ctx.raw,
       appId: channel.opts.appId || 'default',
       providerAlias: callbackId,
-      mode,
+      mode: mode as NonNullable<PermissionApprovalDecision['mode']>,
       sanitizeErrorMessage: channel.sanitizeErrorMessage,
       isAuthorized: (approvalContextJid, userId, recovered) =>
         channel.isTelegramApproverAuthorized(
@@ -726,7 +753,10 @@ async function handleTelegramPermissionCallback(
     });
     return;
   }
-  if (!permissionDecisionOptions(pending.request).includes(mode)) {
+  if (
+    !permissionDecisionOptions(pending.request).includes(mode) &&
+    !mode.startsWith('remember_')
+  ) {
     await ctx.answer('This approval option is no longer available.', true);
     return;
   }
@@ -738,7 +768,7 @@ async function handleTelegramPermissionCallback(
   if (!userId) return;
   const settled = await channel.claimAndResolvePermissionPrompt(
     callbackId,
-    mode,
+    mode as NonNullable<PermissionApprovalDecision['mode']>,
     userId,
     permissionSettlementReason(mode),
   );
@@ -840,24 +870,31 @@ async function rejectUnauthorizedTelegramPermission(
   await ctx.answer('Only a conversation control approver can approve.', true);
 }
 function permissionSettlementReason(
-  mode: NonNullable<PermissionApprovalDecision['mode']>,
+  mode:
+    | NonNullable<PermissionApprovalDecision['mode']>
+    | PermissionRememberCode,
 ): string {
-  return mode === 'allow_once'
+  const scalarMode = decodePermissionDecisionCode(mode)?.mode;
+  return scalarMode === 'allow_once'
     ? 'allowed once via Telegram'
-    : mode === 'allow_persistent_rule'
+    : scalarMode === 'allow_persistent_rule'
       ? 'persistent rule allowed via Telegram'
       : 'canceled via Telegram';
 }
 
 function permissionSettlementReceipt(
-  mode: NonNullable<PermissionApprovalDecision['mode']>,
+  mode:
+    | NonNullable<PermissionApprovalDecision['mode']>
+    | PermissionRememberCode,
   pending: PendingPermission,
 ): string {
-  return mode === 'allow_persistent_rule' && pending.request.permissionBatch
+  const scalarMode = decodePermissionDecisionCode(mode)?.mode;
+  return scalarMode === 'allow_persistent_rule' &&
+    pending.request.permissionBatch
     ? 'Starting individual review.'
-    : mode === 'allow_once'
+    : scalarMode === 'allow_once'
       ? 'Allowed once.'
-      : mode === 'allow_persistent_rule'
+      : scalarMode === 'allow_persistent_rule'
         ? 'Allowed for future.'
         : 'Canceled.';
 }

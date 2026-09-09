@@ -1,0 +1,12 @@
+{
+  "topic": "review-p2-branch",
+  "lesson": "Stage autoreview (branch mode, whole T5a diff) found TWO P2 defects; fix exactly these with one pinned test each, then run npx tsc --noEmit, npm run check:architecture and the touched suites (permission-card-affordances, discord/discord.test.ts, provider-affordance-parity). (1) apps/core/src/application/permissions/permission-card-affordances.ts:251 permissionWritePath \u2014 it classifies an action as a WRITE merely because the input has file_path / path / targetPath, so file-READ tools with a path field get \"Allow will remember: writing to <path> \u2014 any future content, no more asking for this file\" and the \"Remembered: writes to <path> (any content)\" receipt, misrepresenting the granted permission. Gate the write copy on the action actually being a write: use the request's effect classification / tool identity (FileWrite, FileEdit, MultiEdit, Write, Edit, and the gantry-native write tools per gantryToolRisk / the deterministic-rails write predicate) \u2014 never the mere presence of a path field; reads keep \"this exact action\". Pin: a FileRead request with file_path renders the exact-action copy and receipt; a FileWrite request renders the write copy. (2) apps/core/src/channels/discord/interactions.ts:294 \u2014 the new memory_forget path awaits conversation resolution and the async forget hook BEFORE sending the first interaction response; Discord invalidates the interaction token unless the initial response arrives within 3 seconds, and the T5b hook will do identity + database work. Defer/acknowledge the interaction first (the same deferred-response pattern the permission button path uses in this file), then await the hook and send/edit the receipt. Pin: a Forget interaction whose hook resolves after a delay still gets an initial acknowledgement immediately and the receipt afterward. The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/application/permissions/permission-card-affordances.ts",
+    "apps/core/src/channels/discord/interactions.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T17:49:31+00:00"
+}

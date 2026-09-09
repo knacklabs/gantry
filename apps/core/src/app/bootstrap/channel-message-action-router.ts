@@ -3,6 +3,7 @@ import type {
   MessageActionOutcome,
   OnBrainDreamReviewMessageAction,
   OnMemoryReviewMessageAction,
+  OnMemoryForgetMessageAction,
   OnMessageAction,
   OnObserverFeedbackMessageAction,
   ProgressUpdateOptions,
@@ -43,6 +44,7 @@ function isMessageActionValid(input: MessageActionCallbackInput): boolean {
         input.decision === 'edit')
     );
   }
+  if (input.kind === 'memory_forget') return input.recordId.trim().length > 0;
   if (input.kind === 'observer_feedback') {
     return (
       input.insightId.trim().length > 0 &&
@@ -71,6 +73,9 @@ export function createChannelMessageActionRouter(): {
   setMemoryReviewHandler: (
     handler: OnMemoryReviewMessageAction | undefined,
   ) => void;
+  setMemoryForgetHandler: (
+    handler: OnMemoryForgetMessageAction | undefined,
+  ) => void;
   setObserverFeedbackHandler: (
     handler: OnObserverFeedbackMessageAction | undefined,
   ) => void;
@@ -80,6 +85,7 @@ export function createChannelMessageActionRouter(): {
 } {
   let handler: OnMessageAction | undefined;
   let memoryReviewHandler: OnMemoryReviewMessageAction | undefined;
+  let onMemoryForget: OnMemoryForgetMessageAction | undefined;
   // Task 5 sets the owner-only executor here; until then observer_feedback
   // callbacks parse + validate + route but settle to a no-op (void outcome).
   let observerFeedbackHandler: OnObserverFeedbackMessageAction | undefined;
@@ -89,6 +95,11 @@ export function createChannelMessageActionRouter(): {
       if (!isMessageActionValid(input)) return;
       if (input.kind === 'memory_review_decision') {
         return memoryReviewHandler?.(input);
+      }
+      if (input.kind === 'memory_forget') {
+        return onMemoryForget
+          ? onMemoryForget(input)
+          : { state: 'invalid', receipt: 'Not available yet.' };
       }
       if (input.kind === 'observer_feedback') {
         return observerFeedbackHandler?.(input);
@@ -104,6 +115,9 @@ export function createChannelMessageActionRouter(): {
     },
     setMemoryReviewHandler: (next: OnMemoryReviewMessageAction | undefined) => {
       memoryReviewHandler = next;
+    },
+    setMemoryForgetHandler: (next: OnMemoryForgetMessageAction | undefined) => {
+      onMemoryForget = next;
     },
     setObserverFeedbackHandler: (
       next: OnObserverFeedbackMessageAction | undefined,

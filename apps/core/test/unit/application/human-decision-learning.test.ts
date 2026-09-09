@@ -80,6 +80,80 @@ async function context(
 }
 
 describe('human decision learning', () => {
+  it('derives and persists a place candidate from the validated canonical root parses it fail-closed and refuses place without a root', async () => {
+    const canonicalRoot = '/workspace/project';
+    const withRoot = await context({
+      facts: {
+        analysis: deriveAutoLaneAnalysis({ permissionMode: 'auto' }),
+        effectHash: 'effect-one',
+        workspaceRoot: '/workspace',
+        canonicalRoot,
+      },
+    });
+    await expect(
+      deriveHumanDecisionScopeKey({
+        request,
+        effectHash: 'effect-one',
+        workspaceRoot: '/workspace',
+        canonicalRoot,
+        outcome: HumanDecisionOutcome.Allow,
+        scope: HumanDecisionScope.Place,
+        trustGrowthTool: false,
+      }),
+    ).resolves.toEqual(withRoot.candidates.place);
+    expect(parsePermissionRememberContext(withRoot)).toEqual(withRoot);
+    expect(
+      parsePermissionRememberContext({
+        ...withRoot,
+        candidates: {
+          ...withRoot.candidates,
+          place: { ok: true, scopeKey: '', pathOnly: false },
+        },
+      }),
+    ).toBeNull();
+
+    const rememberDerived = vi.fn(async () => ({
+      status: 'remembered' as const,
+      id: 'decision-place',
+      shortId: 'decisi',
+      scopeKey: 'unused',
+      pathOnly: false,
+      stored: 'inserted' as const,
+    }));
+    await expect(
+      learnRememberedDecision({
+        context: withRoot,
+        resolution: resolutions.place,
+        service: { rememberDerived },
+        warn: vi.fn(),
+      }),
+    ).resolves.toEqual({ status: 'remembered', id: 'decision-place' });
+    expect(rememberDerived).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: HumanDecisionScope.Place,
+        scopeKey:
+          withRoot.candidates.place.ok && withRoot.candidates.place.scopeKey,
+      }),
+    );
+
+    const withoutRoot = await context();
+    expect(withoutRoot.candidates.place).toEqual({
+      ok: false,
+      reason: HumanDecisionNotRememberableReason.NoRoot,
+    });
+    await expect(
+      learnRememberedDecision({
+        context: withoutRoot,
+        resolution: resolutions.place,
+        service: { rememberDerived },
+        warn: vi.fn(),
+      }),
+    ).resolves.toEqual({
+      status: 'not_rememberable',
+      reason: HumanDecisionNotRememberableReason.NoRoot,
+    });
+  });
+
   it('derives a remember context whose provisional eligibility holds only for an interactive_auto lane with a person and no scheduled job, whose exact, category-kind and tool-kind candidates equal a fresh derivation including each typed refusal reason, resolves a place code to no_root, encodes a deny with kind or place scope to null, parses every malformed context field class to null with no learning while the scalar result settles, and learns from it by picking the candidate for the resolved scope with kindVariant choosing between the two kind candidates, relaying every service refusal, and returning unlearned without throwing when the port fails', async () => {
     const derived = await context();
     expect(derived.eligible).toBe(true);

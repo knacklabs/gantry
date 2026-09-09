@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   assertLlmConsultNotInvoked,
+  replayDestructiveExactMemory,
   replayRememberedExactAllow,
   replayPermissionRequest,
   TAP_BUDGET_WORKSPACE_ROOT,
@@ -92,6 +93,30 @@ describe('ASKFLOOR tap budget', () => {
       source: 'user',
       railProvenance: null,
     });
+  });
+
+  it('S4 asks once for rm -rf build remembers the exact command runs it again with zero taps asks for rm -rf dist and remembers No exactly', async () => {
+    const replay = await replayDestructiveExactMemory();
+
+    expect(replay.taps).toEqual([1, 0, 1, 0]);
+    expect(replay.claimedCodes).toEqual([
+      'remember_allow_exact',
+      'remember_deny_exact',
+    ]);
+    expect(replay.applications).toEqual(['allow_once', 'cancel']);
+    expect(replay.decisions).toMatchObject([
+      { approved: true, mode: 'allow_once', source: 'human_once' },
+      { approved: true, mode: 'allow_once', source: 'human_decision' },
+      { approved: false, mode: 'cancel', source: 'human_once' },
+      { approved: false, mode: 'cancel', source: 'human_decision' },
+    ]);
+    expect(replay.rows).toMatchObject([
+      { outcome: 'allow', scope: 'exact', principal: 'RunCommand' },
+      { outcome: 'deny', scope: 'exact', principal: 'RunCommand' },
+    ]);
+    expect(replay.rows[0]?.scopeKey).toBe(replay.rows[0]?.effectHash);
+    expect(replay.rows[1]?.scopeKey).toBe(replay.rows[1]?.effectHash);
+    expect(replay.rows[0]?.scopeKey).not.toBe(replay.rows[1]?.scopeKey);
   });
 
   it('TB1 TB2 TB3 TB4: a browser click, a file read by path, an unprotected file write and a native FileWrite inside the workspace cost 0 taps in interactive auto with the LLM consult not invoked', async () => {

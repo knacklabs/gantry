@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0162-3776",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Codex usage limit exhausted; fix the duplicated fixed record id in the new T5a Postgres leaf (collides with the T3b leaf and fails verify)",
+  "started_at": "2026-09-08T16:36:12+00:00",
+  "completed_at": "2026-09-08T16:37:28+00:00",
+  "files": []
+}

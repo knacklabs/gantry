@@ -3,11 +3,13 @@ import {
   recoverDurablePermissionDecision,
   releasePermissionInteractionCallback,
 } from '../../application/interactions/pending-interaction-durability.js';
-import type { PermissionApprovalRequest } from '../../domain/types.js';
-import {
-  decisionForMode,
-  permissionDecisionOptions,
-} from '../permission-interaction.js';
+import { effectivePermissionDecisionCode } from '../../application/interactions/pending-interaction-permission-callback.js';
+import type {
+  PermissionApprovalDecisionMode,
+  PermissionApprovalRequest,
+} from '../../domain/types.js';
+import { decisionForMode } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import { parsePermissionCustomId } from './components.js';
 import type { DiscordInteraction } from './types.js';
 import { DISCORD_API_ROOT, discordHeaders } from './interaction-helpers.js';
@@ -66,7 +68,8 @@ export async function handleDiscordPermissionCallback(input: {
       pending.request.threadId,
       pending.request.approvalContextJid ?? pending.request.targetJid,
     )) ||
-    !permissionDecisionOptions(pending.request).includes(parsed.mode)
+    (!permissionDecisionOptions(pending.request).includes(parsed.mode) &&
+      !parsed.mode.startsWith('remember_'))
   ) {
     return;
   }
@@ -79,9 +82,16 @@ export async function handleDiscordPermissionCallback(input: {
   });
   if (claimed.status === 'already_decided') return;
   if (claimed.status === 'retryable') return;
+  const decoded = effectivePermissionDecisionCode(pending.request, parsed.mode);
+  if (!decoded) return;
   const decision = {
-    ...decisionForMode(pending.request, parsed.mode, userId),
-    permissionCallbackClaim: claimed.claim,
+    ...decisionForMode(pending.request, decoded.mode, userId),
+    permissionCallbackClaim: {
+      ...claimed.claim,
+      ...(decoded.effectiveRememberCode
+        ? { effectiveRememberCode: decoded.effectiveRememberCode }
+        : {}),
+    },
   };
   if (
     !(await settle(
@@ -131,7 +141,7 @@ async function recoverDurablePermission(input: {
       providerAlias: input.parsed.providerAlias,
     },
     surfaceJid: context.conversationJid,
-    incomingMode: input.parsed.mode,
+    incomingMode: input.parsed.mode as PermissionApprovalDecisionMode,
     incomingApprover: input.userId,
     authorize: (durable) =>
       input.isApproverAllowed(

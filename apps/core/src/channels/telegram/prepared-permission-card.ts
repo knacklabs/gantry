@@ -8,10 +8,8 @@ import {
   buildBoundedPermissionCard,
   permissionCardCallback,
 } from '../permission-card.js';
-import {
-  permissionButtonLabel,
-  permissionDecisionOptions,
-} from '../permission-interaction.js';
+import { permissionButtonLabel } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import { renderPermissionPromptHtml } from './html-render.js';
 import {
   telegramPermissionCallbackData,

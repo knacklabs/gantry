@@ -1,0 +1,1 @@
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-09-08T12:29:15+00:00", "story": "ASKFLOOR-1", "detail": "AC7 requires the green pre-change provider snapshot diff to be the branch's first commit before renderer edits, while the implementer contract forbids Codex git commits; commit the snapshot-only check"}

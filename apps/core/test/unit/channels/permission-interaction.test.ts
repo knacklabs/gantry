@@ -9,9 +9,9 @@ import {
   formatPermissionReceiptText,
   normalizePermissionAction,
   persistentRules,
-  permissionDecisionOptions,
   permissionButtonLabel,
 } from '@core/channels/permission-interaction.js';
+import { permissionDecisionOptions } from '@core/channels/permission-card-affordances.js';
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import { decisionForMode as domainDecisionForMode } from '@core/domain/permission-decision.js';
@@ -306,6 +306,58 @@ describe('permission interaction', () => {
         reason: 'review each',
       }),
     );
+  });
+
+  it('treats a persisted scalar card affordance model like no card affordances', () => {
+    const scalarAffordances = {
+      eligible: false,
+      offered: [],
+      destructive: false,
+      protected: false,
+      preTapLines: [],
+      postTapLines: {},
+    };
+    const batch = {
+      ...createPermissionBatchRequest(
+        [
+          { ...requestWithSuggestions([]), requestId: 'permission-1' },
+          { ...requestWithSuggestions([]), requestId: 'permission-2' },
+        ],
+        ['1. Read file', '2. Run command'],
+      ),
+      cardAffordances: scalarAffordances,
+    } satisfies PermissionApprovalRequest;
+    const request = {
+      ...requestWithSuggestions([
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [{ toolName: 'RunCommand', ruleContent: 'npm *' }],
+        },
+      ]),
+      toolInput: { command: 'npm test' },
+      promotionHintCount: 3,
+      firstAskedAt: new Date().toISOString(),
+    } satisfies PermissionApprovalRequest;
+
+    expect(
+      permissionDecisionOptions(batch).map((mode) =>
+        permissionButtonLabel(mode, batch),
+      ),
+    ).toEqual(['Allow all', 'Review each', 'Deny all']);
+    expect(
+      permissionButtonLabel('allow_once', {
+        ...request,
+        cardAffordances: scalarAffordances,
+      }),
+    ).toBe('Allow once');
+    expect(
+      buildPermissionPromptParts(
+        { ...request, cardAffordances: scalarAffordances },
+        60_000,
+      ).contextLines,
+    ).toEqual(buildPermissionPromptParts(request, 60_000).contextLines);
   });
 
   it('removes Allow all when the rendered batch omits permission rows', () => {

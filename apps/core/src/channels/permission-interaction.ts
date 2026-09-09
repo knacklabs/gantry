@@ -1,21 +1,23 @@
+import { permissionHumanToolLabel } from '../application/permissions/permission-card-affordances.js';
+import {
+  formatPermissionCardPreTapLines,
+  formatPermissionCardReceipt,
+  hasEligiblePermissionCardAffordances,
+  permissionCardButtonLabel,
+} from './permission-card-affordances.js';
 import {
   amendmentButtonLabel,
   amendmentPromptParts,
   amendmentReceiptText,
 } from './capability-amendment-card.js';
-import { USER_FACING_TOOL_LABELS } from './permission-tool-labels.js';
+import { USER_FACING_TOOL_LABELS } from '../shared/permission-tool-labels.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
+  PermissionRememberCode,
 } from '../domain/types.js';
-import { adminMcpToolNameFromFullName } from '../shared/admin-mcp-tools.js';
-import {
-  isCanonicalBrowserCapabilityRule,
-  isThirdPartyMcpToolRule,
-  parseReadableScopedToolRule,
-  publicGantryToolNameForSdkTool,
-} from '../shared/agent-tool-references.js';
+import { parseReadableScopedToolRule } from '../shared/agent-tool-references.js';
 import { generatedRuntimeSkillPathDisplay } from '../shared/generated-runtime-paths.js';
 import {
   isMcpCapabilityProposalRequest,
@@ -59,10 +61,7 @@ import {
   isPermissionBatchRequest,
   permissionBatchButtonLabel,
 } from './permission-batch-coalescer.js';
-export {
-  normalizePermissionAction,
-  permissionDecisionOptions,
-} from './permission-decision-options.js';
+export { normalizePermissionAction } from './permission-decision-options.js';
 
 export {
   firstPersistentRule,
@@ -72,12 +71,19 @@ export {
 export { decisionForPermissionInteraction as decisionForMode };
 
 export function permissionButtonLabel(
-  mode: PermissionApprovalDecisionMode,
+  mode: PermissionApprovalDecisionMode | PermissionRememberCode,
   _request: PermissionApprovalRequest,
 ): string {
-  const amendmentLabel = amendmentButtonLabel(_request, mode);
+  const cardLabel = hasEligiblePermissionCardAffordances(_request)
+    ? permissionCardButtonLabel(mode, _request.cardAffordances)
+    : undefined;
+  if (cardLabel) return cardLabel;
+  if (mode.startsWith('remember_'))
+    throw new Error('Permission card remember option has no label');
+  const scalarMode = mode as PermissionApprovalDecisionMode;
+  const amendmentLabel = amendmentButtonLabel(_request, scalarMode);
   if (amendmentLabel) return amendmentLabel;
-  const batchLabel = permissionBatchButtonLabel(_request, mode);
+  const batchLabel = permissionBatchButtonLabel(_request, scalarMode);
   if (batchLabel) return batchLabel;
   if (mode === 'allow_once')
     return isMcpCapabilityProposal(_request)
@@ -138,6 +144,14 @@ export function formatPermissionReceiptText(
   const summary = formatPermissionReceiptActionSummary(request); // Existing-prompt settlement, not a new chat receipt.
   const amendmentReceipt = amendmentReceiptText(request, decision);
   if (amendmentReceipt) return amendmentReceipt;
+  const rememberedReceipt =
+    hasEligiblePermissionCardAffordances(request) &&
+    decision.permissionCallbackClaim?.effectiveRememberCode &&
+    formatPermissionCardReceipt(
+      request.cardAffordances,
+      decision.permissionCallbackClaim.effectiveRememberCode,
+    );
+  if (rememberedReceipt) return limitPermissionMessage(rememberedReceipt);
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
   }
@@ -354,10 +368,13 @@ function formatPermissionContextLines(
   const context = request.jobId
     ? `scheduled job${request.jobName ? `: ${sanitizePermissionText(request.jobName, 120, 40)}` : ''}`
     : 'agent chat';
+  const cardContextLines = hasEligiblePermissionCardAffordances(request)
+    ? formatPermissionCardPreTapLines(request.cardAffordances)
+    : familyScopeCoverageLines(request);
   const lines = [
     `Agent: ${formatPermissionAgentDisplayName(request.sourceAgentFolder)}`,
     `Context: ${context}`,
-    ...familyScopeCoverageLines(request),
+    ...cardContextLines,
   ];
   if (typeof request.threadId === 'string' && request.threadId.trim() !== '') {
     lines.push('Approval applies to the parent conversation.');
@@ -373,7 +390,11 @@ function formatPermissionContextLines(
       );
     }
   }
-  if (request.promotionHintCount && request.firstAskedAt) {
+  if (
+    !hasEligiblePermissionCardAffordances(request) &&
+    request.promotionHintCount &&
+    request.firstAskedAt
+  ) {
     const days = permissionAskSpanDays(request.firstAskedAt);
     lines.push(
       `Approved once ${request.promotionHintCount} times in ${days} ${days === 1 ? 'day' : 'days'} — and it is asking again now. Approve permanently?`,
@@ -516,7 +537,7 @@ function permissionAccessLabel(
   if (capabilityName) return capabilityName;
   const toolName =
     scopedRule?.toolName || requestedToolName || request.toolName;
-  const toolLabel = userFacingToolLabel(toolName);
+  const toolLabel = permissionHumanToolLabel(toolName);
   if (toolLabel) return toolLabel;
   const display = request.displayName || request.title || toolName;
   return formatPermissionRequestLabel(display);
@@ -535,11 +556,6 @@ function requestedToolNameFromInput(
     if (typeof first === 'string' && first.trim()) return first.trim();
   }
   return undefined;
-}
-
-function humanizeMcpServerName(toolName: string): string {
-  const match = toolName.match(/^mcp__([^_]+(?:_[^_]+)*)__/);
-  return match?.[1] ? humanizeIdentifier(match[1]) : 'third-party';
 }
 
 function humanizeIdentifier(value: string): string {
@@ -599,7 +615,7 @@ function semanticCapabilityId(
 
 function formatPermissionRequestLabel(label: string): string {
   const trimmed = label.trim();
-  const toolLabel = userFacingToolLabel(trimmed);
+  const toolLabel = permissionHumanToolLabel(trimmed);
   if (toolLabel) return humanizeIdentifier(toolLabel);
   return neutralizeImplementationTerms(
     sanitizePermissionText(trimmed, 160, 40),
@@ -614,21 +630,6 @@ function neutralizeImplementationTerms(input: string): string {
     text = text.replaceAll(technical, label);
   }
   return text;
-}
-
-function userFacingToolLabel(toolName: string | undefined): string | undefined {
-  const publicName = publicGantryToolNameForSdkTool(toolName?.trim() ?? '');
-  if (!publicName) return undefined;
-  const label = USER_FACING_TOOL_LABELS[publicName];
-  if (label) return label;
-  if (isCanonicalBrowserCapabilityRule(publicName)) return 'Browser';
-  if (publicName.startsWith('mcp__gantry__browser_')) return 'Browser';
-  const adminName = adminMcpToolNameFromFullName(publicName);
-  if (adminName) return `Gantry ${humanizeIdentifier(adminName)}`;
-  if (isThirdPartyMcpToolRule(publicName)) {
-    return `${humanizeMcpServerName(publicName)} tool access`;
-  }
-  return undefined;
 }
 
 function permissionCommand(request: PermissionApprovalRequest): string | null {
@@ -647,7 +648,7 @@ export function formatPermissionReceiptActionSummary(
   const tool =
     request.displayName ||
     request.title ||
-    userFacingToolLabel(request.toolName);
+    permissionHumanToolLabel(request.toolName);
   const input = request.toolInput;
   if (!input || typeof input !== 'object') {
     return tool ? formatPermissionRequestLabel(tool) : 'permission request';
