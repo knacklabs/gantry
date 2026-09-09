@@ -123,14 +123,30 @@ def resolve_skill(explicit: str | None) -> Path:
     raise AssertionError("unreachable")
 
 
+def review_excluded_prefixes(base: Path) -> tuple[str, ...]:
+    """Paths a product review never judges: harness bookkeeping, the workflow
+    ledgers, and — in a VENDORED client — the harness machinery itself
+    (`factory/`, `.claude/`, `constitution/`, ...), which `forge upgrade`
+    rewrites mid-task and which the stage measure already exempts
+    (`workflow_prefixes`). A re-vendor commit on a task branch once put 36
+    harness files into a client's review bundle and the quality lens raised
+    P1s against harness code the task never touched."""
+    from .stages import HARNESS_MACHINERY_PATHS, WORKFLOW_PATHS
+    from factory_lib import vendored_client
+    prefixes = set(HARNESS_PREFIXES) | set(WORKFLOW_PATHS)
+    if vendored_client(base):
+        prefixes |= set(HARNESS_MACHINERY_PATHS)
+    return tuple(sorted(prefixes))
+
+
 def _product_dirty(base: Path) -> list[str]:
-    from .stages import WORKFLOW_PATHS
+    excluded = review_excluded_prefixes(base)
     status = _require_git(base, "reading working tree status", "status",
                           "--porcelain", "--untracked-files=all")
     dirty = []
     for line in status.splitlines():
         path = line[3:].strip()
-        if path and not path.startswith(WORKFLOW_PATHS):
+        if path and not path.startswith(excluded):
             dirty.append(path)
     return dirty
 
@@ -324,13 +340,13 @@ def _contract_verdicts(
 def _artifact(
     lens: str, task: dict, report: dict, scope: list[str], base_sha: str,
     tip_sha: str, skills_used: list[str], all_tasks: list[dict],
-    started: dict[str, str],
+    started: dict[str, str], excluded: tuple[str, ...] = HARNESS_PREFIXES,
 ) -> dict:
     findings = [
         f for f in report.get("findings", [])
         if isinstance(f, dict) and not str(
             (f.get("code_location") or {}).get("file_path", "")
-        ).startswith(HARNESS_PREFIXES)
+        ).startswith(excluded)
     ]
     blocking = [f for f in findings if f.get("priority") in ("P0", "P1")]
     non_blocking = [f for f in findings if f.get("priority") not in ("P0", "P1")]
@@ -372,8 +388,7 @@ def product_only_tip(worktree: Path, base_sha: str) -> str:
     gate refused a task whose product review was clean (observed 2026-09-04,
     issue #171). With the bookkeeping at the base, the bundle is the product
     delta only. The base is untouched and stays an ancestor of the new tip."""
-    from .stages import WORKFLOW_PATHS
-    prefixes = tuple(sorted(set(HARNESS_PREFIXES) | set(WORKFLOW_PATHS)))
+    prefixes = review_excluded_prefixes(worktree)
     changed = [
         p for p in _require_git(worktree, "listing the review diff", "diff",
                                 "--name-only", f"{base_sha}..HEAD").splitlines()
@@ -724,7 +739,7 @@ def _shared_terms(finding: dict | str, source: str) -> list[str]:
 
 
 def cmd_review(args: argparse.Namespace) -> None:
-    from .stages import WORKFLOW_PATHS, load_stages, task_for
+    from .stages import load_stages, task_for
 
     base = Path(args.repo).resolve() if args.repo else repo_root()
     if getattr(args, "reject", None):
@@ -759,11 +774,11 @@ def cmd_review(args: argparse.Namespace) -> None:
 
     tip_sha = _require_git(base, "resolving HEAD", "rev-parse", "--verify", "HEAD^{commit}")
     base_sha = resolve_review_base(base, stage, state, tip_sha)
+    excluded = review_excluded_prefixes(base)
     scope = sorted(
         p for p in _require_git(base, "listing the task diff", "diff",
                                 "--name-only", f"{base_sha}...HEAD").splitlines()
-        if p.strip() and not p.startswith(WORKFLOW_PATHS)
-        and not p.startswith(HARNESS_PREFIXES)
+        if p.strip() and not p.startswith(excluded)
     )
     if not scope:
         fail(f"no product paths changed between {base_sha[:12]} and HEAD — nothing to review")
@@ -820,7 +835,7 @@ def cmd_review(args: argparse.Namespace) -> None:
     outcome: dict[str, dict] = {}
     for lens in lenses:
         artifact = _artifact(lens, task, reports[lens], scope, base_sha, tip_sha,
-                             skills_used, all_tasks, started)
+                             skills_used, all_tasks, started, excluded)
         # A rejection is part of the task's review record: a later round must
         # not erase it (the ledgered lesson keeps the reviewer from re-raising
         # it; the artifact keeps the human able to see it was set aside).
