@@ -21,7 +21,10 @@ import {
   unregisterPermissionRunRestriction,
 } from '@core/runtime/permission-decision-coordinator.js';
 import * as permissionCoordinator from '@core/runtime/permission-decision-coordinator.js';
-import { registerWorkerPermissionRunRestriction } from '@core/runtime/agent-spawn-permission-run-restriction.js';
+import {
+  registerWorkerPermissionRunRestriction,
+  setupPermissionRunRestriction,
+} from '@core/runtime/agent-spawn-permission-run-restriction.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import { computePermissionEffectHash } from '@core/domain/permission-effect-key.js';
 
@@ -1265,6 +1268,32 @@ describe('coordinatePermissionDecision', () => {
       parentTaskId: 'task-parent',
     });
     unregisterPermissionRunRestriction(key);
+    expect(permissionRunRestriction(key)).toBeUndefined();
+  });
+
+  it('exposes the approver label from AgentInput through setupPermissionRunRestriction into the registry', () => {
+    const setup = setupPermissionRunRestriction(
+      'main_agent',
+      {
+        appId: 'app:test',
+        agentId: 'agent:test',
+        threadId: 'thread:test',
+        memoryUserId: 'person:approver',
+        memoryUserLabel: 'Approver',
+      },
+      false,
+    );
+    const key = {
+      sourceAgentFolder: 'main_agent',
+      responseKeyId: setup.ipcAuth.responseKeyId,
+    };
+
+    expect(permissionRunRestriction(key)).toMatchObject({
+      memoryUserId: 'person:approver',
+      memoryUserLabel: 'Approver',
+    });
+
+    setup.unregisterPermissionRunRestriction();
     expect(permissionRunRestriction(key)).toBeUndefined();
   });
 
