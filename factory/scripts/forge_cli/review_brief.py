@@ -142,9 +142,74 @@ def _task_section(task: dict, base: Path | None = None) -> list[str]:
         "",
     ])
     if base is not None:
+        lines.extend(_settled_section(base, task))
         lines.extend(_lessons_section(base, task))
         lines.extend(_evidence_section(base))
     return lines
+
+
+def _plan_section_bodies(text: str, wanted: tuple[str, ...]) -> list[tuple[str, str]]:
+    """`## <header>` sections of a plan whose header contains one of `wanted`
+    (case-insensitive), as (header, body) pairs."""
+    out: list[tuple[str, str]] = []
+    header, body = "", []
+    for line in text.splitlines() + ["## "]:
+        if line.startswith("## "):
+            if header and any(w in header.lower() for w in wanted):
+                out.append((header, "\n".join(body).strip()))
+            header, body = line[3:].strip(), []
+        else:
+            body.append(line)
+    return out
+
+
+def _settled_section(base: Path, task: dict) -> list[str]:
+    """What this task's review may not relitigate: the story plan's decisions
+    and rulings, and the contracts of tasks already shipped in the story.
+
+    A reviewer that sees only one task's slice can find "defects" that an
+    accepted decision requires (a client's three-lens review demanded, three
+    rounds running, a guard the approved contract explicitly forbids, and its
+    fix broke the story's pinned scenario). Those are proposals to change a
+    decision, not findings against the diff; the brief says so."""
+    from .stages import load_stages
+    state = load_json(run_state_path(base), default={})
+    issue = state.get("issue_key") or state.get("story") or ""
+    lines: list[str] = []
+    plan_files = sorted((base / "plans" / "active").glob(f"{issue}-*.md")) if issue else []
+    for plan in plan_files[:1]:
+        try:
+            text = plan.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for header, body in _plan_section_bodies(text, ("decision", "ruling")):
+            if body:
+                lines.extend([f"#### Story plan — {header}", "", body, ""])
+    done = {s.get("id") for s in load_stages(base).get("stages", [])
+            if isinstance(s, dict) and s.get("status") == "done"}
+    decomposition = load_json(protected_decomposition_state_path(base), default={})
+    shipped: list[str] = []
+    for other in decomposition.get("tasks") or []:
+        if not isinstance(other, dict) or other.get("id") == task.get("id"):
+            continue
+        if other.get("id") not in done:
+            continue
+        for contract in other.get("plan_contracts") or []:
+            if isinstance(contract, dict) and contract.get("statement"):
+                shipped.append(f"- **{contract.get('id')}** ({other.get('id')}): "
+                               f"{contract['statement']}")
+    if shipped:
+        lines.extend(["#### Contracts shipped by earlier tasks in this story", ""]
+                     + shipped + [""])
+    if not lines:
+        return []
+    return ["### Settled — do not relitigate", "",
+            "The following are accepted: the story plan's decisions and rulings, "
+            "and the contracts of tasks already sealed in this story. A finding "
+            "that contradicts one is a proposal to change a decision, which belongs "
+            "in a decision record, not in this review; do not raise it as a defect. "
+            "Rejected findings from earlier rounds are ledgered as lessons below.",
+            ""] + lines
 
 
 def cmd_review_brief(args: argparse.Namespace) -> None:

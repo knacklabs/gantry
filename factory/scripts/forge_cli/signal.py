@@ -165,6 +165,38 @@ def cmd_escalate(args: argparse.Namespace) -> None:
           f"  missing decision: {missing}")
 
 
+def _named_paths(message: str, refs: list[str]) -> list[str]:
+    """Paths a signal names: anything with a slash, or a root-level filename
+    (a bare token with an extension, like README.md or package.json)."""
+    import re
+    tokens = re.findall(r"[\w.-]*/[\w./-]+|[\w-]+\.[A-Za-z0-9]+", message)
+    strip = "`'\",.;:()"
+    return [t.strip(strip) for t in tokens + list(refs) if t.strip(strip)]
+
+
+def _refuse_sibling_scope(base: Path, message: str, refs: list[str]) -> None:
+    """A scope change into a SIBLING active stage's write scope is not a
+    question for the orchestrator to arbitrate mid-run; it is a plan error.
+    Refused naming the sibling, so the coordinator re-plans the two tasks."""
+    from .stages import _covered, _overlap_scope, active_stages_everywhere, task_for
+    own = load_json(run_state_path(base), default={}).get("task_id") or ""
+    siblings = [(root, stage) for root, stage in active_stages_everywhere(base)
+                if stage.get("id") != own]
+    if not own and len(siblings) == 1:
+        return  # the only active stage is this run's own
+    named = _named_paths(message, refs)
+    for root, stage in siblings:
+        sibling = stage.get("id", "")
+        scope = _overlap_scope(
+            root, task_for(root, sibling) or task_for(base, sibling), stage)
+        hits = sorted({p for p in named if p and _covered(p.rstrip("/"), scope)})
+        if hits:
+            fail(f"scope-change refused: {', '.join(hits)} belongs to task {sibling}, "
+                 f"active in {root} — a task never writes into a sibling's scope. "
+                 "The coordinator re-plans the two tasks (split the area, or "
+                 "serialise them); this run keeps to its own scope.")
+
+
 def cmd_raise(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
     if args.kind not in KINDS:
@@ -172,6 +204,8 @@ def cmd_raise(args: argparse.Namespace) -> None:
     payload = {"generated_by": args.by, "kind": args.kind, "message": args.message.strip()}
     if not payload["message"]:
         fail("a signal needs a message — one sentence: what contradicts / what is unclear")
+    if args.kind == "scope-change":
+        _refuse_sibling_scope(base, payload["message"], args.refs or [])
     validate_payload(base, "signal", payload)
     events = load_events(base)
     seq = sum(1 for e in events if e.get("event") == "raised") + 1

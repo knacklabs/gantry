@@ -71,9 +71,10 @@ def _stages_for(base: Path, story: str) -> dict:
     """
     if not story:  # no active story -> no active stages (story_dir rejects "")
         return {}
-    scoped = story_dir(base, story) / "stages.json"
-    if scoped.is_file():
-        return load_json(scoped, default={})
+    from .stages import load_story_stages
+    scoped = load_story_stages(base, story)
+    if scoped:
+        return scoped
     data = load_json(base / ".factory" / "stages.json", default={})
     return data if data.get("issue") == story else {}
 

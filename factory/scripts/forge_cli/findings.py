@@ -24,11 +24,19 @@ WATCH_AT = 2
 
 def _finding_rows(task: str, aspect: str, data: dict) -> list[dict]:
     rows: list[dict] = []
-    for field, blocking in (("blocking_findings", True), ("non_blocking_findings", False)):
+    for field, blocking in (("blocking_findings", True), ("non_blocking_findings", False),
+                            ("rejected_findings", False)):
         for entry in data.get(field) or []:
+            # A rejected finding is recorded as {finding, reason, cite, ...}; it
+            # clusters on the finding it wrapped, flagged so the pattern report
+            # shows what reviewers keep raising against settled text.
+            rejected = field == "rejected_findings"
+            if rejected and isinstance(entry, dict) and isinstance(entry.get("finding"), dict):
+                entry = entry["finding"]
             if isinstance(entry, dict):
                 rows.append({
                     "task": task, "aspect": aspect, "blocking": blocking,
+                    "rejected": rejected,
                     "category": str(entry.get("category", "")).strip(),
                     "area": str(entry.get("area", "")).strip(),
                     "summary": str(entry.get("summary", "")).strip(),

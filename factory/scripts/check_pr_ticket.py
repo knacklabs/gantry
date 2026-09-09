@@ -103,19 +103,49 @@ def roadmap_at(root: Path, ref: str) -> dict[str, dict]:
     }
 
 
-def added_paths(root: Path, base: str) -> set[str]:
+def _added_in(lines: str) -> set[str]:
     added: set[str] = set()
-    for line in git_paths(
-        root, "diff", "--name-status", f"{base}..HEAD",
-    ).splitlines():
+    for line in lines.splitlines():
         fields = line.split("\t")
-        if len(fields) < 2:
-            continue
-        status = fields[0]
-        path = fields[-1]
-        if status == "A":
-            added.add(path)
+        if len(fields) >= 2 and fields[0] == "A":
+            added.add(fields[-1])
     return added
+
+
+def _is_ancestor(root: Path, commit: str, of: str) -> bool:
+    return subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit, of], cwd=root,
+        capture_output=True, text=True, encoding="utf-8", errors="strict",
+    ).returncode == 0
+
+
+def added_paths(root: Path, base: str) -> set[str]:
+    """Paths this PR's OWN commits added: new at HEAD relative to `base` AND
+    introduced by a commit in base..HEAD that is not a TRUNK merge.
+
+    A trunk merge (a merge whose second parent is already an ancestor of
+    `base`, the trunk merge-base at check time) is something the branch
+    RECEIVED, carrying every work record the trunk completed meanwhile; those
+    are not this PR's to declare. A merge of a side branch is the PR's own
+    work and its additions count."""
+    def added_by(sha: str, against: str) -> set[str]:
+        return _added_in(git_paths(
+            root, "diff-tree", "-r", "--no-commit-id", "--name-status",
+            "--diff-filter=A", against, sha,
+        ))
+
+    in_tree = _added_in(git_paths(root, "diff", "--name-status", f"{base}..HEAD"))
+    own: set[str] = set()
+    for line in git(root, "log", "--format=%H %P", f"{base}..HEAD").splitlines():
+        sha, *parents = line.split()
+        if len(parents) > 1 and _is_ancestor(root, parents[1], base):
+            # A trunk merge: what it brought from the trunk is not ours, but a
+            # path present in NEITHER parent (added while resolving the merge)
+            # is — take the intersection of the additions against each parent.
+            own |= added_by(sha, parents[0]) & added_by(sha, parents[1])
+            continue
+        own |= added_by(sha, parents[0] if parents else "--root")
+    return in_tree & own
 
 
 def changed_paths(root: Path, base: str) -> set[str]:

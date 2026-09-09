@@ -57,11 +57,7 @@ def test_approval_to_pr_without_asking_the_human_anything_settled(
     code, out = record_task_grill(repo, STAGE_TASK, approve=False)
     assert code == 0, out
 
-    # ---- approval: only after the board actually showed the plan ----------
-    code, out = run(repo, "forge.py", "task", "approve", "T1",
-                    "--by", "Nandu")
-    assert code != 0 and "has not been opened on the board" in out, out
-    view_plan_on_board(repo, "T1")
+    # ---- approval: the board link is printed, never demanded ---------------
     code, out = run(repo, "forge.py", "task", "approve", "T1",
                     "--by", "Nandu")
     assert code == 0, out
