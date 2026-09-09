@@ -529,7 +529,6 @@ async function handleTelegramMemoryForgetCallback(
     },
   );
 }
-
 async function handleTelegramMemoryReviewCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -599,7 +598,6 @@ async function handleTelegramMemoryReviewCallback(
       );
   }
 }
-
 async function handleTelegramBrainReviewCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -663,7 +661,6 @@ async function handleTelegramBrainReviewCallback(
       );
   }
 }
-
 async function handleTelegramObserverCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -826,7 +823,6 @@ async function authorizePendingTelegramPermission(
   await rejectUnauthorizedTelegramPermission(ctx, pending, userId);
   return null;
 }
-
 function telegramPermissionCallbackChatId(
   ctx: TelegramCallbackContext,
 ): string {
@@ -836,7 +832,6 @@ function telegramPermissionCallbackChatId(
     ''
   );
 }
-
 function telegramPermissionCallbackUserId(
   ctx: TelegramCallbackContext,
 ): string {
@@ -846,14 +841,12 @@ function telegramPermissionCallbackUserId(
     ''
   );
 }
-
 function telegramPermissionApprovalChatId(pending: PendingPermission): string {
   return (pending.approvalContextJid || `tg:${pending.chatId}`).replace(
     /^tg:/,
     '',
   );
 }
-
 async function rejectUnauthorizedTelegramPermission(
   ctx: TelegramCallbackContext,
   pending: PendingPermission,

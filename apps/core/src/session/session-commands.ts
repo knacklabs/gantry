@@ -544,7 +544,6 @@ export async function handleSessionCommand(opts: {
     );
     return { handled: true, success: true };
   }
-
   if (command.kind === 'status') {
     deps.advanceCursor(cmdMsg);
     const modelStatusText = formatModelStatus(deps.getModelStatus?.(), {
@@ -614,7 +613,6 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(resolved.message);
       return { handled: true, success: true };
     }
-
     try {
       await deps.setGroupModelOverride(resolved.alias);
       deps.updateModelStatusSelection?.({
@@ -632,7 +630,6 @@ export async function handleSessionCommand(opts: {
       );
       return { handled: true, success: false };
     }
-
     deps.advanceCursor(cmdMsg);
     const family = getModelFamily(resolved.alias);
     const selectionLabel = family
@@ -642,7 +639,6 @@ export async function handleSessionCommand(opts: {
     await deps.sendMessage(`Using ${selectionLabel} for this session.`);
     return { handled: true, success: true };
   }
-
   if (command.kind === 'model_default') {
     try {
       await deps.setGroupModelOverride(undefined);
@@ -659,7 +655,6 @@ export async function handleSessionCommand(opts: {
       );
       return { handled: true, success: false };
     }
-
     deps.advanceCursor(cmdMsg);
     if (defaultModel) {
       const defaultEntry = findModelByRunnerModel(defaultModel);
@@ -673,7 +668,6 @@ export async function handleSessionCommand(opts: {
     }
     return { handled: true, success: true };
   }
-
   if (command.kind === 'thinking_set') {
     try {
       await deps.setGroupThinkingOverride(command.value);
@@ -692,7 +686,6 @@ export async function handleSessionCommand(opts: {
     );
     return { handled: true, success: true };
   }
-
   if (command.kind === 'thinking_default') {
     try {
       await deps.setGroupThinkingOverride(undefined);
