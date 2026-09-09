@@ -66,7 +66,6 @@ import {
 import { permissionRunRestriction } from './permission-decision-coordinator.js';
 import { resolvePermissionDecisionIdentity } from './ipc-permission-decision-identity.js';
 import * as remember from './permission-remember-settlement.js';
-
 export { publishPendingInteractionRuntimeEvent };
 export {
   writePermissionInteractionFailure,

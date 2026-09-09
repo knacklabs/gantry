@@ -73,7 +73,7 @@ import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initia
 import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
 import { spawnAgent, type AvailableGroup } from '../../runtime/agent-spawn.js';
 import { createJobSetupRequiredNotificationPort } from '../../jobs/execution-readiness.js';
-import { createRuntimeGroupProcessor } from './runtime-group-processor-deps.js';
+import { createRuntimeGroupProcessor } from './group-processor-deps.js';
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
   RuntimeConversationRouteRepository &

@@ -489,7 +489,6 @@ async function handleTelegramJobPermissionCallback(
   });
   await ctx.answer('Decision received.');
 }
-
 async function handleTelegramMemoryForgetCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -731,7 +730,6 @@ async function handleTelegramObserverCallback(
     },
   );
 }
-
 async function handleTelegramPermissionCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -792,21 +790,13 @@ async function handleTelegramPermissionCallback(
   }
   await ctx.answer(permissionSettlementReceipt(mode, pending));
 }
-
 async function authorizePendingTelegramPermission(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
   pending: PendingPermission,
 ): Promise<string | null> {
   const callbackChatId = telegramPermissionCallbackChatId(ctx);
-  if (!callbackChatId) {
-    await ctx.answer(
-      'This approval request belongs to a different chat.',
-      true,
-    );
-    return null;
-  }
-  if (callbackChatId !== pending.chatId) {
+  if (!callbackChatId || callbackChatId !== pending.chatId) {
     await ctx.answer(
       'This approval request belongs to a different chat.',
       true,

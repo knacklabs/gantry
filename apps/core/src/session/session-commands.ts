@@ -571,7 +571,6 @@ export async function handleSessionCommand(opts: {
     );
     return { handled: true, success: true };
   }
-
   if (command.kind === 'thinking_show') {
     const message = groupThinkingOverride
       ? `Current thinking: ${describeThinking(groupThinkingOverride)} (group override).`
@@ -580,7 +579,6 @@ export async function handleSessionCommand(opts: {
     await deps.sendMessage(message);
     return { handled: true, success: true };
   }
-
   if (command.kind === 'permissions_show' || command.kind === 'permissions_all' || command.kind === 'permissions_forget') {
     deps.advanceCursor(cmdMsg);
     const response = deps.remembered
