@@ -18,12 +18,16 @@ export type PermissionMemoryUsedBy = {
   more: number;
 };
 
-export type UsedByJobReader = (recordIds: string[]) => Promise<Map<string, PermissionMemoryUsedBy>>;
+export type UsedByJobReader = (
+  recordIds: string[],
+) => Promise<Map<string, PermissionMemoryUsedBy>>;
 
 export function createUsedByJobReader(input: {
   appId: string;
   permissions: PermissionRepository;
-  getJobById: (jobId: string) => Promise<{ name?: string; title?: string } | undefined>;
+  getJobById: (
+    jobId: string,
+  ) => Promise<{ name?: string; title?: string } | undefined>;
 }): UsedByJobReader {
   return async (recordIds) => {
     const rows = await input.permissions.listDecisionsByHumanDecisionRecordId({
@@ -41,7 +45,11 @@ export function createUsedByJobReader(input: {
         const name = job?.name ?? job?.title;
         if (name) jobs.push(name);
       }
-      if (jobs.length) result.set(recordId, { jobs: jobs.slice(0, 2), more: Math.max(0, jobs.length - 2) });
+      if (jobs.length)
+        result.set(recordId, {
+          jobs: jobs.slice(0, 2),
+          more: Math.max(0, jobs.length - 2),
+        });
     }
     return result;
   };
@@ -68,7 +76,8 @@ export async function permissionMemoryCommandResponse(input: {
     };
   }
   const personId = await input.resolvePersonId();
-  if (!personId) return { text: `${input.modeLine}\n${PERMISSION_MEMORY_EMPTY}` };
+  if (!personId)
+    return { text: `${input.modeLine}\n${PERMISSION_MEMORY_EMPTY}` };
   const rows = await input.service.list({
     appId: input.appId,
     agentFolder: input.agentFolder,
@@ -76,10 +85,29 @@ export async function permissionMemoryCommandResponse(input: {
   });
   if (input.command.kind === 'permissions_forget') {
     const prefix = input.command.prefix;
-    const matches = rows.filter((row) => row.shortId.toLowerCase().startsWith(prefix));
-    if (matches.length !== 1) return { text: matches.length ? PERMISSION_MEMORY_AMBIGUOUS : PERMISSION_MEMORY_NOT_FOUND };
-    const result = await input.service.revoke({ appId: input.appId, agentFolder: input.agentFolder, actingPersonId: personId, recordId: matches[0].id });
-    return { text: result === 'applied' ? permissionMemoryForgot(permissionMemoryScopeLabel(matches[0])) : result === 'already_revoked' ? 'Already forgotten.' : PERMISSION_MEMORY_NOT_FOUND };
+    const matches = rows.filter((row) =>
+      row.shortId.toLowerCase().startsWith(prefix),
+    );
+    if (matches.length !== 1)
+      return {
+        text: matches.length
+          ? PERMISSION_MEMORY_AMBIGUOUS
+          : PERMISSION_MEMORY_NOT_FOUND,
+      };
+    const result = await input.service.revoke({
+      appId: input.appId,
+      agentFolder: input.agentFolder,
+      actingPersonId: personId,
+      recordId: matches[0].id,
+    });
+    return {
+      text:
+        result === 'applied'
+          ? permissionMemoryForgot(permissionMemoryScopeLabel(matches[0]))
+          : result === 'already_revoked'
+            ? 'Already forgotten.'
+            : PERMISSION_MEMORY_NOT_FOUND,
+    };
   }
   const view = permissionMemoryListView({
     modeLine: input.modeLine,
@@ -91,7 +119,14 @@ export async function permissionMemoryCommandResponse(input: {
   });
   return {
     text: view.text,
-    ...(view.affordances.length ? { actionAffordances: view.affordances.map((action) => ({ kind: 'memory_forget' as const, ...action })) } : {}),
+    ...(view.affordances.length
+      ? {
+          actionAffordances: view.affordances.map((action) => ({
+            kind: 'memory_forget' as const,
+            ...action,
+          })),
+        }
+      : {}),
   };
 }
 
@@ -149,7 +184,7 @@ export function formatPermissionMemoryDate(
   value: string,
   timezone: string,
 ): string {
-  const parts = new Intl.DateTimeFormat('en-GB', {
+  const parts = new Intl.DateTimeFormat('en-US', {
     day: 'numeric',
     month: 'short',
     timeZone: timezone,
@@ -165,7 +200,11 @@ export function permissionMemoryListView(input: {
   usedBy?: Map<string, PermissionMemoryUsedBy>;
   all?: boolean;
 }): PermissionMemoryListMessageView {
-  if (input.rows.length === 0) return { text: `${input.modeLine}\n${PERMISSION_MEMORY_EMPTY}`, affordances: [] };
+  if (input.rows.length === 0)
+    return {
+      text: `${input.modeLine}\n${PERMISSION_MEMORY_EMPTY}`,
+      affordances: [],
+    };
   const shown = input.all ? input.rows : input.rows.slice(0, 10);
   const agentRouteKey = permissionMemoryAgentRouteKey(input.agentId);
   const rows = shown.map((row) =>
@@ -177,12 +216,13 @@ export function permissionMemoryListView(input: {
     }),
   );
   const older = input.rows.length - shown.length;
-  const footer = input.all || older === 0
-    ? []
-    : [
-        `Showing the 10 newest with buttons. ${older} older.`,
-        'Send /permissions all for the full list, or /permissions forget <id>.',
-      ];
+  const footer =
+    input.all || older === 0
+      ? []
+      : [
+          `Showing the 10 newest with buttons. ${older} older.`,
+          'Send /permissions all for the full list, or /permissions forget <id>.',
+        ];
   return {
     text: [input.modeLine, ...rows, ...footer].join('\n'),
     affordances: input.all
@@ -228,15 +268,18 @@ function scopeCategory(scopeKey: string | undefined): string | undefined {
   return value.split(':')[0];
 }
 
-function categoryNoun(category: string | undefined, principal?: string): string {
+function categoryNoun(
+  category: string | undefined,
+  principal?: string,
+): string {
   if (category === 'tool') return `${memoryToolLabel(principal)} actions`;
   return CATEGORY_NOUNS[category ?? ''] ?? 'this kind of action';
 }
 
 function memoryToolLabel(toolName: string | undefined): string {
   return (
-    permissionHumanToolLabel(toolName) ??
     (toolName === 'Bash' || toolName === 'RunCommand' ? 'Bash' : undefined) ??
+    permissionHumanToolLabel(toolName) ??
     toolName?.trim() ??
     'Tool'
   );

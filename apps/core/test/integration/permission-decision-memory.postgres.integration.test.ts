@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { permissionDecisionMemoryPostgres } from '@core/adapters/storage/postgres/schema/schema.js';
 import { HumanDecisionMemoryService } from '@core/application/permissions/human-decision-memory-service.js';
 import { projectHumanDecisionMatch } from '@core/application/permissions/human-decision-job-projection.js';
+import { PermissionManagementService } from '@core/application/permissions/permission-management-service.js';
 import {
   AllowOnceNeverPersistedError,
   HumanDecisionRequiresTypedAccessError,
@@ -722,6 +723,77 @@ maybeDescribe('Postgres permission decision memory', () => {
         railVersion: RAIL_CATALOG_VERSION,
       }),
     ).resolves.toEqual({ FileWrite: 2 });
+  });
+
+  it('lists one latest use per job by human decision record id from the durable audit rows written on both job lanes ordered by most recent use and ignores unrelated rows and other apps', async () => {
+    const recordId = '70000000-0000-4000-8000-000000000001';
+    const record = async (input: {
+      appId?: string;
+      humanDecisionRecordId: string;
+      jobId: string;
+      now: string;
+      toolName: string;
+    }) =>
+      new PermissionManagementService({ now: () => input.now }).recordDecision({
+        appId: (input.appId ?? APP) as never,
+        agentId: 'agent-one' as never,
+        requestId: `audit-${input.toolName}`,
+        toolName: input.toolName,
+        decision: { approved: true, decidedBy: 'human_decision' },
+        permissionRepository: runtime.repositories.permissions,
+        jobId: input.jobId,
+        auditMetadata: { humanDecisionRecordId: input.humanDecisionRecordId },
+      });
+
+    await record({
+      humanDecisionRecordId: recordId,
+      jobId: 'job-ipc',
+      now: '2026-09-02T00:00:00.000Z',
+      toolName: 'IPC job lane',
+    });
+    await record({
+      humanDecisionRecordId: recordId,
+      jobId: 'job-inline',
+      now: '2026-09-03T00:00:00.000Z',
+      toolName: 'inline job lane',
+    });
+    await record({
+      humanDecisionRecordId: recordId,
+      jobId: 'job-ipc',
+      now: '2026-09-04T00:00:00.000Z',
+      toolName: 'IPC job lane retry',
+    });
+    await record({
+      humanDecisionRecordId: '70000000-0000-4000-8000-000000000002',
+      jobId: 'job-unrelated',
+      now: '2026-09-05T00:00:00.000Z',
+      toolName: 'unrelated memory',
+    });
+    await record({
+      appId: 'another-app',
+      humanDecisionRecordId: recordId,
+      jobId: 'job-other-app',
+      now: '2026-09-06T00:00:00.000Z',
+      toolName: 'other app memory',
+    });
+
+    await expect(
+      runtime.repositories.permissions.listDecisionsByHumanDecisionRecordId({
+        appId: APP,
+        recordIds: [recordId],
+      }),
+    ).resolves.toEqual([
+      {
+        recordId,
+        jobId: 'job-ipc',
+        lastUsedAt: '2026-09-04T00:00:00.000Z',
+      },
+      {
+        recordId,
+        jobId: 'job-inline',
+        lastUsedAt: '2026-09-03T00:00:00.000Z',
+      },
+    ]);
   });
 
   it("finds a human decision by ordered candidate keys for one person, app and folder only: the first of two matching candidates wins, a revoked row, another person's row and a row from another rails version never match, and no row yields null", async () => {

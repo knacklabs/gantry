@@ -49,7 +49,7 @@ function service(
 ) {
   return {
     list: vi.fn(async () => rows),
-    revoke: vi.fn(async () => 'not_found' as const),
+    revoke: vi.fn(async () => 'applied' as const),
   } as unknown as HumanDecisionMemoryService;
 }
 
@@ -143,9 +143,9 @@ describe('permission memory listing', () => {
       timezone: 'Asia/Kolkata',
       all: true,
     });
-    expect(complete.text.split('\n')[1]).toStartWith(
-      `${rows[0]!.shortId} · Allow`,
-    );
+    expect(
+      complete.text.split('\n')[1]?.startsWith(`${rows[0]!.shortId} · Allow`),
+    ).toBe(true);
     expect(complete.affordances).toEqual([]);
     expect(all.text).not.toContain(rows[10]!.shortId);
     expect(

@@ -28,7 +28,10 @@ const notFound = (): MessageActionOutcome => ({
 
 export function createMemoryForgetHandler(input: {
   getConversationRoutes: () => Record<string, ConversationRoute>;
-  resolvePerson: (action: MemoryForgetMessageActionInput, route: ConversationRoute) => Promise<string | undefined>;
+  resolvePerson: (
+    action: MemoryForgetMessageActionInput,
+    route: ConversationRoute,
+  ) => Promise<string | undefined>;
   resolvePermissionMode: (route: ConversationRoute) => string;
   service: HumanDecisionMemoryService;
   usedBy: UsedByJobReader;
@@ -38,7 +41,11 @@ export function createMemoryForgetHandler(input: {
     const routes = input.getConversationRoutes();
     const agentId = resolvePermissionMemoryAgentRouteKey(
       action.agentRouteKey,
-      Object.values(routes).map((route) => route.agentId ?? agentIdForFolder(route.folder)),
+      new Set(
+        Object.values(routes).map(
+          (route) => route.agentId ?? agentIdForFolder(route.folder),
+        ),
+      ),
     );
     if (!agentId) return notFound();
     const route = resolveConversationRoute(
@@ -49,9 +56,10 @@ export function createMemoryForgetHandler(input: {
       action.providerAccountId,
     );
     if (!route || route.conversationKind !== 'dm') return notFound();
+    const appId = appIdFromConversationJid(action.conversationJid);
+    if (!appId) return notFound();
     const personId = await input.resolvePerson(action, route);
     if (!personId) return notFound();
-    const appId = appIdFromConversationJid(action.conversationJid) ?? 'default';
     const rows = await input.service.list({
       appId,
       agentFolder: route.folder,

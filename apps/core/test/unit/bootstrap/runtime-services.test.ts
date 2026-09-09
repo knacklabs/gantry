@@ -177,6 +177,7 @@ function makeChannelWiring(): ChannelWiring {
     setDurableOutboundAttemptFactory: vi.fn(),
     setMessageActionHandler: vi.fn(),
     setMemoryReviewMessageActionHandler: vi.fn(),
+    setMemoryForgetMessageActionHandler: vi.fn(),
     setObserverFeedbackMessageActionHandler: vi.fn(),
     setBrainDreamReviewMessageActionHandler: vi.fn(),
     sendStreamingChunk: vi.fn(async () => {}),
@@ -345,6 +346,35 @@ describe('buildLiveTurnRecoveryCapabilityGate', () => {
 });
 
 describe('startRuntimeServices', () => {
+  it('binds the memory_forget host handler at startup through the channel wiring setter', async () => {
+    const channelWiring = makeChannelWiring();
+
+    await startRuntimeServices(
+      {
+        app: makeApp(),
+        channelWiring,
+        liveTurnsEnabled: false,
+        jobExecution: false,
+      },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        getPermissionDecisionMemoryRepository: () => ({}) as never,
+        getPermissionRepository: () => ({}) as never,
+        recoverPendingMessages: vi.fn() as any,
+        logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+        exit: vi.fn() as any,
+      },
+    );
+
+    expect(
+      channelWiring.setMemoryForgetMessageActionHandler,
+    ).toHaveBeenCalledWith(expect.any(Function));
+  });
+
   it('wires the inline record-decision closure and the decision-memory repository into the scheduled projection input', async () => {
     startupOrder.wireInlineTools.mockClear();
     const decisionMemory = { findHumanDecision: vi.fn() };
@@ -401,6 +431,9 @@ describe('startRuntimeServices', () => {
   });
 
   it('preserves runtime-services startup order and snapshot shape', async () => {
+    startupOrder.wireInlineTools.mockClear();
+    startupOrder.recoverAsyncTasks.mockClear();
+    startupOrder.startAsyncRecoveryLoop.mockClear();
     const order: string[] = [];
     const app = makeApp();
     const channelWiring = makeChannelWiring();
