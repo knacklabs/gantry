@@ -6684,7 +6684,8 @@ describe('Slack channel', () => {
         },
       ],
     });
-    const message = appRef.current.client.chat.postMessage.mock.calls.at(-1)?.[0];
+    const message =
+      appRef.current.client.chat.postMessage.mock.calls.at(-1)?.[0];
     const forgetButton = message.blocks
       .flatMap((block: any) => block.elements ?? [])
       .find((button: any) => button.text?.text === 'Forget a1b2c3');

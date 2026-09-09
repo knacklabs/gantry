@@ -113,7 +113,12 @@ export function readTeamsMessageAction(value: unknown):
     };
   }
   if (payload.kind === 'memory_forget') {
-    if (typeof payload.recordId !== 'string' || !payload.recordId.trim() || typeof payload.agentRouteKey !== 'string' || !payload.agentRouteKey.trim()) {
+    if (
+      typeof payload.recordId !== 'string' ||
+      !payload.recordId.trim() ||
+      typeof payload.agentRouteKey !== 'string' ||
+      !payload.agentRouteKey.trim()
+    ) {
       return null;
     }
     return {
@@ -288,28 +293,51 @@ export async function handleTeamsMessageAction(input: {
   }
   if (payload.kind === 'memory_forget') {
     const messageId = input.message.replyToId ?? input.message.id;
-    const outcome = await withObserverDigestEditLock(`teams:${input.jid}:${messageId}`, async () => {
-      const result = await input.onMessageAction?.({
-        kind: 'memory_forget', conversationJid: input.jid,
-        ...(input.providerAccountId ? { providerAccountId: input.providerAccountId } : {}),
-        userId: input.userId, recordId: payload.recordId, agentRouteKey: payload.agentRouteKey,
-        ...(input.message.threadId ? { threadId: input.message.threadId } : {}),
-      });
-      const conversationId = teamsConversationIdFromJid(input.jid);
-      if (result?.permissionMemoryListView && conversationId && messageId && input.updateReviewCard) {
-        await input.updateReviewCard({
-          conversationId,
-          messageId,
-          card: buildTeamsMessageCard({
-            text: result.permissionMemoryListView.text,
-            targetJid: input.jid,
-            ...(input.message.threadId ? { threadId: input.message.threadId } : {}),
-            actionAffordances: result.permissionMemoryListView.affordances.map((affordance) => ({ kind: 'memory_forget' as const, ...affordance })),
-          }),
+    const outcome = await withObserverDigestEditLock(
+      `teams:${input.jid}:${messageId}`,
+      async () => {
+        const result = await input.onMessageAction?.({
+          kind: 'memory_forget',
+          conversationJid: input.jid,
+          ...(input.providerAccountId
+            ? { providerAccountId: input.providerAccountId }
+            : {}),
+          userId: input.userId,
+          recordId: payload.recordId,
+          agentRouteKey: payload.agentRouteKey,
+          ...(input.message.threadId
+            ? { threadId: input.message.threadId }
+            : {}),
         });
-      }
-      return result;
-    });
+        const conversationId = teamsConversationIdFromJid(input.jid);
+        if (
+          result?.permissionMemoryListView &&
+          conversationId &&
+          messageId &&
+          input.updateReviewCard
+        ) {
+          await input.updateReviewCard({
+            conversationId,
+            messageId,
+            card: buildTeamsMessageCard({
+              text: result.permissionMemoryListView.text,
+              targetJid: input.jid,
+              ...(input.message.threadId
+                ? { threadId: input.message.threadId }
+                : {}),
+              actionAffordances:
+                result.permissionMemoryListView.affordances.map(
+                  (affordance) => ({
+                    kind: 'memory_forget' as const,
+                    ...affordance,
+                  }),
+                ),
+            }),
+          });
+        }
+        return result;
+      },
+    );
     if (outcome) {
       await input.sendDenied(
         teamsConversationIdFromJid(input.jid),

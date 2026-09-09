@@ -2,7 +2,11 @@ import type { ObserverDigestMessageView } from './observer-digest-view.js';
 
 export interface PermissionMemoryListMessageView {
   text: string;
-  affordances: Array<{ recordId: string; agentRouteKey: string; label: string }>;
+  affordances: Array<{
+    recordId: string;
+    agentRouteKey: string;
+    label: string;
+  }>;
 }
 
 export type MessageActionAffordanceKind =

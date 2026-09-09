@@ -103,7 +103,8 @@ function slackActionValue(
       agentRouteKey: action.agentRouteKey,
       ...(providerAccountId ? { providerAccountId } : {}),
     });
-    return action.recordId.trim() && action.agentRouteKey.trim() &&
+    return action.recordId.trim() &&
+      action.agentRouteKey.trim() &&
       Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
       ? value
       : undefined;

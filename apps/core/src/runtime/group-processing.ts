@@ -161,8 +161,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       (rawMemoryUserId
         ? [...missedMessages]
             .reverse()
-            .find((message) => message.sender === rawMemoryUserId)?.sender_name
-            ?.trim() || undefined
+            .find((message) => message.sender === rawMemoryUserId)
+            ?.sender_name?.trim() || undefined
         : undefined);
     const resolveActionMemoryUserId = createGroupProcessingPersonResolver({
       deps,

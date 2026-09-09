@@ -5805,10 +5805,9 @@ describe('TelegramChannel', () => {
         'Current permission mode: auto (agent/default).\nAllow · read-only reads · anywhere · 2 Sep · Ada',
         { reply_markup: undefined },
       );
-      expect(currentBot().api.sendMessage.mock.calls.at(-1)?.slice(0, 2)).toEqual([
-        '100200300',
-        'Forgot.',
-      ]);
+      expect(
+        currentBot().api.sendMessage.mock.calls.at(-1)?.slice(0, 2),
+      ).toEqual(['100200300', 'Forgot.']);
     });
 
     it('CAPFIX-1-2 card keeps ability copy plain and the technical delta expandable', async () => {

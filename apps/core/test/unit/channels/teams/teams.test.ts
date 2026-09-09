@@ -2005,7 +2005,11 @@ describe('TeamsChannel adapter scaffold', () => {
       updateAdaptiveCard: vi.fn(async () => ({})),
     };
     const channel = new TeamsChannel(
-      { clientId: 'client-id', clientSecret: 'client-secret', tenantId: 'tenant-id' },
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
       {
         ...makeOpts(),
         onMessageAction: vi.fn(async () => ({

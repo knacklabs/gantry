@@ -324,7 +324,11 @@ export function buildTeamsMessageCard(options: {
                   kind: action.kind,
                   actionToken: action.actionToken,
                 }
-              : { kind: action.kind, recordId: action.recordId, agentRouteKey: action.agentRouteKey }),
+              : {
+                  kind: action.kind,
+                  recordId: action.recordId,
+                  agentRouteKey: action.agentRouteKey,
+                }),
             targetJid: options.targetJid,
             ...threadFragment,
           },

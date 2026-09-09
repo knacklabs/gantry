@@ -117,26 +117,42 @@ export function registerSlackMessageActionHandler(
     ) {
       const recordId = payload.recordId;
       const agentRouteKey = payload.agentRouteKey;
-      const outcome = await withObserverDigestEditLock(`sl:${channelId}:${body.message?.ts ?? ''}`, async () => {
-        const result = await opts?.onMessageAction?.({
-          kind: 'memory_forget',
-          conversationJid: `sl:${channelId}`,
-          ...providerAccountFromPayload(payload, opts?.providerAccountId),
-          threadId: body.message?.thread_ts,
-          userId,
-          recordId,
-          agentRouteKey,
-        });
-        if (result?.permissionMemoryListView && body.message?.ts) {
-          await app.client.chat.update({
-            channel: channelId,
-            ts: body.message.ts,
-            text: result.permissionMemoryListView.text,
-            blocks: slackMessageActionBlocks(result.permissionMemoryListView.text, result.permissionMemoryListView.affordances.map((affordance) => ({ kind: 'memory_forget' as const, ...affordance })), { providerAccountId: payload.providerAccountId as string | undefined }),
+      const outcome = await withObserverDigestEditLock(
+        `sl:${channelId}:${body.message?.ts ?? ''}`,
+        async () => {
+          const result = await opts?.onMessageAction?.({
+            kind: 'memory_forget',
+            conversationJid: `sl:${channelId}`,
+            ...providerAccountFromPayload(payload, opts?.providerAccountId),
+            threadId: body.message?.thread_ts,
+            userId,
+            recordId,
+            agentRouteKey,
           });
-        }
-        return result;
-      });
+          if (result?.permissionMemoryListView && body.message?.ts) {
+            await app.client.chat.update({
+              channel: channelId,
+              ts: body.message.ts,
+              text: result.permissionMemoryListView.text,
+              blocks: slackMessageActionBlocks(
+                result.permissionMemoryListView.text,
+                result.permissionMemoryListView.affordances.map(
+                  (affordance) => ({
+                    kind: 'memory_forget' as const,
+                    ...affordance,
+                  }),
+                ),
+                {
+                  providerAccountId: payload.providerAccountId as
+                    | string
+                    | undefined,
+                },
+              ),
+            });
+          }
+          return result;
+        },
+      );
       await app.client.chat.postEphemeral({
         channel: channelId,
         user: userId,

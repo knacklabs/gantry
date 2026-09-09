@@ -75,7 +75,10 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
   const buttons = (actions ?? [])
     .map((action) => {
       if (action.kind === 'memory_forget') {
-        const callbackData = telegramMemoryForgetCallbackData(action.recordId, action.agentRouteKey);
+        const callbackData = telegramMemoryForgetCallbackData(
+          action.recordId,
+          action.agentRouteKey,
+        );
         return callbackData && action.label.trim()
           ? {
               text: truncateUtf8ToByteLimit(
@@ -138,13 +141,16 @@ export function telegramMemoryForgetCallbackData(
   agentRouteKey: string,
 ): string | undefined {
   const data = `mf:${encodeURIComponent(recordId)}:${encodeURIComponent(agentRouteKey)}`;
-  return recordId.trim() && agentRouteKey.trim() &&
+  return recordId.trim() &&
+    agentRouteKey.trim() &&
     Buffer.byteLength(data, 'utf8') <= TELEGRAM_CALLBACK_DATA_MAX_BYTES
     ? data
     : undefined;
 }
 
-export function parseTelegramMemoryForgetCallback(data: string): { recordId: string; agentRouteKey: string } | null {
+export function parseTelegramMemoryForgetCallback(
+  data: string,
+): { recordId: string; agentRouteKey: string } | null {
   const match = TELEGRAM_MEMORY_FORGET_CALLBACK_PATTERN.exec(data);
   if (!match?.[1]) return null;
   try {

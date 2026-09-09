@@ -153,7 +153,9 @@ export function createGroupProcessingSessionCommandHandlers(input: {
             agentFolder: group.folder,
             agentId: group.agentId ?? agentIdForFolder(group.folder),
             conversationKind:
-              group.conversationKind === 'dm' ? ('dm' as const) : ('group' as const),
+              group.conversationKind === 'dm'
+                ? ('dm' as const)
+                : ('group' as const),
             resolvePersonId: resolveMemoryUserId,
             service: deps.remembered.service,
             usedBy: deps.remembered.usedBy(appId),

@@ -45,7 +45,9 @@ function isMessageActionValid(input: MessageActionCallbackInput): boolean {
     );
   }
   if (input.kind === 'memory_forget') {
-    return input.recordId.trim().length > 0 && input.agentRouteKey.trim().length > 0;
+    return (
+      input.recordId.trim().length > 0 && input.agentRouteKey.trim().length > 0
+    );
   }
   if (input.kind === 'observer_feedback') {
     return (

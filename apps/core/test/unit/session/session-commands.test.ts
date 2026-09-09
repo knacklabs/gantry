@@ -220,7 +220,9 @@ describe('extractSessionCommand', () => {
       raw: '/permissions forget AbCd',
       prefix: 'abcd',
     });
-    expect(extractSessionCommand('/permissions forget abc', trigger)).toBeNull();
+    expect(
+      extractSessionCommand('/permissions forget abc', trigger),
+    ).toBeNull();
     expect(extractSessionCommand('/permissions', trigger)).toEqual({
       kind: 'permissions_show',
       raw: '/permissions',

@@ -42,7 +42,9 @@ type RuntimeGroupProcessorInput = Pick<
   | 'executionAdapters'
   | 'runnerSandboxProvider'
 > & {
-  getRuntimeRepository: NonNullable<GroupProcessingDeps['getRuntimeRepository']>;
+  getRuntimeRepository: NonNullable<
+    GroupProcessingDeps['getRuntimeRepository']
+  >;
   getConversationHistoryCoverageRepository: NonNullable<
     GroupProcessingDeps['getConversationHistoryCoverageRepository']
   >;
