@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0162-721a",
+  "profile": "quickfix",
+  "reason": "bump @xmldom/xmldom to 0.9.12 for the Trivy image gate",
+  "started_at": "2026-09-09T09:45:08+00:00",
+  "completed_at": "2026-09-09T09:46:00+00:00",
+  "files": []
+}
