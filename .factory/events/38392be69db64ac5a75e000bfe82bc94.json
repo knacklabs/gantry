@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T16:21:30+00:00", "story": "ASKFLOOR-1", "detail": "ASKFLOOR-1-T5b final AC2 says move PermissionMemoryListMessageView to application, but MessageActionOutcome is domain-owned and must reference it; importing application from domain violates the archit"}

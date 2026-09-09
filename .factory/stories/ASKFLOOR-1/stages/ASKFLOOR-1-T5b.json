@@ -10,24 +10,5 @@
       "git": "1 .M N... 100644 100644 100644 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000\u0000100644 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000"
     }
   },
-  "task_sha256": "b23eb0964f299868e39f2b91f6e4461d0afe342d92dff77beed375afb2096364",
-  "measured": {
-    "strays": [
-      "apps/core/src/app/bootstrap/group-processor-deps.ts",
-      "scripts/architecture-exceptions.json"
-    ],
-    "files": 56,
-    "lines": 2623,
-    "budget": {
-      "files": 55,
-      "lines": 5000
-    },
-    "test_id_misses": [
-      "'excludes old rail version rows from listHumanDecisions in SQL and includes revoked rows only when asked' was not present in the fresh JUnit report (exact id or id-prefix)",
-      "'persists the approver label from the host run registry on the IPC prompt path and ignores a worker-supplied label' was not present in the fresh JUnit report (exact id or id-prefix)",
-      "'persists the approver label from the run on the inline prompt path' was not present in the fresh JUnit report (exact id or id-prefix)"
-    ]
-  },
-  "review_fix_reopened_at": "2026-09-09T16:11:59+00:00",
-  "review_fix_count": 1
+  "task_sha256": "b23eb0964f299868e39f2b91f6e4461d0afe342d92dff77beed375afb2096364"
 }
