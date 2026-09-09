@@ -1,33 +1,12 @@
 {
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T5a",
-  "score": 3,
-  "summary": "performance lens over ASKFLOOR-1-T5a (112 product path(s), 8376193..1a1d008, Codex via the autoreview skill at --max-priority P2): 2 blocking, 1 non-blocking. Review passes returned. chunk 1/2: 1 finding(s), chunk 2/2: 2 finding(s). See preserved pass reports for provider conclusions.",
-  "blocking_findings": [
-    {
-      "category": "security",
-      "area": "apps/core/src/runtime",
-      "summary": "[P1] Do not let remembered Allows bypass a hard-floor destructive ASK (apps/core/src/runtime/permission-decision-coordinator.ts:262): `exactAllowCanOverride` admits every destructive ASK, but the `hardFloor !== true` check only guards the autonomous projection block."
-    },
-    {
-      "category": "maintainability",
-      "area": "factory/scripts/forge_cli",
-      "summary": "[P1] Remove the retained single-file stage snapshot compatibility path (factory/scripts/forge_cli/stages.py:201): `load_story_stages` still reads and merges the replaced `stages.json` layout, while `_write_story_records` contains migration logic for that old layout."
-    }
-  ],
-  "non_blocking_findings": [
-    {
-      "category": "bug",
-      "area": "factory/scripts/forge_cli",
-      "summary": "[P2] Bound settled-round processing without quadratic front deletion (factory/scripts/forge_cli/grill.py:165): The output-size limit is enforced only after every ledger record and answer has been loaded, and the trimming loop repeatedly recomputes the total length and calls `pop(0)`."
-    }
-  ],
-  "recommendation": "request-changes",
+  "score": 10,
+  "summary": "performance lens over ASKFLOOR-1-T5a (67 product path(s), 148589a..3cb7fb4, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The change allows an exact remembered approval to override a hard-floor destructive rail decision in interactive-auto mode. That violates the mandatory permission boundary and can cause subsequent destructive commands to execute without confirmation.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
   "reviewed_scope": [
-    ".claude/CLAUDE.md",
-    ".claude/skills/forge/SKILL.md",
-    ".github/workflows/factory-scaffold.yml",
-    "WORKFLOW.md",
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
     "apps/core/src/app/bootstrap/channel-message-action-router.ts",
@@ -94,57 +73,30 @@
     "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
     "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
     "apps/core/test/unit/runtime/permission-human-memory-stage.test.ts",
-    "constitution/VENDORED_FROM",
-    "constitution/VENDOR_MANIFEST.json",
-    "docs/QUALITY.md",
-    "factory/prompts/decomposer.md",
-    "factory/prompts/griller.md",
-    "factory/prompts/planner.md",
-    "factory/schemas/review.json",
-    "factory/scripts/check_pr_ticket.py",
-    "factory/scripts/factory_lib.py",
-    "factory/scripts/forge.py",
-    "factory/scripts/forge_cli/board.py",
-    "factory/scripts/forge_cli/delegate.py",
-    "factory/scripts/forge_cli/doctor.py",
-    "factory/scripts/forge_cli/findings.py",
-    "factory/scripts/forge_cli/grill.py",
-    "factory/scripts/forge_cli/outcome.py",
-    "factory/scripts/forge_cli/phase.py",
-    "factory/scripts/forge_cli/plans.py",
-    "factory/scripts/forge_cli/quickfix.py",
-    "factory/scripts/forge_cli/review.py",
-    "factory/scripts/forge_cli/review_brief.py",
-    "factory/scripts/forge_cli/signal.py",
-    "factory/scripts/forge_cli/stages.py",
-    "factory/scripts/forge_cli/story.py",
-    "factory/scripts/forge_cli/tasks.py",
-    "factory/scripts/post_tool_use.py",
-    "factory/scripts/record_decomposition_from_json.py",
-    "factory/scripts/record_grill_from_json.py",
-    "factory/scripts/record_review_from_json.py",
-    "factory/tests/test_board_approval_gate.py",
-    "factory/tests/test_gates.py",
-    "factory/tests/test_grill_carries_answers.py",
-    "factory/tests/test_grill_round_cap.py",
-    "factory/tests/test_lifecycle_end_to_end.py",
-    "factory/tests/test_one_grill.py",
-    "factory/tests/test_one_review_per_task.py",
-    "factory/tests/test_plan_against_reality.py",
-    "factory/tests/test_review_fix_reopen.py",
-    "factory/tests/test_review_settled_contracts.py",
-    "factory/tests/test_seal_measures.py",
-    "factory/tests/test_task_parallelism.py",
     "harness.yaml"
   ],
   "skills_used": [
     "review-animations"
   ],
   "aspect": "performance",
-  "review_run_id": "848aa3f2a5351904624cef3bec05b814b8f593fff027b9fcd234b002531a0374",
-  "brief_sha256": "0c9b2be3e86a5bd47665466dc29cac1cb96543b4d47682395b7df95e1b3a087d",
-  "branch_diff_digest": "18af480021b0d3716e253a379b9cc98da224dcf88964d9012025d1c4c8d3c58d",
+  "review_run_id": "d95a259c36d1b6a8ed5dbe50c31fccdfdac6dcf5ad6074c20b890ce6474ac288",
+  "brief_sha256": "e11761a939750f417811eaacbfe46f864d3b961f239f0521acc0237e1c7a957b",
+  "branch_diff_digest": "e287b994f6d67fcbd11186e3f16b66e180830039643b74aef5947e142acfa25c",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T08:32:52+00:00",
-  "commit": "262dc5603f6446a9db14855bdef51330b20526c3"
+  "recorded_at": "2026-09-09T08:58:45+00:00",
+  "commit": "3cb7fb40e8badec33e2c3310815010db16037abc",
+  "rejected_findings": [
+    {
+      "finding": {
+        "category": "security",
+        "area": "apps/core/src/runtime",
+        "summary": "[P1] Do not let remembered allows bypass hard-floor destructive asks (apps/core/src/runtime/permission-decision-coordinator.ts:271): This branch admits every destructive rail ASK into the remembered-allow path without checking `railDecision.hardFloor`."
+      },
+      "reason": "ASKFLOOR-1-T3b-AC3 (sealed): the rail's hardFloor flag floors the CLASSIFIER, never a human's remembered exact decision; destructive asks consult exact memory only (story S4 pins the remembered destructive build cleanup). Hoisting the guard over the interactive remembered-allow path was the round-1 fix that broke S4 and was reverted under Q-0173.",
+      "cite": "ASKFLOOR-1-T3b-AC3",
+      "rejected_at": "2026-09-09T09:00:05+00:00",
+      "rejected_by": "autoreview",
+      "task_id": "ASKFLOOR-1-T5a"
+    }
+  ]
 }
