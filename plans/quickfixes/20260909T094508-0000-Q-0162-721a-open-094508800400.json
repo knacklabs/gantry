@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0162-721a",
+  "profile": "quickfix",
+  "reason": "bump @xmldom/xmldom to 0.9.12 for the Trivy image gate",
+  "started_at": "2026-09-09T09:45:08+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0164-787b",
+  "profile": "degraded",
+  "reason": "Trivy gate: drop vendor SBOMs from image",
+  "started_at": "2026-09-09T10:09:56+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

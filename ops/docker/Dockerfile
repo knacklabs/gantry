@@ -52,6 +52,13 @@ RUN npm run build:runtime
 # which the build produced above.
 RUN npm prune --omit=dev --ignore-scripts
 
+# Drop SBOM files that packages ship inside their own dist/ (officeparser's
+# sbom.cdx.json pins the @xmldom/xmldom version IT was built against). Trivy
+# treats a shipped SBOM as authoritative and reports those stale versions with
+# no file path, next to the fixed package actually installed beside it. The
+# image's SBOM is the installed tree, not a vendor's build record.
+RUN find node_modules -name 'sbom.cdx.json' -type f -delete
+
 # ---------------------------------------------------------------------------
 # Stage 3: runtime — minimal, non-root, production-only.
 # Contains: production node_modules, dist/ (incl. migration SQL and migrator),
