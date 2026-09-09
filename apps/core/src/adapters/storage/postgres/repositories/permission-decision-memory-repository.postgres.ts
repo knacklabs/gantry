@@ -316,6 +316,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
     appId: string;
     agentFolder: string;
     actingPersonId: string;
+    railVersion: number;
   }): Promise<Record<string, number>> {
     const rows = await this.db
       .select({ principal: table.principal, count: count() })
@@ -328,6 +329,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
           eq(table.actingPersonId, input.actingPersonId),
           eq(table.outcome, HumanDecisionOutcome.Allow),
           eq(table.scope, HumanDecisionScope.Exact),
+          eq(table.railVersion, input.railVersion),
           isNull(table.revokedAt),
           isNotNull(table.principal),
         ),

@@ -1,0 +1,12 @@
+{
+  "topic": "review-p2-affordances",
+  "lesson": "Stage autoreview found THREE P2 defects in the affordance derivation; fix exactly these, add one pinned test each, then re-run the touched suites (coordinator, permission-card-affordances, inline-agent-loop-tools) plus npx tsc --noEmit and npm run check:architecture. (1) apps/core/src/runtime/permission-decision-coordinator.ts:228 \u2014 when the trusted-root stage returns `learn`, the prompt tail is invoked with `undefined` BEFORE the new tail context (with canonicalRoot) is constructed, so the inline path derives the place candidate as no_root and can never offer or store the folder decision on the trusted-root learning path; build the final tail context (including canonicalRoot) first and pass it to the tail on that path too \u2014 pin: coordinator test where the trusted-root stage returns learn and the tail receives the canonical root. (2) apps/core/src/application/permissions/permission-card-affordances.ts:167 \u2014 folder eligibility must require BOTH a valid default kind candidate AND a valid canonical-root-derived place candidate (contract ruling 3); today it checks only the root and place, so a refused kind candidate with a valid place still renders remember_allow_place \u2014 pin: refused kind + valid place \u2192 no folder alternative. (3) apps/core/src/application/permissions/permission-card-affordances.ts:145 \u2014 the production prompt-model builder never supplies toolLabel and the affordance builder falls back only to request.displayName, so a high-risk tool with a known human/card label but no displayName never gets the trust-growth alternative; supply the label through the existing human-label derivation (permissionHumanToolLabel or its equivalent) at model construction on both prompt paths, with the fallback chain human label \u2192 the card's tool name \u2192 no alternative (owner ruling) \u2014 pin: tool with a card label but no displayName and three exact allows \u2192 \"Allow all <label> actions\" offered. The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/application/permissions/permission-card-affordances.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T15:43:30+00:00"
+}

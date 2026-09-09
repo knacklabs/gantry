@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-08T13:52:36+00:00", "story": "ASKFLOOR-1", "detail": "Teams memory_forget transport requires editing apps/core/src/channels/teams/message-actions.ts: readTeamsMessageAction is the sole live decoder and handleTeamsMessageAction is the sole router dispatch"}

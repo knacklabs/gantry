@@ -206,6 +206,7 @@ export interface PermissionDecisionMemoryRepository {
     appId: string;
     agentFolder: string;
     actingPersonId: string;
+    railVersion: number;
   }): Promise<Record<string, number>>;
 
   get(input: {

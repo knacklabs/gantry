@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-08T13:54:06+00:00", "story": "ASKFLOOR-1", "detail": "S-0088-0a27: Scope widened: apps/core/src/channels/teams/message-actions.ts (readTeamsMessageAction decoder + handleTeamsMessageAction dispatch) added to the T5a write scope; 64 files, budget 68/6800 unchanged. Co"}

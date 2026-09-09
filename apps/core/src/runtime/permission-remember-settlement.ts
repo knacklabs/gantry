@@ -8,10 +8,17 @@ import {
   derivePermissionRememberContext,
   learnRememberedDecision,
   type LearnResult,
+  type PermissionRememberContext,
   type PermissionRememberPromptFacts,
 } from '../application/permissions/human-decision-learning.js';
 import { HumanDecisionMemoryService } from '../application/permissions/human-decision-memory-service.js';
-import { gantryNativeCanonicalToolName } from '../application/permissions/gantry-tool-risk.js';
+import { buildPermissionCardAffordances } from '../application/permissions/permission-card-affordances.js';
+import {
+  gantryNativeCanonicalToolName,
+  GantryToolRiskVerdict,
+  gantryToolRisk,
+} from '../application/permissions/gantry-tool-risk.js';
+import type { PermissionCardAffordances } from '../domain/permission-card-affordances.js';
 import type { PermissionDecisionMemoryRepository } from '../domain/ports/permission-decision-memory.js';
 import {
   EFFECT_SCHEMA_VERSION,
@@ -47,6 +54,8 @@ export function rememberingPermissionApprovalRequester(input: {
         facts,
         personId: input.personId,
         hostJobId: input.hostJobId,
+        repository: input.deps.getPermissionDecisionMemoryRepository?.(),
+        warn: input.logger.warn,
       });
       if (!persisted) {
         throw new DurableInteractionPersistenceError(
@@ -80,6 +89,8 @@ export async function persistPermissionRememberPromptContext(input: {
   facts: PermissionRememberPromptFacts;
   personId?: string;
   hostJobId?: string;
+  repository?: PermissionDecisionMemoryRepository;
+  warn: Warn;
 }): Promise<boolean> {
   const laneInput = {
     permissionMode: permissionModeForLane(input.facts.analysis.lane),
@@ -100,12 +111,65 @@ export async function persistPermissionRememberPromptContext(input: {
     kindVariant: 'category',
   });
   if (!context.eligible) return true;
+  const model = await buildPermissionRememberPromptModel({
+    request: input.request,
+    context,
+    canonicalRoot: input.facts.canonicalRoot,
+    repository: input.repository,
+    warn: input.warn,
+  });
+  input.request.cardAffordances = model.cardAffordances;
   return updatePendingPermissionRememberContext({
     sourceAgentFolder: input.sourceAgentFolder,
     requestId: input.request.requestId,
     appId: input.request.appId,
-    context,
+    context: model.rememberContext,
+    cardAffordances: model.cardAffordances,
   });
+}
+
+export async function buildPermissionRememberPromptModel(input: {
+  request: PermissionApprovalRequest;
+  context: PermissionRememberContext;
+  canonicalRoot?: string;
+  repository?: PermissionDecisionMemoryRepository;
+  warn: Warn;
+}): Promise<{
+  rememberContext: PermissionRememberContext;
+  cardAffordances: PermissionCardAffordances;
+}> {
+  let context = input.context;
+  const service = input.repository
+    ? new HumanDecisionMemoryService({ repository: input.repository })
+    : undefined;
+  const cardAffordances = await buildPermissionCardAffordances({
+    request: input.request,
+    rememberContext: context,
+    canonicalRoot: input.canonicalRoot,
+    highRisk:
+      gantryToolRisk({
+        toolName: input.request.toolName,
+        toolInput: input.request.classifierToolInput ?? input.request.toolInput,
+      }).verdict === GantryToolRiskVerdict.High,
+    ...(service && context.personId
+      ? {
+          countExactAllowsByTool: async () =>
+            (
+              await service.countExactAllowsByTool({
+                appId: context.appId,
+                agentFolder: context.agentFolder,
+                actingPersonId: context.personId!,
+                railVersion: context.railVersion,
+              })
+            )[context.canonicalTool] ?? 0,
+        }
+      : {}),
+    warn: input.warn,
+  });
+  if (cardAffordances.offered.includes('remember_allow_kind')) {
+    context = { ...context, kindVariant: 'tool' };
+  }
+  return { rememberContext: context, cardAffordances };
 }
 
 export async function learnPermissionRememberSettlement(input: {

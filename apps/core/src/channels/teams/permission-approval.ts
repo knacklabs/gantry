@@ -13,7 +13,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import { incrementOperationalError } from '../../shared/operational-error-counters.js';
 import { resolveInteractionSettlementDelayMs } from '../interaction-settlement.js';
 import { buildTeamsApprovalAdaptiveCard } from './cards.js';
-import { permissionDecisionOptions } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import { bindTeamsPermissionPromptMessage } from './prompt-binding.js';
 import {
   teamsConversationIdFromJid,

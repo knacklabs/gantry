@@ -1076,18 +1076,222 @@
     {
       "id": "ASKFLOOR-1-T5a",
       "title": "Card UX and provider surfaces",
-      "objective": "Eligible DM cards render Allow (remembered, default) / one alternative remembering button / Just this once / No with the plan's pre- and post-tap lines; destructive and protected cards offer no remembering Allow; batch cards carry the once-only line in both renderers; ineligible-lane cards are byte-for-byte today's; every provider file for the remember resolution and the memory_forget affordance, incl. the message-actions union entry and Teams per-row ActionSets.",
+      "objective": "Eligible DM cards render Allow (remembered) / one alternative / Just this once / No with the plan's pre- and post-tap lines from ONE host-derived, persisted affordance model and one formatter; destructive cards get no broader alternative, protected cards no remembering Allow; batch cards carry the once-only line in both renderers; ineligible lanes are byte-for-byte; all four providers carry remember codes verbatim to the claim and render and settle memory_forget (Teams per-row ActionSets); S4.",
       "acceptance_criteria": [
-        "labels, order and copy match the plan on all four providers for eligible, destructive, protected, batch and ineligible-lane cards (snapshot/parity tests)",
-        "memory_forget renders and settles on all four providers; Teams renders ten Forget buttons via per-row ActionSets",
-        "AF-AC8 S4: rm -rf build asks once; Allow remembers that exact command and target; the identical command never asks again; rm -rf dist asks; No is remembered exactly too",
-        "trust growth: after three remembered exact Allows for the same high-risk gantry tool the card offers one broader option (kind scope keyed by tool id), never the default; destructive shapes never get it",
-        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+        "CENTRAL COPY. NEW `channels/permission-card-affordances.ts` exports `buildPermissionCardAffordances(input) \u2192 PermissionCardAffordances` and the label/line formatters; eligible single-ask cards render, in order, **Allow** (remembered, default) / the one alternative (ruling 5) / **Just this once** / **No**; pre-tap block: \"Allow will remember: <scope noun>\" (writes: \"writing to <path> \u2014 any future content, no more asking for this file\"), then the alternative's line (ruling 5 templates) when present, ending with \"No will remember: this exact action.\"; post-tap: \"Remembered: <scope>. Change it any time with /permissions.\" (writes: \"Remembered: writes to <path> (any content). \u2026\"; No: \"I'll keep saying no to this exact action. Change it with /permissions.\"; Just this once: today's receipt). Destructive: normal three buttons, no alternative, pre-tap \"Allow will remember: this exact command only \u2014 nothing broader. No will remember: this exact command.\" Protected: reason line \"<path> is protected, so I always ask.\", buttons **Allow once** / **No** (remembered) only. Scope nouns: \"this exact action\" / \"this kind of action, anywhere\" / \"only in <folder>\"; trust-growth label per the owner ruling (human label \u2192 card's tool name \u2192 no button). No rails-bump line. `permission-interaction.ts` \u2264 700. Unit tests: every shape, order, every literal line, family > trust > folder precedence, destructive/protected exclusions, the missing-label fallback chain.",
+        "PERSISTED RENDER MODEL + OFFERED-SET CHECK. `cardAffordances` is derived host-side on both prompt paths (ruling 1) from the T3c context + `canonicalRoot` (ruling 3) + the rail-version-filtered trust-growth count (ruling 4), set on the request (`types.ts` line-neutral), snapshotted by the envelope/binding, carried by the IPC payload updater and inline creation, replayed by recovery, and reset to the scalar batch shape inside the Postgres bind transaction (ruling 2). At settlement (claim, recovery, and Telegram's live claim) a remember code not in `offered` becomes its scalar base before application and learning; the tapped code reaches the receipt formatter (ruling 5). Tests: `ipc-interaction-handler.test.ts` \u2014 model persisted on the IPC path, forged unoffered code \u2192 scalar base + nothing learned; inline suite \u2014 model at creation; `pending-interaction-permission-recovery-orchestrator.test.ts` \u2014 recovery replays the model, applies the check, and an offered code yields its remembered receipt while an unoffered one yields the once-only receipt; `worker-coordination.postgres.integration.test.ts` \u2014 batch bind resets the model atomically; `pending-interaction-durability.test.ts` \u2014 envelope round-trip.",
+        "PLACE ROOT + TRUST COUNT. `PermissionDecisionTailContext.canonicalRoot` set by the trusted-root stage (the tail context is frozen before root resolution at `permission-decision-coordinator.ts:179-182`, so the final context is constructed AFTER the trusted-root stage) and threaded on both paths; the T3c derivation gains a persisted `place` candidate from it and settlement stores a place decision on a folder tap (ruling 3); `countExactAllowsByTool(\u2026, railVersion)` filters to the current rail version at port, service and repository; high-risk via `gantryToolRisk`. Tests: coordinator suite (root exposed only after the same-rails check), IPC and inline suites (root reaches the prompt), `human-decision-learning.test.ts` (place candidate derived from the root, parsed fail-closed, refused without it) and the tap-budget harness (a folder tap stores a place row that a later request in that folder matches), `human-decision-memory-service.test.ts` + Postgres suite (other-version rows not counted; \u22653 vs 2), affordance suite (folder eligibility rule; failure \u2192 no alternative + one warn).",
+        "PROVIDERS \u2014 REMEMBER. Telegram (`channel-prompts.ts:218-225`, `prepared-permission-card.ts:47-56`, `callback-handlers.ts:696-743`), Slack (`permission-approval-delivery.ts:64-75,183-200`, `channel-interactions.ts:333-360`), Discord (`interactions.ts:161-182`, `prepared-permission-card.ts:45-51`, `components.ts:129-149`, `permission-callback.ts:44-95`), Teams (`cards.ts:168-213`, `permission-submit.ts:4-34`, `interaction-handlers.ts:230-372`) render the host-filled options and lines and pass a tapped remember code verbatim into the durable claim (no scalar-only normalisation before the claim); Discord and Teams codecs accept the four codes; Telegram's 64-byte budget holds. Tests: four-provider parity for eligible / destructive / protected / batch cards (`provider-affordance-parity.test.ts:118-205` extended) and one settlement test per provider proving an offered remember code reaches the claim as a code and settles with its remembered receipt text, while an unoffered code settles once-only with today's receipt.",
+        "PROVIDERS \u2014 FORGET TRANSPORT. `memory_forget { recordId, label }` in the union (label render-only, callback carries `recordId` only); each provider encodes/renders the label through its message-action affordance encoder and decodes a tap into the typed action delivered to the router with the authenticated conversation context; the router exposes `onMemoryForget?` and answers \"Not available yet.\" when unbound; Teams renders per-row `ActionSet`s (ten-record test). Tests: router unit (typed action reaches a bound hook with the conversation identity; unbound reply), four provider render + decode tests, Telegram codec bound, Teams ten-button test.",
+        "BATCH. `permission-batch-coalescer.ts` text formatter (`:121-139`) and native `contextLines` (`:142-161`) both carry \"Allow all and Deny all are once-only. Tap Review each to decide one at a time \u2014 those cards can remember.\" after the rows and before the wait line; batch settlement (`:66-82`) writes no memory. Tests: both renderers, four-provider parity.",
+        "INELIGIBLE LANES BYTE-FOR-BYTE. ask, auto_strict, job-prompt and group cards keep today's labels (incl. `Cancel`), copy and durable-rule controls with no memory control or line; the scalar fallback (`permission-decision-options.ts:12-32`) is unchanged. Tests: four-provider golden snapshots per lane CAPTURED FROM THE PRE-CHANGE RENDERERS with fixed callback ids as the first commit of the task, then pinned.",
+        "S4 + GATES + DECISION. `askfloor-tap-budget.test.ts` adds S4 (`rm -rf build` asks once; Allow remembers exact command + target; identical command \u2192 zero taps; `rm -rf dist` asks; No is remembered exactly). `docs/decisions/0154` carries the owner-confirmed amendment (no rails-bump re-ask line; old-version rows inert and simply not listed by `/permissions`, per its line 18). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: 700 default (permission-interaction 693, Discord interactions 699, Teams cards 688 today \u2014 extract), Slack `channel-interactions.ts` \u2264 712, Telegram `callback-handlers.ts` \u2264 900; no wrapper, shim, alias, dead branch or compatibility naming."
       ],
       "depends_on": [
         "ASKFLOOR-1-T3c"
       ],
-      "user_facing": true
+      "user_facing": true,
+      "write_scope": [
+        "apps/core/src/channels/permission-card-affordances.ts",
+        "apps/core/src/domain/permission-card-affordances.ts",
+        "apps/core/src/application/permissions/permission-card-affordances.ts",
+        "apps/core/src/channels/permission-interaction.ts",
+        "apps/core/src/channels/permission-batch-coalescer.ts",
+        "apps/core/src/channels/permission-decision-options.ts",
+        "apps/core/src/domain/message-actions.ts",
+        "apps/core/src/app/bootstrap/channel-message-action-router.ts",
+        "apps/core/src/domain/types.ts",
+        "apps/core/src/application/interactions/pending-interaction-prompt-binding.ts",
+        "apps/core/src/application/interactions/pending-interaction-durability.ts",
+        "apps/core/src/application/interactions/durable-interaction-handler.ts",
+        "apps/core/src/channels/telegram/permission-prompt-settlement.ts",
+        "apps/core/test/unit/application/human-decision-learning.test.ts",
+        "apps/core/src/application/permissions/human-decision-learning.ts",
+        "apps/core/src/application/permissions/human-decision-memory-service.ts",
+        "apps/core/src/domain/ports/permission-decision-memory.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
+        "apps/core/src/application/interactions/pending-interaction-permission-envelope.ts",
+        "apps/core/src/application/interactions/pending-interaction-permission-callback.ts",
+        "apps/core/src/application/interactions/pending-interaction-permission-recovery-orchestrator.ts",
+        "apps/core/src/runtime/permission-remember-settlement.ts",
+        "apps/core/src/runtime/permission-decision-coordinator.ts",
+        "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+        "apps/core/src/runtime/ipc-interaction-processing.ts",
+        "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+        "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+        "apps/core/src/channels/telegram/channel-prompts.ts",
+        "apps/core/src/channels/telegram/prepared-permission-card.ts",
+        "apps/core/src/channels/telegram/callback-handlers.ts",
+        "apps/core/src/channels/telegram/channel-shared.ts",
+        "apps/core/src/channels/telegram/message-action-affordances.ts",
+        "apps/core/src/channels/slack/permission-approval-delivery.ts",
+        "apps/core/src/channels/slack/channel-interactions.ts",
+        "apps/core/src/channels/slack/permission-action-id.ts",
+        "apps/core/src/channels/slack/message-action-affordances.ts",
+        "apps/core/src/channels/slack/channel-message-action-handler.ts",
+        "apps/core/src/channels/discord/interactions.ts",
+        "apps/core/src/channels/discord/prepared-permission-card.ts",
+        "apps/core/src/channels/discord/components.ts",
+        "apps/core/src/channels/discord/permission-callback.ts",
+        "apps/core/src/channels/teams/cards.ts",
+        "apps/core/src/channels/teams/permission-submit.ts",
+        "apps/core/src/channels/teams/interaction-handlers.ts",
+        "apps/core/src/channels/teams/message-actions.ts",
+        "docs/decisions/0154-human-decision-memory-generic-scope.md",
+        "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+        "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+        "apps/core/test/unit/application/pending-interaction-permission-recovery-orchestrator.test.ts",
+        "apps/core/test/unit/application/pending-interaction-durability.test.ts",
+        "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+        "apps/core/test/integration/worker-coordination.postgres.integration.test.ts",
+        "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+        "apps/core/test/unit/channels/permission-card-affordances.test.ts",
+        "apps/core/test/unit/channels/permission-interaction.test.ts",
+        "apps/core/test/unit/channels/permission-batch-coalescer.test.ts",
+        "apps/core/test/unit/channels/provider-affordance-parity.test.ts",
+        "apps/core/test/unit/bootstrap/channel-message-action-router.test.ts",
+        "apps/core/test/unit/channels/telegram.test.ts",
+        "apps/core/test/unit/channels/slack.test.ts",
+        "apps/core/test/unit/channels/discord/discord.test.ts",
+        "apps/core/test/unit/channels/teams/teams.test.ts",
+        "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts"
+      ],
+      "reviewer_focus": [
+        "Constitution (load-bearing): constitution/03-modular-monolith-structure.md - ONE formatter module owns every label and line; providers and the three central functions are thin consumers; ceilings hold (700 default; slack channel-interactions 712; telegram callback-handlers 900).",
+        "RENDER AUTHORITY (AC2 normative; 0124, 0138): the card affordances are derived host-side at prompt construction on BOTH paths from the T3c rememberContext plus the validated place root and countExactAllowsByTool, persisted beside the context on the member payload, and are the ONLY render input; a tapped code the persisted model did not offer degrades to its scalar base and learns nothing; provider callback text is never an authority.",
+        "COPY (AC1, AC5, AC6 normative; owner rulings 2026-09-02/04/08): exact labels, order and lines as the contract states; one alternative per card with family > trust growth > folder precedence; destructive = no alternative; protected = Allow once / No only; batch once-only line in BOTH renderers; ineligible lanes byte-for-byte with snapshot tests; scope nouns plain; trust-growth label uses the human tool label; Forget <shortId>.",
+        "FORGET TRANSPORT (AC5 normative; 0118): memory_forget {recordId, label} in the union with label render-only; each provider renders and decodes the tap into the typed action with the authenticated conversation identity; the router exposes onMemoryForget and answers 'Not available yet.' when unbound; the host handler, revokeById and the three replies are T5b's \u2014 a revoke call in this diff is a blocking finding; Teams per-row ActionSets.",
+        "NO LEFTOVERS (owner ruling 2026-09-06): no wrapper, shim, alias, retained symbol, dead branch or compatibility naming anywhere in the diff - a blocking finding.",
+        "Verification: python3 factory/scripts/verify.py with GANTRY_TEST_DATABASE_URL exported; user_facing: functional check before pr-ready."
+      ],
+      "plan_contracts": [
+        {
+          "id": "ASKFLOOR-1-T5a-AC1",
+          "statement": "CENTRAL COPY. NEW `channels/permission-card-affordances.ts` exports `buildPermissionCardAffordances(input) \u2192 PermissionCardAffordances` and the label/line formatters; eligible single-ask cards render, in order, **Allow** (remembered, default) / the one alternative (ruling 5) / **Just this once** / **No**; pre-tap block: \"Allow will remember: <scope noun>\" (writes: \"writing to <path> \u2014 any future content, no more asking for this file\"), then the alternative's line (ruling 5 templates) when present, ending with \"No will remember: this exact action.\"; post-tap: \"Remembered: <scope>. Change it any time with /permissions.\" (writes: \"Remembered: writes to <path> (any content). \u2026\"; No: \"I'll keep saying no to this exact action. Change it with /permissions.\"; Just this once: today's receipt). Destructive: normal three buttons, no alternative, pre-tap \"Allow will remember: this exact command only \u2014 nothing broader. No will remember: this exact command.\" Protected: reason line \"<path> is protected, so I always ask.\", buttons **Allow once** / **No** (remembered) only. Scope nouns: \"this exact action\" / \"this kind of action, anywhere\" / \"only in <folder>\"; trust-growth label per the owner ruling (human label \u2192 card's tool name \u2192 no button). No rails-bump line. `permission-interaction.ts` \u2264 700. Unit tests: every shape, order, every literal line, family > trust > folder precedence, destructive/protected exclusions, the missing-label fallback chain.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5a-AC2",
+          "statement": "PERSISTED RENDER MODEL + OFFERED-SET CHECK. `cardAffordances` is derived host-side on both prompt paths (ruling 1) from the T3c context + `canonicalRoot` (ruling 3) + the rail-version-filtered trust-growth count (ruling 4), set on the request (`types.ts` line-neutral), snapshotted by the envelope/binding, carried by the IPC payload updater and inline creation, replayed by recovery, and reset to the scalar batch shape inside the Postgres bind transaction (ruling 2). At settlement (claim, recovery, and Telegram's live claim) a remember code not in `offered` becomes its scalar base before application and learning; the tapped code reaches the receipt formatter (ruling 5). Tests: `ipc-interaction-handler.test.ts` \u2014 model persisted on the IPC path, forged unoffered code \u2192 scalar base + nothing learned; inline suite \u2014 model at creation; `pending-interaction-permission-recovery-orchestrator.test.ts` \u2014 recovery replays the model, applies the check, and an offered code yields its remembered receipt while an unoffered one yields the once-only receipt; `worker-coordination.postgres.integration.test.ts` \u2014 batch bind resets the model atomically; `pending-interaction-durability.test.ts` \u2014 envelope round-trip.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5a-AC3",
+          "statement": "PLACE ROOT + TRUST COUNT. `PermissionDecisionTailContext.canonicalRoot` set by the trusted-root stage (the tail context is frozen before root resolution at `permission-decision-coordinator.ts:179-182`, so the final context is constructed AFTER the trusted-root stage) and threaded on both paths; the T3c derivation gains a persisted `place` candidate from it and settlement stores a place decision on a folder tap (ruling 3); `countExactAllowsByTool(\u2026, railVersion)` filters to the current rail version at port, service and repository; high-risk via `gantryToolRisk`. Tests: coordinator suite (root exposed only after the same-rails check), IPC and inline suites (root reaches the prompt), `human-decision-learning.test.ts` (place candidate derived from the root, parsed fail-closed, refused without it) and the tap-budget harness (a folder tap stores a place row that a later request in that folder matches), `human-decision-memory-service.test.ts` + Postgres suite (other-version rows not counted; \u22653 vs 2), affordance suite (folder eligibility rule; failure \u2192 no alternative + one warn).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5a-AC4",
+          "statement": "PROVIDERS \u2014 REMEMBER. Telegram (`channel-prompts.ts:218-225`, `prepared-permission-card.ts:47-56`, `callback-handlers.ts:696-743`), Slack (`permission-approval-delivery.ts:64-75,183-200`, `channel-interactions.ts:333-360`), Discord (`interactions.ts:161-182`, `prepared-permission-card.ts:45-51`, `components.ts:129-149`, `permission-callback.ts:44-95`), Teams (`cards.ts:168-213`, `permission-submit.ts:4-34`, `interaction-handlers.ts:230-372`) render the host-filled options and lines and pass a tapped remember code verbatim into the durable claim (no scalar-only normalisation before the claim); Discord and Teams codecs accept the four codes; Telegram's 64-byte budget holds. Tests: four-provider parity for eligible / destructive / protected / batch cards (`provider-affordance-parity.test.ts:118-205` extended) and one settlement test per provider proving an offered remember code reaches the claim as a code and settles with its remembered receipt text, while an unoffered code settles once-only with today's receipt.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5a-AC5",
+          "statement": "PROVIDERS \u2014 FORGET TRANSPORT. `memory_forget { recordId, label }` in the union (label render-only, callback carries `recordId` only); each provider encodes/renders the label through its message-action affordance encoder and decodes a tap into the typed action delivered to the router with the authenticated conversation context; the router exposes `onMemoryForget?` and answers \"Not available yet.\" when unbound; Teams renders per-row `ActionSet`s (ten-record test). Tests: router unit (typed action reaches a bound hook with the conversation identity; unbound reply), four provider render + decode tests, Telegram codec bound, Teams ten-button test.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5a-AC6",
+          "statement": "BATCH. `permission-batch-coalescer.ts` text formatter (`:121-139`) and native `contextLines` (`:142-161`) both carry \"Allow all and Deny all are once-only. Tap Review each to decide one at a time \u2014 those cards can remember.\" after the rows and before the wait line; batch settlement (`:66-82`) writes no memory. Tests: both renderers, four-provider parity.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5a-AC7",
+          "statement": "INELIGIBLE LANES BYTE-FOR-BYTE. ask, auto_strict, job-prompt and group cards keep today's labels (incl. `Cancel`), copy and durable-rule controls with no memory control or line; the scalar fallback (`permission-decision-options.ts:12-32`) is unchanged. Tests: four-provider golden snapshots per lane CAPTURED FROM THE PRE-CHANGE RENDERERS with fixed callback ids as the first commit of the task, then pinned.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T5a-AC8",
+          "statement": "S4 + GATES + DECISION. `askfloor-tap-budget.test.ts` adds S4 (`rm -rf build` asks once; Allow remembers exact command + target; identical command \u2192 zero taps; `rm -rf dist` asks; No is remembered exactly). `docs/decisions/0154` carries the owner-confirmed amendment (no rails-bump re-ask line; old-version rows inert and simply not listed by `/permissions`, per its line 18). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: 700 default (permission-interaction 693, Discord interactions 699, Teams cards 688 today \u2014 extract), Slack `channel-interactions.ts` \u2264 712, Telegram `callback-handlers.ts` \u2264 900; no wrapper, shim, alias, dead branch or compatibility naming.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria"
+        }
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py",
+        "npx tsc --noEmit",
+        "npm run check:architecture",
+        "npm run test:integration:postgres"
+      ],
+      "review_budget": {
+        "max_changed_files": 68,
+        "max_changed_lines": 6800,
+        "reason": "63-file exact manifest after grills r1-r2 (request field on types.ts line-neutral, prompt binding, IPC payload updater, inline creation, Telegram live claim, learning suite added): one NEW formatter module, the persisted cardAffordances carrier (settlement seam, envelope, parser, recovery, Postgres batch bind), the settlement offered-set check, canonicalRoot on the tail context and both prompt paths, the rail-version-filtered trust-growth count (port, service, repository), four providers (render + decode + Forget transport incl. the message-action affordance encoders), the router hook, the 0154 amendment, one NEW unit suite and eighteen existing suites; user_facing."
+      },
+      "required_tests": [
+        {
+          "id": "derives and persists a place candidate from the validated canonical root parses it fail-closed and refuses place without a root",
+          "path": "apps/core/test/unit/application/human-decision-learning.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "replays the persisted card affordances on recovery converts a remember code outside the offered set to its scalar base before applying and learning and yields the remembered receipt for an offered code and the once-only receipt otherwise",
+          "path": "apps/core/test/unit/application/pending-interaction-permission-recovery-orchestrator.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "resets the card affordances to the scalar batch shape inside the bind transaction alongside the remember context",
+          "path": "apps/core/test/integration/worker-coordination.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "counts only current-rail-version active exact Allows per tool so three older-version rows do not unlock trust growth",
+          "path": "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "renders eligible destructive protected and trust-growth cards with the exact labels order scope nouns and pre and post-tap lines and picks family over trust growth over folder as the single alternative",
+          "path": "apps/core/test/unit/channels/permission-card-affordances.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "persists host-derived card affordances beside the remember context on both prompt paths and degrades a tapped code the model did not offer to its scalar base without learning",
+          "path": "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "renders eligible destructive protected batch and every ineligible-lane card identically on all four providers and round-trips the four remember codes through every provider codec",
+          "path": "apps/core/test/unit/channels/provider-affordance-parity.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "passes an offered remember code verbatim into the durable claim settles it with its remembered receipt settles an unoffered code once-only with today's receipt and renders and settles a memory_forget tap on Telegram",
+          "path": "apps/core/test/unit/channels/telegram.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "passes an offered remember code verbatim into the durable claim settles it with its remembered receipt settles an unoffered code once-only with today's receipt and renders and settles a memory_forget tap on Slack",
+          "path": "apps/core/test/unit/channels/slack.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "passes an offered remember code verbatim into the durable claim settles it with its remembered receipt settles an unoffered code once-only with today's receipt and renders and settles a memory_forget tap on Discord",
+          "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "passes a tapped remember code verbatim into the durable claim renders ten Forget buttons as per-row ActionSets and settles a memory_forget tap on Teams",
+          "path": "apps/core/test/unit/channels/teams/teams.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "delivers a typed memory_forget action with the authenticated conversation identity to a bound onMemoryForget hook and answers not available yet when no hook is bound",
+          "path": "apps/core/test/unit/bootstrap/channel-message-action-router.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "carries the once-only line after the rows and before the wait line in both batch renderers and writes no memory on a batch decision",
+          "path": "apps/core/test/unit/channels/permission-batch-coalescer.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "S4 asks once for rm -rf build remembers the exact command runs it again with zero taps asks for rm -rf dist and remembers No exactly",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ]
     },
     {
       "id": "ASKFLOOR-1-T5b",
@@ -1125,5 +1329,5 @@
   ],
   "project": "",
   "plan_sha256": "d9df9a3091b0c2be66a51bbeaf8d30f6ed1b13525b20f9267896c17648288ace",
-  "commit": "4340b441cb8421087451efbb174e4c74e48d877b"
+  "commit": "ace063daf234cdffb11b28188ce9fc6bbfa6ebd0"
 }

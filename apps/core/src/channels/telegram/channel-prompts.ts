@@ -14,8 +14,8 @@ import {
   buildPermissionPromptParts,
   formatPermissionPromptPartsText,
   permissionButtonLabel,
-  permissionDecisionOptions,
 } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 import {
   escapeTelegramHtml,
   renderPermissionPromptHtml,

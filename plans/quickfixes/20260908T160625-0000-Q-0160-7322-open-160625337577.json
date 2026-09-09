@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0160-7322",
+  "profile": "degraded",
+  "reason": "Codex usage limit exhausted; part 4 of the P2 fixes for ASKFLOOR-1-T5a: the human-label helper moves into the application card builder (channels import it from there) and the runtime settlement supplies it",
+  "started_at": "2026-09-08T16:06:25+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

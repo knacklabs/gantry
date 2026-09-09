@@ -10,6 +10,7 @@ import type {
   PermissionCallbackClaimReference,
   QuestionRecoveryEnvelope,
 } from '../../domain/types.js';
+import type { PermissionCardAffordances } from '../../domain/permission-card-affordances.js';
 import type { PermissionRememberContext } from '../permissions/human-decision-learning.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '../../shared/ipc-interaction-lifetime.js';
 import { nowMs, toIso } from '../../shared/time/datetime.js';
@@ -80,6 +81,7 @@ export async function updatePendingPermissionRememberContext(input: {
   requestId: string;
   appId?: string | null;
   context: PermissionRememberContext;
+  cardAffordances: PermissionCardAffordances;
 }): Promise<boolean> {
   const active = backend;
   if (!active) return true;
@@ -90,7 +92,17 @@ export async function updatePendingPermissionRememberContext(input: {
       requestId: input.requestId,
       appId: input.appId,
     }),
-    update: (payload) => ({ ...payload, rememberContext: input.context }),
+    update: (payload) => ({
+      ...payload,
+      rememberContext: input.context,
+      cardAffordances: input.cardAffordances,
+      request:
+        payload.request &&
+        typeof payload.request === 'object' &&
+        !Array.isArray(payload.request)
+          ? { ...payload.request, cardAffordances: input.cardAffordances }
+          : payload.request,
+    }),
   });
 }
 

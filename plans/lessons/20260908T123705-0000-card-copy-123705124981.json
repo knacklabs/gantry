@@ -1,0 +1,13 @@
+{
+  "topic": "card-copy",
+  "lesson": "LITERAL CARD COPY (the full contract with every ruling is in this worktree at plans/exploration/askfloor-1-t5a-taskplan.md \u2014 read its \"Owner rulings\" and \"Orchestrator rulings\" sections; the delegated brief carries only the acceptance criteria). Alternative slot, exactly one, precedence family > trust growth > folder: FAMILY = the existing CARDSIMPLE-1 family button and its existing line, unchanged (\"Allow all `<family>` commands\"; promotion hint suppressed; it is a durable-policy row, not memory). TRUST GROWTH = button \"Allow all <label> actions\", line \"Allow all <label> actions will remember: every <label> action, anywhere.\" where <label> is the tool's human label, else the name the card already shows for the tool, else the alternative is NOT offered (never the canonical id). FOLDER = button \"Allow only in this folder\", line \"Allow only in this folder will remember: only in <folder>.\" Main buttons in order: \"Allow\" (remembered, default) / the alternative / \"Just this once\" / \"No\". Pre-tap block: \"Allow will remember: <scope noun>\" (writes: \"writing to <path> \u2014 any future content, no more asking for this file\"), then the alternative's line when present, ending with \"No will remember: this exact action.\" Post-tap: \"Remembered: <scope>. Change it any time with /permissions.\" (writes: \"Remembered: writes to <path> (any content). Change it any time with /permissions.\"; remembered No: \"I'll keep saying no to this exact action. Change it with /permissions.\"; Just this once: today's receipt). Scope nouns: \"this exact action\" / \"this kind of action, anywhere\" / \"only in <folder>\". Destructive: three buttons, no alternative, pre-tap \"Allow will remember: this exact command only \u2014 nothing broader. No will remember: this exact command.\" Protected: reason line \"<path> is protected, so I always ask.\", buttons \"Allow once\" / \"No\" only. Batch: \"Allow all and Deny all are once-only. Tap Review each to decide one at a time \u2014 those cards can remember.\" No rails-bump line anywhere.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/channels/permission-card-affordances.ts",
+    "apps/core/src/channels/permission-interaction.ts",
+    "apps/core/src/channels/permission-batch-coalescer.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T12:37:05+00:00"
+}

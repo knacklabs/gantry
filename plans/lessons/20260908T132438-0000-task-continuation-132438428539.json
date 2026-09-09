@@ -1,0 +1,13 @@
+{
+  "topic": "task-continuation",
+  "lesson": "CONTINUE, do not restart: the worktree holds run 4's uncommitted work (13 files, +343: cardAffordances carrier on PermissionApprovalRequest in domain/types.ts, envelope, prompt binding/durability, inline creation, Postgres batch reset, the settlement offered-set check in the callback accessor + recovery + telegram permission-prompt-settlement, permission-remember-settlement, permission-interaction.ts started, durability + Postgres tests). Read git status and git diff first, keep what matches the contract, then continue the slice order from lesson 111 at the first unfinished slice (the formatter module channels/permission-card-affordances.ts does not exist yet \u2014 create it next with its unit suite), then canonicalRoot + place candidate, the rail-filtered count, the thin consumers, the four providers, the router hook, S4. Run the touched suite after each slice. The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/src/channels/permission-card-affordances.ts",
+    "apps/core/src/channels/permission-interaction.ts",
+    "apps/core/src/domain/types.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T13:24:38+00:00"
+}

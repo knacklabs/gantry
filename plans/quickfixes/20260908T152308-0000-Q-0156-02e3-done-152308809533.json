@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0156-02e3",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Codex refuses gpt-5.6-sol for this account (400 on runs 10-11); pin the implementer to gpt-5.6-terra in harness.yaml so ASKFLOOR-1-T5a can continue",
+  "started_at": "2026-09-08T15:21:56+00:00",
+  "completed_at": "2026-09-08T15:23:08+00:00",
+  "files": []
+}

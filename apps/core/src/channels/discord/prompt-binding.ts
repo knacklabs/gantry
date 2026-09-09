@@ -1,7 +1,7 @@
 import { bindPendingPermissionInteractionMessage } from '../../application/interactions/pending-interaction-durability.js';
 import type { PermissionApprovalRequest } from '../../domain/types.js';
 import type { PermissionPromptFullView } from '../permission-full-view.js';
-import { permissionDecisionOptions } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 
 export async function bindDiscordPermissionPrompt(
   request: PermissionApprovalRequest,

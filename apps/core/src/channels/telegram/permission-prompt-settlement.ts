@@ -5,9 +5,12 @@ import {
 } from '../../application/interactions/pending-interaction-durability.js';
 import type {
   PermissionApprovalDecision,
+  PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
   PermissionCallbackScope,
+  PermissionRememberCode,
 } from '../../domain/types.js';
+import { effectivePermissionDecisionCode } from '../../application/interactions/pending-interaction-permission-callback.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   decisionForMode,
@@ -34,7 +37,7 @@ type PendingTelegramPermission = {
 
 export async function claimAndSettleTelegramPermissionPrompt(input: {
   providerAlias: string;
-  mode: NonNullable<PermissionApprovalDecision['mode']>;
+  mode: PermissionApprovalDecisionMode | PermissionRememberCode;
   approverRef: string;
   reason: string;
   pendingPrompts: Map<string, PendingTelegramPermission>;
@@ -53,10 +56,17 @@ export async function claimAndSettleTelegramPermissionPrompt(input: {
   if (claimed.status === 'already_decided')
     return claimed.ownerless ? 'ownerless' : 'already_decided';
   if (claimed.status === 'retryable') return 'retryable';
+  const decoded = effectivePermissionDecisionCode(pending.request, input.mode);
+  if (!decoded) return 'retryable';
   const decision = {
-    ...decisionForMode(pending.request, input.mode, input.approverRef),
+    ...decisionForMode(pending.request, decoded.mode, input.approverRef),
     reason: input.reason,
-    permissionCallbackClaim: claimed.claim,
+    permissionCallbackClaim: {
+      ...claimed.claim,
+      ...(decoded.effectiveRememberCode
+        ? { effectiveRememberCode: decoded.effectiveRememberCode }
+        : {}),
+    },
   };
   if (await settleTelegramPermissionPrompt(input, decision)) return 'settled';
   await releasePermissionInteractionCallback({ claim: claimed.claim });

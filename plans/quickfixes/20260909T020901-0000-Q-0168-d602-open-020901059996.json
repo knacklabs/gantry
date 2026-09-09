@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0168-d602",
+  "profile": "degraded",
+  "reason": "Three-lens review round 1 fixes for ASKFLOOR-1-T5a (owner ruling 2026-09-09): the stage is done, stages do not reopen, and forge delegate derives write access only from an active stage, so Codex cannot apply review fixes (harness gap, proposal filed). Window 1: hoist the hard-floor guard above both remembered-allow lookups in the coordinator (security P1), derive the allow candidates in parallel again (performance P2), require a usable kindTool candidate for trust growth and use the canonical write classification (quality P2s), with pinned tests.",
+  "started_at": "2026-09-09T02:09:01+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

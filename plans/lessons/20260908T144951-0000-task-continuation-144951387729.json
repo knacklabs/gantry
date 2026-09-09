@@ -1,0 +1,12 @@
+{
+  "topic": "task-continuation",
+  "lesson": "CONTINUE, do not restart (49 modified files / +2146 plus the new formatter module and suite are on disk). Host check: thirteen of the fourteen required leaves now exist. ONLY these remain: (1) S4 in apps/core/test/unit/runtime/askfloor-tap-budget.test.ts with the exact title \"S4 asks once for rm -rf build remembers the exact command runs it again with zero taps asks for rm -rf dist and remembers No exactly\" \u2014 extend askfloor-tap-budget-harness.ts as S1-S3 do (real claim \u2192 learn \u2192 apply through the coordinator): the destructive build-directory removal asks once, a remember-allow tap stores the exact command + target, the identical command replays with zero taps, the same removal of the dist directory asks, and a remember-deny tap on it is remembered exactly (a later identical request resolves deny with human_decision provenance); (2) confirm the router's memory_forget path exposes a typed hook the host can bind and answers \"Not available yet.\" when unbound (name it onMemoryForget if it is not already); (3) then run npx tsc --noEmit, npm run check:architecture, and the touched suites (askfloor-tap-budget, channel-message-action-router, the four provider suites) and report. The orchestrator commits, never you.",
+  "source": "HEAD",
+  "applies_to": [
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-08T14:49:51+00:00"
+}

@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0171-93ca",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Three-lens review round 1 fixes for ASKFLOOR-1-T5a, window 4 of 5 (owner ruling 2026-09-09): repoint Slack delivery and Teams importers of permissionDecisionOptions to channels/permission-card-affordances (security P1 leftover).",
+  "started_at": "2026-09-09T02:16:04+00:00",
+  "completed_at": "2026-09-09T02:16:30+00:00",
+  "files": []
+}

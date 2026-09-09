@@ -1041,6 +1041,7 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
         exact: { ok: true, scopeKey: 'effect-one', pathOnly: false },
         kind: { ok: true, scopeKey: 'kind:read_only_command', pathOnly: false },
         kindTool: { ok: true, scopeKey: 'kind:tool:Bash', pathOnly: false },
+        place: { ok: false, reason: 'no_root' },
       },
     };
     const batchRequestIds = ['req-remember-batch-a', 'req-remember-batch-b'];
@@ -1145,6 +1146,80 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
         includeTerminalSettlement: true,
       }),
     ).rejects.toThrow('rendered option is malformed');
+  });
+
+  it('resets the card affordances to the scalar batch shape inside the bind transaction alongside the remember context', async () => {
+    const rememberContext = {
+      eligible: true,
+      laneInput: { permissionMode: 'auto' },
+      lane: 'interactive_auto',
+      appId: 'default',
+      agentFolder: 'scheduler_agent',
+      canonicalTool: 'Bash',
+      personId: 'person-one',
+      effectHash: 'effect-card-batch',
+      effectSchemaVersion: 3,
+      railVersion: 7,
+      workspaceRoot: '/workspace',
+      kindVariant: 'category',
+      candidates: {
+        deny: { ok: true, scopeKey: 'effect-card-batch', pathOnly: false },
+        exact: { ok: true, scopeKey: 'effect-card-batch', pathOnly: false },
+        kind: { ok: true, scopeKey: 'kind:read_only_command', pathOnly: false },
+        kindTool: { ok: true, scopeKey: 'kind:tool:Bash', pathOnly: false },
+        place: { ok: false, reason: 'no_root' },
+      },
+    };
+    const cardAffordances = {
+      eligible: true,
+      offered: ['remember_allow_exact', 'remember_deny_exact'],
+      destructive: false,
+      protected: false,
+      preTapLines: [
+        'Allow will remember: this exact action',
+        'No will remember: this exact action.',
+      ],
+      postTapLines: {},
+    };
+    const requestIds = ['req-card-batch-a', 'req-card-batch-b'];
+    for (const requestId of requestIds) {
+      await createPermissionMember({
+        requestId,
+        payload: {
+          rememberContext,
+          cardAffordances,
+          request: {
+            requestId,
+            sourceAgentFolder: 'scheduler_agent',
+            targetJid: 'tg:worker-coordination',
+            toolName: 'Bash',
+            cardAffordances,
+          },
+        },
+      });
+    }
+
+    const batch = await bindPermissionPrompt({
+      interactionId: 'req-card-batch',
+      requestIds,
+      mode: 'batch',
+    });
+    const scalarCard = {
+      eligible: false,
+      offered: [],
+      destructive: false,
+      protected: false,
+      preTapLines: [],
+      postTapLines: {},
+    };
+    expect(batch?.members).toHaveLength(2);
+    for (const member of batch?.members ?? []) {
+      expect(member.payload.rememberContext).toMatchObject({ eligible: false });
+      expect(member.payload.cardAffordances).toEqual(scalarCard);
+      expect(
+        (member.payload.request as Record<string, unknown>).cardAffordances,
+      ).toEqual(scalarCard);
+    }
   });
 
   it('reopens only cancelled questions and admits one concurrent re-ask', async () => {

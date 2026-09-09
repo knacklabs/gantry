@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0158-e976",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Codex usage limit exhausted; part 2 of the three P2 stage-review fixes for ASKFLOOR-1-T5a: bootstrap supplies the human tool label (runtime-services, inline-permission-memory) and the pinned tests",
+  "started_at": "2026-09-08T15:53:53+00:00",
+  "completed_at": "2026-09-08T16:00:51+00:00",
+  "files": []
+}

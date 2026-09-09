@@ -460,6 +460,7 @@ describe('human decision memory service', () => {
       appId: 'app-one',
       agentFolder: 'main_agent',
       actingPersonId: 'person-one',
+      railVersion: 7,
     };
     await expect(service.countExactAllowsByTool(countInput)).resolves.toEqual({
       file: 2,

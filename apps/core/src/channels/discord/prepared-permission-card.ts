@@ -10,10 +10,8 @@ import {
 import { buttonRows, permissionCustomId } from './components.js';
 import { discordChannelIdFromJid } from './interaction-helpers.js';
 import { discordPermissionFullViewCustomId } from './permission-full-view.js';
-import {
-  permissionButtonLabel,
-  permissionDecisionOptions,
-} from '../permission-interaction.js';
+import { permissionButtonLabel } from '../permission-interaction.js';
+import { permissionDecisionOptions } from '../permission-card-affordances.js';
 
 export function prepareDiscordPermissionCardSend(input: {
   jid: string;
@@ -46,7 +44,7 @@ export function prepareDiscordPermissionCardSend(input: {
       : []),
     ...permissionDecisionOptions(view.request).map((mode) => ({
       label: permissionButtonLabel(mode, view.request),
-      style: mode === 'cancel' ? 4 : 1,
+      style: mode === 'cancel' || mode === 'remember_deny_exact' ? 4 : 1,
       custom_id: permissionCustomId(callback.providerAlias, mode),
     })),
   ];
