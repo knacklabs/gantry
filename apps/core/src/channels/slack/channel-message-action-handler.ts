@@ -135,24 +135,27 @@ export function registerSlackMessageActionHandler(
             text: result?.receipt ?? 'Not available yet.',
           });
           if (result?.permissionMemoryListView && body.message?.ts) {
+            const affordances = result.permissionMemoryListView.affordances.map(
+              (affordance) => ({
+                kind: 'memory_forget' as const,
+                ...affordance,
+              }),
+            );
             await app.client.chat.update({
               channel: channelId,
               ts: body.message.ts,
               text: result.permissionMemoryListView.text,
-              blocks: slackMessageActionBlocks(
-                result.permissionMemoryListView.text,
-                result.permissionMemoryListView.affordances.map(
-                  (affordance) => ({
-                    kind: 'memory_forget' as const,
-                    ...affordance,
-                  }),
-                ),
-                {
-                  providerAccountId: payload.providerAccountId as
-                    | string
-                    | undefined,
-                },
-              ),
+              blocks: affordances.length
+                ? slackMessageActionBlocks(
+                    result.permissionMemoryListView.text,
+                    affordances,
+                    {
+                      providerAccountId: payload.providerAccountId as
+                        | string
+                        | undefined,
+                    },
+                  )
+                : [],
             });
           }
           return result;

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createMemoryForgetHandler } from '@core/app/bootstrap/permission-memory-forget-handler.js';
-import { permissionMemoryAgentRouteKey } from '@core/application/permissions/permission-memory-listing.js';
+import {
+  permissionMemoryAgentRouteKey,
+  type UsedByJobReader,
+} from '@core/application/permissions/permission-memory-listing.js';
 import type { HumanDecisionMemoryService } from '@core/application/permissions/human-decision-memory-service.js';
 import type { ConversationRoute } from '@core/domain/types.js';
 import {
@@ -79,6 +82,7 @@ function setup(
     revokeResult?: 'applied' | 'already_revoked' | 'not_found';
     routes?: Record<string, ConversationRoute>;
     resolvePerson?: () => Promise<string | undefined>;
+    usedBy?: UsedByJobReader;
   } = {},
 ) {
   const firstRows = input.firstRows ?? [row()];
@@ -101,7 +105,7 @@ function setup(
       'Current permission mode: auto (agent/default).',
     service,
     timezone: 'Asia/Kolkata',
-    usedBy: async () => new Map(),
+    usedBy: input.usedBy ?? (async () => new Map()),
   });
   return { callOrder, handler, list, revoke };
 }
@@ -146,6 +150,19 @@ describe('permission memory forget handler', () => {
         },
       ],
     ]);
+
+    const activeRows = Array.from({ length: 11 }, (_, index) =>
+      row({
+        id: `000000${index + 2}-1234-4abc-8def-1234567890ab`,
+        shortId: `0000${index + 2}`,
+      }),
+    );
+    const usedBy = vi.fn(async () => new Map());
+    const rerendered = setup({ activeRows, usedBy });
+    await rerendered.handler(action);
+    expect(usedBy).toHaveBeenCalledWith(
+      activeRows.slice(0, 10).map(({ id }) => id),
+    );
 
     const revoked = setup({
       firstRows: [row({ revokedAt: '2026-09-02T01:00:00.000Z' })],

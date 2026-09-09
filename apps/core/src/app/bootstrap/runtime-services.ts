@@ -621,7 +621,7 @@ export async function startRuntimeServices(
         usedBy: createUsedByJobReader({
           appId: String(channelWiring.getRuntimeAppId()),
           permissions: permissionRepository,
-          getJobById: (jobId) => resolved.opsRepository.getJobById(jobId),
+          listJobs: () => resolved.opsRepository.listJobs(),
         }),
         timezone: TIMEZONE,
       }),

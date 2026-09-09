@@ -159,16 +159,11 @@ describe('permission memory listing', () => {
       'Current permission mode: auto (agent/default).\nNothing remembered yet. Tap Allow on a card and it shows up here.',
     );
 
-    const pendingJobReads = new Map<
-      string,
-      (job: { name?: string; title?: string } | undefined) => void
-    >();
-    const getJobById = vi.fn(
-      (jobId: string) =>
-        new Promise<{ name?: string; title?: string } | undefined>((resolve) =>
-          pendingJobReads.set(jobId, resolve),
-        ),
-    );
+    const listJobs = vi.fn(async () => [
+      { id: 'one', name: 'Job one' },
+      { id: 'two', name: 'Job two' },
+      { id: 'three', name: 'Job three' },
+    ]);
     const reader = createUsedByJobReader({
       appId: 'app-one',
       permissions: {
@@ -200,18 +195,12 @@ describe('permission memory listing', () => {
           },
         ]),
       } as never,
-      getJobById,
+      listJobs,
     });
-    const usedByPromise = reader([rows[0]!.id]);
-    await vi.waitFor(() => expect(getJobById).toHaveBeenCalledTimes(4));
-    for (const jobId of ['deleted', 'one', 'two', 'three']) {
-      pendingJobReads.get(jobId)?.(
-        jobId === 'deleted' ? undefined : { name: `Job ${jobId}` },
-      );
-    }
-    await expect(usedByPromise).resolves.toEqual(
+    await expect(reader([rows[0]!.id])).resolves.toEqual(
       new Map([[rows[0]!.id, { jobs: ['Job one', 'Job two'], more: 1 }]]),
     );
+    expect(listJobs).toHaveBeenCalledOnce();
 
     const usedByRows = vi.fn(async () => new Map());
     const newest = commandInput(rows, { kind: 'permissions_show' });

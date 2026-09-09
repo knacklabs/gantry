@@ -12,6 +12,7 @@ export const PERMISSION_MEMORY_NOT_FOUND =
   "Nothing to forget — that isn't one of your remembered decisions, or it's already gone. Send /permissions for the current list.";
 export const PERMISSION_MEMORY_AMBIGUOUS =
   'That id matches more than one — send /permissions all and use the longer id.';
+export const PERMISSION_MEMORY_ALREADY_FORGOTTEN = 'Already forgotten.';
 
 export type PermissionMemoryUsedBy = {
   jobs: string[];
@@ -25,9 +26,7 @@ export type UsedByJobReader = (
 export function createUsedByJobReader(input: {
   appId: string;
   permissions: PermissionRepository;
-  getJobById: (
-    jobId: string,
-  ) => Promise<{ name?: string; title?: string } | undefined>;
+  listJobs: () => Promise<Array<{ id: string; name?: string; title?: string }>>;
 }): UsedByJobReader {
   return async (recordIds) => {
     const rows = await input.permissions.listDecisionsByHumanDecisionRecordId({
@@ -40,12 +39,9 @@ export function createUsedByJobReader(input: {
       if (!jobIds.includes(row.jobId)) jobIds.push(row.jobId);
       jobIdsByRecordId.set(row.recordId, jobIds);
     }
+    if (!rows.length) return new Map();
     const jobsById = new Map(
-      await Promise.all(
-        [...new Set(rows.map((row) => row.jobId))].map(
-          async (jobId) => [jobId, await input.getJobById(jobId)] as const,
-        ),
-      ),
+      (await input.listJobs()).map((job) => [job.id, job]),
     );
     const result = new Map<string, PermissionMemoryUsedBy>();
     for (const recordId of recordIds) {
@@ -114,7 +110,7 @@ export async function permissionMemoryCommandResponse(input: {
         result === 'applied'
           ? permissionMemoryForgot(permissionMemoryScopeLabel(matches[0]))
           : result === 'already_revoked'
-            ? 'Already forgotten.'
+            ? PERMISSION_MEMORY_ALREADY_FORGOTTEN
             : PERMISSION_MEMORY_NOT_FOUND,
     };
   }

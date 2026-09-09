@@ -8,6 +8,7 @@ import type { ConversationRoute } from '../../domain/types.js';
 import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
 import {
+  PERMISSION_MEMORY_ALREADY_FORGOTTEN,
   PERMISSION_MEMORY_NOT_FOUND,
   permissionMemoryForgot,
   permissionMemoryListView,
@@ -19,7 +20,7 @@ import { HumanDecisionMemoryService } from '../../application/permissions/human-
 
 const alreadyForgotten = (): MessageActionOutcome => ({
   state: 'stale',
-  receipt: 'Already forgotten.',
+  receipt: PERMISSION_MEMORY_ALREADY_FORGOTTEN,
 });
 const notFound = (): MessageActionOutcome => ({
   state: 'invalid',
@@ -90,7 +91,9 @@ export function createMemoryForgetHandler(input: {
         rows: activeRows,
         agentId,
         timezone: input.timezone,
-        usedBy: await input.usedBy(activeRows.map((entry) => entry.id)),
+        usedBy: await input.usedBy(
+          activeRows.slice(0, 10).map((entry) => entry.id),
+        ),
       }),
     };
   };

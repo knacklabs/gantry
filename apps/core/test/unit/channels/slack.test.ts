@@ -6759,7 +6759,7 @@ describe('Slack channel', () => {
       channel: 'C1234567890',
       ts: '1710000000.000222',
       text: 'Current permission mode: auto (agent/default).\nAllow · read-only reads · anywhere · 2 Sep · Ada',
-      blocks: undefined,
+      blocks: [],
     });
     expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith({
       channel: 'C1234567890',
