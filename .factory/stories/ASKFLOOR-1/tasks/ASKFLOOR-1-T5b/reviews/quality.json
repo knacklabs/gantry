@@ -1,9 +1,14 @@
 {
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T5b",
-  "score": 8,
-  "summary": "quality lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..f248c58, Codex via the autoreview skill at --max-priority P2): 0 blocking, 4 non-blocking. The primary flows are implemented, but the patch retains two concrete scaling regressions, leaves stale Slack controls in the empty-state case, and violates the mandated single ownership of permission-memory reply copy.\nVERDICT ASKFLOOR-1-T5b-AC1: implemented \u2014 apps/core/src/session/session-command-parse.ts:32 accepts both new command forms and normalizes forget prefixes\nVERDICT ASKFLOOR-1-T5b-AC2: partial \u2014 apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:23 defines permission-memory reply copy outside the required owner module\nVERDICT ASKFLOOR-1-T5b-AC3: implemented \u2014 apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:42 performs route-, DM-, person-, rails-, and record-scoped forget handling\nVERDICT ASKFLOOR-1-T5b-AC4: partial \u2014 apps/core/src/channels/slack/channel-message-action-handler.ts:146 can omit the empty blocks array and retain stale Forget controls\nVERDICT ASKFLOOR-1-T5b-AC5: partial \u2014 apps/core/src/application/permissions/permission-memory-listing.ts:45 performs per-job reads instead of one batched hydration\nVERDICT ASKFLOOR-1-T5b-AC6: implemented \u2014 apps/core/src/runtime/group-processing.ts:156 derives the sender-matched label and the group command path is DM-gated\nVERDICT ASKFLOOR-1-T5b-AC7: implemented \u2014 apps/core/src/application/agents/prompt-profile-service.ts:218 contains the guidance and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:120 carries S5; recorded verification is green\nNO LEFTOVERS: no compatibility wrapper, shim, alias, re-export, retained symbol, dead branch, or compatibility naming is visible in the supplied diff.",
+  "score": 6,
+  "summary": "quality lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..b43dbb6, Codex via the autoreview skill at --max-priority P2): 1 blocking, 1 non-blocking. VERDICT ASKFLOOR-1-T5b-AC1: implemented \u2014 apps/core/src/session/session-command-parse.ts:31\nVERDICT ASKFLOOR-1-T5b-AC2: partial \u2014 apps/core/src/application/permissions/permission-memory-listing.ts:149 duplicates the category nouns instead of consuming the existing helper\nVERDICT ASKFLOOR-1-T5b-AC3: partial \u2014 apps/core/src/app/bootstrap/runtime-services.ts:597 resolves the actor through the control-approver identity rather than the canonical memory-person identity\nVERDICT ASKFLOOR-1-T5b-AC4: implemented \u2014 apps/core/src/channels/slack/channel-message-action-handler.ts:116\nVERDICT ASKFLOOR-1-T5b-AC5: implemented \u2014 apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts:1878\nVERDICT ASKFLOOR-1-T5b-AC6: implemented \u2014 apps/core/src/runtime/group-processing.ts:156\nVERDICT ASKFLOOR-1-T5b-AC7: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:120\nNO LEFTOVERS: none found in the supplied diff.",
   "blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/app/bootstrap",
+      "summary": "[P1] Resolve Forget actors through the canonical memory-person identity (apps/core/src/app/bootstrap/runtime-services.ts:597): The button path resolves `action.userId` through `resolveControlApproverPrincipal`, but the identity contract requires the canonical DM person from `resolveCanonicalMemoryPersonId`."
+    },
     {
       "category": "plan-contract-partial",
       "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria",
@@ -12,37 +17,17 @@
     {
       "category": "plan-contract-partial",
       "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T5b-AC4: IN-PLACE EDIT. Telegram, Slack and Teams, when the outcome carries `permissionMemoryListView`, edit the tapped message with the view (text + Forget affordances) through the same path they use for `observerDigestView`, using their locally held message id / token, and send the receipt in every case (no view \u2192 receipt only); Discord answers with its existing ephemeral receipt only. Every provider forwards `agentId` from the callback payload. Every provider codec round-trips `agentRouteKey` within its payload limit. Tests: Telegram/Slack/Teams (edit called with the rendered view under the per-message lock; receipt; no edit without a view; concurrent double-tap \u2192 no resurrected row), Discord (no source-list mutation, one ephemeral receipt update), Teams routing with the authenticated `message.threadId` and mutating `replyToId ?? id`, ignoring submitted `threadId`/`targetJid`."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5b.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T5b-AC5: USED-BY READ. `listDecisionsByHumanDecisionRecordId` on the port + Postgres adapter: one row per `(recordId, jobId)`, latest use, ordered `lastUsedAt DESC, jobId`, filtered by app and record ids, extracted from `actor_context_json`; no index (owner-accepted scan, recorded as an assumption at pr-ready). The used-by reader hydrates names via `getJobById`, drops deleted jobs first, names two, then \"+N jobs\". Tests: Postgres integration (rows written through `recordDecision` with `humanDecisionRecordId` on both job lanes are returned once per job with the latest timestamp; unrelated rows and other apps are not), reader unit (1, 2, 3+ jobs; deleted job dropped before the count; ordering)."
+      "summary": "ASKFLOOR-1-T5b-AC3: FORGET BY ID AND BY BUTTON. `/permissions forget <prefix>` resolves (case-insensitive) against this person's ACTIVE current-rails records only: one match \u2192 `service.revoke` \u2192 \"Forgot: <scope>. I'll ask next time.\"; several \u2192 the ambiguity reply, nothing mutated; none \u2192 the not_found reply. `createMemoryForgetHandler` does the same for a tap: app id from the jid, agentRouteKey resolved against the route-effective agent ids, route by (jid, thread, agentId, account), DM-gated person, row loaded through person-scoped `list({ includeRevoked: true })` BEFORE `revoke`, a revoked row \u2192 \"Already forgotten.\" with zero revoke calls, another person's / other-agent / stale-rails id / an unknown route / a group route \u2192 not_found with zero revoke calls, and on `applied` re-lists the active rows and returns `permissionMemoryListView` (mode line via the injected resolver \u2014 default and route override pinned \u2014 plus the re-read rows and footer). Tests: listing suite (three outcomes, revoked-row prefix \u2192 not_found, cross-person \u2192 not_found, ambiguity \u2192 zero revoke calls); NEW `test/unit/bootstrap/permission-memory-forget-handler.test.ts` (the real factory: applied with listing, already_revoked, cross-person, stale rails, unknown route, group route, list-before-revoke ordering, a revoke racing to already_revoked); router suite (`channel-message-action-router.test.ts:170-196`) \u2014 the bound handler's result reaches the provider unchanged; `runtime-services.test.ts` \u2014 the handler is bound at startup through the setter."
     }
   ],
   "non_blocking_findings": [
     {
-      "category": "bug",
-      "area": "apps/core/src/app/bootstrap",
-      "summary": "[P2] Limit used-by hydration to the rows shown after a Forget tap (apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:91): After a successful button revocation, the replacement view is a normal ten-row listing, but `usedBy` receives every active record ID."
-    },
-    {
       "category": "maintainability",
       "area": "apps/core/src/application/permissions",
-      "summary": "[P2] Hydrate job names with one bulk repository read (apps/core/src/application/permissions/permission-memory-listing.ts:45): The used-by reader issues one `getJobById` request per distinct job via `Promise.all`."
-    },
-    {
-      "category": "bug",
-      "area": "apps/core/src/channels/slack",
-      "summary": "[P2] Clear Slack blocks when the replacement view has no buttons (apps/core/src/channels/slack/channel-message-action-handler.ts:146): When the final remembered row is forgotten, `slackMessageActionBlocks` returns `undefined`."
-    },
-    {
-      "category": "maintainability",
-      "area": "apps/core/src/app/bootstrap",
-      "summary": "[P2] Keep the Already-forgotten reply in the designated copy owner (apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:23): The button handler defines `Already forgotten.` locally even though the listing module is required to own every permission-memory reply string; the command path already contains a separate copy."
+      "summary": "[P2] Use the shared category-noun helper for permission-memory rows (apps/core/src/application/permissions/permission-memory-listing.ts:149): The listing introduces a second hard-coded category-to-noun table even though AC2 requires these nouns to come from the existing application helper."
     }
   ],
-  "recommendation": "approve-with-caveats",
+  "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
@@ -107,37 +92,37 @@
     {
       "contract_id": "ASKFLOOR-1-T5b-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/session/session-command-parse.ts:32 accepts both new command forms and normalizes forget prefixes"
+      "evidence": "apps/core/src/session/session-command-parse.ts:31"
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC2",
       "verdict": "partial",
-      "evidence": "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:23 defines permission-memory reply copy outside the required owner module"
+      "evidence": "apps/core/src/application/permissions/permission-memory-listing.ts:149 duplicates the category nouns instead of consuming the existing helper"
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC3",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:42 performs route-, DM-, person-, rails-, and record-scoped forget handling"
+      "verdict": "partial",
+      "evidence": "apps/core/src/app/bootstrap/runtime-services.ts:597 resolves the actor through the control-approver identity rather than the canonical memory-person identity"
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC4",
-      "verdict": "partial",
-      "evidence": "apps/core/src/channels/slack/channel-message-action-handler.ts:146 can omit the empty blocks array and retain stale Forget controls"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/channels/slack/channel-message-action-handler.ts:116"
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC5",
-      "verdict": "partial",
-      "evidence": "apps/core/src/application/permissions/permission-memory-listing.ts:45 performs per-job reads instead of one batched hydration"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts:1878"
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-processing.ts:156 derives the sender-matched label and the group command path is DM-gated"
+      "evidence": "apps/core/src/runtime/group-processing.ts:156"
     },
     {
       "contract_id": "ASKFLOOR-1-T5b-AC7",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/agents/prompt-profile-service.ts:218 contains the guidance and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:120 carries S5; recorded verification is green"
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:120"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -381,10 +366,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "b7530a2c040fc0fbc1a2a75842116c35ea5bc9c045b5617cf2f883e895567f90",
-  "brief_sha256": "b1c82db52b797ef27f2ae0a9be5699b15a6a071d958759661401ea93a2450afc",
-  "branch_diff_digest": "71fcd1f293c69f5761d19900b64f2d065eeedfdb0eec94eb0d3c4236962ffda9",
+  "review_run_id": "3a49397c3363ee4e876c544dcdc61ad7bc4beaa2c391b84395ac0ca4b085cd4b",
+  "brief_sha256": "d8142b5b188065bacb250c166c3c2436eee5237dd59d1c7f5480fc8defbe84bb",
+  "branch_diff_digest": "14d9dac089e10fd80f2c19aeb4830f4e6aa52ab75a4b4db0d8f7b88b9213d811",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T14:20:40+00:00",
-  "commit": "f248c58b61fd0f9f1181f242bae7d26143b4a6be"
+  "recorded_at": "2026-09-09T14:51:55+00:00",
+  "commit": "b43dbb6a86d39ec9feeb3da3cdf8ee385f1a086b"
 }

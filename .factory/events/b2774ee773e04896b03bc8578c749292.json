@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-09T14:28:42+00:00", "story": "ASKFLOOR-1", "detail": "Final T5b four-fix slice is type-safe, but check:architecture fails on callback-handlers.ts (907/900) and session-commands.ts (747/740); both are outside this final-cycle change-only scope and require"}

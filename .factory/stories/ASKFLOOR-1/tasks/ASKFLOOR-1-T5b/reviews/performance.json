@@ -2,18 +2,18 @@
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T5b",
   "score": 9,
-  "summary": "performance lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..f248c58, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. The main behavior is implemented, but the used-by path still has two production I/O-amplification defects: button refreshes query hidden records, and job hydration performs one repository read per job instead of one batched read.",
+  "summary": "performance lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..b43dbb6, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. The functional flow appears consistent with the supplied contracts, and no blocking compatibility leftovers or credentials are visible. However, the new used-by hydration path introduces two concrete, unbounded performance amplifications that meet the P2 threshold.",
   "blocking_findings": [],
   "non_blocking_findings": [
     {
       "category": "bug",
-      "area": "apps/core/src/app/bootstrap",
-      "summary": "[P2] Limit the post-Forget used-by lookup to the ten rendered rows (apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:94): After a successful Forget, `activeRows` contains every active record, but `permissionMemoryListView` renders only the ten newest because this is the button-based view."
+      "area": "apps/core/src/application/permissions",
+      "summary": "[P2] Hydrate only the referenced jobs (apps/core/src/application/permissions/permission-memory-listing.ts:44): The used-by reader calls the parameterless `listJobs()` and builds a map of every job in the app, even though the audit query has already identified the specific job IDs that need names."
     },
     {
       "category": "bug",
       "area": "apps/core/src/application/permissions",
-      "summary": "[P2] Hydrate job names with one batch repository read (apps/core/src/application/permissions/permission-memory-listing.ts:46): The `Promise.all` still invokes `getJobById` once for every distinct job."
+      "summary": "[P2] Remove the quadratic per-record job deduplication (apps/core/src/application/permissions/permission-memory-listing.ts:39): The Postgres method already groups results by `(recordId, jobId)`, but this loop checks every returned job with `jobIds.includes`, making a heavily reused permission take O(J\u00b2) time to prepare."
     }
   ],
   "recommendation": "approve-with-caveats",
@@ -78,10 +78,10 @@
     "review-animations"
   ],
   "aspect": "performance",
-  "review_run_id": "b7530a2c040fc0fbc1a2a75842116c35ea5bc9c045b5617cf2f883e895567f90",
-  "brief_sha256": "b1c82db52b797ef27f2ae0a9be5699b15a6a071d958759661401ea93a2450afc",
-  "branch_diff_digest": "71fcd1f293c69f5761d19900b64f2d065eeedfdb0eec94eb0d3c4236962ffda9",
+  "review_run_id": "3a49397c3363ee4e876c544dcdc61ad7bc4beaa2c391b84395ac0ca4b085cd4b",
+  "brief_sha256": "d8142b5b188065bacb250c166c3c2436eee5237dd59d1c7f5480fc8defbe84bb",
+  "branch_diff_digest": "14d9dac089e10fd80f2c19aeb4830f4e6aa52ab75a4b4db0d8f7b88b9213d811",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T14:20:40+00:00",
-  "commit": "f248c58b61fd0f9f1181f242bae7d26143b4a6be"
+  "recorded_at": "2026-09-09T14:51:56+00:00",
+  "commit": "b43dbb6a86d39ec9feeb3da3cdf8ee385f1a086b"
 }

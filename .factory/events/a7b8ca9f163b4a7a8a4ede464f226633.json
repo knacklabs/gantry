@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T14:30:57+00:00", "story": "ASKFLOOR-1", "detail": "S-0092-1738: Both files are in the T5b write scope; edit them. The overage comes from the prettier pre-commit hook re-wrapping the compact forms used earlier, so do NOT compress lines: in channels/telegram/callbac"}

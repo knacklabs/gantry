@@ -1,0 +1,11 @@
+{
+  "topic": "T5b: two Postgres integration test defects, test-side only",
+  "lesson": "Product code is final. apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts fails twice and both are test fixes: (1) 'lists one latest use per job\u2026' inserts permission_decisions rows for app 'app-one' and 'app-two' without seeding those apps \u2014 permission_decisions.app_id has a foreign key to apps; seed the apps first the way the sibling Postgres suites do (reuse their helper or insert the app rows in the test's setup) and clean them up. (2) 'round-trips human decisions per person: putHumanDecision refreshes an active duplicate\u2026' now gets [] because repository.list filters to the current rails version (a T5b contract: old-version rows are not listed); write that test's records with the CURRENT rails version so the refreshed row is returned, and keep one assertion that an old-version row is excluded. Run only this suite with GANTRY_TEST_DATABASE_URL set (it is exported in your environment); tsc must stay green. Touch nothing else.",
+  "source": "b43dbb6a8",
+  "applies_to": [
+    "apps/core/test/integration/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T14:43:57+00:00"
+}
