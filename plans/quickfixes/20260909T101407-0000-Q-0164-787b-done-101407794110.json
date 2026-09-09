@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0164-787b",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Trivy gate: drop vendor SBOMs from image",
+  "started_at": "2026-09-09T10:09:56+00:00",
+  "completed_at": "2026-09-09T10:14:07+00:00",
+  "files": [
+    "ops/docker/Dockerfile",
+    "MEMORY.md"
+  ]
+}
