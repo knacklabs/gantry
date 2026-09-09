@@ -5808,6 +5808,39 @@ describe('TelegramChannel', () => {
       expect(
         currentBot().api.sendMessage.mock.calls.at(-1)?.slice(0, 2),
       ).toEqual(['100200300', 'Forgot.']);
+
+      onMessageAction
+        .mockResolvedValueOnce({ state: 'applied', receipt: 'Forgot once.' })
+        .mockResolvedValueOnce({
+          state: 'stale',
+          receipt: 'Already forgotten.',
+        });
+      await Promise.all([
+        triggerCallbackQuery(callbackCtx as any),
+        triggerCallbackQuery(callbackCtx as any),
+      ]);
+      expect(currentBot().api.sendMessage.mock.calls.slice(-2)).toEqual([
+        expect.arrayContaining(['100200300', 'Forgot once.']),
+        expect.arrayContaining(['100200300', 'Already forgotten.']),
+      ]);
+
+      onMessageAction.mockResolvedValueOnce({
+        state: 'applied',
+        receipt: 'Forgot despite edit failure.',
+        permissionMemoryListView: {
+          text: 'Current permission mode: auto (agent/default).',
+          affordances: [],
+        },
+      });
+      callbackCtx.editMessageText.mockRejectedValueOnce(
+        new Error('edit failed'),
+      );
+      await expect(triggerCallbackQuery(callbackCtx as any)).rejects.toThrow(
+        'edit failed',
+      );
+      expect(
+        currentBot().api.sendMessage.mock.calls.at(-1)?.slice(0, 2),
+      ).toEqual(['100200300', 'Forgot despite edit failure.']);
     });
 
     it('CAPFIX-1-2 card keeps ability copy plain and the technical delta expandable', async () => {

@@ -34,17 +34,26 @@ export function createUsedByJobReader(input: {
       appId: input.appId,
       recordIds,
     });
+    const jobIdsByRecordId = new Map<string, string[]>();
+    for (const row of rows) {
+      const jobIds = jobIdsByRecordId.get(row.recordId) ?? [];
+      if (!jobIds.includes(row.jobId)) jobIds.push(row.jobId);
+      jobIdsByRecordId.set(row.recordId, jobIds);
+    }
+    const jobsById = new Map(
+      await Promise.all(
+        [...new Set(rows.map((row) => row.jobId))].map(
+          async (jobId) => [jobId, await input.getJobById(jobId)] as const,
+        ),
+      ),
+    );
     const result = new Map<string, PermissionMemoryUsedBy>();
     for (const recordId of recordIds) {
-      const jobIds = new Set<string>();
-      const jobs: string[] = [];
-      for (const row of rows.filter((entry) => entry.recordId === recordId)) {
-        if (jobIds.has(row.jobId)) continue;
-        jobIds.add(row.jobId);
-        const job = await input.getJobById(row.jobId);
+      const jobs = (jobIdsByRecordId.get(recordId) ?? []).flatMap((jobId) => {
+        const job = jobsById.get(jobId);
         const name = job?.name ?? job?.title;
-        if (name) jobs.push(name);
-      }
+        return name ? [name] : [];
+      });
       if (jobs.length)
         result.set(recordId, {
           jobs: jobs.slice(0, 2),
@@ -84,9 +93,9 @@ export async function permissionMemoryCommandResponse(input: {
     actingPersonId: personId,
   });
   if (input.command.kind === 'permissions_forget') {
-    const prefix = input.command.prefix;
+    const prefix = input.command.prefix.toLowerCase();
     const matches = rows.filter((row) =>
-      row.shortId.toLowerCase().startsWith(prefix),
+      row.id.toLowerCase().startsWith(prefix),
     );
     if (matches.length !== 1)
       return {
@@ -109,12 +118,14 @@ export async function permissionMemoryCommandResponse(input: {
             : PERMISSION_MEMORY_NOT_FOUND,
     };
   }
+  const renderedRows =
+    input.command.kind === 'permissions_all' ? rows : rows.slice(0, 10);
   const view = permissionMemoryListView({
     modeLine: input.modeLine,
     rows,
     agentId: input.agentId,
     timezone: input.timezone,
-    usedBy: await input.usedBy(rows.map((row) => row.id)),
+    usedBy: await input.usedBy(renderedRows.map((row) => row.id)),
     all: input.command.kind === 'permissions_all',
   });
   return {
@@ -173,11 +184,11 @@ export function permissionMemoryPlace(
   row: Pick<PermissionDecisionMemoryRow, 'scope' | 'scopeKey'>,
 ): string {
   if (row.scope !== 'place') return 'anywhere';
-  const scopeKey = row.scopeKey ?? '';
-  const lastSeparator = scopeKey.lastIndexOf(':');
-  return lastSeparator > 'place:'.length
-    ? scopeKey.slice(lastSeparator + 1)
-    : 'anywhere';
+  const value = (row.scopeKey ?? '').slice('place:'.length);
+  const separator = value.startsWith('tool:')
+    ? value.indexOf(':', 'tool:'.length)
+    : value.indexOf(':');
+  return separator >= 0 ? value.slice(separator + 1) || 'anywhere' : 'anywhere';
 }
 
 export function formatPermissionMemoryDate(

@@ -6658,6 +6658,61 @@ describe('Slack channel', () => {
       user: 'U_APPROVER',
       text: 'Forgot.',
     });
+
+    onMessageAction
+      .mockResolvedValueOnce({ state: 'applied', receipt: 'Forgot once.' })
+      .mockResolvedValueOnce({ state: 'stale', receipt: 'Already forgotten.' });
+    const actionArgs = {
+      ack: vi.fn().mockResolvedValue(undefined),
+      action: { value: forgetButton.value },
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER' },
+        message: { ts: '1710000000.000222', thread_ts: '1710000000.000111' },
+      },
+    };
+    await Promise.all([
+      slackActionHandler(forgetButton.action_id)?.(actionArgs),
+      slackActionHandler(forgetButton.action_id)?.(actionArgs),
+    ]);
+    expect(
+      appRef.current.client.chat.postEphemeral.mock.calls.slice(-2),
+    ).toEqual([
+      [
+        {
+          channel: 'C1234567890',
+          user: 'U_APPROVER',
+          text: 'Forgot once.',
+        },
+      ],
+      [
+        {
+          channel: 'C1234567890',
+          user: 'U_APPROVER',
+          text: 'Already forgotten.',
+        },
+      ],
+    ]);
+
+    onMessageAction.mockResolvedValueOnce({
+      state: 'applied',
+      receipt: 'Forgot despite edit failure.',
+      permissionMemoryListView: {
+        text: 'Current permission mode: auto (agent/default).',
+        affordances: [],
+      },
+    });
+    appRef.current.client.chat.update.mockRejectedValueOnce(
+      new Error('edit failed'),
+    );
+    await expect(
+      slackActionHandler(forgetButton.action_id)?.(actionArgs),
+    ).rejects.toThrow('edit failed');
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenLastCalledWith({
+      channel: 'C1234567890',
+      user: 'U_APPROVER',
+      text: 'Forgot despite edit failure.',
+    });
   });
 
   it('replaces the list message with the re-listed view under the source-message lock and sends the confirmation reply on Slack', async () => {

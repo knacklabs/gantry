@@ -293,7 +293,7 @@ export async function handleTeamsMessageAction(input: {
   }
   if (payload.kind === 'memory_forget') {
     const messageId = input.message.replyToId ?? input.message.id;
-    const outcome = await withObserverDigestEditLock(
+    await withObserverDigestEditLock(
       `teams:${input.jid}:${messageId}`,
       async () => {
         const result = await input.onMessageAction?.({
@@ -309,6 +309,12 @@ export async function handleTeamsMessageAction(input: {
             ? { threadId: input.message.threadId }
             : {}),
         });
+        if (result) {
+          await input.sendDenied(
+            teamsConversationIdFromJid(input.jid),
+            result.receipt,
+          );
+        }
         const conversationId = teamsConversationIdFromJid(input.jid);
         if (
           result?.permissionMemoryListView &&
@@ -338,12 +344,6 @@ export async function handleTeamsMessageAction(input: {
         return result;
       },
     );
-    if (outcome) {
-      await input.sendDenied(
-        teamsConversationIdFromJid(input.jid),
-        outcome.receipt,
-      );
-    }
     return true;
   }
   if (payload.kind === 'memory_review_decision') {

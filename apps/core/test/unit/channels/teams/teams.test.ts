@@ -2004,6 +2004,14 @@ describe('TeamsChannel adapter scaffold', () => {
       sendAdaptiveCard: vi.fn(async () => ({})),
       updateAdaptiveCard: vi.fn(async () => ({})),
     };
+    const onMessageAction = vi.fn(async () => ({
+      state: 'applied' as const,
+      receipt: 'Forgot.',
+      permissionMemoryListView: {
+        text: 'Current permission mode: auto (agent/default).\nAllow · read-only reads · anywhere · 2 Sep · Ada',
+        affordances: [],
+      },
+    }));
     const channel = new TeamsChannel(
       {
         clientId: 'client-id',
@@ -2012,20 +2020,13 @@ describe('TeamsChannel adapter scaffold', () => {
       },
       {
         ...makeOpts(),
-        onMessageAction: vi.fn(async () => ({
-          state: 'applied' as const,
-          receipt: 'Forgot.',
-          permissionMemoryListView: {
-            text: 'Current permission mode: auto (agent/default).\nAllow · read-only reads · anywhere · 2 Sep · Ada',
-            affordances: [],
-          },
-        })),
+        onMessageAction,
       },
       sdkClient,
     );
     await channel.connect();
 
-    await startInput?.onMessage({
+    const forgetMessage = {
       conversationId: '19:abc@thread.v2',
       replyToId: 'permissions-card',
       threadId: 'authenticated-thread',
@@ -2040,7 +2041,8 @@ describe('TeamsChannel adapter scaffold', () => {
           threadId: 'submitted-thread',
         },
       },
-    });
+    };
+    await startInput?.onMessage(forgetMessage);
 
     expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith({
       conversationId: '19:abc@thread.v2',
@@ -2056,6 +2058,41 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(sdkClient.sendMessage).toHaveBeenCalledWith({
       conversationId: '19:abc@thread.v2',
       text: 'Forgot.',
+    });
+
+    onMessageAction
+      .mockResolvedValueOnce({ state: 'applied', receipt: 'Forgot once.' })
+      .mockResolvedValueOnce({ state: 'stale', receipt: 'Already forgotten.' });
+    await Promise.all([
+      startInput?.onMessage(forgetMessage),
+      startInput?.onMessage(forgetMessage),
+    ]);
+    expect(sdkClient.sendMessage.mock.calls.slice(-2)).toEqual([
+      [{ conversationId: '19:abc@thread.v2', text: 'Forgot once.' }],
+      [
+        {
+          conversationId: '19:abc@thread.v2',
+          text: 'Already forgotten.',
+        },
+      ],
+    ]);
+
+    onMessageAction.mockResolvedValueOnce({
+      state: 'applied',
+      receipt: 'Forgot despite edit failure.',
+      permissionMemoryListView: {
+        text: 'Current permission mode: auto (agent/default).',
+        affordances: [],
+      },
+    });
+    vi.mocked(sdkClient.updateAdaptiveCard!).mockRejectedValueOnce(
+      new Error('edit failed'),
+    );
+    await expect(startInput?.onMessage(forgetMessage)).resolves.toBeUndefined();
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledTimes(2);
+    expect(sdkClient.sendMessage).toHaveBeenLastCalledWith({
+      conversationId: '19:abc@thread.v2',
+      text: 'Forgot despite edit failure.',
     });
   });
 

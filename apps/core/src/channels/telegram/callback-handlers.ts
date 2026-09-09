@@ -497,36 +497,29 @@ async function handleTelegramMemoryForgetCallback(
   if (!action || !ctx.conversationJid || !ctx.userId)
     return void (await ctx.answer('Not available yet.', true));
   await ctx.answer(); // acknowledge before the host hook's identity/db work
-  const outcome = await withObserverDigestEditLock(
+  await withObserverDigestEditLock(
     `tg:${ctx.chatId}:${ctx.messageId ?? ''}`,
     async () => {
       const result = await channel.opts.onMessageAction?.({
         kind: 'memory_forget',
         conversationJid: ctx.conversationJid!,
-        ...(ctx.providerAccountId
-          ? { providerAccountId: ctx.providerAccountId }
-          : {}),
+        ...(ctx.providerAccountId ? { providerAccountId: ctx.providerAccountId } : {}),
         threadId: ctx.threadId,
         userId: ctx.userId!,
         ...action,
       });
+      await ctx.raw.api.sendMessage(
+        ctx.chatId,
+        result?.receipt ?? 'Not available yet.',
+        ctx.threadId ? { message_thread_id: Number(ctx.threadId) } : {},
+      );
       if (result?.permissionMemoryListView) {
         await ctx.raw.editMessageText(result.permissionMemoryListView.text, {
-          reply_markup: telegramActionReplyMarkup(
-            result.permissionMemoryListView.affordances.map((affordance) => ({
-              kind: 'memory_forget' as const,
-              ...affordance,
-            })),
-          ),
+          reply_markup: telegramActionReplyMarkup(result.permissionMemoryListView.affordances.map((affordance) => ({ kind: 'memory_forget' as const, ...affordance }))),
         });
       }
       return result;
     },
-  );
-  await ctx.raw.api.sendMessage(
-    ctx.chatId,
-    outcome?.receipt ?? 'Not available yet.',
-    ctx.threadId ? { message_thread_id: Number(ctx.threadId) } : {},
   );
 }
 

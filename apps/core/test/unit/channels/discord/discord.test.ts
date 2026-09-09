@@ -4575,6 +4575,40 @@ describe('DiscordChannel', () => {
           init?.method === 'PATCH',
       ),
     ).toEqual([]);
+
+    onMessageAction.mockClear();
+    (onMessageAction as any)
+      .mockResolvedValueOnce({ state: 'applied', receipt: 'Forgot once.' })
+      .mockResolvedValueOnce({
+        state: 'stale',
+        receipt: 'Already forgotten.',
+      });
+    for (const [id, token] of [
+      ['forget-interaction-1', 'forget-token-1'],
+      ['forget-interaction-2', 'forget-token-2'],
+    ]) {
+      socket.receive({
+        op: 0,
+        t: 'INTERACTION_CREATE',
+        d: {
+          id,
+          token,
+          type: 3,
+          channel_id: 'channel-1',
+          data: { custom_id: customId },
+          member: { user: { id: 'user-1', username: 'Ravi' } },
+        },
+      });
+    }
+    await vi.waitFor(() => expect(onMessageAction).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls
+          .filter(([url]) => String(url).includes('/messages/@original'))
+          .slice(-2)
+          .map(([, init]) => JSON.parse(String(init?.body)).content),
+      ).toEqual(['Forgot once.', 'Already forgotten.']),
+    );
     await channel.disconnect();
   });
 

@@ -79,7 +79,7 @@ describe('permission memory listing', () => {
     const rows = Array.from({ length: 11 }, (_, index) => row(11 - index));
     rows[0] = row(11, {
       scope: 'place',
-      scopeKey: 'place:read_only_command:/repo',
+      scopeKey: 'place:read_only_command:/repo:with:colon',
       actingPersonLabel: undefined,
       createdAt: '2026-09-01T20:00:00.000Z',
     });
@@ -100,7 +100,7 @@ describe('permission memory listing', () => {
     });
 
     expect(view.text).toContain(
-      'Allow · read-only reads · /repo · 2 Sep · someone · used by job Nightly import, Daily report, +1 jobs',
+      'Allow · read-only reads · /repo:with:colon · 2 Sep · someone · used by job Nightly import, Daily report, +1 jobs',
     );
     expect(view.text).toContain('Allow · Bash, this exact call · anywhere');
     expect(view.text).toContain('Showing the 10 newest with buttons. 1 older.');
@@ -159,6 +159,16 @@ describe('permission memory listing', () => {
       'Current permission mode: auto (agent/default).\nNothing remembered yet. Tap Allow on a card and it shows up here.',
     );
 
+    const pendingJobReads = new Map<
+      string,
+      (job: { name?: string; title?: string } | undefined) => void
+    >();
+    const getJobById = vi.fn(
+      (jobId: string) =>
+        new Promise<{ name?: string; title?: string } | undefined>((resolve) =>
+          pendingJobReads.set(jobId, resolve),
+        ),
+    );
     const reader = createUsedByJobReader({
       appId: 'app-one',
       permissions: {
@@ -190,19 +200,44 @@ describe('permission memory listing', () => {
           },
         ]),
       } as never,
-      getJobById: async (jobId) =>
-        jobId === 'deleted' ? undefined : { name: `Job ${jobId}` },
+      getJobById,
     });
-    await expect(reader([rows[0]!.id])).resolves.toEqual(
+    const usedByPromise = reader([rows[0]!.id]);
+    await vi.waitFor(() => expect(getJobById).toHaveBeenCalledTimes(4));
+    for (const jobId of ['deleted', 'one', 'two', 'three']) {
+      pendingJobReads.get(jobId)?.(
+        jobId === 'deleted' ? undefined : { name: `Job ${jobId}` },
+      );
+    }
+    await expect(usedByPromise).resolves.toEqual(
       new Map([[rows[0]!.id, { jobs: ['Job one', 'Job two'], more: 1 }]]),
     );
+
+    const usedByRows = vi.fn(async () => new Map());
+    const newest = commandInput(rows, { kind: 'permissions_show' });
+    await permissionMemoryCommandResponse({ ...newest, usedBy: usedByRows });
+    expect(usedByRows).toHaveBeenCalledWith(
+      rows.slice(0, 10).map(({ id }) => id),
+    );
+    const allRows = commandInput(rows, { kind: 'permissions_all' });
+    await permissionMemoryCommandResponse({ ...allRows, usedBy: usedByRows });
+    expect(usedByRows).toHaveBeenLastCalledWith(rows.map(({ id }) => id));
   });
 
   it("resolves a case-insensitive forget prefix against this person's active current-rails records only revoking one match replying ambiguity with zero revoke calls and not-found for none revoked stale rails or another person", async () => {
-    const rows = [row(1, { shortId: 'abcdef' }), row(2, { shortId: 'abcdee' })];
+    const rows = [
+      row(1, {
+        id: 'abcdef00-1234-4abc-8def-1234567890ab',
+        shortId: 'abcdef',
+      }),
+      row(2, {
+        id: 'abcdef11-1234-4abc-8def-1234567890ab',
+        shortId: 'abcdef',
+      }),
+    ];
     const input = commandInput(rows, {
       kind: 'permissions_forget',
-      prefix: 'abcdef',
+      prefix: 'ABCDEF00',
     });
     const result = await permissionMemoryCommandResponse(input);
     expect(result.text).toBe("Forgot: read-only reads. I'll ask next time.");
@@ -215,7 +250,7 @@ describe('permission memory listing', () => {
 
     const ambiguous = commandInput(rows, {
       kind: 'permissions_forget',
-      prefix: 'abcd',
+      prefix: 'abcdef',
     });
     await expect(permissionMemoryCommandResponse(ambiguous)).resolves.toEqual({
       text: PERMISSION_MEMORY_AMBIGUOUS,

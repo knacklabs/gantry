@@ -117,7 +117,7 @@ export function registerSlackMessageActionHandler(
     ) {
       const recordId = payload.recordId;
       const agentRouteKey = payload.agentRouteKey;
-      const outcome = await withObserverDigestEditLock(
+      await withObserverDigestEditLock(
         `sl:${channelId}:${body.message?.ts ?? ''}`,
         async () => {
           const result = await opts?.onMessageAction?.({
@@ -128,6 +128,11 @@ export function registerSlackMessageActionHandler(
             userId,
             recordId,
             agentRouteKey,
+          });
+          await app.client.chat.postEphemeral({
+            channel: channelId,
+            user: userId,
+            text: result?.receipt ?? 'Not available yet.',
           });
           if (result?.permissionMemoryListView && body.message?.ts) {
             await app.client.chat.update({
@@ -153,11 +158,6 @@ export function registerSlackMessageActionHandler(
           return result;
         },
       );
-      await app.client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        text: outcome?.receipt ?? 'Not available yet.',
-      });
       return;
     }
     const observerFeedback = parseSlackObserverFeedback(payload);
