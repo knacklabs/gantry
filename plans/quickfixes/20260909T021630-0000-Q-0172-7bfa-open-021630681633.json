@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0172-7bfa",
+  "profile": "degraded",
+  "reason": "Three-lens review round 1 fixes for ASKFLOOR-1-T5a, window 5 of 5 (owner ruling 2026-09-09): repoint the Telegram importers of permissionDecisionOptions to channels/permission-card-affordances (security P1 leftover).",
+  "started_at": "2026-09-09T02:16:30+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
