@@ -590,7 +590,10 @@ export async function handleSessionCommand(opts: {
           ...deps.remembered,
         })
       : undefined;
-    await deps.sendMessage(response?.text ?? `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`, response?.actionAffordances ? { actionAffordances: response.actionAffordances } : undefined);
+    await deps.sendMessage(
+      response?.text ?? `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`,
+      ...(response?.actionAffordances ? [{ actionAffordances: response.actionAffordances }] : []),
+    );
     return { handled: true, success: true };
   }
   if (command.kind === 'model_set') {

@@ -175,6 +175,7 @@ describe('createChannelMessageActionRouter', () => {
       threadId: 'thread-1',
       userId: 'U123',
       recordId: '30000000-0000-4000-8000-000000000001',
+      agentRouteKey: 'agent-route',
     };
     const unbound = createChannelMessageActionRouter();
     await expect(unbound.handle(input)).resolves.toEqual({
