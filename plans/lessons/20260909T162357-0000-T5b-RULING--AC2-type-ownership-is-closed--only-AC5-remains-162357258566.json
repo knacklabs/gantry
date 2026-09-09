@@ -1,0 +1,14 @@
+{
+  "topic": "T5b RULING: AC2 type ownership is closed; only AC5 remains",
+  "lesson": "Orchestrator ruling (signals S-0093 and S-0094 resolved): PermissionMemoryListMessageView is DOMAIN-owned by design and stays where it is; AC2's 'listing module owns the view type' clause is superseded by the layer rule (domain must not import application) and is considered implemented. Do NOT move the type, do NOT raise a contradiction about it, do NOT edit domain/message-actions.ts. The single remaining change is AC5: in application/permissions/permission-memory-listing.ts (or the forget handler where hydration is called) collect the job ids referenced by the rows being rendered, dedupe once, and pass exactly that set to the one bulk job read; add a listing unit test asserting the bulk read receives only the referenced ids. Run the listing and forget-handler suites, tsc, check:architecture; finish.",
+  "source": ".factory/signals.jsonl",
+  "applies_to": [
+    "apps/core/src/application/permissions/**",
+    "apps/core/src/app/bootstrap/**",
+    "apps/core/src/domain/**",
+    "apps/core/test/unit/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T16:23:57+00:00"
+}
