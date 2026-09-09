@@ -39,4 +39,15 @@ describe('modelVisibleInputTokens', () => {
       ).toBe(2_300);
     }
   });
+
+  it('resolves the route from provider when modelRoute is absent', () => {
+    expect(
+      modelVisibleInputTokens({
+        provider: 'openai',
+        inputTokens: 1_000,
+        cacheReadTokens: 800,
+        cacheWriteTokens: 500,
+      }),
+    ).toBe(1_000);
+  });
 });

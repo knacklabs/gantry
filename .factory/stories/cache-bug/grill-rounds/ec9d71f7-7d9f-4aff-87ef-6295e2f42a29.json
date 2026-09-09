@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Run T2 and T3 in parallel worktrees after T1 merges, by moving the runner drain call and both event-type registrations into T2 so T3's write scope is disjoint (adapter contract, DeepAgents adapter, coordinator module, both /new handlers)? This amends the approved graph's dependency T3\u2192T2 to T3\u2192T1.",
+      "options": [
+        "Yes, amend and run them in parallel (Recommended)",
+        "Keep T2 then T3 sequential"
+      ],
+      "chosen": "Yes, amend and run them in parallel (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T13:46:40.205032+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

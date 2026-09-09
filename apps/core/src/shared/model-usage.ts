@@ -45,11 +45,16 @@ function readPath(input: unknown, path?: string): unknown {
 export function modelVisibleInputTokens(
   usage: Pick<
     NormalizedModelUsage,
-    'inputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'modelRoute'
+    | 'inputTokens'
+    | 'cacheReadTokens'
+    | 'cacheWriteTokens'
+    | 'modelRoute'
+    | 'provider'
   >,
 ): number {
-  const prompt = usage.modelRoute
-    ? getModelProviderDefinition(usage.modelRoute)?.cacheSupport.prompt
+  const route = usage.modelRoute ?? usage.provider;
+  const prompt = route
+    ? getModelProviderDefinition(route)?.cacheSupport.prompt
     : undefined;
   return (
     usage.inputTokens +

@@ -1,0 +1,13 @@
+{
+  "topic": "lint gate is diff-scoped until deferral D-0080 fires",
+  "lesson": "cache-bug-T1 AC9/S11 is fulfilled by npm run lint:changed (ESLint over TypeScript files changed against the merge-base with origin/main) inside FACTORY_STRUCTURAL_CMD in .envrc and as the blocking CI step, with full npm run lint kept as an advisory continue-on-error CI step; the 82 pre-existing errors are recorded as deferral D-0080 and must NOT be fixed, baselined or suppressed in this task. This is the orchestrator's recorded ruling (signals S-0092, S-0095, S-0099, 2026-09-09): do not raise it again.",
+  "source": "S-0092-9305",
+  "applies_to": [
+    ".envrc",
+    ".github/workflows/**",
+    "package.json"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T13:31:23+00:00"
+}

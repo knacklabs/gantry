@@ -19,7 +19,8 @@ but neither `verify.py` nor CI runs it.
 In scope: the measurement seam, the typed column and two fenced repository
 operations, `resetScope` returning references, the turn-context projection,
 partial usage on both adapters' error frames, registry cache-inclusion
-booleans with validation, and `npm run lint` under verify and CI.
+booleans with validation, and the diff-scoped `npm run lint:changed` gate
+under verify and CI (full lint advisory; debt D-0080).
 
 Non-goals: reading the mark for policy or raising it after a run (T2), any
 release of DeepAgents state (T3), the cap setting (T2), events (T2), docs (T2).
@@ -44,7 +45,8 @@ flowchart LR
   TC -.->|T2 ceiling preflight| RET["retireProviderSession\nactive→expired, same fence\n→ retired reference | undefined"]
   RS["resetScope (/new)\nselect FOR UPDATE → delete\n→ retired references after commit"] -.->|T3 releases| X[["releaseSession (T3)"]]
   RET -.->|T3 releases| X
-  FP["fingerprint change\nmissing-session retry\ncompaction-delta degradation"] -->|switched callers| RET
+  FP["fingerprint change\nmissing-session retry\nops-service facade"] -->|switched callers| RET
+  CD["compaction-delta degradation\n(ready row)"] -->|unchanged| EXP["expireProviderSession\n(existing helper, void)"]
 ```
 
 Three callers of the old expiry (fingerprint change, missing-session retry,
@@ -119,10 +121,15 @@ R3, R4 return type, projection, S11 lint, S10 pinned tests).
    discards the result) and `app.clearSessionForChatJid` propagate the list;
    callers ignore it until T3.
 8. **Projection.** `providerSessionContext` returns `contextHighWaterMark`.
-9. **Lint gate.** `.envrc` `FACTORY_STRUCTURAL_CMD` gains `&& npm run lint`;
-   the CI workflow's check step runs `npm run lint`. Lint findings inside this
-   task's diff are fixed; pre-existing findings elsewhere are recorded with
-   `./forge defer add` and a trigger, never silently fixed.
+9. **Lint gate (diff-scoped).** `package.json` gains `lint:changed` (ESLint
+   over the TypeScript files changed against the merge-base with
+   `origin/main`); `.envrc` `FACTORY_STRUCTURAL_CMD` gains
+   `&& npm run lint:changed`; the CI check step runs `lint:changed` as a
+   blocking step and keeps full `npm run lint` as an advisory
+   `continue-on-error` step. Every file this task touches is lint-clean. The
+   82 pre-existing errors outside the diff are deferral D-0080 with a
+   trigger (a lint-debt paydown story lands, then `lint:changed` becomes
+   `lint`); they are neither fixed, baselined nor suppressed here.
 
 ## Decisions
 
@@ -133,10 +140,10 @@ typed column.
 
 | Surface | Class | Note |
 | --- | --- | --- |
-| Runtime behaviour | Unchanged by design | operations exist but nothing calls raise or the ceiling yet (T2) |
+| Runtime behaviour | Changed | error frames from both runners and both inline lanes now carry partial usage; fingerprint and missing-session retirement go through the atomic retire; sessions still resume exactly as today because nothing reads the mark yet (T2) |
 | API | N-A | none |
 | Data/schema | Changed | one nullable integer column, generated migration |
-| CLI/ops | Changed | `npm run lint` in verify and CI |
+| CLI/ops | Changed | `npm run lint:changed` in verify and CI (full lint advisory) |
 | UI | N-A | none |
 | Docs | Unchanged by design | T2 owns docs/memory and architecture alignment |
 | Tests | Changed | nine required tests plus pinned tests untouched |
@@ -155,11 +162,14 @@ This is a leaf task; no further split.
 
 ## Verify Plan
 
-`npm run db:migrations:check`, `npm run typecheck`, `npm run lint`, the
-twenty-three required tests (derivation, registry validation, repository
-fences, caller switches, both runners' and both inline lanes' error frames,
-the four pinned tests), then `python3 factory/scripts/verify.py`, which is
-itself a recorded verify command so the `.envrc` lint wiring is proven.
+On Node 24 (`.nvmrc`): `npm run db:migrations:check`, `npm run typecheck`,
+`npm run lint:changed`, the twenty-five required tests (derivation including
+the provider fallback, registry validation, repository fences, caller
+switches, both runners' and both inline lanes' error frames, the
+`clearSessionForChatJid` reference propagation, the four pinned tests), then
+`python3 factory/scripts/verify.py`, which is itself a recorded verify
+command so the `.envrc` lint wiring is proven. The Postgres leaf runs on the
+host against a throwaway pgvector database.
 
 ## Manual Verification
 

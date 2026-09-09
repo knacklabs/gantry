@@ -285,14 +285,9 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
           });
           await emitChain;
         } catch (error) {
-          if (signal.aborted && isAbortError(error)) break;
-          if (isDeepAgentPartialUsage(error)) {
-            await emitChain;
-            const terminal = partialUsageError(error, sessionId);
-            await laneInput.emitOutput(terminal);
-            return terminal;
-          }
-          if (isGraphRecursionLimitError(error)) {
+          const cause = isDeepAgentPartialUsage(error) ? error.cause : error;
+          if (signal.aborted && isAbortError(cause)) break;
+          if (isGraphRecursionLimitError(cause)) {
             await emitChain;
             const terminal = inlineAgentMaxTurnsError(maxTurns, sessionId);
             await laneInput.emitOutput(terminal);
@@ -300,10 +295,16 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
           }
           if (
             laneInput.input.responseSchema &&
-            isStructuredOutputError(error)
+            isStructuredOutputError(cause)
           ) {
             await emitChain;
-            const terminal = structuredOutputError(error, sessionId);
+            const terminal = structuredOutputError(cause, sessionId);
+            await laneInput.emitOutput(terminal);
+            return terminal;
+          }
+          if (isDeepAgentPartialUsage(error)) {
+            await emitChain;
+            const terminal = partialUsageError(error, sessionId);
             await laneInput.emitOutput(terminal);
             return terminal;
           }
