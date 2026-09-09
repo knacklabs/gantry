@@ -2,7 +2,7 @@
 issue: ASKFLOOR-1
 title: The judge actually judges: context-aware first-asks in auto mode
 status: approved
-saved: 2026-09-04T02:40:07+00:00
+saved: 2026-09-09T08:21:53+00:00
 story: ASKFLOOR-1
 decisions_reviewed:
   - 0000-credential-broker-boundary
@@ -113,7 +113,6 @@ decisions_reviewed:
   - 0118-identity-scoped-approval-and-grants
   - 0119-provider-neutral-group-approver-bootstrap
   - 0120-local-cli-structured-invocation
-  - 0121-autodet-no-classifier-autonomous
   - 0122-capability-template-amendment
   - 0123-recovery-proposal-birthright
   - 0124-bounded-durable-card-delivery
@@ -129,11 +128,16 @@ decisions_reviewed:
   - 0135-browser-model-provider-credential-facade
   - 0136-voice-as-provider-adapter
   - 0137-connector-accounts-mirror-provider-accounts
+  - 0138-agents-are-service-kind-persons
+  - 0142-third-console-role-approver
+  - 0143-browser-write-only-secret-ingest
   - 0144-autonomous-ask-and-wait-chat-parity
   - 0151-browser-navigation-summary
   - 0153-learned-decisions-project-into-job-grants
   - 0154-human-decision-memory-generic-scope
   - 0155-default-allow-gantry-tools-interactive-auto
+  - 0156-ai-employee-console-resumable-deployment
+  - 0157-jobs-use-the-chat-permission-ladder
 ---
 
 # ASKFLOOR-1 — The judge actually judges: context-aware first-asks in auto mode
