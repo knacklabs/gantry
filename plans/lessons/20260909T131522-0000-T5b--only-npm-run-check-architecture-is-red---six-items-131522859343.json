@@ -1,0 +1,14 @@
+{
+  "topic": "T5b: only npm run check:architecture is red \u2014 six items",
+  "lesson": "Implementation and every test are committed and green; tsc passes. The ONLY remaining work is npm run check:architecture, which reports exactly: (1) channels/telegram/callback-handlers.ts 910 lines, limit 900; (2) runtime/ipc-interaction-processing.ts 866, limit 865; (3) session/session-commands.ts 742, limit 740 \u2014 trim or extract the smallest helper, no behaviour change; (4-6) app/bootstrap/runtime-group-processor-deps.ts imports adapters/storage/postgres/runtime-store, config/index and config/profiles \u2014 the layer checker treats a bootstrap file named runtime-* as runtime code: rename it to group-processor-deps.ts (update its importers) so it is judged as bootstrap, which may import adapters and config. Do not touch anything else. Finish with npm run check:architecture and npx tsc --noEmit both green.",
+  "source": "6b088aba0",
+  "applies_to": [
+    "apps/core/src/app/bootstrap/**",
+    "apps/core/src/channels/telegram/**",
+    "apps/core/src/runtime/ipc-interaction-processing.ts",
+    "apps/core/src/session/session-commands.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T13:15:22+00:00"
+}
