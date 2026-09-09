@@ -1,8 +1,13 @@
 {
   "generated_by": "autoreview",
-  "score": 8,
-  "summary": "quality lens over ASKFLOOR-1-T5a (60 product path(s), 8376193..1c31158, Codex via the autoreview skill at --max-priority P2): 0 blocking, 3 non-blocking. The main persisted-render and provider plumbing is present, but eligible cards can lose their denial action, trust-growth can promise memory that cannot be stored, and some supported write tools receive incorrect scope copy.\nVERDICT ASKFLOOR-1-T5a-AC1: partial \u2014 apps/core/src/channels/permission-card-affordances.ts:35 omits the required No action for an eligible refused-deny shape\nVERDICT ASKFLOOR-1-T5a-AC2: implemented \u2014 apps/core/src/application/interactions/pending-interaction-permission-callback.ts:480 enforces the persisted offered set\nVERDICT ASKFLOOR-1-T5a-AC3: implemented \u2014 apps/core/src/application/permissions/human-decision-learning.ts:68 derives and persists the canonical-root place candidate\nVERDICT ASKFLOOR-1-T5a-AC4: implemented \u2014 apps/core/test/unit/channels/provider-affordance-parity.test.ts:1456 exercises four-provider rendering and codecs\nVERDICT ASKFLOOR-1-T5a-AC5: implemented \u2014 apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes typed memory_forget actions with the unbound receipt\nVERDICT ASKFLOOR-1-T5a-AC6: implemented \u2014 apps/core/src/channels/permission-batch-coalescer.ts:131 adds the required once-only line to batch rendering\nVERDICT ASKFLOOR-1-T5a-AC7: implemented \u2014 apps/core/test/unit/channels/provider-affordance-parity.test.ts:164 pins the four ineligible lanes across providers\nVERDICT ASKFLOOR-1-T5a-AC8: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:95 provides the S4 destructive-command proof, with the recorded gates passing",
+  "score": 6,
+  "summary": "quality lens over ASKFLOOR-1-T5a (67 product path(s), 8376193..e70a3a4, Codex via the autoreview skill at --max-priority P2): 1 blocking, 1 non-blocking. The requested surfaces are broadly implemented and verified, but hard-floor asks are not consistently excluded from remembered-decision lookup or learning, leaving a concrete permission bypass and misleading persistence behavior.\nVERDICT ASKFLOOR-1-T5a-AC1: partial \u2014 apps/core/src/runtime/permission-remember-settlement.ts:111 hard-floor prompts are not made ineligible before card derivation\nVERDICT ASKFLOOR-1-T5a-AC2: implemented \u2014 apps/core/src/application/interactions/pending-interaction-permission-callback.ts:480 enforces the persisted offered set\nVERDICT ASKFLOOR-1-T5a-AC3: implemented \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:241 carries canonicalRoot and apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:329 filters railVersion\nVERDICT ASKFLOOR-1-T5a-AC4: implemented \u2014 apps/core/test/unit/channels/provider-affordance-parity.test.ts:1455 exercises four-provider rendering and codecs\nVERDICT ASKFLOOR-1-T5a-AC5: implemented \u2014 apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes memory_forget with the unbound response\nVERDICT ASKFLOOR-1-T5a-AC6: implemented \u2014 apps/core/src/channels/permission-batch-coalescer.ts:132 adds the required once-only line to batch rendering\nVERDICT ASKFLOOR-1-T5a-AC7: implemented \u2014 apps/core/test/unit/channels/provider-affordance-parity.test.ts:164 pins the four ineligible lanes across providers\nVERDICT ASKFLOOR-1-T5a-AC8: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:98 contains the S4 destructive-command flow and recorded verification is green",
   "blocking_findings": [
+    {
+      "category": "security",
+      "area": "apps/core/src/runtime",
+      "summary": "[P1] Block remembered allows for every hard-floor rail ask (apps/core/src/runtime/permission-decision-coordinator.ts:299): `railAllowsOverride` remains true for hard-floor `OutOfTrustedRoot` and eligible `UnsupportedMetaExecutor` asks, and this call to `consultRememberedAllow` is not guarded by `railDecision.hardFloor !== true`."
+    },
     {
       "category": "plan-contract-partial",
       "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria",
@@ -11,22 +16,12 @@
   ],
   "non_blocking_findings": [
     {
-      "category": "bug",
-      "area": "apps/core/src/channels",
-      "summary": "[P2] Preserve a denial button when deny memory is unavailable (apps/core/src/channels/permission-card-affordances.ts:35): `permissionCardDecisionOptions` appends a denial only when `remember_deny_exact` is offered; it provides no scalar `cancel` fallback."
-    },
-    {
-      "category": "bug",
-      "area": "apps/core/src/application/permissions",
-      "summary": "[P2] Check the tool-kind candidate before offering trust growth (apps/core/src/application/permissions/permission-card-affordances.ts:176): The trust-growth branch checks risk, label, and count but never verifies `rememberContext.candidates.kindTool.ok`."
-    },
-    {
-      "category": "bug",
-      "area": "apps/core/src/application/permissions",
-      "summary": "[P2] Recognize all supported write tool identities in write-copy selection (apps/core/src/application/permissions/permission-card-affordances.ts:284): The write predicate recognizes only `FileWrite` and `FileEdit` public names."
+      "category": "security",
+      "area": "apps/core/src/runtime",
+      "summary": "[P2] Make hard-floor prompt contexts ineligible for remembering (apps/core/src/runtime/permission-remember-settlement.ts:111): Prompt-model construction relies on `context.eligible`, but the context is derived from facts that carry no rail decision or `hardFloor` state."
     }
   ],
-  "recommendation": "approve-with-caveats",
+  "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
@@ -45,6 +40,7 @@
     "apps/core/src/channels/discord/interactions.ts",
     "apps/core/src/channels/discord/permission-callback.ts",
     "apps/core/src/channels/discord/prepared-permission-card.ts",
+    "apps/core/src/channels/discord/prompt-binding.ts",
     "apps/core/src/channels/permission-batch-coalescer.ts",
     "apps/core/src/channels/permission-card-affordances.ts",
     "apps/core/src/channels/permission-interaction.ts",
@@ -55,10 +51,15 @@
     "apps/core/src/channels/teams/cards.ts",
     "apps/core/src/channels/teams/interaction-handlers.ts",
     "apps/core/src/channels/teams/message-actions.ts",
+    "apps/core/src/channels/teams/permission-approval.ts",
     "apps/core/src/channels/teams/permission-submit.ts",
+    "apps/core/src/channels/teams/prompt-binding.ts",
     "apps/core/src/channels/telegram/callback-handlers.ts",
+    "apps/core/src/channels/telegram/channel-prompts.ts",
     "apps/core/src/channels/telegram/message-action-affordances.ts",
     "apps/core/src/channels/telegram/permission-prompt-settlement.ts",
+    "apps/core/src/channels/telegram/prepared-permission-card.ts",
+    "apps/core/src/channels/telegram/prompt-binding.ts",
     "apps/core/src/domain/message-actions.ts",
     "apps/core/src/domain/permission-card-affordances.ts",
     "apps/core/src/domain/ports/permission-decision-memory.ts",
@@ -87,6 +88,7 @@
     "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
     "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
     "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+    "apps/core/test/unit/runtime/permission-human-memory-stage.test.ts",
     "harness.yaml"
   ],
   "skills_used": [
@@ -96,7 +98,7 @@
     {
       "contract_id": "ASKFLOOR-1-T5a-AC1",
       "verdict": "partial",
-      "evidence": "apps/core/src/channels/permission-card-affordances.ts:35 omits the required No action for an eligible refused-deny shape"
+      "evidence": "apps/core/src/runtime/permission-remember-settlement.ts:111 hard-floor prompts are not made ineligible before card derivation"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC2",
@@ -106,22 +108,22 @@
     {
       "contract_id": "ASKFLOOR-1-T5a-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/human-decision-learning.ts:68 derives and persists the canonical-root place candidate"
+      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:241 carries canonicalRoot and apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:329 filters railVersion"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/channels/provider-affordance-parity.test.ts:1456 exercises four-provider rendering and codecs"
+      "evidence": "apps/core/test/unit/channels/provider-affordance-parity.test.ts:1455 exercises four-provider rendering and codecs"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes typed memory_forget actions with the unbound receipt"
+      "evidence": "apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes memory_forget with the unbound response"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/channels/permission-batch-coalescer.ts:131 adds the required once-only line to batch rendering"
+      "evidence": "apps/core/src/channels/permission-batch-coalescer.ts:132 adds the required once-only line to batch rendering"
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC7",
@@ -131,7 +133,7 @@
     {
       "contract_id": "ASKFLOOR-1-T5a-AC8",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:95 provides the S4 destructive-command proof, with the recorded gates passing"
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:98 contains the S4 destructive-command flow and recorded verification is green"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -335,10 +337,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "11429ed55e0ed43370e52e298df6c3c2e54c5682198258dc7dca7af7eb8c71f7",
-  "brief_sha256": "a0ef9ec598266045a8fa6a9168df6a7df6b606fc1d9793024006854c04c86907",
-  "branch_diff_digest": "fdb2ff9a226b7042518c2c2eda3bc6c34e466d8d9523c404b900b366dd3af6fd",
+  "review_run_id": "45c1ae8dac3c64431007669ee6ce9e8b681cbe0e8344cb859591100fdf2ff5ee",
+  "brief_sha256": "679a9375082c60827271a740e84a98df6af7be508d3fbacacbb6c076a0532257",
+  "branch_diff_digest": "4b5d6c7082e76e210f287caf5b53556e7aec12dc6fc6dd0664d1d5c84ca8bd6a",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T02:02:41+00:00",
-  "commit": "2645d8aa6f221e44c2b3ac2a9132790b4d0967a3"
+  "recorded_at": "2026-09-09T02:29:40+00:00",
+  "commit": "e70a3a4b71ddb50d851a0517c877db4d94845def"
 }

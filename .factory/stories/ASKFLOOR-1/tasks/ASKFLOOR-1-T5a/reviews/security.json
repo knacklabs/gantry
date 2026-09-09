@@ -1,22 +1,17 @@
 {
   "generated_by": "autoreview",
-  "score": 1,
-  "summary": "security lens over ASKFLOOR-1-T5a (60 product path(s), 8376193..1c31158, Codex via the autoreview skill at --max-priority P2): 3 blocking, 0 non-blocking. The patch introduces a hard-floor authorization bypass for destructive remembered decisions and retains two compatibility surfaces explicitly forbidden by the task contract. These are blocking defects despite the recorded verification passing.",
+  "score": 4,
+  "summary": "security lens over ASKFLOOR-1-T5a (67 product path(s), 8376193..e70a3a4, Codex via the autoreview skill at --max-priority P2): 2 blocking, 0 non-blocking. The offered-set checks and provider transport are generally fail-closed, but hard-floor rail decisions are not consistently enforced. Existing remembered Allows can still bypass some hard-floor prompts, and newly displayed hard-floor prompts can still create remembered grants. These are concrete permission-boundary defects.",
   "blocking_findings": [
     {
       "category": "security",
       "area": "apps/core/src/runtime",
-      "summary": "Hard-floor destructive asks can be auto-approved from exact memory (apps/core/src/runtime/permission-decision-coordinator.ts:263): `exactAllowCanOverride` enables the remembered-allow lookup for every `Destructive` ASK without excluding `railDecision.hardFloor === true`."
+      "summary": "[P1] Gate every remembered-Allow lookup on the hard-floor flag (apps/core/src/runtime/permission-decision-coordinator.ts:266): When a hard-floor ASK has `OutOfTrustedRoot` or eligible `UnsupportedMetaExecutor`, `railAllowsOverride` is still true."
     },
     {
-      "category": "maintainability",
-      "area": "apps/core/src/channels",
-      "summary": "Remove the compatibility re-export of permissionDecisionOptions (apps/core/src/channels/permission-interaction.ts:62): The new affordance implementation is re-exported from `permission-interaction.ts`, preserving the replaced import surface for existing callers."
-    },
-    {
-      "category": "maintainability",
-      "area": "apps/core/src/channels",
-      "summary": "Delete the forwarding userFacingToolLabel wrapper (apps/core/src/channels/permission-interaction.ts:636): `userFacingToolLabel` has been reduced to a one-line wrapper over the replacement `permissionHumanToolLabel`, while retaining the old symbol solely for internal callers."
+      "category": "security",
+      "area": "apps/core/src/runtime",
+      "summary": "[P1] Make hard-floor prompts ineligible for remembered decisions (apps/core/src/runtime/permission-remember-settlement.ts:111): The prompt-model path derives remember eligibility without carrying `railDecision.hardFloor`; after derivation it builds and persists remembered affordances whenever the ordinary interactive-auto context is eligible."
     }
   ],
   "non_blocking_findings": [],
@@ -39,6 +34,7 @@
     "apps/core/src/channels/discord/interactions.ts",
     "apps/core/src/channels/discord/permission-callback.ts",
     "apps/core/src/channels/discord/prepared-permission-card.ts",
+    "apps/core/src/channels/discord/prompt-binding.ts",
     "apps/core/src/channels/permission-batch-coalescer.ts",
     "apps/core/src/channels/permission-card-affordances.ts",
     "apps/core/src/channels/permission-interaction.ts",
@@ -49,10 +45,15 @@
     "apps/core/src/channels/teams/cards.ts",
     "apps/core/src/channels/teams/interaction-handlers.ts",
     "apps/core/src/channels/teams/message-actions.ts",
+    "apps/core/src/channels/teams/permission-approval.ts",
     "apps/core/src/channels/teams/permission-submit.ts",
+    "apps/core/src/channels/teams/prompt-binding.ts",
     "apps/core/src/channels/telegram/callback-handlers.ts",
+    "apps/core/src/channels/telegram/channel-prompts.ts",
     "apps/core/src/channels/telegram/message-action-affordances.ts",
     "apps/core/src/channels/telegram/permission-prompt-settlement.ts",
+    "apps/core/src/channels/telegram/prepared-permission-card.ts",
+    "apps/core/src/channels/telegram/prompt-binding.ts",
     "apps/core/src/domain/message-actions.ts",
     "apps/core/src/domain/permission-card-affordances.ts",
     "apps/core/src/domain/ports/permission-decision-memory.ts",
@@ -81,16 +82,17 @@
     "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
     "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
     "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+    "apps/core/test/unit/runtime/permission-human-memory-stage.test.ts",
     "harness.yaml"
   ],
   "skills_used": [
     "review-animations"
   ],
   "aspect": "security",
-  "review_run_id": "11429ed55e0ed43370e52e298df6c3c2e54c5682198258dc7dca7af7eb8c71f7",
-  "brief_sha256": "a0ef9ec598266045a8fa6a9168df6a7df6b606fc1d9793024006854c04c86907",
-  "branch_diff_digest": "fdb2ff9a226b7042518c2c2eda3bc6c34e466d8d9523c404b900b366dd3af6fd",
+  "review_run_id": "45c1ae8dac3c64431007669ee6ce9e8b681cbe0e8344cb859591100fdf2ff5ee",
+  "brief_sha256": "679a9375082c60827271a740e84a98df6af7be508d3fbacacbb6c076a0532257",
+  "branch_diff_digest": "4b5d6c7082e76e210f287caf5b53556e7aec12dc6fc6dd0664d1d5c84ca8bd6a",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T02:02:41+00:00",
-  "commit": "2645d8aa6f221e44c2b3ac2a9132790b4d0967a3"
+  "recorded_at": "2026-09-09T02:29:40+00:00",
+  "commit": "e70a3a4b71ddb50d851a0517c877db4d94845def"
 }

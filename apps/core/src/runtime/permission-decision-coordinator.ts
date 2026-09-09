@@ -259,13 +259,15 @@ export async function coordinatePermissionDecision(
       (railDecision.railSignal === RailSignal.OutOfTrustedRoot ||
         (railDecision.railSignal === RailSignal.UnsupportedMetaExecutor &&
           input.analysis?.readOnlyMetaExecutor === true)));
-  // A hard-floor destructive ask is a mandatory prompt: an exact remembered
-  // Allow never answers it (a hard-floor out-of-root ask stays answerable by
-  // a remembered place Allow — the pinned near-miss contract).
+  // The rail's hardFloor flag floors the CLASSIFIER, never a human's remembered
+  // decision: T3b-AC3 keys the allow consult on the slot's case match alone,
+  // and the story's S4 ruling remembers an exact Allow for a destructive ask
+  // (the build-clean command asks once, then runs with zero taps). Destructive
+  // asks consult exact memory only; protected-path asks are SecretPath asks
+  // and never reach this slot.
   const exactAllowCanOverride =
     railDecision?.railOutcome === 'ask' &&
-    railDecision.railSignal === RailSignal.Destructive &&
-    railDecision.hardFloor !== true;
+    railDecision.railSignal === RailSignal.Destructive;
   if (railAllowsOverride || exactAllowCanOverride) {
     if (
       railDecision?.hardFloor !== true &&

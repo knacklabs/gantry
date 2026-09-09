@@ -963,66 +963,66 @@ describe('coordinatePermissionDecision', () => {
     expect(railRequest.decisionReason).toBe('rail now asks');
   });
 
-  it('never consults a remembered Allow for a hard-floor destructive ask while the same ask without the floor is answered from exact memory', async () => {
-    const tailDecision = {
-      approved: false,
-      mode: 'cancel' as const,
-      decidedBy: 'human',
-    };
+  it('answers a hard-floor destructive ask from a remembered exact Allow (T3b-AC3 keys the consult on the rail case, never its hardFloor flag; story S4) while a protected-path ask never reaches exact memory', async () => {
     const findHumanDecision = vi.fn(async () =>
       humanDecisionRow({
         outcome: HumanDecisionOutcome.Allow,
         scope: HumanDecisionScope.Exact,
-        scopeKey: 'hard-floor-allow',
+        scopeKey: 'destructive-allow',
       }),
     );
     const interactive = Object.freeze({
       lane: PermissionLane.InteractiveAuto,
       readOnlyMetaExecutor: false,
     });
-    const hardTail = vi.fn(async () => tailDecision);
+    const destructiveTail = vi.fn();
     await expect(
       coordinatePermissionDecision({
         request: { ...request, personId: 'person-one' },
         analysis: interactive,
-        effectHash: 'hard-floor-allow',
+        effectHash: 'destructive-allow',
         decisionMemory: { findHumanDecision } as never,
         deterministicRails: () => ({
           railOutcome: 'ask' as const,
-          reason: 'destructive command requires approval',
+          reason: 'Destructive command requires approval.',
           railSignal: RailSignal.Destructive,
           hardFloor: true as const,
         }),
-        tail: hardTail,
-      }),
-    ).resolves.toEqual(tailDecision);
-    // The remembered-No stage runs before the rails and may read the port;
-    // the remembered-Allow lookup after the rails must not.
-    expect(findHumanDecision).toHaveBeenCalledTimes(1);
-    expect(hardTail).toHaveBeenCalledOnce();
-
-    const softTail = vi.fn();
-    await expect(
-      coordinatePermissionDecision({
-        request: { ...request, personId: 'person-one' },
-        analysis: interactive,
-        effectHash: 'hard-floor-allow',
-        decisionMemory: { findHumanDecision } as never,
-        deterministicRails: () => ({
-          railOutcome: 'ask' as const,
-          reason: 'destructive command requires approval',
-          railSignal: RailSignal.Destructive,
-        }),
-        tail: softTail,
+        tail: destructiveTail,
       }),
     ).resolves.toMatchObject({
       approved: true,
       mode: 'allow_once',
       decidedBy: 'human_decision',
     });
-    // Without the floor both stages read the port: the No stage, then the Allow.
+    // The No stage reads the port once before the rails, the Allow stage once after.
+    expect(findHumanDecision).toHaveBeenCalledTimes(2);
+    expect(destructiveTail).not.toHaveBeenCalled();
+
+    const tailDecision = {
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'human',
+    };
+    const secretTail = vi.fn(async () => tailDecision);
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...request, personId: 'person-one' },
+        analysis: interactive,
+        effectHash: 'destructive-allow',
+        decisionMemory: { findHumanDecision } as never,
+        deterministicRails: () => ({
+          railOutcome: 'ask' as const,
+          reason: 'Command references a credential, secret, or protected path.',
+          railSignal: RailSignal.SecretPath,
+          hardFloor: true as const,
+        }),
+        tail: secretTail,
+      }),
+    ).resolves.toEqual(tailDecision);
+    // Only the No stage read the port; the Allow consult never ran.
     expect(findHumanDecision).toHaveBeenCalledTimes(3);
-    expect(softTail).not.toHaveBeenCalled();
+    expect(secretTail).toHaveBeenCalledOnce();
   });
 
   it('lets a locked preset outrank a cached allow (lock beats cache)', async () => {

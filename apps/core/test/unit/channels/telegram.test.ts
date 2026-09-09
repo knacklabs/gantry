@@ -5734,6 +5734,7 @@ describe('TelegramChannel', () => {
         },
         chat: { id: 100200300 },
         from: { id: 111 },
+        api: currentBot().api,
         answerCallbackQuery,
       });
       expect(onMessageAction).toHaveBeenCalledWith({
@@ -5744,10 +5745,17 @@ describe('TelegramChannel', () => {
         userId: '111',
         recordId: '30000000-0000-4000-8000-000000000001',
       });
-      expect(answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Forgot.',
-        show_alert: true,
-      });
+      // The tap is acknowledged before the host hook runs; the receipt is a
+      // message in the same thread, not the callback answer.
+      expect(answerCallbackQuery).toHaveBeenCalledTimes(1);
+      expect(answerCallbackQuery.mock.calls[0]?.[0]?.text).toBeUndefined();
+      expect(answerCallbackQuery.mock.invocationCallOrder[0]).toBeLessThan(
+        onMessageAction.mock.invocationCallOrder[0],
+      );
+      const receipt = currentBot().api.sendMessage.mock.calls.at(-1);
+      expect(receipt?.[0]).toBe('100200300');
+      expect(receipt?.[1]).toBe('Forgot.');
+      expect(receipt?.[2]).toMatchObject({ message_thread_id: 42 });
     });
 
     it('CAPFIX-1-2 card keeps ability copy plain and the technical delta expandable', async () => {

@@ -494,10 +494,9 @@ async function handleTelegramMemoryForgetCallback(
   ctx: TelegramCallbackContext,
 ): Promise<void> {
   const recordId = parseTelegramMemoryForgetCallback(ctx.data);
-  if (!recordId || !ctx.conversationJid || !ctx.userId) {
-    await ctx.answer('Not available yet.', true);
-    return;
-  }
+  if (!recordId || !ctx.conversationJid || !ctx.userId)
+    return void (await ctx.answer('Not available yet.', true));
+  await ctx.answer(); // acknowledge before the host hook's identity/db work
   const outcome = await channel.opts.onMessageAction?.({
     kind: 'memory_forget',
     conversationJid: ctx.conversationJid,
@@ -508,7 +507,11 @@ async function handleTelegramMemoryForgetCallback(
     userId: ctx.userId,
     recordId,
   });
-  await ctx.answer(outcome?.receipt ?? 'Not available yet.', true);
+  await ctx.raw.api.sendMessage(
+    ctx.chatId,
+    outcome?.receipt ?? 'Not available yet.',
+    ctx.threadId ? { message_thread_id: Number(ctx.threadId) } : {},
+  );
 }
 
 async function handleTelegramMemoryReviewCallback(

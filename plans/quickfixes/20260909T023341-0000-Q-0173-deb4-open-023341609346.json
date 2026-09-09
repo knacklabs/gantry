@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0173-deb4",
+  "profile": "degraded",
+  "reason": "ASKFLOOR-1-T5a three-lens review round 2, window 6: restore the T3b-AC3 destructive exact-memory contract (S4 pin) and acknowledge Telegram Forget callbacks first.",
+  "started_at": "2026-09-09T02:33:41+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
