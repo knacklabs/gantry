@@ -1,5 +1,5 @@
 {
-  "commit": "c2a65e41dcb30432dc3205764e7fd4b5a69e742b",
+  "commit": "a9b99f24b2864ac407e302148d67d54198ac50b0",
   "functional": {
     "generated_by": "functional-checker",
     "status": "pass",
@@ -32,11 +32,11 @@
     "recorded_at": "2026-09-09T16:07:14+00:00",
     "commit": "366d6567f3b523fbda3affb5876200f01ab6b8cd"
   },
-  "updated_at": "2026-09-09T16:32:22+00:00",
+  "updated_at": "2026-09-09T17:19:50+00:00",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "18/18 required leaves pass on the committed tree c2a65e41d (per-leaf JUnit reports in the scratchpad); full unit suite 713 files / 9214 tests green; Postgres permission-decision-memory suite 13/13.",
+    "summary": "18/18 required leaves pass on the committed tree a9b99f24b (per-leaf JUnit reports in the scratchpad); full unit suite 713 files / 9214 tests green; Postgres permission-decision-memory suite 13/13.",
     "blocking_findings": [],
     "commands_run": [
       "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts -t <leaf>",
@@ -89,6 +89,7 @@
       "apps/core/src/app/bootstrap/channel-message-action-router.ts",
       "apps/core/src/app/bootstrap/channel-wiring-types.ts",
       "apps/core/src/app/bootstrap/channel-wiring.ts",
+      "apps/core/src/app/bootstrap/group-processor-deps.ts",
       "apps/core/src/app/bootstrap/inline-permission-memory.ts",
       "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts",
       "apps/core/src/app/bootstrap/runtime-app.ts",
@@ -119,7 +120,8 @@
       "apps/core/src/runtime/permission-remember-settlement.ts",
       "apps/core/src/session/session-command-parse.ts",
       "apps/core/src/session/session-commands.ts",
-      "docs/decisions/0153-learned-decisions-project-into-job-grants.md"
+      "docs/decisions/0153-learned-decisions-project-into-job-grants.md",
+      "scripts/architecture-exceptions.json"
     ],
     "skills_used": [
       "emil-design-eng",
@@ -129,7 +131,7 @@
     "residual_risks": [],
     "manual_validation_steps": [],
     "task_id": "ASKFLOOR-1-T5b",
-    "recorded_at": "2026-09-09T16:32:22+00:00",
-    "commit": "c2a65e41dcb30432dc3205764e7fd4b5a69e742b"
+    "recorded_at": "2026-09-09T17:19:50+00:00",
+    "commit": "a9b99f24b2864ac407e302148d67d54198ac50b0"
   }
 }
