@@ -120,6 +120,7 @@ import { createProviderAttachmentMaterializer } from '../../shared/provider-atta
 import { createRuntimeSchedulerStarter } from './runtime-scheduler-start.js';
 import { createMemoryForgetHandler } from './permission-memory-forget-handler.js';
 import { resolveCanonicalMemoryPersonId } from '../../runtime/group-person-identity.js';
+import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import {
   sendJobPermCard,
@@ -596,12 +597,14 @@ export async function startRuntimeServices(
     channelWiring.setMemoryForgetMessageActionHandler(
       createMemoryForgetHandler({
         getConversationRoutes: () => app.getConversationRoutes(),
-        resolvePerson: (action, route) =>
-          resolveCanonicalMemoryPersonId({
+        resolvePerson: async (action, route) => {
+          const appId = appIdFromConversationJid(action.conversationJid);
+          if (!appId) return undefined;
+          return resolveCanonicalMemoryPersonId({
             resolvePersonIdentity: resolved.resolvePersonIdentity,
             normalizeProviderId: channelWiring.normalizeProviderId,
             publishRuntimeEvent: resolved.publishRuntimeEvent,
-            appId: String(channelWiring.getRuntimeAppId()),
+            appId,
             rawUserId: action.userId,
             conversationKind:
               route.conversationKind === 'dm' ? 'dm' : 'channel',
@@ -612,7 +615,8 @@ export async function startRuntimeServices(
               action.providerAccountId ?? route.providerAccountId,
             identityEvidenceType: route.senderIdentityEvidenceType,
             systemSenderIds: route.systemSenderIds,
-          }),
+          });
+        },
         resolvePermissionMode: (route) => {
           const override = route.agentConfig?.permissionMode;
           const mode = resolveEffectivePermissionMode(
@@ -625,7 +629,12 @@ export async function startRuntimeServices(
         usedBy: createUsedByJobReader({
           appId: String(channelWiring.getRuntimeAppId()),
           permissions: permissionRepository,
-          listJobs: () => resolved.opsRepository.listJobs(),
+          listJobs: async (jobIds) =>
+            (
+              await Promise.all(
+                jobIds.map((jobId) => resolved.opsRepository.getJobById(jobId)),
+              )
+            ).flatMap((job) => (job ? [job] : [])),
         }),
         timezone: TIMEZONE,
       }),

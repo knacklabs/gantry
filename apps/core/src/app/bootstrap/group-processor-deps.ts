@@ -85,7 +85,14 @@ export function createRuntimeGroupProcessor(input: RuntimeGroupProcessorInput) {
         createUsedByJobReader({
           appId,
           permissions: storage.repositories.permissions,
-          listJobs: () => getRuntimeRepositories().listJobs(),
+          listJobs: async (jobIds) =>
+            (
+              await Promise.all(
+                jobIds.map((jobId) =>
+                  getRuntimeRepositories().getJobById(jobId),
+                ),
+              )
+            ).flatMap((job) => (job ? [job] : [])),
         }),
       timezone: TIMEZONE,
     },

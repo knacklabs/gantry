@@ -165,36 +165,37 @@ describe('permission memory listing', () => {
       { id: 'three', name: 'Job three' },
       { id: 'unrelated', name: 'Unrelated job' },
     ]);
+    const listDecisionsByHumanDecisionRecordId = vi.fn(async () => [
+      {
+        recordId: rows[0]!.id,
+        jobId: 'deleted',
+        lastUsedAt: '2026-09-03T00:00:00.000Z',
+      },
+      {
+        recordId: rows[0]!.id,
+        jobId: 'one',
+        lastUsedAt: '2026-09-02T00:00:00.000Z',
+      },
+      {
+        recordId: rows[0]!.id,
+        jobId: 'one',
+        lastUsedAt: '2026-09-01T00:00:00.000Z',
+      },
+      {
+        recordId: rows[0]!.id,
+        jobId: 'two',
+        lastUsedAt: '2026-08-31T00:00:00.000Z',
+      },
+      {
+        recordId: rows[0]!.id,
+        jobId: 'three',
+        lastUsedAt: '2026-08-30T00:00:00.000Z',
+      },
+    ]);
     const reader = createUsedByJobReader({
       appId: 'app-one',
       permissions: {
-        listDecisionsByHumanDecisionRecordId: vi.fn(async () => [
-          {
-            recordId: rows[0]!.id,
-            jobId: 'deleted',
-            lastUsedAt: '2026-09-03T00:00:00.000Z',
-          },
-          {
-            recordId: rows[0]!.id,
-            jobId: 'one',
-            lastUsedAt: '2026-09-02T00:00:00.000Z',
-          },
-          {
-            recordId: rows[0]!.id,
-            jobId: 'one',
-            lastUsedAt: '2026-09-01T00:00:00.000Z',
-          },
-          {
-            recordId: rows[0]!.id,
-            jobId: 'two',
-            lastUsedAt: '2026-08-31T00:00:00.000Z',
-          },
-          {
-            recordId: rows[0]!.id,
-            jobId: 'three',
-            lastUsedAt: '2026-08-30T00:00:00.000Z',
-          },
-        ]),
+        listDecisionsByHumanDecisionRecordId,
       } as never,
       listJobs,
     });
@@ -203,6 +204,31 @@ describe('permission memory listing', () => {
     );
     expect(listJobs).toHaveBeenCalledOnce();
     expect(listJobs).toHaveBeenCalledWith(['deleted', 'one', 'two', 'three']);
+    listDecisionsByHumanDecisionRecordId.mockResolvedValueOnce([
+      {
+        recordId: rows[0]!.id,
+        jobId: 'one',
+        lastUsedAt: '2026-09-02T00:00:00.000Z',
+      },
+    ]);
+    await expect(reader([rows[0]!.id])).resolves.toEqual(
+      new Map([[rows[0]!.id, { jobs: ['Job one'], more: 0 }]]),
+    );
+    listDecisionsByHumanDecisionRecordId.mockResolvedValueOnce([
+      {
+        recordId: rows[0]!.id,
+        jobId: 'one',
+        lastUsedAt: '2026-09-02T00:00:00.000Z',
+      },
+      {
+        recordId: rows[0]!.id,
+        jobId: 'two',
+        lastUsedAt: '2026-08-31T00:00:00.000Z',
+      },
+    ]);
+    await expect(reader([rows[0]!.id])).resolves.toEqual(
+      new Map([[rows[0]!.id, { jobs: ['Job one', 'Job two'], more: 0 }]]),
+    );
 
     const usedByRows = vi.fn(async () => new Map());
     const newest = commandInput(rows, { kind: 'permissions_show' });

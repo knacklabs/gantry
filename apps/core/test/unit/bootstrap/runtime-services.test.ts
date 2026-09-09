@@ -392,7 +392,7 @@ describe('startRuntimeServices', () => {
     ) => Promise<string | undefined>;
     const action = {
       kind: 'memory_forget',
-      conversationJid: 'tg:primary',
+      conversationJid: 'app:otherapp:primary',
       userId: 'user-one',
       recordId: 'record-one',
       agentRouteKey: 'route-one',
@@ -407,7 +407,7 @@ describe('startRuntimeServices', () => {
     expect(resolvePersonIdentity).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        appId: 'default',
+        appId: 'otherapp',
         externalUserId: 'user-one',
         createIfMissing: true,
       }),
