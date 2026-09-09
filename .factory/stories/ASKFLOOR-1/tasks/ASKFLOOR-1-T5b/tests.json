@@ -1,0 +1,36 @@
+{
+  "commit": "366d6567f3b523fbda3affb5876200f01ab6b8cd",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "pass",
+    "score": 9,
+    "task_id": "ASKFLOOR-1-T5b",
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "summary": "Functional check of the /permissions surfaces through the tap-budget harness (S5) and the four provider suites on the committed T5b tree: the DM list renders the mode line plus the ten newest active rows with Forget buttons and the footer, /permissions all lists every active record short-id first, /permissions forget <prefix> resolves one/ambiguous/none, a Forget tap edits the list in place and confirms on every provider (Discord acknowledges first), group variants reply the DM guidance without mutating, and the used-by suffix appears only from actual job consumption. No live provider was available to the checker; the harness drives the same handlers the providers bind.",
+    "scenarios": [
+      "DM: remember an Allow on a card, send /permissions \u2192 mode line + one row 'Allow \u00b7 <scope> \u00b7 <place> \u00b7 <d Mon> \u00b7 <label>' with a Forget button; /permissions all \u2192 the same row with its short id first",
+      "Forget tap \u2192 'Forgot: <scope>. I'll ask next time.' and the row is removed from the edited list; a second tap on the stale message \u2192 'Already forgotten.'",
+      "/permissions forget <4-char prefix> on a fresh record \u2192 Forgot; an ambiguous prefix \u2192 the ambiguity reply with nothing mutated; unknown \u2192 the not-found reply",
+      "job projection: the remembered call runs a scheduled job with zero cards, the row gains '\u00b7 used by job <name>'; after Forget the same job asks again (S5)",
+      "group route: /permissions, /permissions all, /permissions forget abcd \u2192 mode line + 'Remembered decisions are a DM feature\u2026', zero service writes",
+      "provider edit failure: the Forget receipt is still sent on Telegram, Slack, Discord and Teams",
+      "old-rails rows: neither listed nor revocable; empty state: 'Nothing remembered yet. Tap Allow on a card and it shows up here.'"
+    ],
+    "blocking_findings": [],
+    "non_blocking_findings": [],
+    "residual_risks": [
+      "Live tap-through on a real provider deferred to the post-merge runtime redeploy (Ravi's go-ahead required for a restart)."
+    ],
+    "remaining_gaps": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-09-09T16:07:14+00:00",
+    "commit": "366d6567f3b523fbda3affb5876200f01ab6b8cd"
+  },
+  "updated_at": "2026-09-09T16:07:14+00:00"
+}
