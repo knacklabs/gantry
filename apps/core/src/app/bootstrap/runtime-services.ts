@@ -119,6 +119,7 @@ import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
 import { createRuntimeSchedulerStarter } from './runtime-scheduler-start.js';
 import { createMemoryForgetHandler } from './permission-memory-forget-handler.js';
+import { resolveCanonicalMemoryPersonId } from '../../runtime/group-person-identity.js';
 import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import {
   sendJobPermCard,
@@ -595,20 +596,23 @@ export async function startRuntimeServices(
     channelWiring.setMemoryForgetMessageActionHandler(
       createMemoryForgetHandler({
         getConversationRoutes: () => app.getConversationRoutes(),
-        resolvePerson: async (action, route) => {
-          if (!action.userId) return undefined;
-          const principal = await channelWiring.resolveControlApproverPrincipal(
-            {
-              conversationJid: action.conversationJid,
-              providerAccountId: action.providerAccountId,
-              agentId: route.agentId ?? agentIdForFolder(route.folder),
-              threadId: action.threadId,
-              userId: action.userId,
-              sourceAgentFolder: route.folder,
-            },
-          );
-          return principal?.kind === 'human' ? principal.personId : undefined;
-        },
+        resolvePerson: (action, route) =>
+          resolveCanonicalMemoryPersonId({
+            resolvePersonIdentity: resolved.resolvePersonIdentity,
+            normalizeProviderId: channelWiring.normalizeProviderId,
+            publishRuntimeEvent: resolved.publishRuntimeEvent,
+            appId: String(channelWiring.getRuntimeAppId()),
+            rawUserId: action.userId,
+            conversationKind:
+              route.conversationKind === 'dm' ? 'dm' : 'channel',
+            messages: [],
+            chatJid: action.conversationJid,
+            threadId: action.threadId,
+            providerAccountId:
+              action.providerAccountId ?? route.providerAccountId,
+            identityEvidenceType: route.senderIdentityEvidenceType,
+            systemSenderIds: route.systemSenderIds,
+          }),
         resolvePermissionMode: (route) => {
           const override = route.agentConfig?.permissionMode;
           const mode = resolveEffectivePermissionMode(

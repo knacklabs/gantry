@@ -382,13 +382,13 @@ maybeDescribe('Postgres permission decision memory', () => {
       canonicalTool: 'file',
       reason: 'allow this write',
       effectSchemaVersion: 1,
-      railVersion: 3,
+      railVersion: 4,
       provenance: encodeHumanDecisionProvenance({
         id: firstId,
         actingPersonId: person,
         outcome: 'allow',
         scope: 'exact',
-        railVersion: 3,
+        railVersion: 4,
       }),
       nowIso: '2026-07-12T02:00:00.000Z',
       effectHash: 'effect-before-refresh',
@@ -421,11 +421,26 @@ maybeDescribe('Postgres permission decision memory', () => {
       id: firstId,
       status: 'refreshed',
     });
+    await repository.putHumanDecision({
+      ...first,
+      id: '30000000-0000-4000-8000-000000000010',
+      scopeKey: 'exact:old-rail-version',
+      railVersion: 3,
+      provenance: encodeHumanDecisionProvenance({
+        id: '30000000-0000-4000-8000-000000000010',
+        actingPersonId: person,
+        outcome: 'allow',
+        scope: 'exact',
+        railVersion: 3,
+      }),
+      nowIso: '2026-07-12T02:01:30.000Z',
+    });
     await expect(
       repository.listHumanDecisions({
         appId: APP,
         agentFolder: FOLDER,
         actingPersonId: person,
+        railVersion: 4,
       }),
     ).resolves.toEqual([
       expect.objectContaining({
@@ -460,7 +475,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         actingPersonId: 'person-round-trip-other',
         outcome: 'allow',
         scope: 'exact',
-        railVersion: 3,
+        railVersion: 4,
       }),
       nowIso: '2026-07-12T02:02:00.000Z',
     });
@@ -469,6 +484,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: FOLDER,
         actingPersonId: 'person-round-trip-other',
+        railVersion: 4,
       }),
     ).resolves.toEqual([expect.objectContaining({ id: otherPersonId })]);
 
@@ -508,6 +524,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: FOLDER,
         actingPersonId: person,
+        railVersion: 4,
       }),
     ).resolves.toEqual([]);
     await expect(
@@ -516,6 +533,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         agentFolder: FOLDER,
         actingPersonId: person,
         includeRevoked: true,
+        railVersion: 4,
       }),
     ).resolves.toEqual([
       expect.objectContaining({
@@ -533,7 +551,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         actingPersonId: person,
         outcome: 'allow',
         scope: 'exact',
-        railVersion: 3,
+        railVersion: 4,
       }),
       nowIso: '2026-07-12T02:04:00.000Z',
     };
@@ -546,6 +564,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: FOLDER,
         actingPersonId: person,
+        railVersion: 4,
       }),
     ).resolves.toEqual([expect.objectContaining({ id: freshId })]);
     await expect(
@@ -554,6 +573,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         agentFolder: FOLDER,
         actingPersonId: person,
         includeRevoked: true,
+        railVersion: 4,
       }),
     ).resolves.toEqual([
       expect.objectContaining({ id: freshId, revokedAt: undefined }),
@@ -574,7 +594,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         actingPersonId: person,
         outcome: 'allow',
         scope: 'exact',
-        railVersion: 3,
+        railVersion: 4,
       }),
       nowIso: '2026-07-12T02:05:00.000Z',
     });
@@ -590,7 +610,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         actingPersonId: person,
         outcome: 'deny',
         scope: 'exact',
-        railVersion: 3,
+        railVersion: 4,
       }),
       nowIso: '2026-07-12T02:06:00.000Z',
     });
@@ -606,7 +626,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         actingPersonId: person,
         outcome: 'allow',
         scope: 'kind',
-        railVersion: 3,
+        railVersion: 4,
       }),
       nowIso: '2026-07-12T02:07:00.000Z',
     });
@@ -615,7 +635,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: FOLDER,
         actingPersonId: person,
-        railVersion: 3,
+        railVersion: 4,
       }),
     ).resolves.toEqual({ file: 1, WebRead: 1 });
     await expect(
@@ -623,7 +643,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: FOLDER,
         actingPersonId: 'person-round-trip-other',
-        railVersion: 3,
+        railVersion: 4,
       }),
     ).resolves.toEqual({ file: 1 });
     await expect(
@@ -631,7 +651,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: 'another-app',
         agentFolder: FOLDER,
         actingPersonId: person,
-        railVersion: 3,
+        railVersion: 4,
       }),
     ).resolves.toEqual({});
     await expect(
@@ -639,7 +659,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: 'another-folder',
         actingPersonId: person,
-        railVersion: 3,
+        railVersion: 4,
       }),
     ).resolves.toEqual({});
 
@@ -659,7 +679,7 @@ maybeDescribe('Postgres permission decision memory', () => {
           actingPersonId: concurrentPerson,
           outcome: 'allow',
           scope: 'exact',
-          railVersion: 3,
+          railVersion: 4,
         }),
         nowIso: `2026-07-12T02:08:0${index}.000Z`,
       }),
@@ -677,6 +697,7 @@ maybeDescribe('Postgres permission decision memory', () => {
         appId: APP,
         agentFolder: FOLDER,
         actingPersonId: concurrentPerson,
+        railVersion: 4,
       }),
     ).resolves.toEqual([
       expect.objectContaining({ id: concurrentResults[0]!.id }),
@@ -727,6 +748,17 @@ maybeDescribe('Postgres permission decision memory', () => {
 
   it('lists one latest use per job by human decision record id from the durable audit rows written on both job lanes ordered by most recent use and ignores unrelated rows and other apps', async () => {
     const recordId = '70000000-0000-4000-8000-000000000001';
+    const now = new Date().toISOString();
+    for (const appId of [APP, 'another-app']) {
+      await runtime.repositories.apps.saveApp({
+        id: appId as never,
+        slug: appId,
+        name: appId,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
     const record = async (input: {
       appId?: string;
       humanDecisionRecordId: string;

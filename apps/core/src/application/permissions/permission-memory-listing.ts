@@ -33,23 +33,29 @@ export function createUsedByJobReader(input: {
       appId: input.appId,
       recordIds,
     });
-    const jobIdsByRecordId = new Map<string, string[]>();
+    const jobIdsByRecordId = new Map<string, Set<string>>();
+    const jobIds = new Set<string>();
     for (const row of rows) {
-      const jobIds = jobIdsByRecordId.get(row.recordId) ?? [];
-      if (!jobIds.includes(row.jobId)) jobIds.push(row.jobId);
-      jobIdsByRecordId.set(row.recordId, jobIds);
+      const recordJobIds = jobIdsByRecordId.get(row.recordId) ?? new Set();
+      recordJobIds.add(row.jobId);
+      jobIds.add(row.jobId);
+      jobIdsByRecordId.set(row.recordId, recordJobIds);
     }
-    if (!rows.length) return new Map();
+    if (!jobIds.size) return new Map();
     const jobsById = new Map(
-      (await input.listJobs()).map((job) => [job.id, job]),
+      (await input.listJobs())
+        .filter((job) => jobIds.has(job.id))
+        .map((job) => [job.id, job]),
     );
     const result = new Map<string, PermissionMemoryUsedBy>();
     for (const recordId of recordIds) {
-      const jobs = (jobIdsByRecordId.get(recordId) ?? []).flatMap((jobId) => {
-        const job = jobsById.get(jobId);
-        const name = job?.name ?? job?.title;
-        return name ? [name] : [];
-      });
+      const jobs = [...(jobIdsByRecordId.get(recordId) ?? [])].flatMap(
+        (jobId) => {
+          const job = jobsById.get(jobId);
+          const name = job?.name ?? job?.title;
+          return name ? [name] : [];
+        },
+      );
       if (jobs.length)
         result.set(recordId, {
           jobs: jobs.slice(0, 2),

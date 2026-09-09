@@ -163,6 +163,7 @@ describe('permission memory listing', () => {
       { id: 'one', name: 'Job one' },
       { id: 'two', name: 'Job two' },
       { id: 'three', name: 'Job three' },
+      { id: 'unrelated', name: 'Unrelated job' },
     ]);
     const reader = createUsedByJobReader({
       appId: 'app-one',
