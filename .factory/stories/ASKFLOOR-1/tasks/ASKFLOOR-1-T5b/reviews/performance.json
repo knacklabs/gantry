@@ -2,13 +2,13 @@
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T5b",
   "score": 9,
-  "summary": "performance lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..3f5ed72, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The listing path introduces an unbounded all-jobs read for used-by hydration, contrary to the required bounded bulk lookup. No other P0\u2013P2 performance defect is demonstrated by the provided diff.",
+  "summary": "performance lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..29064e7, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The feature is largely consistent with the supplied contracts, but its production used-by wiring defeats the bounded bulk-read design and performs an unfiltered job-table hydration on each relevant request. This is an actionable P2 performance defect.",
   "blocking_findings": [],
   "non_blocking_findings": [
     {
       "category": "bug",
-      "area": "apps/core/src/application/permissions",
-      "summary": "[P2] Fetch only the jobs referenced by the rendered records (apps/core/src/application/permissions/permission-memory-listing.ts:46): `createUsedByJobReader` calls the parameterless `listJobs()` and then filters the complete result in memory."
+      "area": "apps/core/src/app/bootstrap",
+      "summary": "Production job hydration still loads the entire job collection (apps/core/src/app/bootstrap/runtime-services.ts:623): The used-by reader passes the exact referenced job IDs to `listJobs`, but this production binding discards that argument and invokes the unfiltered repository method."
     }
   ],
   "recommendation": "approve-with-caveats",
@@ -73,10 +73,10 @@
     "review-animations"
   ],
   "aspect": "performance",
-  "review_run_id": "0f81812d15d68ab062f34757632af94059f629724c5b5f55a5ea3ab77f956c69",
-  "brief_sha256": "878cdfb1ea1f5b1754fedb14933fe776cd5c7c06087d88bb49711d4c3f37a541",
-  "branch_diff_digest": "6cb290c9376f6a7fc85352c6320b9c2ba08ddb8e1bda0990fc252f86dd724549",
+  "review_run_id": "938d2e3e263ac38bd2a70c9ffa7e8bb7d568288af06fe763734b96c1709dba52",
+  "brief_sha256": "55c799dd3fa0ce8881ccc9b8eea79fb7430ec39635d25ae66fe8f13c835da7f8",
+  "branch_diff_digest": "78a21f6e6176f2c89ce7c9de7c0c3f3dfc68babcadce5c85499d5c712908dee9",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T15:26:44+00:00",
-  "commit": "3f5ed729558871897e1f0846f7dd458f3a585835"
+  "recorded_at": "2026-09-09T16:47:44+00:00",
+  "commit": "29064e7deb0d08f5da7fd1717aa845049b00acdd"
 }

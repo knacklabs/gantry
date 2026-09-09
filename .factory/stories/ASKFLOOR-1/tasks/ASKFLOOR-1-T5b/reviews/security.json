@@ -1,17 +1,23 @@
 {
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T5b",
-  "score": 9,
-  "summary": "security lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..3f5ed72, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The callback path is otherwise fail-closed and person-scoped, but its canonical identity lookup uses a different app scope from the subsequent memory lookup. That is an actionable authorization-boundary defect for multi-app routes.",
-  "blocking_findings": [],
+  "score": 6,
+  "summary": "security lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..29064e7, Codex via the autoreview skill at --max-priority P2): 1 blocking, 1 non-blocking. The change introduces an app-scope mismatch in the authorization path for Forget callbacks and leaves a user-triggerable unbounded job hydration path. Both are concrete security-relevant defects in the new permissions surface.",
+  "blocking_findings": [
+    {
+      "category": "security",
+      "area": "apps/core/src/app/bootstrap",
+      "summary": "Resolve the forget caller in the conversation JID's app scope (apps/core/src/app/bootstrap/runtime-services.ts:601): The Forget handler later scopes the memory lookup with `appIdFromConversationJid(action.conversationJid)`, but this resolver canonicalizes the caller using the process-wide runtime app ID."
+    }
+  ],
   "non_blocking_findings": [
     {
       "category": "security",
       "area": "apps/core/src/app/bootstrap",
-      "summary": "[P2] Resolve the callback principal in the conversation's app (apps/core/src/app/bootstrap/runtime-services.ts:604): The Forget handler scopes list/revoke using the app derived from `action.conversationJid`, but this resolver instead canonicalizes the tapping user under the runtime-wide app ID."
+      "summary": "Do not load the entire job collection for each permissions listing (apps/core/src/app/bootstrap/group-processor-deps.ts:88): `createUsedByJobReader` passes the deduplicated referenced job IDs to this callback, but the zero-argument closure discards them and performs an unfiltered `listJobs()` call."
     }
   ],
-  "recommendation": "approve-with-caveats",
+  "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
@@ -73,10 +79,10 @@
     "review-animations"
   ],
   "aspect": "security",
-  "review_run_id": "0f81812d15d68ab062f34757632af94059f629724c5b5f55a5ea3ab77f956c69",
-  "brief_sha256": "878cdfb1ea1f5b1754fedb14933fe776cd5c7c06087d88bb49711d4c3f37a541",
-  "branch_diff_digest": "6cb290c9376f6a7fc85352c6320b9c2ba08ddb8e1bda0990fc252f86dd724549",
+  "review_run_id": "938d2e3e263ac38bd2a70c9ffa7e8bb7d568288af06fe763734b96c1709dba52",
+  "brief_sha256": "55c799dd3fa0ce8881ccc9b8eea79fb7430ec39635d25ae66fe8f13c835da7f8",
+  "branch_diff_digest": "78a21f6e6176f2c89ce7c9de7c0c3f3dfc68babcadce5c85499d5c712908dee9",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T15:26:44+00:00",
-  "commit": "3f5ed729558871897e1f0846f7dd458f3a585835"
+  "recorded_at": "2026-09-09T16:47:44+00:00",
+  "commit": "29064e7deb0d08f5da7fd1717aa845049b00acdd"
 }
