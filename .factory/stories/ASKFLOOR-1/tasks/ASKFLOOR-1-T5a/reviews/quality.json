@@ -1,12 +1,23 @@
 {
   "generated_by": "autoreview",
-  "score": 7,
-  "summary": "quality lens over ASKFLOOR-1-T5a (67 product path(s), 8376193..779c2f0, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The persistence, provider, copy, and offered-set work is broadly implemented, but the hard-floor destructive path introduces a concrete permission-safety bypass and must be fixed before shipping.\nVERDICT ASKFLOOR-1-T5a-AC1: partial \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:304 allows a hard-floor destructive card to be remembered and replayed\nVERDICT ASKFLOOR-1-T5a-AC2: implemented \u2014 apps/core/src/application/interactions/pending-interaction-permission-callback.ts:469 enforces the persisted offered set\nVERDICT ASKFLOOR-1-T5a-AC3: implemented \u2014 apps/core/src/application/permissions/human-decision-learning.ts:68 derives the canonical-root place candidate and the repository filters rail versions\nVERDICT ASKFLOOR-1-T5a-AC4: implemented \u2014 apps/core/src/channels/discord/permission-callback.ts:82 passes effective remember codes through durable settlement, with equivalent provider paths included\nVERDICT ASKFLOOR-1-T5a-AC5: implemented \u2014 apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes typed memory_forget actions and supplies the unbound reply\nVERDICT ASKFLOOR-1-T5a-AC6: implemented \u2014 apps/core/src/channels/permission-batch-coalescer.ts:131 adds the required once-only line to batch rendering\nVERDICT ASKFLOOR-1-T5a-AC7: implemented \u2014 apps/core/test/unit/channels/provider-affordance-parity.test.ts:163 pins the four pre-change ineligible lanes\nVERDICT ASKFLOOR-1-T5a-AC8: partial \u2014 apps/core/src/runtime/permission-decision-coordinator.ts:304 violates the hard-floor permission gate despite the S4 and verification coverage\nNO LEFTOVERS: the reviewed additions contain no remaining wrapper, shim, alias, dead branch, or compatibility naming.",
+  "task_id": "ASKFLOOR-1-T5a",
+  "score": 0,
+  "summary": "quality lens over ASKFLOOR-1-T5a (112 product path(s), 8376193..1a1d008, Codex via the autoreview skill at --max-priority P2): 3 blocking, 4 non-blocking. Review passes returned. chunk 1/2: 3 finding(s), chunk 2/2: 4 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [
     {
       "category": "security",
       "area": "apps/core/src/runtime",
-      "summary": "[P1] Keep hard-floor destructive asks out of remembered-allow lookup (apps/core/src/runtime/permission-decision-coordinator.ts:304): `exactAllowCanOverride` is true for every destructive ASK, including `hardFloor: true`, but the hard-floor check protects only the autonomous projection lookup."
+      "summary": "Hard-floor destructive asks can be auto-approved from remembered memory (apps/core/src/runtime/permission-decision-coordinator.ts:301): When a destructive rail ASK sets `hardFloor: true`, `exactAllowCanOverride` still enters this block."
+    },
+    {
+      "category": "test_gap",
+      "area": "factory/scripts/forge_cli",
+      "summary": "[P1] Do not seal a stage when its required test never ran (factory/scripts/forge_cli/stages.py:1596): When no JUnit testcase matches the required test id, this branch records a note and continues, allowing `stage done` to succeed."
+    },
+    {
+      "category": "maintainability",
+      "area": "factory/scripts/forge_cli",
+      "summary": "[P1] Remove the retained single-file stage compatibility path (factory/scripts/forge_cli/stages.py:169): The new per-task stage-record implementation still reads and merges the replaced `stages.json` layout, and task worktrees intentionally preserve that old file until a story-side split."
     },
     {
       "category": "plan-contract-partial",
@@ -16,12 +27,42 @@
     {
       "category": "plan-contract-partial",
       "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T5a-AC2: PERSISTED RENDER MODEL + OFFERED-SET CHECK. `cardAffordances` is derived host-side on both prompt paths (ruling 1) from the T3c context + `canonicalRoot` (ruling 3) + the rail-version-filtered trust-growth count (ruling 4), set on the request (`types.ts` line-neutral), snapshotted by the envelope/binding, carried by the IPC payload updater and inline creation, replayed by recovery, and reset to the scalar batch shape inside the Postgres bind transaction (ruling 2). At settlement (claim, recovery, and Telegram's live claim) a remember code not in `offered` becomes its scalar base before application and learning; the tapped code reaches the receipt formatter (ruling 5). Tests: `ipc-interaction-handler.test.ts` \u2014 model persisted on the IPC path, forged unoffered code \u2192 scalar base + nothing learned; inline suite \u2014 model at creation; `pending-interaction-permission-recovery-orchestrator.test.ts` \u2014 recovery replays the model, applies the check, and an offered code yields its remembered receipt while an unoffered one yields the once-only receipt; `worker-coordination.postgres.integration.test.ts` \u2014 batch bind resets the model atomically; `pending-interaction-durability.test.ts` \u2014 envelope round-trip."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T5a.md#acceptance-criteria",
       "summary": "ASKFLOOR-1-T5a-AC8: S4 + GATES + DECISION. `askfloor-tap-budget.test.ts` adds S4 (`rm -rf build` asks once; Allow remembers exact command + target; identical command \u2192 zero taps; `rm -rf dist` asks; No is remembered exactly). `docs/decisions/0154` carries the owner-confirmed amendment (no rails-bump re-ask line; old-version rows inert and simply not listed by `/permissions`, per its line 18). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: 700 default (permission-interaction 693, Discord interactions 699, Teams cards 688 today \u2014 extract), Slack `channel-interactions.ts` \u2264 712, Telegram `callback-handlers.ts` \u2264 900; no wrapper, shim, alias, dead branch or compatibility naming."
     }
   ],
-  "non_blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/application/permissions",
+      "summary": "Write receipts can promise broader memory than is persisted (apps/core/src/application/permissions/permission-card-affordances.ts:46): The write-specific copy is selected solely from tool identity and the presence of a path, without checking `rememberContext.candidates.exact.pathOnly`."
+    },
+    {
+      "category": "maintainability",
+      "area": "apps/core/src/application/permissions",
+      "summary": "Keep all permission-card copy in the required formatter module (apps/core/src/application/permissions/permission-card-affordances.ts:47): The application-layer builder constructs scope sentences, alternative labels, and pre/post-tap literals here, while `channels/permission-card-affordances.ts` separately owns button labels."
+    },
+    {
+      "category": "bug",
+      "area": "factory/scripts/forge_cli",
+      "summary": "[P2] Keep out-of-scope writes as a stage-closing failure (factory/scripts/forge_cli/stages.py:1268): `_measure` now returns declared-scope violations as metadata instead of refusing the close, so a reviewed stage can be marked done while containing product changes outside its task's write scope."
+    },
+    {
+      "category": "bug",
+      "area": "factory/scripts/forge_cli",
+      "summary": "[P2] Determine review-fix dependents from the DAG, not list position (factory/scripts/forge_cli/tasks.py:414): The new execution model explicitly makes dependencies, rather than decomposition order, authoritative, but `--review-fix` still treats every later active or done stage as having built on the reopened task."
+    }
+  ],
   "recommendation": "request-changes",
   "reviewed_scope": [
+    ".claude/CLAUDE.md",
+    ".claude/skills/forge/SKILL.md",
+    ".github/workflows/factory-scaffold.yml",
+    "WORKFLOW.md",
     "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-permission-prompt.postgres.ts",
     "apps/core/src/app/bootstrap/channel-message-action-router.ts",
@@ -88,6 +129,47 @@
     "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
     "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
     "apps/core/test/unit/runtime/permission-human-memory-stage.test.ts",
+    "constitution/VENDORED_FROM",
+    "constitution/VENDOR_MANIFEST.json",
+    "docs/QUALITY.md",
+    "factory/prompts/decomposer.md",
+    "factory/prompts/griller.md",
+    "factory/prompts/planner.md",
+    "factory/schemas/review.json",
+    "factory/scripts/check_pr_ticket.py",
+    "factory/scripts/factory_lib.py",
+    "factory/scripts/forge.py",
+    "factory/scripts/forge_cli/board.py",
+    "factory/scripts/forge_cli/delegate.py",
+    "factory/scripts/forge_cli/doctor.py",
+    "factory/scripts/forge_cli/findings.py",
+    "factory/scripts/forge_cli/grill.py",
+    "factory/scripts/forge_cli/outcome.py",
+    "factory/scripts/forge_cli/phase.py",
+    "factory/scripts/forge_cli/plans.py",
+    "factory/scripts/forge_cli/quickfix.py",
+    "factory/scripts/forge_cli/review.py",
+    "factory/scripts/forge_cli/review_brief.py",
+    "factory/scripts/forge_cli/signal.py",
+    "factory/scripts/forge_cli/stages.py",
+    "factory/scripts/forge_cli/story.py",
+    "factory/scripts/forge_cli/tasks.py",
+    "factory/scripts/post_tool_use.py",
+    "factory/scripts/record_decomposition_from_json.py",
+    "factory/scripts/record_grill_from_json.py",
+    "factory/scripts/record_review_from_json.py",
+    "factory/tests/test_board_approval_gate.py",
+    "factory/tests/test_gates.py",
+    "factory/tests/test_grill_carries_answers.py",
+    "factory/tests/test_grill_round_cap.py",
+    "factory/tests/test_lifecycle_end_to_end.py",
+    "factory/tests/test_one_grill.py",
+    "factory/tests/test_one_review_per_task.py",
+    "factory/tests/test_plan_against_reality.py",
+    "factory/tests/test_review_fix_reopen.py",
+    "factory/tests/test_review_settled_contracts.py",
+    "factory/tests/test_seal_measures.py",
+    "factory/tests/test_task_parallelism.py",
     "harness.yaml"
   ],
   "skills_used": [
@@ -97,42 +179,42 @@
     {
       "contract_id": "ASKFLOOR-1-T5a-AC1",
       "verdict": "partial",
-      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:304 allows a hard-floor destructive card to be remembered and replayed"
+      "evidence": "apps/core/src/application/permissions/permission-card-affordances.ts:47 splits exact copy ownership and can misstate the persisted write scope."
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC2",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/application/interactions/pending-interaction-permission-callback.ts:469 enforces the persisted offered set"
+      "verdict": "partial",
+      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:301 permits a hard-floor destructive request to reach remembered-allow settlement."
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/human-decision-learning.ts:68 derives the canonical-root place candidate and the repository filters rail versions"
+      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:250 carries canonicalRoot and apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts:329 filters counts by rail version."
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/channels/discord/permission-callback.ts:82 passes effective remember codes through durable settlement, with equivalent provider paths included"
+      "evidence": "apps/core/test/unit/channels/provider-affordance-parity.test.ts:1455 exercises the four provider render/code paths."
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes typed memory_forget actions and supplies the unbound reply"
+      "evidence": "apps/core/src/app/bootstrap/channel-message-action-router.ts:96 routes typed memory_forget actions and supplies the unbound reply."
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/channels/permission-batch-coalescer.ts:131 adds the required once-only line to batch rendering"
+      "evidence": "apps/core/src/channels/permission-batch-coalescer.ts:161 defines the required once-only batch line for both renderers."
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC7",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/channels/provider-affordance-parity.test.ts:163 pins the four pre-change ineligible lanes"
+      "evidence": "apps/core/test/unit/channels/provider-affordance-parity.test.ts:160 pins the four ineligible lanes across providers."
     },
     {
       "contract_id": "ASKFLOOR-1-T5a-AC8",
       "verdict": "partial",
-      "evidence": "apps/core/src/runtime/permission-decision-coordinator.ts:304 violates the hard-floor permission gate despite the S4 and verification coverage"
+      "evidence": "factory/scripts/forge_cli/stages.py:169 retains an explicit compatibility layout despite the no-leftovers gate"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -336,10 +418,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "4ff6795b0408beaf16b2a26d5146406ba497fb41ca3383878c6a482a6bf131f1",
-  "brief_sha256": "679a9375082c60827271a740e84a98df6af7be508d3fbacacbb6c076a0532257",
-  "branch_diff_digest": "03ccd292945e2fed2a652021b9be292656850bab980eb83f44f3dd036d8f6a76",
+  "review_run_id": "848aa3f2a5351904624cef3bec05b814b8f593fff027b9fcd234b002531a0374",
+  "brief_sha256": "0c9b2be3e86a5bd47665466dc29cac1cb96543b4d47682395b7df95e1b3a087d",
+  "branch_diff_digest": "18af480021b0d3716e253a379b9cc98da224dcf88964d9012025d1c4c8d3c58d",
   "residual_risks": [],
-  "recorded_at": "2026-09-09T02:51:49+00:00",
-  "commit": "779c2f057e5c968c37c47e01473fa45c71ac064b"
+  "recorded_at": "2026-09-09T08:32:52+00:00",
+  "commit": "262dc5603f6446a9db14855bdef51330b20526c3"
 }
