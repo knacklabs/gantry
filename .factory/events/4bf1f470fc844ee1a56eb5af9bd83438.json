@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T16:57:11+00:00", "story": "ASKFLOOR-1", "detail": "T5b AC5 explicitly requires changing apps/core/src/app/bootstrap/group-processor-deps.ts:88, but the write scope permits only the non-existent runtime-group-processor-deps.ts; stage done would refuse "}

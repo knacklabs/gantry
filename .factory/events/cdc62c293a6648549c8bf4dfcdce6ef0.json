@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T16:54:49+00:00", "story": "ASKFLOOR-1", "detail": "S-0095-f731: Ruling: no new port method. The task plan's ruling 4 hydrates job names through the existing ops-repo getJobById. Implement AC5 as: collect the job ids referenced by the rendered rows (\u226410 for the DM "}

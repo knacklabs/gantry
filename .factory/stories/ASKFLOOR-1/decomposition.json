@@ -1366,7 +1366,9 @@
         "apps/core/test/unit/channels/teams/teams.test.ts",
         "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
         "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
-        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts"
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+        "apps/core/src/app/bootstrap/group-processor-deps.ts",
+        "scripts/architecture-exceptions.json"
       ],
       "reviewer_focus": [
         "Constitution (load-bearing): constitution/03-modular-monolith-structure.md - ONE application module owns every row and reply string and consumes the domain-owned PermissionMemoryListMessageView (the type stays in domain \u2014 domain must not import application; ruling S-0093) (nouns from the existing application helpers; exact rows read \"<tool label>, this exact call\" \u2014 no display snapshot); the command, the forget-handler module and the four providers are consumers; ceilings hold (session-commands 740, prompt-profile-service 783, runtime-services 1186 after the scheduler-start move, runtime-app 739 after the group-processor-deps move, channel-wiring 790 with its channel-import cap exhausted, 700 default); no re-export left behind.",
@@ -1537,5 +1539,5 @@
   ],
   "project": "",
   "plan_sha256": "1dd7b989a14b6c352fc20f8ee715fb0b21b46b9827d495b79abbb642bb9d271a",
-  "commit": "c2a65e41dcb30432dc3205764e7fd4b5a69e742b"
+  "commit": "08781b48c44f9c114a7943de541505f46546b670"
 }
