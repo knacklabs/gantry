@@ -22,12 +22,10 @@ import { encodeGroupMessageCursor } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { ConversationRoute, ThinkingOverride } from '../../domain/types.js';
 import { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
-import { createGroupProcessor } from '../../runtime/group-processing.js';
 import type {
   GroupProcessOptions,
   GroupProcessingDeps,
 } from '../../runtime/group-processing-types.js';
-import { resolveAgentLockStatus } from '../../config/profiles.js';
 import {
   ensureRouteProfileDefaults,
   listAvailableGroups,
@@ -57,9 +55,7 @@ import type {
 import {
   getConfiguredModelProvidersForApp,
   getRuntimeRepositories,
-  getRuntimeSkillArtifactStore,
   getRuntimeStorage,
-  resolveRuntimePersonIdentity,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import type { ProcessRole } from './roles/process-role.js';
 import { applyHostCapacityToQueuePolicy } from '../../shared/host-capacity.js';
@@ -77,6 +73,7 @@ import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initia
 import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
 import { spawnAgent, type AvailableGroup } from '../../runtime/agent-spawn.js';
 import { createJobSetupRequiredNotificationPort } from '../../jobs/execution-readiness.js';
+import { createRuntimeGroupProcessor } from './runtime-group-processor-deps.js';
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
   RuntimeConversationRouteRepository &
@@ -571,7 +568,7 @@ export function createRuntimeApp(
     });
   }
 
-  const groupProcessor = createGroupProcessor({
+  const groupProcessor = createRuntimeGroupProcessor({
     channelRuntime: channelRuntime.proxy,
     getConversationRoutes: () => conversationRoutes,
     getGroup: (chatJid, threadId, agentId, providerAccountId) =>
@@ -595,7 +592,6 @@ export function createRuntimeApp(
     setGroupPermissionModeOverride,
     getAvailableGroups,
     getRegisteredJids: () => new Set(Object.keys(conversationRoutes)),
-    opsRepository: options.opsRepository,
     getRuntimeRepository: ops,
     getConversationHistoryCoverageRepository: () =>
       conversationHistoryCoverageRepository ??
@@ -629,35 +625,17 @@ export function createRuntimeApp(
     },
     runAgent: options.runAgent,
     getCredentialBroker,
-    getToolRepository: () => getRuntimeStorage().repositories.tools,
-    getAsyncTaskRepository: () => getRuntimeStorage().repositories.asyncTasks,
-    getPatternCandidateRepository: () =>
-      getRuntimeStorage().repositories.patternCandidates,
-    getProactiveSurfacingRepository: () =>
-      getRuntimeStorage().repositories.proactiveSurfacing,
-    getAgentLockStatus: resolveAgentLockStatus,
-    getSkillRepository: () => getRuntimeStorage().repositories.skills,
-    getMcpServerRepository: () => getRuntimeStorage().repositories.mcpServers,
-    getCapabilitySecretRepository: () =>
-      getRuntimeStorage().repositories.capabilitySecrets,
     getMcpHostnameLookup: options.mcpHostnameLookup,
     getMcpDnsValidationCache: () => mcpDnsValidationCache,
-    getSkillArtifactStore:
-      options.skillArtifactStore ?? getRuntimeSkillArtifactStore,
+    skillArtifactStore: options.skillArtifactStore,
     collectSessionMemory:
       options.collectSessionMemory ?? collectRuntimeSessionMemory,
     normalizeProviderId: (providerId) =>
       normalizeProviderId?.(providerId) ?? providerId.trim().toLowerCase(),
-    resolvePersonIdentity: resolveRuntimePersonIdentity,
     publishRuntimeEvent: options.publishRuntimeEvent,
     executionAdapter,
     executionAdapters,
     runnerSandboxProvider,
-    getConfiguredModelProviders: getConfiguredModelProvidersForApp,
-    getModelFamilyOrder: () => getRuntimeSettingsForConfig().modelFamilies,
-    getDefaultInteractiveModel: (agentFolder) =>
-      getDefaultModelConfig('interactive', agentFolder).model,
-    getSelectedAgentHarness,
   });
 
   return {

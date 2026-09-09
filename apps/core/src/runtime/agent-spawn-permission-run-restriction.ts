@@ -11,6 +11,7 @@ export function registerWorkerPermissionRunRestriction(input: {
   hideAuthorityTools: boolean;
   runKind: 'interactive' | 'scheduled';
   memoryUserId?: string;
+  memoryUserLabel?: string;
   jobId?: string;
   runId?: string;
   parentTaskId?: string;
@@ -27,6 +28,7 @@ export function setupPermissionRunRestriction(
     | 'agentId'
     | 'isScheduledJob'
     | 'memoryUserId'
+    | 'memoryUserLabel'
     | 'jobId'
     | 'runId'
     | 'parentTaskId'
@@ -47,6 +49,7 @@ export function setupPermissionRunRestriction(
     hideAuthorityTools,
     runKind: agentInput.isScheduledJob ? 'scheduled' : 'interactive',
     memoryUserId: agentInput.memoryUserId,
+    memoryUserLabel: agentInput.memoryUserLabel,
     jobId: agentInput.jobId,
     runId: agentInput.runId,
     parentTaskId: agentInput.parentTaskId,

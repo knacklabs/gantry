@@ -42,6 +42,9 @@ import {
   type MemoryStatusSnapshot,
 } from './session-command-format.js';
 import { formatSessionCommandsHelp } from './session-command-help.js';
+// prettier-ignore
+import { permissionMemoryCommandResponse, type UsedByJobReader } from '../application/permissions/permission-memory-listing.js';
+import type { HumanDecisionMemoryService } from '../application/permissions/human-decision-memory-service.js';
 import {
   defaultModelStatusSelection,
   type ModelStatusSelectionUpdate,
@@ -69,10 +72,8 @@ interface DreamQueueResult {
   reason?: 'queued' | 'deduped' | 'full' | 'invalid';
 }
 
-type CompactionProviderSession = {
-  providerSessionId: string;
-  externalSessionId: string;
-};
+// prettier-ignore
+type CompactionProviderSession = { providerSessionId: string; externalSessionId: string };
 
 export type SessionArchiveOutcome = {
   memory: 'ok' | 'degraded' | 'skipped';
@@ -131,7 +132,8 @@ export interface SessionCommandDeps {
   ) => Promise<void> | void;
   getGroupPermissionModeOverride: () => PermissionMode | undefined;
   getDefaultPermissionMode: () => PermissionMode;
-  handlePermissionMemoryCommand?: (command: Extract<SessionCommand, { kind: 'permissions_show' | 'permissions_all' | 'permissions_forget' }>) => Promise<{ text: string; actionAffordances?: NonNullable<MessageSendOptions['actionAffordances']> }>;
+  // prettier-ignore
+  remembered?: { appId: string; agentFolder: string; agentId: string; conversationKind: 'dm' | 'group'; resolvePersonId: () => Promise<string | undefined>; service: HumanDecisionMemoryService; usedBy: UsedByJobReader; timezone: string };
   setGroupPermissionModeOverride: (
     value: PermissionMode | undefined,
   ) => Promise<void> | void;
@@ -581,7 +583,13 @@ export async function handleSessionCommand(opts: {
 
   if (command.kind === 'permissions_show' || command.kind === 'permissions_all' || command.kind === 'permissions_forget') {
     deps.advanceCursor(cmdMsg);
-    const response = await deps.handlePermissionMemoryCommand?.(command);
+    const response = deps.remembered
+      ? await permissionMemoryCommandResponse({
+          command,
+          modeLine: `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`,
+          ...deps.remembered,
+        })
+      : undefined;
     await deps.sendMessage(response?.text ?? `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`, response?.actionAffordances ? { actionAffordances: response.actionAffordances } : undefined);
     return { handled: true, success: true };
   }

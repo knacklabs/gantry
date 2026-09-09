@@ -212,6 +212,7 @@ export async function processPermissionInteractionIpc(input: {
           deps: input.deps,
           sourceAgentFolder: input.sourceAgentFolder,
           personId: runRestriction?.memoryUserId,
+          personLabel: runRestriction?.memoryUserLabel,
           hostJobId: runRestriction?.jobId,
           onAttached: () => {
             attachedToJobPermissionNeed = true;
