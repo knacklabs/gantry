@@ -1,5 +1,5 @@
 {
-  "commit": "af56eab54bb49b45bad1a75b26615e1351c60f22",
+  "commit": "1c31158b740abd559f92b44969656b829bfa9e78",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
@@ -127,5 +127,31 @@
     "recorded_at": "2026-09-08T16:50:13+00:00",
     "commit": "af56eab54bb49b45bad1a75b26615e1351c60f22"
   },
-  "updated_at": "2026-09-08T16:50:13+00:00"
+  "updated_at": "2026-09-09T01:53:21+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "pass",
+    "score": 9,
+    "summary": "Functional check of the user-visible card surfaces through the tap-budget harness and the four-provider parity suites on the committed T5a tree (no live provider available to the checker; the harness drives the real coordinator, claim, learn and apply path). Eligible DM card: buttons Allow / alternative / Just this once / No in that order, pre-tap \"Allow will remember: this exact action\" and \"No will remember: this exact action.\", post-tap \"Remembered: this exact action. Change it any time with /permissions.\"; a repeated identical request produces no card. Destructive card: exact-only copy, no alternative; identical command silent after Allow; a different target asks again (S4). Protected path: reason line, Allow once / No only. Batch card: once-only line after the rows and before the wait line in both renderers. Ineligible lanes (ask, auto_strict, job prompt, group): byte-for-byte the pre-change golden snapshots on all four providers. Forget transport: a memory_forget tap decodes to the typed action and, with no handler bound, answers \"Not available yet.\" Folder alternative: a later read in the same validated folder runs without a card.",
+    "blocking_findings": [],
+    "task_id": "ASKFLOOR-1-T5a",
+    "scenarios": [
+      "eligible DM card: Allow / alternative / Just this once / No with the pre- and post-tap lines; repeat runs silently",
+      "destructive card: exact-only copy, no alternative; identical command silent; a different target asks",
+      "protected path: reason line, Allow once / No only",
+      "batch card: once-only line under the rows in both renderers",
+      "ineligible lanes (ask, auto_strict, job prompt, group): byte-for-byte today's cards",
+      "Forget button through the harness: 'Not available yet.' until T5b binds the handler",
+      "folder alternative: a later read in the same folder runs without a card"
+    ],
+    "non_blocking_findings": [],
+    "remaining_gaps": [],
+    "residual_risks": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-09-09T01:53:21+00:00",
+    "commit": "1c31158b740abd559f92b44969656b829bfa9e78"
+  }
 }
