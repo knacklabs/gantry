@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The re-vendored harness hashes plans without the save-owned frontmatter, so the ASKFLOOR-1 plan approval and T5a's task-plan approval you already gave now read as stale. Nothing in either plan changed. May I re-record both on your behalf (`forge plan approve --by \"Ravi\"` + `plan save`, re-record the T5a task grill from its existing rounds, `forge task approve ASKFLOOR-1-T5a --by \"Ravi\"`) so T5a can ship?",
+      "options": [
+        "Yes, re-record both (Recommended)",
+        "No, I will run them"
+      ],
+      "chosen": "Yes, re-record both (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T08:17:59.288172+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

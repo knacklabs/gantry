@@ -1,0 +1,124 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "ASKFLOOR-1-T5b",
+  "verdict": "pass",
+  "questions_asked": 4,
+  "inspected_refs": [
+    "apps/core/src/session/session-command-parse.ts",
+    "apps/core/src/session/session-commands.ts",
+    "apps/core/src/runtime/group-processing-session-command-handlers.ts",
+    "apps/core/src/runtime/group-person-identity.ts",
+    "apps/core/src/app/bootstrap/channel-message-action-router.ts",
+    "apps/core/src/app/bootstrap/channel-wiring-types.ts",
+    "apps/core/src/app/bootstrap/runtime-app.ts",
+    "apps/core/src/runtime/ipc-interaction-processing.ts",
+    "apps/core/src/runtime/group-processing.ts",
+    "apps/core/src/channels/telegram/message-action-affordances.ts",
+    "apps/core/src/channels/discord/components.ts",
+    "apps/core/src/domain/message-actions.ts",
+    "apps/core/src/domain/ports/repositories.ts",
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/src/application/agents/prompt-profile-service.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "plans/exploration/askfloor-1-t5b-seam-map.md"
+  ],
+  "current_flow": "/permissions shows and sets the permission mode only; remembered decisions are invisible and irrevocable from chat; the T5a Forget button reaches a router hook that answers 'Not available yet.'; the audit rows T4 writes carry humanDecisionRecordId but nothing reads them. T5b lists the person's active records with Forget buttons, adds all and forget <id>, binds the host handler with in-place row removal, reads actual job consumption, fills the approver label host-side, and adds the one guidance line.",
+  "criteria_map": {
+    "PARSER. `parsePermissionsCommand` accepts `permissions_all` and `permissions_forget { prefix }` (prefix \u2265 4 chars, lower-cased; anything else is today's usage reply); show/set/default unchanged. Tests: parser suite (`session-commands.test.ts:186-210`) \u2014 both new forms, a 3-char prefix rejected, mixed-case prefix lower-cased, every existing form unchanged.": "AC1 parser: permissions_all and permissions_forget {prefix >= 4}; existing forms unchanged.",
+    "LISTING. Bare `/permissions` in a DM renders today's mode line, then the ten newest ACTIVE current-rails records as \"<Outcome> \u00b7 <scope noun> \u00b7 <place> \u00b7 <d Mon> \u00b7 <label>\" (+ \" \u00b7 used by job <a>, <b>\" or \"+N jobs\" per ruling 4) each with a `memory_forget { recordId, agentRouteKey, label: 'Forget <shortId>' }` affordance, then the footer lines when more exist; the empty state when none; `/permissions all` renders every active record as plain text with the short id first; dates use the configured timezone, day + month. NEW `application/permissions/permission-memory-listing.ts` owns every row and reply string and the `PermissionMemoryListMessageView`; nouns come from the existing application helpers (category noun / \"<tool label>, this exact call\"). Tests: NEW listing suite \u2014 row format from real T3-shaped rows (scopeKey-decoded category and place, `canonicalRoot` null, the literal Bash exact-call example) incl. \"someone\" fallback, exact \"2 Sep\" under a foreign process locale, timezone day-crossing date, agentRouteKey round-trip / max-size / unknown / collision, ten-newest cut + footer, empty state, `all` ordering (newest first) and short-id-first, used-by suffix with 1, 2, 3+ jobs, a deleted job omitted before the +N count, one job used twice rendered once.": "AC2 listing: mode line + ten newest rows with Forget affordances (bounded agentRouteKey), footer, empty state, all listing, exact day-month dates; NEW application/permissions/permission-memory-listing.ts decodes category/place from scopeKey and owns UsedByJobReader.",
+    "FORGET BY ID AND BY BUTTON. `/permissions forget <prefix>` resolves (case-insensitive) against this person's ACTIVE current-rails records only: one match \u2192 `service.revoke` \u2192 \"Forgot: <scope>. I'll ask next time.\"; several \u2192 the ambiguity reply, nothing mutated; none \u2192 the not_found reply. `createMemoryForgetHandler` does the same for a tap: app id from the jid, agentRouteKey resolved against the route-effective agent ids, route by (jid, thread, agentId, account), DM-gated person, row loaded through person-scoped `list({ includeRevoked: true })` BEFORE `revoke`, a revoked row \u2192 \"Already forgotten.\" with zero revoke calls, another person's / other-agent / stale-rails id / an unknown route / a group route \u2192 not_found with zero revoke calls, and on `applied` re-lists the active rows and returns `permissionMemoryListView` (mode line via the injected resolver \u2014 default and route override pinned \u2014 plus the re-read rows and footer). Tests: listing suite (three outcomes, revoked-row prefix \u2192 not_found, cross-person \u2192 not_found, ambiguity \u2192 zero revoke calls); NEW `test/unit/bootstrap/permission-memory-forget-handler.test.ts` (the real factory: applied with listing, already_revoked, cross-person, stale rails, unknown route, group route, list-before-revoke ordering, a revoke racing to already_revoked); router suite (`channel-message-action-router.test.ts:170-196`) \u2014 the bound handler's result reaches the provider unchanged; `runtime-services.test.ts` \u2014 the handler is bound at startup through the setter.": "AC3 forget by prefix and by button: one/ambiguous/none outcomes; NEW forget-handler module (app from jid, agent-keyed route, DM person, list includeRevoked before revoke); cross-person/other-agent/stale/unknown-route/group -> not_found with zero revoke calls.",
+    "IN-PLACE EDIT. Telegram, Slack and Teams, when the outcome carries `permissionMemoryListView`, edit the tapped message with the view (text + Forget affordances) through the same path they use for `observerDigestView`, using their locally held message id / token, and send the receipt in every case (no view \u2192 receipt only); Discord answers with its existing ephemeral receipt only. Every provider forwards `agentId` from the callback payload. Every provider codec round-trips `agentRouteKey` within its payload limit. Tests: Telegram/Slack/Teams (edit called with the rendered view under the per-message lock; receipt; no edit without a view; concurrent double-tap \u2192 no resurrected row), Discord (no source-list mutation, one ephemeral receipt update), Teams routing with the authenticated `message.threadId` and mutating `replyToId ?? id`, ignoring submitted `threadId`/`targetJid`.": "AC4 in-place edit on Telegram/Slack/Teams via MessageActionOutcome.permissionMemoryListView (observer-digest precedent); Discord receipt-only; agentId forwarded; Teams authenticated context.",
+    "USED-BY READ. `listDecisionsByHumanDecisionRecordId` on the port + Postgres adapter: one row per `(recordId, jobId)`, latest use, ordered `lastUsedAt DESC, jobId`, filtered by app and record ids, extracted from `actor_context_json`; no index (owner-accepted scan, recorded as an assumption at pr-ready). The used-by reader hydrates names via `getJobById`, drops deleted jobs first, names two, then \"+N jobs\". Tests: Postgres integration (rows written through `recordDecision` with `humanDecisionRecordId` on both job lanes are returned once per job with the latest timestamp; unrelated rows and other apps are not), reader unit (1, 2, 3+ jobs; deleted job dropped before the count; ordering).": "AC5 used-by read on the port + Postgres adapter: one row per (recordId, jobId), latest use, ordered; accepted scan; deleted jobs dropped before +N.",
+    "IDENTITY + GROUPS + LABEL. The caller passes the complete `remembered` context (app, agent folder, kind, `resolveMemoryUserId`); on a group route every variant replies mode line + DM guidance with zero `list`, used-by and `revoke` calls (one test per variant); `memoryUserLabel` is derived from `sender_name` in group processing, carried on `memoryContext` \u2192 `AgentInput` \u2192 the permission run restriction, persisted as `personLabel` on both prompt paths, and rendered from the stored row. Tests: group-processing suite (DM lists; group bare/all/forget \u2192 guidance, three zero-call assertions; the runner options carry `memoryContext.label` from `sender_name`); `permission-decision-coordinator.test.ts` (the registry exposes the label when `setupPermissionRunRestriction` is fed an `AgentInput`, `:1185-1206` pattern \u2014 not direct registration); group-processing (a trailing bot / different-sender message does not change the label); `ipc-interaction-handler.test.ts` (label from the registry persisted; a worker-supplied label ignored); `inline-agent-loop-tools.test.ts` (label from the run persisted).": "AC6 identity + groups + label: complete remembered context from the caller; group variants call nothing; memoryUserLabel via memoryContext -> AgentInput -> run restriction, persisted on both prompt paths.",
+    "GUIDANCE + S5 + GATES. The guidance line is in `FULL_TOOL_ACCESS_GUIDANCE` (guard updated); S5 in `askfloor-tap-budget.test.ts` (remember in chat \u2192 the projected job runs with zero cards \u2192 a NEAR-MISS call in the same job still cards \u2192 Forget \u2192 the same job asks again) with the harness's `revokeById` made real (`askfloor-tap-budget-harness.ts:332-397`); decision 0153's consequence line reads \"used by job\". Existing unit and Postgres suites pass; tsc and check:architecture green; `session-commands.ts` \u2264 740, `prompt-profile-service.ts` \u2264 783, `runtime-services.ts` \u2264 1186 after the scheduler-start move, `runtime-app.ts` \u2264 739 after the group-processor-deps move, `channel-wiring.ts` \u2264 790 with no new channel import, 700 elsewhere; no wrapper, shim, alias, re-export, dead branch or compatibility naming.": "AC7 guidance line + S5 incl. the near-miss + 0153 wording + gates and ceilings (scheduler-start and group-processor-deps moves)."
+  },
+  "gaps": [
+    "In the /permissions list, a remembered decision can show which jobs actually used it. If a job that used it has since been deleted, what should the row show?",
+    "When more than two jobs used a remembered decision, the row shows two names then '+N jobs'. Which two?",
+    "Dates in the list ('2 Sep'): use the runtime's configured timezone with a day-and-month format?",
+    "Tapping Forget removes the row from the list message in place where the provider allows editing. May T5b touch the four provider action handlers to do that?"
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "owner round 2 (bundled, 2026-09-09): row copy is recoverable-only (no display snapshot) \u2014 AC2; one task with a 55-file / 5,000-line budget \u2014 decomposition; the used-by audit read is an accepted scan, no index \u2014 AC5.",
+    "owner round (bundled, 2026-09-08): a deleted job is omitted from the used-by suffix \u2014 plan ruling 4 / AC2, AC5.",
+    "owner round: with more than two consuming jobs the two most recent uses are named, then +N jobs \u2014 ruling 4 / AC2.",
+    "owner round: dates render in the configured timezone as day + month \u2014 AC2.",
+    "owner round: Forget edits the list message in place; T5b may touch the four provider action handlers for that edit \u2014 ruling 3 / AC4."
+  ],
+  "decision": "keep",
+  "new_abstractions": [
+    "NEW application/permissions/permission-memory-listing.ts (rows, replies, prefix resolver); NEW app/bootstrap/permission-memory-forget-handler.ts factory; NEW app/bootstrap/runtime-scheduler-start.ts (createRuntimeSchedulerStarter, pure move); NEW app/bootstrap/runtime-group-processor-deps.ts (pure move); MessageActionOutcome.permissionMemoryListView; MemoryForgetMessageActionInput.agentId; listHumanDecisions railVersion + includeRevoked; ChannelWiring setMemoryForgetHandler setter; PermissionRepository.listDecisionsByHumanDecisionRecordId; memoryUserLabel carrier; railVersion on listHumanDecisions"
+  ],
+  "citations": [
+    {
+      "finding": "SessionCommandDeps carries only permission-mode getters/setters; one host-owned service is injected.",
+      "source": "apps/core/src/session/session-commands.ts:89-135"
+    },
+    {
+      "finding": "The router hook is unbound today; the wiring setter seam is the lawful binding point.",
+      "source": "apps/core/src/app/bootstrap/channel-wiring-types.ts:238-249"
+    },
+    {
+      "finding": "The IPC prompt path takes the person from the host run registry and discards the worker value; the label rides the same registry.",
+      "source": "apps/core/src/runtime/ipc-interaction-processing.ts:134-158"
+    },
+    {
+      "finding": "runtime-services.ts sits exactly at its 1186 cap; the scheduler-start block moves out.",
+      "source": "apps/core/src/app/bootstrap/runtime-services.ts:372-434"
+    },
+    {
+      "finding": "PermissionRepository cannot list decisions by the audit's humanDecisionRecordId.",
+      "source": "apps/core/src/domain/ports/repositories.ts:619-625"
+    }
+  ],
+  "summary": "T5b task grill: owner questions bundled up front (4, ledgered); r1 sol@xhigh 9 blocking folded into v2 (stale-rails default); r2 12 blocking (injection path, route authority, already_revoked reachability, row copy, outcome type, Discord edit path, label carrier seams, scheduler extraction, scan premise, adapter path, budget) folded into v3 with three owner rulings; r3 9 blocking (route-effective agentId, bounded callback key + codec files, domain-owned view type, mode line + post-revoke re-list, scopeKey-decoded copy, fixed-locale dates, sender-matched label, per-message locks) folded into v4 as the final residue under the three-round grill budget; no owner choices open.",
+  "rounds": [
+    {
+      "question": "In the /permissions list, a remembered decision can show which jobs actually used it. If a job that used it has since been deleted, what should the row show?",
+      "options": [
+        "Omit the deleted job (Recommended)",
+        "Say 'used by a deleted job'"
+      ],
+      "chosen": "Omit the deleted job (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "When more than two jobs used a remembered decision, the row shows two names then '+N jobs'. Which two?",
+      "options": [
+        "Two most recent uses (Recommended)",
+        "Two oldest uses"
+      ],
+      "chosen": "Two most recent uses (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "Dates in the list ('2 Sep'): use the runtime's configured timezone with a day-and-month format?",
+      "options": [
+        "Configured timezone, day + month (Recommended)",
+        "Full date with time"
+      ],
+      "chosen": "Configured timezone, day + month (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "Tapping Forget removes the row from the list message in place where the provider allows editing. May T5b touch the four provider action handlers to do that?",
+      "options": [
+        "Yes, edit in place (Recommended)",
+        "Reply only"
+      ],
+      "chosen": "Yes, edit in place (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "bbc1212ef8e44123173b4517edf03fc5441354d974ba801435abbefb4153661c",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "task_plan_sha256": "44496c9ba1ea84091d4e557ff517282e0192ff64e12a918094d2a4c464af4e50",
+  "recorded_at": "2026-09-09T11:08:58+00:00",
+  "commit": "b01bedb05c9be4a9342c43a71d4f9ea4f40dbe00",
+  "approved_task_plan_sha256": "44496c9ba1ea84091d4e557ff517282e0192ff64e12a918094d2a4c464af4e50",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-09T11:09:05+00:00"
+}
