@@ -1,48 +1,5 @@
 {
   "id": "ASKFLOOR-1-T5b",
   "title": "/permissions: remembered list, all, forget",
-  "status": "done",
-  "started_at": "2026-09-09T11:18:25+00:00",
-  "base_sha": "70b5520f10d36b65fae8e00f2fad3238cb99068c",
-  "dirty_at_start": {
-    ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json": {
-      "digest": "ccc5c86a805083c1c60ca8bbed88dd16de6c3b5de7892d20666e5563495efa28",
-      "git": "1 .M N... 100644 100644 100644 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000\u0000100644 159bc1d4e4dfe175a9accfe829e8a98d874a5ec5 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T5b.json\u0000"
-    }
-  },
-  "task_sha256": "36891eb00e3da323950e2fced80bf5db73e17da06f86757d82f43f6b3aa004e5",
-  "local_review_stamp": {
-    "stage_id": "ASKFLOOR-1-T5b",
-    "task_sha256": "36891eb00e3da323950e2fced80bf5db73e17da06f86757d82f43f6b3aa004e5",
-    "brief_sha256": "80f5df2be7b48a82dba6cc2e2f6e35c8a05d126a34515e68e728502395fc66b9",
-    "base_sha": "70b5520f10d36b65fae8e00f2fad3238cb99068c",
-    "product_tree_digest": "bc83722ebbde0c7a5e37389da29c945c07962fc588f1cb422e45f77559bf94fd",
-    "recorded_at": "2026-09-09T17:50:59+00:00",
-    "generated_by": "autoreview",
-    "lenses": [
-      "quality",
-      "performance",
-      "security"
-    ]
-  },
-  "completed_at": "2026-09-09T18:08:16+00:00",
-  "measured": {
-    "strays": [],
-    "files": 56,
-    "lines": 2675,
-    "budget": {
-      "files": 55,
-      "lines": 5000
-    },
-    "test_id_misses": [
-      "'excludes old rail version rows from listHumanDecisions in SQL and includes revoked rows only when asked' was not present in the fresh JUnit report (exact id or id-prefix)",
-      "'persists the approver label from the host run registry on the IPC prompt path and ignores a worker-supplied label' was not present in the fresh JUnit report (exact id or id-prefix)",
-      "'persists the approver label from the run on the inline prompt path' was not present in the fresh JUnit report (exact id or id-prefix)"
-    ]
-  },
-  "contract_changed": {
-    "at": "2026-09-09T18:08:16+00:00",
-    "from": "b23eb0964f299868e39f2b91f6e4461d0afe342d92dff77beed375afb2096364",
-    "to": "36891eb00e3da323950e2fced80bf5db73e17da06f86757d82f43f6b3aa004e5"
-  }
+  "status": "done"
 }
