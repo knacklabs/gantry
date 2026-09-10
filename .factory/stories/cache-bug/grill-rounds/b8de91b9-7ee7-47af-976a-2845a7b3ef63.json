@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The quality lens flagged T1-AC9 as only partially implemented \u2014 \"no blocking CI lint step\". It's right about what it was shown, and wrong about the branch. `review.py` builds the bundle by resetting every HARNESS_MACHINERY_PATHS prefix to the task base, and that tuple contains `.github/` (meant for harness-authored workflows, but it swallows a client's own application CI). The synthetic review-tip commit literally reverts our 12-line `lint:changed` CI step before the reviewer sees it \u2014 `.envrc` and `package.json` keep theirs because they aren't excluded. So any acceptance criterion needing a CI change is permanently unprovable at review, and re-running reproduces the finding forever. How do you want T1's review closed?",
+      "options": [
+        "Fold the fix into the hotfix set, re-review (Recommended)",
+        "Reject the finding and ship now",
+        "Report upstream only, leave T1's review blocked"
+      ],
+      "chosen": "Fold the fix into the hotfix set, re-review (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T11:28:08.962993+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}
