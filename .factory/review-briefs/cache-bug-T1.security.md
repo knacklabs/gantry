@@ -1,7 +1,19 @@
-# Branch-wide plan-contract review brief
+# Review brief — cache-bug-T1 — security lens
 
-For each contract, emit a verdict — implemented | partial | missing — with file:line evidence, recorded as contract_verdicts in the quality artifact. Then review the diff normally; the contract check does not replace the quality/performance/security lenses.
+You are one lens of a three-lens code review. You see ONLY the diff bundle for
+this task (no repository access), so judge what the diff shows and say so when
+something cannot be verified from it. Report every finding with its
+file_path and line. Use ONLY these categories: bug, security, regression,
+test_gap, maintainability. Priorities: P0/P1 block the task; P2/P3 must be
+resolved or explicitly deferred with a reason before it ships.
 
+LENS: SECURITY. OWASP-style trust boundaries, authentication and authorization
+(every new route/handler: who may call it, with what scope), secrets and
+credential handling, injection (SQL/command/template), data exposure and
+over-broad responses, unsafe defaults, privilege escalation, and abuse paths.
+Use category `security` for these findings.
+
+LEFTOVERS (blocking): the diff must carry no code kept only for compatibility — no wrapper or shim over its replacement, no re-export or alias kept 'for callers', no renamed-but-retained symbol, no dead branch behind a removed feature, no 'legacy'/'deprecated'/'backward' naming or comment. Report each as a BLOCKING finding with file:line and verdict the contract it belongs to as partial; a clean diff says so in one line.
 ## Task cache-bug-T1
 
 ### Plan contracts
@@ -73,59 +85,3 @@ Recorded lessons that apply to this task's paths. A finding that contradicts one
 - [high] t3a-implementation-order: T3a order that fits one Codex run: (1) schema.ts + port + repository + domain/types.ts + the shared boundary canonicalPath, then run npm run db:migrations:generate -- --name permission_decision_memory_human (NEVER hand-write the SQL or snapshot; commit what drizzle-kit emits), then npx tsc --noEmit; (2) the scope-key module and the service; (3) tests ONE FILE AT A TIME in this order — provenance, scope, service, prospective-write pin, Postgres suite — running each file right after writing it and never re-reading a finished source file. Postgres tests need the TEST database: run 'source /private/tmp/claude-501/-Users-ravikiranvemula-Workdir-myclaw/b4051e43-dbea-4d62-ba73-ae6210455474/scratchpad/pgfix-env.sh' in the same shell before vitest (it exports GANTRY_TEST_DATABASE_URL for gantry_test; the live database gantry must never be touched). Required leaf titles are exact it() names from the brief.
 - [high] lint gate is diff-scoped until deferral D-0080 fires: cache-bug-T1 AC9/S11 is fulfilled by npm run lint:changed (ESLint over TypeScript files changed against the merge-base with origin/main) inside FACTORY_STRUCTURAL_CMD in .envrc and as the blocking CI step, with full npm run lint kept as an advisory continue-on-error CI step; the 82 pre-existing errors are recorded as deferral D-0080 and must NOT be fixed, baselined or suppressed in this task. This is the orchestrator's recorded ruling (signals S-0092, S-0095, S-0099, 2026-09-09): do not raise it again.
 - [high] cache-bug-T1: partial-usage wrapper must not swallow close-driven aborts: apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts 'aborts an in-flight run on a _close sentinel and exits cleanly with NO completed marker (close-stdin)' fails deterministically (exit code 1, error frame) because stream-normalizer-partial-usage.ts wraps EVERY thrown error into the DeepAgentPartialUsage carrier, so runner/index.ts:283 (liveControl.closed() && isAbortError(err)) no longer recognises the close-driven AbortError as a graceful stop. Fix: the wrapper passes abort errors through unwrapped (isAbortError check before wrapping), or isAbortError looks through the carrier's cause; keep the partial-usage frame for genuine failures. Run the DB-gated integration lane (npm run test:integration with GANTRY_TEST_DATABASE_URL) on Node 24 before reporting.
-
-## Task cache-bug-T2
-
-### Plan contracts
-
-- None declared.
-
-### Reviewer focus
-
-No task-specific reviewer focus declared.
-
-### Settled — do not relitigate
-
-The following are accepted: the story plan's decisions and rulings, and the contracts of tasks already sealed in this story. A finding that contradicts one is a proposal to change a decision, which belongs in a decision record, not in this review; do not raise it as a defect. Rejected findings from earlier rounds are ledgered as lessons below.
-
-#### Story plan — Decisions
-
-- `docs/decisions/0158-provider-session-context-ceiling.md` (accepted) — the
-  ceiling rule, metric preference, typed column, global setting, no data
-  migration.
-- `docs/decisions/0159-adapter-session-release-port.md` (accepted) —
-  provider-neutral release port, `/new` returning references, covered and
-  uncovered paths including the compaction-delta degradation path.
-
-Tooling: no new packages. Drizzle migrations via `db:migrations:generate`,
-Vitest for unit and Postgres integration tests, the existing
-`deepagents-checkpoint.postgres.integration.test.ts` harness, ESLint already
-configured — all installed and the only fit for this repo.
-
-## Task cache-bug-T3
-
-### Plan contracts
-
-- None declared.
-
-### Reviewer focus
-
-No task-specific reviewer focus declared.
-
-### Settled — do not relitigate
-
-The following are accepted: the story plan's decisions and rulings, and the contracts of tasks already sealed in this story. A finding that contradicts one is a proposal to change a decision, which belongs in a decision record, not in this review; do not raise it as a defect. Rejected findings from earlier rounds are ledgered as lessons below.
-
-#### Story plan — Decisions
-
-- `docs/decisions/0158-provider-session-context-ceiling.md` (accepted) — the
-  ceiling rule, metric preference, typed column, global setting, no data
-  migration.
-- `docs/decisions/0159-adapter-session-release-port.md` (accepted) —
-  provider-neutral release port, `/new` returning references, covered and
-  uncovered paths including the compaction-delta degradation path.
-
-Tooling: no new packages. Drizzle migrations via `db:migrations:generate`,
-Vitest for unit and Postgres integration tests, the existing
-`deepagents-checkpoint.postgres.integration.test.ts` harness, ESLint already
-configured — all installed and the only fit for this repo.

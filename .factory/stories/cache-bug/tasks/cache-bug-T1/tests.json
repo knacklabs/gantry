@@ -1,0 +1,47 @@
+{
+  "commit": "b5b9aa4a13ec753800125504288f5ff1b18a0936",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "cache-bug-T1 deterministic gate passed in the task worktree: format check, architecture check, diff-scoped lint (lint:changed), typecheck, unit tests and integration tests via python3 factory/scripts/verify.py, plus the host-run Postgres integration leaf for the provider-session context high-water mark against a throwaway pgvector Postgres 16.",
+    "blocking_findings": [],
+    "commands_run": [
+      "Node 24 (.nvmrc), VITEST_MAX_WORKERS=1, GANTRY_TEST_DATABASE_URL=<throwaway pgvector on 127.0.0.1:5433>: python3 factory/scripts/verify.py \u2014 passed at b5b9aa4a1",
+      "Node 24: npx vitest run -c vitest.integration.config.ts apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts \u2014 12/12 after the abort-wrapper fix",
+      "GANTRY_TEST_DATABASE_URL=<throwaway pgvector on 127.0.0.1:5433> npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+      "npm run typecheck",
+      "npm run check:architecture",
+      "npm run db:migrations:check",
+      "npm run lint:changed"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/shared/model-visible-input-tokens.test.ts",
+      "apps/core/test/unit/shared/model-provider-registry-cache-inclusion.test.ts",
+      "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
+      "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+      "apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts",
+      "apps/core/test/unit/adapters/deepagents-runner-error-frame.test.ts",
+      "apps/core/test/unit/adapters/deepagents-inline-lane-error-usage.test.ts",
+      "apps/core/test/unit/runner/query-loop-error-usage.test.ts",
+      "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+      "apps/core/test/unit/adapters/claude-inline-lane-error-usage.test.ts",
+      "apps/core/test/unit/runtime/group-processing.test.ts",
+      "apps/core/test/unit/bootstrap/runtime-app-clear-session-references.test.ts",
+      "apps/core/test/unit/runtime/session-resume-runtime.test.ts"
+    ],
+    "pass_fail_summary": "verify.py passed on Node 24 at b5b9aa4a1 (format:check, check:architecture, lint:changed, typecheck, unit 9,221 tests, integration 556 incl. DB-gated lanes). Review fixes re-applied host-side under stage-bound degraded windows Q-0177-620b (5 files), Q-0178-9ced (2), Q-0179-e70c (1): per-process usage-event nonce, inline-lane partial usage on recognised failures, retirement required on the port, fixture updated. Postgres leaf 5/5 and DeepAgents boundary suite 12/12 on the host. Full npm run lint remains advisory with 82 pre-existing errors recorded as deferral D-0080.",
+    "remaining_gaps": [
+      "Full-repo ESLint has 82 pre-existing errors outside this task's diff; gate is diff-scoped until deferral D-0080's trigger fires."
+    ],
+    "reviewed_scope": [
+      "cache-bug-T1: model-visible input derivation and registry cache-inclusion booleans; partial usage on Claude and DeepAgents worker and inline error frames; provider_sessions.context_high_water_mark column with generated migration; fenced raise and retire repository operations; resetScope retired references; turn-context projection; lint:changed gate in .envrc and CI"
+    ],
+    "skills_used": [],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-09-10T08:28:50+00:00",
+    "commit": "b5b9aa4a13ec753800125504288f5ff1b18a0936"
+  },
+  "updated_at": "2026-09-10T08:28:50+00:00"
+}

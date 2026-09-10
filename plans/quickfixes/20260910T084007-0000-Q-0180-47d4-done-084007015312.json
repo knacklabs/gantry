@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0180-47d4",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "companion outage (five frozen Codex workers, 2026-09-09/10): cache-bug-T1 lint:changed reports two pre-existing unused-arg errors in the touched fixture session-resume-runtime.test.ts; AC9 requires touched files lint-clean; per Ravi (chat, 2026-09-10)",
+  "started_at": "2026-09-10T08:39:40+00:00",
+  "completed_at": "2026-09-10T08:40:07+00:00",
+  "files": [
+    "apps/core/test/unit/runtime/session-resume-runtime.test.ts"
+  ],
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

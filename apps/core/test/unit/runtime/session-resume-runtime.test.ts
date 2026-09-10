@@ -114,7 +114,7 @@ describe('session-resume-runtime', () => {
       },
     };
     let observedLogContext: ReturnType<typeof currentLogContext> = undefined;
-    const runAgent = vi.fn(async (_group, input, _register, onOutput) => {
+    const runAgent = vi.fn(async (_group, _input, _register, onOutput) => {
       observedLogContext = currentLogContext();
       await onOutput?.({
         status: 'success',
@@ -233,7 +233,7 @@ describe('session-resume-runtime', () => {
         lockedProviderSessionId: 'provider-session:locked',
       }),
     );
-    const runAgent = vi.fn(async (_group, input, _register, onOutput) => {
+    const runAgent = vi.fn(async (_group, _input, _register, onOutput) => {
       await onOutput?.({
         status: 'success',
         result: 'ok',
