@@ -1,8 +1,8 @@
 {
   "generated_by": "autoreview",
   "task_id": "cache-bug-T1",
-  "score": 10,
-  "summary": "quality lens over cache-bug-T1 (47 product path(s), ad98a63..f10d14a, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
+  "score": 9,
+  "summary": "quality lens over cache-bug-T1 (47 product path(s), ad98a63..4e761cb, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 1 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [
     {
       "category": "plan-contract-partial",
@@ -35,8 +35,14 @@
       "summary": "T1-AC10: S10 unchanged behaviour: the four pinned tests (group-processing 'passes hydrated memory context with provider session resume id', agent-runner-ipc 'resumes and persists SDK sessions for live channel turns', claude-agent-sdk-boundary 'passes hermetic Gantry capabilities and settings into the Claude SDK', deepagents-memory-context 'injects the trust-scoped memory block exactly once as a model-visible user message') and the scheduled-job tests are untouched and green; python3 factory/scripts/verify.py is green."
     }
   ],
-  "non_blocking_findings": [],
-  "recommendation": "approve",
+  "non_blocking_findings": [
+    {
+      "category": "maintainability",
+      "area": "docs/specs",
+      "summary": "Correct the confirmed spec to name the fenced retirement helper (docs/specs/cache-bug.md:120): The new confirmed specification says `expireProviderSession` becomes the atomic active-to-expired operation, but this change deliberately adds `retireProviderSession` for that purpose and preserves `expireProviderSession` for the compaction-delta degradation path."
+    }
+  ],
+  "recommendation": "approve-with-caveats",
   "reviewed_scope": [
     ".envrc",
     ".github/workflows/ci.yml",
@@ -91,52 +97,52 @@
     {
       "contract_id": "T1-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/shared/model-usage.ts:45"
+      "evidence": "apps/core/src/shared/model-usage.ts:45 derives model-visible input using the registry flags and provider fallback, with the required cases pinned in the accompanying tests."
     },
     {
       "contract_id": "T1-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.ts:46 preserves abort identity while carrying accumulated usage"
+      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.ts:45 preserves abort identity while runner/index.ts:178 emits partial usage on genuine failures; apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-messages.ts:261 uses QueryFailure."
     },
     {
       "contract_id": "T1-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts:293 preserves classified terminal errors and attaches partial usage"
+      "evidence": "apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane/index.ts:291 and apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts:296 attach accumulated usage to inline terminal errors."
     },
     {
       "contract_id": "T1-AC4",
       "verdict": "partial",
-      "evidence": "apps/core/src/domain/sessions/provider-session-measurement.ts:1 validation and complete test evidence are omitted from this chunk"
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
       "contract_id": "T1-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:45 defines the null-safe generation fence used by both raise and retire"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:43 defines the IS NOT DISTINCT FROM generation fence used by both raise and retire."
     },
     {
       "contract_id": "T1-AC6",
       "verdict": "partial",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:92 shows the atomic operation, but the complete caller migration is omitted"
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
       "contract_id": "T1-AC7",
       "verdict": "partial",
-      "evidence": "apps/core/src/shared/model-provider-registry.ts:1 registry declarations and validator content are omitted from this chunk"
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
       "contract_id": "T1-AC8",
       "verdict": "partial",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:122 shows the repository implementation, but complete facade propagation is omitted"
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
       "contract_id": "T1-AC9",
       "verdict": "partial",
-      "evidence": "package.json:1 the lint script body is omitted, although .envrc and CI visibly invoke it"
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     },
     {
       "contract_id": "T1-AC10",
       "verdict": "partial",
-      "evidence": "apps/core/test/unit/runtime/group-processing.test.ts:1 complete pinned-test and verification evidence is omitted from this chunk"
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
     }
   ],
   "rejected_findings": [
@@ -178,10 +184,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "2ca71b425c84a22a1bf6e802ebb28d56b28417ecf7221ab99719d82033781591",
+  "review_run_id": "91cadf56af7b10e3dfaab9c53f338907ff09f97f494b6157105652d88d707b08",
   "brief_sha256": "65dc9160082d3ea25da6ab0ff08361385ba22ba46596ff4e79adae85ab63f9e4",
-  "branch_diff_digest": "dc6f4088d4bc1e159bd78d84df71695803d3e54d7649dcb006929226423d37ac",
+  "branch_diff_digest": "307eee130d73a761194bcc6362cc158ab12e18e102a0accfd2aa64d1f662d09d",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T17:46:22+00:00",
-  "commit": "f10d14a6130febe01d38396300d35b7a87dfcb74"
+  "recorded_at": "2026-09-10T17:57:01+00:00",
+  "commit": "4e761cb1f7f36db2bc5827de0f202cd9a0ee5bb0"
 }

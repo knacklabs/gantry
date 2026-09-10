@@ -56,8 +56,8 @@
     "task_sha256": "5b425e2e9af276d78266bcc61b819c3bc3838b982747787f7a27883837ee3bd2",
     "brief_sha256": "",
     "base_sha": "a86e0b467f72564abd085c9927e98e8150aea461",
-    "product_tree_digest": "28c7ee27d31c50ece9816f6e95c04a416b57108185f67ca44a716bff4f031051",
-    "recorded_at": "2026-09-10T17:46:23+00:00",
+    "product_tree_digest": "302d507ccb7e17c1fd14c15ae80e1193e865c4d4c19a063adb1024e5f1ebdefa",
+    "recorded_at": "2026-09-10T17:57:01+00:00",
     "generated_by": "autoreview",
     "lenses": [
       "quality",

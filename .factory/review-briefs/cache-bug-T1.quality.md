@@ -26,19 +26,23 @@ complexity of every changed function; genuinely knotted control flow (roughly
 
 LEFTOVERS (blocking): the diff must carry no code kept only for compatibility — no wrapper or shim over its replacement, no re-export or alias kept 'for callers', no renamed-but-retained symbol, no dead branch behind a removed feature, no 'legacy'/'deprecated'/'backward' naming or comment. Report each as a BLOCKING finding with file:line and verdict the contract it belongs to as partial; a clean diff says so in one line.
 CONTRACT VERDICTS (mandatory, machine-parsed). In overall_explanation, emit ONE
-line per plan contract listed under "Plan contracts" below, exactly in this form:
+line for each plan contract listed below THAT THIS DIFF LETS YOU JUDGE:
 
-VERDICT <contract-id>: implemented|partial|missing|not_in_chunk — <file:line evidence>
+VERDICT <contract-id>: implemented|partial|missing — <file:line evidence>
 
-Every listed contract must get a line. Do not rename contract ids.
+Verdict only what you can see. A chunked review hands each pass PART of the
+change; when a contract's code is not in the slice you were given, OMIT its
+line entirely. Do not guess it, and do not report `partial` to mean "this was
+not in my slice" — another pass reviews the rest, and a contract that no pass
+verdicts is failed closed by the harness, so nothing is lost by omitting it.
 
-Use `partial` ONLY for a contract you can SEE and judge incomplete. When the
-diff you were given simply does not contain what the contract names — a
-chunked review shows you one part of the change — say `not_in_chunk`.
-`partial` asserts a defect and BLOCKS the task; `not_in_chunk` says only that
-another pass must judge it, and is ignored once one does. Reporting `partial`
-because the code lives elsewhere blocks a task that is in fact complete.
+`partial` and `missing` ASSERT A DEFECT and block the task. Use them only for
+a contract you can see and judge incomplete or absent. Where the contract
+names behaviour a diff cannot show — a test passing, a command succeeding —
+verdict what the diff does establish (the test or step is present and
+correct); the harness verifies execution separately.
 
+Do not rename contract ids.
 For each contract, emit a verdict — implemented | partial | missing — with file:line evidence, recorded as contract_verdicts in the quality artifact. Then review the diff normally; the contract check does not replace the quality/performance/security lenses.
 
 ## Task cache-bug-T1
