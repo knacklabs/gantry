@@ -400,6 +400,14 @@ These questions were put to the human and answered. Two obligations:
   A: Names always, details degrade (Recommended)
 - Q: Six reads in, the two halves are behaving like different-sized problems. Split them?
   A: Split the spec (Recommended)
+- Q: An argument shape can contain a fixed operand like a config path. What should the agent be shown?
+  A: Never show argument shapes
+- Q: A reviewed argument shape can contain a fixed operand like a config path or account id. What should the agent be shown?
+  A: Show the reviewed shape as-is
+- Q: Before this hands off to the plan, the live five-run check on the real job: gate or evidence?
+  A: Evidence, not a gate (Recommended)
+- Q: The two runtimes name tools differently. Should the catalog serve both, or just the one the job runs on?
+  A: Render a neutral name and let each lane translate
 
 ## The artifact under interrogation (requirements for GRANTED-1 (docs/specs/granted-capability-is-visible.md))
 
@@ -407,7 +415,7 @@ These questions were put to the human and answered. Two obligations:
 slug: granted-capability-is-visible
 title: A granted capability is visible to the agent that holds it
 status: confirmed
-saved: 2026-09-10T13:24:58+00:00
+saved: 2026-09-10T13:44:12+00:00
 ---
 
 # A granted capability is visible to the agent that holds it
@@ -460,26 +468,45 @@ this ships first.
 the chat path uses, carried on the existing spawn-input field, and rendered by the
 same compiler. One builder serves both lanes.
 
-**Every granted capability carries a usable descriptor.** For each grant the
-catalog carries its display name, its stable capability id, and the invocation
-descriptor its binding kind can support, as a closed union over the runtime's five
-kinds:
+**The tool the descriptor names is present in what the provider builds.** The
+dispatcher is already reachable on autonomous runs
+(`apps/core/src/shared/admin-mcp-tools.ts:96`, filtered at
+`apps/core/src/runner/gantry-mcp-tool-surface.ts:152`), and the failing run's own
+fourth attempt proved it. This spec pins that rather than assuming it: the tool a
+descriptor names is asserted present in the provider's real tool projection
+(`apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts:353`)
+for a scheduled run, including when tool search is active.
 
-- `local_cli` — the dispatcher tool name and the reviewed argument patterns.
-- `mcp_pattern` — the tool-name pattern the model may call.
-- `tool_rule` — the tool name the rule authorizes.
-- `skill_action` — the skill action's invocation path, with decision 0129's
-  terminal-wildcard semantics preserved; skill attachment stays separate from
-  action authority.
+**Every granted capability carries a usable descriptor.** For each grant the
+catalog carries its display name, its stable capability id, the tool that reaches
+it, and the reviewed argument shape where its binding has one. The implementation-kind union has four
+usable members (`tool_rule`, `mcp_pattern`, `adapter`, `local_cli`); `mcp_tool`
+is retained only so legacy rows fail validation and never reaches the catalog.
+Skill actions are not a binding kind: a skill-action capability is a `tool_rule`
+binding distinguished by its source, and decision 0129's terminal-wildcard
+semantics govern its rule.
+
+- `local_cli` — the dispatcher tool name, the capability id, and the reviewed
+  argument patterns exactly as reviewed.
+- `mcp_pattern` — the MCP proxy tool the agent actually calls and the connected
+  server name, since a pattern alone is not something the model can invoke.
+- `tool_rule` — the tool name the rule authorizes, including skill actions.
 - `adapter` — the dispatcher tool name and the capability id, because the adapter
   reference is opaque and must never be rendered.
 
-A kind with no argument schema carries the reachable tool identity and says so,
-rather than an invented shape. No secret, path, hash or executable location enters
-a descriptor.
+**The reviewed argument shape renders as reviewed.** The owner ruled this
+explicitly, having been shown the tradeoff: a reviewed template may contain a
+fixed operand such as a config path or an account identifier, and rendering it
+verbatim places that operand in the prompt. That is accepted, on the grounds that
+these operands are already visible on the approval card a human reviewed and are
+not credentials. The rendering carries no executable path, no hash and no
+credential: it is the argument remainder the reviewed template defines, the same
+text the mismatch denial already returns to the model.
 
-**No grant is ever hidden.** The capability guidance section has a default budget
-and a stated ceiling, both expressed in characters. Material is shed in a fixed
+**No grant is ever hidden.** The capability guidance section has a default
+character budget and a ceiling, and the ceiling is never smaller than the compact
+representation of the granted set: display name and stable id for every grant.
+The two therefore cannot conflict for any grant set. Material is shed in a fixed
 order: non-granted entries first, then descriptions, then descriptors. Past the
 ceiling every grant still renders its display name and stable id, and the render
 records an overflow diagnostic on the run's startup event. A grant is never
@@ -499,22 +526,31 @@ argv with no shell, size and NUL limits, and the sandboxed executor all stay as
    snapshot, proven by a hermetic test over the real job execution path asserting
    the field is populated where it is absent today.
 2. The rendered guidance for that run contains, for a granted capability, its
-   display name, stable id and invocation descriptor, asserted against the exact
-   rendered text.
-3. A descriptor is produced for all five binding kinds, asserted per kind, with the
-   adapter reference absent from the output and the skill-action path preserving
-   decision 0129's terminal-wildcard semantics.
+   display name, stable id, the tool that reaches it and its reviewed argument
+   shape, asserted against the exact rendered text.
+3. A descriptor is produced for each of the four usable binding kinds, asserted
+   per kind: the adapter reference never appears in output, an MCP pattern renders
+   the proxy tool and server name, and a skill-action capability renders through
+   its tool rule with decision 0129's terminal-wildcard semantics intact. A legacy
+   `mcp_tool` binding still fails validation and never reaches the catalog.
+3b. A local-CLI descriptor renders the reviewed argument patterns verbatim,
+   asserted byte-for-byte against the same helper the mismatch denial uses, and
+   carries no executable path, hash or credential.
 4. With a granted set exceeding the default budget, non-granted material is shed
    first and every grant still renders with its descriptor. Past the ceiling every
    grant still renders display name and stable id, and the overflow diagnostic is
-   recorded. No grant is reduced to a count or omitted. Budget and ceiling are
-   named constants asserted by the test.
-5. A deterministic replay harness drives the runner adapter with a named recorded
-   fixture and a stub that selects tools only from the materialization it is given,
-   with no live model call. Its first capability attempt is a well-formed
-   dispatcher call with no preceding call to a non-existent MCP server or tool. The
-   test carries a negative control: with the descriptor removed, the same harness
-   does not produce that call.
+   recorded. No grant is reduced to a count or omitted. The budget is a named
+   constant and the ceiling is derived as at least the compact representation of
+   the granted set, asserted for a grant set large enough to exceed any fixed
+   value.
+5. The materialization the replay runs against is the provider's real projection
+   for a scheduled run, not hand-fed text: the test builds it through the
+   production path and asserts the dispatcher is present in it. A deterministic
+   replay then drives the runner adapter with a named recorded fixture and a stub
+   that selects tools only from that projection, with no live model call. Its
+   first tool action is a well-formed dispatcher call, with no preceding call to
+   any tool or server absent from the projection. A negative control removes the
+   descriptor and asserts the same harness does not produce that call.
 6. The per-capability block added by 97ded3746 no longer exists; the dispatcher's
    description points at the catalog; and its input schema, risk classification and
    host enforcement are pinned unchanged by test.
@@ -523,10 +559,12 @@ argv with no shell, size and NUL limits, and the sandboxed executor all stay as
    identity, structured argv, size and NUL limits still apply. The existing proofs
    for 0120 and 0130 stay green.
 8. Live smoke, stated separately and explicitly not a merge gate: five serial runs
-   of `job-knacklabs-lead-maintenance-43527c192a6e` on the deployed runtime, each
-   with at least one successful capability invocation and zero `tool.activity` rows
-   with phase `failure` for `capability_run` or `mcp_call_tool` before it. Evidence
-   is the per-run event query and the startup diagnostic, retained redacted.
+   of `job-knacklabs-lead-maintenance-43527c192a6e` on the deployed runtime, whose
+   existence is verified before the runs are treated as evidence. Each run must
+   contain at least one successful capability invocation and zero `tool.activity`
+   rows with phase `failure` of ANY tool before it, not merely the two families
+   seen in the original incident. Evidence is the per-run event query and the
+   startup diagnostic, retained redacted.
 9. Focused proof by name: the capability catalog, capability guidance, agent spawn
    prompt, job execution phases, capability structured invocation and locked
    introspection suites, plus the new replay suite. `npm run typecheck`,

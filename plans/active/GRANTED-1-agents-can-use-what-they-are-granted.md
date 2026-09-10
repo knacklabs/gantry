@@ -1,8 +1,8 @@
 ---
 issue: GRANTED-1
 title: Agents can use what they are granted
-status: awaiting-approval
-saved: 2026-09-10T14:06:44+00:00
+status: approved
+saved: 2026-09-10T16:13:49+00:00
 story: GRANTED-1
 decisions_reviewed:
   - 0000-credential-broker-boundary
@@ -187,6 +187,8 @@ extending the catalog to the DeepAgents lane, which is follow-up.
   and it will appear in the prompt. Accepted, because those operands already
   appear on the approval card a human reviewed and are not credentials.
 - Overflow always renders name and id; details degrade past a derived ceiling.
+- Hard overflow, where even names and ids will not fit, FAILS THE RUN before any
+  provider or tool call rather than hiding a grant.
 - The catalog carries a NEUTRAL tool reference and each lane translates it into
   its own tool name.
 - The live five-run check is retained evidence, NOT a merge gate.
@@ -219,6 +221,10 @@ extending the catalog to the DeepAgents lane, which is follow-up.
    descriptions, then descriptors. The ceiling is derived as at least the compact
    representation of the granted set, so it cannot conflict with the never-hide
    rule. Asserted for a grant set large enough to exceed any fixed value.
+6b. Hard overflow fails closed: when the compact name-and-id list exceeds the
+   total prompt budget, the run fails before any provider or tool call with a
+   redacted `capability_catalog_overflow` startup diagnostic naming the granted
+   and renderable counts. Asserted with a granted set large enough to exceed it.
 7. The never-hide guarantee survives BOTH truncation points: the section budget
    (`application/agents/prompt-profile-service.ts:532`) and the total prompt
    budget (`:756`). The capability section is exempted from total-budget

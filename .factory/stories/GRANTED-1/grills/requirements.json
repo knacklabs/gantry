@@ -1,92 +1,44 @@
 {
   "generated_by": "griller",
+  "gate": "requirements",
   "verdict": "pass",
   "issue": "GRANTED-1",
+  "summary": "Requirements re-read on the stable tree returned one finding, the hard-overflow edge, settled fail closed by the owner. The owner also confirmed the story stays a single task and queued both follow-ups on the roadmap.",
   "gaps": [
-    "The split was incomplete: the older combined draft still owned the same catalog work with divergent scope and a four-kind descriptor list, giving an implementer two competing requirement sources.",
-    "The proposed mechanism was prompt rendering only, while decision 0158 requires the model's actual tool-discovery path, so the criterion could pass while tool search still hid the dispatcher.",
-    "The claimed five runtime binding kinds do not exist: the implementation union carries a rejected legacy member and no skill_action, which belongs to a different union entirely.",
-    "An MCP pattern is not directly callable: the agent must call the proxy tool with a connected server name, so a pattern alone is neither a reachable identity nor an invocation shape.",
-    "A fixed character ceiling and 'every grant always renders' cannot both hold for an unbounded grant set.",
-    "The descriptor safety rule was underspecified and unsafe as written: local-CLI patterns derive verbatim from template remainders that may contain static operands, while the spec simultaneously forbade paths.",
-    "The replay and the live check did not falsify the real incident: a stub fed hand-built text proves the stub, and the live query filtered only two tool families."
+    "The 'no grant hidden' promise had no behaviour for the case where even the compact name-and-id list exceeds the total prompt budget, so truncation there would violate the spec's own guarantee."
   ],
-  "contradictions": [
-    "The spec forbade paths in descriptors while requiring reviewed argument patterns that are derived verbatim from templates which may contain them."
-  ],
+  "contradictions": [],
   "resolutions": [
-    "The older draft now carries a superseded-in-part banner naming the confirmed capability spec as the owner of that work, and survives only as the draft source for the document contract.",
-    "The spec now pins the provider's real tool projection: the tool a descriptor names is asserted present in what the production path builds for a scheduled run, including with tool search active. Verified separately that the dispatcher is not removed from autonomous surfaces and that the failing run's own fourth attempt succeeded through it.",
-    "Corrected after reading both unions: four usable implementation kinds plus a legacy member kept only so old rows fail validation, with skill actions represented as a tool rule distinguished by source and governed by decision 0129. My earlier five-kind claim came from trusting a prior read rather than checking, and is withdrawn.",
-    "The MCP-pattern descriptor now names the proxy tool the agent actually calls together with the connected server name.",
-    "The ceiling is now derived as at least the compact representation of the granted set, so the two rules cannot conflict for any grant set, and the criterion asserts a grant set large enough to exceed any fixed value.",
-    "Owner ruled, having been shown the tradeoff twice: reviewed argument shapes render exactly as reviewed. The spec records the accepted reasoning, that these operands already appear on the approval card a human reviewed and are not credentials, and pins that no executable path, hash or credential is rendered.",
-    "The replay now builds its materialization through the production path and asserts the dispatcher is present in it before replaying, with a negative control; the live check verifies the job exists and counts every failed tool call before first success rather than two families."
+    "Owner ruled fail closed: the spec and plan now state that when the compact list cannot fit, the run fails before any provider or tool call with a redacted capability_catalog_overflow startup diagnostic naming the granted and renderable counts, and acceptance criterion 4b asserts it."
   ],
   "open_items": [
-    "The document edit contract, decisions 0108 and 0114, and the redaction sink inventory remain in the superseded draft awaiting their own spec.",
-    "Owner ruled: the live five-run check is retained evidence on the story, not a merge gate, because a live model run is not reproducible."
+    "Owner queued the document edit spec on the roadmap as follow-up; it currently exists only as a superseded draft.",
+    "Owner queued the second runtime's catalog on the roadmap as follow-up; this story asserts its absence so the gap cannot drift silently."
   ],
-  "questions_asked": 2,
-  "inspected_refs": [
-    "docs/specs/granted-capability-is-visible.md",
-    "docs/specs/agents-can-use-what-they-are-granted.md",
-    "docs/decisions/0129-skill-action-capability-rules.md",
-    "docs/decisions/0158-granted-capabilities-must-be-discoverable.md",
-    "apps/core/src/shared/semantic-capabilities.ts",
-    "apps/core/src/shared/capability-runtime-access.ts",
-    "apps/core/src/shared/admin-mcp-tools.ts",
-    "apps/core/src/runner/gantry-mcp-tool-surface.ts",
-    "apps/core/src/runner/mcp/tools/mcp-proxy-tools.ts",
-    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts",
-    "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
-    "apps/core/src/application/agents/agent-prompt-capability-guidance.ts"
-  ],
-  "citations": [
-    {
-      "finding": "The split was incomplete: the older combined draft still owned the same catalog work with divergent scope and a four-kind descriptor list, giving an implementer two competing requirement sources.",
-      "ref": "docs/specs/agents-can-use-what-they-are-granted.md"
-    },
-    {
-      "finding": "The proposed mechanism was prompt rendering only, while decision 0158 requires the model's actual tool-discovery path, so the criterion could pass while tool search still hid the dispatcher.",
-      "ref": "docs/decisions/0158-granted-capabilities-must-be-discoverable.md"
-    },
-    {
-      "finding": "The claimed five runtime binding kinds do not exist: the implementation union carries a rejected legacy member and no skill_action, which belongs to a different union entirely.",
-      "ref": "apps/core/src/shared/semantic-capabilities.ts"
-    },
-    {
-      "finding": "An MCP pattern is not directly callable: the agent must call the proxy tool with a connected server name, so a pattern alone is neither a reachable identity nor an invocation shape.",
-      "ref": "apps/core/src/runner/mcp/tools/mcp-proxy-tools.ts"
-    },
-    {
-      "finding": "A fixed character ceiling and 'every grant always renders' cannot both hold for an unbounded grant set.",
-      "ref": "apps/core/src/application/agents/agent-prompt-capability-catalog.ts"
-    },
-    {
-      "finding": "The descriptor safety rule was underspecified and unsafe as written: local-CLI patterns derive verbatim from template remainders that may contain static operands, while the spec simultaneously forbade paths.",
-      "ref": "apps/core/src/shared/semantic-capabilities.ts"
-    },
-    {
-      "finding": "The replay and the live check did not falsify the real incident: a stub fed hand-built text proves the stub, and the live query filtered only two tool families.",
-      "ref": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts"
-    }
-  ],
-  "gate": "requirements",
-  "summary": "Requirements re-read of the split capability spec returned seven findings, all resolved in the amended and re-confirmed spec. Two owner rounds settled the open choices: reviewed argument shapes render as reviewed, and the live five-run check is evidence on the story rather than a merge gate.",
+  "questions_asked": 1,
   "rounds": [
     {
-      "question": "Before this hands off to the plan, the live five-run check on the real job: gate or evidence?",
+      "question": "The story is one task of about thirteen files. Keep it whole or split it?",
       "options": [
-        "Evidence, not a gate (Recommended)",
-        "Make it a merge gate",
-        "Drop the live check"
+        "Keep it as one task (Recommended)",
+        "Split plumbing from rendering"
       ],
-      "chosen": "Evidence, not a gate (Recommended)",
+      "chosen": "Keep it as one task (Recommended)",
       "frontier_empty": true
     }
   ],
-  "input_sha256": "e4bdc98a64ac502c045469b689a1a3d75f5c9055e7471f441131857da09e1b05",
-  "recorded_at": "2026-09-10T13:45:12+00:00",
-  "commit": "0f6e80fe9a56ad1eeaef9efaa57d39347fffdd49"
+  "inspected_refs": [
+    "docs/specs/granted-capability-is-visible.md",
+    "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md",
+    "apps/core/src/application/agents/prompt-profile-service.ts"
+  ],
+  "citations": [
+    {
+      "finding": "The 'no grant hidden' promise had no behaviour for the case where even the compact name-and-id list exceeds the total prompt budget, so truncation there would violate the spec's own guarantee.",
+      "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
+    }
+  ],
+  "input_sha256": "3135246afa020ae433a36d31592275d203a6d207ae5b682ed67a8e3be0858ce6",
+  "recorded_at": "2026-09-10T16:13:36+00:00",
+  "commit": "123b8df676b7afbbd26d71a9ce23a16a16759e4d"
 }

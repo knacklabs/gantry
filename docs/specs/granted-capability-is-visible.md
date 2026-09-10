@@ -2,6 +2,13 @@
 slug: granted-capability-is-visible
 title: A granted capability is visible to the agent that holds it
 status: confirmed
+saved: 2026-09-10T16:11:21+00:00
+---
+
+---
+slug: granted-capability-is-visible
+title: A granted capability is visible to the agent that holds it
+status: confirmed
 saved: 2026-09-10T13:44:12+00:00
 ---
 
@@ -99,6 +106,13 @@ ceiling every grant still renders its display name and stable id, and the render
 records an overflow diagnostic on the run's startup event. A grant is never
 reduced to a count and never omitted.
 
+**Hard overflow fails closed.** If even the compact name-and-id list cannot fit
+the total prompt budget, the run fails before any provider or tool call, with a
+redacted `capability_catalog_overflow` startup diagnostic naming the granted and
+renderable counts. Truncating there would reintroduce the invisible grant this
+spec exists to remove, and letting the prompt grow past its budget moves the
+failure to the provider's own limit, where it surfaces opaquely and late.
+
 **One mechanism owns the job.** The per-capability block added by 97ded3746 is
 removed, and the dispatcher's description points at the catalog instead. Its input
 schema, risk classification and host enforcement are unchanged.
@@ -130,6 +144,11 @@ argv with no shell, size and NUL limits, and the sandboxed executor all stay as
    constant and the ceiling is derived as at least the compact representation of
    the granted set, asserted for a grant set large enough to exceed any fixed
    value.
+4b. When the compact name-and-id list itself exceeds the total prompt budget, the
+   run fails before any provider or tool call with a redacted
+   `capability_catalog_overflow` startup diagnostic naming the granted and
+   renderable counts, and no grant is silently dropped. Asserted with a granted
+   set large enough to exceed the total budget.
 5. The materialization the replay runs against is the provider's real projection
    for a scheduled run, not hand-fed text: the test builds it through the
    production path and asserts the dispatcher is present in it. A deterministic

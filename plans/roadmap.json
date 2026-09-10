@@ -2608,8 +2608,40 @@
       "kind": "feature",
       "depends_on": [],
       "spec": "docs/specs/granted-capability-is-visible.md"
+    },
+    {
+      "key": "DOCEDIT-1",
+      "title": "Agents edit documents in place instead of whole",
+      "story": "As someone whose agent maintains a job prompt, I want it to change one part in place, so that an edit cannot silently destroy the rest or lose a concurrent change.",
+      "acceptance_criteria": [],
+      "order": 121,
+      "status": "pending",
+      "epic": "capability-search",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "GRANTED-1"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Split out of GRANTED-1 by owner ruling. Draft source is the superseded-in-part docs/specs/agents-can-use-what-they-are-granted.md. Owns completing decision 0108 (job definition revision) and decision 0114 (persisted canonical owner), both written but never built, plus the document protocol and the redaction sink inventory. Needs its own spec."
+    },
+    {
+      "key": "GRANTED-2",
+      "title": "The second runtime gets the capability catalog too",
+      "story": "As someone whose agent runs on the other runtime, I want it to see its granted capabilities as well, so that the fix is not lane-specific.",
+      "acceptance_criteria": [],
+      "order": 122,
+      "status": "pending",
+      "epic": "capability-search",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [
+        "GRANTED-1"
+      ],
+      "origin": "adhoc",
+      "spec_debt_reason": "Follow-up to GRANTED-1, which binds the lane-neutral tool reference to the Anthropic runtime only and asserts the DeepAgents entry absent so the gap cannot drift silently. This story adds that lane's mapping and its proof."
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-09-10T13:31:16+00:00"
+  "updated_at": "2026-09-10T16:14:00+00:00"
 }
