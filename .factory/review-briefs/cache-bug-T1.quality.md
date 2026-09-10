@@ -28,9 +28,16 @@ LEFTOVERS (blocking): the diff must carry no code kept only for compatibility �
 CONTRACT VERDICTS (mandatory, machine-parsed). In overall_explanation, emit ONE
 line per plan contract listed under "Plan contracts" below, exactly in this form:
 
-VERDICT <contract-id>: implemented|partial|missing — <file:line evidence>
+VERDICT <contract-id>: implemented|partial|missing|not_in_chunk — <file:line evidence>
 
 Every listed contract must get a line. Do not rename contract ids.
+
+Use `partial` ONLY for a contract you can SEE and judge incomplete. When the
+diff you were given simply does not contain what the contract names — a
+chunked review shows you one part of the change — say `not_in_chunk`.
+`partial` asserts a defect and BLOCKS the task; `not_in_chunk` says only that
+another pass must judge it, and is ignored once one does. Reporting `partial`
+because the code lives elsewhere blocks a task that is in fact complete.
 
 For each contract, emit a verdict — implemented | partial | missing — with file:line evidence, recorded as contract_verdicts in the quality artifact. Then review the diff normally; the contract check does not replace the quality/performance/security lenses.
 

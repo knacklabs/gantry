@@ -1,23 +1,42 @@
 {
   "generated_by": "autoreview",
   "task_id": "cache-bug-T1",
-  "score": 9,
-  "summary": "quality lens over cache-bug-T1 (47 product path(s), ad98a63..79df2a2, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 1 finding(s). See preserved pass reports for provider conclusions.",
+  "score": 10,
+  "summary": "quality lens over cache-bug-T1 (47 product path(s), ad98a63..8bea94c, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [
     {
       "category": "plan-contract-partial",
       "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
-      "summary": "T1-AC9: S11 lint gate: a package.json script lint:changed (ESLint over the TypeScript files changed against the merge-base with origin/main) runs inside FACTORY_STRUCTURAL_CMD in .envrc and as the blocking CI check step; full npm run lint stays an advisory continue-on-error CI step; every file this task touches is lint-clean; the 82 pre-existing errors outside the diff are recorded as deferral D-0080 with a trigger and are neither fixed, baselined nor suppressed here."
-    }
-  ],
-  "non_blocking_findings": [
+      "summary": "T1-AC2: S2/R2 partial usage, spawned runners: an errored Claude worker run and an errored DeepAgents worker run each write one cumulative partial-usage payload with the turn's usageEventId on their single error frame; Claude carries it as a typed QueryFailure thrown from the result branch and written by runner/index.ts; DeepAgents carries it as a typed DeepAgentPartialUsage value passed stream-normalizer \u2192 deep-agent-runner \u2192 index. A close-driven abort keeps its own identity: the partial usage rides on the abort instead of replacing it, so a graceful stop is never turned into an error frame, proven at the unit seam and by the Node-24 runner boundary _close test."
+    },
     {
-      "category": "bug",
-      "area": "package.json",
-      "summary": "[P2] Make the changed-file lint command portable to macOS (package.json:76): The script relies on GNU `xargs -r`, but the system `xargs` shipped with macOS/BSD does not support `-r`; it exits with an illegal-option error before ESLint runs."
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC6: R1 retirement: retireProviderSession is one atomic active\u2192expired UPDATE fenced on id, agent_session_id, provider, external_session_id, status='active' and the generation, returning { providerSessionId, externalSessionId, executionProviderId } or undefined; the fingerprint-change, missing-session and ops-service facade callers switch to it, while the compaction-delta degradation path keeps the existing expireProviderSession helper unchanged (0159 \u00a74)."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC7: R3 registry: every executable route's cacheSupport.prompt declares cacheReadsIncludedInInput and cacheWritesIncludedInInput (type in model-provider-registry.ts); the registry validator fails a route missing either; nonzero OpenAI and OpenRouter cache-write usage yields inputTokens unchanged; DeepAgents normalised usage carries the resolved provider and modelRoute."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC8: R4 return type: resetScope returns an immutable list of retired { providerSessionId, externalSessionId, executionProviderId } selected FOR UPDATE before delete and returned after commit, and a readonly empty list on no-route or empty paths; canonical-session-ops-service, canonical-ops-repo.postgres.ts and clearSessionForChatJid propagate it; no caller releases yet."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC9: S11 lint gate: a package.json script lint:changed (ESLint over the TypeScript files changed against the merge-base with origin/main) runs inside FACTORY_STRUCTURAL_CMD in .envrc and as the blocking CI check step; full npm run lint stays an advisory continue-on-error CI step; every file this task touches is lint-clean; the 82 pre-existing errors outside the diff are recorded as deferral D-0080 with a trigger and are neither fixed, baselined nor suppressed here."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC10: S10 unchanged behaviour: the four pinned tests (group-processing 'passes hydrated memory context with provider session resume id', agent-runner-ipc 'resumes and persists SDK sessions for live channel turns', claude-agent-sdk-boundary 'passes hermetic Gantry capabilities and settings into the Claude SDK', deepagents-memory-context 'injects the trust-scoped memory block exactly once as a model-visible user message') and the scheduled-job tests are untouched and green; python3 factory/scripts/verify.py is green."
     }
   ],
-  "recommendation": "approve-with-caveats",
+  "non_blocking_findings": [],
+  "recommendation": "approve",
   "reviewed_scope": [
     ".envrc",
     ".github/workflows/ci.yml",
@@ -72,52 +91,52 @@
     {
       "contract_id": "T1-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/shared/model-usage.ts:1 and apps/core/test/unit/shared/model-visible-input-tokens.test.ts:1"
+      "evidence": "apps/core/src/shared/model-usage.ts:45 derives model-visible input using route/provider cache inclusion flags; apps/core/test/unit/shared/model-visible-input-tokens.test.ts:6 covers the required cases"
     },
     {
       "contract_id": "T1-AC2",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-messages.ts:253 and apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts:140"
+      "verdict": "partial",
+      "evidence": "apps/core/test/unit/runner/agent-runner-ipc.test.ts:1 boundary-test body is not present in chunk 1"
     },
     {
       "contract_id": "T1-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane/index.ts:293 and apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts:293"
+      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts:290 preserves classified errors while attaching partial usage"
     },
     {
       "contract_id": "T1-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:52"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:55 validates and atomically raises the nullable context mark"
     },
     {
       "contract_id": "T1-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:45"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:43 defines the null-safe generation fence shared by raise and retire"
     },
     {
       "contract_id": "T1-AC6",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:89"
+      "verdict": "partial",
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:1 caller-switch diff body is not present in chunk 1"
     },
     {
       "contract_id": "T1-AC7",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/shared/model-provider-registry-cache-inclusion.ts:1 and apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-usage.ts:100"
+      "verdict": "partial",
+      "evidence": "apps/core/src/shared/model-provider-registry.ts:1 registry diff body is not present in chunk 1"
     },
     {
       "contract_id": "T1-AC8",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:122"
+      "verdict": "partial",
+      "evidence": "apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts:1 complete propagation diff body is not present in chunk 1"
     },
     {
       "contract_id": "T1-AC9",
       "verdict": "partial",
-      "evidence": "package.json:76 uses a GNU-only xargs option in the blocking gate"
+      "evidence": "package.json:1 lint script definition is not present in chunk 1"
     },
     {
       "contract_id": "T1-AC10",
-      "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runner/agent-runner-ipc.test.ts:1 and apps/core/test/unit/runtime/group-processing.test.ts:1"
+      "verdict": "partial",
+      "evidence": "apps/core/test/unit/runtime/group-processing.test.ts:1 pinned-test diff body and verification evidence are not present in chunk 1"
     }
   ],
   "rejected_findings": [
@@ -159,10 +178,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "4a85b59b63de588c0d7286d8ad45edb6267094e4419a965b98eb516ce461e5d6",
+  "review_run_id": "885d11e4f8ebe5a6234971552c41b29c79a5413cc4122b9f690c149f2ff3700c",
   "brief_sha256": "65dc9160082d3ea25da6ab0ff08361385ba22ba46596ff4e79adae85ab63f9e4",
-  "branch_diff_digest": "050c8c390251f173b946fc591a37c88fe144166bd73aadb205d56254732bd90d",
+  "branch_diff_digest": "5c193ad8ea4fe611ca247fd86bddac3075a32598fdf2cd338659fa42feb93bdb",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T17:07:25+00:00",
-  "commit": "79df2a2361c91b113a4f53c02c71b12a44430394"
+  "recorded_at": "2026-09-10T17:17:33+00:00",
+  "commit": "8bea94c5be74423587cfb86119a547d56e120ce2"
 }
