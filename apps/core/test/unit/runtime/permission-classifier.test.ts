@@ -40,7 +40,6 @@ import {
 } from '@core/runtime/ipc-tool-input-sanitization.js';
 import { parsePermissionClassifierResponse } from '@core/runtime/permission-classifier-prompt.js';
 import * as nativeRisk from '@core/runtime/permission-classifier-native-risk.js';
-import { unavailablePromptConsultResult } from '@core/runtime/permission-judge-outage.js';
 
 const baseInput = {
   appId: 'default' as never,
@@ -162,13 +161,20 @@ describe('permission classifier verdict client', () => {
     );
   });
 
-  it('stamps status unavailable for the wiring_missing failure code', () => {
-    expect(
-      unavailablePromptConsultResult('wiring_missing', Date.now()),
-    ).toMatchObject({
+  it('stamps status unavailable for the wiring_missing failure code', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        ...basePromptInput,
+        classifierConfig: undefined,
+        publishRuntimeEvent: undefined,
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({
       status: PermissionClassifierStatus.Unavailable,
       failureCode: 'wiring_missing',
     });
+    expect(classifierConsult).not.toHaveBeenCalled();
   });
 
   it('stamps status skipped for aborted, input_truncated and every non-LLM branch', async () => {
@@ -207,6 +213,20 @@ describe('permission classifier verdict client', () => {
         }),
       ).resolves.toMatchObject({ status: PermissionClassifierStatus.Skipped });
     }
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        ...basePromptInput,
+        canonicalToolName: 'mcp__gantry__file',
+        toolInput: { action: 'read', path: 'notes/a.md' },
+        lane: PermissionLane.InteractiveAuto,
+        classifierConfig: undefined,
+        publishRuntimeEvent: undefined,
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({
+      status: PermissionClassifierStatus.Skipped,
+      decision: 'allow',
+    });
     expect(classifierConsult).not.toHaveBeenCalled();
   });
 

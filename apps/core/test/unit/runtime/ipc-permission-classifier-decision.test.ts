@@ -1698,6 +1698,34 @@ describe('IPC permission classifier decision', () => {
     expect(requestPermissionApproval.mock.calls.at(-1)?.[0]).toMatchObject({
       decisionReason: 'Asking because my safety judge is offline.',
     });
+
+    const notices = sendMessage.mock.calls.length;
+    const cards = requestPermissionApproval.mock.calls.length;
+    await expect(
+      resolvePermissionIpcDecision({
+        request: {
+          requestId: 'wiring-missing-local-read',
+          sourceAgentFolder: 'main_agent',
+          toolName: 'mcp__gantry__file',
+          toolInput: { action: 'read', path: 'notes/a.md' },
+          targetJid: 'conversation:wiring-missing-local-read',
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          conversationRoutes: () => ({}),
+          sendMessage,
+          requestPermissionApproval,
+          classifierConsult: classifierMissing,
+          getPermissionRuntimeSettings: () => ({
+            agents: { main_agent: { permissionMode: 'auto' as const } },
+            permissions: { autoMode: {}, trustedRoots: [] },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+        } as never,
+      }),
+    ).resolves.toMatchObject({ approved: true, decidedBy: 'auto_classifier' });
+    expect(sendMessage).toHaveBeenCalledTimes(notices);
+    expect(requestPermissionApproval).toHaveBeenCalledTimes(cards);
     judgeOutageLatch.clearAll();
   });
 

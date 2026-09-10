@@ -37,7 +37,6 @@ import {
 import {
   judgeOutageReason,
   sendJudgeOfflineNoticeForRequest,
-  unavailablePromptConsultResult,
   writePermissionClassifierVerdictCache,
 } from './permission-judge-outage.js';
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
@@ -374,13 +373,9 @@ async function consultIpcPermissionClassifier(
     input.context.analysis.lane === PermissionLane.InteractiveAuto ||
     input.context.analysis.lane === PermissionLane.AutoStrict ||
     Boolean(input.hostJobId);
-  const wiringMissing =
-    classifierEligible &&
-    (!input.deps.publishRuntimeEvent || !classifierConfig);
   const toolRepository = input.deps.getToolRepository?.();
   const reviewedMcpReadBindings =
     classifierEligible &&
-    !wiringMissing &&
     toolRepository &&
     /^mcp__(?!gantry__)/.test(input.request.toolName)
       ? ((
@@ -396,45 +391,42 @@ async function consultIpcPermissionClassifier(
         )?.reviewedMcpReadBindings ?? [])
       : [];
   const classifierDecision = classifierEligible
-    ? wiringMissing
-      ? unavailablePromptConsultResult('wiring_missing', Date.now())
-      : await consultPermissionClassifierBeforePrompt({
-          permissionMode: input.permissionMode,
-          requestFamily: input.request.requestFamily ?? 'tool',
-          appId: input.request.appId,
-          agentId: input.request.agentId,
-          agentFolder: input.sourceAgentFolder,
-          // Non-authoritative event metadata only — never a trust input.
-          runId: input.request.runId,
-          jobId: input.request.jobId,
-          conversationId: input.request.targetJid,
-          threadId: input.request.threadId,
-          correlationId: input.request.requestId,
-          actor: { kind: 'system', source: 'permission' },
-          // Host-injected at spawn; best-effort context for the classifier to
-          // narrow with — never a trust input.
-          intentSource: input.request.turnIntentSummary
-            ? 'runner_summary'
-            : 'none',
-          turnIntentSummary: input.request.turnIntentSummary ?? '',
-          canonicalToolName: input.request.toolName,
-          toolInput:
-            input.request.classifierToolInput ?? input.request.toolInput,
-          toolInputRedactedPaths: input.request.toolInputRedactedPaths,
-          toolInputTruncatedPaths: input.request.toolInputTruncatedPaths,
-          policyDecisionReason:
-            input.request.decisionReason ?? 'Human approval is required.',
-          approvedCapabilityIds,
-          workspaceRoot: resolveWorkspaceFolderPath(input.sourceAgentFolder),
-          lane: input.context.analysis.lane,
-          reviewedMcpReadBindings,
-          yoloMode,
-          suggestions: input.request.suggestions,
-          ...(promotion ? { promotion } : {}),
-          classifierConfig: classifierConfig!,
-          publishRuntimeEvent: input.deps.publishRuntimeEvent!,
-          classifierConsult: input.deps.classifierConsult,
-        })
+    ? await consultPermissionClassifierBeforePrompt({
+        permissionMode: input.permissionMode,
+        requestFamily: input.request.requestFamily ?? 'tool',
+        appId: input.request.appId,
+        agentId: input.request.agentId,
+        agentFolder: input.sourceAgentFolder,
+        // Non-authoritative event metadata only — never a trust input.
+        runId: input.request.runId,
+        jobId: input.request.jobId,
+        conversationId: input.request.targetJid,
+        threadId: input.request.threadId,
+        correlationId: input.request.requestId,
+        actor: { kind: 'system', source: 'permission' },
+        // Host-injected at spawn; best-effort context for the classifier to
+        // narrow with — never a trust input.
+        intentSource: input.request.turnIntentSummary
+          ? 'runner_summary'
+          : 'none',
+        turnIntentSummary: input.request.turnIntentSummary ?? '',
+        canonicalToolName: input.request.toolName,
+        toolInput: input.request.classifierToolInput ?? input.request.toolInput,
+        toolInputRedactedPaths: input.request.toolInputRedactedPaths,
+        toolInputTruncatedPaths: input.request.toolInputTruncatedPaths,
+        policyDecisionReason:
+          input.request.decisionReason ?? 'Human approval is required.',
+        approvedCapabilityIds,
+        workspaceRoot: resolveWorkspaceFolderPath(input.sourceAgentFolder),
+        lane: input.context.analysis.lane,
+        reviewedMcpReadBindings,
+        yoloMode,
+        suggestions: input.request.suggestions,
+        ...(promotion ? { promotion } : {}),
+        classifierConfig,
+        publishRuntimeEvent: input.deps.publishRuntimeEvent,
+        classifierConsult: input.deps.classifierConsult,
+      })
     : undefined;
   return { decision: classifierDecision, ...(promotion ? { promotion } : {}) };
 }

@@ -40,7 +40,6 @@ import {
   judgeOutageReason,
   observeJudgeAvailabilityForRequest,
   sendJudgeOfflineNoticeForRequest,
-  unavailablePromptConsultResult,
 } from '../../runtime/permission-judge-outage.js';
 import {
   loadAgentAccessSnapshot,
@@ -380,40 +379,36 @@ export function createInlineCoreTools(
             run.permissionMode === 'auto' ||
             run.permissionMode === 'auto_strict';
           if (classifierEligible) {
-            classifierDecision = deps.publishRuntimeEvent
-              ? await consultPermissionClassifierBeforePrompt({
-                  permissionMode: run.permissionMode,
-                  requestFamily: 'tool',
-                  appId: run.appId,
-                  agentId: run.agentId,
-                  agentFolder: laneInput.group.folder,
-                  runId: activeRunId,
-                  jobId: run.jobId,
-                  conversationId: run.chatJid,
-                  threadId: run.threadId,
-                  correlationId: permissionRequestId,
-                  actor: { kind: 'system', source: 'permission' },
-                  intentSource: 'operator_message',
-                  turnIntentSummary: run.prompt,
-                  canonicalToolName: name,
-                  toolInput: classifierInput.toolInput,
-                  toolInputRedactedPaths: classifierInput.redactedPaths,
-                  toolInputTruncatedPaths: classifierInput.truncatedPaths,
-                  policyDecisionReason: decision.reason,
-                  approvedCapabilityIds,
-                  workspaceRoot: resolveWorkspaceFolderPath(
-                    laneInput.group.folder,
-                  ),
-                  reviewedMcpReadBindings,
-                  yoloMode: permissionSettings.permissions.yoloMode,
-                  suggestions: request.suggestions,
-                  ...(promotion ? { promotion } : {}),
-                  classifierConfig: permissionRuntimeConfig,
-                  signal: context?.signal,
-                  publishRuntimeEvent: deps.publishRuntimeEvent,
-                  classifierConsult: deps.classifierConsult,
-                })
-              : unavailablePromptConsultResult('wiring_missing', Date.now());
+            classifierDecision = await consultPermissionClassifierBeforePrompt({
+              permissionMode: run.permissionMode,
+              requestFamily: 'tool',
+              appId: run.appId,
+              agentId: run.agentId,
+              agentFolder: laneInput.group.folder,
+              runId: activeRunId,
+              jobId: run.jobId,
+              conversationId: run.chatJid,
+              threadId: run.threadId,
+              correlationId: permissionRequestId,
+              actor: { kind: 'system', source: 'permission' },
+              intentSource: 'operator_message',
+              turnIntentSummary: run.prompt,
+              canonicalToolName: name,
+              toolInput: classifierInput.toolInput,
+              toolInputRedactedPaths: classifierInput.redactedPaths,
+              toolInputTruncatedPaths: classifierInput.truncatedPaths,
+              policyDecisionReason: decision.reason,
+              approvedCapabilityIds,
+              workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
+              reviewedMcpReadBindings,
+              yoloMode: permissionSettings.permissions.yoloMode,
+              suggestions: request.suggestions,
+              ...(promotion ? { promotion } : {}),
+              classifierConfig: permissionRuntimeConfig,
+              signal: context?.signal,
+              publishRuntimeEvent: deps.publishRuntimeEvent,
+              classifierConsult: deps.classifierConsult,
+            });
             if (
               classifierDecision?.decision === 'allow' &&
               !request.decisionOptions?.length

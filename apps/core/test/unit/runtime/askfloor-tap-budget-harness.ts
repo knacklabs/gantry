@@ -29,6 +29,7 @@ import type { RailProvenance } from '@core/domain/permission-lane.js';
 import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
 import type { PermissionClassifierFailureCode } from '@core/runtime/permission-classifier.js';
 import type { PermissionMode } from '@core/shared/permission-mode.js';
+import type { YoloModeSettings } from '@core/shared/yolo-mode-policy.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import {
@@ -49,6 +50,7 @@ export interface TapBudgetFixture {
   toolInput?: Record<string, unknown>;
   attachmentOpenIds?: { wellFormed: boolean; count: number };
   trustedRoots: string[];
+  yoloMode?: YoloModeSettings;
   classifierVerdict: {
     status?: PermissionClassifierStatus;
     failureCode?: PermissionClassifierFailureCode;
@@ -169,6 +171,7 @@ export async function replayPermissionRequest(
           permissions: {
             autoMode: {},
             trustedRoots: fixture.trustedRoots,
+            ...(fixture.yoloMode ? { yoloMode: fixture.yoloMode } : {}),
           },
           memory: { llm: { models: { extractor: 'sonnet' } } },
         }),
@@ -395,8 +398,10 @@ export async function replayRememberedJobProjection(
 ): Promise<{
   chatTaps: number;
   jobTaps: number[];
+  railBumpTaps: number;
   revoked: 'applied' | 'already_revoked' | 'not_found';
   decisions: PermissionApprovalDecision[];
+  railBumpDecision: PermissionApprovalDecision;
 }> {
   const command = `cd ${TAP_BUDGET_WORKSPACE_ROOT} && ls && git log`;
   const chat = await replayExactMemorySequence('s5', [
@@ -482,6 +487,10 @@ export async function replayRememberedJobProjection(
 
   const projected = await replayJob('s5-projected', command);
   const nearMiss = await replayJob('s5-near-miss', `${command} --oneline`);
+  const currentRailVersion = rows[0]!.railVersion;
+  rows[0]!.railVersion = currentRailVersion + 1;
+  const railBump = await replayJob('s5-rail-bump', command);
+  rows[0]!.railVersion = currentRailVersion;
   const revoked = await memory.revokeById({
     appId: 'default',
     agentFolder: 'main_agent',
@@ -494,8 +503,10 @@ export async function replayRememberedJobProjection(
   return {
     chatTaps: chat.taps[0]!,
     jobTaps: [projected.taps, nearMiss.taps, afterForget.taps],
+    railBumpTaps: railBump.taps,
     revoked,
     decisions: [projected.decision, nearMiss.decision, afterForget.decision],
+    railBumpDecision: railBump.decision,
   };
 }
 

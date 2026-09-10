@@ -155,9 +155,9 @@ export interface PermissionClassifierPromptConsultInput {
   yoloMode?: yolo.YoloModeSettings;
   suggestions?: PermissionApprovalUpdate[];
   promotion?: Pick<PermissionPromotionInput, 'repository'>;
-  classifierConfig: PermissionClassifierRuntimeConfig;
+  classifierConfig?: PermissionClassifierRuntimeConfig;
   signal?: AbortSignal;
-  publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
+  publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
   classifierConsult?: typeof consultPermissionClassifier;
 }
 export interface PermissionClassifierPromptConsultResult extends PermissionClassifierResult {
@@ -367,8 +367,10 @@ export async function consultPermissionClassifierBeforePrompt(
               latencyMs: 0,
             }
       : nativeRisk
-          ? nativeRisk
-          : await (input.classifierConsult ?? consultPermissionClassifier)({
+        ? nativeRisk
+        : !input.classifierConfig || !input.publishRuntimeEvent
+          ? failedResult('wiring_missing', Date.now())
+        : await (input.classifierConsult ?? consultPermissionClassifier)({
             appId: (input.appId ?? 'default') as AppId,
             agentIdentity: {
               id: input.agentId ?? input.agentFolder,
@@ -397,7 +399,7 @@ export async function consultPermissionClassifierBeforePrompt(
       tail: async () => 'ask' as const,
     }),
   };
-  if (yoloDenylistMatch && !inputTruncated) {
+  if (input.publishRuntimeEvent && yoloDenylistMatch && !inputTruncated) {
     // Contract: every denylist backstop match emits the dedicated audit
     // event, matching the SDK gate's emitYoloDenylistHit payload shape.
     await input
@@ -426,21 +428,22 @@ export async function consultPermissionClassifierBeforePrompt(
         );
       });
   }
-  await publishPermissionClassifierDecision({
-    publishRuntimeEvent: input.publishRuntimeEvent,
-    appId: (input.appId ?? 'default') as never,
-    agentId: input.agentId as never,
-    runId: input.runId as never,
-    jobId: input.jobId as never,
-    conversationId: input.conversationId as never,
-    threadId: input.threadId as never,
-    correlationId: input.correlationId as never,
-    actor: input.actor,
-    intentSource: input.intentSource,
-    toolName: input.canonicalToolName,
-    ...(suggestionKey ? { suggestionKey } : {}),
-    ...result,
-  });
+  if (input.publishRuntimeEvent)
+    await publishPermissionClassifierDecision({
+      publishRuntimeEvent: input.publishRuntimeEvent,
+      appId: (input.appId ?? 'default') as never,
+      agentId: input.agentId as never,
+      runId: input.runId as never,
+      jobId: input.jobId as never,
+      conversationId: input.conversationId as never,
+      threadId: input.threadId as never,
+      correlationId: input.correlationId as never,
+      actor: input.actor,
+      intentSource: input.intentSource,
+      toolName: input.canonicalToolName,
+      ...(suggestionKey ? { suggestionKey } : {}),
+      ...result,
+    });
   // A denylist hit must not carry persistent suggestions: a saved rule would
   // never be honored while the denylist keeps blocking rule-based auto-allows.
   const denylistHit = Boolean(yoloDenylistMatch) && !inputTruncated;
