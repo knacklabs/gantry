@@ -1043,13 +1043,13 @@ describe('normalizeDeepAgentStream', () => {
     });
   });
 
-  it('passes a close-driven abort through without a partial-usage wrapper', async () => {
+  it('wraps a close-driven abort with its partial usage and keeps the abort as the cause', async () => {
     const abortError = Object.assign(new Error('Aborted by signal'), {
       name: 'AbortError',
     });
     const events = {
       async *[Symbol.asyncIterator](): AsyncIterableIterator<LangGraphStreamEvent> {
-        yield streamEvent('');
+        yield streamEvent('', { input: 90, output: 3 });
         throw abortError;
       },
     };
@@ -1061,8 +1061,10 @@ describe('normalizeDeepAgentStream', () => {
       emit: () => undefined,
     }).catch((error: unknown) => error);
 
-    expect(error).toBe(abortError);
-    expect(error).not.toBeInstanceOf(DeepAgentPartialUsage);
+    expect(error).toBeInstanceOf(DeepAgentPartialUsage);
+    const partial = error as DeepAgentPartialUsage;
+    expect(partial.cause).toBe(abortError);
+    expect(partial.usage).toMatchObject({ inputTokens: 90, outputTokens: 3 });
   });
 });
 

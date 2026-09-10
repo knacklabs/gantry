@@ -2,7 +2,6 @@ import type {
   NormalizedModelUsage,
   RuntimeContextUsageSnapshot,
 } from '../../../../shared/model-catalog.js';
-import { isAbortError } from './live-control.js';
 
 export class DeepAgentPartialUsage {
   readonly kind = 'deep_agent_partial_usage';
@@ -50,7 +49,9 @@ export async function* partialUsageEvents<T>(
   try {
     for await (const event of events) yield event;
   } catch (error) {
-    if (isAbortError(error)) throw error;
-    throw onError(error);
+    // Aborts are wrapped too: a denied tool cuts the stream with a bare
+    // AbortError and its usage must survive (T1-AC2). Consumers that need to
+    // recognise an abort read `cause`.
+    throw isDeepAgentPartialUsage(error) ? error : onError(error);
   }
 }

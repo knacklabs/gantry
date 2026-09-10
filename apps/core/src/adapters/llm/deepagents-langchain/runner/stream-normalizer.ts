@@ -25,7 +25,6 @@ import {
   unprojectedAccessActivityDetail,
   unprojectedAccessIdentityFromToolResult,
 } from '../../../../shared/unprojected-access.js';
-import { isAbortError } from './live-control.js';
 import {
   accumulateUsageFromChunk,
   contextUsageSnapshot,
@@ -164,10 +163,7 @@ export async function normalizeDeepAgentStream(
       wrapPartialUsage,
     );
   } catch (error) {
-    // Aborts pass through unwrapped, as in the source-iterator path.
-    throw isDeepAgentPartialUsage(error) || isAbortError(error)
-      ? error
-      : wrapPartialUsage(error);
+    throw isDeepAgentPartialUsage(error) ? error : wrapPartialUsage(error);
   }
 }
 
