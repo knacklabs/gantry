@@ -13,6 +13,7 @@ import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
+import { browserFetch } from '../../../lib/auth/browser-auth';
 import {
   conversations,
   overviewMetrics,
@@ -29,6 +30,16 @@ export function OverviewRoute() {
   const { data: interactions } = useQuery(interactionPreviewQuery);
   const { data: diagnostics } = useQuery(diagnosticPreviewQuery);
   const { requestConnection } = useConnectionGate();
+  const onboarding = useQuery({
+    queryKey: ['onboarding-status'],
+    queryFn: async () => {
+      const response = await browserFetch('/ui/api/onboarding/status', {
+        credentials: 'same-origin',
+      });
+      if (!response.ok) return { resume: null };
+      return response.json() as Promise<{ resume: { name: string; step: number } | null }>;
+    },
+  });
   const healthyChecks = diagnostics.filter(
     (check) => check.status === 'passing',
   ).length;
@@ -40,6 +51,25 @@ export function OverviewRoute() {
         title="Overview"
         description="Readiness, activity, and the items that need owner attention."
       />
+
+      {onboarding.data?.resume ? (
+        <Panel
+          title={`Finish setting up ${onboarding.data.resume.name}`}
+          description={`Step ${onboarding.data.resume.step} of 4 is ready when you are.`}
+          action={
+            <Link
+              className="text-xs font-semibold text-text no-underline hover:underline"
+              to="/onboarding"
+            >
+              Resume setup
+            </Link>
+          }
+        >
+          <p className="m-0 px-4 pb-4 text-xs text-text-secondary">
+            Your employee and any connected workspace are saved.
+          </p>
+        </Panel>
+      ) : null}
 
       <section
         aria-label="Operational metrics"
