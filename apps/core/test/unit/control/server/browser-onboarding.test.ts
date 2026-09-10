@@ -31,8 +31,8 @@ describe('browser onboarding route', () => {
 
   it('does not mistake the runtime seed agent for an onboarded employee', () => {
     expect(source).toContain('DEFAULT_AGENT_ID');
-    expect(source).toContain(
-      'const onboardingAgents = agents.filter((agent) => agent.id !== DEFAULT_AGENT_ID);',
+    expect(source).toMatch(
+      /const onboardingAgents = agents\.filter\(\s*\(agent\) => agent\.id !== DEFAULT_AGENT_ID,?\s*\);/,
     );
     expect(source).toContain('firstRun: onboardingAgents.length === 0');
   });
