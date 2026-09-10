@@ -1,7 +1,7 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryOptions, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Check, ChevronRight, Copy, Moon, Sun } from 'lucide-react';
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 
 import { agentModelsQuery, type AgentModel } from '../agents/agents-queries';
 import {
@@ -27,6 +27,16 @@ const STEPS = [
 
 const DUTIES = ['Answer questions', 'Summarise threads', 'Search internal docs'];
 
+type OnboardingStatus = { firstRun: boolean; resume: { id: string; name: string; hasWorkspace: boolean } | null };
+const onboardingStatusQuery = queryOptions({
+  queryKey: ['onboarding-status'],
+  queryFn: async (): Promise<OnboardingStatus> => {
+    const response = await browserFetch('/ui/api/onboarding/status', { credentials: 'same-origin' });
+    if (!response.ok) throw new Error('Onboarding status could not be loaded.');
+    return response.json() as Promise<OnboardingStatus>;
+  },
+});
+
 export function OnboardingRoute() {
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -48,21 +58,30 @@ export function OnboardingRoute() {
   const [approver, setApprover] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [challenge, setChallenge] = useState('');
+  const [challenge, setChallenge] = useState(() => `GY-${Math.random().toString(36).slice(2, 7).toUpperCase()}`);
 
   const providers = useQuery(modelProviderQuery);
   const models = useQuery(agentModelsQuery);
   const channelProviders = useQuery(channelProvidersQuery());
   const conversations = useQuery(channelConversationsQuery());
+  const status = useQuery(onboardingStatusQuery);
   const selectedProvider = providers.data?.find((item) => item.providerId === providerId) ?? providers.data?.[0];
   const selectedMode = selectedProvider?.credentialModes[0];
   const selectedChannel = channelProviders.data?.providers.find((item) => item.id === channelId) ?? channelProviders.data?.providers[0];
+  const effectiveProviderId = providerId || selectedProvider?.providerId || '';
   const availableModels = useMemo(
-    () => (models.data?.models ?? []).filter((item) => !providerId || item.providerId === providerId),
-    [models.data?.models, providerId],
+    () => (models.data?.models ?? []).filter((item) => !effectiveProviderId || item.providerId === effectiveProviderId),
+    [models.data?.models, effectiveProviderId],
   );
-  const code = challenge || `GY-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+  const code = challenge;
   const handle = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'agent';
+
+  useEffect(() => {
+    if (!started || !status.data?.resume || agentId) return;
+    setAgentId(status.data.resume.id);
+    setName((current) => current || status.data.resume!.name);
+    setStep(2);
+  }, [agentId, started, status.data]);
 
   function saveDraft(next: { name?: string; title?: string; responsibilities?: string }) {
     if (next.name !== undefined) localStorage.setItem('gantry.onboarding.name', next.name);
@@ -121,7 +140,7 @@ export function OnboardingRoute() {
   }
 
   function skip() { void navigate({ to: '/overview' }); }
-  if (!started) return <Splash onStart={() => setStarted(true)} />;
+  if (!started) return <Splash resume={status.data?.resume} onStart={() => setStarted(true)} />;
   return <div className="onboarding-page">
     <header className="onboarding-header"><Link to="/overview" className="onboarding-brand"><GantryMark /><strong>Gantry</strong></Link><span className="onboarding-rule" /><button className="onboarding-theme" onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')} aria-label="Toggle theme">{effectiveTheme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}</button></header>
     <div className="onboarding-grid"><aside className="onboarding-rail"><GantryMark large /> <div className="onboarding-steps">{STEPS.map(([label, blurb], index) => { const number = index + 1; const active = step === number; const complete = step > number; return <button key={label} disabled={number > step} onClick={() => setStep(number)} className="onboarding-step"><span className={`onboarding-node ${active ? 'is-active' : ''} ${complete ? 'is-complete' : ''}`}>{complete ? <Check size={13} /> : number}</span><span><b>{label}</b><small>{blurb}</small></span></button>; })}</div><span className="onboarding-powered">KnackLabs</span></aside>
@@ -135,7 +154,7 @@ export function OnboardingRoute() {
     </div></div>;
 }
 
-function Splash({ onStart }: { onStart: () => void }) { return <main className="onboarding-splash"><div><GantryMark hero /><h1>Gantry</h1><h2>Set Up Your First Agent</h2><p>Your organisation’s new <strong>AI employee</strong></p><p>Hire one, tell it what it should handle, and it starts working where your team already talks. Takes about three minutes.</p><button onClick={onStart}>Hire your first employee <ChevronRight size={16} /></button></div><small>Powered by KnackLabs</small></main>; }
+function Splash({ onStart, resume }: { onStart: () => void; resume?: OnboardingStatus['resume'] }) { return <main className="onboarding-splash"><div><GantryMark hero /><h1>Gantry</h1><h2>{resume ? `Finish setting up ${resume.name}` : 'Set Up Your First Agent'}</h2><p>Your organisation’s new <strong>AI employee</strong></p><p>Hire one, tell it what it should handle, and it starts working where your team already talks. Takes about three minutes.</p><button onClick={onStart}>{resume ? 'Resume setup' : 'Hire your first employee'} <ChevronRight size={16} /></button></div><small>Powered by KnackLabs</small></main>; }
 
 function GantryMark({ large, hero }: { large?: boolean; hero?: boolean }) { return <span className={`gantry-mark ${large ? 'gantry-mark-large' : ''} ${hero ? 'gantry-mark-hero' : ''}`} aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /><i /><i /></span>; }
 
