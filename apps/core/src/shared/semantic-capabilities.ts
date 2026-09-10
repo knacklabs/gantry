@@ -533,6 +533,27 @@ function validateLocalCliBinding(
   return { ok: true };
 }
 
+/**
+ * The reviewed argv shapes of a local CLI capability, as JSON arrays of the
+ * entries after the executable. This is the vocabulary of capability_run, so
+ * the runtime context and the mismatch denial teach one identical shape.
+ */
+export function localCliArgPatterns(
+  capability: Pick<SemanticCapabilityDefinition, 'implementationBindings'>,
+): string[] {
+  return capability.implementationBindings
+    .filter((binding) => binding.kind === 'local_cli')
+    .flatMap((binding) =>
+      (binding.commandTemplates ?? []).map((template) => {
+        const executable = binding.executablePath?.trim() ?? '';
+        const rest = template.startsWith(executable)
+          ? template.slice(executable.length).trim()
+          : template.trim();
+        return JSON.stringify(rest.split(/\s+/));
+      }),
+    );
+}
+
 export function validateLocalCliCommandTemplate(
   executablePath: string,
   commandTemplate: string,

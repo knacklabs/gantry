@@ -179,6 +179,64 @@ describe('capabilityStatusText access projection', () => {
       'selected capabilities: mcp.crm.lookup',
     );
   });
+
+  it('states the reviewed args pattern of every granted CLI capability up front', async () => {
+    const sheetsCapability = {
+      capabilityId: 'google.sheets.values.get',
+      version: '1',
+      displayName: 'Sheets read',
+      category: 'Google',
+      risk: 'read',
+      can: 'Read a range from a spreadsheet.',
+      cannot: 'Write to a spreadsheet.',
+      credentialSource: 'local_cli',
+      implementationBindings: [
+        {
+          kind: 'local_cli',
+          executablePath: '/opt/homebrew/bin/gog',
+          executableVersion: '1.0.0',
+          executableHash: 'sha256:abc',
+          commandTemplates: [
+            '/opt/homebrew/bin/gog sheets get *',
+            '/opt/homebrew/bin/gog sheets get * *',
+          ],
+        },
+      ],
+    };
+    setRunnerEnv({
+      GANTRY_AGENT_ACCESS_PRESET: 'full',
+      GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([sheetsCapability]),
+      GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: JSON.stringify([]),
+    });
+    vi.resetModules();
+    const ungranted = await import('@core/runner/mcp/context.js');
+    expect(ungranted.capabilityStatusText()).not.toContain(
+      'Granted CLI capabilities',
+    );
+
+    setRunnerEnv({
+      GANTRY_AGENT_ACCESS_PRESET: 'full',
+      GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([sheetsCapability]),
+      GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: JSON.stringify([
+        'capability:google.sheets.values.get',
+      ]),
+    });
+    vi.resetModules();
+    const granted = await import('@core/runner/mcp/context.js');
+    const { localCliArgPatterns } =
+      await import('@core/shared/semantic-capabilities.js');
+    const text = granted.capabilityStatusText();
+    expect(text).toContain(
+      'Granted CLI capabilities (call mcp__gantry__capability_run',
+    );
+    expect(text).toContain(
+      '- google.sheets.values.get: args ["sheets","get","*"] or ["sheets","get","*","*"]',
+    );
+    expect(localCliArgPatterns(sheetsCapability)).toEqual([
+      '["sheets","get","*"]',
+      '["sheets","get","*","*"]',
+    ]);
+  });
 });
 
 describe('locked MCP listing and tool descriptions', () => {

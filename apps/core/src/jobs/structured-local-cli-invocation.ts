@@ -1,3 +1,4 @@
+import { localCliArgPatterns } from '../shared/semantic-capabilities.js';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -165,17 +166,7 @@ async function resolveGrantedLocalCliInvocation(input: {
   // template string got pasted into a shell on the first live run). The
   // templates are not secret - they appear verbatim on approval cards -
   // and the runtime, not the job prompt, owns call-shape recovery.
-  const reviewedArgPatterns = capability.implementationBindings
-    .filter((binding) => binding.kind === 'local_cli')
-    .flatMap((binding) =>
-      (binding.commandTemplates ?? []).map((template) => {
-        const executable = binding.executablePath?.trim() ?? '';
-        const rest = template.startsWith(executable)
-          ? template.slice(executable.length).trim()
-          : template.trim();
-        return JSON.stringify(rest.split(/\s+/));
-      }),
-    );
+  const reviewedArgPatterns = localCliArgPatterns(capability);
   throw new StructuredLocalCliInvocationError(
     'capability_template_mismatch',
     `Arguments are outside the reviewed pattern for capability "${capabilityId}". Reviewed args patterns: ${reviewedArgPatterns.join(' or ')}. Re-call capability_run with an args array matching one pattern (a terminal standalone "*" covers the remaining args; a non-terminal "*" covers one non-flag positional value). Never run this capability through Bash/RunCommand.`,
