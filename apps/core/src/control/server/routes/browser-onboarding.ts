@@ -16,7 +16,8 @@ import {
 
 const ONBOARDING_STATUS_PATH = '/ui/api/onboarding/status';
 const ONBOARDING_VERIFICATIONS_PATH = '/ui/api/onboarding/verifications';
-const ONBOARDING_VERIFICATION_PATH = /^\/ui\/api\/onboarding\/verifications\/([^/]+)$/;
+const ONBOARDING_VERIFICATION_PATH =
+  /^\/ui\/api\/onboarding\/verifications\/([^/]+)$/;
 
 type Settings = {
   authentication: { mode: 'local' | 'hosted'; canonicalOrigin: string };
@@ -79,17 +80,57 @@ export async function handleBrowserOnboardingRoutes(
   return true;
 }
 
-async function getVerification(req: IncomingMessage, res: ServerResponse, settings: Settings, id: string): Promise<boolean> {
+async function getVerification(
+  req: IncomingMessage,
+  res: ServerResponse,
+  settings: Settings,
+  id: string,
+): Promise<boolean> {
   const session = await activeSession(req, settings.authentication.mode);
-  if (!session) { sendError(res, 401, 'UNAUTHORIZED', 'Sign in is required.'); return true; }
-  if (!browserRoleAllowsScope(session.role as ConsoleRole, 'agents:admin')) { sendError(res, 403, 'FORBIDDEN', 'Administrator access is required.'); return true; }
+  if (!session) {
+    sendError(res, 401, 'UNAUTHORIZED', 'Sign in is required.');
+    return true;
+  }
+  if (!browserRoleAllowsScope(session.role as ConsoleRole, 'agents:admin')) {
+    sendError(res, 403, 'FORBIDDEN', 'Administrator access is required.');
+    return true;
+  }
   const storage = getRuntimeStorage();
   const appId = session.appId as AppId;
   const now = new Date().toISOString();
-  await storage.service.db.update(onboardingVerificationsPostgres).set({ status: 'expired', updatedAt: now }).where(and(eq(onboardingVerificationsPostgres.id, id), eq(onboardingVerificationsPostgres.appId, appId), eq(onboardingVerificationsPostgres.status, 'pending'), lt(onboardingVerificationsPostgres.expiresAt, now)));
-  const [verification] = await storage.service.db.select().from(onboardingVerificationsPostgres).where(and(eq(onboardingVerificationsPostgres.id, id), eq(onboardingVerificationsPostgres.appId, appId))).limit(1);
-  if (!verification) { sendError(res, 404, 'NOT_FOUND', 'Verification not found.'); return true; }
-  sendJson(res, 200, { verification: { id: verification.id, status: verification.status, expiresAt: verification.expiresAt, completedAt: verification.completedAt } });
+  await storage.service.db
+    .update(onboardingVerificationsPostgres)
+    .set({ status: 'expired', updatedAt: now })
+    .where(
+      and(
+        eq(onboardingVerificationsPostgres.id, id),
+        eq(onboardingVerificationsPostgres.appId, appId),
+        eq(onboardingVerificationsPostgres.status, 'pending'),
+        lt(onboardingVerificationsPostgres.expiresAt, now),
+      ),
+    );
+  const [verification] = await storage.service.db
+    .select()
+    .from(onboardingVerificationsPostgres)
+    .where(
+      and(
+        eq(onboardingVerificationsPostgres.id, id),
+        eq(onboardingVerificationsPostgres.appId, appId),
+      ),
+    )
+    .limit(1);
+  if (!verification) {
+    sendError(res, 404, 'NOT_FOUND', 'Verification not found.');
+    return true;
+  }
+  sendJson(res, 200, {
+    verification: {
+      id: verification.id,
+      status: verification.status,
+      expiresAt: verification.expiresAt,
+      completedAt: verification.completedAt,
+    },
+  });
   return true;
 }
 
