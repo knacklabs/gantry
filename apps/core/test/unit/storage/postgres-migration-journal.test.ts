@@ -1907,7 +1907,9 @@ describe('Postgres migration journal', () => {
         'utf8',
       ),
     ) as { entries: Array<{ tag: string }> };
-    expect(journal.entries.some((entry) => entry.tag === '20260910103303_odd_nova')).toBe(true);
+    expect(
+      journal.entries.some((entry) => entry.tag === '20260910103303_odd_nova'),
+    ).toBe(true);
 
     const migration = fs.readFileSync(
       path.resolve(
@@ -1916,7 +1918,9 @@ describe('Postgres migration journal', () => {
       'utf8',
     );
     expect(migration).toContain('CREATE TABLE "onboarding_verifications"');
-    expect(migration).toContain('"expires_at" timestamp with time zone NOT NULL');
+    expect(migration).toContain(
+      '"expires_at" timestamp with time zone NOT NULL',
+    );
     expect(migration).toContain('"inbound_message_id" text');
     expect(migration).toContain('"outbound_message_id" text');
   });
