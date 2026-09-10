@@ -1,5 +1,6 @@
 {
   "id": "ASKFLOOR-1-T2b",
   "title": "Default-allow risk table for gantry-native tools",
-  "status": "done"
+  "status": "done",
+  "task_sha256": "f51df506bfbf31f97f7318c90fd16325653bf5766ad484000bcc9b58784fd560"
 }

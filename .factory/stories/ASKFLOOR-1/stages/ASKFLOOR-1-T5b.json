@@ -1,5 +1,6 @@
 {
   "id": "ASKFLOOR-1-T5b",
   "title": "/permissions: remembered list, all, forget",
-  "status": "done"
+  "status": "done",
+  "task_sha256": "36891eb00e3da323950e2fced80bf5db73e17da06f86757d82f43f6b3aa004e5"
 }

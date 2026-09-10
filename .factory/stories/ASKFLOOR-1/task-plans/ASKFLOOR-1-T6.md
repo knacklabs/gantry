@@ -1,0 +1,74 @@
+# ASKFLOOR-1-T6 — Judge outage latch, invariance suite, tap budget S6
+
+## Context
+T1–T5b made the permission judge real: typed status (T2a), remembered decisions (T3), job projection (T4), cards and `/permissions` (T5a/T5b). When the judge is UNAVAILABLE today the classifier fails closed to ask (`runtime/permission-classifier.ts` `failedResult`: `status: Unavailable`, `risk_level: 'high'`, reason "Classifier unavailable (<code>); ask the user."), so an outage silently turns into a card storm with an opaque reason. T6 makes an outage legible and bounded: ONE plain notice per episode before the first offline card, a one-line reason on that card, Allow still remembering, deterministic read-only allows still short-circuiting, and an explicit invariance suite proving every other lane is untouched. It is the last ASKFLOOR-1 task. Seam map: scratchpad `askfloor-1-t6-seam-map.md`.
+
+## Owner rulings (story plan line 167, Ravi 2026-09-02)
+- Latch is PROCESS-LOCAL, in-memory, keyed by (app id, provider account id, conversation id); set on the first `unavailable`, cleared on the next `answered`; best effort (single launchd runtime today; worst case one duplicate notice per extra runtime). No persistence.
+- Notice copy: "My safety judge is offline, so I'll check with you more than usual until it's back." — sent ONCE per episode BEFORE the first offline card.
+- Card reason line: "Asking because my safety judge is offline." rides on `request.decisionReason`.
+- [Allow] keeps writing the memory while offline; deterministic read-only allows still short-circuit (the read-only gate runs inside the classifier before any LLM path, `permission-classifier.ts:315`).
+- `wiring_missing`: when a caller bypasses consultation because required wiring is missing (IPC guard `ipc-permission-classifier-decision.ts:359-364`; inline guard `inline-agent-loop-tools.ts:372`), the caller produces an explicit `unavailable` result with `failureCode: 'wiring_missing'` so the latch, notice and reason fire on both paths.
+- T6 owns AF-AC6 (invariance suite) and adds AF-AC8 S6 plus the aggregation run; it does not edit earlier-owned tests.
+- D-0080 (T5b follow-ups) stays deferred: T6 touches none of the listing, Forget-binding or used-by files.
+
+## Orchestrator rulings (from exploration)
+1. **One latch module, application-owned.** NEW `application/permissions/permission-judge-outage-latch.ts` (pure: `createJudgeOutageLatch()` → `{ observe(status, key): { noticeDue: boolean }, reset(key) }`, plus the two copy strings). Both consult paths are runtime-layer (`architecture-map.json:94-120` puts `app/` and `runtime/` in runtime) and may import application/ and shared/, never channels/. No channel import anywhere in T6.
+2. **Both callers already hold the sender and the key.** IPC: `resolveIpcPermissionPromptOrTerminal` (`ipc-permission-classifier-decision.ts:547`) sends the card via `input.deps.requestPermissionApproval` at `:639` (and the denylist branch `:595`); `input.request` carries `appId`, `providerAccountId`, `targetJid`, `threadId`; `input.deps.sendMessage` is the plain-text port. Inline: the `beforePrompt` callback at `inline-agent-loop-tools.ts:449-468` runs exactly once before `prompt`; `run.appId`, `laneInput.group.providerAccountId`, `run.chatJid`, `run.threadId`, `deps.sendMessage` are in scope. The notice is a ONE-LINE call at each site (`sendMessage(targetJid, NOTICE, { threadId })`, errors swallowed like `ipc-interaction-processing.ts:616`), gated on `classifierDecision.status === Unavailable && latch.observe(...).noticeDue`. `ipc-permission-classifier-decision.ts` is 691/700 and `inline-agent-loop-tools.ts` 708/750: calls only, no logic there.
+3. **`wiring_missing` joins the failure-code union** at `permission-classifier.ts:60-67` (a string union in the runtime file; no domain change). `failedResult` already maps every code except aborted/input_truncated to `Unavailable`, so the two callers construct their bypass result through the same helper shape (`status: Unavailable, failureCode: 'wiring_missing', risk_level: 'high'`).
+4. **Reason line.** At the IPC ask branch (`ipc-permission-classifier-decision.ts:409` region, where `decisionReason` is read) and the inline ask branch (`inline-agent-loop-tools.ts:~418`, "Classifier requested human approval: …"), an `Unavailable` decision sets the reason to the ruled line instead of the generic text.
+5. **Latch reset.** The classifier's `Answered` result clears the key; `Skipped` (cache hit, deterministic, native-risk, aborted, input_truncated) never touches the latch (T2a-AC3).
+6. **Invariance suite is a table over existing fixtures**, not new logic: NEW `test/unit/runtime/askfloor-invariance.test.ts` imports `replayPermissionRequest`, `assertLlmConsultNotInvoked`, `TAP_BUDGET_WORKSPACE_ROOT`, `replayRememberedJobProjection`, `replayDestructiveExactMemory` from the harness and `permissionDecisionResult` from `test/unit/channels/permission-approval-result-helpers.ts`; one `it.each` row per lane with the exact expected tuples copied from `askfloor-tap-budget.test.ts:26/173/233` and `ipc-permission-classifier-decision.test.ts:360/385/416`, plus a second column with the consult stub returning `{ status: Unavailable, failureCode }` for the six codes — the only new assertion (today NO test pins per-lane behaviour under `Unavailable`). Inline-scheduled rows call the inline gate directly (pattern of `inline-agent-loop-tools.test.ts:1115/1450`). Family rail hit asserts `FAMILY_RULE_RAIL_HIT_REASON` (coordinator test :661); attachment_open uses the existing `attachmentOpenIds` fixture field.
+7. **Harness knobs for S6** (`askfloor-tap-budget-harness.ts`, 646 lines, test-only so unbudgeted, but keep additions small): `TapBudgetFixture.classifierVerdict` gains `status` (a stub must RETURN `Unavailable`, never throw — `permission-classifier.ts:370` has no catch); `publishRuntimeEvent` and a `sendMessage` spy become injectable and are returned from `replayPermissionRequest` so the notice is countable; `replayExactMemorySequence`'s hardcoded `classifierConsult` (harness:276-280) becomes a parameter so S4's shape runs offline.
+
+## Scope / Non-goals
+In: the latch module, the two hook sites + reason lines, `wiring_missing` on both bypass guards, the latch unit suite, the IPC and inline suite cases, the invariance suite, S6 + harness knobs, the AF-AC8 aggregation run. Out: any persistence of the latch, any change to what the classifier decides, card rendering, `/permissions`, D-0080 items, a status enum change.
+
+## Acceptance Criteria
+- T6-AC1: LATCH. `createJudgeOutageLatch()` keyed by `(appId, providerAccountId, targetJid)`: first `Unavailable` → `noticeDue: true` and the key is open; further `Unavailable` on the same key → `noticeDue: false`; `Answered` clears the key; `Skipped` is ignored; keys are independent. Tests: NEW `test/unit/application/permission-judge-outage-latch.test.ts` (open/repeat/clear/ignore-skipped/independent keys/copy strings exported).
+- T6-AC2: IPC PATH. In `resolveIpcPermissionPromptOrTerminal`, when the consult result is `Unavailable` and the latch says due, ONE notice is sent via `deps.sendMessage(targetJid, NOTICE, { threadId })` BEFORE `requestPermissionApproval` (both the normal and denylist branches); the card's `decisionReason` is "Asking because my safety judge is offline."; a second offline request in the same conversation sends no notice; a later `Answered` result clears it so the next outage notifies again; a `sendMessage` failure is swallowed and the card still goes out. The IPC bypass guard (`:359-364`) yields `{ status: Unavailable, failureCode: 'wiring_missing' }` instead of skipping. Tests: `ipc-permission-classifier-decision.test.ts` — notice once, reason line, card follows, no notice on repeat, reset on answered, swallow, wiring_missing.
+- T6-AC3: INLINE PATH. Same contract inside the `beforePrompt` callback of the inline consult (`deps.sendMessage(run.chatJid, NOTICE, { threadId: run.threadId })`), reason line on the inline ask, and the inline guard (`:372`) yields `wiring_missing` instead of silently skipping. Tests: `inline-agent-loop-tools.test.ts` — the same seven cases.
+- T6-AC4: NO TAP STORM, MEMORY STILL WRITES. With the judge offline: a deterministic read-only request inside a trusted root costs 0 taps and no notice (the read-only gate short-circuits before the LLM path); an uncovered read asks at most once per request; [Allow] with remember still writes the row and the identical repeat costs 0 taps offline (S4's shape, `source: 'human_decision'`); scheduled jobs keep deterministic denial + card recovery. Tests: S6 in `askfloor-tap-budget.test.ts` through the harness knobs of ruling 7.
+- T6-AC5: INVARIANCE. NEW `askfloor-invariance.test.ts` proves every lane in AF-AC6 (ask, auto_strict, trusted-host autonomous incl. the projection quartet, YOLO backstop, unmapped-forced-ask, scheduler/admin/destructive, family rail hit, inline-scheduled, attachment_open birthright) yields exactly today's tuple under an answering judge AND under an `Unavailable` judge for each of the six codes + `wiring_missing` (the offline column differs only where AF-AC5 says: interactive auto asks, reason line set). Test titles are the required leaf ids verbatim.
+- T6-AC6: AGGREGATION + GATES. The AF-AC8 aggregation run executes S1–S6 + TB1–TB4 + mirrors in one `it` and reports the tap total per lane (no earlier-owned test edited). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: `ipc-permission-classifier-decision.ts` ≤ 700, `inline-agent-loop-tools.ts` ≤ 750, `permission-classifier.ts` ≤ 700, `ipc-interaction-processing.ts` ≤ 865 (untouched), 700 elsewhere; no wrapper, shim, alias or compatibility naming.
+
+## Technical Approach
+1. The latch is a pure application module with the two copy strings; runtime callers import it (rejected: a runtime module beside the IPC tail — both ceilings are within 10 lines, and application is importable from both paths).
+2. Each caller sends the notice through its already-injected `sendMessage` port right before the card, keyed by request fields it already holds (rejected: hooking `channels/permission-approval-requester.ts` — adapters layer, no classifier status; hooking `durable-interaction-handler.ts` — shared with callers that never consulted the judge).
+3. `wiring_missing` is a failure code, not a status; the callers reuse the `failedResult` shape so the latch sees one `Unavailable` kind (T2a-AC3).
+4. The invariance suite reuses the harness and copies expected tuples verbatim; its only new column is the `Unavailable` stub (rejected: new fixtures per lane — the harness already drives the real `resolvePermissionIpcDecision`).
+
+## Decisions
+0154, 0153, 0121→0156 (jobs walk the chat ladder), 0043, 0052. No new decision (owner ruling recorded in the story plan; the process-local choice is recorded as an assumption at pr-ready).
+
+## Surface Impact
+When the judge is down, a DM or group gets one plain sentence, then the usual card whose reason says why; nothing else changes. Reads the rails already allow stay silent; a remembered Allow keeps working.
+
+## Task Decomposition
+Single task; depends on T4 and T5b (both merged). Write scope (≈13 files): source — NEW `apps/core/src/application/permissions/permission-judge-outage-latch.ts`, `apps/core/src/runtime/permission-classifier.ts`, `apps/core/src/runtime/ipc-permission-classifier-decision.ts`, `apps/core/src/app/bootstrap/inline-agent-loop-tools.ts`; tests — NEW `apps/core/test/unit/application/permission-judge-outage-latch.test.ts`, `apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts`, `apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts`, `apps/core/test/unit/runtime/permission-classifier.test.ts` (wiring_missing mapping), NEW `apps/core/test/unit/runtime/askfloor-invariance.test.ts`, `apps/core/test/unit/runtime/askfloor-tap-budget.test.ts`, `apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts`. Budget 13 files / 1,200 lines. `user_facing: true` → functional check before pr-ready (emil-design-eng + frontend-design in skills_used for the copy).
+
+## Risks
+- Reviewer contract drift (T5b lesson): every clause above names its owner layer and the exact seam; the grill must check each against `architecture-map.json` before recording.
+- The inline `beforePrompt` also runs for non-classifier asks (setup pause, core tools): the notice is gated on the consult result being `Unavailable`, so those never notify.
+- Two runtimes (rare) → one duplicate notice; accepted by the owner ruling.
+- Codex thread size: ≈13 files fits one run if the brief is sliced (latch + IPC hook, then inline hook, then suites). Ledger the slicing lesson BEFORE the first delegate; run the Postgres lane host-side.
+
+## Manual Verification (functional check, user_facing)
+1. Make the judge unavailable (unset the classifier model in the runtime settings → `llm_unconfigured`), DM the agent a non-read-only request in interactive auto: one notice sentence, then the card with "Asking because my safety judge is offline."; a second request: card only.
+2. Tap Allow with remember; repeat the identical request: no card. `/permissions` lists the row.
+3. A read inside the workspace: no notice, no card.
+4. Restore the judge; send a request that the judge answers; then break it again: the notice appears once more.
+5. Group route: same sequence, one notice per group conversation.
+
+## Verify Plan
+`python3 factory/scripts/verify.py` with `GANTRY_TEST_DATABASE_URL`; `npx tsc --noEmit`; `npm run check:architecture`; the new and touched unit suites through `vitest.unit.config.ts`; the AF-AC8 aggregation `it` prints the per-lane tap totals.
+
+## Workflow
+```mermaid
+flowchart LR
+  A[consult result] -->|Unavailable| B[latch.observe(app, account, conversation)]
+  B -->|noticeDue| C[sendMessage: one notice]
+  C --> D[card with offline reason]
+  A -->|Answered| E[latch.reset]
+  A -->|Skipped / read-only gate| F[unchanged today]
+```
