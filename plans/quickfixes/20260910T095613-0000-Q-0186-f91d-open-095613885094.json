@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0186-f91d",
+  "profile": "degraded",
+  "reason": "check:architecture file-size budget: stream-normalizer.ts grew to 726 lines (limit 700) with the T1-AC2 consumer-failure wrapper; move a self-contained usage helper block to a sibling module; companion workers frozen, host-side per Ravi",
+  "started_at": "2026-09-10T09:56:13+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

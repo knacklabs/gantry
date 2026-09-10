@@ -1,0 +1,15 @@
+{
+  "event": "done",
+  "id": "Q-0186-f91d",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "check:architecture file-size budget: stream-normalizer.ts grew to 726 lines (limit 700) with the T1-AC2 consumer-failure wrapper; move a self-contained usage helper block to a sibling module; companion workers frozen, host-side per Ravi",
+  "started_at": "2026-09-10T09:56:13+00:00",
+  "completed_at": "2026-09-10T09:58:08+00:00",
+  "files": [
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-usage.ts"
+  ],
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}
