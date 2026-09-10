@@ -1,0 +1,119 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "issue": "GRANTED-1",
+  "task_id": "GRANTED-1-T1",
+  "summary": "One cold read of the GRANTED-1-T1 task plan returned seven findings. Five were resolved in the plan and decomposition; two were owner choices, settled as plural invocations and render-time redaction of secret-shaped operands.",
+  "gaps": [
+    "The task grill could not be recorded: criteria_map keys must equal both the acceptance criteria and the plan contract statements, which were different string sets.",
+    "Test scope and required-test paths pointed at directories that do not exist; the catalog and profile suites live under test/unit/application and test/unit/runtime.",
+    "Hard overflow had no viable failure transport: the renderer callback only logs counts and a compile error is caught and turned into an empty prompt, after which spawning continues.",
+    "The lane mapping could not land in the declared scope: the compiler passes only the catalog to the profile service, and that seam was absent from write scope.",
+    "A singular invocation field would lose valid multi-binding capabilities, since a capability owns an array of bindings while the catalog projects one entry.",
+    "Rendering the reviewed shape exactly while guaranteeing no credential is not simultaneously enforceable: validation blocks shell syntax but not a literal secret operand.",
+    "The planned group-run-context extension is redundant; the existing resolver already accepts a person-filtered ready capability set."
+  ],
+  "contradictions": [
+    "Rendering reviewed argument shapes exactly as reviewed contradicted the no-credential guarantee, because template validation does not block a literal secret operand."
+  ],
+  "resolutions": [
+    "Plan contracts now carry the identical eleven strings as the acceptance criteria, so the recorder's key sets match.",
+    "Write scope and required tests now name the real paths: test/unit/application/agent-prompt-capability-catalog.test.ts, test/unit/runtime/prompt-profile.test.ts, test/unit/runtime/agent-spawn-prompt.test.ts, plus the new job and replay suites.",
+    "Overflow now raises a typed pre-spawn failure the existing catch does not swallow, carrying a redacted capability_catalog_overflow diagnostic with granted and renderable counts; the spawn prompt sources are in scope and a required test pins it.",
+    "The mapping lives at the compiler seam, which already receives AgentInput carrying the runtime; agent-spawn-prompt.ts and agent-spawn-types.ts are added to write scope.",
+    "Owner ruled show all: the entry carries plural invocations, every binding rendered in a deterministic order, with a multi-binding required test.",
+    "Owner ruled redact at render: a secret-shaped operand is redacted as the catalog renders while the stored template is unchanged, with a required test for it.",
+    "The redundant resolver edit is removed from write scope; the job path reuses the existing resolver unchanged."
+  ],
+  "open_items": [
+    "Blocking literal credentials at capability-definition validation was the alternative and remains available as later hardening; the owner chose render-time redaction for this task."
+  ],
+  "questions_asked": 2,
+  "task_plan_sha256": "d9d5c8a5bbede463bf1da450aef5be45cb64c7027813622278e2464207b984a5",
+  "criteria_map": {
+    "The scheduled spawn input carries a catalog built from the person-filtered capability set, asserted over the real job execution path where the field is absent today": "covered",
+    "A capability active for the app but not granted to the acting person never appears as ready, asserted with the two sets differing": "covered",
+    "Rendered guidance carries display name, stable id, neutral tool reference and reviewed argument shape, asserted against exact rendered text": "covered",
+    "A descriptor is produced for each of the four usable binding kinds; the adapter reference never appears; a legacy mcp_tool binding still fails validation": "covered",
+    "The neutral reference resolves to the Anthropic tool name against the real projection including with tool search active, and the DeepAgents entry is asserted absent": "covered",
+    "No grant is hidden: shedding follows the fixed order and the derived ceiling cannot conflict with the never-hide rule": "covered",
+    "Hard overflow fails the run before any provider or tool call with a redacted capability_catalog_overflow diagnostic naming the counts": "covered",
+    "The never-hide guarantee survives both the section budget and the total prompt budget, asserted end to end through prompt compilation": "covered",
+    "A deterministic replay builds materialization through the production path and makes the dispatcher call first, with a negative control proving the descriptor causes it": "covered",
+    "The 97ded3746 block is gone, the dispatcher description points at the catalog, and its schema, risk and enforcement are pinned unchanged": "covered",
+    "No descriptor contains an executable path, hash or credential, asserted against a binding carrying all three": "covered"
+  },
+  "rounds": [
+    {
+      "question": "A capability can have several implementation bindings. How should the catalog show that?",
+      "options": [
+        "Show all of them (Recommended)",
+        "Show one, chosen by rule"
+      ],
+      "chosen": "Show all of them (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "inspected_refs": [
+    ".factory/stories/GRANTED-1/task-plans/GRANTED-1-T1.md",
+    ".factory/stories/GRANTED-1/decomposition.json",
+    "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md",
+    "docs/specs/granted-capability-is-visible.md",
+    "docs/decisions/0158-granted-capabilities-must-be-discoverable.md",
+    "apps/core/src/shared/semantic-capabilities.ts",
+    "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
+    "apps/core/src/application/agents/prompt-profile-service.ts",
+    "apps/core/src/runtime/agent-spawn-prompt.ts",
+    "apps/core/src/runtime/agent-spawn-types.ts",
+    "apps/core/src/runtime/group-run-context.ts",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
+    "apps/core/test/unit/runtime/prompt-profile.test.ts"
+  ],
+  "citations": [
+    {
+      "finding": "The task grill could not be recorded: criteria_map keys must equal both the acceptance criteria and the plan contract statements, which were different string sets.",
+      "source": "factory/scripts/record_grill_from_json.py"
+    },
+    {
+      "finding": "Test scope and required-test paths pointed at directories that do not exist; the catalog and profile suites live under test/unit/application and test/unit/runtime.",
+      "source": "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts"
+    },
+    {
+      "finding": "Hard overflow had no viable failure transport: the renderer callback only logs counts and a compile error is caught and turned into an empty prompt, after which spawning continues.",
+      "source": "apps/core/src/runtime/agent-spawn-prompt.ts"
+    },
+    {
+      "finding": "The lane mapping could not land in the declared scope: the compiler passes only the catalog to the profile service, and that seam was absent from write scope.",
+      "source": "apps/core/src/runtime/agent-spawn-types.ts"
+    },
+    {
+      "finding": "A singular invocation field would lose valid multi-binding capabilities, since a capability owns an array of bindings while the catalog projects one entry.",
+      "source": "apps/core/src/shared/semantic-capabilities.ts"
+    },
+    {
+      "finding": "Rendering the reviewed shape exactly while guaranteeing no credential is not simultaneously enforceable: validation blocks shell syntax but not a literal secret operand.",
+      "source": "apps/core/src/shared/semantic-capabilities.ts"
+    },
+    {
+      "finding": "The planned group-run-context extension is redundant; the existing resolver already accepts a person-filtered ready capability set.",
+      "source": "apps/core/src/runtime/group-run-context.ts"
+    }
+  ],
+  "current_flow": "Today a scheduled run reaches runScheduledJobExecution (jobs/execution-phases-run.ts), loads the agent access snapshot at :179, derives the person-filtered inheritedToolPolicy at :182 and the unfiltered semanticCapabilities at :194, and builds its spawn input at :287 WITHOUT setting capabilityCatalog. runtime/agent-spawn-prompt.ts:87 then passes input.agentInput.capabilityCatalog into the prompt profile service, which is undefined, so no capability guidance is rendered and the model is told nothing about its grants. Only the chat path populates the field, via runtime/group-agent-access-context.ts:45 calling runtime/group-run-context.ts:156. Meanwhile capability_run IS mounted on autonomous surfaces (shared/admin-mcp-tools.ts:96, filtered at runner/gantry-mcp-tool-surface.ts:152), and the host refuses argv outside the reviewed template via jobs/structured-local-cli-invocation.ts. The agent therefore probes: an invented MCP server, an invented tool, then off-template arguments, and learns the shape from the denial.",
+  "new_abstractions": [
+    "CatalogEntry.invocations: a closed union over the four usable implementation binding kinds, plural because a capability owns an array of bindings.",
+    "A lane-neutral tool reference plus a per-runtime mapping resolved at the prompt-compile seam.",
+    "A typed pre-spawn capability_catalog_overflow failure that the existing prompt-compile catch does not swallow."
+  ],
+  "decision": "keep",
+  "input_sha256": "9394580c6314ac54132f8625850fa7be3c3cbeba966f0222088bd4d6b95dfd40",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "recorded_at": "2026-09-10T17:12:56+00:00",
+  "commit": "74850b2ff08e31a12a1a7236764c86ced96ac5c0",
+  "approved_task_plan_sha256": "d9d5c8a5bbede463bf1da450aef5be45cb64c7027813622278e2464207b984a5",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-10T17:13:19+00:00"
+}

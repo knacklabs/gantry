@@ -28,51 +28,71 @@
       "plan_contracts": [
         {
           "id": "GRANTED-1-C1",
-          "statement": "The scheduled spawn input carries a capability catalog built from inheritedToolPolicy.semanticCapabilities, not the broader snapshot set, so an app-active but ungranted capability never appears as ready.",
-          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Technical Approach"
+          "statement": "The scheduled spawn input carries a catalog built from the person-filtered capability set, asserted over the real job execution path where the field is absent today",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
         },
         {
           "id": "GRANTED-1-C2",
-          "statement": "CatalogEntry carries a closed invocation union over the four usable implementation kinds; skill actions are a tool rule distinguished by source, and a legacy mcp_tool binding never reaches the catalog.",
-          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Technical Approach"
+          "statement": "A capability active for the app but not granted to the acting person never appears as ready, asserted with the two sets differing",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
         },
         {
           "id": "GRANTED-1-C3",
-          "statement": "The catalog stores a lane-neutral tool reference; an explicit mapping renders the Anthropic runtime's tool name, and the absence of a DeepAgents entry is asserted so that lane's gap cannot drift silently.",
-          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Technical Approach"
+          "statement": "Rendered guidance carries display name, stable id, neutral tool reference and reviewed argument shape, asserted against exact rendered text",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
         },
         {
           "id": "GRANTED-1-C4",
-          "statement": "Material is shed in order (non-granted entries, then descriptions, then descriptors); the ceiling is derived as at least the compact representation of the granted set; the guarantee survives both the section and total prompt budgets.",
-          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Technical Approach"
+          "statement": "A descriptor is produced for each of the four usable binding kinds; the adapter reference never appears; a legacy mcp_tool binding still fails validation",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
         },
         {
           "id": "GRANTED-1-C5",
-          "statement": "When the compact name-and-id list exceeds the total prompt budget the run fails before any provider or tool call with a redacted capability_catalog_overflow startup diagnostic naming the granted and renderable counts.",
+          "statement": "The neutral reference resolves to the Anthropic tool name against the real projection including with tool search active, and the DeepAgents entry is asserted absent",
           "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
         },
         {
           "id": "GRANTED-1-C6",
-          "statement": "Reviewed argument shapes render exactly as reviewed; no descriptor contains an executable path, a hash or a credential.",
-          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Owner rulings"
+          "statement": "No grant is hidden: shedding follows the fixed order and the derived ceiling cannot conflict with the never-hide rule",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
         },
         {
           "id": "GRANTED-1-C7",
-          "statement": "Enforcement is unchanged: template mismatch still refused, no classifier-derived or cached allow reaches the dispatcher, executable identity and structured argv limits still apply.",
-          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Scope / Non-goals"
+          "statement": "Hard overflow fails the run before any provider or tool call with a redacted capability_catalog_overflow diagnostic naming the counts",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
+        },
+        {
+          "id": "GRANTED-1-C8",
+          "statement": "The never-hide guarantee survives both the section budget and the total prompt budget, asserted end to end through prompt compilation",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
+        },
+        {
+          "id": "GRANTED-1-C9",
+          "statement": "A deterministic replay builds materialization through the production path and makes the dispatcher call first, with a negative control proving the descriptor causes it",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
+        },
+        {
+          "id": "GRANTED-1-C10",
+          "statement": "The 97ded3746 block is gone, the dispatcher description points at the catalog, and its schema, risk and enforcement are pinned unchanged",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
+        },
+        {
+          "id": "GRANTED-1-C11",
+          "statement": "No descriptor contains an executable path, hash or credential, asserted against a binding carrying all three",
+          "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
         }
       ],
       "write_scope": [
         "apps/core/src/jobs/execution-phases-run.ts",
-        "apps/core/src/runtime/group-run-context.ts",
         "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
         "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
         "apps/core/src/application/agents/prompt-profile-service.ts",
+        "apps/core/src/runtime/agent-spawn-prompt.ts",
+        "apps/core/src/runtime/agent-spawn-types.ts",
         "apps/core/src/runner/mcp/context.ts",
         "apps/core/src/runner/mcp/tools/capability-run.ts",
-        "apps/core/test/unit/agents/agent-prompt-capability-catalog.test.ts",
-        "apps/core/test/unit/agents/agent-prompt-capability-guidance.test.ts",
-        "apps/core/test/unit/agents/prompt-profile-service.test.ts",
+        "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
+        "apps/core/test/unit/runtime/prompt-profile.test.ts",
         "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
         "apps/core/test/unit/jobs/execution-phases-run.test.ts",
         "apps/core/test/unit/runner/mcp/locked-introspection.test.ts",
@@ -98,43 +118,53 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "rendered guidance carries name, stable id, neutral reference and reviewed argument shape",
-          "path": "apps/core/test/unit/agents/agent-prompt-capability-guidance.test.ts",
+          "id": "rendered guidance carries name, stable id, lane tool name and reviewed argument shape",
+          "path": "apps/core/test/unit/runtime/prompt-profile.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
           "id": "a descriptor is produced for each usable binding kind",
-          "path": "apps/core/test/unit/agents/agent-prompt-capability-catalog.test.ts",
+          "path": "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "a capability with several bindings renders every one of them in a deterministic order",
+          "path": "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
           "id": "a legacy mcp_tool binding never reaches the catalog",
-          "path": "apps/core/test/unit/agents/agent-prompt-capability-catalog.test.ts",
+          "path": "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "the neutral reference resolves to the Anthropic tool name in the real projection",
-          "path": "apps/core/test/unit/runner/capability-catalog-replay.test.ts",
+          "id": "a secret-shaped operand in a reviewed template is redacted when the catalog renders",
+          "path": "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "the neutral reference resolves to the Anthropic tool name at compile time",
+          "path": "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
           "id": "the DeepAgents lane has no mapping entry",
-          "path": "apps/core/test/unit/agents/agent-prompt-capability-catalog.test.ts",
+          "path": "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
           "id": "shedding drops non-granted material before any grant",
-          "path": "apps/core/test/unit/agents/agent-prompt-capability-guidance.test.ts",
-          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
-        },
-        {
-          "id": "hard overflow fails the run with a redacted overflow diagnostic",
-          "path": "apps/core/test/unit/agents/prompt-profile-service.test.ts",
+          "path": "apps/core/test/unit/runtime/prompt-profile.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
           "id": "the never-hide guarantee survives the total prompt budget",
-          "path": "apps/core/test/unit/agents/prompt-profile-service.test.ts",
+          "path": "apps/core/test/unit/runtime/prompt-profile.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "hard overflow fails the spawn before any provider call with a redacted overflow diagnostic",
+          "path": "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
@@ -151,26 +181,22 @@
           "id": "the dispatcher schema, risk and enforcement are unchanged",
           "path": "apps/core/test/unit/runner/mcp/locked-introspection.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
-        },
-        {
-          "id": "no descriptor contains an executable path, hash or credential",
-          "path": "apps/core/test/unit/agents/agent-prompt-capability-catalog.test.ts",
-          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         }
       ],
       "reviewer_focus": [
-        "Which capability set feeds the catalog: the person-filtered set, never the broader snapshot set",
-        "That no descriptor leaks an executable path, hash or credential while reviewed argument operands are permitted",
-        "That enforcement is genuinely untouched: 0120 and 0130 proofs still green",
-        "That the never-hide guarantee is asserted through prompt compilation, not the renderer alone"
+        "Which capability set feeds the catalog: the person-filtered inheritedToolPolicy.semanticCapabilities, never the unfiltered snapshot set",
+        "That render-time redaction actually covers a literal credential in a reviewed template, since validation does not block one",
+        "That the overflow failure happens before any provider or tool call and is not swallowed by the existing prompt-compile catch",
+        "That every binding of a multi-binding capability renders, in a deterministic order",
+        "That enforcement is untouched: the 0120 and 0130 proofs stay green"
       ],
       "review_budget": {
         "max_changed_files": 14,
-        "max_changed_lines": 1000,
-        "reason": "Seven source files and seven test files. The source side is one builder call on the job path, an invocation union on the catalog entry, the shedding and overflow rules in the renderer and profile service, a lane mapping, one deletion and one description edit. The replay suite is the only new test machinery."
+        "max_changed_lines": 1100,
+        "reason": "Eight source files and six test files. Source adds the catalog build on the job path, a plural invocation projection with render-time redaction, the shedding and overflow rules, a typed pre-spawn overflow failure, the lane mapping at the compiler seam, one deletion and one description edit."
       }
     }
   ],
   "project": "",
-  "commit": "9380a7408618897fac3137a517869ab311527f98"
+  "commit": "74850b2ff08e31a12a1a7236764c86ced96ac5c0"
 }
