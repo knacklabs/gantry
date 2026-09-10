@@ -29,11 +29,18 @@ export function isDeepAgentPartialUsage(
   );
 }
 
+// One usage event id per model turn, unique ACROSS runner processes: the
+// resumable session id repeats after a restart and the turn counter restarts
+// at 1, so a per-process nonce (the Claude runner's queryRunId pattern) keeps
+// idempotent consumers from collapsing a later run onto an earlier one.
 export function deepAgentUsageEventIdForTurn(
   sessionId: string,
   turn: number,
+  runNonce?: string,
 ): string {
-  return `${sessionId}:run:${turn}`;
+  return runNonce
+    ? `${sessionId}:run:${runNonce}:${turn}`
+    : `${sessionId}:run:${turn}`;
 }
 
 export async function* partialUsageEvents<T>(

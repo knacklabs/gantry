@@ -106,4 +106,85 @@ describe('deepagents inline lane', () => {
     expect(emitOutput).toHaveBeenCalledTimes(1);
     expect(emitOutput).toHaveBeenCalledWith(output);
   });
+
+  it('a graph recursion error wrapped as partial usage emits the named max_turns error with the accumulated usage', async () => {
+    const usage = {
+      model: 'gpt-5.5',
+      provider: 'openai' as const,
+      modelRoute: 'openai' as const,
+      inputTokens: 900,
+      outputTokens: 40,
+      cacheReadTokens: 100,
+      cacheWriteTokens: 0,
+      totalBillableInputTokens: 800,
+      cacheProvider: 'openai' as const,
+      cacheStatus: 'hit' as const,
+      at: '2026-09-09T00:00:00.000Z',
+    };
+    const contextUsage = {
+      totalTokens: 940,
+      maxTokens: 400_000,
+      percentage: 0.235,
+      categories: [],
+      at: '2026-09-09T00:00:00.000Z',
+    };
+    const recursion = Object.assign(new Error('recursion limit'), {
+      name: 'GraphRecursionError',
+    });
+    const partial = new DeepAgentPartialUsage(
+      recursion,
+      usage,
+      contextUsage,
+      'inline-session:run:nonce:1',
+    );
+    const emitOutput = vi.fn(async () => undefined);
+    deep.createAgent.mockReturnValue({ streamEvents: vi.fn() });
+    model.build.mockResolvedValue({
+      model: { profile: { maxInputTokens: 400_000 } },
+      endpointFamily: 'openai',
+      modelId: 'gpt-5.5',
+    });
+    normalizer.run.mockRejectedValueOnce(partial);
+
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: null,
+      schema: 'gantry',
+    });
+    const output = await lane({
+      input: {
+        prompt: 'run once',
+        workspaceFolder: 'main_agent',
+        chatJid: 'conversation:test',
+        compiledSystemPrompt: 'system prompt',
+        isScheduledJob: true,
+        disableTools: true,
+      },
+      signal: new AbortController().signal,
+      controlPort: { subscribe: () => () => undefined },
+      resolvedModel: {
+        ok: true,
+        value: {
+          runnerModel: 'gpt-5.5',
+          modelEntry: { modelRoute: { id: 'openai' } },
+        },
+      },
+      modelCredentialEnv: {
+        OPENAI_BASE_URL: 'http://127.0.0.1:9999/openai',
+        OPENAI_API_KEY: 'gtw_test',
+      },
+      mcpServers: [],
+      egressDenylist: [],
+      coreTools: { tools: [] },
+      emitOutput,
+    } as never);
+
+    expect(output).toMatchObject({
+      status: 'error',
+      error: expect.stringMatching(/max_turns cap.*configured limit: \d+/),
+      usage,
+      usageEventId: 'inline-session:run:nonce:1',
+      contextUsage,
+    });
+    expect(emitOutput).toHaveBeenCalledTimes(1);
+  });
 });

@@ -14,6 +14,7 @@
  * Stdout protocol: each frame wrapped in OUTPUT_START/OUTPUT_END markers.
  */
 
+import { randomUUID } from 'node:crypto';
 import { runDeepAgentTurn } from './deep-agent-runner.js';
 import {
   deepAgentUsageEventIdForTurn,
@@ -120,6 +121,7 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
   // Scheduled jobs are ephemeral: no session persistence (mirrors the Anthropic
   // runner's isScheduledJob path). A diagnostic session id is still emitted.
   const diagnosticSessionId = DeepAgentSessionStore.newSessionId();
+  const runNonce = randomUUID();
   // Emit JOB_HEARTBEAT frames so the host's idle-stall detection and lease
   // activity tracking behave identically to the Anthropic lane for long runs.
   const heartbeat = startDeepAgentJobHeartbeat({
@@ -143,7 +145,11 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
       ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
       ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
       newSessionId: diagnosticSessionId,
-      usageEventId: deepAgentUsageEventIdForTurn(diagnosticSessionId, 1),
+      usageEventId: deepAgentUsageEventIdForTurn(
+        diagnosticSessionId,
+        1,
+        runNonce,
+      ),
       includeMemoryContext: true,
       emit,
       log,
@@ -241,6 +247,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
     // query-loop's per-result frame.
     let firstTurn = true;
     let turnNumber = 0;
+    const runNonce = randomUUID();
     for (;;) {
       const followupText = pendingFollowups.join('\n');
       const turnInput =
@@ -267,7 +274,11 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
           ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
           ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
           newSessionId: sessionId,
-          usageEventId: deepAgentUsageEventIdForTurn(sessionId, ++turnNumber),
+          usageEventId: deepAgentUsageEventIdForTurn(
+            sessionId,
+            ++turnNumber,
+            runNonce,
+          ),
           threadId: sessionId,
           checkpointer,
           checkpointTiming,

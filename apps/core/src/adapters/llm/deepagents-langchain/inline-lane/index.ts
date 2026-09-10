@@ -104,6 +104,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
     const backend = (config: { state: unknown; store?: BaseStore }) =>
       new StateBackend(config);
     const sessionId = laneInput.input.sessionId ?? randomUUID();
+    const runNonce = randomUUID();
     const promptCache = resolveDeepAgentsPromptCache({
       modelEntry: laneInput.resolvedModel.value.modelEntry,
       conversationId: laneInput.input.chatJid,
@@ -258,7 +259,11 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
               },
             ),
             newSessionId: sessionId,
-            usageEventId: deepAgentUsageEventIdForTurn(sessionId, ++turnNumber),
+            usageEventId: deepAgentUsageEventIdForTurn(
+              sessionId,
+              ++turnNumber,
+              runNonce,
+            ),
             modelId: model.modelId,
             provider: laneInput.resolvedModel.value.modelEntry.modelRoute.id,
             modelRoute: laneInput.resolvedModel.value.modelEntry.modelRoute.id,
@@ -287,9 +292,21 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
         } catch (error) {
           const cause = isDeepAgentPartialUsage(error) ? error.cause : error;
           if (signal.aborted && isAbortError(cause)) break;
+          // Recognised failures keep their named terminal shape AND the
+          // partial usage the wrapper accumulated (review P2 on T1).
+          const partialUsage = isDeepAgentPartialUsage(error)
+            ? {
+                usage: error.usage,
+                usageEventId: error.usageEventId,
+                contextUsage: error.contextUsage,
+              }
+            : {};
           if (isGraphRecursionLimitError(cause)) {
             await emitChain;
-            const terminal = inlineAgentMaxTurnsError(maxTurns, sessionId);
+            const terminal = {
+              ...inlineAgentMaxTurnsError(maxTurns, sessionId),
+              ...partialUsage,
+            };
             await laneInput.emitOutput(terminal);
             return terminal;
           }
@@ -298,7 +315,10 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
             isStructuredOutputError(cause)
           ) {
             await emitChain;
-            const terminal = structuredOutputError(cause, sessionId);
+            const terminal = {
+              ...structuredOutputError(cause, sessionId),
+              ...partialUsage,
+            };
             await laneInput.emitOutput(terminal);
             return terminal;
           }

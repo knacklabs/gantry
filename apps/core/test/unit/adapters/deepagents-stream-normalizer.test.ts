@@ -13,7 +13,10 @@ import {
   normalizeDeepAgentStream,
   type LangGraphStreamEvent,
 } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer.js';
-import { DeepAgentPartialUsage } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.js';
+import {
+  DeepAgentPartialUsage,
+  deepAgentUsageEventIdForTurn,
+} from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.js';
 import { createGantryFacadeTools } from '@core/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.js';
 import { wrapThirdPartyMcpToolsWithGate } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
 import { runnableToolInvocationId } from '@core/adapters/llm/deepagents-langchain/runner/tool-invocation-id.js';
@@ -1060,5 +1063,24 @@ describe('normalizeDeepAgentStream', () => {
 
     expect(error).toBe(abortError);
     expect(error).not.toBeInstanceOf(DeepAgentPartialUsage);
+  });
+});
+
+describe('deepAgentUsageEventIdForTurn', () => {
+  it('is unique across runner processes for the same resumed session and turn', () => {
+    const first = deepAgentUsageEventIdForTurn('session-a', 1, 'nonce-run-1');
+    const second = deepAgentUsageEventIdForTurn('session-a', 1, 'nonce-run-2');
+    expect(first).not.toBe(second);
+    expect(first).toBe('session-a:run:nonce-run-1:1');
+    expect(second).toBe('session-a:run:nonce-run-2:1');
+  });
+
+  it('keeps turns ordered within one process and the nonce-less form for the normalizer fallback', () => {
+    expect(deepAgentUsageEventIdForTurn('session-a', 2, 'nonce-run-1')).toBe(
+      'session-a:run:nonce-run-1:2',
+    );
+    expect(deepAgentUsageEventIdForTurn('session-a', 3)).toBe(
+      'session-a:run:3',
+    );
   });
 });
